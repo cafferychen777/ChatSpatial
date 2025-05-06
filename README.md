@@ -42,6 +42,81 @@ chatspatial
 chatspatial --transport sse --port 8000
 ```
 
+### Using with Claude
+
+#### Option 1: Claude Desktop
+
+To use ChatSpatial with Claude Desktop:
+
+1. **Install Claude Desktop**: Download and install Claude Desktop from [Anthropic's website](https://claude.ai/desktop).
+
+2. **Start ChatSpatial server**: Open a terminal and run:
+
+   ```bash
+   chatspatial
+   ```
+
+   Keep this terminal open while using Claude.
+
+3. **Configure Claude Desktop**:
+   - Open Claude Desktop
+   - Click on your profile picture in the bottom left corner
+   - Select "Settings"
+   - Navigate to "Model Context Protocol" tab
+   - Click "Add MCP Tool"
+   - Enter the following information:
+     - Name: ChatSpatial
+     - Command: The full path to your chatspatial executable (e.g., `/path/to/your/venv/bin/chatspatial`)
+     - Working Directory: Your preferred working directory
+   - Click "Save"
+
+4. **Use ChatSpatial in Claude**:
+   - Start a new conversation in Claude
+   - Type `/tool` and select "ChatSpatial" from the dropdown
+   - Claude will connect to your ChatSpatial server
+   - You can now interact with Claude to analyze spatial transcriptomics data
+
+#### Option 2: Claude Web (claude.ai)
+
+To use ChatSpatial with Claude Web:
+
+1. **Start ChatSpatial server with SSE transport**: Open a terminal and run:
+
+   ```bash
+   chatspatial --transport sse --port 8000
+   ```
+
+   This starts the server with Server-Sent Events transport on port 8000.
+
+2. **Install Claude MCP Connector extension**:
+   - Install the [Claude MCP Connector](https://chromewebstore.google.com/detail/claude-mcp-connector/kkfngpdjfcpjlnpfepgkdpkpnaaaeepl) browser extension from the Chrome Web Store
+   - Follow the extension's setup instructions
+
+3. **Configure the MCP Connector**:
+   - Open the extension settings
+   - Add a new tool with the following configuration:
+     - Name: ChatSpatial
+     - URL: `http://localhost:8000`
+     - Transport: SSE
+   - Save the configuration
+
+4. **Use ChatSpatial in Claude Web**:
+   - Go to [claude.ai](https://claude.ai)
+   - Start a new conversation
+   - Type `/tool` and select "ChatSpatial" from the dropdown
+   - Claude will connect to your ChatSpatial server through the browser extension
+
+#### Example Prompts
+
+Here are some example prompts to get started with ChatSpatial:
+
+- "Load my 10x Visium dataset from `/path/to/data.h5ad`"
+- "Visualize the spatial expression of gene Cd8a"
+- "Perform cell type annotation using marker genes"
+- "Run spatial trajectory analysis"
+- "Deconvolve my spatial data using the NNLS method"
+- "Integrate multiple spatial samples"
+
 ### Client Example
 
 ```python
