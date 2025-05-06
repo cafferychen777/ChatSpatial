@@ -50,29 +50,38 @@ To use ChatSpatial with Claude Desktop:
 
 1. **Install Claude Desktop**: Download and install Claude Desktop from [Anthropic's website](https://claude.ai/desktop).
 
-2. **Start ChatSpatial server**: Open a terminal and run:
+2. **Edit Claude Desktop Configuration**:
+   - Open the Claude menu on your computer and select "Settings..."
+   - Click on "Developer" in the left-hand bar of the Settings pane
+   - Click on "Edit Config"
+   - This will open the configuration file (`claude_desktop_config.json`) in your text editor
 
-   ```bash
-   chatspatial
+3. **Add ChatSpatial to the Configuration**:
+   - Add the following to your configuration file:
+
+   ```json
+   {
+     "mcpServers": {
+       "chatspatial": {
+         "command": "/path/to/your/venv/bin/chatspatial",
+         "args": [],
+         "env": {}
+       }
+     }
+   }
    ```
 
-   Keep this terminal open while using Claude.
+   - Replace `/path/to/your/venv/bin/chatspatial` with the actual full path to your chatspatial executable
+   - Save the file and close the editor
 
-3. **Configure Claude Desktop**:
-   - Open Claude Desktop
-   - Click on your profile picture in the bottom left corner
-   - Select "Settings"
-   - Navigate to "Model Context Protocol" tab
-   - Click "Add MCP Tool"
-   - Enter the following information:
-     - Name: ChatSpatial
-     - Command: The full path to your chatspatial executable (e.g., `/path/to/your/venv/bin/chatspatial`)
-     - Working Directory: Your preferred working directory
-   - Click "Save"
+4. **Restart Claude Desktop**:
+   - Completely close and restart Claude Desktop
+   - After restarting, you should see a hammer icon in the bottom right corner of the input box
+   - Click on the hammer icon to see the available tools, including ChatSpatial
 
-4. **Use ChatSpatial in Claude**:
+5. **Use ChatSpatial in Claude**:
    - Start a new conversation in Claude
-   - Type `/tool` and select "ChatSpatial" from the dropdown
+   - Click the hammer icon and select "ChatSpatial" from the tools list
    - Claude will connect to your ChatSpatial server
    - You can now interact with Claude to analyze spatial transcriptomics data
 
