@@ -42,9 +42,7 @@ chatspatial
 chatspatial --transport sse --port 8000
 ```
 
-### Using with Claude
-
-#### Option 1: Claude Desktop
+### Using with Claude Desktop
 
 To use ChatSpatial with Claude Desktop:
 
@@ -84,36 +82,6 @@ To use ChatSpatial with Claude Desktop:
    - Click the hammer icon and select "ChatSpatial" from the tools list
    - Claude will connect to your ChatSpatial server
    - You can now interact with Claude to analyze spatial transcriptomics data
-
-#### Option 2: Claude Web (claude.ai)
-
-To use ChatSpatial with Claude Web:
-
-1. **Start ChatSpatial server with SSE transport**: Open a terminal and run:
-
-   ```bash
-   chatspatial --transport sse --port 8000
-   ```
-
-   This starts the server with Server-Sent Events transport on port 8000.
-
-2. **Install Claude MCP Connector extension**:
-   - Install the [Claude MCP Connector](https://chromewebstore.google.com/detail/claude-mcp-connector/kkfngpdjfcpjlnpfepgkdpkpnaaaeepl) browser extension from the Chrome Web Store
-   - Follow the extension's setup instructions
-
-3. **Configure the MCP Connector**:
-   - Open the extension settings
-   - Add a new tool with the following configuration:
-     - Name: ChatSpatial
-     - URL: `http://localhost:8000`
-     - Transport: SSE
-   - Save the configuration
-
-4. **Use ChatSpatial in Claude Web**:
-   - Go to [claude.ai](https://claude.ai)
-   - Start a new conversation
-   - Type `/tool` and select "ChatSpatial" from the dropdown
-   - Claude will connect to your ChatSpatial server through the browser extension
 
 #### Example Prompts
 
