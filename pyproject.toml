@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chatspatial"
+version = "0.1.0"
+description = "ChatSpatial: An interactive AI assistant for spatial transcriptomics analysis"
+requires-python = ">=3.8"
+dependencies = [
+    "mcp",
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "scanpy",
+    "squidpy",  # 空间转录组分析包
+    "anndata",
+    "scikit-learn",
+    "click",
+    "pydantic>=2.0.0",
+    "scvelo",  # RNA速率分析
+    "cellrank",  # 轨迹分析和细胞命运映射
+    "umap-learn",  # 降维
+    "scipy",  # 科学计算
+    "igraph",  # 图分析
+    "leidenalg",  # 聚类算法
+    "harmonypy",  # 批次效应校正
+    "bbknn",  # 批次平衡的KNN
+    "scanorama",  # 多样本整合
+]
+
+[project.optional-dependencies]
+deconvolution = [
+    "cell2location",  # 空间转录组去卷积
+    "spotiphy",  # 空间转录组去卷积
+    "torch>=1.7.1",  # 用于Spotiphy和cell2location
+    "pyro-ppl>=1.8.0",  # 用于Spotiphy
+]
+spotiphy = [
+    "spotiphy",  # Spotiphy包
+    "torch>=1.7.1",  # 用于Spotiphy
+    "pyro-ppl>=1.8.0",  # 用于Spotiphy
+    "opencv-python",  # 用于Spotiphy图像处理
+    "tqdm",  # 用于Spotiphy进度条
+]
+cell2location = [
+    "cell2location",  # 空间转录组去卷积
+    "torch>=1.7.1",  # 用于cell2location
+]
+all = [
+    "cell2location",
+    "spotiphy",
+    "torch>=1.7.1",
+    "pyro-ppl>=1.8.0",
+    "opencv-python",
+    "tqdm",
+]
+
+[project.scripts]
+chatspatial = "chatspatial.__main__:main"

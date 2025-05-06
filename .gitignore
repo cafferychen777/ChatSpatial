@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Data files
+*.h5ad
+*.h5
+*.csv
+*.tsv
+*.parquet
+*.zarr
+*.loom
+*.rds
+*.pkl
+*.pickle
+
+# Image files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.pdf
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
