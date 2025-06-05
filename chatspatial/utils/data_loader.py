@@ -145,6 +145,10 @@ async def load_spatial_data(
     # Check if tissue image is available (for Visium data)
     tissue_image_available = data_type == "10x_visium" and 'spatial' in adata.uns and 'images' in adata.uns['spatial']
 
+    # Make variable names unique to avoid reindexing issues
+    if hasattr(adata, 'var_names_make_unique'):
+        adata.var_names_make_unique()
+
     # Return dataset info and AnnData object
     return {
         "name": dataset_name,

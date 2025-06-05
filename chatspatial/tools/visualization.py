@@ -32,6 +32,199 @@ def create_figure(figsize=(10, 8)):
     return fig, ax
 
 
+# Helper function to validate and prepare feature for visualization
+async def validate_and_prepare_feature(
+    adata,
+    feature: Optional[str],
+    context: Optional[Context] = None,
+    default_feature: Optional[str] = None
+) -> Optional[str]:
+    """Validate and prepare a feature for visualization
+
+    This function handles various feature formats including:
+    - Regular gene names or observation annotations
+    - Deconvolution results with cell type using colon format (deconvolution_key:cell_type)
+    - Deconvolution results with cell type using underscore format (deconvolution_key_cell_type)
+    - Deconvolution keys in obsm
+
+    Args:
+        adata: AnnData object
+        feature: Feature name or None
+        context: MCP context for logging
+        default_feature: Default feature to use if the provided feature is not found
+
+    Returns:
+        Validated feature name or default_feature or None
+    """
+    if not feature:
+        return default_feature
+
+    # Check if it's a deconvolution result with cell type using colon format
+    if ":" in feature:
+        # Format: "deconvolution_method:cell_type"
+        parts = feature.split(":")
+        if len(parts) == 2:
+            deconv_key, cell_type = parts
+
+            # First check if we already have this in obs (from previous deconvolution)
+            obs_key = f"{deconv_key}_{cell_type}"
+            if obs_key in adata.obs.columns:
+                if context:
+                    await context.info(f"Found cell type {cell_type} in obs as {obs_key}")
+                return obs_key
+            else:
+                # Get deconvolution results as DataFrame
+                deconv_df = get_deconvolution_dataframe(adata, deconv_key)
+                if deconv_df is not None and cell_type in deconv_df.columns:
+                    # Add the cell type proportion to obs for visualization
+                    adata.obs[feature] = deconv_df[cell_type]
+                    return feature
+                else:
+                    if context:
+                        await context.warning(f"Deconvolution result {feature} not found. Using default feature.")
+                    return default_feature
+        else:
+            if context:
+                await context.warning(f"Invalid feature format {feature}. Use 'deconvolution_key:cell_type'. Using default feature.")
+            return default_feature
+
+    # Check if it's a deconvolution result with cell type using underscore format
+    elif "_" in feature and feature.startswith("deconvolution_"):
+        # Format: "deconvolution_method_cell_type"
+        if feature in adata.obs.columns:
+            if context:
+                await context.info(f"Found cell type proportion in obs as {feature}")
+            return feature
+        else:
+            if context:
+                await context.warning(f"Feature {feature} not found in dataset. Using default feature.")
+            return default_feature
+
+    # Check if it's a deconvolution key
+    elif feature in adata.obsm:
+        # Try to get cell types from uns
+        cell_types_key = f"{feature}_cell_types"
+        if cell_types_key in adata.uns and len(adata.uns[cell_types_key]) > 0:
+            # Get top cell type by mean proportion
+            deconv_df = get_deconvolution_dataframe(adata, feature)
+            if deconv_df is not None:
+                top_cell_type = deconv_df.mean().sort_values(ascending=False).index[0]
+                obs_key = f"{feature}_{top_cell_type}"
+
+                # Add to obs if not already there
+                if obs_key not in adata.obs.columns:
+                    adata.obs[obs_key] = deconv_df[top_cell_type].values
+
+                if context:
+                    await context.info(f"Found deconvolution result {feature}. Showing top cell type: {top_cell_type}")
+                return obs_key
+            else:
+                if context:
+                    await context.info(f"Found deconvolution result {feature}, but could not determine cell types. Please specify a cell type using 'deconvolution_key:cell_type' format.")
+                return default_feature
+        else:
+            if context:
+                await context.info(f"Found deconvolution result {feature}. Please specify a cell type using 'deconvolution_key:cell_type' format.")
+            return default_feature
+
+    # Check if it's a regular feature
+    elif feature not in adata.var_names and feature not in adata.obs.columns:
+        if context:
+            await context.warning(f"Feature {feature} not found in dataset. Using default feature.")
+        return default_feature
+    else:
+        return feature
+
+
+# Helper function to get deconvolution results as DataFrame
+def get_deconvolution_dataframe(adata, deconv_key):
+    """Get deconvolution results as DataFrame
+
+    Args:
+        adata: AnnData object
+        deconv_key: Key in adata.obsm for deconvolution results
+
+    Returns:
+        DataFrame with deconvolution results or None if not found
+    """
+    if deconv_key not in adata.obsm:
+        return None
+
+    # Get deconvolution results
+    deconv_results = adata.obsm[deconv_key]
+
+    # Convert to DataFrame if it's a numpy array
+    if isinstance(deconv_results, np.ndarray):
+        # Try to get cell types from uns
+        if f"{deconv_key}_cell_types" in adata.uns:
+            cell_types = adata.uns[f"{deconv_key}_cell_types"]
+            return pd.DataFrame(deconv_results, index=adata.obs_names, columns=cell_types)
+        else:
+            # Use generic column names
+            return pd.DataFrame(
+                deconv_results,
+                index=adata.obs_names,
+                columns=[f"Cell_Type_{i}" for i in range(deconv_results.shape[1])]
+            )
+
+    # If it's already a DataFrame, return it
+    elif isinstance(deconv_results, pd.DataFrame):
+        return deconv_results
+
+    # Otherwise, try to convert it
+    else:
+        try:
+            return pd.DataFrame(deconv_results, index=adata.obs_names)
+        except:
+            return None
+
+
+# Helper function to visualize deconvolution results
+async def visualize_top_cell_types(adata, deconv_key, n_cell_types=4, context=None):
+    """Visualize top cell types from deconvolution results
+
+    Args:
+        adata: AnnData object
+        deconv_key: Key in adata.obsm for deconvolution results
+        n_cell_types: Number of top cell types to visualize (will be limited to 6 max)
+        context: MCP context for logging
+
+    Returns:
+        List of feature names for visualization
+    """
+    # Limit the number of cell types to avoid oversized responses
+    n_cell_types = min(n_cell_types, 6)  # Limit to maximum 6 cell types
+
+    if context:
+        await context.info(f"Limiting to top {n_cell_types} cell types to avoid oversized responses")
+
+    # Get deconvolution results as DataFrame
+    deconv_df = get_deconvolution_dataframe(adata, deconv_key)
+    if deconv_df is None:
+        if context:
+            await context.warning(f"Deconvolution result {deconv_key} not found")
+        return []
+
+    # Get top cell types by mean proportion
+    top_cell_types = deconv_df.mean().sort_values(ascending=False).index[:n_cell_types]
+
+    # Add cell type proportions to obs for visualization
+    features = []
+    for cell_type in top_cell_types:
+        obs_key = f"{deconv_key}_{cell_type}"
+
+        # Add to obs if not already there
+        if obs_key not in adata.obs.columns:
+            adata.obs[obs_key] = deconv_df[cell_type].values
+
+        features.append(obs_key)
+
+    if context:
+        await context.info(f"Added top {len(features)} cell types to obs: {', '.join(features)}")
+
+    return features
+
+
 async def visualize_data(
     data_id: str,
     data_store: Dict[str, Any],
@@ -67,6 +260,10 @@ async def visualize_data(
         await context.info(f"Visualizing {params.plot_type} plot for dataset {data_id}")
         await context.info(f"Parameters: feature={params.feature}, colormap={params.colormap}")
 
+        # Log deconvolution parameters if enabled
+        if params.show_deconvolution:
+            await context.info(f"Showing top {params.n_cell_types} cell types from deconvolution results")
+
     # Retrieve the AnnData object from data store
     if data_id not in data_store:
         error_msg = f"Dataset {data_id} not found in data store"
@@ -83,18 +280,67 @@ async def visualize_data(
         # Set matplotlib style for better visualizations
         sc.settings.set_figure_params(dpi=120, facecolor='white')
 
+        # Check if we should show deconvolution results
+        if params.show_deconvolution:
+            # Find deconvolution results in obsm
+            deconv_keys = [key for key in adata.obsm.keys() if key.startswith("deconvolution_")]
+            if deconv_keys:
+                # Use the first deconvolution result
+                deconv_key = deconv_keys[0]
+                if context:
+                    await context.info(f"Found deconvolution result: {deconv_key}")
+
+                # Get top cell types
+                features = await visualize_top_cell_types(adata, deconv_key, params.n_cell_types, context)
+
+                if features:
+                    # Create a multi-panel figure with smaller size per panel
+                    n_cols = min(3, len(features))  # Use up to 3 columns instead of 2
+                    n_rows = (len(features) + n_cols - 1) // n_cols
+
+                    # Reduce figure size from 6x6 per panel to 4x4 to decrease overall image size
+                    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+                    axes = axes.flatten() if n_rows * n_cols > 1 else [axes]
+
+                    # Plot each cell type
+                    for i, feature in enumerate(features):
+                        if i < len(axes):
+                            ax = axes[i]
+                            if 'spatial' in adata.uns and 'images' in adata.uns['spatial']:
+                                # With tissue image background - use lower spot size
+                                sc.pl.spatial(adata, img_key="hires", color=feature, ax=ax,
+                                             show=False, spot_size=None)  # Let scanpy determine optimal spot size
+                            else:
+                                # Without tissue image - use smaller point size
+                                sc.pl.embedding(adata, basis="spatial", color=feature, ax=ax,
+                                              show=False, size=30)  # Smaller point size
+                                ax.set_aspect('equal')
+
+                            # Get cell type name from feature
+                            cell_type = feature.split('_')[-1] if '_' in feature else feature
+                            ax.set_title(f"{cell_type}", fontsize=10)  # Smaller font size
+
+                            # Simplify axis labels
+                            ax.tick_params(labelsize=8)  # Smaller tick labels
+
+                    # Hide empty axes
+                    for i in range(len(features), len(axes)):
+                        axes[i].axis('off')
+
+                    plt.tight_layout()
+
+                    # Convert figure to image with lower DPI and PNG format (Claude doesn't support JPG)
+                    if context:
+                        await context.info(f"Created multi-panel figure with {len(features)} cell types")
+                    return fig_to_image(fig, dpi=80, format="png", max_size_kb=300)
+
         # Create figure based on plot type
         if params.plot_type == "spatial":
             if context:
                 await context.info(f"Creating spatial plot for {params.feature if params.feature else 'tissue'}")
 
-            # Check if feature is provided and exists in the data
-            if params.feature and params.feature not in adata.var_names and params.feature not in adata.obs.columns:
-                if context:
-                    await context.warning(f"Feature {params.feature} not found in dataset. Showing tissue plot instead.")
-                feature = None
-            else:
-                feature = params.feature
+            # Validate and prepare feature for visualization
+            feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=None)
 
             # Create spatial plot
             # For 10x Visium data
@@ -158,17 +404,65 @@ async def visualize_data(
                     # Use PCA as UMAP for visualization
                     adata.obsm['X_umap'] = adata.obsm['X_pca'][:, :2]
 
-            # Check if feature exists
-            if params.feature and params.feature not in adata.var_names and params.feature not in adata.obs.columns:
-                if context:
-                    await context.warning(f"Feature {params.feature} not found in dataset. Showing clusters instead.")
-                # Default to leiden clusters if available
-                if 'leiden' in adata.obs.columns:
-                    feature = 'leiden'
+            # Validate and prepare feature for visualization
+            # Check if we should use cell_type from deconvolution
+            if params.feature and params.feature.startswith('deconvolution_'):
+                # Check if we already have cell_type from deconvolution
+                if 'cell_type' in adata.obs:
+                    if context:
+                        await context.info("Using cell_type from deconvolution for UMAP visualization")
+                    feature = 'cell_type'
                 else:
-                    feature = None
+                    # Try to create cell_type from deconvolution
+                    deconv_key = params.feature
+                    if deconv_key in adata.obsm:
+                        if context:
+                            await context.info(f"Creating cell_type from {deconv_key} for UMAP visualization")
+
+                        # Get cell types from uns
+                        cell_types_key = f"{deconv_key}_cell_types"
+                        if cell_types_key in adata.uns:
+                            # Get deconvolution results as DataFrame
+                            deconv_df = get_deconvolution_dataframe(adata, deconv_key)
+
+                            if deconv_df is not None:
+                                # Determine the dominant cell type for each spot
+                                dominant_cell_types = []
+                                for i in range(deconv_df.shape[0]):
+                                    row = deconv_df.iloc[i]
+                                    max_idx = row.argmax()
+                                    dominant_cell_types.append(deconv_df.columns[max_idx])
+
+                                # Add to adata.obs
+                                adata.obs['cell_type'] = dominant_cell_types
+
+                                # Make it categorical
+                                adata.obs['cell_type'] = adata.obs['cell_type'].astype('category')
+
+                                if context:
+                                    await context.info(f"Created cell_type annotation with {len(adata.uns[cell_types_key])} cell types")
+
+                                feature = 'cell_type'
+                            else:
+                                if context:
+                                    await context.warning(f"Could not get deconvolution dataframe for {deconv_key}")
+                                # Default to leiden clusters if available
+                                default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
+                                feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
+                        else:
+                            if context:
+                                await context.warning(f"Cell types not found for {deconv_key}")
+                            # Default to leiden clusters if available
+                            default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
+                            feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
+                    else:
+                        # Default to leiden clusters if available
+                        default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
+                        feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
             else:
-                feature = params.feature
+                # Default to leiden clusters if available
+                default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
+                feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
 
             # Create UMAP plot
             if feature:
@@ -191,15 +485,35 @@ async def visualize_data(
             if 'leiden' in adata.obs.columns:
                 # Use leiden clusters for grouping
                 groupby = 'leiden'
+
+                # Limit the number of groups to avoid oversized responses
+                n_groups = len(adata.obs[groupby].cat.categories)
+                if n_groups > 10:
+                    if context:
+                        await context.warning(f"Too many groups ({n_groups}). Limiting to 10 groups.")
+                    # Get the 10 largest groups
+                    group_counts = adata.obs[groupby].value_counts().nlargest(10).index
+                    # Subset the data to include only these groups
+                    adata = adata[adata.obs[groupby].isin(group_counts)].copy()
             else:
                 # No grouping
                 groupby = None
 
-            # Create heatmap - note that heatmap doesn't support return_fig or ax parameter
-            # We'll create a figure and let scanpy handle the axes
-            plt.figure(figsize=(12, 10))
-            ax_dict = sc.pl.heatmap(adata, var_names=adata.var_names[adata.var.highly_variable][:50],
-                         groupby=groupby, cmap=params.colormap, show=False)
+            # Limit the number of genes to avoid oversized responses
+            # Use a smaller number (20) instead of 50 to reduce response size
+            n_genes = 20
+            if context:
+                await context.info(f"Using top {n_genes} highly variable genes for heatmap")
+
+            # Create heatmap with smaller figure size and fewer genes
+            # Reduce figure size from (12, 10) to (8, 6) to decrease image size
+            plt.figure(figsize=(8, 6))
+            ax_dict = sc.pl.heatmap(adata,
+                         var_names=adata.var_names[adata.var.highly_variable][:n_genes],
+                         groupby=groupby,
+                         cmap=params.colormap,
+                         show=False,
+                         dendrogram=False)  # Disable dendrogram to simplify the plot
             fig = plt.gcf()  # Get the current figure
 
         elif params.plot_type == "violin":
@@ -213,20 +527,33 @@ async def visualize_data(
                 # Use top highly variable genes
                 if not adata.var.get('highly_variable', None).any():
                     sc.pp.highly_variable_genes(adata, n_top_genes=50)
-                genes = adata.var_names[adata.var.highly_variable][:5]
+                # Limit to 3 genes to reduce image size
+                genes = adata.var_names[adata.var.highly_variable][:3]
             else:
-                genes = [params.feature] if params.feature else adata.var_names[:5]
+                genes = [params.feature] if params.feature else adata.var_names[:3]  # Limit to 3 genes
 
             # Check if we have clusters for grouping
             if 'leiden' in adata.obs.columns:
                 groupby = 'leiden'
+
+                # Limit the number of groups to avoid oversized responses
+                n_groups = len(adata.obs[groupby].cat.categories)
+                if n_groups > 8:
+                    if context:
+                        await context.warning(f"Too many groups ({n_groups}). Limiting to 8 groups.")
+                    # Get the 8 largest groups
+                    group_counts = adata.obs[groupby].value_counts().nlargest(8).index
+                    # Subset the data to include only these groups
+                    adata = adata[adata.obs[groupby].isin(group_counts)].copy()
             else:
                 groupby = None
 
-            # Create violin plot - violin plot doesn't support return_fig
-            # Create a figure first and let scanpy handle the axes
-            plt.figure(figsize=(12, 10))
-            ax = sc.pl.violin(adata, genes, groupby=groupby, show=False)
+            # Create violin plot with smaller figure size
+            # Reduce figure size from (12, 10) to (8, 6) to decrease image size
+            plt.figure(figsize=(8, 6))
+            ax = sc.pl.violin(adata, genes, groupby=groupby, show=False,
+                             jitter=0.2,  # Reduce jitter amount
+                             scale='width')  # Scale violins to same width
             fig = plt.gcf()  # Get the current figure
 
         else:

@@ -10,6 +10,9 @@ ChatSpatial is an interactive spatial transcriptomics data analysis assistant ba
 - **Differential Expression Analysis**: Identification of differentially expressed genes between cell populations
 - **Cell Type Annotation**: Multiple cell type annotation methods, including marker-based, correlation-based, and supervised classification
 - **Spatial Analysis**: Spatial autocorrelation, neighborhood analysis, spatial trajectories, etc.
+- **Spatial Domain Identification**: STAGATE, SpaGCN, and clustering-based methods for identifying spatial domains
+- **Spatial Variable Genes**: SpatialDE integration for identifying spatially variable genes and automatic expression histology
+- **Cell Communication Analysis**: COMMOT and SpatialDM integration for analyzing ligand-receptor interactions and communication networks
 - **Deconvolution Analysis**: Support for NNLS, Cell2location, and Spotiphy methods with enhanced error handling and user feedback
 - **Standardized Image Processing**: Unified image processing module ensuring all visualization functions return standardized Image objects
 
@@ -28,6 +31,9 @@ pip install -e .[all]
 
 # Or install specific optional dependencies
 pip install -e .[deconvolution]  # Install deconvolution-related dependencies
+pip install -e .[spatial_domains]  # Install spatial domain identification dependencies
+pip install -e .[spatial_genes]  # Install spatial variable genes identification dependencies
+pip install -e .[cell_communication]  # Install cell communication analysis dependencies
 ```
 
 ## Usage
@@ -90,6 +96,9 @@ Here are some example prompts to get started with ChatSpatial:
 - "Load my 10x Visium dataset from `/path/to/data.h5ad`"
 - "Visualize the spatial expression of gene Cd8a"
 - "Perform cell type annotation using marker genes"
+- "Identify spatial domains using STAGATE method"
+- "Find spatial variable genes using SpatialDE"
+- "Analyze cell communication using COMMOT"
 - "Run spatial trajectory analysis"
 - "Deconvolve my spatial data using the NNLS method"
 - "Integrate multiple spatial samples"
@@ -102,13 +111,16 @@ The server provides the following tools:
 2. `preprocess` - Preprocess data
 3. `visualize` - Visualize data
 4. `annotate` - Cell type annotation
-5. `analyze_spatial` - Spatial analysis
-6. `find_markers` - Differential expression analysis
-7. `list_datasets` - List loaded datasets
-8. `integrate_samples` - Multi-sample integration
-9. `analyze_trajectory` - Trajectory analysis
-10. `analyze_velocity` - RNA velocity analysis
-11. `deconvolve` - Spatial transcriptomics deconvolution
+5. `identify_domains` - Spatial domain identification
+6. `find_spatial_genes` - Spatial variable genes identification
+7. `analyze_communication` - Cell-cell communication analysis
+8. `analyze_spatial` - Spatial analysis
+9. `find_markers` - Differential expression analysis
+10. `list_datasets` - List loaded datasets
+11. `integrate_samples` - Multi-sample integration
+12. `analyze_trajectory` - Trajectory analysis
+13. `analyze_velocity` - RNA velocity analysis
+14. `deconvolve` - Spatial transcriptomics deconvolution
 
 ## Resources
 

@@ -2,14 +2,23 @@
 Cell type annotation tools for spatial transcriptomics data.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import matplotlib.pyplot as plt
 from mcp.server.fastmcp import Context
+from mcp.server.fastmcp.utilities.types import Image
+
+# Import Tangram for cell type annotation
+try:
+    import tangram as tg
+except ImportError:
+    tg = None
 
 from ..models.data import AnnotationParameters
 from ..models.analysis import AnnotationResult
+from ..utils.image_utils import fig_to_image
 
 
 # Default marker genes for common cell types
@@ -52,8 +61,174 @@ async def annotate_cell_types(
 
     adata = data_store[data_id]["adata"]
 
+    # Initialize variables for result
+    cell_types = []
+    counts = {}
+    confidence_scores = {}
+    tangram_mapping_score = None
+    visualization = None
+
     # Different methods would be implemented:
-    if params.method == "marker_genes":
+    if params.method == "tangram":
+        if context:
+            await context.info("Using Tangram method for annotation")
+
+        if tg is None:
+            raise ImportError("Tangram package is not installed. Please install it with 'pip install tangram-sc'")
+
+        # Check if reference data is provided
+        if params.reference_data_id is None:
+            raise ValueError("Reference data ID is required for Tangram method")
+
+        if params.reference_data_id not in data_store:
+            raise ValueError(f"Reference dataset {params.reference_data_id} not found")
+
+        # Get reference single-cell data
+        adata_sc = data_store[params.reference_data_id]["adata"]
+        adata_sp = adata  # Spatial data
+
+        if context:
+            await context.info(f"Using reference dataset {params.reference_data_id} with {adata_sc.n_obs} cells")
+
+        # Determine training genes
+        training_genes = params.training_genes
+
+        if training_genes is None:
+            # Use marker genes if available
+            if params.marker_genes:
+                if context:
+                    await context.info("Using provided marker genes for Tangram mapping")
+                # Flatten marker genes dictionary
+                training_genes = []
+                for genes in params.marker_genes.values():
+                    training_genes.extend(genes)
+                training_genes = list(set(training_genes))  # Remove duplicates
+            else:
+                # Use highly variable genes
+                if context:
+                    await context.info("Computing highly variable genes for Tangram mapping")
+                if 'highly_variable' not in adata_sc.var:
+                    sc.pp.highly_variable_genes(adata_sc, n_top_genes=2000)
+                training_genes = list(adata_sc.var_names[adata_sc.var.highly_variable])
+
+        if context:
+            await context.info(f"Using {len(training_genes)} genes for Tangram mapping")
+
+        # Preprocess data for Tangram
+        try:
+            tg.pp_adatas(adata_sc, adata_sp, genes=training_genes)
+
+            if context:
+                await context.info(f"Preprocessed data for Tangram mapping. {len(adata_sc.uns['training_genes'])} training genes selected.")
+
+            # Set mapping mode
+            mode = params.mode
+            cluster_label = params.cluster_label
+
+            if mode == "clusters" and cluster_label is None:
+                if context:
+                    await context.warning("Cluster label not provided for 'clusters' mode. Using default cell type annotation if available.")
+                # Try to find a cell type annotation in the reference data
+                for col in ['cell_type', 'celltype', 'cell_types', 'leiden', 'louvain']:
+                    if col in adata_sc.obs:
+                        cluster_label = col
+                        break
+
+                if cluster_label is None:
+                    raise ValueError("No cluster label found in reference data. Please provide a cluster_label parameter.")
+
+                if context:
+                    await context.info(f"Using '{cluster_label}' as cluster label for Tangram mapping")
+
+            # Run Tangram mapping
+            if context:
+                await context.info(f"Running Tangram mapping in '{mode}' mode for {params.num_epochs} epochs")
+
+            mapping_args = {
+                "mode": mode,
+                "num_epochs": params.num_epochs,
+                "device": "cpu"  # Use CPU for compatibility
+            }
+
+            if mode == "clusters":
+                mapping_args["cluster_label"] = cluster_label
+
+            ad_map = tg.map_cells_to_space(adata_sc, adata_sp, **mapping_args)
+
+            # Get mapping score
+            if 'training_history' in ad_map.uns and len(ad_map.uns['training_history']) > 0:
+                tangram_mapping_score = float(ad_map.uns['training_history'][-1][0])  # Last score
+
+            if context:
+                await context.info(f"Tangram mapping completed with score: {tangram_mapping_score}")
+
+            # Project cell annotations to space
+            tg.project_cell_annotations(ad_map, adata_sp, annotation=cluster_label if mode == "clusters" else None)
+
+            # Get cell type predictions
+            if 'tangram_ct_pred' in adata_sp.obsm:
+                cell_type_df = adata_sp.obsm['tangram_ct_pred']
+
+                # Get cell types and counts
+                cell_types = list(cell_type_df.columns)
+
+                # Assign cell type based on highest probability
+                adata_sp.obs["cell_type"] = cell_type_df.idxmax(axis=1)
+                adata_sp.obs["cell_type"] = adata_sp.obs["cell_type"].astype("category")
+
+                # Get counts
+                counts = adata_sp.obs["cell_type"].value_counts().to_dict()
+
+                # Calculate confidence scores (use max probability as confidence)
+                confidence_scores = {}
+                for cell_type in cell_types:
+                    cells_of_type = adata_sp.obs["cell_type"] == cell_type
+                    if np.sum(cells_of_type) > 0:
+                        # Use mean probability as confidence
+                        mean_prob = cell_type_df.loc[cells_of_type, cell_type].mean()
+                        confidence_scores[cell_type] = round(float(mean_prob), 2)
+                    else:
+                        confidence_scores[cell_type] = 0.5
+
+                # Create visualization
+                if context:
+                    await context.info("Creating visualization of cell type mapping")
+
+                # Create a multi-panel figure with cell type distributions
+                n_cols = min(3, len(cell_types))
+                n_rows = (len(cell_types) + n_cols - 1) // n_cols
+
+                fig, axes = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+                axes = axes.flatten() if n_rows * n_cols > 1 else [axes]
+
+                # Plot each cell type
+                for i, cell_type in enumerate(cell_types):
+                    if i < len(axes):
+                        ax = axes[i]
+                        # Plot spatial distribution of cell type probability
+                        sc.pl.spatial(adata_sp, color=cell_type, ax=ax, show=False,
+                                     title=f"{cell_type}", size=10, color_map='viridis')
+
+                # Hide empty axes
+                for i in range(len(cell_types), len(axes)):
+                    axes[i].axis('off')
+
+                plt.tight_layout()
+
+                # Convert figure to image
+                visualization = fig_to_image(fig, format="png")
+                plt.close(fig)
+
+            else:
+                if context:
+                    await context.warning("No cell type predictions found in Tangram results")
+
+        except Exception as e:
+            if context:
+                await context.error(f"Error in Tangram mapping: {str(e)}")
+            raise ValueError(f"Tangram mapping failed: {str(e)}")
+
+    elif params.method == "marker_genes":
         if context:
             await context.info("Using marker genes method for annotation")
 
@@ -112,6 +287,10 @@ async def annotate_cell_types(
             else:
                 confidence_scores[cell_type] = 0.5
 
+        # Get cell types and counts
+        cell_types = list(adata.obs["cell_type"].unique())
+        counts = adata.obs["cell_type"].value_counts().to_dict()
+
     elif params.method == "correlation":
         # Based on correlation with reference
         if context:
@@ -167,6 +346,10 @@ async def annotate_cell_types(
             else:
                 confidence_scores[cell_type] = 0.5
 
+        # Get cell types and counts
+        cell_types = list(adata.obs["cell_type"].unique())
+        counts = adata.obs["cell_type"].value_counts().to_dict()
+
     elif params.method in ["supervised", "popv", "gptcelltype", "scrgcl"]:
         # These would be implemented with more advanced methods
         if context:
@@ -214,9 +397,9 @@ async def annotate_cell_types(
             else:
                 confidence_scores[cell_type] = 0.5
 
-    # Count cells per cell type
-    cell_types = list(adata.obs["cell_type"].unique())
-    counts = adata.obs["cell_type"].value_counts().to_dict()
+        # Get cell types and counts
+        cell_types = list(adata.obs["cell_type"].unique())
+        counts = adata.obs["cell_type"].value_counts().to_dict()
 
     # Update the AnnData object in the data store
     data_store[data_id]["adata"] = adata
@@ -227,5 +410,7 @@ async def annotate_cell_types(
         method=params.method,
         cell_types=cell_types,
         counts=counts,
-        confidence_scores=confidence_scores
+        confidence_scores=confidence_scores,
+        tangram_mapping_score=tangram_mapping_score,
+        visualization=visualization
     )

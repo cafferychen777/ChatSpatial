@@ -47,13 +47,43 @@ cell2location = [
     "cell2location",  # 空间转录组去卷积
     "torch>=1.7.1",  # 用于cell2location
 ]
+spatial_domains = [
+    "STAGATE",  # 空间域识别
+    "SpaGCN",  # 空间域识别
+    "tensorflow>=1.15.0,<2.0",  # STAGATE依赖
+    "torch>=1.7.1",  # SpaGCN依赖
+    "opencv-python",  # SpaGCN图像处理
+    "scikit-learn",  # 空间域细化
+]
+spatial_genes = [
+    "spatialde",  # 空间变异基因识别
+    "NaiveDE",  # SpatialDE依赖的数据预处理
+    "patsy",  # NaiveDE依赖
+]
+cell_communication = [
+    "commot",  # 细胞通讯分析
+    "SpatialDM",  # 空间配体受体分析
+    "threadpoolctl",  # SpatialDM依赖
+    "statsmodels",  # SpatialDM统计分析
+]
 all = [
     "cell2location",
     "spotiphy",
+    "STAGATE",
+    "SpaGCN",
+    "spatialde",
+    "NaiveDE",
+    "commot",
+    "SpatialDM",
     "torch>=1.7.1",
     "pyro-ppl>=1.8.0",
+    "tensorflow>=1.15.0,<2.0",
     "opencv-python",
     "tqdm",
+    "scikit-learn",
+    "patsy",
+    "threadpoolctl",
+    "statsmodels",
 ]
 
 [project.scripts]

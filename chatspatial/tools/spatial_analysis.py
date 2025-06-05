@@ -90,7 +90,62 @@ async def analyze_spatial_unified(
         validate_adata(adata, require_spatial=True, min_cells=10)
 
         # Check if we have clusters
-        if params.cluster_key not in adata.obs.columns:
+        # First check if it's a deconvolution result in obsm
+        if params.cluster_key.startswith('deconvolution_') and params.cluster_key in adata.obsm:
+            if context:
+                await context.info(f"Using deconvolution result {params.cluster_key} as clusters")
+
+            # Get cell types from uns
+            cell_types_key = f"{params.cluster_key}_cell_types"
+            if cell_types_key in adata.uns:
+                # Create a categorical variable with the dominant cell type for each spot
+                from .visualization import get_deconvolution_dataframe
+                deconv_df = get_deconvolution_dataframe(adata, params.cluster_key)
+
+                if deconv_df is not None:
+                    # Determine the dominant cell type for each spot
+                    dominant_cell_types = []
+                    for i in range(deconv_df.shape[0]):
+                        row = deconv_df.iloc[i]
+                        max_idx = row.argmax()
+                        dominant_cell_types.append(deconv_df.columns[max_idx])
+
+                    # Add to adata.obs
+                    cluster_key = f"{params.cluster_key}_dominant"
+                    adata.obs[cluster_key] = dominant_cell_types
+
+                    # Make it categorical
+                    adata.obs[cluster_key] = adata.obs[cluster_key].astype('category')
+
+                    if context:
+                        await context.info(f"Created dominant cell type annotation from {params.cluster_key}")
+                else:
+                    if context:
+                        await context.warning(f"Could not get deconvolution dataframe for {params.cluster_key}")
+                    # Fall back to leiden
+                    if 'leiden' in adata.obs.columns:
+                        cluster_key = 'leiden'
+                    else:
+                        # Create leiden clusters
+                        if context:
+                            await context.info("Computing leiden clusters as fallback...")
+                        sc.pp.neighbors(adata)
+                        sc.tl.leiden(adata)
+                        cluster_key = 'leiden'
+            else:
+                if context:
+                    await context.warning(f"Cell types not found for {params.cluster_key}")
+                # Fall back to leiden
+                if 'leiden' in adata.obs.columns:
+                    cluster_key = 'leiden'
+                else:
+                    # Create leiden clusters
+                    if context:
+                        await context.info("Computing leiden clusters as fallback...")
+                    sc.pp.neighbors(adata)
+                    sc.tl.leiden(adata)
+                    cluster_key = 'leiden'
+        elif params.cluster_key not in adata.obs.columns:
             if 'leiden' in adata.obs.columns:
                 if context:
                     await context.warning(
@@ -405,7 +460,7 @@ async def analyze_spatial_unified(
             fig, ax = plt.subplots(figsize=(10, 8))
 
             # Plot -log10(p-value) vs Moran's I
-            sc = ax.scatter(-np.log10(moran_data['pval_norm']),
+            scatter = ax.scatter(-np.log10(moran_data['pval_norm']),
                           moran_data['I'],
                           s=50, alpha=0.7)
 
@@ -564,43 +619,5 @@ async def analyze_spatial_unified(
             ) from e
 
 
-async def analyze_spatial_with_image(
-    data_id: str,
-    data_store: Dict[str, Any],
-    params: SpatialAnalysisParameters = SpatialAnalysisParameters(),
-    context: Optional[Context] = None
-) -> Image:
-    """Perform spatial analysis on transcriptomics data and return image directly
-
-    Args:
-        data_id: Dataset ID
-        data_store: Dictionary storing loaded datasets
-        params: Spatial analysis parameters
-        context: MCP context
-
-    Returns:
-        Spatial analysis visualization as Image object
-    """
-    # Call the unified function with return_type="image"
-    return await analyze_spatial_unified(data_id, data_store, params, context, return_type="image")
-
-
-async def analyze_spatial(
-    data_id: str,
-    data_store: Dict[str, Any],
-    params: SpatialAnalysisParameters = SpatialAnalysisParameters(),
-    context: Optional[Context] = None
-) -> SpatialAnalysisResult:
-    """Perform spatial analysis on transcriptomics data
-
-    Args:
-        data_id: Dataset ID
-        data_store: Dictionary storing loaded datasets
-        params: Spatial analysis parameters
-        context: MCP context
-
-    Returns:
-        Spatial analysis result
-    """
-    # Call the unified function with return_type="result"
-    return await analyze_spatial_unified(data_id, data_store, params, context, return_type="result")
+# The analyze_spatial function has been removed in favor of directly using analyze_spatial_unified
+# This simplifies the code structure and reduces complexity
