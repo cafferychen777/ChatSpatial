@@ -847,6 +847,12 @@ async def create_multi_gene_visualization(
         Matplotlib figure with multi-gene visualization
     """
     try:
+        # Ensure unique gene names to avoid indexing errors
+        if not adata.var_names.is_unique:
+            if context:
+                await context.info("Making gene names unique to avoid indexing errors")
+            adata.var_names_make_unique()
+
         # Get genes to visualize
         if params.features:
             genes = params.features
@@ -990,6 +996,12 @@ async def create_lr_pairs_visualization(
         Matplotlib figure with LR pairs visualization
     """
     try:
+        # Ensure unique gene names to avoid indexing errors
+        if not adata.var_names.is_unique:
+            if context:
+                await context.info("Making gene names unique to avoid indexing errors")
+            adata.var_names_make_unique()
+
         # Get LR pairs to visualize
         if params.lr_pairs:
             lr_pairs = params.lr_pairs
@@ -1201,6 +1213,12 @@ async def create_gene_correlation_visualization(
         Matplotlib figure with gene correlation visualization
     """
     try:
+        # Ensure unique gene names to avoid indexing errors
+        if not adata.var_names.is_unique:
+            if context:
+                await context.info("Making gene names unique to avoid indexing errors")
+            adata.var_names_make_unique()
+
         # Get genes to analyze
         if params.features:
             genes = params.features
