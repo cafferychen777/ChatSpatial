@@ -3,8 +3,11 @@ Main server implementation for ChatSpatial.
 """
 
 from typing import Dict, Any, List, Optional
-import matplotlib.pyplot as plt
-import numpy as np
+import warnings
+
+# Suppress warnings to speed up startup
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 from mcp.server.fastmcp import FastMCP, Context
 from mcp.server.fastmcp.utilities.types import Image
@@ -46,8 +49,9 @@ from .tools.trajectory import analyze_rna_velocity, analyze_trajectory
 from .tools.integration import integrate_samples
 from .tools.deconvolution import deconvolve_spatial_data
 from .tools.spatial_domains import identify_spatial_domains
-from .tools.spatial_variable_genes import identify_spatial_variable_genes
+
 from .tools.cell_communication import analyze_cell_communication
+from .tools.gaston_spatial_genes import identify_spatial_variable_genes_gaston
 from .utils.data_loader import load_spatial_data
 
 # Create MCP server
@@ -139,9 +143,9 @@ async def preprocess(
 @mcp.tool()
 async def visualize(
     data_id: str,
-    params: VisualizationParameters = VisualizationParameters(),
+    params = None,
     context: Context = None
-) -> Image:
+):
     """Visualize spatial transcriptomics data
 
     Args:
@@ -817,73 +821,7 @@ async def identify_spatial_domains_simple(
     return await identify_domains(data_id, params, context)
 
 
-# Add tool for spatial variable genes identification
-@mcp.tool()
-async def find_spatial_genes(
-    data_id: str,
-    params: SpatialVariableGenesParameters = SpatialVariableGenesParameters(),
-    context: Context = None
-) -> SpatialVariableGenesResult:
-    """Identify spatial variable genes in spatial transcriptomics data
 
-    Args:
-        data_id: Dataset ID
-        params: Spatial variable genes identification parameters
-
-    Returns:
-        Spatial variable genes identification result with top genes and statistics
-    """
-    if context:
-        await context.info(f"Identifying spatial variable genes using {params.method} method")
-
-    # Validate dataset
-    validate_dataset(data_id)
-
-    # Call spatial variable genes identification function
-    result = await identify_spatial_variable_genes(data_id, data_store, params, context)
-
-    if context:
-        await context.info(f"Successfully identified {result.n_significant_genes} significant spatial variable genes")
-        await context.info(f"Results stored in adata.var with prefix '{result.results_key}'")
-        if result.top_genes:
-            await context.info(f"Top spatial variable gene: {result.top_genes[0]}")
-        if result.aeh_performed:
-            await context.info(f"AEH identified {result.n_patterns} spatial patterns")
-
-    return result
-
-
-# Add helper tool for spatial variable genes identification with simpler parameters
-@mcp.tool()
-async def find_spatial_genes_simple(
-    data_id: str,
-    method: str = "spatialde",
-    n_top_genes: int = 100,
-    significance_threshold: float = 0.05,
-    context: Context = None
-) -> SpatialVariableGenesResult:
-    """Identify spatial variable genes with simplified parameters
-
-    This is a helper function that provides a simpler interface to the find_spatial_genes tool.
-
-    Args:
-        data_id: Dataset ID
-        method: Method to use (spatialde, spark, trendsceek)
-        n_top_genes: Number of top spatial genes to return
-        significance_threshold: FDR threshold for significance
-
-    Returns:
-        Spatial variable genes identification result
-    """
-    # Create parameters object
-    params = SpatialVariableGenesParameters(
-        method=method,
-        n_top_genes=n_top_genes,
-        significance_threshold=significance_threshold
-    )
-
-    # Call the main function
-    return await find_spatial_genes(data_id, params, context)
 
 
 # Add tool for cell communication analysis
@@ -923,11 +861,64 @@ async def analyze_communication(
     return result
 
 
+# Add tool for spatial variable genes identification using GASTON
+@mcp.tool()
+async def find_spatial_genes_gaston(
+    data_id: str,
+    params: SpatialVariableGenesParameters = SpatialVariableGenesParameters(),
+    context: Context = None
+) -> SpatialVariableGenesResult:
+    """Identify spatial variable genes using GASTON method
+
+    GASTON (Generative Adversarial Spatial Transcriptomics Optimization Network) learns
+    a topographic map of tissue slices by modeling gene expression through isodepth coordinates.
+
+    Key features:
+    - Learns 1D isodepth coordinate that varies smoothly across tissue
+    - Identifies spatial domains and continuous/discontinuous gene expression patterns
+    - Uses interpretable deep learning with neural networks
+    - Supports GLM-PCA or Pearson residuals preprocessing
+
+    Args:
+        data_id: Dataset ID
+        params: GASTON analysis parameters including:
+            - preprocessing_method: "glmpca" (recommended) or "pearson_residuals"
+            - spatial_hidden_layers: Architecture for spatial embedding network
+            - expression_hidden_layers: Architecture for expression function network
+            - epochs: Number of training epochs
+            - learning_rate: Learning rate for optimization
+            - use_positional_encoding: Whether to use positional encoding
+
+    Returns:
+        Spatial variable genes identification result with isodepth map, spatial domains,
+        and gene classification into continuous/discontinuous patterns
+    """
+    if context:
+        await context.info(f"Identifying spatial variable genes using GASTON method")
+
+    # Validate dataset
+    validate_dataset(data_id)
+
+    # Call GASTON spatial variable genes identification function
+    result = await identify_spatial_variable_genes_gaston(data_id, data_store, params, context)
+
+    if context:
+        await context.info(f"Successfully completed GASTON analysis")
+        await context.info(f"Identified {result.n_spatial_domains} spatial domains")
+        await context.info(f"Found {result.n_continuous_genes} genes with continuous gradients")
+        await context.info(f"Found {result.n_discontinuous_genes} genes with discontinuities")
+        await context.info(f"Final training loss: {result.final_loss:.6f}")
+        await context.info(f"Model R²: {result.model_performance.get('r2', 'N/A')}")
+        await context.info(f"Results stored with keys: {result.isodepth_key}, {result.spatial_domains_key}")
+
+    return result
+
+
 # Add helper tool for cell communication analysis with simpler parameters
 @mcp.tool()
 async def analyze_communication_simple(
     data_id: str,
-    method: str = "commot",
+    method: str = "liana",
     species: str = "human",
     database: str = "cellchat",
     context: Context = None
@@ -938,9 +929,9 @@ async def analyze_communication_simple(
 
     Args:
         data_id: Dataset ID
-        method: Method to use (commot, spatialdm, cellphonedb)
+        method: Method to use (only liana is supported)
         species: Species for ligand-receptor database (human, mouse, zebrafish)
-        database: Ligand-receptor database (cellchat, cellphonedb, user)
+        database: Ligand-receptor database (LIANA+ uses its own resource system)
 
     Returns:
         Cell communication analysis result

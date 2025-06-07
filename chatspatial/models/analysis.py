@@ -114,31 +114,46 @@ class SpatialDomainResult(BaseModel):
         arbitrary_types_allowed = True
 
 
+
+
 class SpatialVariableGenesResult(BaseModel):
-    """Result of spatial variable genes identification"""
+    """Result of GASTON spatial variable genes identification"""
     data_id: str
-    method: str
-    n_significant_genes: int
-    n_tested_genes: int
-    significance_threshold: float
-    top_genes: List[str]  # List of top spatially variable genes
-    results_key: str  # Key in adata.var where results are stored
+    preprocessing_method: str
+    n_components: int
+    n_epochs_trained: int
+    final_loss: float
 
-    # SpatialDE specific results
-    spatialde_results: Optional[Dict[str, Any]] = None  # Full SpatialDE results table
+    # Model architecture info
+    spatial_hidden_layers: List[int]
+    expression_hidden_layers: List[int]
 
-    # AEH results (if performed)
-    aeh_performed: bool = False
-    aeh_patterns_key: Optional[str] = None  # Key in adata.obsm where spatial patterns are stored
-    aeh_membership_key: Optional[str] = None  # Key in adata.var where pattern membership is stored
-    n_patterns: Optional[int] = None
+    # Spatial domains and patterns
+    n_spatial_domains: int
+    spatial_domains_key: str  # Key in adata.obs where spatial domain assignments are stored
+    isodepth_key: str  # Key in adata.obs where isodepth values are stored
 
-    # Visualization
-    visualization: Optional[Image] = None  # Visualization of top spatial genes
-    patterns_visualization: Optional[Image] = None  # Visualization of spatial patterns (if AEH performed)
+    # Gene classification results
+    continuous_gradient_genes: Dict[str, List[int]]  # Gene -> list of domains with continuous gradients
+    discontinuous_genes: Dict[str, List[int]]  # Gene -> list of domain boundaries with discontinuities
+    n_continuous_genes: int
+    n_discontinuous_genes: int
 
-    # Statistics
-    statistics: Dict[str, Any]  # General statistics about the analysis
+    # Model outputs stored in adata
+    model_predictions_key: str  # Key in adata.obsm where model predictions are stored
+    spatial_embedding_key: str  # Key in adata.obsm where spatial embeddings are stored
+
+    # Visualizations
+    isodepth_map_visualization: Optional[Image] = None  # Isodepth map visualization
+    spatial_domains_visualization: Optional[Image] = None  # Spatial domains visualization
+    top_genes_visualization: Optional[Image] = None  # Top spatial genes visualization
+
+    # Statistics and metrics
+    model_performance: Dict[str, Any]  # Model performance metrics
+    spatial_autocorrelation: Dict[str, float]  # Spatial autocorrelation metrics
+
+    # File paths for saved model
+    model_checkpoint_path: Optional[str] = None  # Path to saved model checkpoint
 
     class Config:
         arbitrary_types_allowed = True
@@ -162,13 +177,13 @@ class CellCommunicationResult(BaseModel):
     local_results_key: Optional[str] = None  # Key in adata.uns where local results are stored
     communication_matrices_key: Optional[str] = None  # Key in adata.obsp where communication matrices are stored
 
-    # COMMOT specific results
-    commot_sender_key: Optional[str] = None  # Key in adata.obsm for sender signals
-    commot_receiver_key: Optional[str] = None  # Key in adata.obsm for receiver signals
 
-    # SpatialDM specific results
-    spatialdm_selected_spots_key: Optional[str] = None  # Key in adata.uns for selected spots
-    spatialdm_weight_matrix_key: Optional[str] = None  # Key in adata.obsp for weight matrix
+
+    # LIANA+ specific results
+    liana_results_key: Optional[str] = None  # Key in adata.uns for LIANA cluster results
+    liana_spatial_results_key: Optional[str] = None  # Key in adata.uns for LIANA spatial results
+    liana_spatial_scores_key: Optional[str] = None  # Key in adata.obsm for spatial scores
+    analysis_type: Optional[str] = None  # Type of LIANA analysis: 'cluster' or 'spatial'
 
     # Communication patterns (if identified)
     patterns_identified: bool = False

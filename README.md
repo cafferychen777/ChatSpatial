@@ -5,14 +5,14 @@ ChatSpatial is an interactive spatial transcriptomics data analysis assistant ba
 ## Features
 
 - **Data Loading**: Support for various spatial transcriptomics data formats (10x Visium, Slide-seq, MERFISH, seqFISH, etc.)
-- **Data Preprocessing**: Normalization, batch effect correction, dimensionality reduction, etc.
+- **Enhanced Data Preprocessing**: User-controlled filtering, subsampling, normalization, and dimensionality reduction with intelligent defaults for different data types
 - **Spatial Visualization**: Spatial distribution of gene expression, visualization of clustering results, etc.
 - **Differential Expression Analysis**: Identification of differentially expressed genes between cell populations
 - **Cell Type Annotation**: Multiple cell type annotation methods, including marker-based, correlation-based, and supervised classification
 - **Spatial Analysis**: Spatial autocorrelation, neighborhood analysis, spatial trajectories, etc.
 - **Spatial Domain Identification**: STAGATE, SpaGCN, and clustering-based methods for identifying spatial domains
-- **Spatial Variable Genes**: SpatialDE integration for identifying spatially variable genes and automatic expression histology
-- **Cell Communication Analysis**: COMMOT and SpatialDM integration for analyzing ligand-receptor interactions and communication networks
+- **Advanced Spatial Variable Genes**: GASTON (Graph Attention Spatial Transcriptomics Organizer Network) for learning tissue topology and identifying spatial gene patterns through deep learning
+- **Cell Communication Analysis**: LIANA+ integration for fast and comprehensive ligand-receptor interaction analysis with spatial bivariate metrics
 - **Deconvolution Analysis**: Support for NNLS, Cell2location, and Spotiphy methods with enhanced error handling and user feedback
 - **Standardized Image Processing**: Unified image processing module ensuring all visualization functions return standardized Image objects
 
@@ -32,7 +32,7 @@ pip install -e .[all]
 # Or install specific optional dependencies
 pip install -e .[deconvolution]  # Install deconvolution-related dependencies
 pip install -e .[spatial_domains]  # Install spatial domain identification dependencies
-pip install -e .[spatial_genes]  # Install spatial variable genes identification dependencies
+pip install -e .[spatial_genes]  # Install GASTON and spatial variable genes identification dependencies
 pip install -e .[cell_communication]  # Install cell communication analysis dependencies
 ```
 
@@ -94,11 +94,12 @@ To use ChatSpatial with Claude Desktop:
 Here are some example prompts to get started with ChatSpatial:
 
 - "Load my 10x Visium dataset from `/path/to/data.h5ad`"
+- "Preprocess my data with custom filtering: filter genes in less than 10 cells and subsample to 1000 spots"
 - "Visualize the spatial expression of gene Cd8a"
 - "Perform cell type annotation using marker genes"
 - "Identify spatial domains using STAGATE method"
-- "Find spatial variable genes using SpatialDE"
-- "Analyze cell communication using COMMOT"
+- "Find spatial variable genes using GASTON with GLM-PCA preprocessing"
+- "Analyze cell communication using LIANA+"
 - "Run spatial trajectory analysis"
 - "Deconvolve my spatial data using the NNLS method"
 - "Integrate multiple spatial samples"
@@ -112,8 +113,8 @@ The server provides the following tools:
 3. `visualize` - Visualize data
 4. `annotate` - Cell type annotation
 5. `identify_domains` - Spatial domain identification
-6. `find_spatial_genes` - Spatial variable genes identification
-7. `analyze_communication` - Cell-cell communication analysis
+6. `find_spatial_genes_gaston` - Advanced spatial variable genes identification using GASTON
+7. `analyze_communication` - Cell-cell communication analysis with LIANA+
 8. `analyze_spatial` - Spatial analysis
 9. `find_markers` - Differential expression analysis
 10. `list_datasets` - List loaded datasets
@@ -121,6 +122,67 @@ The server provides the following tools:
 12. `analyze_trajectory` - Trajectory analysis
 13. `analyze_velocity` - RNA velocity analysis
 14. `deconvolve` - Spatial transcriptomics deconvolution
+
+### Cell Communication Analysis with LIANA+
+
+ChatSpatial uses LIANA+ (Ligand-receptor Analysis) for fast and comprehensive cell communication analysis:
+
+**Features:**
+
+- **Spatial Bivariate Analysis**: Analyze ligand-receptor pairs using spatial bivariate metrics (cosine, pearson, spearman, jaccard)
+- **Global Spatial Metrics**: Moran's I and Lee's L for spatial autocorrelation analysis
+- **Multiple LR Databases**: Support for consensus, CellChat, CellPhoneDB, Connectome, and OmniPath databases
+- **Fast Performance**: Optimized for interactive usage (1-2 minutes vs 10-30 minutes for other methods)
+- **Comprehensive Visualization**: Spatial plots showing communication patterns and significance
+
+**Example Usage:**
+
+```text
+"Analyze cell communication using LIANA+ with cosine similarity"
+"Find ligand-receptor pairs using Moran's I global metric"
+"Visualize spatial communication patterns for VEGFA-KDR interaction"
+```
+
+### Advanced Spatial Variable Genes with GASTON
+
+ChatSpatial integrates GASTON (Graph Attention Spatial Transcriptomics Organizer Network) for state-of-the-art spatial variable gene identification:
+
+**Features:**
+
+- **Deep Learning Approach**: Neural network-based topology learning for tissue organization
+- **Isodepth Mapping**: Learn continuous topographic coordinates that capture tissue structure
+- **Spatial Domain Identification**: Automatic identification of spatial domains based on learned topology
+- **Flexible Preprocessing**: Support for GLM-PCA and Pearson residuals preprocessing methods
+- **Comprehensive Visualization**: Isodepth maps, spatial domains, and model performance metrics
+- **Gene Pattern Classification**: Identify genes with continuous gradients vs. discontinuous patterns
+
+**Example Usage:**
+
+```text
+"Find spatial variable genes using GASTON with GLM-PCA preprocessing"
+"Identify spatial domains using GASTON with 1000 training epochs"
+"Visualize tissue topology using GASTON isodepth mapping"
+```
+
+### Enhanced Data Preprocessing
+
+ChatSpatial provides comprehensive, user-controlled data preprocessing with intelligent defaults:
+
+**Features:**
+
+- **User-Controlled Filtering**: Specify exact thresholds for gene and cell filtering
+- **Smart Subsampling**: Subsample spots and genes for performance optimization
+- **Data Type Adaptation**: Automatic detection and handling of different data types (Visium, MERFISH, etc.)
+- **Flexible Parameters**: Full control over normalization, scaling, and dimensionality reduction
+- **Quality Control**: Comprehensive QC metrics and filtering efficiency reporting
+
+**Example Usage:**
+
+```text
+"Preprocess data with genes expressed in at least 15 cells and cells expressing at least 500 genes"
+"Subsample my dataset to 800 spots and 2000 most variable genes for faster analysis"
+"Use conservative filtering with 10 minimum cells per gene"
+```
 
 ## Resources
 
@@ -137,11 +199,14 @@ The server provides the following resources:
 - squidpy - Spatial transcriptomics analysis
 - anndata - AnnData data structure
 - scikit-learn - Machine learning algorithms
+- liana (optional) - Cell communication analysis with LIANA+
 - cell2location (optional) - Spatial transcriptomics deconvolution
 - Spotiphy (optional) - Spatial transcriptomics deconvolution
 - torch, pyro-ppl (optional) - For Spotiphy and cell2location
 - cellrank (optional) - Trajectory analysis
 - scvelo (optional) - RNA velocity analysis
+- GASTON (optional) - Advanced spatial variable genes identification with deep learning
+- glmpca (optional) - GLM-PCA preprocessing for GASTON
 
 ## License
 

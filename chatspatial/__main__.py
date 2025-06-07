@@ -8,6 +8,12 @@ ChatSpatial server using either stdio or SSE transport.
 import click
 import sys
 import traceback
+import warnings
+
+# Suppress warnings to speed up startup
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+
 from .server import mcp
 
 @click.command()

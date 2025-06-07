@@ -61,16 +61,14 @@ async def find_spatial_genes(
 
 **实现方案**：
 - **CellChat**：细胞通讯网络分析
-- **CellPhoneDB**：配体-受体相互作用分析
-- **COMMOT**：基于最优传输的通讯分析
-- **SpatialDM**：空间依赖的分子相互作用
+- **LIANA+**：现代化的配体-受体相互作用分析
 
 **新增工具**：
 ```python
 @mcp.tool()
 async def analyze_cell_communication(
     data_id: str,
-    method: str = "cellchat",  # cellchat, cellphonedb, commot, spatialdm
+    method: str = "liana",  # liana only
     database: str = "cellchatdb",
     min_cells: int = 10,
     context: Context = None

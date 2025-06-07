@@ -66,22 +66,59 @@ async def preprocess_data(
             "median_umi_per_cell": str(np.median(adata.obs.total_counts))
         }
 
-        # 2. Filter cells and genes (optional)
-        # Here we use mild filtering to remove cells with very few genes and genes expressed in very few cells
+        # 2. Apply user-controlled data filtering and subsampling
         if context:
-            await context.info("Filtering cells and genes...")
+            await context.info("Applying data filtering and subsampling...")
 
-        # Check if this is MERFISH data (typically has fewer genes)
-        if adata.n_vars < 200:
-            # For MERFISH data, use more lenient filtering
-            min_genes = min(50, adata.n_vars // 2)  # Use half of the genes or 50, whichever is smaller
+        # Apply gene filtering
+        if params.filter_genes_min_cells is not None:
+            min_cells = params.filter_genes_min_cells
             if context:
-                await context.info(f"Detected possible MERFISH data, using lenient filtering (min_genes={min_genes})")
+                await context.info(f"Filtering genes expressed in < {min_cells} cells")
         else:
-            min_genes = 200
+            # Auto-determine based on data type
+            if adata.n_vars < 200:
+                min_cells = max(1, adata.n_obs // 100)  # For MERFISH: at least 1% of cells
+                if context:
+                    await context.info(f"Auto-detected MERFISH-like data, using min_cells={min_cells}")
+            else:
+                min_cells = 3  # Standard filtering
+                if context:
+                    await context.info(f"Using standard gene filtering (min_cells={min_cells})")
+
+        sc.pp.filter_genes(adata, min_cells=min_cells)
+
+        # Apply cell filtering
+        if params.filter_cells_min_genes is not None:
+            min_genes = params.filter_cells_min_genes
+            if context:
+                await context.info(f"Filtering cells expressing < {min_genes} genes")
+        else:
+            # Auto-determine based on data type
+            if adata.n_vars < 200:
+                min_genes = min(50, adata.n_vars // 2)  # For MERFISH: use half of genes or 50
+                if context:
+                    await context.info(f"Auto-detected MERFISH-like data, using min_genes={min_genes}")
+            else:
+                min_genes = 200  # Standard filtering
+                if context:
+                    await context.info(f"Using standard cell filtering (min_genes={min_genes})")
 
         sc.pp.filter_cells(adata, min_genes=min_genes)
-        sc.pp.filter_genes(adata, min_cells=3)
+
+        # Apply spot subsampling if requested
+        if params.subsample_spots is not None and params.subsample_spots < adata.n_obs:
+            if context:
+                await context.info(f"Subsampling from {adata.n_obs} to {params.subsample_spots} spots")
+            sc.pp.subsample(adata, n_obs=params.subsample_spots, random_state=params.subsample_random_seed)
+
+        # Apply gene subsampling if requested (after HVG selection)
+        gene_subsample_requested = params.subsample_genes is not None
+
+        # Save raw data before normalization (required for some analysis methods)
+        if context:
+            await context.info("Saving raw data for downstream analysis...")
+        adata.raw = adata
 
         # Update QC metrics after filtering
         qc_metrics.update({
@@ -104,23 +141,44 @@ async def preprocess_data(
             sc.pp.log1p(adata)
             # Add additional variance stabilization steps here
 
-        # 4. Find highly variable genes
+        # 4. Find highly variable genes and apply gene subsampling
         if context:
             await context.info(f"Finding highly variable genes...")
 
-        # Adjust n_hvgs based on dataset size
-        n_hvgs = min(params.n_hvgs, adata.n_vars - 1)  # Ensure we don't try to select more HVGs than available genes
+        # Determine number of HVGs to select
+        if gene_subsample_requested:
+            # User wants to subsample genes
+            n_hvgs = min(params.subsample_genes, adata.n_vars - 1, params.n_hvgs)
+            if context:
+                await context.info(f"User requested {params.subsample_genes} genes, selecting {n_hvgs} highly variable genes")
+        else:
+            # Use standard HVG selection
+            n_hvgs = min(params.n_hvgs, adata.n_vars - 1)
+            if context:
+                await context.info(f"Using {n_hvgs} highly variable genes...")
 
-        if context:
-            await context.info(f"Using {n_hvgs} highly variable genes...")
-
-        # For very small gene sets, we might want to use all genes
+        # For very small gene sets, use all genes
         if adata.n_vars < 200:
             if context:
                 await context.info(f"Small gene set detected ({adata.n_vars} genes), using all genes for analysis")
             adata.var['highly_variable'] = True
         else:
             sc.pp.highly_variable_genes(adata, n_top_genes=n_hvgs)
+
+        # Apply gene subsampling if requested
+        if gene_subsample_requested and params.subsample_genes < adata.n_vars:
+            if 'highly_variable' in adata.var and adata.var['highly_variable'].any():
+                # Keep only highly variable genes
+                adata = adata[:, adata.var['highly_variable']].copy()
+                if context:
+                    await context.info(f"Subsampled to {adata.n_vars} highly variable genes")
+            else:
+                # Fallback: keep top variable genes by variance
+                gene_var = np.var(adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X, axis=0)
+                top_genes_idx = np.argsort(gene_var)[-params.subsample_genes:]
+                adata = adata[:, top_genes_idx].copy()
+                if context:
+                    await context.info(f"Subsampled to {adata.n_vars} top variable genes")
 
         # 5. Scale data (if requested)
         if params.scale:

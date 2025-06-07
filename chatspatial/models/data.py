@@ -16,6 +16,14 @@ class SpatialDataset(BaseModel):
 
 class AnalysisParameters(BaseModel):
     """Analysis parameters model"""
+    # Data filtering and subsampling parameters (user controlled)
+    filter_genes_min_cells: Optional[Annotated[int, Field(gt=0)]] = None  # Filter genes expressed in < N cells (None = auto: 3 for regular data, adaptive for MERFISH)
+    filter_cells_min_genes: Optional[Annotated[int, Field(gt=0)]] = None  # Filter cells expressing < N genes (None = auto: 200 for regular data, adaptive for MERFISH)
+    subsample_spots: Optional[Annotated[int, Field(gt=0, le=50000)]] = None  # Subsample to N spots (None = no subsampling)
+    subsample_genes: Optional[Annotated[int, Field(gt=0, le=50000)]] = None  # Keep top N variable genes (None = keep all filtered genes)
+    subsample_random_seed: int = 42  # Random seed for subsampling
+
+    # Normalization and scaling parameters
     normalization: Literal["log", "sct", "none"] = "log"
     scale: bool = True
     n_hvgs: Annotated[int, Field(gt=0, le=5000)] = 2000
@@ -126,64 +134,64 @@ class SpatialDomainParameters(BaseModel):
     image_format: Literal["png", "jpg"] = "png"  # Image format
 
 
+
 class SpatialVariableGenesParameters(BaseModel):
-    """Spatial variable genes identification parameters model"""
-    method: Literal["spatialde", "spark", "trendsceek"] = "spatialde"
+    """GASTON spatial variable genes identification parameters model"""
+    # Preprocessing parameters
+    preprocessing_method: Literal["glmpca", "pearson_residuals"] = "glmpca"
+    n_components: Annotated[int, Field(gt=0, le=50)] = 10  # Number of components for dimensionality reduction
 
-    # General parameters
-    n_top_genes: Annotated[int, Field(gt=0, le=10000)] = 100  # Number of top spatial genes to return
-    significance_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = 0.05  # FDR threshold for significance
+    # Neural network architecture parameters
+    spatial_hidden_layers: List[Annotated[int, Field(gt=0, le=1000)]] = [50]  # Architecture for spatial embedding f_S
+    expression_hidden_layers: List[Annotated[int, Field(gt=0, le=1000)]] = [10]  # Architecture for expression function f_A
 
-    # SpatialDE specific parameters
-    spatialde_kernel: Literal["SE", "linear", "periodic"] = "SE"  # Kernel type for SpatialDE
-    spatialde_normalize: bool = True  # Whether to normalize and stabilize expression data
-    spatialde_regress_out_total_counts: bool = True  # Whether to regress out total counts
+    # Training parameters
+    epochs: Annotated[int, Field(gt=0, le=50000)] = 10000  # Number of training epochs
+    learning_rate: Annotated[float, Field(gt=0.0, le=1.0)] = 0.001  # Learning rate
+    optimizer: Literal["adam", "sgd", "adagrad"] = "adam"  # Optimizer type
+    batch_size: Optional[Annotated[int, Field(gt=0, le=10000)]] = None  # Batch size (None for full batch)
 
-    # SPARK specific parameters (if implemented)
-    spark_num_core: int = 1  # Number of cores for SPARK
-    spark_verbose: bool = False  # Verbose output for SPARK
+    # Positional encoding parameters
+    use_positional_encoding: bool = False  # Whether to use positional encoding
+    embedding_size: Annotated[int, Field(gt=0, le=20)] = 4  # Positional encoding embedding size
+    sigma: Annotated[float, Field(gt=0.0, le=1.0)] = 0.2  # Positional encoding sigma parameter
 
-    # Automatic Expression Histology (AEH) parameters
-    perform_aeh: bool = False  # Whether to perform automatic expression histology
-    aeh_n_patterns: Annotated[int, Field(gt=0, le=20)] = 5  # Number of spatial patterns for AEH
-    aeh_length_scale: Optional[float] = None  # Length scale for AEH (auto-determined if None)
+    # Model saving parameters
+    checkpoint_interval: Annotated[int, Field(gt=0, le=5000)] = 500  # Save model every N epochs
+    random_seed: Annotated[int, Field(ge=0, le=1000)] = 0  # Random seed for reproducibility
+
+    # Analysis parameters
+    spatial_domain_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = 0.95  # Quantile threshold for spatial domain identification
+    gradient_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = 0.95  # Quantile threshold for gradient detection
 
     # Visualization parameters
-    include_image: bool = True  # Whether to include visualization
+    include_visualization: bool = True  # Whether to generate visualizations
+    plot_isodepth_map: bool = True  # Whether to plot isodepth map
+    plot_spatial_domains: bool = True  # Whether to plot spatial domains
     plot_top_genes: Annotated[int, Field(gt=0, le=20)] = 6  # Number of top genes to visualize
-    image_dpi: Annotated[int, Field(gt=0, le=300)] = 100  # DPI for output image
+    image_dpi: Annotated[int, Field(gt=0, le=300)] = 100  # DPI for output images
     image_format: Literal["png", "jpg"] = "png"  # Image format
 
 
 class CellCommunicationParameters(BaseModel):
     """Cell-cell communication analysis parameters model"""
-    method: Literal["commot", "spatialdm", "cellphonedb"] = "commot"
+    method: Literal["liana"] = "liana"  # Only LIANA+ is supported
 
     # General parameters
     species: Literal["human", "mouse", "zebrafish"] = "human"  # Species for ligand-receptor database
-    database: Literal["cellchat", "cellphonedb", "user"] = "cellchat"  # Ligand-receptor database
     min_cells: Annotated[int, Field(ge=0)] = 3  # Minimum cells expressing ligand or receptor
 
-    # COMMOT specific parameters
-    commot_dis_thr: Annotated[float, Field(gt=0)] = 200.0  # Distance threshold for COMMOT
-    commot_heteromeric: bool = True  # Whether to consider heteromeric complexes
-    commot_n_permutations: Annotated[int, Field(gt=0)] = 100  # Number of permutations for significance testing
+    # LIANA+ specific parameters
+    liana_resource: Literal["consensus", "cellchat", "cellphonedb", "connectome", "omnipath"] = "consensus"  # LR database resource
+    liana_local_metric: Literal["cosine", "pearson", "spearman", "jaccard"] = "cosine"  # Local spatial metric
+    liana_global_metric: Literal["morans", "lee"] = "morans"  # Global spatial metric
+    liana_n_perms: Annotated[int, Field(gt=0)] = 100  # Number of permutations for LIANA
+    liana_nz_prop: Annotated[float, Field(gt=0.0, le=1.0)] = 0.2  # Minimum expression proportion
+    liana_bandwidth: Optional[int] = None  # Bandwidth for spatial connectivity (auto-determined if None)
+    liana_cutoff: Annotated[float, Field(gt=0.0, le=1.0)] = 0.1  # Cutoff for spatial connectivity
+    perform_spatial_analysis: bool = True  # Whether to perform spatial bivariate analysis (vs cluster-based)
 
-    # SpatialDM specific parameters
-    spatialdm_l: Optional[float] = None  # RBF kernel parameter (auto-determined if None)
-    spatialdm_cutoff: Annotated[float, Field(gt=0.0, le=1.0)] = 0.1  # Weight cutoff for SpatialDM
-    spatialdm_n_neighbors: Optional[int] = None  # Number of neighbors (auto-determined if None)
-    spatialdm_n_permutations: Annotated[int, Field(gt=0)] = 1000  # Number of permutations
-    spatialdm_method: Literal["z-score", "permutation", "both"] = "z-score"  # Statistical method
-    spatialdm_fdr: bool = True  # Whether to apply FDR correction
-    spatialdm_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = 0.1  # Significance threshold
-
-    # Analysis options
-    perform_global_analysis: bool = True  # Whether to perform global LR pair selection
-    perform_local_analysis: bool = True  # Whether to perform local spot analysis
-    identify_communication_patterns: bool = False  # Whether to identify communication patterns
-
-    # Custom ligand-receptor pairs (if database="user")
+    # Custom ligand-receptor pairs (for advanced users)
     custom_lr_pairs: Optional[List[Tuple[str, str]]] = None  # Custom LR pairs as (ligand, receptor) tuples
 
     # Visualization parameters
