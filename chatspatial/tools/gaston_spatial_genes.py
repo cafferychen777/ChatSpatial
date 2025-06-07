@@ -80,15 +80,9 @@ async def identify_spatial_variable_genes_gaston(
     if spatial_coords.shape[1] != 2:
         raise ValueError("Spatial coordinates must be 2D (x, y)")
 
-    # Apply user-controlled data filtering and subsampling
+    # Log data information
     if context:
-        await context.info(f"Original data: {adata.n_obs} spots, {adata.n_vars} genes")
-
-    # Apply filtering and subsampling if requested by user
-    adata_processed = await _apply_user_preprocessing(adata, params, context)
-
-    # Update spatial coordinates after potential subsampling
-    spatial_coords = adata_processed.obsm['spatial']
+        await context.info(f"Processing data: {adata.n_obs} spots, {adata.n_vars} genes")
 
     # Preprocessing
     if context:
