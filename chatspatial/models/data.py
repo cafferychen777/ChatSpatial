@@ -36,14 +36,23 @@ class VisualizationParameters(BaseModel):
     plot_type: Literal[
         "spatial", "heatmap", "violin", "umap",
         "spatial_domains", "cell_communication", "deconvolution",
-        "trajectory", "gaston_isodepth", "spatial_analysis"
+        "trajectory", "gaston_isodepth", "spatial_analysis",
+        "multi_gene", "lr_pairs", "gene_correlation"
     ] = "spatial"
     colormap: str = "viridis"
 
-    # Multi-panel visualization parameters
-    multi_panel: bool = False
+    # Multi-gene visualization parameters
     features: Optional[List[str]] = None  # Multiple features for multi-panel plots
+    multi_panel: bool = False  # Whether to create multi-panel plots
     panel_layout: Optional[Tuple[int, int]] = None  # (rows, cols) - auto-determined if None
+
+    # Ligand-receptor pair parameters
+    lr_pairs: Optional[List[Tuple[str, str]]] = None  # List of (ligand, receptor) pairs
+    lr_database: str = "cellchat"  # Database for LR pairs
+
+    # Gene correlation parameters
+    correlation_method: Literal["pearson", "spearman", "kendall"] = "pearson"
+    show_correlation_stats: bool = True
 
     # Figure parameters
     figure_size: Optional[Tuple[int, int]] = None  # (width, height) - auto-determined if None
@@ -51,11 +60,17 @@ class VisualizationParameters(BaseModel):
     alpha: float = 0.8
     spot_size: Optional[float] = None  # Auto-determined if None
 
+    # Color parameters
+    vmin: Optional[float] = None  # Minimum value for color scale
+    vmax: Optional[float] = None  # Maximum value for color scale
+    color_scale: Literal["linear", "log", "sqrt"] = "linear"  # Color scaling
+
     # Display parameters
     title: Optional[str] = None
     show_legend: bool = True
     show_colorbar: bool = True
     show_axes: bool = True
+    add_gene_labels: bool = True  # Whether to add gene names as labels
 
     # Legacy parameters (for backward compatibility)
     show_deconvolution: bool = False  # Whether to show deconvolution results

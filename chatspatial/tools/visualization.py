@@ -11,6 +11,10 @@ import anndata as ad
 import traceback
 import pandas as pd
 import warnings
+import seaborn as sns
+from scipy.stats import pearsonr, spearmanr, kendalltau
+from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy.spatial.distance import squareform
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.utilities.types import Image
 
@@ -254,7 +258,8 @@ async def visualize_data(
     valid_plot_types = [
         "spatial", "umap", "heatmap", "violin",
         "deconvolution", "spatial_domains", "cell_communication",
-        "trajectory", "gaston_isodepth", "spatial_analysis"
+        "trajectory", "gaston_isodepth", "spatial_analysis",
+        "multi_gene", "lr_pairs", "gene_correlation"
     ]
     if params.plot_type not in valid_plot_types:
         error_msg = f"Invalid plot_type: {params.plot_type}. Must be one of {valid_plot_types}"
@@ -583,6 +588,27 @@ async def visualize_data(
             # Create cell communication visualization
             fig = await create_cell_communication_visualization(adata, params, context)
 
+        elif params.plot_type == "multi_gene":
+            if context:
+                await context.info("Creating multi-gene visualization")
+
+            # Create multi-gene visualization
+            fig = await create_multi_gene_visualization(adata, params, context)
+
+        elif params.plot_type == "lr_pairs":
+            if context:
+                await context.info("Creating ligand-receptor pairs visualization")
+
+            # Create LR pairs visualization
+            fig = await create_lr_pairs_visualization(adata, params, context)
+
+        elif params.plot_type == "gene_correlation":
+            if context:
+                await context.info("Creating gene correlation visualization")
+
+            # Create gene correlation visualization
+            fig = await create_gene_correlation_visualization(adata, params, context)
+
         else:
             # This should never happen due to parameter validation at the beginning
             error_msg = f"Unsupported plot type: {params.plot_type}"
@@ -803,3 +829,514 @@ async def create_cell_communication_visualization(
     ax.set_title('Cell Communication')
     ax.axis('off')
     return fig
+
+
+async def create_multi_gene_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create multi-gene visualization
+
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with multi-gene visualization
+    """
+    try:
+        # Get genes to visualize
+        if params.features:
+            genes = params.features
+        elif params.feature:
+            genes = [params.feature]
+        else:
+            # Use top highly variable genes as default
+            if 'highly_variable' in adata.var.columns:
+                genes = adata.var_names[adata.var.highly_variable][:6].tolist()
+            else:
+                genes = adata.var_names[:6].tolist()
+
+        # Filter genes that exist in the data
+        available_genes = [gene for gene in genes if gene in adata.var_names]
+
+        if not available_genes:
+            raise DataNotFoundError(f"None of the specified genes found in data: {genes}")
+
+        if context:
+            await context.info(f"Visualizing {len(available_genes)} genes: {available_genes}")
+
+        # Determine figure layout
+        n_genes = len(available_genes)
+        if params.panel_layout:
+            n_rows, n_cols = params.panel_layout
+        else:
+            n_cols = min(3, n_genes)
+            n_rows = (n_genes + n_cols - 1) // n_cols
+
+        # Determine figure size
+        if params.figure_size:
+            figsize = params.figure_size
+        else:
+            figsize = (4*n_cols, 4*n_rows)
+
+        # Create figure
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize, dpi=params.dpi)
+        axes = axes.flatten() if n_genes > 1 else [axes]
+
+        # Set figure title
+        title = params.title or f"Multi-Gene Expression ({len(available_genes)} genes)"
+        fig.suptitle(title, fontsize=16)
+        plt.subplots_adjust(top=0.9)
+
+        # Plot each gene
+        for i, gene in enumerate(available_genes):
+            if i < len(axes):
+                ax = axes[i]
+                try:
+                    # Get gene expression
+                    gene_expr = adata[:, gene].X
+                    if hasattr(gene_expr, 'toarray'):
+                        gene_expr = gene_expr.toarray().flatten()
+                    elif hasattr(gene_expr, 'A1'):
+                        gene_expr = gene_expr.A1
+                    else:
+                        gene_expr = np.array(gene_expr).flatten()
+
+                    # Apply color scaling
+                    if params.color_scale == "log":
+                        gene_expr = np.log1p(gene_expr)
+                    elif params.color_scale == "sqrt":
+                        gene_expr = np.sqrt(gene_expr)
+
+                    # Set color limits
+                    vmin = params.vmin if params.vmin is not None else np.percentile(gene_expr, 1)
+                    vmax = params.vmax if params.vmax is not None else np.percentile(gene_expr, 99)
+
+                    # Create spatial plot
+                    if 'spatial' in adata.obsm:
+                        coords = adata.obsm['spatial']
+                        scatter = ax.scatter(
+                            coords[:, 0],
+                            coords[:, 1],
+                            c=gene_expr,
+                            cmap=params.colormap,
+                            alpha=params.alpha,
+                            s=params.spot_size or 20,
+                            vmin=vmin,
+                            vmax=vmax
+                        )
+
+                        # Add colorbar if requested
+                        if params.show_colorbar:
+                            plt.colorbar(scatter, ax=ax, shrink=0.8)
+
+                        ax.set_aspect('equal')
+                        ax.invert_yaxis()
+
+                        if params.add_gene_labels:
+                            ax.set_title(gene, fontsize=12)
+
+                        if not params.show_axes:
+                            ax.set_xticks([])
+                            ax.set_yticks([])
+                    else:
+                        # Fallback: histogram
+                        ax.hist(gene_expr, bins=30, alpha=params.alpha, color='steelblue')
+                        ax.set_xlabel('Expression')
+                        ax.set_ylabel('Frequency')
+                        if params.add_gene_labels:
+                            ax.set_title(gene, fontsize=12)
+
+                except Exception as e:
+                    # Handle individual gene plotting errors
+                    ax.text(0.5, 0.5, f'Error plotting {gene}:\n{str(e)}',
+                           ha='center', va='center', transform=ax.transAxes)
+                    if params.add_gene_labels:
+                        ax.set_title(f'{gene} (Error)', fontsize=12)
+
+        # Hide empty axes
+        for i in range(n_genes, len(axes)):
+            axes[i].axis('off')
+
+        plt.tight_layout()
+        return fig
+
+    except Exception as e:
+        # Create error figure
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, f'Error creating multi-gene visualization:\n{str(e)}',
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title('Multi-Gene Visualization Error')
+        ax.axis('off')
+        return fig
+
+
+async def create_lr_pairs_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create ligand-receptor pairs visualization
+
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with LR pairs visualization
+    """
+    try:
+        # Get LR pairs to visualize
+        if params.lr_pairs:
+            lr_pairs = params.lr_pairs
+        elif params.features and len(params.features) >= 2:
+            # Assume pairs of genes in features list
+            lr_pairs = [(params.features[i], params.features[i+1])
+                       for i in range(0, len(params.features)-1, 2)]
+        else:
+            # Default LR pairs for demonstration
+            lr_pairs = [
+                ("CCL21", "CCR7"),
+                ("CCL19", "CCR7"),
+                ("CXCL13", "CXCR5"),
+                ("FN1", "CD79A")
+            ]
+
+        # Filter pairs where both genes exist
+        available_pairs = []
+        for ligand, receptor in lr_pairs:
+            if ligand in adata.var_names and receptor in adata.var_names:
+                available_pairs.append((ligand, receptor))
+
+        if not available_pairs:
+            raise DataNotFoundError(f"None of the specified LR pairs found in data: {lr_pairs}")
+
+        if context:
+            await context.info(f"Visualizing {len(available_pairs)} LR pairs: {available_pairs}")
+
+        # Determine figure layout
+        n_pairs = len(available_pairs)
+        if params.panel_layout:
+            n_rows, n_cols = params.panel_layout
+        else:
+            # Each pair gets 3 panels: ligand, receptor, correlation
+            n_panels = n_pairs * 3
+            n_cols = min(3, n_panels)
+            n_rows = (n_panels + n_cols - 1) // n_cols
+
+        # Determine figure size
+        if params.figure_size:
+            figsize = params.figure_size
+        else:
+            figsize = (4*n_cols, 4*n_rows)
+
+        # Create figure
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize, dpi=params.dpi)
+        axes = axes.flatten() if n_panels > 1 else [axes]
+
+        # Set figure title
+        title = params.title or f"Ligand-Receptor Pairs ({len(available_pairs)} pairs)"
+        fig.suptitle(title, fontsize=16)
+        plt.subplots_adjust(top=0.9)
+
+        # Plot each LR pair
+        ax_idx = 0
+        for pair_idx, (ligand, receptor) in enumerate(available_pairs):
+            try:
+                # Get expression data
+                ligand_expr = adata[:, ligand].X
+                receptor_expr = adata[:, receptor].X
+
+                if hasattr(ligand_expr, 'toarray'):
+                    ligand_expr = ligand_expr.toarray().flatten()
+                    receptor_expr = receptor_expr.toarray().flatten()
+                elif hasattr(ligand_expr, 'A1'):
+                    ligand_expr = ligand_expr.A1
+                    receptor_expr = receptor_expr.A1
+                else:
+                    ligand_expr = np.array(ligand_expr).flatten()
+                    receptor_expr = np.array(receptor_expr).flatten()
+
+                # Apply color scaling
+                if params.color_scale == "log":
+                    ligand_expr = np.log1p(ligand_expr)
+                    receptor_expr = np.log1p(receptor_expr)
+                elif params.color_scale == "sqrt":
+                    ligand_expr = np.sqrt(ligand_expr)
+                    receptor_expr = np.sqrt(receptor_expr)
+
+                # Plot ligand
+                if ax_idx < len(axes) and 'spatial' in adata.obsm:
+                    coords = adata.obsm['spatial']
+                    ax = axes[ax_idx]
+
+                    vmin = params.vmin if params.vmin is not None else np.percentile(ligand_expr, 1)
+                    vmax = params.vmax if params.vmax is not None else np.percentile(ligand_expr, 99)
+
+                    scatter = ax.scatter(
+                        coords[:, 0], coords[:, 1],
+                        c=ligand_expr,
+                        cmap=params.colormap,
+                        alpha=params.alpha,
+                        s=params.spot_size or 20,
+                        vmin=vmin, vmax=vmax
+                    )
+
+                    if params.show_colorbar:
+                        plt.colorbar(scatter, ax=ax, shrink=0.8)
+
+                    ax.set_aspect('equal')
+                    ax.invert_yaxis()
+                    if params.add_gene_labels:
+                        ax.set_title(f"{ligand} (Ligand)", fontsize=10)
+                    if not params.show_axes:
+                        ax.set_xticks([])
+                        ax.set_yticks([])
+
+                    ax_idx += 1
+
+                # Plot receptor
+                if ax_idx < len(axes) and 'spatial' in adata.obsm:
+                    ax = axes[ax_idx]
+
+                    vmin = params.vmin if params.vmin is not None else np.percentile(receptor_expr, 1)
+                    vmax = params.vmax if params.vmax is not None else np.percentile(receptor_expr, 99)
+
+                    scatter = ax.scatter(
+                        coords[:, 0], coords[:, 1],
+                        c=receptor_expr,
+                        cmap=params.colormap,
+                        alpha=params.alpha,
+                        s=params.spot_size or 20,
+                        vmin=vmin, vmax=vmax
+                    )
+
+                    if params.show_colorbar:
+                        plt.colorbar(scatter, ax=ax, shrink=0.8)
+
+                    ax.set_aspect('equal')
+                    ax.invert_yaxis()
+                    if params.add_gene_labels:
+                        ax.set_title(f"{receptor} (Receptor)", fontsize=10)
+                    if not params.show_axes:
+                        ax.set_xticks([])
+                        ax.set_yticks([])
+
+                    ax_idx += 1
+
+                # Plot correlation
+                if ax_idx < len(axes):
+                    ax = axes[ax_idx]
+
+                    # Calculate correlation
+                    from scipy.stats import pearsonr, spearmanr, kendalltau
+
+                    if params.correlation_method == "pearson":
+                        corr, p_value = pearsonr(ligand_expr, receptor_expr)
+                    elif params.correlation_method == "spearman":
+                        corr, p_value = spearmanr(ligand_expr, receptor_expr)
+                    else:  # kendall
+                        corr, p_value = kendalltau(ligand_expr, receptor_expr)
+
+                    # Create scatter plot
+                    ax.scatter(ligand_expr, receptor_expr, alpha=params.alpha, s=20)
+                    ax.set_xlabel(f"{ligand} Expression")
+                    ax.set_ylabel(f"{receptor} Expression")
+
+                    if params.show_correlation_stats:
+                        ax.set_title(f"Correlation: {corr:.3f}\np-value: {p_value:.2e}", fontsize=10)
+                    else:
+                        ax.set_title(f"{ligand} vs {receptor}", fontsize=10)
+
+                    # Add trend line
+                    z = np.polyfit(ligand_expr, receptor_expr, 1)
+                    p = np.poly1d(z)
+                    ax.plot(ligand_expr, p(ligand_expr), "r--", alpha=0.8)
+
+                    ax_idx += 1
+
+            except Exception as e:
+                # Handle individual pair plotting errors
+                if ax_idx < len(axes):
+                    ax = axes[ax_idx]
+                    ax.text(0.5, 0.5, f'Error plotting {ligand}-{receptor}:\n{str(e)}',
+                           ha='center', va='center', transform=ax.transAxes)
+                    ax.set_title(f'{ligand}-{receptor} (Error)', fontsize=10)
+                    ax_idx += 1
+
+        # Hide empty axes
+        for i in range(ax_idx, len(axes)):
+            axes[i].axis('off')
+
+        plt.tight_layout()
+        return fig
+
+    except Exception as e:
+        # Create error figure
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, f'Error creating LR pairs visualization:\n{str(e)}',
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title('LR Pairs Visualization Error')
+        ax.axis('off')
+        return fig
+
+
+async def create_gene_correlation_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create gene correlation visualization
+
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with gene correlation visualization
+    """
+    try:
+        # Get genes to analyze
+        if params.features:
+            genes = params.features
+        elif params.feature:
+            genes = [params.feature]
+        else:
+            # Use top highly variable genes as default
+            if 'highly_variable' in adata.var.columns:
+                genes = adata.var_names[adata.var.highly_variable][:10].tolist()
+            else:
+                genes = adata.var_names[:10].tolist()
+
+        # Filter genes that exist in the data
+        available_genes = [gene for gene in genes if gene in adata.var_names]
+
+        if len(available_genes) < 2:
+            raise DataNotFoundError(f"Need at least 2 genes for correlation analysis. Found: {available_genes}")
+
+        if context:
+            await context.info(f"Computing correlations for {len(available_genes)} genes: {available_genes}")
+
+        # Get expression matrix
+        expr_matrix = adata[:, available_genes].X
+        if hasattr(expr_matrix, 'toarray'):
+            expr_matrix = expr_matrix.toarray()
+
+        # Apply color scaling
+        if params.color_scale == "log":
+            expr_matrix = np.log1p(expr_matrix)
+        elif params.color_scale == "sqrt":
+            expr_matrix = np.sqrt(expr_matrix)
+
+        # Calculate correlation matrix
+        from scipy.stats import pearsonr, spearmanr
+
+        n_genes = len(available_genes)
+        corr_matrix = np.zeros((n_genes, n_genes))
+        p_value_matrix = np.zeros((n_genes, n_genes))
+
+        for i in range(n_genes):
+            for j in range(n_genes):
+                if i == j:
+                    corr_matrix[i, j] = 1.0
+                    p_value_matrix[i, j] = 0.0
+                else:
+                    if params.correlation_method == "pearson":
+                        corr, p_val = pearsonr(expr_matrix[:, i], expr_matrix[:, j])
+                    else:  # spearman
+                        corr, p_val = spearmanr(expr_matrix[:, i], expr_matrix[:, j])
+
+                    corr_matrix[i, j] = corr
+                    p_value_matrix[i, j] = p_val
+
+        # Determine figure size
+        if params.figure_size:
+            figsize = params.figure_size
+        else:
+            figsize = (max(8, n_genes), max(6, n_genes))
+
+        # Create figure with subplots
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, dpi=params.dpi)
+
+        # Set figure title
+        title = params.title or f"Gene Correlation Analysis ({params.correlation_method.title()})"
+        fig.suptitle(title, fontsize=16)
+
+        # Plot correlation heatmap
+        import seaborn as sns
+
+        # Correlation heatmap
+        sns.heatmap(
+            corr_matrix,
+            annot=True,
+            cmap=params.colormap,
+            center=0,
+            square=True,
+            xticklabels=available_genes,
+            yticklabels=available_genes,
+            ax=ax1,
+            cbar_kws={'shrink': 0.8}
+        )
+        ax1.set_title(f'{params.correlation_method.title()} Correlation')
+        ax1.tick_params(axis='x', rotation=45)
+        ax1.tick_params(axis='y', rotation=0)
+
+        # P-value heatmap
+        if params.show_correlation_stats:
+            # Create significance mask
+            sig_mask = p_value_matrix < 0.05
+
+            sns.heatmap(
+                -np.log10(p_value_matrix + 1e-10),  # -log10 p-values
+                annot=True,
+                cmap='Reds',
+                square=True,
+                xticklabels=available_genes,
+                yticklabels=available_genes,
+                ax=ax2,
+                cbar_kws={'shrink': 0.8, 'label': '-log10(p-value)'}
+            )
+            ax2.set_title('Statistical Significance')
+            ax2.tick_params(axis='x', rotation=45)
+            ax2.tick_params(axis='y', rotation=0)
+
+            # Add significance markers
+            for i in range(n_genes):
+                for j in range(n_genes):
+                    if sig_mask[i, j] and i != j:
+                        ax2.text(j + 0.5, i + 0.5, '*',
+                               ha='center', va='center',
+                               color='white', fontsize=16, fontweight='bold')
+        else:
+            # Show clustered correlation
+            from scipy.cluster.hierarchy import linkage, dendrogram
+            from scipy.spatial.distance import squareform
+
+            # Convert correlation to distance
+            distance_matrix = 1 - np.abs(corr_matrix)
+            condensed_distances = squareform(distance_matrix, checks=False)
+
+            # Perform hierarchical clustering
+            linkage_matrix = linkage(condensed_distances, method='average')
+
+            # Plot dendrogram
+            dendrogram(linkage_matrix, labels=available_genes, ax=ax2, orientation='top')
+            ax2.set_title('Gene Clustering')
+            ax2.tick_params(axis='x', rotation=45)
+
+        plt.tight_layout()
+        return fig
+
+    except Exception as e:
+        # Create error figure
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, f'Error creating gene correlation visualization:\n{str(e)}',
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title('Gene Correlation Visualization Error')
+        ax.axis('off')
+        return fig
