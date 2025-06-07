@@ -33,8 +33,31 @@ class AnalysisParameters(BaseModel):
 class VisualizationParameters(BaseModel):
     """Visualization parameters model"""
     feature: Optional[str] = None
-    plot_type: Literal["spatial", "heatmap", "violin", "umap"] = "spatial"
+    plot_type: Literal[
+        "spatial", "heatmap", "violin", "umap",
+        "spatial_domains", "cell_communication", "deconvolution",
+        "trajectory", "gaston_isodepth", "spatial_analysis"
+    ] = "spatial"
     colormap: str = "viridis"
+
+    # Multi-panel visualization parameters
+    multi_panel: bool = False
+    features: Optional[List[str]] = None  # Multiple features for multi-panel plots
+    panel_layout: Optional[Tuple[int, int]] = None  # (rows, cols) - auto-determined if None
+
+    # Figure parameters
+    figure_size: Optional[Tuple[int, int]] = None  # (width, height) - auto-determined if None
+    dpi: int = 100
+    alpha: float = 0.8
+    spot_size: Optional[float] = None  # Auto-determined if None
+
+    # Display parameters
+    title: Optional[str] = None
+    show_legend: bool = True
+    show_colorbar: bool = True
+    show_axes: bool = True
+
+    # Legacy parameters (for backward compatibility)
     show_deconvolution: bool = False  # Whether to show deconvolution results
     n_cell_types: Annotated[int, Field(gt=0, le=10)] = 4  # Number of top cell types to show
 

@@ -1241,22 +1241,33 @@ async def deconvolve_spatial_data(
             await context.info(f"Stored cell type names in adata.uns['{cell_types_key}']")
             await context.info(f"Stored individual cell type proportions in adata.obs with prefix '{proportions_key}_'")
 
-        # Create visualization
+        # Create visualization using unified visualization system
         if context:
-            await context.info("Creating visualization")
+            await context.info("Creating visualization using unified visualization system")
 
         try:
-            fig = visualize_deconvolution_results(
-                spatial_adata,
-                proportions,
+            # Import unified visualization
+            from .visualization import visualize_data
+            from ..models.data import VisualizationParameters
+
+            # Create visualization parameters
+            viz_params = VisualizationParameters(
+                plot_type="deconvolution",
                 n_cell_types=min(6, proportions.shape[1]),
-                title_prefix=f"{params.method.upper()}"
+                title=f"{params.method.upper()} Cell Type Proportions",
+                colormap="viridis",
+                figure_size=(12, 8),
+                dpi=100
             )
 
-            # Convert figure to image
-            img = fig_to_image(fig)
+            # Create temporary data store
+            temp_data_store = {data_id: {"adata": spatial_adata}}
+
+            # Generate visualization
+            img = await visualize_data(data_id, temp_data_store, viz_params, context)
+
             if context:
-                await context.info("Visualization created successfully")
+                await context.info("Visualization created successfully using unified system")
         except Exception as e:
             if context:
                 await context.warning(f"Failed to create visualization: {str(e)}. Using placeholder image.")
@@ -1293,11 +1304,12 @@ async def deconvolve_spatial_data(
             visualization=img,
             statistics=stats,
             visualization_params={
-                "feature": f"{proportions_key}:{proportions.columns[0]}",
-                "show_deconvolution": True,
-                "n_cell_types": 4,
-                "plot_type": "spatial",
-                "colormap": "viridis"
+                "plot_type": "deconvolution",
+                "n_cell_types": min(6, proportions.shape[1]),
+                "title": f"{params.method.upper()} Cell Type Proportions",
+                "colormap": "viridis",
+                "figure_size": [12, 8],
+                "dpi": 100
             }
         )
 
