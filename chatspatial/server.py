@@ -143,7 +143,7 @@ async def preprocess(
 @mcp.tool()
 async def visualize(
     data_id: str,
-    params = None,
+    params: VisualizationParameters = VisualizationParameters(),
     context: Context = None
 ):
     """Visualize spatial transcriptomics data
@@ -157,6 +157,22 @@ async def visualize(
     """
     # Validate dataset
     validate_dataset(data_id)
+
+    # Handle different parameter formats for backward compatibility
+    if isinstance(params, str):
+        # Handle simple string format like "gene:CCL21"
+        if params.startswith("gene:"):
+            feature = params.split(":", 1)[1]
+            params = VisualizationParameters(feature=feature, plot_type="spatial")
+        else:
+            # Treat as feature name
+            params = VisualizationParameters(feature=params, plot_type="spatial")
+    elif isinstance(params, dict):
+        # Handle dictionary format
+        params = VisualizationParameters(**params)
+    elif params is None:
+        # Handle None
+        params = VisualizationParameters()
 
     # Call visualization function
     return await visualize_data(data_id, data_store, params, context)
