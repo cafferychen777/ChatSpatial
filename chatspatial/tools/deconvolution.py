@@ -11,8 +11,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import scanpy as sc
 import anndata as ad
-from scipy.optimize import nnls
-from sklearn.preprocessing import normalize
+
 import traceback
 import warnings
 import sys
@@ -28,158 +27,7 @@ from ..models.analysis import DeconvolutionResult
 from ..utils.image_utils import fig_to_image, fig_to_base64, create_placeholder_image
 
 
-def deconvolve_nnls(
-    spatial_adata: ad.AnnData,
-    reference_profiles: pd.DataFrame,
-    n_top_genes: int = 2000,
-    min_common_genes: int = 100
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """Deconvolve spatial data using Non-negative Least Squares
 
-    Args:
-        spatial_adata: Spatial transcriptomics AnnData object
-        reference_profiles: Reference expression profiles (genes x cell_types)
-        n_top_genes: Number of top genes to use
-        min_common_genes: Minimum number of common genes required
-
-    Returns:
-        Tuple of (proportions DataFrame, statistics dictionary)
-
-    Raises:
-        ValueError: If input data is invalid or insufficient common genes
-        RuntimeError: If NNLS computation fails
-    """
-    # Validate input data
-    if spatial_adata is None:
-        raise ValueError("Spatial AnnData object cannot be None")
-    if reference_profiles is None:
-        raise ValueError("Reference profiles cannot be None")
-    if spatial_adata.n_obs == 0:
-        raise ValueError("Spatial data contains no observations")
-    if reference_profiles.shape[1] == 0:
-        raise ValueError("Reference profiles contain no cell types")
-
-    # Find common genes
-    # Ensure we're working with unique gene names
-    spatial_genes = list(set(spatial_adata.var_names))
-    reference_genes = list(set(reference_profiles.index))
-
-    common_genes = list(set(spatial_genes) & set(reference_genes))
-    if len(common_genes) < min_common_genes:
-        raise ValueError(
-            f"Only {len(common_genes)} genes in common between spatial data and reference profiles. "
-            f"Need at least {min_common_genes}. Consider using a different reference dataset or "
-            f"reducing the min_common_genes parameter."
-        )
-
-    # Select top variable genes
-    if len(common_genes) > n_top_genes:
-        try:
-            # Calculate gene variance
-            X = spatial_adata[:, common_genes].X
-            if isinstance(X, np.matrix) or isinstance(X, np.ndarray):
-                gene_var = X.var(axis=0)
-                if isinstance(gene_var, np.matrix):
-                    gene_var = gene_var.A1
-            else:
-                # Handle sparse matrix
-                gene_var = np.zeros(len(common_genes))
-                X_dense = X.toarray() if hasattr(X, 'toarray') else np.array(X)
-                gene_var = X_dense.var(axis=0)
-
-            # Select top variable genes
-            top_genes = [common_genes[i] for i in np.argsort(-gene_var)[:n_top_genes]]
-        except Exception as e:
-            warnings.warn(f"Error selecting top variable genes: {str(e)}. Using all common genes instead.")
-            top_genes = common_genes
-    else:
-        top_genes = common_genes
-
-    # Extract expression matrices
-    try:
-        X_spatial = spatial_adata[:, top_genes].X
-        if isinstance(X_spatial, np.matrix):
-            X_spatial = X_spatial.A
-        elif hasattr(X_spatial, 'toarray'):
-            X_spatial = X_spatial.toarray()
-    except Exception as e:
-        raise RuntimeError(f"Failed to extract spatial expression matrix: {str(e)}")
-
-    # Extract reference profiles for the same genes
-    try:
-        ref_profiles = reference_profiles.loc[top_genes]
-
-        # Check for NaN values
-        if ref_profiles.isna().any().any():
-            warnings.warn("Reference profiles contain NaN values. Filling with zeros.")
-            ref_profiles = ref_profiles.fillna(0)
-
-        # Normalize reference profiles
-        ref_profiles = normalize(ref_profiles, axis=0, norm='l1')
-    except Exception as e:
-        raise RuntimeError(f"Failed to process reference profiles: {str(e)}")
-
-    # Run NNLS for each spot
-    proportions = np.zeros((spatial_adata.n_obs, ref_profiles.shape[1]))
-    residuals = np.zeros(spatial_adata.n_obs)
-    failed_spots = 0
-
-    for i in range(spatial_adata.n_obs):
-        try:
-            spot_expression = X_spatial[i]
-            if isinstance(spot_expression, np.ndarray) and spot_expression.ndim == 0:
-                spot_expression = np.array([float(spot_expression)])
-            elif hasattr(spot_expression, 'toarray'):
-                spot_expression = spot_expression.toarray().flatten()
-
-            # Check for NaN values
-            if np.isnan(spot_expression).any():
-                warnings.warn(f"Spot {i} contains NaN values. Filling with zeros.")
-                spot_expression = np.nan_to_num(spot_expression)
-
-            # Solve NNLS
-            props, res = nnls(ref_profiles, spot_expression)
-            proportions[i] = props
-            residuals[i] = res
-        except Exception as e:
-            warnings.warn(f"Failed to deconvolve spot {i}: {str(e)}. Setting to zero.")
-            proportions[i] = np.zeros(ref_profiles.shape[1])
-            residuals[i] = np.nan
-            failed_spots += 1
-
-    # Check if too many spots failed
-    if failed_spots > 0:
-        warnings.warn(f"Failed to deconvolve {failed_spots} out of {spatial_adata.n_obs} spots.")
-    if failed_spots == spatial_adata.n_obs:
-        raise RuntimeError("Failed to deconvolve any spots. Check your input data.")
-
-    # Create DataFrame with results
-    prop_df = pd.DataFrame(
-        proportions,
-        index=spatial_adata.obs_names,
-        columns=reference_profiles.columns
-    )
-
-    # Normalize proportions to sum to 1
-    row_sums = prop_df.sum(axis=1)
-    if (row_sums == 0).any():
-        warnings.warn(f"Some spots have zero total proportion. These will remain as zeros.")
-    prop_df = prop_df.div(row_sums, axis=0).fillna(0)
-
-    # Calculate statistics
-    stats = {
-        "mean_residual": np.nanmean(residuals),
-        "median_residual": np.nanmedian(residuals),
-        "genes_used": len(top_genes),
-        "common_genes": len(common_genes),
-        "cell_types": list(reference_profiles.columns),
-        "n_cell_types": len(reference_profiles.columns),
-        "mean_proportions": prop_df.mean().to_dict(),
-        "failed_spots": failed_spots,
-        "success_rate": 1.0 - (failed_spots / spatial_adata.n_obs)
-    }
-
-    return prop_df, stats
 
 
 
@@ -239,23 +87,70 @@ def deconvolve_cell2location(
         )
 
     try:
-        # Prepare reference data
+        # Import torch for device detection
+        import torch
+
+        # Determine the best available device for acceleration
+        if use_gpu:
+            if torch.cuda.is_available():
+                device = "cuda"
+                print("Using CUDA GPU acceleration")
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                # MPS support is currently disabled due to numerical instability issues
+                # with cell2location 0.1.4 and Pyro probabilistic models
+                device = "cpu"
+                warnings.warn(
+                    "MPS acceleration is available but disabled due to numerical instability issues "
+                    "with cell2location 0.1.4. Using CPU instead. Consider upgrading cell2location "
+                    "or PyTorch for better MPS support in the future."
+                )
+                print("Using CPU (MPS disabled due to compatibility issues)")
+            else:
+                device = "cpu"
+                warnings.warn("GPU requested but neither CUDA nor MPS is available. Using CPU instead.")
+        else:
+            device = "cpu"
+            print("Using CPU (GPU acceleration disabled)")
+
+        # Prepare reference data - Cell2location expects raw count data
         ref = reference_adata.copy()
 
-        # Normalize reference data if not already normalized
-        if 'normalized' not in ref.uns:
-            sc.pp.normalize_total(ref)
-            sc.pp.log1p(ref)
-            ref.uns['normalized'] = True
+        # Ensure we have raw count data (integers)
+        if ref.X.dtype != np.int32 and ref.X.dtype != np.int64:
+            # Convert sparse matrix to dense if needed for processing
+            if hasattr(ref.X, 'toarray'):
+                X_ref_dense = ref.X.toarray()
+            else:
+                X_ref_dense = ref.X
 
-        # Prepare spatial data
+            # If data appears to be log-transformed, try to reverse it
+            if X_ref_dense.max() < 20:  # Likely log-transformed
+                warnings.warn("Reference data appears to be log-transformed. Converting back to counts.")
+                X_ref_dense = np.expm1(X_ref_dense)
+            # Round to integers and ensure non-negative
+            X_ref_dense = np.round(np.maximum(X_ref_dense, 0)).astype(np.int32)
+            ref.X = X_ref_dense
+
+        # Prepare spatial data - Cell2location expects raw count data
         sp = spatial_adata.copy()
 
-        # Normalize spatial data if not already normalized
-        if 'normalized' not in sp.uns:
-            sc.pp.normalize_total(sp)
-            sc.pp.log1p(sp)
-            sp.uns['normalized'] = True
+        # Ensure we have raw count data (integers)
+        if sp.X.dtype != np.int32 and sp.X.dtype != np.int64:
+            # Convert sparse matrix to dense if needed
+            if hasattr(sp.X, 'toarray'):
+                X_dense = sp.X.toarray()
+            else:
+                X_dense = sp.X
+
+            # If data appears to be log-transformed, try to reverse it
+            if X_dense.max() < 20:  # Likely log-transformed
+                warnings.warn("Spatial data appears to be log-transformed. Converting back to counts.")
+                X_dense = np.expm1(X_dense)
+            # Round to integers and ensure non-negative
+            X_dense = np.round(np.maximum(X_dense, 0)).astype(np.int32)
+            sp.X = X_dense
+
+
 
         # Find common genes
         common_genes = list(set(sp.var_names) & set(ref.var_names))
@@ -289,9 +184,31 @@ def deconvolve_cell2location(
             raise RuntimeError(f"Failed to setup reference data for RegressionModel: {str(e)}")
 
         try:
+            # Create RegressionModel
             mod = RegressionModel(ref)
-            # Remove use_gpu parameter which is no longer supported in newer versions
-            mod.train(max_epochs=n_epochs)
+
+            # Suppress verbose output during training to avoid MCP communication issues
+            import logging
+            import sys
+            from contextlib import redirect_stdout, redirect_stderr
+            from io import StringIO
+
+            # Temporarily suppress all output
+            old_level = logging.getLogger().level
+            logging.getLogger().setLevel(logging.ERROR)
+
+            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                # Train with appropriate accelerator
+                if device == "cuda":
+                    print("Using CUDA acceleration for RegressionModel")
+                    mod.train(max_epochs=n_epochs, accelerator='gpu')
+                else:
+                    print("Using CPU for RegressionModel")
+                    mod.train(max_epochs=n_epochs)
+
+            # Restore logging level
+            logging.getLogger().setLevel(old_level)
+
         except Exception as e:
             error_msg = str(e)
             tb = traceback.format_exc()
@@ -299,11 +216,20 @@ def deconvolve_cell2location(
 
         # Export reference signatures
         try:
-            # Remove use_gpu parameter from sample_kwargs
-            ref_signatures = mod.export_posterior(
-                adata=ref,
+            # Export the estimated cell abundance (summary of the posterior distribution)
+            ref = mod.export_posterior(
+                ref,
                 sample_kwargs={'num_samples': 1000, 'batch_size': 2500}
             )
+
+            # Extract estimated expression in each cluster
+            if "means_per_cluster_mu_fg" in ref.varm.keys():
+                ref_signatures = ref.varm["means_per_cluster_mu_fg"][
+                    [f"means_per_cluster_mu_fg_{i}" for i in ref.uns["mod"]["factor_names"]]
+                ].copy()
+            else:
+                ref_signatures = ref.var[[f"means_per_cluster_mu_fg_{i}" for i in ref.uns["mod"]["factor_names"]]].copy()
+            ref_signatures.columns = ref.uns["mod"]["factor_names"]
         except Exception as e:
             raise RuntimeError(f"Failed to export reference signatures: {str(e)}")
 
@@ -318,14 +244,35 @@ def deconvolve_cell2location(
 
         # Run cell2location model
         try:
+            # Create Cell2location model (device specification is handled in train method)
             mod = Cell2location(
                 sp,
                 cell_state_df=ref_signatures,
                 N_cells_per_location=n_cells_per_spot,
                 detection_alpha=20.0
             )
-            # Remove use_gpu parameter which is no longer supported in newer versions
-            mod.train(max_epochs=n_epochs)
+
+            # Suppress verbose output during training to avoid MCP communication issues
+            import logging
+            from contextlib import redirect_stdout, redirect_stderr
+            from io import StringIO
+
+            # Temporarily suppress all output
+            old_level = logging.getLogger().level
+            logging.getLogger().setLevel(logging.ERROR)
+
+            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                # Train with appropriate accelerator
+                if device == "cuda":
+                    print("Using CUDA acceleration for Cell2location")
+                    mod.train(max_epochs=n_epochs, batch_size=2500, accelerator='gpu')
+                else:
+                    print("Using CPU for Cell2location")
+                    mod.train(max_epochs=n_epochs, batch_size=2500)
+
+            # Restore logging level
+            logging.getLogger().setLevel(old_level)
+
         except Exception as e:
             error_msg = str(e)
             tb = traceback.format_exc()
@@ -333,7 +280,7 @@ def deconvolve_cell2location(
 
         # Export results
         try:
-            # Remove use_gpu parameter from sample_kwargs
+            # Export the estimated cell abundance (summary of the posterior distribution)
             sp = mod.export_posterior(
                 sp,
                 sample_kwargs={'num_samples': 1000, 'batch_size': 2500}
@@ -341,17 +288,26 @@ def deconvolve_cell2location(
         except Exception as e:
             raise RuntimeError(f"Failed to export Cell2location results: {str(e)}")
 
-        # Get cell abundance
-        if 'q05_cell_abundance_w_sf' not in sp.obsm:
-            raise RuntimeError("Cell2location did not produce expected output 'q05_cell_abundance_w_sf'")
+        # Get cell abundance - try different possible keys
+        cell_abundance = None
+        possible_keys = ['q05_cell_abundance_w_sf', 'means_cell_abundance_w_sf', 'q50_cell_abundance_w_sf']
 
-        cell_abundance = sp.obsm['q05_cell_abundance_w_sf']
+        for key in possible_keys:
+            if key in sp.obsm:
+                cell_abundance = sp.obsm[key]
+                print(f"Using cell abundance from key: {key}")
+                break
+
+        if cell_abundance is None:
+            # List available keys for debugging
+            available_keys = list(sp.obsm.keys())
+            raise RuntimeError(f"Cell2location did not produce expected output. Available keys: {available_keys}")
 
         # Create DataFrame with results
         proportions = pd.DataFrame(
             cell_abundance,
             index=sp.obs_names,
-            columns=ref_signatures.index
+            columns=ref_signatures.columns
         )
 
         # Check for NaN values
@@ -380,7 +336,8 @@ def deconvolve_cell2location(
             "n_epochs": n_epochs,
             "n_cells_per_spot": n_cells_per_spot,
             "method": "Cell2location",
-            "use_gpu": use_gpu
+            "use_gpu": use_gpu,
+            "device": device
         }
 
         # Add model performance metrics if available
@@ -401,83 +358,15 @@ def deconvolve_cell2location(
             error_msg = str(e)
             tb = traceback.format_exc()
             print(f"Cell2location deconvolution failed: {error_msg}")
-            print("Falling back to NNLS method...")
 
-            # Fall back to NNLS method
-            return _fallback_to_nnls(spatial_adata, reference_adata, cell_type_key)
+            # Re-raise the error since we don't have fallback
+            raise
         else:
-            # For specific errors, also try to fall back to NNLS
-            print(f"Cell2location failed with error: {str(e)}")
-            print("Falling back to NNLS method...")
-
-            # Fall back to NNLS method
-            return _fallback_to_nnls(spatial_adata, reference_adata, cell_type_key)
+            # Re-raise the error since we don't have fallback
+            raise
 
 
-def _fallback_to_nnls(
-    spatial_adata: ad.AnnData,
-    reference_adata: ad.AnnData,
-    cell_type_key: str
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """Fallback to NNLS method when Cell2location fails
 
-    Args:
-        spatial_adata: Spatial transcriptomics AnnData object
-        reference_adata: Reference single-cell RNA-seq AnnData object
-        cell_type_key: Key in reference_adata.obs for cell type information
-
-    Returns:
-        Tuple of (proportions DataFrame, statistics dictionary)
-    """
-    print("Using NNLS method as fallback for deconvolution")
-
-    # Get cell type information
-    cell_types = sorted(list(reference_adata.obs[cell_type_key].unique()))
-
-    # Create reference profiles
-    ref_profiles = {}
-    for cell_type in cell_types:
-        try:
-            # Get cells of this type
-            cells = reference_adata[reference_adata.obs[cell_type_key] == cell_type]
-            if cells.n_obs == 0:
-                print(f"No cells found for cell type '{cell_type}'. Skipping.")
-                continue
-
-            # Calculate mean expression
-            mean_expr = np.mean(cells.X, axis=0)
-            if isinstance(mean_expr, np.matrix):
-                mean_expr = mean_expr.A1
-            elif hasattr(mean_expr, 'toarray'):
-                mean_expr = mean_expr.toarray().flatten()
-
-            ref_profiles[cell_type] = mean_expr
-        except Exception as e:
-            print(f"Failed to process cell type '{cell_type}': {str(e)}. Skipping.")
-
-    if not ref_profiles:
-        raise ValueError("Failed to create any reference profiles from reference data")
-
-    # Create reference profiles DataFrame
-    reference_profiles = pd.DataFrame(ref_profiles, index=reference_adata.var_names)
-
-    # Run NNLS deconvolution
-    try:
-        proportions, stats = deconvolve_nnls(
-            spatial_adata,
-            reference_profiles
-        )
-        print(f"NNLS deconvolution completed successfully. Found {stats['n_cell_types']} cell types.")
-
-        # Update method in stats
-        stats["method"] = "NNLS (fallback from Cell2location)"
-
-        return proportions, stats
-    except Exception as e:
-        error_msg = str(e)
-        tb = traceback.format_exc()
-        print(f"NNLS deconvolution failed: {error_msg}")
-        raise RuntimeError(f"Both Cell2location and fallback NNLS failed: {error_msg}\n{tb}")
 
 
 # Check if Spotiphy is available
@@ -580,10 +469,20 @@ def deconvolve_spotiphy(
     from spotiphy import sc_reference, deconvolution
     import torch
 
-    # Set device
-    device = 'cuda' if use_gpu and torch.cuda.is_available() else 'cpu'
-    if use_gpu and not torch.cuda.is_available():
-        warnings.warn("CUDA is not available. Using CPU instead.")
+    # Set device with MPS support
+    if use_gpu:
+        if torch.cuda.is_available():
+            device = 'cuda'
+            print("Using CUDA GPU acceleration for Spotiphy")
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            device = 'mps'
+            print("Using Apple MPS acceleration for Spotiphy")
+        else:
+            device = 'cpu'
+            warnings.warn("GPU requested but neither CUDA nor MPS is available. Using CPU instead.")
+    else:
+        device = 'cpu'
+        print("Using CPU for Spotiphy (GPU acceleration disabled)")
 
     try:
         # Prepare data
@@ -600,26 +499,45 @@ def deconvolve_spotiphy(
         spatial_data = spatial_adata[:, common_genes].copy()
         reference_data = reference_adata[:, common_genes].copy()
 
-        # Normalize data
+        # Ensure data is in the right format for Spotiphy
+        # Convert to dense arrays if sparse
+        if hasattr(spatial_data.X, 'toarray'):
+            spatial_data.X = spatial_data.X.toarray()
+        if hasattr(reference_data.X, 'toarray'):
+            reference_data.X = reference_data.X.toarray()
+
+        # Ensure non-negative values
+        spatial_data.X = np.maximum(spatial_data.X, 0)
+        reference_data.X = np.maximum(reference_data.X, 0)
+
+        # Normalize data using Spotiphy's initialization function
+        # This performs CPM normalization and filtering
         sc_ref_data, spatial_data = sc_reference.initialization(
             reference_data,
             spatial_data,
-            filtering=False,
+            filtering=False,  # We already filtered for common genes
             verbose=1
         )
 
-        # Get cell types
+        # Get cell types from the processed reference data
         type_list = sorted(list(sc_ref_data.obs[cell_type_key].unique()))
 
-        # Construct reference profiles
+        print(f"Found {len(type_list)} cell types: {type_list}")
+
+        # Construct reference profiles using Spotiphy's method
         sc_ref = sc_reference.construct_sc_ref(sc_ref_data, cell_type_key)
 
-        # Extract expression matrices
+        print(f"Constructed reference profiles with shape: {sc_ref.shape}")
+
+        # Extract expression matrices - ensure it's a numpy array
         X = spatial_data.X
         if isinstance(X, np.matrix):
             X = X.A
         elif hasattr(X, 'toarray'):
             X = X.toarray()
+
+        # Ensure X is float64 for compatibility with PyTorch
+        X = X.astype(np.float64)
 
         # Set Adam parameters
         if adam_params is None:
@@ -629,19 +547,37 @@ def deconvolve_spotiphy(
         print(f"Running Spotiphy deconvolution with {len(common_genes)} common genes and {len(type_list)} cell types")
         print(f"Device: {device}, Epochs: {n_epochs}")
 
-        # Estimate cell proportions
-        cell_proportions = deconvolution.estimation_proportion(
+        # Estimate cell proportions using the core deconvolute function
+        print("Running Spotiphy deconvolute function...")
+
+        # Run the core deconvolution
+        pyro_params = deconvolution.deconvolute(
             X,
-            sc_ref_data,
             sc_ref,
-            type_list,
-            cell_type_key,
             device=device,
             n_epoch=n_epochs,
             adam_params=adam_params,
             batch_prior=batch_prior,
             plot=False
         )
+
+        # Extract sigma parameter and convert to cell proportions
+        sigma = pyro_params['sigma'].cpu().detach().numpy()
+
+        # Calculate mean expression per cell type from reference data
+        Y = np.array(sc_ref_data.X)
+        if hasattr(sc_ref_data.X, 'toarray'):
+            Y = sc_ref_data.X.toarray()
+
+        mean_exp = np.array([np.mean(np.sum(Y[sc_ref_data.obs[cell_type_key]==cell_type], axis=1))
+                             for cell_type in type_list])
+
+        # Avoid division by zero
+        mean_exp = np.maximum(mean_exp, 1e-8)
+
+        # Convert to cell proportions
+        cell_proportions = sigma / mean_exp
+        cell_proportions = cell_proportions / np.sum(cell_proportions, axis=1)[:, np.newaxis]
 
         # Create DataFrame with results
         proportions = pd.DataFrame(
@@ -872,93 +808,7 @@ async def deconvolve_spatial_data(
                     await context.info(f"Reference dataset contains {len(cell_types)} cell types: {list(cell_types)}")
 
         # Run deconvolution based on selected method
-        if params.method == "nnls":
-            if context:
-                await context.info("Running NNLS deconvolution")
-
-            # Check if reference profiles are provided
-            if params.reference_profiles is None:
-                if reference_adata is None:
-                    raise ValueError(
-                        "Reference data or profiles required for NNLS deconvolution. "
-                        "Please provide either reference_data_id or reference_profiles."
-                    )
-
-                # Create reference profiles from reference data
-                if context:
-                    await context.info("Creating reference profiles from reference data")
-
-                # Get cell type information
-                if params.cell_type_key not in reference_adata.obs:
-                    raise ValueError(
-                        f"Cell type key '{params.cell_type_key}' not found in reference data. "
-                        f"Available keys: {list(reference_adata.obs.columns)}"
-                    )
-
-                # Aggregate by cell type
-                cell_types = reference_adata.obs[params.cell_type_key].unique()
-                ref_profiles = {}
-
-                for cell_type in cell_types:
-                    try:
-                        # Get cells of this type
-                        cells = reference_adata[reference_adata.obs[params.cell_type_key] == cell_type]
-                        if cells.n_obs == 0:
-                            if context:
-                                await context.warning(f"No cells found for cell type '{cell_type}'. Skipping.")
-                            continue
-
-                        # Calculate mean expression
-                        mean_expr = cells.X.mean(axis=0)
-                        if isinstance(mean_expr, np.matrix):
-                            mean_expr = mean_expr.A1
-                        ref_profiles[cell_type] = mean_expr
-                    except Exception as e:
-                        if context:
-                            await context.warning(f"Failed to process cell type '{cell_type}': {str(e)}. Skipping.")
-
-                if not ref_profiles:
-                    raise ValueError("Failed to create any reference profiles from reference data")
-
-                # Create reference profiles DataFrame
-                reference_profiles = pd.DataFrame(ref_profiles, index=reference_adata.var_names)
-
-                # Ensure reference profiles have unique gene names
-                if hasattr(reference_profiles.index, 'duplicated') and reference_profiles.index.duplicated().any():
-                    if context:
-                        await context.info("Ensuring reference profiles have unique gene names")
-                    reference_profiles = reference_profiles.loc[~reference_profiles.index.duplicated(keep='first')]
-
-                if context:
-                    await context.info(f"Created reference profiles for {len(ref_profiles)} cell types")
-            else:
-                # Use provided reference profiles
-                try:
-                    reference_profiles = pd.DataFrame(params.reference_profiles)
-                    if context:
-                        await context.info(f"Using provided reference profiles for {reference_profiles.shape[1]} cell types")
-                except Exception as e:
-                    raise ValueError(f"Failed to convert provided reference profiles to DataFrame: {str(e)}")
-
-            # Run NNLS deconvolution
-            try:
-                proportions, stats = deconvolve_nnls(
-                    spatial_adata,
-                    reference_profiles,
-                    n_top_genes=params.n_top_genes
-                )
-                if context:
-                    await context.info(f"NNLS deconvolution completed successfully. Found {stats['n_cell_types']} cell types.")
-            except Exception as e:
-                error_msg = str(e)
-                tb = traceback.format_exc()
-                if context:
-                    await context.warning(f"NNLS deconvolution failed: {error_msg}")
-                raise RuntimeError(f"NNLS deconvolution failed: {error_msg}\n{tb}")
-
-
-
-        elif params.method == "cell2location":
+        if params.method == "cell2location":
             if context:
                 await context.info("Running Cell2location deconvolution")
 
@@ -993,66 +843,7 @@ async def deconvolve_spatial_data(
                 tb = traceback.format_exc()
                 if context:
                     await context.warning(f"Cell2location failed: {error_msg}")
-                    await context.info("Falling back to NNLS method for deconvolution")
-
-                # Fall back to NNLS method
-                if context:
-                    await context.info("Using NNLS method as fallback")
-
-                # Create reference profiles from reference data
-                if context:
-                    await context.info("Creating reference profiles from reference data")
-
-                # Get cell type information
-                cell_types = sorted(list(reference_adata.obs[params.cell_type_key].unique()))
-
-                # Create reference profiles
-                ref_profiles = {}
-                for cell_type in cell_types:
-                    try:
-                        # Get cells of this type
-                        cells = reference_adata[reference_adata.obs[params.cell_type_key] == cell_type]
-                        if cells.n_obs == 0:
-                            if context:
-                                await context.warning(f"No cells found for cell type '{cell_type}'. Skipping.")
-                            continue
-
-                        # Calculate mean expression
-                        mean_expr = np.mean(cells.X, axis=0)
-                        if isinstance(mean_expr, np.matrix):
-                            mean_expr = mean_expr.A1
-                        elif hasattr(mean_expr, 'toarray'):
-                            mean_expr = mean_expr.toarray().flatten()
-
-                        ref_profiles[cell_type] = mean_expr
-                    except Exception as e:
-                        if context:
-                            await context.warning(f"Failed to process cell type '{cell_type}': {str(e)}. Skipping.")
-
-                if not ref_profiles:
-                    raise ValueError("Failed to create any reference profiles from reference data")
-
-                # Create reference profiles DataFrame
-                reference_profiles = pd.DataFrame(ref_profiles, index=reference_adata.var_names)
-
-                # Run NNLS deconvolution
-                try:
-                    proportions, stats = deconvolve_nnls(
-                        spatial_adata,
-                        reference_profiles,
-                        n_top_genes=params.n_top_genes
-                    )
-                    if context:
-                        await context.info(f"NNLS deconvolution completed successfully. Found {stats['n_cell_types']} cell types.")
-
-                    # Update method in stats
-                    stats["method"] = "NNLS (fallback from Cell2location)"
-                except Exception as e:
-                    error_msg = str(e)
-                    tb = traceback.format_exc()
-                    if context:
-                        await context.warning(f"NNLS deconvolution failed: {error_msg}")
-                    raise RuntimeError(f"Both Cell2location and fallback NNLS failed: {error_msg}\n{tb}")
+                raise RuntimeError(f"Cell2location deconvolution failed: {error_msg}\n{tb}")
 
         elif params.method == "spotiphy":
             if context:
@@ -1077,63 +868,7 @@ async def deconvolve_spatial_data(
             if not is_available:
                 if context:
                     await context.warning(f"Spotiphy is not available: {error_message}")
-                    await context.info("Falling back to NNLS method for deconvolution")
-
-                # Fall back to NNLS method
-                if context:
-                    await context.info("Using NNLS method as fallback")
-
-                # Create reference profiles from reference data
-                if context:
-                    await context.info("Creating reference profiles from reference data")
-
-                # Get cell type information
-                cell_types = sorted(list(reference_adata.obs[params.cell_type_key].unique()))
-
-                # Create reference profiles
-                ref_profiles = {}
-                for cell_type in cell_types:
-                    try:
-                        # Get cells of this type
-                        cells = reference_adata[reference_adata.obs[params.cell_type_key] == cell_type]
-                        if cells.n_obs == 0:
-                            if context:
-                                await context.warning(f"No cells found for cell type '{cell_type}'. Skipping.")
-                            continue
-
-                        # Calculate mean expression
-                        mean_expr = np.mean(cells.X, axis=0)
-                        if isinstance(mean_expr, np.matrix):
-                            mean_expr = mean_expr.A1
-                        elif hasattr(mean_expr, 'toarray'):
-                            mean_expr = mean_expr.toarray().flatten()
-
-                        ref_profiles[cell_type] = mean_expr
-                    except Exception as e:
-                        if context:
-                            await context.warning(f"Failed to process cell type '{cell_type}': {str(e)}. Skipping.")
-
-                if not ref_profiles:
-                    raise ValueError("Failed to create any reference profiles from reference data")
-
-                # Create reference profiles DataFrame
-                reference_profiles = pd.DataFrame(ref_profiles, index=reference_adata.var_names)
-
-                # Run NNLS deconvolution
-                try:
-                    proportions, stats = deconvolve_nnls(
-                        spatial_adata,
-                        reference_profiles,
-                        n_top_genes=params.n_top_genes
-                    )
-                    if context:
-                        await context.info(f"NNLS deconvolution completed successfully. Found {stats['n_cell_types']} cell types.")
-                except Exception as e:
-                    error_msg = str(e)
-                    tb = traceback.format_exc()
-                    if context:
-                        await context.warning(f"NNLS deconvolution failed: {error_msg}")
-                    raise RuntimeError(f"NNLS deconvolution failed: {error_msg}\n{tb}")
+                raise ImportError(f"Spotiphy is not available: {error_message}")
             else:
                 # Set Adam parameters
                 adam_params = {
@@ -1159,68 +894,12 @@ async def deconvolve_spatial_data(
                     tb = traceback.format_exc()
                     if context:
                         await context.warning(f"Spotiphy failed: {error_msg}")
-                        await context.info("Falling back to NNLS method for deconvolution")
-
-                    # Fall back to NNLS method
-                    if context:
-                        await context.info("Using NNLS method as fallback")
-
-                    # Create reference profiles from reference data
-                    if context:
-                        await context.info("Creating reference profiles from reference data")
-
-                    # Get cell type information
-                    cell_types = sorted(list(reference_adata.obs[params.cell_type_key].unique()))
-
-                    # Create reference profiles
-                    ref_profiles = {}
-                    for cell_type in cell_types:
-                        try:
-                            # Get cells of this type
-                            cells = reference_adata[reference_adata.obs[params.cell_type_key] == cell_type]
-                            if cells.n_obs == 0:
-                                if context:
-                                    await context.warning(f"No cells found for cell type '{cell_type}'. Skipping.")
-                                continue
-
-                            # Calculate mean expression
-                            mean_expr = np.mean(cells.X, axis=0)
-                            if isinstance(mean_expr, np.matrix):
-                                mean_expr = mean_expr.A1
-                            elif hasattr(mean_expr, 'toarray'):
-                                mean_expr = mean_expr.toarray().flatten()
-
-                            ref_profiles[cell_type] = mean_expr
-                        except Exception as e:
-                            if context:
-                                await context.warning(f"Failed to process cell type '{cell_type}': {str(e)}. Skipping.")
-
-                    if not ref_profiles:
-                        raise ValueError("Failed to create any reference profiles from reference data")
-
-                    # Create reference profiles DataFrame
-                    reference_profiles = pd.DataFrame(ref_profiles, index=reference_adata.var_names)
-
-                    # Run NNLS deconvolution
-                    try:
-                        proportions, stats = deconvolve_nnls(
-                            spatial_adata,
-                            reference_profiles,
-                            n_top_genes=params.n_top_genes
-                        )
-                        if context:
-                            await context.info(f"NNLS deconvolution completed successfully. Found {stats['n_cell_types']} cell types.")
-                    except Exception as e:
-                        error_msg = str(e)
-                        tb = traceback.format_exc()
-                        if context:
-                            await context.warning(f"NNLS deconvolution failed: {error_msg}")
-                        raise RuntimeError(f"NNLS deconvolution failed: {error_msg}\n{tb}")
+                    raise RuntimeError(f"Spotiphy deconvolution failed: {error_msg}\n{tb}")
 
         else:
             raise ValueError(
                 f"Unsupported deconvolution method: {params.method}. "
-                f"Supported methods are: nnls, cell2location, spotiphy"
+                f"Supported methods are: cell2location, spotiphy"
             )
 
         # Store proportions in AnnData object

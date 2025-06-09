@@ -91,9 +91,16 @@ class AnnotationParameters(BaseModel):
 
 class SpatialAnalysisParameters(BaseModel):
     """Spatial analysis parameters model"""
-    analysis_type: Literal["neighborhood", "co_occurrence", "ripley", "moran", "centrality"] = "neighborhood"
+    analysis_type: Literal["neighborhood", "co_occurrence", "ripley", "moran", "centrality", "getis_ord"] = "neighborhood"
     cluster_key: str = "leiden"
     n_neighbors: Annotated[int, Field(gt=0)] = 15
+
+    # Getis-Ord Gi* specific parameters
+    getis_ord_genes: Optional[List[str]] = None  # Specific genes to analyze (if None, use highly variable genes)
+    getis_ord_n_genes: Annotated[int, Field(gt=0, le=100)] = 20  # Number of top highly variable genes to analyze
+    getis_ord_correction: Literal["bonferroni", "fdr_bh", "none"] = "fdr_bh"  # Multiple testing correction
+    getis_ord_alpha: Annotated[float, Field(gt=0.0, le=1.0)] = 0.05  # Significance threshold
+
     include_image: bool = True
     image_dpi: Annotated[int, Field(gt=0, le=300)] = 100
     image_format: Literal["png", "jpg"] = "png"
@@ -127,7 +134,7 @@ class IntegrationParameters(BaseModel):
 
 class DeconvolutionParameters(BaseModel):
     """Spatial deconvolution parameters model"""
-    method: Literal["cell2location", "nnls", "spotiphy"] = "nnls"
+    method: Literal["cell2location", "spotiphy"] = "cell2location"
     reference_data_id: Optional[str] = None  # Reference single-cell data for deconvolution
     cell_type_key: str = "cell_type"  # Key in reference data for cell type information
     n_top_genes: Annotated[int, Field(gt=0, le=5000)] = 2000  # Number of top genes to use
@@ -144,15 +151,8 @@ class DeconvolutionParameters(BaseModel):
 
 class SpatialDomainParameters(BaseModel):
     """Spatial domain identification parameters model"""
-    method: Literal["stagate", "spagcn", "leiden", "louvain"] = "stagate"
+    method: Literal["spagcn", "leiden", "louvain"] = "spagcn"
     n_domains: Annotated[int, Field(gt=0, le=50)] = 7  # Number of spatial domains to identify
-
-    # STAGATE specific parameters
-    stagate_alpha: Annotated[float, Field(ge=0.0, le=1.0)] = 0.0  # Weight of cell type-aware spatial neighbor network
-    stagate_hidden_dims: List[int] = [512, 30]  # Hidden dimensions for STAGATE encoder
-    stagate_n_epochs: Annotated[int, Field(gt=0)] = 500  # Number of epochs for STAGATE training
-    stagate_lr: float = 0.0001  # Learning rate for STAGATE
-    stagate_random_seed: int = 2020  # Random seed for STAGATE
 
     # SpaGCN specific parameters
     spagcn_s: Annotated[float, Field(gt=0.0)] = 1.0  # Weight given to histology in SpaGCN

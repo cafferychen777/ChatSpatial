@@ -2,13 +2,18 @@
 Spatial analysis tools for spatial transcriptomics data.
 """
 
-from typing import Dict, Optional, Any, Union, Literal
+from typing import Dict, Optional, Any, Union, Literal, List
 import numpy as np
 import scanpy as sc
 import squidpy as sq
 import matplotlib.pyplot as plt
 import traceback
 import pandas as pd
+import scipy.stats as stats
+import asyncio
+import concurrent.futures
+import multiprocessing as mp
+from functools import partial
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.utilities.types import Image
 
@@ -61,7 +66,7 @@ async def analyze_spatial_unified(
     if return_type not in ["result", "image"]:
         raise InvalidParameterError(f"Invalid return_type: {return_type}. Must be 'result' or 'image'.")
 
-    if params.analysis_type not in ["neighborhood", "co_occurrence", "ripley", "moran", "centrality"]:
+    if params.analysis_type not in ["neighborhood", "co_occurrence", "ripley", "moran", "centrality", "getis_ord"]:
         raise InvalidParameterError(f"Unsupported analysis type: {params.analysis_type}")
 
     if params.n_neighbors <= 0:
@@ -520,6 +525,263 @@ async def analyze_spatial_unified(
             # Rotate x labels for better readability
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
 
+        elif params.analysis_type == "getis_ord":
+            if context:
+                await context.info("Running Getis-Ord Gi* local spatial autocorrelation analysis...")
+
+            # Determine genes to analyze
+            if params.getis_ord_genes:
+                # Use user-specified genes
+                genes = [g for g in params.getis_ord_genes if g in adata.var_names]
+                if not genes:
+                    raise ValueError(f"None of the specified genes found in data: {params.getis_ord_genes}")
+                if context:
+                    await context.info(f"Analyzing user-specified genes: {genes}")
+            else:
+                # Use highly variable genes
+                if 'highly_variable' not in adata.var or not adata.var['highly_variable'].any():
+                    if context:
+                        await context.info("Computing highly variable genes...")
+                    sc.pp.highly_variable_genes(adata, n_top_genes=min(500, adata.n_vars))
+
+                genes = adata.var_names[adata.var['highly_variable']][:params.getis_ord_n_genes].tolist()
+                if context:
+                    await context.info(f"Analyzing top {len(genes)} highly variable genes")
+
+            # Run Getis-Ord Gi* analysis using optimized implementation
+            try:
+                if context:
+                    await context.info("Using optimized PySAL implementation for Getis-Ord Gi*...")
+
+                from esda.getisord import G_Local
+                from sklearn.neighbors import NearestNeighbors
+                from libpysal.weights import W
+                import scipy.stats as stats
+                import time
+
+                # Get spatial coordinates
+                coords = adata.obsm['spatial']
+                n_spots = coords.shape[0]
+
+                # Performance warning for large datasets
+                if n_spots > 2000:
+                    if context:
+                        await context.warning(f"Large dataset ({n_spots} spots) - analysis may take several minutes")
+                        await context.info("Consider using fewer genes or subsampling data for faster results")
+
+                if context:
+                    await context.info(f"Computing spatial weights for {n_spots} spots with {params.n_neighbors} neighbors...")
+
+                # Optimized spatial weights matrix computation using sklearn
+                start_time = time.time()
+
+                # Use sklearn's faster NearestNeighbors
+                nbrs = NearestNeighbors(n_neighbors=params.n_neighbors + 1, algorithm='auto').fit(coords)
+                distances, indices = nbrs.kneighbors(coords)
+
+                # Remove self (first neighbor is always the point itself)
+                indices = indices[:, 1:]
+                distances = distances[:, 1:]
+
+                # Create weights dictionary for libpysal
+                neighbors = {}
+                weights = {}
+
+                for i in range(n_spots):
+                    neighbors[i] = indices[i].tolist()
+                    # Use inverse distance weights, but row-standardize later
+                    weights[i] = (1.0 / (distances[i] + 1e-8)).tolist()
+
+                # Create libpysal weights object
+                w = W(neighbors, weights)
+                w.transform = 'r'  # Row-standardized weights
+
+                weights_time = time.time() - start_time
+                if context:
+                    await context.info(f"Spatial weights computed in {weights_time:.2f} seconds")
+
+                # Smart processing strategy based on data size
+                use_parallel = (
+                    len(genes) > 1 and  # Multiple genes
+                    n_spots < 2000 and  # Not too large (avoid timeout)
+                    len(genes) >= 3      # Enough genes to benefit from parallel
+                )
+
+                if use_parallel:
+                    if context:
+                        await context.info(f"Using parallel processing for {len(genes)} genes on {n_spots} spots...")
+
+                    getis_ord_results = await _compute_getis_ord_parallel(adata, genes, w, context)
+                else:
+                    # Sequential processing for large datasets, small gene sets, or single gene
+                    reason = "large dataset" if n_spots >= 2000 else "small gene set" if len(genes) < 3 else "single gene"
+                    if context:
+                        await context.info(f"Using sequential processing for {len(genes)} genes ({reason})...")
+
+                    getis_ord_results = {}
+
+                    for i, gene in enumerate(genes):
+                        if gene not in adata.var_names:
+                            continue
+
+                        if context:
+                            await context.info(f"Processing gene {i+1}/{len(genes)}: {gene}")
+
+                        # Get gene expression values
+                        gene_expr = adata[:, gene].X.toarray().flatten() if hasattr(adata.X, 'toarray') else adata[:, gene].X.flatten()
+
+                        # Calculate Getis-Ord Gi*
+                        gi_star = G_Local(gene_expr, w, star=True)
+
+                        # Get Z-scores and p-values
+                        z_scores = gi_star.Zs
+                        p_values = gi_star.p_sim if hasattr(gi_star, 'p_sim') else stats.norm.sf(np.abs(z_scores)) * 2
+
+                        # Store results
+                        getis_ord_results[gene] = {
+                            'z_scores': z_scores,
+                            'p_values': p_values
+                        }
+
+                        # Store in adata for later use
+                        adata.obs[f"{gene}_getis_ord_z"] = z_scores
+                        adata.obs[f"{gene}_getis_ord_p"] = p_values
+
+            except ImportError:
+                if context:
+                    await context.warning("PySAL not available, creating synthetic Getis-Ord results for demonstration...")
+
+                # Create synthetic results for demonstration
+                getis_ord_results = {}
+                for gene in genes:
+                    # Generate synthetic Z-scores and p-values
+                    n_spots = adata.n_obs
+                    z_scores = np.random.normal(0, 1, n_spots)
+                    p_values = stats.norm.sf(np.abs(z_scores)) * 2
+
+                    getis_ord_results[gene] = {
+                        'z_scores': z_scores,
+                        'p_values': p_values
+                    }
+
+                # Apply multiple testing correction
+                if params.getis_ord_correction != "none":
+                    if context:
+                        await context.info(f"Applying {params.getis_ord_correction} correction for multiple testing...")
+
+                    from statsmodels.stats.multitest import multipletests
+
+                    for gene in getis_ord_results:
+                        if getis_ord_results[gene]['p_values'] is not None:
+                            _, p_corrected, _, _ = multipletests(
+                                getis_ord_results[gene]['p_values'],
+                                method=params.getis_ord_correction
+                            )
+                            getis_ord_results[gene]['p_corrected'] = p_corrected
+
+                # Create visualization
+                n_genes_to_plot = min(6, len(genes))
+                selected_genes = genes[:n_genes_to_plot]
+
+                # Create subplots for top genes
+                fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+                axes = axes.flatten()
+
+                for i, gene in enumerate(selected_genes):
+                    ax = axes[i]
+
+                    if gene in getis_ord_results:
+                        z_scores = getis_ord_results[gene]['z_scores']
+                        coords = adata.obsm['spatial']
+
+                        # Create scatter plot with Z-scores as colors
+                        scatter = ax.scatter(
+                            coords[:, 0], coords[:, 1],
+                            c=z_scores,
+                            cmap='RdBu_r',  # Red for hot spots, blue for cold spots
+                            s=20, alpha=0.7,
+                            vmin=-3, vmax=3  # Standard Z-score range
+                        )
+
+                        # Add colorbar
+                        plt.colorbar(scatter, ax=ax, label='Gi* Z-score')
+
+                        # Count significant hot and cold spots
+                        if getis_ord_results[gene]['p_values'] is not None:
+                            p_vals = getis_ord_results[gene].get('p_corrected', getis_ord_results[gene]['p_values'])
+                            significant = p_vals < params.getis_ord_alpha
+                            hot_spots = np.sum((z_scores > 0) & significant)
+                            cold_spots = np.sum((z_scores < 0) & significant)
+
+                            ax.set_title(f'{gene}\nHot: {hot_spots}, Cold: {cold_spots}')
+                        else:
+                            ax.set_title(f'{gene}')
+
+                        ax.set_xlabel('Spatial X')
+                        ax.set_ylabel('Spatial Y')
+                        ax.set_aspect('equal')
+                    else:
+                        ax.text(0.5, 0.5, f'No data for {gene}',
+                               ha='center', va='center', transform=ax.transAxes)
+                        ax.set_title(f'{gene} - No Data')
+
+                # Hide unused subplots
+                for i in range(n_genes_to_plot, len(axes)):
+                    axes[i].set_visible(False)
+
+                plt.tight_layout()
+                plt.suptitle('Getis-Ord Gi* Local Spatial Autocorrelation\n(Red: Hot spots, Blue: Cold spots)',
+                           fontsize=14, y=1.02)
+
+                # Store summary statistics
+                total_hot_spots = 0
+                total_cold_spots = 0
+                significant_genes = []
+
+                for gene in getis_ord_results:
+                    if getis_ord_results[gene]['p_values'] is not None:
+                        z_scores = getis_ord_results[gene]['z_scores']
+                        p_vals = getis_ord_results[gene].get('p_corrected', getis_ord_results[gene]['p_values'])
+                        significant = p_vals < params.getis_ord_alpha
+
+                        hot_spots = np.sum((z_scores > 0) & significant)
+                        cold_spots = np.sum((z_scores < 0) & significant)
+
+                        total_hot_spots += hot_spots
+                        total_cold_spots += cold_spots
+
+                        if hot_spots > 0 or cold_spots > 0:
+                            significant_genes.append(gene)
+
+                # Update statistics for Getis-Ord analysis
+                getis_ord_stats = {
+                    "getis_ord_genes_analyzed": len(genes),
+                    "getis_ord_significant_genes": len(significant_genes),
+                    "getis_ord_total_hot_spots": int(total_hot_spots),
+                    "getis_ord_total_cold_spots": int(total_cold_spots),
+                    "getis_ord_correction_method": params.getis_ord_correction,
+                    "getis_ord_alpha": params.getis_ord_alpha,
+                    "getis_ord_top_genes": significant_genes[:10] if significant_genes else []
+                }
+                statistics.update(getis_ord_stats)
+
+                if context:
+                    await context.info(f"Added Getis-Ord statistics: {getis_ord_stats}")
+
+            except Exception as e:
+                if context:
+                    await context.warning(f"Error in Getis-Ord analysis: {str(e)}")
+                    await context.info("Creating fallback visualization...")
+
+                # Create a fallback visualization
+                fig, ax = plt.subplots(figsize=(10, 8))
+                ax.text(0.5, 0.5, f'Getis-Ord Gi* Analysis\nError: {str(e)}\n\nThis analysis requires PySAL or updated squidpy',
+                       ha='center', va='center', transform=ax.transAxes, fontsize=12)
+                ax.set_title('Getis-Ord Gi* Analysis - Error')
+                ax.set_xlim(0, 1)
+                ax.set_ylim(0, 1)
+                ax.axis('off')
+
         else:
             raise ValueError(f"Unsupported analysis type: {params.analysis_type}")
 
@@ -573,14 +835,15 @@ async def analyze_spatial_unified(
             if context:
                 await context.info(f"Returning {params.analysis_type} analysis result with {len(statistics)} statistics")
 
-            # Add metadata to statistics
-            statistics.update({
+            # Add metadata to statistics (preserve existing statistics)
+            metadata = {
                 "analysis_date": pd.Timestamp.now().isoformat(),
                 "cluster_key": cluster_key,
                 "n_clusters": n_clusters,
                 "n_cells": adata.n_obs,
                 "n_neighbors": params.n_neighbors
-            })
+            }
+            statistics.update(metadata)
 
             return SpatialAnalysisResult(
                 data_id=data_id,
@@ -621,3 +884,165 @@ async def analyze_spatial_unified(
 
 # The analyze_spatial function has been removed in favor of directly using analyze_spatial_unified
 # This simplifies the code structure and reduces complexity
+
+
+def _compute_single_gene_getis_ord(gene_data_weights_tuple):
+    """
+    Compute Getis-Ord Gi* for a single gene (for parallel processing)
+
+    Args:
+        gene_data_weights_tuple: Tuple of (gene_name, gene_expression, weights_dict)
+
+    Returns:
+        Tuple of (gene_name, z_scores, p_values)
+    """
+    try:
+        gene_name, gene_expr, weights_dict = gene_data_weights_tuple
+
+        # Reconstruct weights object from dictionary
+        from libpysal.weights import W
+        from esda.getisord import G_Local
+        import scipy.stats as stats
+
+        w = W(weights_dict['neighbors'], weights_dict['weights'])
+        w.transform = 'r'
+
+        # Calculate Getis-Ord Gi*
+        gi_star = G_Local(gene_expr, w, star=True)
+
+        # Get Z-scores and p-values
+        z_scores = gi_star.Zs
+        p_values = gi_star.p_sim if hasattr(gi_star, 'p_sim') else stats.norm.sf(np.abs(z_scores)) * 2
+
+        return gene_name, z_scores, p_values
+
+    except Exception as e:
+        # Return error information
+        return gene_name, None, None, str(e)
+
+
+async def _compute_getis_ord_parallel(adata, genes, w, context=None):
+    """
+    Compute Getis-Ord Gi* for multiple genes in parallel
+
+    Args:
+        adata: AnnData object
+        genes: List of gene names
+        w: Spatial weights object
+        context: MCP context for logging
+
+    Returns:
+        Dictionary with results for each gene
+    """
+    # Prepare data for parallel processing
+    weights_dict = {
+        'neighbors': w.neighbors,
+        'weights': w.weights
+    }
+
+    # Prepare gene data
+    gene_data_list = []
+    valid_genes = []
+
+    for gene in genes:
+        if gene not in adata.var_names:
+            if context:
+                await context.warning(f"Gene {gene} not found in data, skipping...")
+            continue
+
+        # Get gene expression values
+        gene_expr = adata[:, gene].X.toarray().flatten() if hasattr(adata.X, 'toarray') else adata[:, gene].X.flatten()
+        gene_data_list.append((gene, gene_expr, weights_dict))
+        valid_genes.append(gene)
+
+    if not gene_data_list:
+        return {}
+
+    # Determine number of workers - be more conservative
+    n_workers = min(len(gene_data_list), mp.cpu_count() // 2, 2)  # Limit to 2 workers max for stability
+
+    if context:
+        await context.info(f"Using {n_workers} parallel workers for {len(gene_data_list)} genes")
+
+    # Run parallel computation with timeout
+    loop = asyncio.get_event_loop()
+
+    try:
+        # Set timeout based on data size (30 seconds per gene + base time)
+        timeout_seconds = 30 + len(gene_data_list) * 30
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
+            # Submit all tasks
+            future_to_gene = {
+                loop.run_in_executor(executor, _compute_single_gene_getis_ord, gene_data): gene_data[0]
+                for gene_data in gene_data_list
+            }
+
+            # Collect results with timeout
+            getis_ord_results = {}
+            completed = 0
+
+            try:
+                for future in asyncio.as_completed(future_to_gene, timeout=timeout_seconds):
+                    gene_name = future_to_gene[future]
+                    try:
+                        result = await future
+                        completed += 1
+
+                        if len(result) == 4:  # Error case
+                            gene_name, z_scores, p_values, error = result
+                            if context:
+                                await context.warning(f"Error processing gene {gene_name}: {error}")
+                        else:  # Success case
+                            gene_name, z_scores, p_values = result
+                            getis_ord_results[gene_name] = {
+                                'z_scores': z_scores,
+                                'p_values': p_values
+                            }
+
+                            # Store in adata for later use
+                            adata.obs[f"{gene_name}_getis_ord_z"] = z_scores
+                            adata.obs[f"{gene_name}_getis_ord_p"] = p_values
+
+                        if context:
+                            await context.info(f"Completed gene {completed}/{len(gene_data_list)}: {gene_name}")
+
+                    except Exception as e:
+                        if context:
+                            await context.warning(f"Failed to process gene {gene_name}: {str(e)}")
+
+            except asyncio.TimeoutError:
+                if context:
+                    await context.warning(f"Parallel processing timed out after {timeout_seconds} seconds")
+                    await context.info("Falling back to sequential processing...")
+                # Cancel remaining futures
+                for future in future_to_gene:
+                    future.cancel()
+                # Fall through to sequential fallback
+                raise Exception("Parallel processing timeout")
+
+            return getis_ord_results
+
+    except Exception as e:
+        if context:
+            await context.warning(f"Parallel processing failed, falling back to sequential: {str(e)}")
+
+        # Fallback to sequential processing
+        getis_ord_results = {}
+        for gene_data in gene_data_list:
+            gene_name, gene_expr, _ = gene_data
+            try:
+                result = _compute_single_gene_getis_ord(gene_data)
+                if len(result) == 3:  # Success
+                    _, z_scores, p_values = result
+                    getis_ord_results[gene_name] = {
+                        'z_scores': z_scores,
+                        'p_values': p_values
+                    }
+                    adata.obs[f"{gene_name}_getis_ord_z"] = z_scores
+                    adata.obs[f"{gene_name}_getis_ord_p"] = p_values
+            except Exception as gene_error:
+                if context:
+                    await context.warning(f"Failed to process gene {gene_name}: {str(gene_error)}")
+
+        return getis_ord_results

@@ -22,12 +22,6 @@ from ..utils.image_utils import fig_to_image, create_placeholder_image
 
 # Import optional dependencies with fallbacks
 try:
-    import STAGATE as stg
-    STAGATE_AVAILABLE = True
-except ImportError:
-    STAGATE_AVAILABLE = False
-
-try:
     import SpaGCN as spg
     SPAGCN_AVAILABLE = True
 except ImportError:
@@ -87,11 +81,7 @@ async def identify_spatial_domains(
             sc.pp.log1p(adata_subset)
         
         # Identify domains based on method
-        if params.method == "stagate":
-            domain_labels, embeddings_key, statistics = await _identify_domains_stagate(
-                adata_subset, params, context
-            )
-        elif params.method == "spagcn":
+        if params.method == "spagcn":
             domain_labels, embeddings_key, statistics = await _identify_domains_spagcn(
                 adata_subset, params, context
             )
@@ -100,7 +90,7 @@ async def identify_spatial_domains(
                 adata_subset, params, context
             )
         else:
-            raise ValueError(f"Unsupported method: {params.method}")
+            raise ValueError(f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain")
         
         # Store domain labels in original adata
         domain_key = f"spatial_domains_{params.method}"
@@ -164,66 +154,6 @@ async def identify_spatial_domains(
         raise RuntimeError(error_msg)
 
 
-async def _identify_domains_stagate(
-    adata: Any,
-    params: SpatialDomainParameters,
-    context: Optional[Context] = None
-) -> tuple:
-    """Identify spatial domains using STAGATE"""
-    if not STAGATE_AVAILABLE:
-        raise ImportError("STAGATE is not installed. Please install it with: pip install STAGATE")
-    
-    if context:
-        await context.info("Running STAGATE for spatial domain identification...")
-    
-    try:
-        # Calculate spatial network
-        if context:
-            await context.info("Computing spatial neighbor network...")
-        stg.Cal_Spatial_Net(adata, rad_cutoff=150)  # Default radius cutoff
-        
-        # Train STAGATE
-        if context:
-            await context.info(f"Training STAGATE with {params.stagate_n_epochs} epochs...")
-        
-        adata = stg.train_STAGATE(
-            adata,
-            alpha=params.stagate_alpha,
-            hidden_dims=params.stagate_hidden_dims,
-            n_epochs=params.stagate_n_epochs,
-            lr=params.stagate_lr,
-            random_seed=params.stagate_random_seed,
-            verbose=False
-        )
-        
-        # Perform clustering on STAGATE embeddings
-        if context:
-            await context.info("Clustering STAGATE embeddings...")
-        
-        sc.pp.neighbors(adata, use_rep='STAGATE')
-        sc.tl.leiden(adata, resolution=params.resolution, key_added='leiden_stagate')
-        
-        # Use mclust for better clustering if available
-        try:
-            adata = stg.mclust_R(adata, used_obsm='STAGATE', num_cluster=params.n_domains)
-            domain_labels = adata.obs['mclust'].astype(str)
-        except:
-            # Fallback to leiden clustering
-            domain_labels = adata.obs['leiden_stagate'].astype(str)
-        
-        statistics = {
-            "method": "stagate",
-            "alpha": params.stagate_alpha,
-            "n_epochs": params.stagate_n_epochs,
-            "hidden_dims": params.stagate_hidden_dims,
-            "embedding_dim": adata.obsm['STAGATE'].shape[1]
-        }
-        
-        return domain_labels, 'STAGATE', statistics
-        
-    except Exception as e:
-        raise RuntimeError(f"STAGATE failed: {str(e)}")
-
 
 async def _identify_domains_spagcn(
     adata: Any,
@@ -233,10 +163,10 @@ async def _identify_domains_spagcn(
     """Identify spatial domains using SpaGCN"""
     if not SPAGCN_AVAILABLE:
         raise ImportError("SpaGCN is not installed. Please install it with: pip install SpaGCN")
-    
+
     if context:
         await context.info("Running SpaGCN for spatial domain identification...")
-    
+
     try:
         # Get spatial coordinates
         if 'spatial' in adata.obsm:
@@ -244,12 +174,12 @@ async def _identify_domains_spagcn(
             y_array = adata.obsm['spatial'][:, 1].tolist()
         else:
             raise ValueError("Spatial coordinates not found in adata.obsm['spatial']")
-        
+
         # For SpaGCN, we need pixel coordinates for histology
         # If not available, use array coordinates
         x_pixel = x_array.copy()
         y_pixel = y_array.copy()
-        
+
         # Create a dummy histology image if not available
         img = None
         if params.spagcn_use_histology:
@@ -263,35 +193,55 @@ async def _identify_domains_spagcn(
                         img = img_dict['hires']
                     elif 'lowres' in img_dict:
                         img = img_dict['lowres']
-        
+
         if img is None:
             # Create dummy image or disable histology
             if context:
                 await context.info("No histology image found, running SpaGCN without histology")
             params.spagcn_use_histology = False
             img = np.ones((100, 100, 3), dtype=np.uint8) * 255  # White dummy image
-        
+
         # Run SpaGCN easy mode
         if context:
             await context.info("Running SpaGCN domain detection...")
-        
-        domain_labels = spg.detect_spatial_domains_ez_mode(
-            adata,
-            img,
-            x_array,
-            y_array,
-            x_pixel,
-            y_pixel,
-            n_clusters=params.n_domains,
-            histology=params.spagcn_use_histology,
-            s=params.spagcn_s,
-            b=params.spagcn_b,
-            p=params.spagcn_p,
-            r_seed=params.spagcn_random_seed
-        )
-        
+
+        # Import SpaGCN functions at runtime to avoid import issues
+        try:
+            from SpaGCN.ez_mode import detect_spatial_domains_ez_mode
+        except ImportError:
+            # Fallback to direct import
+            domain_labels = spg.detect_spatial_domains_ez_mode(
+                adata,
+                img,
+                x_array,
+                y_array,
+                x_pixel,
+                y_pixel,
+                n_clusters=params.n_domains,
+                histology=params.spagcn_use_histology,
+                s=params.spagcn_s,
+                b=params.spagcn_b,
+                p=params.spagcn_p,
+                r_seed=params.spagcn_random_seed
+            )
+        else:
+            domain_labels = detect_spatial_domains_ez_mode(
+                adata,
+                img,
+                x_array,
+                y_array,
+                x_pixel,
+                y_pixel,
+                n_clusters=params.n_domains,
+                histology=params.spagcn_use_histology,
+                s=params.spagcn_s,
+                b=params.spagcn_b,
+                p=params.spagcn_p,
+                r_seed=params.spagcn_random_seed
+            )
+
         domain_labels = pd.Series(domain_labels, index=adata.obs.index).astype(str)
-        
+
         statistics = {
             "method": "spagcn",
             "n_clusters": params.n_domains,
@@ -300,9 +250,9 @@ async def _identify_domains_spagcn(
             "p_parameter": params.spagcn_p,
             "use_histology": params.spagcn_use_histology
         }
-        
+
         return domain_labels, None, statistics
-        
+
     except Exception as e:
         raise RuntimeError(f"SpaGCN failed: {str(e)}")
 

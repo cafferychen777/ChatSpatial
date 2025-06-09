@@ -9,7 +9,7 @@ ChatSpatial is an interactive spatial transcriptomics data analysis assistant ba
 - **Spatial Visualization**: Spatial distribution of gene expression, visualization of clustering results, etc.
 - **Differential Expression Analysis**: Identification of differentially expressed genes between cell populations
 - **Cell Type Annotation**: Multiple cell type annotation methods, including marker-based, correlation-based, and supervised classification
-- **Spatial Analysis**: Spatial autocorrelation, neighborhood analysis, spatial trajectories, etc.
+- **Spatial Analysis**: Spatial autocorrelation (Moran's I, Getis-Ord Gi*), neighborhood analysis, spatial trajectories, etc.
 - **Spatial Domain Identification**: STAGATE, SpaGCN, and clustering-based methods for identifying spatial domains
 - **Advanced Spatial Variable Genes**: GASTON (Graph Attention Spatial Transcriptomics Organizer Network) for learning tissue topology and identifying spatial gene patterns through deep learning
 - **Cell Communication Analysis**: LIANA+ integration for fast and comprehensive ligand-receptor interaction analysis with spatial bivariate metrics
@@ -115,13 +115,12 @@ The server provides the following tools:
 5. `identify_domains` - Spatial domain identification
 6. `find_spatial_genes_gaston` - Advanced spatial variable genes identification using GASTON
 7. `analyze_communication` - Cell-cell communication analysis with LIANA+
-8. `analyze_spatial` - Spatial analysis
+8. `analyze_spatial_data` - Spatial analysis (Moran's I, Getis-Ord Gi*, neighborhood, co-occurrence, Ripley's K, centrality)
 9. `find_markers` - Differential expression analysis
-10. `list_datasets` - List loaded datasets
-11. `integrate_samples` - Multi-sample integration
-12. `analyze_trajectory` - Trajectory analysis
-13. `analyze_velocity` - RNA velocity analysis
-14. `deconvolve` - Spatial transcriptomics deconvolution
+10. `integrate_samples` - Multi-sample integration
+11. `analyze_trajectory_pseudotime` - Trajectory pseudotime analysis
+12. `analyze_velocity` - RNA velocity analysis
+13. `deconvolve` - Spatial transcriptomics deconvolution
 
 ### Cell Communication Analysis with LIANA+
 
@@ -141,6 +140,27 @@ ChatSpatial uses LIANA+ (Ligand-receptor Analysis) for fast and comprehensive ce
 "Analyze cell communication using LIANA+ with cosine similarity"
 "Find ligand-receptor pairs using Moran's I global metric"
 "Visualize spatial communication patterns for VEGFA-KDR interaction"
+```
+
+### Spatial Statistics Analysis with Getis-Ord Gi*
+
+ChatSpatial now includes **Getis-Ord Gi*** local spatial autocorrelation analysis for detecting spatial hot spots and cold spots in gene expression:
+
+**Features:**
+
+- **Local Hot/Cold Spot Detection**: Identifies regions with significantly high (hot spots) or low (cold spots) gene expression
+- **Multiple Testing Correction**: Supports Bonferroni, FDR-BH, or no correction
+- **Flexible Gene Selection**: Analyze specific genes or top highly variable genes
+- **Comprehensive Visualization**: Multi-panel spatial plots showing Z-scores with hot/cold spot counts
+- **Statistical Summary**: Detailed statistics including total hot/cold spots and significant genes
+- **PySAL Implementation**: Uses robust PySAL library for accurate Gi* calculations
+
+**Example Usage:**
+
+```text
+"Find spatial hot spots for CCL21 using Getis-Ord Gi* with FDR correction"
+"Analyze top 10 highly variable genes for local spatial autocorrelation"
+"Detect immune infiltration hot spots using Getis-Ord analysis"
 ```
 
 ### Advanced Spatial Variable Genes with GASTON

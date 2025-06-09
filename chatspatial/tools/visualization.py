@@ -347,45 +347,52 @@ async def visualize_data(
 
         # Create figure based on plot type
         if params.plot_type == "spatial":
-            if context:
-                await context.info(f"Creating spatial plot for {params.feature if params.feature else 'tissue'}")
-
-            # Validate and prepare feature for visualization
-            feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=None)
-
-            # Create spatial plot
-            # For 10x Visium data
-            if 'spatial' in adata.uns and 'images' in adata.uns['spatial']:
-                # With tissue image background
-                if feature:
-                    if feature in adata.var_names:
-                        # Gene expression
-                        fig = sc.pl.spatial(adata, img_key="hires", color=feature, cmap=params.colormap,
-                                            show=False, return_fig=True)
-                    elif feature in adata.obs.columns:
-                        # Observation annotation (like clusters)
-                        fig = sc.pl.spatial(adata, img_key="hires", color=feature,
-                                            show=False, return_fig=True)
-                else:
-                    # Just tissue image with spots
-                    fig = sc.pl.spatial(adata, img_key="hires", show=False, return_fig=True)
+            # Check if this should be a multi-gene visualization
+            if params.features and params.multi_panel and len(params.features) > 1:
+                if context:
+                    await context.info(f"Creating multi-gene spatial plot for {len(params.features)} genes")
+                # Create multi-gene visualization
+                fig = await create_multi_gene_visualization(adata, params, context)
             else:
-                # For other spatial data without tissue image
-                fig, ax = create_figure()
-                if feature:
-                    if feature in adata.var_names:
-                        # Gene expression
-                        sc.pl.embedding(adata, basis="spatial", color=feature, cmap=params.colormap,
-                                        show=False, ax=ax)
-                    elif feature in adata.obs.columns:
-                        # Observation annotation
-                        sc.pl.embedding(adata, basis="spatial", color=feature,
-                                        show=False, ax=ax)
+                if context:
+                    await context.info(f"Creating spatial plot for {params.feature if params.feature else 'tissue'}")
+
+                # Validate and prepare feature for visualization
+                feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=None)
+
+                # Create spatial plot
+                # For 10x Visium data
+                if 'spatial' in adata.uns and 'images' in adata.uns['spatial']:
+                    # With tissue image background
+                    if feature:
+                        if feature in adata.var_names:
+                            # Gene expression
+                            fig = sc.pl.spatial(adata, img_key="hires", color=feature, cmap=params.colormap,
+                                                show=False, return_fig=True)
+                        elif feature in adata.obs.columns:
+                            # Observation annotation (like clusters)
+                            fig = sc.pl.spatial(adata, img_key="hires", color=feature,
+                                                show=False, return_fig=True)
+                    else:
+                        # Just tissue image with spots
+                        fig = sc.pl.spatial(adata, img_key="hires", show=False, return_fig=True)
                 else:
-                    # Just spatial coordinates
-                    sc.pl.embedding(adata, basis="spatial", show=False, ax=ax)
-                    ax.set_aspect('equal')
-                    ax.set_title("Spatial coordinates")
+                    # For other spatial data without tissue image
+                    fig, ax = create_figure()
+                    if feature:
+                        if feature in adata.var_names:
+                            # Gene expression
+                            sc.pl.embedding(adata, basis="spatial", color=feature, cmap=params.colormap,
+                                            show=False, ax=ax)
+                        elif feature in adata.obs.columns:
+                            # Observation annotation
+                            sc.pl.embedding(adata, basis="spatial", color=feature,
+                                            show=False, ax=ax)
+                    else:
+                        # Just spatial coordinates
+                        sc.pl.embedding(adata, basis="spatial", show=False, ax=ax)
+                        ax.set_aspect('equal')
+                        ax.set_title("Spatial coordinates")
 
         elif params.plot_type == "umap":
             if context:
@@ -415,82 +422,187 @@ async def visualize_data(
                     # Use PCA as UMAP for visualization
                     adata.obsm['X_umap'] = adata.obsm['X_pca'][:, :2]
 
-            # Validate and prepare feature for visualization
-            # Check if we should use cell_type from deconvolution
-            if params.feature and params.feature.startswith('deconvolution_'):
-                # Check if we already have cell_type from deconvolution
-                if 'cell_type' in adata.obs:
+            # Check if we should create multi-panel plot for multiple features
+            if params.features and params.multi_panel:
+                if context:
+                    await context.info(f"Creating multi-panel UMAP plot for features: {params.features}")
+
+                # Filter genes that exist in the data
+                available_genes = [gene for gene in params.features if gene in adata.var_names]
+
+                if not available_genes:
                     if context:
-                        await context.info("Using cell_type from deconvolution for UMAP visualization")
-                    feature = 'cell_type'
+                        await context.warning(f"None of the specified genes found in data: {params.features}")
+                    # Default to leiden clusters if available
+                    default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
+                    feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
+
+                    # Create single UMAP plot
+                    if feature:
+                        fig = sc.pl.umap(adata, color=feature, cmap=params.colormap if feature in adata.var_names else None,
+                                        show=False, return_fig=True)
+                    else:
+                        fig = sc.pl.umap(adata, show=False, return_fig=True)
                 else:
-                    # Try to create cell_type from deconvolution
-                    deconv_key = params.feature
-                    if deconv_key in adata.obsm:
+                    # Create multi-panel UMAP plot
+                    n_features = len(available_genes)
+                    if params.panel_layout:
+                        n_rows, n_cols = params.panel_layout
+                    else:
+                        n_cols = min(3, n_features)
+                        n_rows = (n_features + n_cols - 1) // n_cols
+
+                    # Determine figure size
+                    if params.figure_size:
+                        figsize = params.figure_size
+                    else:
+                        figsize = (4*n_cols, 4*n_rows)
+
+                    # Create figure
+                    fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize, dpi=params.dpi)
+                    axes = axes.flatten() if n_features > 1 else [axes]
+
+                    # Set figure title
+                    title = params.title or f"Multi-Gene Expression UMAP ({len(available_genes)} genes)"
+                    fig.suptitle(title, fontsize=16)
+                    plt.subplots_adjust(top=0.9)
+
+                    # Plot each gene
+                    for i, gene in enumerate(available_genes):
+                        if i < len(axes):
+                            ax = axes[i]
+                            try:
+                                # Get gene expression to determine color scale
+                                gene_idx = adata.var_names.get_loc(gene)
+                                gene_expr = adata.X[:, gene_idx]
+
+                                if hasattr(gene_expr, 'toarray'):
+                                    gene_expr = gene_expr.toarray().flatten()
+                                elif hasattr(gene_expr, 'A1'):
+                                    gene_expr = gene_expr.A1
+                                else:
+                                    gene_expr = np.array(gene_expr).flatten()
+
+                                # Set appropriate color scale for sparse data
+                                vmin = 0  # Always start from 0 for gene expression
+                                vmax = max(gene_expr.max(), 0.1)  # Ensure we have some range
+
+                                # Use percentile-based scaling for better visualization
+                                if np.sum(gene_expr > 0) > 10:  # If we have enough expressing cells
+                                    vmax = np.percentile(gene_expr[gene_expr > 0], 95)
+
+                                sc.pl.umap(adata, color=gene, cmap=params.colormap,
+                                          ax=ax, show=False, frameon=False,
+                                          vmin=vmin, vmax=vmax,
+                                          colorbar_loc='right')
+                                ax.set_title(gene)
+                            except Exception as e:
+                                # Handle individual gene plotting errors
+                                ax.text(0.5, 0.5, f'Error plotting {gene}:\n{str(e)}',
+                                       ha='center', va='center', transform=ax.transAxes)
+                                ax.set_title(f'{gene} (Error)')
+
+                    # Hide empty axes
+                    for i in range(n_features, len(axes)):
+                        axes[i].axis('off')
+
+                    plt.tight_layout()
+            else:
+                # Validate and prepare feature for visualization
+                # Check if we should use cell_type from deconvolution
+                if params.feature and params.feature.startswith('deconvolution_'):
+                    # Check if we already have cell_type from deconvolution
+                    if 'cell_type' in adata.obs:
                         if context:
-                            await context.info(f"Creating cell_type from {deconv_key} for UMAP visualization")
+                            await context.info("Using cell_type from deconvolution for UMAP visualization")
+                        feature = 'cell_type'
+                    else:
+                        # Try to create cell_type from deconvolution
+                        deconv_key = params.feature
+                        if deconv_key in adata.obsm:
+                            if context:
+                                await context.info(f"Creating cell_type from {deconv_key} for UMAP visualization")
 
-                        # Get cell types from uns
-                        cell_types_key = f"{deconv_key}_cell_types"
-                        if cell_types_key in adata.uns:
-                            # Get deconvolution results as DataFrame
-                            deconv_df = get_deconvolution_dataframe(adata, deconv_key)
+                            # Get cell types from uns
+                            cell_types_key = f"{deconv_key}_cell_types"
+                            if cell_types_key in adata.uns:
+                                # Get deconvolution results as DataFrame
+                                deconv_df = get_deconvolution_dataframe(adata, deconv_key)
 
-                            if deconv_df is not None:
-                                # Determine the dominant cell type for each spot
-                                dominant_cell_types = []
-                                for i in range(deconv_df.shape[0]):
-                                    row = deconv_df.iloc[i]
-                                    max_idx = row.argmax()
-                                    dominant_cell_types.append(deconv_df.columns[max_idx])
+                                if deconv_df is not None:
+                                    # Determine the dominant cell type for each spot
+                                    dominant_cell_types = []
+                                    for i in range(deconv_df.shape[0]):
+                                        row = deconv_df.iloc[i]
+                                        max_idx = row.argmax()
+                                        dominant_cell_types.append(deconv_df.columns[max_idx])
 
-                                # Add to adata.obs
-                                adata.obs['cell_type'] = dominant_cell_types
+                                    # Add to adata.obs
+                                    adata.obs['cell_type'] = dominant_cell_types
 
-                                # Make it categorical
-                                adata.obs['cell_type'] = adata.obs['cell_type'].astype('category')
+                                    # Make it categorical
+                                    adata.obs['cell_type'] = adata.obs['cell_type'].astype('category')
 
-                                if context:
-                                    await context.info(f"Created cell_type annotation with {len(adata.uns[cell_types_key])} cell types")
+                                    if context:
+                                        await context.info(f"Created cell_type annotation with {len(adata.uns[cell_types_key])} cell types")
 
-                                feature = 'cell_type'
+                                    feature = 'cell_type'
+                                else:
+                                    if context:
+                                        await context.warning(f"Could not get deconvolution dataframe for {deconv_key}")
+                                    # Default to leiden clusters if available
+                                    default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
+                                    feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
                             else:
                                 if context:
-                                    await context.warning(f"Could not get deconvolution dataframe for {deconv_key}")
+                                    await context.warning(f"Cell types not found for {deconv_key}")
                                 # Default to leiden clusters if available
                                 default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
                                 feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
                         else:
-                            if context:
-                                await context.warning(f"Cell types not found for {deconv_key}")
                             # Default to leiden clusters if available
                             default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
                             feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
-                    else:
-                        # Default to leiden clusters if available
-                        default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
-                        feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
-            else:
-                # Default to leiden clusters if available
-                default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
-                feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
+                else:
+                    # Default to leiden clusters if available
+                    default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
+                    feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
 
-            # Create UMAP plot
-            if feature:
-                fig = sc.pl.umap(adata, color=feature, cmap=params.colormap if feature in adata.var_names else None,
-                                show=False, return_fig=True)
-            else:
-                fig = sc.pl.umap(adata, show=False, return_fig=True)
+                # Create UMAP plot
+                if feature:
+                    fig = sc.pl.umap(adata, color=feature, cmap=params.colormap if feature in adata.var_names else None,
+                                    show=False, return_fig=True)
+                else:
+                    fig = sc.pl.umap(adata, show=False, return_fig=True)
 
         elif params.plot_type == "heatmap":
             if context:
                 await context.info("Creating heatmap plot")
 
             # For heatmap, we need to select top genes or use highly variable genes
-            if not adata.var.get('highly_variable', None).any():
+            highly_variable = adata.var.get('highly_variable', None)
+            if highly_variable is None or not highly_variable.any():
                 if context:
                     await context.warning("No highly variable genes found. Computing...")
-                sc.pp.highly_variable_genes(adata, n_top_genes=50)
+                try:
+                    # Clean data before computing highly variable genes
+                    # Replace infinite values with NaN, then fill with 0
+                    if hasattr(adata.X, 'data'):
+                        # Sparse matrix
+                        adata.X.data = np.nan_to_num(adata.X.data, nan=0.0, posinf=0.0, neginf=0.0)
+                    else:
+                        # Dense matrix
+                        adata.X = np.nan_to_num(adata.X, nan=0.0, posinf=0.0, neginf=0.0)
+
+                    sc.pp.highly_variable_genes(adata, n_top_genes=50)
+                except Exception as e:
+                    if context:
+                        await context.warning(f"Failed to compute highly variable genes: {e}. Using top expressed genes instead.")
+                    # Fallback: use top expressed genes
+                    gene_means = np.array(adata.X.mean(axis=0)).flatten()
+                    top_gene_indices = np.argsort(gene_means)[-50:]
+                    adata.var['highly_variable'] = False
+                    adata.var.iloc[top_gene_indices, adata.var.columns.get_loc('highly_variable')] = True
 
             # Create heatmap of top genes across groups
             if 'leiden' in adata.obs.columns:
@@ -516,16 +628,103 @@ async def visualize_data(
             if context:
                 await context.info(f"Using top {n_genes} highly variable genes for heatmap")
 
-            # Create heatmap with smaller figure size and fewer genes
-            # Reduce figure size from (12, 10) to (8, 6) to decrease image size
-            plt.figure(figsize=(8, 6))
-            ax_dict = sc.pl.heatmap(adata,
-                         var_names=adata.var_names[adata.var.highly_variable][:n_genes],
-                         groupby=groupby,
-                         cmap=params.colormap,
-                         show=False,
-                         dendrogram=False)  # Disable dendrogram to simplify the plot
-            fig = plt.gcf()  # Get the current figure
+            # Get genes for heatmap
+            if params.features and len(params.features) > 0:
+                # Use user-specified genes
+                available_genes = [gene for gene in params.features if gene in adata.var_names]
+                if not available_genes:
+                    if context:
+                        await context.warning(f"None of specified genes found: {params.features}. Using highly variable genes.")
+                    # Fall back to highly variable genes
+                    available_genes = adata.var_names[adata.var.highly_variable][:n_genes].tolist()
+                else:
+                    # Limit to reasonable number for visualization
+                    available_genes = available_genes[:n_genes]
+            else:
+                # Use highly variable genes
+                available_genes = adata.var_names[adata.var.highly_variable][:n_genes].tolist()
+
+            if context:
+                await context.info(f"Creating heatmap with {len(available_genes)} genes: {available_genes[:5]}...")
+
+            # Create heatmap with improved settings
+            plt.figure(figsize=(max(8, len(available_genes) * 0.5), max(6, len(adata.obs[groupby].cat.categories) * 0.3) if groupby else 6))
+
+            try:
+                # Use scanpy's heatmap with better parameters
+                ax_dict = sc.pl.heatmap(
+                    adata,
+                    var_names=available_genes,
+                    groupby=groupby,
+                    cmap=params.colormap,
+                    show=False,
+                    dendrogram=False,
+                    standard_scale='var',  # Standardize genes (rows)
+                    figsize=None,  # Let matplotlib handle the size
+                    swap_axes=False,  # Keep genes as rows
+                    vmin=None,  # Let scanpy determine range
+                    vmax=None
+                )
+                fig = plt.gcf()
+
+                # Improve the layout
+                plt.tight_layout()
+
+            except Exception as e:
+                if context:
+                    await context.warning(f"Scanpy heatmap failed: {e}. Creating custom heatmap...")
+
+                # Fallback: create custom heatmap using seaborn
+                import seaborn as sns
+                import pandas as pd
+
+                # Get expression data
+                expr_data = adata[:, available_genes].X
+                if hasattr(expr_data, 'toarray'):
+                    expr_data = expr_data.toarray()
+
+                # Create DataFrame
+                expr_df = pd.DataFrame(
+                    expr_data.T,  # Transpose so genes are rows
+                    index=available_genes,
+                    columns=adata.obs.index
+                )
+
+                # Add group information if available
+                if groupby:
+                    # Sort by groups
+                    group_order = adata.obs[groupby].cat.categories
+                    sorted_cells = []
+                    for group in group_order:
+                        group_cells = adata.obs[adata.obs[groupby] == group].index
+                        sorted_cells.extend(group_cells)
+
+                    expr_df = expr_df[sorted_cells]
+
+                # Create heatmap
+                fig, ax = plt.subplots(figsize=(max(8, len(available_genes) * 0.5), max(6, len(available_genes) * 0.3)))
+
+                # Standardize data (z-score normalization across genes)
+                from scipy.stats import zscore
+                expr_df_norm = expr_df.apply(zscore, axis=1)
+
+                # Create heatmap with seaborn
+                sns.heatmap(
+                    expr_df_norm,
+                    cmap=params.colormap,
+                    center=0,
+                    robust=True,
+                    ax=ax,
+                    cbar_kws={'shrink': 0.8},
+                    xticklabels=False,  # Too many cells to show labels
+                    yticklabels=True
+                )
+
+                ax.set_title(f'Gene Expression Heatmap ({len(available_genes)} genes)')
+                ax.set_xlabel('Cells')
+                ax.set_ylabel('Genes')
+
+                plt.tight_layout()
 
         elif params.plot_type == "violin":
             if context:
@@ -536,8 +735,22 @@ async def visualize_data(
                 if context:
                     await context.warning(f"Gene {params.feature} not found in dataset. Showing top genes instead.")
                 # Use top highly variable genes
-                if not adata.var.get('highly_variable', None).any():
-                    sc.pp.highly_variable_genes(adata, n_top_genes=50)
+                highly_variable = adata.var.get('highly_variable', None)
+                if highly_variable is None or not highly_variable.any():
+                    try:
+                        # Clean data before computing highly variable genes
+                        if hasattr(adata.X, 'data'):
+                            adata.X.data = np.nan_to_num(adata.X.data, nan=0.0, posinf=0.0, neginf=0.0)
+                        else:
+                            adata.X = np.nan_to_num(adata.X, nan=0.0, posinf=0.0, neginf=0.0)
+
+                        sc.pp.highly_variable_genes(adata, n_top_genes=50)
+                    except Exception:
+                        # Fallback: use top expressed genes
+                        gene_means = np.array(adata.X.mean(axis=0)).flatten()
+                        top_gene_indices = np.argsort(gene_means)[-50:]
+                        adata.var['highly_variable'] = False
+                        adata.var.iloc[top_gene_indices, adata.var.columns.get_loc('highly_variable')] = True
                 # Limit to 3 genes to reduce image size
                 genes = adata.var_names[adata.var.highly_variable][:3]
             else:
@@ -674,14 +887,14 @@ async def create_deconvolution_visualization(
 
         if not deconv_keys:
             # Look for individual cell type proportions in obs
-            cell_type_cols = [col for col in adata.obs.columns if any(method in col.lower() for method in ['nnls', 'cell2location', 'spotiphy'])]
+            cell_type_cols = [col for col in adata.obs.columns if any(method in col.lower() for method in ['cell2location', 'spotiphy'])]
 
             if not cell_type_cols:
                 raise DataNotFoundError("No deconvolution results found in adata.obsm or adata.obs")
 
             # Create proportions DataFrame from obs columns
             import pandas as pd
-            # Extract base key (e.g., 'nnls_proportions' from 'nnls_proportions_T_cell')
+            # Extract base key (e.g., 'deconvolution_cell2location' from 'deconvolution_cell2location_T_cell')
             base_keys = set()
             for col in cell_type_cols:
                 parts = col.split('_')

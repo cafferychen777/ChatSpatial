@@ -360,6 +360,14 @@ async def _analyze_communication_liana(
             if context:
                 await context.info(f"Spatial connectivity computed with bandwidth={bandwidth}, cutoff={cutoff}")
 
+        # Auto-detect species if not specified correctly
+        detected_species = _detect_species_from_genes(adata, context)
+        if detected_species != params.species:
+            if context:
+                await context.info(f"Auto-detected species: {detected_species}, overriding user setting: {params.species}")
+            # Update params with detected species
+            params.species = detected_species
+
         # Determine analysis type based on data characteristics
         has_clusters = 'cell_type' in adata.obs.columns or 'cluster' in adata.obs.columns
 
@@ -372,6 +380,50 @@ async def _analyze_communication_liana(
 
     except Exception as e:
         raise RuntimeError(f"LIANA+ analysis failed: {str(e)}")
+
+
+def _detect_species_from_genes(adata: Any, context: Optional[Context] = None) -> str:
+    """Auto-detect species from gene names"""
+    gene_names = set(adata.var.index[:1000])  # Sample first 1000 genes for speed
+
+    # Common mouse gene patterns
+    mouse_patterns = [
+        lambda g: g[0].isupper() and g[1:].islower(),  # Capitalized first letter, rest lowercase (e.g., Actb)
+        lambda g: any(g.startswith(prefix) for prefix in ['Gm', 'Rik', 'LOC']),  # Mouse-specific prefixes
+    ]
+
+    # Common human gene patterns
+    human_patterns = [
+        lambda g: g.isupper(),  # All uppercase (e.g., ACTB)
+        lambda g: g.startswith('ENSG'),  # Ensembl human gene IDs
+    ]
+
+    mouse_score = sum(1 for gene in gene_names if any(pattern(gene) for pattern in mouse_patterns))
+    human_score = sum(1 for gene in gene_names if any(pattern(gene) for pattern in human_patterns))
+
+    # Note: context.info is async but we can't await in a sync function
+    # This is just for detection, logging will happen in the calling function
+
+    if mouse_score > human_score:
+        return "mouse"
+    else:
+        return "human"
+
+
+def _get_liana_resource_name(species: str, resource_preference: str) -> str:
+    """Get appropriate LIANA+ resource name based on species"""
+    if species == "mouse":
+        if resource_preference == "consensus":
+            return "mouseconsensus"
+        else:
+            # For other resources, try to find mouse-specific versions
+            mouse_resources = ["mouseconsensus", "cellphonedb"]  # Add more as available
+            if resource_preference in mouse_resources:
+                return resource_preference
+            else:
+                return "mouseconsensus"  # Default to mouse consensus
+    else:
+        return resource_preference  # Use as specified for human/other species
 
 
 async def _run_liana_cluster_analysis(
@@ -395,6 +447,11 @@ async def _run_liana_cluster_analysis(
     if context:
         await context.info(f"Running LIANA+ rank aggregate analysis grouped by '{groupby_col}'...")
 
+    # Get appropriate resource name based on species
+    resource_name = _get_liana_resource_name(params.species, params.liana_resource)
+    if context:
+        await context.info(f"Using LIANA+ resource: {resource_name} for species: {params.species}")
+
     # Use parameters from user or optimize for performance
     n_perms = params.liana_n_perms
     if adata.n_obs > 3000 and n_perms > 500:
@@ -406,7 +463,7 @@ async def _run_liana_cluster_analysis(
     li.mt.rank_aggregate(
         adata,
         groupby=groupby_col,
-        resource_name=params.liana_resource,
+        resource_name=resource_name,
         expr_prop=params.liana_nz_prop,
         min_cells=params.min_cells,
         n_perms=n_perms,
@@ -458,6 +515,11 @@ async def _run_liana_spatial_analysis(
     if context:
         await context.info("Running LIANA+ spatial bivariate analysis...")
 
+    # Get appropriate resource name based on species
+    resource_name = _get_liana_resource_name(params.species, params.liana_resource)
+    if context:
+        await context.info(f"Using LIANA+ resource: {resource_name} for species: {params.species}")
+
     # Use parameters from user or optimize for performance
     n_perms = params.liana_n_perms
     nz_prop = params.liana_nz_prop
@@ -473,7 +535,7 @@ async def _run_liana_spatial_analysis(
     # Run LIANA+ bivariate analysis
     lrdata = li.mt.bivariate(
         adata,
-        resource_name=params.liana_resource,
+        resource_name=resource_name,
         local_name=params.liana_local_metric,
         global_name=params.liana_global_metric,
         n_perms=n_perms,
