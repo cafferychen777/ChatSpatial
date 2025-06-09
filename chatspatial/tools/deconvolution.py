@@ -26,11 +26,183 @@ from ..models.data import DeconvolutionParameters
 from ..models.analysis import DeconvolutionResult
 from ..utils.image_utils import fig_to_image, fig_to_base64, create_placeholder_image
 
+# Import context manager utilities
+from contextlib import contextmanager
+import logging
+from io import StringIO
+from contextlib import redirect_stdout, redirect_stderr
 
 
+# Helper functions to eliminate redundancy
 
 
+def _validate_deconvolution_inputs(
+    spatial_adata: ad.AnnData,
+    reference_adata: ad.AnnData,
+    cell_type_key: str,
+    min_common_genes: int = 100
+) -> List[str]:
+    """Validate inputs and return a list of common genes.
+    
+    Args:
+        spatial_adata: Spatial transcriptomics AnnData object
+        reference_adata: Reference single-cell RNA-seq AnnData object
+        cell_type_key: Key in reference_adata.obs for cell type information
+        min_common_genes: Minimum number of common genes required
+        
+    Returns:
+        List of common genes
+        
+    Raises:
+        ValueError: If input data is invalid or insufficient common genes
+    """
+    if spatial_adata is None:
+        raise ValueError("Spatial AnnData object cannot be None")
+    if reference_adata is None:
+        raise ValueError("Reference AnnData object cannot be None")
+    if spatial_adata.n_obs == 0:
+        raise ValueError("Spatial data contains no observations")
+    if reference_adata.n_obs == 0:
+        raise ValueError("Reference data contains no observations")
+    if cell_type_key not in reference_adata.obs:
+        raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
+    if len(reference_adata.obs[cell_type_key].unique()) < 2:
+        raise ValueError(f"Reference data must contain at least 2 cell types, found {len(reference_adata.obs[cell_type_key].unique())}")
 
+    # Find common genes
+    common_genes = list(set(spatial_adata.var_names) & set(reference_adata.var_names))
+    if len(common_genes) < min_common_genes:
+        raise ValueError(
+            f"Only {len(common_genes)} genes in common between spatial data and reference data. "
+            f"Need at least {min_common_genes}. Consider using a different reference dataset or "
+            f"reducing the min_common_genes parameter."
+        )
+    
+    return common_genes
+
+
+def _get_device(use_gpu: bool, method: str) -> str:
+    """Determine the appropriate compute device.
+    
+    Args:
+        use_gpu: Whether to use GPU for training
+        method: Name of the method (for logging purposes)
+        
+    Returns:
+        Device string ('cuda', 'mps', or 'cpu')
+    """
+    try:
+        import torch
+    except ImportError:
+        warnings.warn("PyTorch not available. Using CPU.")
+        return "cpu"
+
+    if not use_gpu:
+        print(f"Using CPU for {method} (GPU acceleration disabled)")
+        return "cpu"
+    
+    if torch.cuda.is_available():
+        print(f"Using CUDA GPU acceleration for {method}")
+        return "cuda"
+    
+    # MPS support - handle differently for different methods
+    if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        if method.lower() == 'spotiphy':
+            print(f"Using Apple MPS acceleration for {method}")
+            return "mps"
+        else:
+            # Cell2location has issues with MPS
+            warnings.warn(
+                f"MPS acceleration is available but disabled for {method} due to numerical instability issues "
+                f"with cell2location 0.1.4. Using CPU instead. Consider upgrading cell2location "
+                f"or PyTorch for better MPS support in the future."
+            )
+            print(f"Using CPU for {method} (MPS disabled due to compatibility issues)")
+            return "cpu"
+    
+    warnings.warn(f"GPU requested for {method} but neither CUDA nor MPS is available. Using CPU instead.")
+    print(f"Using CPU for {method}")
+    return "cpu"
+
+
+def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str) -> ad.AnnData:
+    """Ensure AnnData object has raw integer counts in .X
+    
+    Args:
+        adata: AnnData object to prepare
+        data_name: Name of the data for logging purposes
+        
+    Returns:
+        AnnData object with integer counts
+    """
+    # Check if already in correct format
+    if adata.X.dtype == np.int32 or adata.X.dtype == np.int64:
+        return adata
+    
+    warnings.warn(f"{data_name} data is not in integer format. Attempting conversion to counts.")
+    
+    # Convert sparse matrix to dense if needed for processing
+    if hasattr(adata.X, 'toarray'):
+        X_dense = adata.X.toarray()
+    else:
+        X_dense = adata.X.copy()
+
+    # If data appears to be log-transformed, try to reverse it
+    if X_dense.max() < 20:  # Likely log-transformed
+        warnings.warn(f"{data_name} data appears to be log-transformed. Converting back to counts.")
+        X_dense = np.expm1(X_dense)
+    
+    # Round to integers and ensure non-negative
+    adata.X = np.round(np.maximum(X_dense, 0)).astype(np.int32)
+    return adata
+
+
+@contextmanager
+def suppress_output():
+    """Context manager to temporarily suppress stdout, stderr, and logging."""
+    old_level = logging.getLogger().level
+    logging.getLogger().setLevel(logging.ERROR)
+    
+    with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+        try:
+            yield
+        finally:
+            logging.getLogger().setLevel(old_level)
+
+
+def _create_deconvolution_stats(
+    proportions: pd.DataFrame,
+    common_genes: List[str],
+    method: str,
+    device: str,
+    **method_specific_params
+) -> Dict[str, Any]:
+    """Create standardized statistics dictionary for deconvolution results.
+    
+    Args:
+        proportions: Cell type proportions DataFrame
+        common_genes: List of common genes used
+        method: Deconvolution method name
+        device: Device used for computation
+        **method_specific_params: Additional method-specific parameters
+        
+    Returns:
+        Statistics dictionary
+    """
+    stats = {
+        "cell_types": list(proportions.columns),
+        "n_cell_types": len(proportions.columns),
+        "mean_proportions": proportions.mean().to_dict(),
+        "genes_used": len(common_genes),
+        "common_genes": len(common_genes),
+        "method": method,
+        "device": device
+    }
+    
+    # Add method-specific parameters
+    stats.update(method_specific_params)
+    
+    return stats
 
 
 def deconvolve_cell2location(
@@ -61,19 +233,8 @@ def deconvolve_cell2location(
         ValueError: If input data is invalid or insufficient common genes
         RuntimeError: If cell2location computation fails
     """
-    # Validate input data
-    if spatial_adata is None:
-        raise ValueError("Spatial AnnData object cannot be None")
-    if reference_adata is None:
-        raise ValueError("Reference AnnData object cannot be None")
-    if spatial_adata.n_obs == 0:
-        raise ValueError("Spatial data contains no observations")
-    if reference_adata.n_obs == 0:
-        raise ValueError("Reference data contains no observations")
-    if cell_type_key not in reference_adata.obs:
-        raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
-    if len(reference_adata.obs[cell_type_key].unique()) < 2:
-        raise ValueError(f"Reference data must contain at least 2 cell types, found {len(reference_adata.obs[cell_type_key].unique())}")
+    # Unified validation and gene finding
+    common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, min_common_genes)
 
     # Import cell2location
     try:
@@ -87,79 +248,12 @@ def deconvolve_cell2location(
         )
 
     try:
-        # Import torch for device detection
-        import torch
+        # Unified device selection
+        device = _get_device(use_gpu, 'Cell2location')
 
-        # Determine the best available device for acceleration
-        if use_gpu:
-            if torch.cuda.is_available():
-                device = "cuda"
-                print("Using CUDA GPU acceleration")
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                # MPS support is currently disabled due to numerical instability issues
-                # with cell2location 0.1.4 and Pyro probabilistic models
-                device = "cpu"
-                warnings.warn(
-                    "MPS acceleration is available but disabled due to numerical instability issues "
-                    "with cell2location 0.1.4. Using CPU instead. Consider upgrading cell2location "
-                    "or PyTorch for better MPS support in the future."
-                )
-                print("Using CPU (MPS disabled due to compatibility issues)")
-            else:
-                device = "cpu"
-                warnings.warn("GPU requested but neither CUDA nor MPS is available. Using CPU instead.")
-        else:
-            device = "cpu"
-            print("Using CPU (GPU acceleration disabled)")
-
-        # Prepare reference data - Cell2location expects raw count data
-        ref = reference_adata.copy()
-
-        # Ensure we have raw count data (integers)
-        if ref.X.dtype != np.int32 and ref.X.dtype != np.int64:
-            # Convert sparse matrix to dense if needed for processing
-            if hasattr(ref.X, 'toarray'):
-                X_ref_dense = ref.X.toarray()
-            else:
-                X_ref_dense = ref.X
-
-            # If data appears to be log-transformed, try to reverse it
-            if X_ref_dense.max() < 20:  # Likely log-transformed
-                warnings.warn("Reference data appears to be log-transformed. Converting back to counts.")
-                X_ref_dense = np.expm1(X_ref_dense)
-            # Round to integers and ensure non-negative
-            X_ref_dense = np.round(np.maximum(X_ref_dense, 0)).astype(np.int32)
-            ref.X = X_ref_dense
-
-        # Prepare spatial data - Cell2location expects raw count data
-        sp = spatial_adata.copy()
-
-        # Ensure we have raw count data (integers)
-        if sp.X.dtype != np.int32 and sp.X.dtype != np.int64:
-            # Convert sparse matrix to dense if needed
-            if hasattr(sp.X, 'toarray'):
-                X_dense = sp.X.toarray()
-            else:
-                X_dense = sp.X
-
-            # If data appears to be log-transformed, try to reverse it
-            if X_dense.max() < 20:  # Likely log-transformed
-                warnings.warn("Spatial data appears to be log-transformed. Converting back to counts.")
-                X_dense = np.expm1(X_dense)
-            # Round to integers and ensure non-negative
-            X_dense = np.round(np.maximum(X_dense, 0)).astype(np.int32)
-            sp.X = X_dense
-
-
-
-        # Find common genes
-        common_genes = list(set(sp.var_names) & set(ref.var_names))
-        if len(common_genes) < min_common_genes:
-            raise ValueError(
-                f"Only {len(common_genes)} genes in common between spatial data and reference data. "
-                f"Need at least {min_common_genes}. Consider using a different reference dataset or "
-                f"reducing the min_common_genes parameter."
-            )
+        # Prepare data using helper functions - Cell2location expects raw count data
+        ref = _prepare_anndata_for_counts(reference_adata.copy(), "Reference")
+        sp = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial")
 
         # Subset to common genes
         ref = ref[:, common_genes]
@@ -187,27 +281,13 @@ def deconvolve_cell2location(
             # Create RegressionModel
             mod = RegressionModel(ref)
 
-            # Suppress verbose output during training to avoid MCP communication issues
-            import logging
-            import sys
-            from contextlib import redirect_stdout, redirect_stderr
-            from io import StringIO
-
-            # Temporarily suppress all output
-            old_level = logging.getLogger().level
-            logging.getLogger().setLevel(logging.ERROR)
-
-            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            # Use the suppress_output context manager
+            with suppress_output():
                 # Train with appropriate accelerator
                 if device == "cuda":
-                    print("Using CUDA acceleration for RegressionModel")
                     mod.train(max_epochs=n_epochs, accelerator='gpu')
                 else:
-                    print("Using CPU for RegressionModel")
                     mod.train(max_epochs=n_epochs)
-
-            # Restore logging level
-            logging.getLogger().setLevel(old_level)
 
         except Exception as e:
             error_msg = str(e)
@@ -252,26 +332,13 @@ def deconvolve_cell2location(
                 detection_alpha=20.0
             )
 
-            # Suppress verbose output during training to avoid MCP communication issues
-            import logging
-            from contextlib import redirect_stdout, redirect_stderr
-            from io import StringIO
-
-            # Temporarily suppress all output
-            old_level = logging.getLogger().level
-            logging.getLogger().setLevel(logging.ERROR)
-
-            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            # Use the suppress_output context manager
+            with suppress_output():
                 # Train with appropriate accelerator
                 if device == "cuda":
-                    print("Using CUDA acceleration for Cell2location")
                     mod.train(max_epochs=n_epochs, batch_size=2500, accelerator='gpu')
                 else:
-                    print("Using CPU for Cell2location")
                     mod.train(max_epochs=n_epochs, batch_size=2500)
-
-            # Restore logging level
-            logging.getLogger().setLevel(old_level)
 
         except Exception as e:
             error_msg = str(e)
@@ -326,19 +393,16 @@ def deconvolve_cell2location(
             warnings.warn(f"Some spots have zero total proportion. These will remain as zeros.")
         proportions = proportions.div(row_sums, axis=0).fillna(0)
 
-        # Calculate statistics
-        stats = {
-            "cell_types": list(proportions.columns),
-            "n_cell_types": len(proportions.columns),
-            "mean_proportions": proportions.mean().to_dict(),
-            "genes_used": len(common_genes),
-            "common_genes": len(common_genes),
-            "n_epochs": n_epochs,
-            "n_cells_per_spot": n_cells_per_spot,
-            "method": "Cell2location",
-            "use_gpu": use_gpu,
-            "device": device
-        }
+        # Create standardized statistics using helper function
+        stats = _create_deconvolution_stats(
+            proportions,
+            common_genes,
+            "Cell2location",
+            device,
+            n_epochs=n_epochs,
+            n_cells_per_spot=n_cells_per_spot,
+            use_gpu=use_gpu
+        )
 
         # Add model performance metrics if available
         if hasattr(mod, 'history') and mod.history is not None:
@@ -442,19 +506,8 @@ def deconvolve_spotiphy(
         ValueError: If input data is invalid or insufficient common genes
         RuntimeError: If Spotiphy computation fails
     """
-    # Validate input data
-    if spatial_adata is None:
-        raise ValueError("Spatial AnnData object cannot be None")
-    if reference_adata is None:
-        raise ValueError("Reference AnnData object cannot be None")
-    if spatial_adata.n_obs == 0:
-        raise ValueError("Spatial data contains no observations")
-    if reference_adata.n_obs == 0:
-        raise ValueError("Reference data contains no observations")
-    if cell_type_key not in reference_adata.obs:
-        raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
-    if len(reference_adata.obs[cell_type_key].unique()) < 2:
-        raise ValueError(f"Reference data must contain at least 2 cell types, found {len(reference_adata.obs[cell_type_key].unique())}")
+    # Unified validation and gene finding
+    common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, min_common_genes)
 
     # Check if Spotiphy is available
     is_available, error_message = is_spotiphy_available()
@@ -467,33 +520,10 @@ def deconvolve_spotiphy(
 
     # Import required modules
     from spotiphy import sc_reference, deconvolution
-    import torch
-
-    # Set device with MPS support
-    if use_gpu:
-        if torch.cuda.is_available():
-            device = 'cuda'
-            print("Using CUDA GPU acceleration for Spotiphy")
-        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            device = 'mps'
-            print("Using Apple MPS acceleration for Spotiphy")
-        else:
-            device = 'cpu'
-            warnings.warn("GPU requested but neither CUDA nor MPS is available. Using CPU instead.")
-    else:
-        device = 'cpu'
-        print("Using CPU for Spotiphy (GPU acceleration disabled)")
 
     try:
-        # Prepare data
-        # Find common genes
-        common_genes = list(set(spatial_adata.var_names) & set(reference_adata.var_names))
-        if len(common_genes) < min_common_genes:
-            raise ValueError(
-                f"Only {len(common_genes)} genes in common between spatial data and reference data. "
-                f"Need at least {min_common_genes}. Consider using a different reference dataset or "
-                f"reducing the min_common_genes parameter."
-            )
+        # Unified device selection
+        device = _get_device(use_gpu, 'Spotiphy')
 
         # Subset to common genes
         spatial_data = spatial_adata[:, common_genes].copy()
@@ -586,18 +616,15 @@ def deconvolve_spotiphy(
             columns=type_list
         )
 
-        # Calculate statistics
-        stats = {
-            "cell_types": type_list,
-            "n_cell_types": len(type_list),
-            "mean_proportions": proportions.mean().to_dict(),
-            "genes_used": len(common_genes),
-            "common_genes": len(common_genes),
-            "n_epochs": n_epochs,
-            "batch_prior": batch_prior,
-            "method": "Spotiphy",
-            "device": device
-        }
+        # Create standardized statistics using helper function
+        stats = _create_deconvolution_stats(
+            proportions,
+            common_genes,
+            "Spotiphy",
+            device,
+            n_epochs=n_epochs,
+            batch_prior=batch_prior
+        )
 
         return proportions, stats
 
@@ -780,14 +807,18 @@ async def deconvolve_spatial_data(
         if context:
             await context.info(f"Spatial dataset shape: {spatial_adata.shape}")
 
-        # Get reference data if provided
+        # Load and validate reference data ONCE for methods that need it
         reference_adata = None
-        if params.reference_data_id:
+        if params.method in ["cell2location", "spotiphy"]:
+            if not params.reference_data_id:
+                raise ValueError(f"Reference data is required for method '{params.method}'. Please provide reference_data_id.")
+            
             if params.reference_data_id not in data_store:
                 raise ValueError(
-                    f"Reference dataset {params.reference_data_id} not found in data store. "
+                    f"Reference dataset '{params.reference_data_id}' not found in data store. "
                     f"Available datasets: {list(data_store.keys())}"
                 )
+            
             if "adata" not in data_store[params.reference_data_id]:
                 raise ValueError(f"Reference dataset {params.reference_data_id} does not contain AnnData object")
 
@@ -801,24 +832,6 @@ async def deconvolve_spatial_data(
                     await context.info("Ensuring reference dataset has unique gene names")
                 reference_adata.var_names_make_unique()
 
-            if context:
-                await context.info(f"Reference dataset shape: {reference_adata.shape}")
-                if params.cell_type_key in reference_adata.obs:
-                    cell_types = reference_adata.obs[params.cell_type_key].unique()
-                    await context.info(f"Reference dataset contains {len(cell_types)} cell types: {list(cell_types)}")
-
-        # Run deconvolution based on selected method
-        if params.method == "cell2location":
-            if context:
-                await context.info("Running Cell2location deconvolution")
-
-            # Check if reference data is provided
-            if reference_adata is None:
-                raise ValueError(
-                    "Reference data required for Cell2location deconvolution. "
-                    "Please provide reference_data_id."
-                )
-
             # Check cell type key
             if params.cell_type_key not in reference_adata.obs:
                 raise ValueError(
@@ -826,8 +839,18 @@ async def deconvolve_spatial_data(
                     f"Available keys: {list(reference_adata.obs.columns)}"
                 )
 
-            # Run Cell2location
-            try:
+            if context:
+                await context.info(f"Reference dataset shape: {reference_adata.shape}")
+                cell_types = reference_adata.obs[params.cell_type_key].unique()
+                await context.info(f"Using reference with {len(cell_types)} cell types: {list(cell_types)}")
+
+        # Run deconvolution with cleaner calls and centralized error handling
+        proportions, stats = None, None
+        
+        try:
+            if params.method == "cell2location":
+                if context:
+                    await context.info("Running Cell2location deconvolution")
                 proportions, stats = deconvolve_cell2location(
                     spatial_adata,
                     reference_adata,
@@ -836,71 +859,50 @@ async def deconvolve_spatial_data(
                     n_cells_per_spot=params.n_cells_per_spot or 10,
                     use_gpu=params.use_gpu
                 )
+
+            elif params.method == "spotiphy":
                 if context:
-                    await context.info(f"Cell2location completed successfully. Found {stats['n_cell_types']} cell types.")
-            except Exception as e:
-                error_msg = str(e)
-                tb = traceback.format_exc()
-                if context:
-                    await context.warning(f"Cell2location failed: {error_msg}")
-                raise RuntimeError(f"Cell2location deconvolution failed: {error_msg}\n{tb}")
-
-        elif params.method == "spotiphy":
-            if context:
-                await context.info("Running Spotiphy deconvolution")
-
-            # Check if reference data is provided
-            if reference_adata is None:
-                raise ValueError(
-                    "Reference data required for Spotiphy deconvolution. "
-                    "Please provide reference_data_id."
-                )
-
-            # Check cell type key
-            if params.cell_type_key not in reference_adata.obs:
-                raise ValueError(
-                    f"Cell type key '{params.cell_type_key}' not found in reference data. "
-                    f"Available keys: {list(reference_adata.obs.columns)}"
-                )
-
-            # Check if Spotiphy is available
-            is_available, error_message = is_spotiphy_available()
-            if not is_available:
-                if context:
-                    await context.warning(f"Spotiphy is not available: {error_message}")
-                raise ImportError(f"Spotiphy is not available: {error_message}")
-            else:
+                    await context.info("Running Spotiphy deconvolution")
+                
+                # Check if Spotiphy is available
+                is_available, error_message = is_spotiphy_available()
+                if not is_available:
+                    if context:
+                        await context.warning(f"Spotiphy is not available: {error_message}")
+                    raise ImportError(f"Spotiphy is not available: {error_message}")
+                
                 # Set Adam parameters
                 adam_params = {
                     "lr": params.spotiphy_adam_lr,
                     "betas": params.spotiphy_adam_betas
                 }
 
-                # Run Spotiphy
-                try:
-                    proportions, stats = deconvolve_spotiphy(
-                        spatial_adata,
-                        reference_adata,
-                        cell_type_key=params.cell_type_key,
-                        n_epochs=params.n_epochs,
-                        batch_prior=params.spotiphy_batch_prior,
-                        adam_params=adam_params,
-                        use_gpu=params.use_gpu
-                    )
-                    if context:
-                        await context.info(f"Spotiphy completed successfully. Found {stats['n_cell_types']} cell types.")
-                except Exception as e:
-                    error_msg = str(e)
-                    tb = traceback.format_exc()
-                    if context:
-                        await context.warning(f"Spotiphy failed: {error_msg}")
-                    raise RuntimeError(f"Spotiphy deconvolution failed: {error_msg}\n{tb}")
+                proportions, stats = deconvolve_spotiphy(
+                    spatial_adata,
+                    reference_adata,
+                    cell_type_key=params.cell_type_key,
+                    n_epochs=params.n_epochs,
+                    batch_prior=params.spotiphy_batch_prior,
+                    adam_params=adam_params,
+                    use_gpu=params.use_gpu
+                )
 
-        else:
-            raise ValueError(
-                f"Unsupported deconvolution method: {params.method}. "
-                f"Supported methods are: cell2location, spotiphy"
-            )
+            else:
+                raise ValueError(
+                    f"Unsupported deconvolution method: {params.method}. "
+                    f"Supported methods are: cell2location, spotiphy"
+                )
+
+        except Exception as e:
+            # Centralized error handling for deconvolution calls
+            error_msg = str(e)
+            tb = traceback.format_exc()
+            if context:
+                await context.warning(f"{params.method.capitalize()} failed: {error_msg}")
+            raise RuntimeError(f"{params.method.capitalize()} deconvolution failed: {error_msg}\n{tb}") from e
+
+        if context:
+            await context.info(f"{params.method.capitalize()} completed successfully. Found {stats['n_cell_types']} cell types.")
 
         # Store proportions in AnnData object
         proportions_key = f"deconvolution_{params.method}"
