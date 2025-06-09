@@ -106,9 +106,8 @@ class SpatialDomainResult(BaseModel):
     domain_key: str  # Key in adata.obs where domain labels are stored
     domain_counts: Dict[str, int]  # Number of spots in each domain
     refined_domain_key: Optional[str] = None  # Key for refined domains if refinement was applied
-    visualization: Optional[Image] = None  # Visualization of spatial domains
     statistics: Dict[str, Any]  # Statistics about the domain identification
-    embeddings_key: Optional[str] = None  # Key in adata.obsm where embeddings are stored (for STAGATE)
+    embeddings_key: Optional[str] = None  # Key in adata.obsm where embeddings are stored
 
     class Config:
         arbitrary_types_allowed = True

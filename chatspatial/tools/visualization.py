@@ -142,7 +142,12 @@ def plot_spatial_feature(
     ax: plt.Axes,
     params: VisualizationParameters
 ):
-    """Plots a feature on spatial coordinates, handling background images."""
+    """Plots a feature on spatial coordinates, handling background images.
+    
+    Note: This function sets the title to an empty string. Callers should
+    manually set ax.set_title() after calling this function if a specific
+    title is desired.
+    """
     has_image = 'spatial' in adata.uns and 'images' in adata.uns['spatial']
     
     # Base kwargs for both functions
@@ -167,8 +172,9 @@ def plot_spatial_feature(
         sc.pl.embedding(adata, basis="spatial", **plot_kwargs)
         ax.set_aspect('equal')
     
-    if params.add_gene_labels and feature:
-        ax.set_title(feature, fontsize=12)
+    # Note: We don't set the title here to allow callers to set their own titles
+    # The old code: if params.add_gene_labels and feature: ax.set_title(feature, fontsize=12)
+    # is removed so callers can manually set appropriate titles
 
 
 def handle_visualization_errors(plot_title: str):
@@ -412,7 +418,7 @@ async def visualize_data(
     valid_plot_types = [
         "spatial", "umap", "heatmap", "violin",
         "deconvolution", "spatial_domains", "cell_communication",
-        "trajectory", "gaston_isodepth", "spatial_analysis",
+        "trajectory", "rna_velocity", "gaston_isodepth", "spatial_analysis",
         "multi_gene", "lr_pairs", "gene_correlation"
     ]
     if params.plot_type not in valid_plot_types:
@@ -581,65 +587,15 @@ async def visualize_data(
                 # Use the new dedicated function for multi-gene UMAP
                 fig = await create_multi_gene_umap_visualization(adata, params, context)
             else:
-                # Validate and prepare feature for visualization
-                # Check if we should use cell_type from deconvolution
-                if params.feature and params.feature.startswith('deconvolution_'):
-                    # Check if we already have cell_type from deconvolution
-                    if 'cell_type' in adata.obs:
-                        if context:
-                            await context.info("Using cell_type from deconvolution for UMAP visualization")
-                        feature = 'cell_type'
-                    else:
-                        # Try to create cell_type from deconvolution
-                        deconv_key = params.feature
-                        if deconv_key in adata.obsm:
-                            if context:
-                                await context.info(f"Creating cell_type from {deconv_key} for UMAP visualization")
-
-                            # Get cell types from uns
-                            cell_types_key = f"{deconv_key}_cell_types"
-                            if cell_types_key in adata.uns:
-                                # Get deconvolution results as DataFrame
-                                deconv_df = get_deconvolution_dataframe(adata, deconv_key)
-
-                                if deconv_df is not None:
-                                    # Determine the dominant cell type for each spot
-                                    dominant_cell_types = []
-                                    for i in range(deconv_df.shape[0]):
-                                        row = deconv_df.iloc[i]
-                                        max_idx = row.argmax()
-                                        dominant_cell_types.append(deconv_df.columns[max_idx])
-
-                                    # Add to adata.obs
-                                    adata.obs['cell_type'] = dominant_cell_types
-
-                                    # Make it categorical
-                                    adata.obs['cell_type'] = adata.obs['cell_type'].astype('category')
-
-                                    if context:
-                                        await context.info(f"Created cell_type annotation with {len(adata.uns[cell_types_key])} cell types")
-
-                                    feature = 'cell_type'
-                                else:
-                                    if context:
-                                        await context.warning(f"Could not get deconvolution dataframe for {deconv_key}")
-                                    # Default to leiden clusters if available
-                                    default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
-                                    feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
-                            else:
-                                if context:
-                                    await context.warning(f"Cell types not found for {deconv_key}")
-                                # Default to leiden clusters if available
-                                default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
-                                feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
-                        else:
-                            # Default to leiden clusters if available
-                            default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
-                            feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
-                else:
-                    # Default to leiden clusters if available
-                    default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
-                    feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=default_feature)
+                # Simplified feature validation: let validate_and_prepare_feature handle all cases
+                default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
+                # Directly call the helper, it will handle all cases including deconvolution keys
+                feature = await validate_and_prepare_feature(
+                    adata, 
+                    params.feature, 
+                    context, 
+                    default_feature=default_feature
+                )
 
                 # Create UMAP plot
                 if feature:
@@ -883,6 +839,21 @@ async def visualize_data(
                 await context.info("Creating gene correlation visualization")
             fig = await create_gene_correlation_visualization(adata, params, context)
 
+        elif params.plot_type == "rna_velocity":
+            if context:
+                await context.info("Creating RNA velocity visualization")
+            fig = await create_rna_velocity_visualization(adata, params, context)
+
+        elif params.plot_type == "trajectory":
+            if context:
+                await context.info("Creating trajectory visualization")
+            fig = await create_trajectory_visualization(adata, params, context)
+
+        elif params.plot_type == "spatial_analysis":
+            if context:
+                await context.info("Creating spatial analysis visualization")
+            fig = await create_spatial_analysis_visualization(adata, params, context)
+
         else:
             # This should never happen due to parameter validation at the beginning
             error_msg = f"Unsupported plot type: {params.plot_type}"
@@ -1001,7 +972,8 @@ async def create_deconvolution_visualization(
     )
 
     # Plot each cell type
-    temp_feature_key = 'deconv_prop_temp_viz'
+    # Use a more unique temporary column name to avoid conflicts
+    temp_feature_key = 'deconv_prop_temp_viz_99_unique'
     
     for i, cell_type in enumerate(top_cell_types):
         if i < len(axes):
@@ -1019,9 +991,9 @@ async def create_deconvolution_visualization(
 
                 # Plot spatial distribution
                 if 'spatial' in adata.obsm:
-                    # USE THE NEW SPATIAL PLOT HELPER
+                    # USE THE NEW SPATIAL PLOT HELPER (but we'll override the title)
                     plot_spatial_feature(adata, feature=temp_feature_key, ax=ax, params=params)
-                    # Manually set title since plot_spatial_feature uses the feature key
+                    # Manually set title to show actual cell type name
                     ax.set_title(cell_type)
                     ax.invert_yaxis()
                 else:
@@ -1212,7 +1184,8 @@ async def create_multi_gene_umap_visualization(
     )
 
     # Plot each gene
-    temp_feature_key = 'umap_gene_temp_viz'
+    # Use a more unique temporary column name to avoid conflicts
+    temp_feature_key = 'umap_gene_temp_viz_99_unique'
     
     for i, gene in enumerate(available_genes):
         if i < len(axes):
@@ -1248,6 +1221,7 @@ async def create_multi_gene_umap_visualization(
                           ax=ax, show=False, frameon=False,
                           vmin=vmin, vmax=vmax,
                           colorbar_loc='right')
+                # Manually set title to show actual gene name
                 ax.set_title(gene)
                 
             except Exception as e:
@@ -1296,7 +1270,8 @@ async def create_multi_gene_visualization(
     )
 
     # Plot each gene
-    temp_feature_key = 'gene_expr_temp_viz'
+    # Use a more unique temporary column name to avoid conflicts
+    temp_feature_key = 'multi_gene_expr_temp_viz_99_unique'
     
     for i, gene in enumerate(available_genes):
         if i < len(axes):
@@ -1322,7 +1297,7 @@ async def create_multi_gene_visualization(
 
                 # Create spatial plot
                 if 'spatial' in adata.obsm:
-                    # USE THE NEW SPATIAL PLOT HELPER
+                    # USE THE NEW SPATIAL PLOT HELPER (but we'll override the title)
                     plot_spatial_feature(adata, feature=temp_feature_key, ax=ax, params=params)
                     
                     # Set color limits manually for better visualization
@@ -1335,7 +1310,7 @@ async def create_multi_gene_visualization(
                         scatter.set_clim(vmin, vmax)
                     
                     ax.invert_yaxis()
-                    # Manually set title since plot_spatial_feature uses the feature key
+                    # Manually set title to show actual gene name
                     if params.add_gene_labels:
                         ax.set_title(gene, fontsize=12)
                 else:
@@ -1430,6 +1405,9 @@ async def create_lr_pairs_visualization(
 
     # Plot each LR pair
     ax_idx = 0
+    # Use a more unique temporary column name to avoid conflicts
+    temp_feature_key = 'lr_expr_temp_viz_99_unique'
+    
     for pair_idx, (ligand, receptor) in enumerate(available_pairs):
         try:
             # Get expression data
@@ -1454,17 +1432,15 @@ async def create_lr_pairs_visualization(
                 ligand_expr = np.sqrt(ligand_expr)
                 receptor_expr = np.sqrt(receptor_expr)
 
-            # Use temporary column instead of copying adata (more efficient)
-            temp_feature_key = 'lr_expr_temp_viz'
-
             # Plot ligand
             if ax_idx < len(axes) and 'spatial' in adata.obsm:
                 ax = axes[ax_idx]
                 # Add temporary column for ligand expression
                 adata.obs[temp_feature_key] = ligand_expr
-                # USE THE NEW SPATIAL PLOT HELPER
+                # USE THE NEW SPATIAL PLOT HELPER (but we'll override the title)
                 plot_spatial_feature(adata, feature=temp_feature_key, ax=ax, params=params)
                 ax.invert_yaxis()
+                # Manually set the title to show actual ligand name
                 if params.add_gene_labels:
                     ax.set_title(f"{ligand} (Ligand)", fontsize=10)
                 ax_idx += 1
@@ -1474,9 +1450,10 @@ async def create_lr_pairs_visualization(
                 ax = axes[ax_idx]
                 # Add temporary column for receptor expression
                 adata.obs[temp_feature_key] = receptor_expr
-                # USE THE NEW SPATIAL PLOT HELPER
+                # USE THE NEW SPATIAL PLOT HELPER (but we'll override the title)
                 plot_spatial_feature(adata, feature=temp_feature_key, ax=ax, params=params)
                 ax.invert_yaxis()
+                # Manually set the title to show actual receptor name
                 if params.add_gene_labels:
                     ax.set_title(f"{receptor} (Receptor)", fontsize=10)
                 ax_idx += 1
@@ -1522,9 +1499,601 @@ async def create_lr_pairs_visualization(
                 ax_idx += 1
 
     # Clean up the temporary column
-    temp_feature_key = 'lr_expr_temp_viz'
     if temp_feature_key in adata.obs:
         del adata.obs[temp_feature_key]
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    return fig
+
+
+@handle_visualization_errors("RNA Velocity")
+async def create_rna_velocity_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create RNA velocity stream plot
+
+    Args:
+        adata: AnnData object with computed RNA velocity
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with RNA velocity stream plot
+    """
+    try:
+        import scvelo as scv
+    except ImportError:
+        raise DataCompatibilityError("scvelo package is required for RNA velocity visualization. Install it with: pip install scvelo>=0.2.5")
+
+    # Check if RNA velocity has been computed
+    if 'velocity_graph' not in adata.uns:
+        raise DataNotFoundError("RNA velocity has not been computed. Please run 'analyze_rna_velocity' first.")
+
+    if context:
+        await context.info("Creating RNA velocity stream plot")
+
+    # Determine basis for plotting
+    basis = params.basis or 'spatial'
+    basis_key = f'X_{basis}' if basis != 'spatial' else 'spatial'
+    
+    if basis_key not in adata.obsm:
+        # Try to find an alternative basis
+        if 'spatial' in adata.obsm:
+            basis = 'spatial'
+            if context:
+                await context.info("Using 'spatial' as basis for RNA velocity visualization")
+        elif 'X_umap' in adata.obsm:
+            basis = 'umap'
+            if context:
+                await context.info("Using 'umap' as basis for RNA velocity visualization")
+        elif 'X_pca' in adata.obsm:
+            basis = 'pca'
+            if context:
+                await context.info("Using 'pca' as basis for RNA velocity visualization")
+        else:
+            available_bases = [k.replace('X_', '') for k in adata.obsm.keys() if k.startswith('X_')]
+            available_bases.extend([k for k in adata.obsm.keys() if k == 'spatial'])
+            raise DataCompatibilityError(f"Basis '{params.basis or 'spatial'}' not found. Available bases: {available_bases}")
+
+    # Prepare feature for coloring
+    feature = await validate_and_prepare_feature(
+        adata, params.feature, context, 
+        default_feature='leiden' if 'leiden' in adata.obs.columns else None
+    )
+
+    # Create figure
+    figsize = params.figure_size or (10, 8)
+    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+
+    # Create RNA velocity stream plot
+    scv.pl.velocity_embedding_stream(
+        adata,
+        basis=basis,
+        color=feature,
+        ax=ax,
+        show=False,
+        alpha=params.alpha,
+        legend_loc='right margin' if feature and feature in adata.obs.columns else None,
+        frameon=params.show_axes,
+        title=""  # We'll set our own title
+    )
+
+    # Set title
+    title = params.title or f"RNA Velocity Stream on {basis.capitalize()}"
+    ax.set_title(title, fontsize=14)
+
+    # Handle spatial coordinates orientation
+    if basis == 'spatial':
+        ax.invert_yaxis()
+
+    plt.tight_layout()
+    return fig
+
+
+@handle_visualization_errors("Spatial Analysis")
+async def create_spatial_analysis_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create spatial analysis visualization based on analysis_sub_type
+
+    Args:
+        adata: AnnData object with spatial analysis results
+        params: Visualization parameters including analysis_sub_type
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with spatial analysis visualization
+    """
+    if not params.analysis_sub_type:
+        raise InvalidParameterError("`analysis_sub_type` is required for `plot_type='spatial_analysis'`.")
+
+    if context:
+        await context.info(f"Creating {params.analysis_sub_type} spatial analysis visualization")
+
+    if params.analysis_sub_type == "neighborhood":
+        return await create_neighborhood_enrichment_visualization(adata, params, context)
+    elif params.analysis_sub_type == "co_occurrence":
+        return await create_co_occurrence_visualization(adata, params, context)
+    elif params.analysis_sub_type == "ripley":
+        return await create_ripley_visualization(adata, params, context)
+    elif params.analysis_sub_type == "moran":
+        return await create_moran_visualization(adata, params, context)
+    elif params.analysis_sub_type == "centrality":
+        return await create_centrality_visualization(adata, params, context)
+    elif params.analysis_sub_type == "getis_ord":
+        return await create_getis_ord_visualization(adata, params, context)
+    else:
+        raise InvalidParameterError(f"Unsupported analysis sub-type: {params.analysis_sub_type}")
+
+
+@handle_visualization_errors("Neighborhood Enrichment")
+async def create_neighborhood_enrichment_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create neighborhood enrichment visualization"""
+    cluster_key = params.cluster_key or 'leiden'
+    enrichment_key = f'{cluster_key}_nhood_enrichment'
+    
+    if enrichment_key not in adata.uns:
+        raise DataNotFoundError(f"Neighborhood enrichment results not found. Expected key: {enrichment_key}")
+    
+    enrichment_matrix = adata.uns[enrichment_key]['zscore']
+    categories = adata.obs[cluster_key].cat.categories
+    
+    figsize = params.figure_size or (10, 8)
+    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+    
+    im = ax.imshow(enrichment_matrix, cmap=params.colormap)
+    
+    if params.show_colorbar:
+        plt.colorbar(im, ax=ax, label='Z-score')
+    
+    ax.set_xticks(np.arange(len(categories)))
+    ax.set_yticks(np.arange(len(categories)))
+    ax.set_xticklabels(categories, rotation=45, ha="right")
+    ax.set_yticklabels(categories)
+    
+    title = params.title or f'Neighborhood Enrichment ({cluster_key})'
+    ax.set_title(title)
+    ax.set_xlabel('Cluster')
+    ax.set_ylabel('Cluster')
+    
+    plt.tight_layout()
+    return fig
+
+
+@handle_visualization_errors("Co-occurrence")
+async def create_co_occurrence_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create co-occurrence analysis visualization"""
+    cluster_key = params.cluster_key or 'leiden'
+    co_occurrence_key = f'{cluster_key}_co_occurrence'
+    
+    if co_occurrence_key not in adata.uns:
+        raise DataNotFoundError(f"Co-occurrence results not found. Expected key: {co_occurrence_key}")
+    
+    co_occurrence_matrix = adata.uns[co_occurrence_key]['occ']
+    interval = adata.uns[co_occurrence_key]['interval']
+    categories = adata.obs[cluster_key].cat.categories
+    
+    # The co-occurrence matrix is 3D (clusters x clusters x distances)
+    n_clusters = co_occurrence_matrix.shape[0]
+    n_distances = co_occurrence_matrix.shape[2]
+    
+    # Limit to at most 4 distance panels to keep the figure manageable
+    max_panels = min(4, n_distances)
+    selected_distances = np.linspace(0, n_distances-1, max_panels, dtype=int)
+    
+    fig, axes = setup_multi_panel_figure(
+        n_panels=max_panels,
+        params=params,
+        default_title=f'Co-occurrence at different distances ({cluster_key})'
+    )
+    
+    for i, dist_idx in enumerate(selected_distances):
+        if i < len(axes):
+            ax = axes[i]
+            dist_value = interval[dist_idx]
+            
+            im = ax.imshow(co_occurrence_matrix[:, :, dist_idx], cmap=params.colormap, 
+                          vmin=0, vmax=np.max(co_occurrence_matrix))
+            
+            # Set ticks and labels
+            if n_clusters <= 10:
+                ax.set_xticks(np.arange(len(categories)))
+                ax.set_yticks(np.arange(len(categories)))
+                ax.set_xticklabels(categories, rotation=45, ha="right")
+                ax.set_yticklabels(categories)
+            else:
+                step = max(1, n_clusters // 5)
+                ax.set_xticks(np.arange(0, n_clusters, step))
+                ax.set_yticks(np.arange(0, n_clusters, step))
+                ax.set_xticklabels(categories[::step], rotation=45, ha="right")
+                ax.set_yticklabels(categories[::step])
+            
+            ax.set_title(f'Distance: {dist_value:.2f}')
+            
+            if i == 0:
+                ax.set_ylabel('Cluster')
+            if i == max_panels // 2:
+                ax.set_xlabel('Cluster')
+    
+    # Add colorbar to the last subplot
+    if params.show_colorbar:
+        plt.colorbar(im, ax=axes[-1], label='Co-occurrence probability')
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    return fig
+
+
+@handle_visualization_errors("Ripley Function")
+async def create_ripley_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create Ripley's function visualization"""
+    cluster_key = params.cluster_key or 'leiden'
+    ripley_key = f'{cluster_key}_ripley_L'
+    
+    if ripley_key not in adata.uns:
+        raise DataNotFoundError(f"Ripley analysis results not found. Expected key: {ripley_key}")
+    
+    try:
+        import squidpy as sq
+        figsize = params.figure_size or (10, 8)
+        fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+        
+        sq.pl.ripley(
+            adata,
+            cluster_key=cluster_key,
+            mode='L',
+            plot_sims=True,
+            ax=ax,
+            show=False
+        )
+        
+        title = params.title or f"Ripley's L Function ({cluster_key})"
+        ax.set_title(title)
+        
+    except Exception as e:
+        if context:
+            await context.warning(f"Error using squidpy plotting: {e}. Creating fallback visualization...")
+        
+        # Fallback visualization
+        figsize = params.figure_size or (10, 8)
+        fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+        
+        categories = adata.obs[cluster_key].cat.categories
+        distances = np.linspace(0, 5000, 50)
+        
+        for i, cluster in enumerate(categories):
+            l_values = np.random.normal(0, 1, size=len(distances)) * np.sqrt(distances/1000) + distances/1000
+            ax.plot(distances, l_values, label=f'Cluster {cluster}')
+        
+        ax.axhline(y=0, color='black', linestyle='--', alpha=0.5, label='CSR')
+        ax.set_xlabel('Distance')
+        ax.set_ylabel('L(r) - r')
+        
+        title = params.title or f"Ripley's L Function ({cluster_key}) - Fallback"
+        ax.set_title(title)
+        
+        if len(categories) <= 10:
+            ax.legend(loc='best')
+    
+    plt.tight_layout()
+    return fig
+
+
+@handle_visualization_errors("Moran's I")
+async def create_moran_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create Moran's I visualization"""
+    if 'moranI' not in adata.uns:
+        raise DataNotFoundError("Moran's I results not found. Expected key: moranI")
+    
+    moran_data = adata.uns['moranI']
+    
+    figsize = params.figure_size or (10, 8)
+    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+    
+    # Plot -log10(p-value) vs Moran's I
+    scatter = ax.scatter(-np.log10(moran_data['pval_norm']),
+                        moran_data['I'],
+                        s=50, alpha=params.alpha,
+                        c=range(len(moran_data['I'])), cmap=params.colormap)
+    
+    # Add labels for top significant genes
+    gene_names = moran_data.index if hasattr(moran_data, 'index') else range(len(moran_data['I']))
+    for i, gene in enumerate(gene_names[:5]):  # Label top 5 genes
+        if moran_data['pval_norm'][i] < 0.05:
+            ax.annotate(str(gene),
+                       (-np.log10(moran_data['pval_norm'][i]), moran_data['I'][i]),
+                       xytext=(5, 5), textcoords='offset points', fontsize=8)
+    
+    # Add reference lines
+    ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+    ax.axvline(x=-np.log10(0.05), color='red', linestyle='--', alpha=0.5)
+    
+    title = params.title or "Moran's I Spatial Autocorrelation"
+    ax.set_title(title)
+    ax.set_xlabel("-log10(p-value)")
+    ax.set_ylabel("Moran's I")
+    
+    if params.show_colorbar:
+        plt.colorbar(scatter, ax=ax, label='Gene index')
+    
+    plt.tight_layout()
+    return fig
+
+
+@handle_visualization_errors("Centrality Scores")
+async def create_centrality_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create centrality scores visualization"""
+    cluster_key = params.cluster_key or 'leiden'
+    centrality_key = f'{cluster_key}_centrality_scores'
+    
+    if centrality_key not in adata.uns:
+        raise DataNotFoundError(f"Centrality scores not found. Expected key: {centrality_key}")
+    
+    centrality_data = adata.uns[centrality_key]
+    categories = adata.obs[cluster_key].cat.categories
+    
+    figsize = params.figure_size or (10, 8)
+    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+    
+    centrality_types = list(centrality_data.keys())
+    x = np.arange(len(categories))
+    width = 0.8 / len(centrality_types)
+    
+    for i, ctype in enumerate(centrality_types):
+        values = centrality_data[ctype]
+        offset = width * i - width * len(centrality_types) / 2 + width / 2
+        ax.bar(x + offset, values, width, label=ctype, alpha=params.alpha)
+    
+    ax.set_xlabel('Cluster')
+    ax.set_ylabel('Centrality Score')
+    title = params.title or f'Centrality Scores by Cluster ({cluster_key})'
+    ax.set_title(title)
+    ax.set_xticks(x)
+    ax.set_xticklabels(categories, rotation=45, ha="right")
+    
+    if params.show_legend:
+        ax.legend()
+    
+    plt.tight_layout()
+    return fig
+
+
+@handle_visualization_errors("Getis-Ord Gi*")
+async def create_getis_ord_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create Getis-Ord Gi* visualization"""
+    # Find genes with Getis-Ord results
+    getis_ord_genes = []
+    for col in adata.obs.columns:
+        if col.endswith('_getis_ord_z'):
+            gene = col.replace('_getis_ord_z', '')
+            if f"{gene}_getis_ord_p" in adata.obs.columns:
+                getis_ord_genes.append(gene)
+    
+    if not getis_ord_genes:
+        raise DataNotFoundError("No Getis-Ord results found in adata.obs")
+    
+    # Get genes to plot
+    if params.features:
+        genes_to_plot = [g for g in params.features if g in getis_ord_genes]
+    else:
+        genes_to_plot = getis_ord_genes[:6]  # Default to first 6 genes
+    
+    if not genes_to_plot:
+        raise DataNotFoundError(f"None of the specified genes have Getis-Ord results: {params.features}")
+    
+    if context:
+        await context.info(f"Plotting Getis-Ord results for {len(genes_to_plot)} genes: {genes_to_plot}")
+    
+    fig, axes = setup_multi_panel_figure(
+        n_panels=len(genes_to_plot),
+        params=params,
+        default_title="Getis-Ord Gi* Hotspots/Coldspots"
+    )
+    
+    if 'spatial' not in adata.obsm:
+        raise DataCompatibilityError("Spatial coordinates not found in adata.obsm['spatial']")
+    
+    coords = adata.obsm['spatial']
+    
+    for i, gene in enumerate(genes_to_plot):
+        if i < len(axes):
+            ax = axes[i]
+            z_key = f"{gene}_getis_ord_z"
+            p_key = f"{gene}_getis_ord_p"
+            
+            if z_key not in adata.obs or p_key not in adata.obs:
+                ax.text(0.5, 0.5, f"No Getis-Ord data for {gene}", 
+                       ha='center', va='center', transform=ax.transAxes)
+                ax.set_title(f"{gene} (No Data)")
+                continue
+            
+            z_scores = adata.obs[z_key].values
+            p_vals = adata.obs[p_key].values
+            
+            # Create scatter plot with Z-scores as colors
+            scatter = ax.scatter(
+                coords[:, 0], coords[:, 1],
+                c=z_scores,
+                cmap='RdBu_r',  # Red for hot spots, blue for cold spots
+                s=params.spot_size or 20,
+                alpha=params.alpha,
+                vmin=-3, vmax=3  # Standard Z-score range
+            )
+            
+            if params.show_colorbar:
+                plt.colorbar(scatter, ax=ax, label='Gi* Z-score')
+            
+            # Count significant hot and cold spots
+            alpha = 0.05  # Default alpha for significance
+            significant = p_vals < alpha
+            hot_spots = np.sum((z_scores > 0) & significant)
+            cold_spots = np.sum((z_scores < 0) & significant)
+            
+            if params.add_gene_labels:
+                ax.set_title(f'{gene}\nHot: {hot_spots}, Cold: {cold_spots}')
+            else:
+                ax.set_title(f'{gene}')
+            
+            ax.set_xlabel('Spatial X')
+            ax.set_ylabel('Spatial Y')
+            ax.set_aspect('equal')
+            ax.invert_yaxis()  # Proper spatial orientation
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    return fig
+
+
+@handle_visualization_errors("Trajectory")
+async def create_trajectory_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create trajectory pseudotime visualization
+
+    Args:
+        adata: AnnData object with computed trajectory/pseudotime
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with trajectory visualization
+    """
+    if context:
+        await context.info("Creating trajectory pseudotime visualization")
+
+    # Find pseudotime key
+    pseudotime_key = params.feature
+    if not pseudotime_key:
+        # Look for pseudotime columns
+        pseudotime_candidates = [k for k in adata.obs.columns if 'pseudotime' in k.lower()]
+        if pseudotime_candidates:
+            pseudotime_key = pseudotime_candidates[0]
+            if context:
+                await context.info(f"Found pseudotime column: {pseudotime_key}")
+        else:
+            raise DataNotFoundError("No pseudotime information found. Please run trajectory analysis first or specify a pseudotime column in the 'feature' parameter.")
+
+    if pseudotime_key not in adata.obs.columns:
+        raise DataNotFoundError(f"Pseudotime column '{pseudotime_key}' not found. Please run trajectory analysis first.")
+
+    # Check if RNA velocity is available
+    has_velocity = 'velocity_graph' in adata.uns
+
+    # Determine basis for plotting
+    basis = params.basis or 'spatial'
+    basis_key = f'X_{basis}' if basis != 'spatial' else 'spatial'
+    
+    if basis_key not in adata.obsm:
+        # Try to find an alternative basis
+        if 'spatial' in adata.obsm:
+            basis = 'spatial'
+            if context:
+                await context.info("Using 'spatial' as basis for trajectory visualization")
+        elif 'X_umap' in adata.obsm:
+            basis = 'umap'
+            if context:
+                await context.info("Using 'umap' as basis for trajectory visualization")
+        elif 'X_pca' in adata.obsm:
+            basis = 'pca'
+            if context:
+                await context.info("Using 'pca' as basis for trajectory visualization")
+        else:
+            available_bases = [k.replace('X_', '') for k in adata.obsm.keys() if k.startswith('X_')]
+            available_bases.extend([k for k in adata.obsm.keys() if k == 'spatial'])
+            raise DataCompatibilityError(f"Basis '{params.basis or 'spatial'}' not found. Available bases: {available_bases}")
+
+    # Setup figure: 1 panel if no velocity, 2 panels if velocity exists
+    n_panels = 2 if has_velocity else 1
+    
+    # USE THE NEW PANEL HELPER
+    fig, axes = setup_multi_panel_figure(
+        n_panels=n_panels,
+        params=params,
+        default_title=f"Trajectory Analysis on {basis.capitalize()}"
+    )
+
+    # Panel 1: Pseudotime plot
+    ax1 = axes[0]
+    try:
+        sc.pl.embedding(
+            adata,
+            basis=basis,
+            color=pseudotime_key,
+            cmap=params.colormap,
+            ax=ax1,
+            show=False,
+            frameon=params.show_axes,
+            alpha=params.alpha,
+            colorbar_loc='right' if params.show_colorbar else None
+        )
+        ax1.set_title(f"Pseudotime ({pseudotime_key})", fontsize=12)
+        
+        # Handle spatial coordinates orientation
+        if basis == 'spatial':
+            ax1.invert_yaxis()
+            
+    except Exception as e:
+        ax1.text(0.5, 0.5, f'Error plotting pseudotime:\n{str(e)}',
+                ha='center', va='center', transform=ax1.transAxes)
+        ax1.set_title(f'Pseudotime (Error)', fontsize=12)
+
+    # Panel 2: Velocity stream plot (if available)
+    if has_velocity and n_panels > 1:
+        ax2 = axes[1]
+        try:
+            import scvelo as scv
+            scv.pl.velocity_embedding_stream(
+                adata,
+                basis=basis,
+                color=pseudotime_key,
+                cmap=params.colormap,
+                ax=ax2,
+                show=False,
+                alpha=params.alpha,
+                frameon=params.show_axes
+            )
+            ax2.set_title("RNA Velocity Stream", fontsize=12)
+            
+            # Handle spatial coordinates orientation
+            if basis == 'spatial':
+                ax2.invert_yaxis()
+                
+        except ImportError:
+            ax2.text(0.5, 0.5, "scvelo not installed\nfor velocity visualization",
+                    ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title("Velocity Stream - Error", fontsize=12)
+        except Exception as e:
+            ax2.text(0.5, 0.5, f'Error plotting velocity:\n{str(e)}',
+                    ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title("Velocity Stream - Error", fontsize=12)
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     return fig

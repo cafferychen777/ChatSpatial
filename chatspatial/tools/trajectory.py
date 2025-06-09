@@ -351,7 +351,7 @@ async def analyze_rna_velocity(
         context: MCP context
 
     Returns:
-        RNA velocity analysis result
+        RNA velocity analysis result (computation metadata only, no visualization)
     """
     try:
         import scvelo as scv
@@ -449,87 +449,15 @@ async def analyze_rna_velocity(
 
         velocity_computed = False
 
-    # Create visualization
-    if velocity_computed:
-        # Capture stdout/stderr for visualization
-        stdout_buffer = io.StringIO()
-        stderr_buffer = io.StringIO()
-
-        # Initialize flag to skip visualization
-        skip_visualization = False
-
-        with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-            # Check if the requested basis exists
-            basis = params.basis
-            basis_key = f'X_{basis}'
-
-            # If the requested basis doesn't exist, try to use 'spatial' or compute UMAP
-            if basis_key not in adata.obsm:
-                if context:
-                    await context.warning(f"Basis '{basis}' not found in data. Trying alternative basis.")
-
-                # Try to use spatial coordinates if available
-                if 'spatial' in adata.obsm:
-                    basis = 'spatial'
-                    if context:
-                        await context.info(f"Using 'spatial' as basis for visualization.")
-                # Otherwise, compute UMAP if not already computed
-                elif 'X_pca' in adata.obsm:
-                    import scanpy as sc
-                    if context:
-                        await context.info(f"Computing UMAP for visualization.")
-                    sc.pp.neighbors(adata, use_rep='X_pca')
-                    sc.tl.umap(adata)
-                    basis = 'umap'
-                else:
-                    # If no suitable basis is available, use the first available basis
-                    available_bases = [key.replace('X_', '') for key in adata.obsm.keys() if key.startswith('X_')]
-                    if available_bases:
-                        basis = available_bases[0]
-                        if context:
-                            await context.info(f"Using '{basis}' as basis for visualization.")
-                    else:
-                        # If no basis is available, we can't create a visualization
-                        if context:
-                            await context.warning(f"No suitable basis found for visualization.")
-                        # Set a flag to skip visualization
-                        skip_visualization = True
-
-            # Create velocity stream plot if we're not skipping visualization
-            if not skip_visualization:
-                plt.figure(figsize=(6, 6))
-                scv.pl.velocity_embedding_stream(
-                    adata,
-                    basis=basis,
-                    color=params.color,
-                    show=False
-                )
-                fig = plt.gcf()
-                # Use PNG format with lower DPI to reduce size
-                # Set max_size_kb to 300KB to ensure the response isn't too large
-                img = fig_to_image(fig, dpi=60, max_size_kb=300)
-            else:
-                img = None
-
-        # Log captured output if context is available
-        if context:
-            stdout_content = stdout_buffer.getvalue()
-            stderr_content = stderr_buffer.getvalue()
-            if stdout_content:
-                await context.info(f"Visualization stdout: {stdout_content}")
-            if stderr_content:
-                await context.warning(f"Visualization stderr: {stderr_content}")
-    else:
-        img = None
-
     # Update data store
     data_store[data_id]["adata"] = adata
 
-    # Return result
+    # Return result with metadata only (no visualization)
     return RNAVelocityResult(
         data_id=data_id,
         velocity_computed=velocity_computed,
-        visualization=img
+        velocity_graph_key='velocity_graph' if velocity_computed else None,
+        mode=params.mode
     )
 
 
@@ -548,7 +476,7 @@ async def analyze_trajectory(
         context: MCP context
 
     Returns:
-        Trajectory analysis result
+        Trajectory analysis result (computation metadata only, no visualization)
     """
     import scanpy as sc
     import warnings
@@ -645,103 +573,15 @@ async def analyze_trajectory(
         import numpy as np
         adata.obs[pseudotime_key] = np.random.rand(adata.n_obs)
 
-    # Create visualizations
-    # Capture stdout/stderr for visualization
-    stdout_buffer = io.StringIO()
-    stderr_buffer = io.StringIO()
-
-    with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-        # Check if spatial coordinates exist
-        if 'spatial' not in adata.obsm:
-            if context:
-                await context.warning("Spatial coordinates not found in data. Using UMAP for visualization.")
-            # Use UMAP if available, or create a simple 2D embedding
-            if 'X_umap' in adata.obsm:
-                basis = 'umap'
-            elif 'X_pca' in adata.obsm:
-                # Compute UMAP from PCA
-                sc.pp.neighbors(adata, use_rep='X_pca')
-                sc.tl.umap(adata)
-                basis = 'umap'
-            else:
-                # Create a simple 2D embedding based on pseudotime
-                import numpy as np
-                # Use pseudotime as one dimension
-                x = adata.obs[pseudotime_key].values
-                # Create a second dimension with some noise
-                y = x + np.random.normal(0, 0.1, size=len(x))
-                # Store as a simple 2D embedding
-                adata.obsm['X_pseudotime_2d'] = np.column_stack([x, y])
-                basis = 'pseudotime_2d'
-        else:
-            basis = 'spatial'
-
-        # 1. Pseudotime spatial plot
-        try:
-            fig, ax = plt.subplots(figsize=(6, 6))
-            sc.pl.embedding(adata, basis=basis, color=pseudotime_key, ax=ax, show=False)
-            # Use PNG format with lower DPI to reduce size
-            # Set max_size_kb to 300KB to ensure the response isn't too large
-            pseudotime_img = fig_to_image(fig, dpi=60, max_size_kb=300)
-        except Exception as e:
-            if context:
-                await context.warning(f"Error creating pseudotime visualization: {str(e)}")
-            # Create a simple visualization as fallback
-            fig, ax = plt.subplots(figsize=(6, 6))
-            ax.text(0.5, 0.5, "Pseudotime visualization failed",
-                    ha='center', va='center', fontsize=12)
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
-            ax.axis('off')
-            pseudotime_img = fig_to_image(fig, dpi=60, max_size_kb=300)
-
-        # 2. If RNA velocity available, create velocity stream plot
-        if has_velocity:
-            try:
-                import scvelo as scv
-                plt.figure(figsize=(6, 6))
-                scv.pl.velocity_embedding_stream(
-                    adata,
-                    basis=basis,
-                    color=pseudotime_key,
-                    show=False
-                )
-                fig = plt.gcf()
-                # Use PNG format with lower DPI to reduce size
-                # Set max_size_kb to 300KB to ensure the response isn't too large
-                velocity_img = fig_to_image(fig, dpi=60, max_size_kb=300)
-            except Exception as e:
-                if context:
-                    await context.warning(f"Error creating velocity visualization: {str(e)}")
-                # Create a simple visualization as fallback
-                fig, ax = plt.subplots(figsize=(6, 6))
-                ax.text(0.5, 0.5, "Velocity visualization failed",
-                        ha='center', va='center', fontsize=12)
-                ax.set_xlim(0, 1)
-                ax.set_ylim(0, 1)
-                ax.axis('off')
-                velocity_img = fig_to_image(fig, dpi=60, max_size_kb=300)
-        else:
-            velocity_img = None
-
-    # Log captured output if context is available
-    if context:
-        stdout_content = stdout_buffer.getvalue()
-        stderr_content = stderr_buffer.getvalue()
-        if stdout_content:
-            await context.info(f"Visualization stdout: {stdout_content}")
-        if stderr_content:
-            await context.warning(f"Visualization stderr: {stderr_content}")
-
     # Update data store
     data_store[data_id]["adata"] = adata
 
-    # Return result
+    # Return result with metadata only (no visualization)
     return TrajectoryResult(
         data_id=data_id,
         pseudotime_computed=True,
         velocity_computed=has_velocity,
         pseudotime_key=pseudotime_key,
-        pseudotime_visualization=pseudotime_img,
-        velocity_visualization=velocity_img
+        method=params.method,
+        spatial_weight=params.spatial_weight
     )

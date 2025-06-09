@@ -41,6 +41,12 @@ class VisualizationParameters(BaseModel):
     ] = "spatial"
     colormap: str = "viridis"
 
+    # Spatial analysis visualization parameters
+    analysis_sub_type: Optional[Literal["neighborhood", "co_occurrence", "ripley", "moran", "centrality", "getis_ord"]] = Field(
+        None, description="Sub-type for spatial_analysis plot type. Determines which spatial analysis result to visualize."
+    )
+    cluster_key: Optional[str] = Field(None, description="Cluster key for spatial analysis visualization (e.g., 'leiden')")  # For spatial analysis visualization
+
     # Multi-gene visualization parameters
     features: Optional[List[str]] = None  # Multiple features for multi-panel plots
     multi_panel: bool = False  # Whether to create multi-panel plots
@@ -165,11 +171,10 @@ class SpatialDomainParameters(BaseModel):
     resolution: float = 0.5  # Resolution for leiden/louvain clustering
     use_highly_variable: bool = True  # Whether to use highly variable genes only
     refine_domains: bool = True  # Whether to refine spatial domains using spatial smoothing
-
-    # Visualization parameters
-    include_image: bool = True  # Whether to include visualization
-    image_dpi: Annotated[int, Field(gt=0, le=300)] = 100  # DPI for output image
-    image_format: Literal["png", "jpg"] = "png"  # Image format
+    
+    # Clustering-specific parameters for leiden/louvain methods
+    cluster_n_neighbors: Optional[Annotated[int, Field(gt=0)]] = None  # Number of neighbors for clustering (default: 15)
+    cluster_spatial_weight: Optional[Annotated[float, Field(ge=0.0, le=1.0)]] = None  # Weight for spatial information (default: 0.3)
 
 
 

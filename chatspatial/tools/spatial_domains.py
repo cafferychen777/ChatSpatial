@@ -7,17 +7,12 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 import squidpy as sq
-import matplotlib.pyplot as plt
-from scipy.spatial.distance import pdist, squareform
-from scipy.sparse import csr_matrix
 import traceback
 
 from mcp.server.fastmcp import Context
-from mcp.server.fastmcp.utilities.types import Image
 
 from ..models.data import SpatialDomainParameters
 from ..models.analysis import SpatialDomainResult
-from ..utils.image_utils import fig_to_image, create_placeholder_image
 
 
 # Import optional dependencies with fallbacks
@@ -106,25 +101,19 @@ async def identify_spatial_domains(
         if params.refine_domains:
             if context:
                 await context.info("Refining spatial domains using spatial smoothing...")
-            refined_domain_key = f"{domain_key}_refined"
-            refined_labels = _refine_spatial_domains(adata, domain_key, refined_domain_key)
-            adata.obs[refined_domain_key] = refined_labels
-            adata.obs[refined_domain_key] = adata.obs[refined_domain_key].astype('category')
+            try:
+                refined_domain_key = f"{domain_key}_refined"
+                refined_labels = _refine_spatial_domains(adata, domain_key, refined_domain_key)
+                adata.obs[refined_domain_key] = refined_labels
+                adata.obs[refined_domain_key] = adata.obs[refined_domain_key].astype('category')
+            except Exception as e:
+                if context:
+                    await context.warning(f"Domain refinement failed: {e}. Proceeding with unrefined domains.")
+                refined_domain_key = None  # Reset key if refinement failed
         
         # Get domain counts
         domain_counts = adata.obs[domain_key].value_counts().to_dict()
         domain_counts = {str(k): int(v) for k, v in domain_counts.items()}
-        
-        # Create visualization if requested
-        visualization = None
-        if params.include_image:
-            if context:
-                await context.info("Creating spatial domain visualization...")
-            visualization = _create_domain_visualization(
-                adata, 
-                domain_key if not refined_domain_key else refined_domain_key,
-                params
-            )
         
         # Update data store
         data_store[data_id]["adata"] = adata
@@ -137,7 +126,6 @@ async def identify_spatial_domains(
             domain_key=domain_key,
             domain_counts=domain_counts,
             refined_domain_key=refined_domain_key,
-            visualization=visualization,
             statistics=statistics,
             embeddings_key=embeddings_key
         )
@@ -152,7 +140,6 @@ async def identify_spatial_domains(
         if context:
             await context.warning(error_msg)
         raise RuntimeError(error_msg)
-
 
 
 async def _identify_domains_spagcn(
@@ -205,40 +192,23 @@ async def _identify_domains_spagcn(
         if context:
             await context.info("Running SpaGCN domain detection...")
 
-        # Import SpaGCN functions at runtime to avoid import issues
-        try:
-            from SpaGCN.ez_mode import detect_spatial_domains_ez_mode
-        except ImportError:
-            # Fallback to direct import
-            domain_labels = spg.detect_spatial_domains_ez_mode(
-                adata,
-                img,
-                x_array,
-                y_array,
-                x_pixel,
-                y_pixel,
-                n_clusters=params.n_domains,
-                histology=params.spagcn_use_histology,
-                s=params.spagcn_s,
-                b=params.spagcn_b,
-                p=params.spagcn_p,
-                r_seed=params.spagcn_random_seed
-            )
-        else:
-            domain_labels = detect_spatial_domains_ez_mode(
-                adata,
-                img,
-                x_array,
-                y_array,
-                x_pixel,
-                y_pixel,
-                n_clusters=params.n_domains,
-                histology=params.spagcn_use_histology,
-                s=params.spagcn_s,
-                b=params.spagcn_b,
-                p=params.spagcn_p,
-                r_seed=params.spagcn_random_seed
-            )
+        # Import and call SpaGCN function directly
+        from SpaGCN.ez_mode import detect_spatial_domains_ez_mode
+        
+        domain_labels = detect_spatial_domains_ez_mode(
+            adata,
+            img,
+            x_array,
+            y_array,
+            x_pixel,
+            y_pixel,
+            n_clusters=params.n_domains,
+            histology=params.spagcn_use_histology,
+            s=params.spagcn_s,
+            b=params.spagcn_b,
+            p=params.spagcn_p,
+            r_seed=params.spagcn_random_seed
+        )
 
         domain_labels = pd.Series(domain_labels, index=adata.obs.index).astype(str)
 
@@ -254,7 +224,7 @@ async def _identify_domains_spagcn(
         return domain_labels, None, statistics
 
     except Exception as e:
-        raise RuntimeError(f"SpaGCN failed: {str(e)}")
+        raise RuntimeError(f"SpaGCN execution failed: {str(e)}")
 
 
 async def _identify_domains_clustering(
@@ -267,6 +237,10 @@ async def _identify_domains_clustering(
         await context.info(f"Running {params.method} clustering for spatial domain identification...")
     
     try:
+        # Get parameters from params, use defaults if not provided
+        n_neighbors = params.cluster_n_neighbors or 15
+        spatial_weight = params.cluster_spatial_weight or 0.3
+        
         # Compute PCA if not already done
         if 'X_pca' not in adata.obsm:
             if context:
@@ -276,7 +250,7 @@ async def _identify_domains_clustering(
         # Compute neighborhood graph
         if context:
             await context.info("Computing neighborhood graph...")
-        sc.pp.neighbors(adata, n_neighbors=15, use_rep='X_pca')
+        sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep='X_pca')
         
         # Add spatial information to the neighborhood graph
         if 'spatial' in adata.obsm:
@@ -285,7 +259,6 @@ async def _identify_domains_clustering(
             sq.gr.spatial_neighbors(adata, coord_type='generic')
             
             # Combine expression and spatial graphs
-            spatial_weight = 0.3  # Weight for spatial information
             expr_weight = 1 - spatial_weight
             
             if 'spatial_connectivities' in adata.obsp:
@@ -297,18 +270,21 @@ async def _identify_domains_clustering(
         if context:
             await context.info(f"Performing {params.method} clustering...")
         
+        # Use a variable to store key_added to ensure consistency
+        key_added = f"spatial_{params.method}"  # e.g., "spatial_leiden" or "spatial_louvain"
+        
         if params.method == "leiden":
-            sc.tl.leiden(adata, resolution=params.resolution, key_added='spatial_leiden')
-            domain_labels = adata.obs['spatial_leiden'].astype(str)
+            sc.tl.leiden(adata, resolution=params.resolution, key_added=key_added)
         else:  # louvain
-            sc.tl.louvain(adata, resolution=params.resolution, key_added='spatial_louvain')
-            domain_labels = adata.obs['spatial_louvain'].astype(str)
+            sc.tl.louvain(adata, resolution=params.resolution, key_added=key_added)
+        
+        domain_labels = adata.obs[key_added].astype(str)
         
         statistics = {
             "method": params.method,
             "resolution": params.resolution,
-            "n_neighbors": 15,
-            "spatial_weight": 0.3 if 'spatial' in adata.obsm else 0.0
+            "n_neighbors": n_neighbors,
+            "spatial_weight": spatial_weight if 'spatial' in adata.obsm else 0.0
         }
         
         return domain_labels, 'X_pca', statistics
@@ -351,61 +327,5 @@ def _refine_spatial_domains(adata: Any, domain_key: str, refined_key: str) -> pd
         return pd.Series(refined_labels, index=labels.index)
         
     except Exception as e:
-        # If refinement fails, return original labels
-        return adata.obs[domain_key].astype(str)
-
-
-def _create_domain_visualization(
-    adata: Any,
-    domain_key: str,
-    params: SpatialDomainParameters
-) -> Image:
-    """Create visualization of spatial domains"""
-    try:
-        # Create figure
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        # Get spatial coordinates
-        if 'spatial' in adata.obsm:
-            x_coords = adata.obsm['spatial'][:, 0]
-            y_coords = adata.obsm['spatial'][:, 1]
-        else:
-            # Fallback to first two PCs
-            x_coords = adata.obsm['X_pca'][:, 0]
-            y_coords = adata.obsm['X_pca'][:, 1]
-        
-        # Create scatter plot
-        domains = adata.obs[domain_key]
-        unique_domains = domains.unique()
-        
-        # Use a colormap with distinct colors
-        colors = plt.cm.Set3(np.linspace(0, 1, len(unique_domains)))
-        
-        for i, domain in enumerate(unique_domains):
-            mask = domains == domain
-            ax.scatter(
-                x_coords[mask], 
-                y_coords[mask], 
-                c=[colors[i]], 
-                label=f'Domain {domain}',
-                s=50,
-                alpha=0.8
-            )
-        
-        ax.set_xlabel('Spatial X')
-        ax.set_ylabel('Spatial Y')
-        ax.set_title(f'Spatial Domains ({params.method.upper()})')
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        
-        # Invert y-axis for proper spatial orientation
-        ax.invert_yaxis()
-        ax.set_aspect('equal')
-        
-        plt.tight_layout()
-        
-        # Convert to Image object
-        return fig_to_image(fig, dpi=params.image_dpi, format=params.image_format)
-        
-    except Exception as e:
-        # Return placeholder image if visualization fails
-        return create_placeholder_image(f"Visualization failed: {str(e)}")
+        # Raise error instead of silently failing
+        raise RuntimeError(f"Failed to refine spatial domains: {str(e)}") from e

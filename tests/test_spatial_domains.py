@@ -78,7 +78,8 @@ async def test_identify_spatial_domains_clustering():
         method="leiden",
         n_domains=5,
         resolution=0.5,
-        include_image=False  # Skip visualization for testing
+        cluster_n_neighbors=10,
+        cluster_spatial_weight=0.4
     )
     
     # Mock context
@@ -166,14 +167,17 @@ def test_spatial_domain_parameters_validation():
     """Test parameter validation"""
     # Test valid parameters
     params = SpatialDomainParameters(
-        method="stagate",
+        method="leiden",
         n_domains=7,
-        stagate_alpha=0.5,
-        resolution=0.8
+        resolution=0.8,
+        cluster_n_neighbors=15,
+        cluster_spatial_weight=0.3
     )
-    assert params.method == "stagate"
+    assert params.method == "leiden"
     assert params.n_domains == 7
-    assert params.stagate_alpha == 0.5
+    assert params.resolution == 0.8
+    assert params.cluster_n_neighbors == 15
+    assert params.cluster_spatial_weight == 0.3
     
     # Test invalid n_domains (should be > 0)
     with pytest.raises(ValueError):
@@ -182,10 +186,6 @@ def test_spatial_domain_parameters_validation():
     # Test invalid n_domains (should be <= 50)
     with pytest.raises(ValueError):
         SpatialDomainParameters(n_domains=100)
-    
-    # Test invalid alpha (should be between 0 and 1)
-    with pytest.raises(ValueError):
-        SpatialDomainParameters(stagate_alpha=1.5)
 
 
 def test_spatial_domain_result_creation():
@@ -237,7 +237,8 @@ async def test_identify_spatial_domains_with_refinement():
         method="leiden",
         n_domains=3,
         refine_domains=True,
-        include_image=False
+        cluster_n_neighbors=12,
+        cluster_spatial_weight=0.25
     )
     
     mock_context = AsyncMock()

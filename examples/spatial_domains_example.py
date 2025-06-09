@@ -123,7 +123,8 @@ async def demonstrate_spatial_domain_identification():
         n_domains=4,
         resolution=0.5,
         refine_domains=True,
-        include_image=False  # Skip visualization for this demo
+        cluster_n_neighbors=15,
+        cluster_spatial_weight=0.3
     )
     
     leiden_result = await identify_spatial_domains(
@@ -143,7 +144,8 @@ async def demonstrate_spatial_domain_identification():
         n_domains=4,
         resolution=0.3,
         refine_domains=False,
-        include_image=False
+        cluster_n_neighbors=20,
+        cluster_spatial_weight=0.2
     )
     
     louvain_result = await identify_spatial_domains(
@@ -153,43 +155,15 @@ async def demonstrate_spatial_domain_identification():
     print(f"   Identified {louvain_result.n_domains} domains")
     print(f"   Domain counts: {louvain_result.domain_counts}")
     
-    # Method 3: STAGATE (if available)
-    print("\n--- Method 3: STAGATE ---")
-    try:
-        stagate_params = SpatialDomainParameters(
-            method="stagate",
-            n_domains=4,
-            stagate_alpha=0.0,
-            stagate_n_epochs=100,  # Reduced for demo
-            stagate_lr=0.001,
-            include_image=False
-        )
-        
-        stagate_result = await identify_spatial_domains(
-            "demo_data", data_store, stagate_params, mock_context
-        )
-        
-        print(f"   Identified {stagate_result.n_domains} domains")
-        print(f"   Domain counts: {stagate_result.domain_counts}")
-        if stagate_result.embeddings_key:
-            print(f"   Embeddings stored in: {stagate_result.embeddings_key}")
-        
-    except ImportError as e:
-        print(f"   STAGATE not available: {e}")
-        print("   Install with: pip install STAGATE")
-    except Exception as e:
-        print(f"   STAGATE failed: {e}")
-    
-    # Method 4: SpaGCN (if available)
-    print("\n--- Method 4: SpaGCN ---")
+    # Method 3: SpaGCN (if available) - updating from STAGATE since STAGATE is not in supported methods
+    print("\n--- Method 3: SpaGCN ---")
     try:
         spagcn_params = SpatialDomainParameters(
             method="spagcn",
             n_domains=4,
             spagcn_s=1.0,
             spagcn_b=49,
-            spagcn_use_histology=False,  # No histology image for synthetic data
-            include_image=False
+            spagcn_use_histology=False  # No histology image for synthetic data
         )
         
         spagcn_result = await identify_spatial_domains(

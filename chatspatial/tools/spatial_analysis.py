@@ -64,23 +64,21 @@ async def analyze_spatial_unified(
     data_id: str,
     data_store: Dict[str, Any],
     params: SpatialAnalysisParameters = SpatialAnalysisParameters(),
-    context: Optional[Context] = None,
-    return_type: str = "result"  # "result" or "image"
-) -> Union[SpatialAnalysisResult, Image]:
+    context: Optional[Context] = None
+) -> SpatialAnalysisResult:
     """Unified function to perform spatial analysis on transcriptomics data
 
-    This function can return either a SpatialAnalysisResult object or an Image object
-    based on the return_type parameter.
+    This function performs the computation and stores results in the AnnData object.
+    For visualization, use the visualize_data function with plot_type="spatial_analysis".
 
     Args:
         data_id: Dataset ID
         data_store: Dictionary storing loaded datasets
         params: Spatial analysis parameters
         context: MCP context
-        return_type: Type of return value ("result" or "image")
 
     Returns:
-        Either SpatialAnalysisResult or Image object based on return_type
+        SpatialAnalysisResult object with analysis statistics (without image)
 
     Raises:
         DataNotFoundError: If the dataset is not found
@@ -88,13 +86,7 @@ async def analyze_spatial_unified(
         DataCompatibilityError: If data is not compatible with the analysis
         ProcessingError: If processing fails
     """
-    # Import matplotlib at the beginning to avoid any issues
-    import matplotlib.pyplot as plt
-
     # Validate parameters
-    if return_type not in ["result", "image"]:
-        raise InvalidParameterError(f"Invalid return_type: {return_type}. Must be 'result' or 'image'.")
-
     if params.analysis_type not in ["neighborhood", "co_occurrence", "ripley", "moran", "centrality", "getis_ord"]:
         raise InvalidParameterError(f"Unsupported analysis type: {params.analysis_type}")
 
@@ -103,10 +95,7 @@ async def analyze_spatial_unified(
 
     # Log the operation
     if context:
-        if return_type == "image":
-            await context.info(f"Performing {params.analysis_type} spatial analysis with direct image return")
-        else:
-            await context.info(f"Performing {params.analysis_type} spatial analysis")
+        await context.info(f"Performing {params.analysis_type} spatial analysis")
         await context.info(f"Parameters: cluster_key={params.cluster_key}, n_neighbors={params.n_neighbors}")
 
     # Retrieve the AnnData object from data store
@@ -205,44 +194,15 @@ async def analyze_spatial_unified(
 
         # Perform the requested spatial analysis
         statistics = {}
-        fig = None
+        analysis_key_in_adata = ""  # Used to record where results are stored in adata
+
         if params.analysis_type == "neighborhood":
             if context:
                 await context.info("Running neighborhood enrichment analysis...")
 
             # Run neighborhood enrichment
             sq.gr.nhood_enrichment(adata, cluster_key=cluster_key)
-
-            # Get the result matrix - squidpy uses 'zscore' and 'count' keys
-            enrichment_matrix = adata.uns[f'{cluster_key}_nhood_enrichment']['zscore']
-
-            # Create visualization - create our own figure
-            # Instead of using squidpy's plotting function, we'll create our own heatmap
-            # This avoids the color bin issue
-            fig, ax = plt.subplots(figsize=(10, 8))
-
-            # Get the categories for labeling
-            categories = adata.obs[cluster_key].cat.categories
-
-            # Create a heatmap using matplotlib
-            im = ax.imshow(enrichment_matrix, cmap='viridis')
-
-            # Add colorbar
-            plt.colorbar(im, ax=ax, label='Z-score')
-
-            # Set ticks and labels
-            ax.set_xticks(np.arange(len(categories)))
-            ax.set_yticks(np.arange(len(categories)))
-            ax.set_xticklabels(categories)
-            ax.set_yticklabels(categories)
-
-            # Rotate x labels for better readability
-            plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
-
-            # Add title
-            ax.set_title(f'Neighborhood Enrichment ({cluster_key})')
-            ax.set_xlabel('Cluster')
-            ax.set_ylabel('Cluster')
+            analysis_key_in_adata = f'{cluster_key}_nhood_enrichment'
 
         elif params.analysis_type == "co_occurrence":
             if context:
@@ -250,78 +210,14 @@ async def analyze_spatial_unified(
 
             # Run co-occurrence analysis
             sq.gr.co_occurrence(adata, cluster_key=cluster_key)
-
-            # Get the result matrix - squidpy uses 'occ' key for co-occurrence matrix
-            co_occurrence_matrix = adata.uns[f'{cluster_key}_co_occurrence']['occ']
-            interval = adata.uns[f'{cluster_key}_co_occurrence']['interval']
-
-            # Create visualization - create our own figure instead of using squidpy's
-            # This avoids color palette issues
-
-            # The co-occurrence matrix is 3D (clusters x clusters x distances)
-            # We'll create a multi-panel figure with one panel for each distance
-            n_clusters = co_occurrence_matrix.shape[0]
-            n_distances = co_occurrence_matrix.shape[2]
-
-            # Limit to at most 4 distance panels to keep the figure manageable
-            max_panels = min(4, n_distances)
-            selected_distances = np.linspace(0, n_distances-1, max_panels, dtype=int)
-
-            # Create a figure with subplots
-            fig, axes = plt.subplots(1, max_panels, figsize=(5*max_panels, 5), squeeze=False)
-            axes = axes.flatten()
-
-            # Get the categories for labeling
-            categories = adata.obs[cluster_key].cat.categories
-
-            # Create a heatmap for each selected distance
-            for i, dist_idx in enumerate(selected_distances):
-                ax = axes[i]
-                dist_value = interval[dist_idx]
-
-                # Create a heatmap using matplotlib
-                im = ax.imshow(co_occurrence_matrix[:, :, dist_idx], cmap='viridis', vmin=0, vmax=np.max(co_occurrence_matrix))
-
-                # Set ticks and labels
-                if n_clusters <= 10:  # Only show labels if there aren't too many
-                    ax.set_xticks(np.arange(len(categories)))
-                    ax.set_yticks(np.arange(len(categories)))
-                    ax.set_xticklabels(categories, rotation=45, ha="right")
-                    ax.set_yticklabels(categories)
-                else:
-                    # Just show a few ticks to avoid overcrowding
-                    step = max(1, n_clusters // 5)
-                    ax.set_xticks(np.arange(0, n_clusters, step))
-                    ax.set_yticks(np.arange(0, n_clusters, step))
-                    ax.set_xticklabels(categories[::step], rotation=45, ha="right")
-                    ax.set_yticklabels(categories[::step])
-
-                # Add title for this distance
-                ax.set_title(f'Distance: {dist_value:.2f}')
-
-                # Add axis labels only to leftmost plot
-                if i == 0:
-                    ax.set_ylabel('Cluster')
-
-                # Add axis labels only to bottom plot
-                if i == max_panels // 2:
-                    ax.set_xlabel('Cluster')
-
-            # Add a colorbar to the right of the last subplot
-            plt.colorbar(im, ax=axes, label='Co-occurrence probability', shrink=0.8)
-
-            # Add an overall title
-            fig.suptitle(f'Co-occurrence probability at different distances ({cluster_key})', fontsize=16)
-            plt.tight_layout(rect=[0, 0, 1, 0.95])  # Adjust layout to make room for the title
+            analysis_key_in_adata = f'{cluster_key}_co_occurrence'
 
         elif params.analysis_type == "ripley":
             if context:
                 await context.info("Running Ripley's function analysis...")
 
             # Run Ripley's function analysis with mode 'L' (a common transformation of K)
-            # Valid modes are 'F', 'G', and 'L' according to the error message
             try:
-                # The correct way to call ripley function
                 sq.gr.ripley(
                     adata,
                     cluster_key=cluster_key,
@@ -331,62 +227,12 @@ async def analyze_spatial_unified(
                     max_dist=None,  # Automatically determine max distance
                     n_steps=50
                 )
-
-                # Get the result - the key format is {cluster_key}_ripley_{mode}
-                ripley_key = f'{cluster_key}_ripley_L'
-
-                if ripley_key not in adata.uns:
-                    raise KeyError(f"Expected key '{ripley_key}' not found in adata.uns")
-
-                # Create visualization using squidpy's plotting function
-                fig, ax = plt.subplots(figsize=(10, 8))
-
-                # Use the squidpy plotting function
-                sq.pl.ripley(
-                    adata,
-                    cluster_key=cluster_key,
-                    mode='L',
-                    plot_sims=True,  # Show simulation envelope
-                    ax=ax
-                )
+                analysis_key_in_adata = f'{cluster_key}_ripley_L'
 
             except Exception as e:
                 if context:
                     await context.warning(f"Error in Ripley analysis: {str(e)}")
-                    await context.info("Creating fallback visualization...")
-
-                # Create a fallback visualization with synthetic data
-                fig, ax = plt.subplots(figsize=(10, 8))
-
-                # Get unique clusters
-                categories = adata.obs[cluster_key].cat.categories
-
-                # Create some reasonable distances
-                distances = np.linspace(0, 5000, 50)
-
-                # Plot a line for each cluster with synthetic data
-                for i, cluster in enumerate(categories):
-                    # Generate some synthetic data for demonstration
-                    l_values = np.random.normal(0, 1, size=len(distances)) * np.sqrt(distances/1000) + distances/1000
-
-                    # Plot the L function
-                    ax.plot(distances, l_values, label=f'Cluster {cluster}')
-
-                # Add reference line for complete spatial randomness
-                ax.axhline(y=0, color='black', linestyle='--', alpha=0.5, label='CSR')
-
-                # Add labels and title
-                ax.set_xlabel('Distance')
-                ax.set_ylabel('L(r) - r')
-                ax.set_title(f"Ripley's L Function by Cluster ({cluster_key}) - SYNTHETIC DATA")
-
-                # Add legend if there aren't too many clusters
-                if len(categories) <= 10:
-                    ax.legend(loc='best')
-                else:
-                    # Just add a note about the number of clusters
-                    ax.text(0.98, 0.02, f"{len(categories)} clusters",
-                           transform=ax.transAxes, ha='right', va='bottom')
+                raise ProcessingError(f"Ripley analysis failed: {e}") from e
 
         elif params.analysis_type == "moran":
             if context:
@@ -402,35 +248,7 @@ async def analyze_spatial_unified(
             genes = adata.var_names[adata.var['highly_variable']][:20].tolist()
 
             sq.gr.spatial_autocorr(adata, genes=genes, n_perms=100)
-
-            # Get the result
-            moran_data = adata.uns['moranI']
-
-            # Create custom visualization (Squidpy doesn't have a built-in one for this)
-            fig, ax = plt.subplots(figsize=(10, 8))
-
-            # Plot -log10(p-value) vs Moran's I
-            scatter = ax.scatter(-np.log10(moran_data['pval_norm']),
-                          moran_data['I'],
-                          s=50, alpha=0.7)
-
-            # Add labels for top genes
-            for i in range(min(5, len(genes))):
-                if moran_data['pval_norm'][i] < 0.05:  # Only label significant genes
-                    ax.annotate(genes[i],
-                                (-np.log10(moran_data['pval_norm'][i]), moran_data['I'][i]),
-                                xytext=(5, 5),
-                                textcoords='offset points')
-
-            # Add horizontal line at y=0
-            ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-
-            # Add vertical line at x=-log10(0.05) for significance threshold
-            ax.axvline(x=-np.log10(0.05), color='red', linestyle='--', alpha=0.5)
-
-            ax.set_title("Moran's I Spatial Autocorrelation")
-            ax.set_xlabel("-log10(p-value)")
-            ax.set_ylabel("Moran's I")
+            analysis_key_in_adata = 'moranI'
 
         elif params.analysis_type == "centrality":
             if context:
@@ -438,37 +256,7 @@ async def analyze_spatial_unified(
 
             # Compute centrality scores
             sq.gr.centrality_scores(adata, cluster_key=cluster_key)
-
-            # Get the result
-            centrality_data = adata.uns[f'{cluster_key}_centrality_scores']
-
-            # Create visualization - create our own figure instead of using squidpy's
-            # This avoids color palette issues
-            fig, ax = plt.subplots(figsize=(10, 8))
-
-            # Get the centrality data
-            centrality_types = list(centrality_data.keys())
-            categories = adata.obs[cluster_key].cat.categories
-
-            # Create a bar chart for each centrality type
-            x = np.arange(len(categories))
-            width = 0.8 / len(centrality_types)
-
-            for i, ctype in enumerate(centrality_types):
-                values = centrality_data[ctype]
-                offset = width * i - width * len(centrality_types) / 2 + width / 2
-                ax.bar(x + offset, values, width, label=ctype)
-
-            # Add labels and legend
-            ax.set_xlabel('Cluster')
-            ax.set_ylabel('Centrality Score')
-            ax.set_title(f'Centrality Scores by Cluster ({cluster_key})')
-            ax.set_xticks(x)
-            ax.set_xticklabels(categories)
-            ax.legend()
-
-            # Rotate x labels for better readability
-            plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+            analysis_key_in_adata = f'{cluster_key}_centrality_scores'
 
         elif params.analysis_type == "getis_ord":
             if context:
@@ -555,59 +343,15 @@ async def analyze_spatial_unified(
                         getis_ord_results[gene]['p_corrected'] = p_corrected_all[start_idx : start_idx + n_spots]
                         start_idx += n_spots
 
-            # Create visualization
-            n_genes_to_plot = min(6, len(genes))
-            selected_genes = genes[:n_genes_to_plot]
-            fig, axes = plt.subplots(2, 3, figsize=(15, 10), squeeze=False)
-            axes = axes.flatten()
-            coords = adata.obsm['spatial']
-
-            for i, gene in enumerate(selected_genes):
-                ax = axes[i]
-
+            # Store Getis-Ord results in adata.obs for later visualization
+            for gene in genes:
                 if gene in getis_ord_results:
-                    z_scores = getis_ord_results[gene]['z_scores']
+                    adata.obs[f"{gene}_getis_ord_z"] = getis_ord_results[gene]['z_scores']
+                    adata.obs[f"{gene}_getis_ord_p"] = getis_ord_results[gene].get('p_corrected', getis_ord_results[gene]['p_values'])
 
-                    # Create scatter plot with Z-scores as colors
-                    scatter = ax.scatter(
-                        coords[:, 0], coords[:, 1],
-                        c=z_scores,
-                        cmap='RdBu_r',  # Red for hot spots, blue for cold spots
-                        s=20, alpha=0.7,
-                        vmin=-3, vmax=3  # Standard Z-score range
-                    )
+            analysis_key_in_adata = "getis_ord_results_in_obs"
 
-                    # Add colorbar
-                    plt.colorbar(scatter, ax=ax, label='Gi* Z-score')
-
-                    # Count significant hot and cold spots
-                    if getis_ord_results[gene]['p_values'] is not None:
-                        p_vals = getis_ord_results[gene]['p_corrected'] if getis_ord_results[gene]['p_corrected'] is not None else getis_ord_results[gene]['p_values']
-                        significant = p_vals < params.getis_ord_alpha
-                        hot_spots = np.sum((z_scores > 0) & significant)
-                        cold_spots = np.sum((z_scores < 0) & significant)
-
-                        ax.set_title(f'{gene}\nHot: {hot_spots}, Cold: {cold_spots}')
-                    else:
-                        ax.set_title(f'{gene}')
-
-                    ax.set_xlabel('Spatial X')
-                    ax.set_ylabel('Spatial Y')
-                    ax.set_aspect('equal')
-                else:
-                    ax.text(0.5, 0.5, f'No data for {gene}',
-                           ha='center', va='center', transform=ax.transAxes)
-                    ax.set_title(f'{gene} - No Data')
-
-            # Hide unused subplots
-            for i in range(n_genes_to_plot, len(axes)):
-                axes[i].set_visible(False)
-
-            plt.tight_layout()
-            plt.suptitle('Getis-Ord Gi* Local Spatial Autocorrelation\n(Red: Hot spots, Blue: Cold spots)',
-                       fontsize=14, y=1.02)
-
-            # Store summary statistics
+            # Compute summary statistics
             total_hot_spots = 0
             total_cold_spots = 0
             significant_genes = []
@@ -645,80 +389,31 @@ async def analyze_spatial_unified(
         else:
             raise ValueError(f"Unsupported analysis type: {params.analysis_type}")
 
-        # Process the result based on return_type
-        if return_type == "image":
-            # Return Image object
-            if fig is not None:
-                try:
-                    if context:
-                        await context.info(f"Converting {params.analysis_type} figure to image...")
-                    return fig_to_image(fig, dpi=params.image_dpi, format=params.image_format or "png")
-                except Exception as e:
-                    error_msg = f"Failed to convert figure to image: {str(e)}"
-                    if context:
-                        await context.warning(error_msg)
-                    # Close the figure to avoid memory leaks
-                    plt.close(fig)
-                    # Create a placeholder image with error message
-                    return create_placeholder_image(f"Error in {params.analysis_type} visualization: {str(e)}")
-            else:
-                # Create a simple placeholder image if no visualization is available
-                if context:
-                    await context.warning(f"No {params.analysis_type} visualization available")
-                return create_placeholder_image(f"No {params.analysis_type} visualization available")
-        else:
-            # Return SpatialAnalysisResult object
-            img_str = None
-            if params.include_image and fig is not None:
-                try:
-                    if context:
-                        await context.info(f"Converting {params.analysis_type} figure to base64 image...")
-                    img_str = fig_to_base64(
-                        fig,
-                        dpi=params.image_dpi,
-                        format=params.image_format,
-                        max_size_mb=5
-                    )
-                    if img_str is None and context:
-                        await context.warning("Image was too large and could not be included in the response")
-                except Exception as e:
-                    error_msg = f"Failed to generate image: {str(e)}"
-                    if context:
-                        await context.warning(error_msg)
-                    # Make sure to close the figure even if conversion fails
-                    plt.close(fig)
-            elif fig is not None:
-                # Close the figure if we're not including it in the response
-                plt.close(fig)
+        # Update data store with the modified adata
+        data_store[data_id]["adata"] = adata
 
-            # Return result with detailed statistics
-            if context:
-                await context.info(f"Returning {params.analysis_type} analysis result with {len(statistics)} statistics")
+        # Add metadata to statistics
+        metadata = {
+            "analysis_date": pd.Timestamp.now().isoformat(),
+            "cluster_key": cluster_key,
+            "n_clusters": len(adata.obs[cluster_key].unique()),
+            "n_cells": adata.n_obs,
+            "n_neighbors": params.n_neighbors,
+            "analysis_key_in_adata": analysis_key_in_adata
+        }
+        statistics.update(metadata)
 
-            # Add metadata to statistics (preserve existing statistics)
-            metadata = {
-                "analysis_date": pd.Timestamp.now().isoformat(),
-                "cluster_key": cluster_key,
-                "n_clusters": n_clusters,
-                "n_cells": adata.n_obs,
-                "n_neighbors": params.n_neighbors
-            }
-            statistics.update(metadata)
+        if context:
+            await context.info(f"Returning {params.analysis_type} analysis result with {len(statistics)} statistics")
 
-            return SpatialAnalysisResult(
-                data_id=data_id,
-                analysis_type=params.analysis_type,
-                statistics=statistics,
-                result_image=img_str
-            )
+        return SpatialAnalysisResult(
+            data_id=data_id,
+            analysis_type=params.analysis_type,
+            statistics=statistics,
+            result_image=None  # Always None - visualization handled separately
+        )
 
     except Exception as e:
-        # Make sure to close any open figures in case of error
-        if 'fig' in locals() and fig is not None:
-            plt.close(fig)
-        # Close any other open figures
-        plt.close('all')
-
         # Log the error
         error_msg = f"Error in {params.analysis_type} analysis: {str(e)}"
         if context:
@@ -744,37 +439,3 @@ async def analyze_spatial_unified(
 
 # The analyze_spatial function has been removed in favor of directly using analyze_spatial_unified
 # This simplifies the code structure and reduces complexity
-
-
-# Helper function to ensure valid cluster key exists
-async def _ensure_cluster_key(adata: sc.AnnData, requested_key: str, context: Optional[Context] = None) -> str:
-    """Ensures a valid cluster key exists in adata, computing it if necessary."""
-    if requested_key in adata.obs.columns:
-        if not pd.api.types.is_categorical_dtype(adata.obs[requested_key]):
-            if context:
-                await context.info(f"Converting {requested_key} to categorical...")
-            adata.obs[requested_key] = adata.obs[requested_key].astype('category')
-        return requested_key
-
-    if 'leiden' in adata.obs.columns:
-        if context:
-            await context.warning(
-                f"Cluster key '{requested_key}' not found, using 'leiden' as fallback. "
-                f"Available keys in .obs: {list(adata.obs.select_dtypes(include=['category', 'object']).columns)}"
-            )
-        return 'leiden'
-
-    if context:
-        await context.warning(f"No suitable clusters found ('{requested_key}' or 'leiden'). Running Leiden clustering...")
-    try:
-        if 'neighbors' not in adata.uns:
-            if context:
-                await context.info("Computing neighbors graph...")
-            sc.pp.neighbors(adata)
-        sc.tl.leiden(adata)
-        return 'leiden'
-    except Exception as e:
-        error_msg = f"Failed to compute Leiden clusters: {str(e)}"
-        if context:
-            await context.warning(error_msg)
-        raise ProcessingError(error_msg) from e

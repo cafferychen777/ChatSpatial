@@ -436,7 +436,7 @@ async def identify_spatial_domains(
         params: Spatial domain identification parameters
 
     Returns:
-        Spatial domain identification result with domain labels and visualization
+        Spatial domain identification result with domain labels and statistics
     """
     if context:
         await context.info(f"Identifying spatial domains using {params.method} method")
