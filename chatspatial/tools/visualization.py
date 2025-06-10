@@ -418,8 +418,9 @@ async def visualize_data(
     valid_plot_types = [
         "spatial", "umap", "heatmap", "violin",
         "deconvolution", "spatial_domains", "cell_communication",
-        "trajectory", "rna_velocity", "gaston_isodepth", "spatial_analysis",
-        "multi_gene", "lr_pairs", "gene_correlation"
+        "trajectory", "rna_velocity", "spatial_analysis",
+        "multi_gene", "lr_pairs", "gene_correlation",
+        "gaston_isodepth", "gaston_domains", "gaston_genes"
     ]
     if params.plot_type not in valid_plot_types:
         error_msg = f"Invalid plot_type: {params.plot_type}. Must be one of {valid_plot_types}"
@@ -853,6 +854,21 @@ async def visualize_data(
             if context:
                 await context.info("Creating spatial analysis visualization")
             fig = await create_spatial_analysis_visualization(adata, params, context)
+
+        elif params.plot_type == "gaston_isodepth":
+            if context:
+                await context.info("Creating GASTON isodepth visualization")
+            fig = await create_gaston_isodepth_visualization(adata, params, context)
+
+        elif params.plot_type == "gaston_domains":
+            if context:
+                await context.info("Creating GASTON spatial domains visualization")
+            fig = await create_gaston_domains_visualization(adata, params, context)
+
+        elif params.plot_type == "gaston_genes":
+            if context:
+                await context.info("Creating GASTON spatial genes visualization")
+            fig = await create_gaston_genes_visualization(adata, params, context)
 
         else:
             # This should never happen due to parameter validation at the beginning
@@ -2037,7 +2053,7 @@ async def create_trajectory_visualization(
     fig, axes = setup_multi_panel_figure(
         n_panels=n_panels,
         params=params,
-        default_title=f"Trajectory Analysis on {basis.capitalize()}"
+        default_title=f"Trajectory Analysis - Pseudotime ({pseudotime_key})"
     )
 
     # Panel 1: Pseudotime plot
@@ -2054,7 +2070,8 @@ async def create_trajectory_visualization(
             alpha=params.alpha,
             colorbar_loc='right' if params.show_colorbar else None
         )
-        ax1.set_title(f"Pseudotime ({pseudotime_key})", fontsize=12)
+        # Don't set individual panel title since we have a comprehensive main title
+        # ax1.set_title(f"Pseudotime ({pseudotime_key})", fontsize=12)
         
         # Handle spatial coordinates orientation
         if basis == 'spatial':
@@ -2231,4 +2248,121 @@ async def create_gene_correlation_visualization(
         ax2.tick_params(axis='x', rotation=45)
 
     plt.tight_layout()
+    return fig
+
+
+# GASTON-specific visualization functions
+@handle_visualization_errors("GASTON Isodepth Map")
+async def create_gaston_isodepth_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create GASTON isodepth map visualization"""
+    # Look for GASTON isodepth results
+    isodepth_keys = [col for col in adata.obs.columns if 'isodepth' in col.lower()]
+
+    if not isodepth_keys:
+        raise DataNotFoundError("GASTON isodepth results not found. Please run 'find_spatial_genes' with method='gaston' first.")
+
+    # Use the most recent isodepth result
+    isodepth_key = isodepth_keys[-1]
+    if context:
+        await context.info(f"Visualizing isodepth using column: {isodepth_key}")
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=params.figure_size or (10, 8), dpi=params.dpi)
+
+    # Plot isodepth map
+    plot_spatial_feature(adata, feature=isodepth_key, ax=ax, params=params)
+    ax.set_title(params.title or "GASTON Isodepth Map")
+
+    return fig
+
+
+@handle_visualization_errors("GASTON Spatial Domains")
+async def create_gaston_domains_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create GASTON spatial domains visualization"""
+    # Look for GASTON spatial domains results
+    domains_keys = [col for col in adata.obs.columns if 'gaston' in col.lower() and 'spatial_domains' in col.lower()]
+
+    if not domains_keys:
+        raise DataNotFoundError("GASTON spatial domains results not found. Please run 'find_spatial_genes' with method='gaston' first.")
+
+    # Use the most recent domains result
+    domains_key = domains_keys[-1]
+    if context:
+        await context.info(f"Visualizing spatial domains using column: {domains_key}")
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=params.figure_size or (10, 8), dpi=params.dpi)
+
+    # Plot spatial domains
+    plot_spatial_feature(adata, feature=domains_key, ax=ax, params=params)
+    ax.set_title(params.title or "GASTON Spatial Domains")
+
+    return fig
+
+
+@handle_visualization_errors("GASTON Spatial Genes")
+async def create_gaston_genes_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create GASTON spatial genes visualization"""
+    # Look for GASTON results in uns
+    gaston_keys = [key for key in adata.uns.keys() if 'gaston' in key.lower()]
+
+    if not gaston_keys:
+        raise DataNotFoundError("GASTON results not found. Please run 'find_spatial_genes' with method='gaston' first.")
+
+    # Get the most recent GASTON result
+    gaston_key = gaston_keys[-1]
+    gaston_results = adata.uns[gaston_key]
+
+    if context:
+        await context.info(f"Visualizing GASTON genes from: {gaston_key}")
+
+    # Get continuous and discontinuous genes
+    continuous_genes = gaston_results.get('continuous_genes', {})
+    discontinuous_genes = gaston_results.get('discontinuous_genes', {})
+
+    # Select top genes to visualize
+    n_genes = min(params.n_cell_types or 6, 6)  # Limit to 6 genes max
+
+    # Combine and select top genes
+    all_genes = list(continuous_genes.keys())[:n_genes//2] + list(discontinuous_genes.keys())[:n_genes//2]
+
+    if not all_genes:
+        raise DataNotFoundError("No spatial variable genes found in GASTON results.")
+
+    # Ensure genes exist in the dataset
+    available_genes = [gene for gene in all_genes if gene in adata.var_names]
+
+    if not available_genes:
+        raise DataNotFoundError("None of the identified spatial genes are available in the current dataset.")
+
+    # Create multi-panel figure
+    fig, axes = setup_multi_panel_figure(
+        n_panels=len(available_genes),
+        params=params,
+        default_title="GASTON Spatial Variable Genes"
+    )
+
+    # Plot each gene
+    for i, gene in enumerate(available_genes):
+        if i < len(axes):
+            ax = axes[i]
+            plot_spatial_feature(adata, feature=gene, ax=ax, params=params)
+
+            # Add gene type annotation
+            gene_type = "Continuous" if gene in continuous_genes else "Discontinuous"
+            ax.set_title(f"{gene} ({gene_type})")
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
     return fig

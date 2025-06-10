@@ -31,6 +31,7 @@ from .models.analysis import (
     PreprocessingResult,
     DifferentialExpressionResult,
     AnnotationResult,
+    SpatialAnalysisResult,
     RNAVelocityResult,
     TrajectoryResult,
     IntegrationResult,
@@ -146,7 +147,14 @@ async def visualize_data(
 
     Args:
         data_id: Dataset ID
-        params: Visualization parameters
+        params: Visualization parameters including:
+            - plot_type: Type of visualization (spatial, heatmap, violin, umap,
+                        spatial_domains, cell_communication, deconvolution, trajectory,
+                        spatial_analysis, multi_gene, lr_pairs, gene_correlation,
+                        gaston_isodepth, gaston_domains, gaston_genes)
+            - feature: Gene or feature to visualize (for spatial plots)
+            - colormap: Color scheme for visualization
+            - figure_size: Size of the output figure
 
     Returns:
         Visualization image
@@ -223,21 +231,35 @@ async def analyze_spatial_data(
     data_id: str,
     params: SpatialAnalysisParameters = SpatialAnalysisParameters(),
     context: Context = None
-) -> Image:
-    """Perform spatial analysis on transcriptomics data
+) -> SpatialAnalysisResult:
+    """Perform spatial analysis on transcriptomics data and return the results.
+
+    This tool runs the specified spatial analysis (e.g., neighborhood, Moran's I)
+    and stores the results in the AnnData object. It returns a summary of the analysis.
+    To visualize the results, use the 'visualize_data' tool with
+    plot_type='spatial_analysis' and the corresponding 'analysis_sub_type'.
 
     Args:
         data_id: Dataset ID
         params: Spatial analysis parameters
 
     Returns:
-        Spatial analysis visualization image
+        A SpatialAnalysisResult object containing statistics and metadata.
     """
     # Validate dataset
     validate_dataset(data_id)
 
-    # Call spatial analysis unified function with return_type="image"
-    return await analyze_spatial_unified(data_id, data_store, params, context, return_type="image")
+    # Call spatial analysis unified function (without return_type parameter)
+    result = await analyze_spatial_unified(data_id, data_store, params, context)
+
+    # Log and return the result object
+    if context:
+        await context.info(f"Spatial analysis '{params.analysis_type}' completed.")
+        await context.info(f"Results stored in adata.uns['{result.statistics.get('analysis_key_in_adata', 'N/A')}']")
+        await context.info("To visualize the results, use the 'visualize_data' tool with:")
+        await context.info(f"  plot_type='spatial_analysis', analysis_sub_type='{params.analysis_type}'")
+
+    return result
 
 
 @mcp.tool()
@@ -278,7 +300,7 @@ async def analyze_velocity_data(
     data_id: str,
     params: RNAVelocityParameters = RNAVelocityParameters(),
     context: Context = None
-) -> Image:
+) -> RNAVelocityResult:
     """Analyze RNA velocity in spatial transcriptomics data
 
     Args:
@@ -286,7 +308,7 @@ async def analyze_velocity_data(
         params: RNA velocity analysis parameters
 
     Returns:
-        RNA velocity visualization image
+        RNA velocity analysis result
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -294,12 +316,15 @@ async def analyze_velocity_data(
     # Call RNA velocity analysis function
     result = await analyze_rna_velocity(data_id, data_store, params, context)
 
-    # Return the visualization image directly
-    if result.visualization is None:
-        # Create a simple placeholder image if no visualization is available
-        return create_placeholder_image("No velocity visualization available")
+    # Log results
+    if context:
+        if result.velocity_computed:
+            await context.info(f"RNA velocity analysis completed using {params.mode} mode.")
+            await context.info("To visualize results, use the 'visualize_data' tool with plot_type='spatial' and feature='velocity'.")
+        else:
+            await context.warning("Could not compute RNA velocity.")
 
-    return result.visualization
+    return result
 
 
 # Add trajectory analysis tool
@@ -308,11 +333,11 @@ async def analyze_trajectory_data(
     data_id: str,
     params: TrajectoryParameters = TrajectoryParameters(),
     context: Context = None
-) -> Image:
-    """Analyze trajectory and return pseudotime visualization
+) -> TrajectoryResult:
+    """Analyze trajectory and return results
 
-    This function performs trajectory analysis and returns the pseudotime visualization.
-    For velocity visualization, use analyze_velocity_data instead.
+    This function performs trajectory analysis and returns computation results.
+    For visualization, use the 'visualize_data' tool with plot_type='trajectory'.
 
     Args:
         data_id: Dataset ID
@@ -320,7 +345,7 @@ async def analyze_trajectory_data(
         context: MCP context
 
     Returns:
-        Pseudotime trajectory visualization image
+        Trajectory analysis result
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -331,8 +356,13 @@ async def analyze_trajectory_data(
     # Call trajectory analysis function
     result = await analyze_trajectory(data_id, data_store, params, context)
 
-    # Return the pseudotime visualization
-    return result.pseudotime_visualization
+    # Log results
+    if context:
+        await context.info(f"Trajectory analysis with method '{params.method}' completed.")
+        await context.info(f"Results stored in adata.obs['{result.pseudotime_key}'].")
+        await context.info("To visualize results, use the 'visualize_data' tool with plot_type='trajectory'.")
+
+    return result
 
 
 # Add tool for integrating multiple samples
@@ -522,10 +552,16 @@ async def find_spatial_genes(
             - epochs: Number of training epochs
             - learning_rate: Learning rate for optimization
             - use_positional_encoding: Whether to use positional encoding
+            - n_domains: Number of spatial domains to identify (default: 5)
+            - num_bins: Number of bins for isodepth binning (default: 70)
+            - continuous_quantile: Quantile threshold for continuous genes (default: 0.9)
+            - discontinuous_quantile: Quantile threshold for discontinuous genes (default: 0.9)
+            - umi_threshold: Minimum UMI count threshold for genes (default: 500)
 
     Returns:
-        Spatial variable genes identification result with isodepth map, spatial domains,
-        and gene classification into continuous/discontinuous patterns
+        Spatial variable genes identification result with spatial domains and gene classification.
+        Use visualize_data with plot_type="gaston_isodepth", "gaston_domains", or "gaston_genes"
+        to visualize the results.
     """
     if context:
         await context.info(f"Identifying spatial variable genes using GASTON method")
@@ -544,6 +580,7 @@ async def find_spatial_genes(
         await context.info(f"Final training loss: {result.final_loss:.6f}")
         await context.info(f"Model R²: {result.model_performance.get('r2', 'N/A')}")
         await context.info(f"Results stored with keys: {result.isodepth_key}, {result.spatial_domains_key}")
+        await context.info("Use visualize_data tool with plot_type='gaston_isodepth', 'gaston_domains', or 'gaston_genes' to visualize results")
 
     return result
 

@@ -52,6 +52,8 @@ class RNAVelocityResult(BaseModel):
     """Result of RNA velocity analysis"""
     data_id: str
     velocity_computed: bool
+    velocity_graph_key: Optional[str] = None  # Key for velocity graph in adata.uns
+    mode: str  # RNA velocity computation mode
     visualization: Optional[Image] = None  # Image object
 
     class Config:
@@ -64,7 +66,9 @@ class TrajectoryResult(BaseModel):
     pseudotime_computed: bool
     velocity_computed: bool
     pseudotime_key: str
-    pseudotime_visualization: Image  # Image object
+    method: str  # Trajectory analysis method used
+    spatial_weight: float  # Spatial information weight
+    pseudotime_visualization: Optional[Image] = None  # Image object - now optional
     velocity_visualization: Optional[Image] = None  # Image object
 
     class Config:
@@ -142,10 +146,10 @@ class SpatialVariableGenesResult(BaseModel):
     model_predictions_key: str  # Key in adata.obsm where model predictions are stored
     spatial_embedding_key: str  # Key in adata.obsm where spatial embeddings are stored
 
-    # Visualizations
-    isodepth_map_visualization: Optional[Image] = None  # Isodepth map visualization
-    spatial_domains_visualization: Optional[Image] = None  # Spatial domains visualization
-    top_genes_visualization: Optional[Image] = None  # Top spatial genes visualization
+    # Visualizations (use visualize_data tool for GASTON visualizations)
+    isodepth_map_visualization: Optional[Image] = None  # Deprecated: use visualize_data with plot_type="gaston_isodepth"
+    spatial_domains_visualization: Optional[Image] = None  # Deprecated: use visualize_data with plot_type="gaston_domains"
+    top_genes_visualization: Optional[Image] = None  # Deprecated: use visualize_data with plot_type="gaston_genes"
 
     # Statistics and metrics
     model_performance: Dict[str, Any]  # Model performance metrics

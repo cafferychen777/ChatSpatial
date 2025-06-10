@@ -35,9 +35,10 @@ try:
 except ImportError as e:
     GASTON_AVAILABLE = False
     print(f"Warning: GASTON not available: {e}")
+    print("Please install GASTON or ensure it's in the Python path")
 
 from ..models.data import SpatialVariableGenesParameters
-from ..models.analysis import SpatialVariableGenesResult, Image
+from ..models.analysis import SpatialVariableGenesResult
 
 
 async def identify_spatial_variable_genes_gaston(
@@ -123,17 +124,11 @@ async def identify_spatial_variable_genes_gaston(
         
         # Analyze spatial patterns
         spatial_analysis = await _analyze_spatial_patterns(
-            model, spatial_coords, expression_features, params, context
+            model, spatial_coords, expression_features, adata, params, context
         )
         
-        # Generate visualizations
-        visualizations = {}
-        if params.include_visualization:
-            if context:
-                await context.info("Generating visualizations")
-            visualizations = await _generate_visualizations(
-                adata, spatial_analysis, params, temp_dir, context
-            )
+        # Note: Visualizations are now handled by the separate visualize_data tool
+        # This maintains clean separation between analysis and visualization
         
         # Store results in adata
         results_key = f"gaston_results_{params.random_seed}"
@@ -159,9 +154,9 @@ async def identify_spatial_variable_genes_gaston(
             n_discontinuous_genes=len(spatial_analysis['discontinuous_genes']),
             model_predictions_key=f"{results_key}_predictions",
             spatial_embedding_key=f"{results_key}_embedding",
-            isodepth_map_visualization=visualizations.get('isodepth_map'),
-            spatial_domains_visualization=visualizations.get('spatial_domains'),
-            top_genes_visualization=visualizations.get('top_genes'),
+            isodepth_map_visualization=None,  # Use visualize_data tool instead
+            spatial_domains_visualization=None,  # Use visualize_data tool instead
+            top_genes_visualization=None,  # Use visualize_data tool instead
             model_performance=spatial_analysis['performance_metrics'],
             spatial_autocorrelation=spatial_analysis['autocorrelation_metrics'],
             model_checkpoint_path=spatial_analysis.get('model_path')
@@ -172,6 +167,7 @@ async def identify_spatial_variable_genes_gaston(
             await context.info(f"Identified {result.n_spatial_domains} spatial domains")
             await context.info(f"Found {result.n_continuous_genes} genes with continuous gradients")
             await context.info(f"Found {result.n_discontinuous_genes} genes with discontinuities")
+            await context.info("Use visualize_data tool with plot_type='gaston_isodepth', 'gaston_domains', or 'gaston_genes' to visualize results")
         
         return result
         
@@ -268,51 +264,125 @@ async def _train_gaston_model(
 
 async def _analyze_spatial_patterns(
     model, spatial_coords: np.ndarray, expression_features: np.ndarray,
-    params: SpatialVariableGenesParameters, context
+    adata, params: SpatialVariableGenesParameters, context
 ) -> Dict[str, Any]:
-    """Analyze spatial patterns from trained GASTON model."""
-    
-    # Get isodepth values
+    """Analyze spatial patterns from trained GASTON model using complete GASTON workflow."""
+
+    if context:
+        await context.info("Extracting isodepth values from trained model")
+
+    # Step 1: Get isodepth values from spatial embedding
     S_torch = torch.tensor(spatial_coords, dtype=torch.float32)
     with torch.no_grad():
         isodepth = model.spatial_embedding(S_torch).numpy().flatten()
-    
-    # Get model predictions
+
+    # Step 2: Get model predictions
     with torch.no_grad():
         predictions = model(S_torch).numpy()
-    
-    # Analyze spatial domains and gene patterns
-    # This is a simplified version - full implementation would use GASTON's
-    # binning_and_plotting and spatial_gene_classification modules
-    
-    # For now, create basic spatial domains based on isodepth quantiles
-    n_domains = 5  # Default number of domains
+
+    # Step 3: Create spatial domains based on isodepth quantiles
+    n_domains = params.n_domains
     domain_boundaries = np.quantile(isodepth, np.linspace(0, 1, n_domains + 1))
     spatial_domains = np.digitize(isodepth, domain_boundaries) - 1
     spatial_domains = np.clip(spatial_domains, 0, n_domains - 1)
-    
-    # Placeholder for gene classification
-    continuous_genes = {}
-    discontinuous_genes = {}
-    
+
+    if context:
+        await context.info(f"Created {n_domains} spatial domains based on isodepth")
+        await context.info("Performing data binning and piecewise linear fitting")
+
+    # Step 4: Prepare data for GASTON binning and fitting
+    # Get original count matrix (need raw counts for Poisson regression)
+    if hasattr(adata.X, 'toarray'):
+        counts_mat = adata.X.toarray().T  # GASTON expects G x N matrix
+    else:
+        counts_mat = adata.X.T
+
+    # Ensure counts are non-negative integers
+    counts_mat = np.maximum(counts_mat, 0).astype(int)
+
+    gene_labels = adata.var_names.values
+
+    # Create dummy cell type dataframe (for all cell types analysis)
+    cell_type_df = pd.DataFrame({'All': np.ones(len(spatial_coords))},
+                               index=adata.obs_names)
+
+    try:
+        # Step 5: Perform binning using GASTON's binning function
+        binning_output = binning_and_plotting.bin_data(
+            counts_mat=counts_mat,
+            gaston_labels=spatial_domains,
+            gaston_isodepth=isodepth,
+            cell_type_df=cell_type_df,
+            gene_labels=gene_labels,
+            num_bins=params.num_bins,
+            umi_threshold=params.umi_threshold,
+            pc=0,  # No pseudocount
+            pc_exposure=True
+        )
+
+        if context:
+            await context.info(f"Binning completed. Analyzing {len(binning_output['gene_labels_idx'])} genes")
+
+        # Step 6: Perform piecewise linear fitting using GASTON's segmented fit
+        pw_fit_dict = segmented_fit.pw_linear_fit(
+            counts_mat=counts_mat,
+            gaston_labels=spatial_domains,
+            gaston_isodepth=isodepth,
+            cell_type_df=cell_type_df,
+            ct_list=['All'],  # Only analyze all cell types
+            umi_threshold=params.umi_threshold,
+            t=params.pvalue_threshold,
+            isodepth_mult_factor=params.isodepth_mult_factor,
+            reg=params.regularization,
+            zero_fit_threshold=params.zero_fit_threshold
+        )
+
+        if context:
+            await context.info("Piecewise linear fitting completed")
+            await context.info("Classifying genes into continuous and discontinuous patterns")
+
+        # Step 7: Classify genes using GASTON's classification functions
+        continuous_genes = spatial_gene_classification.get_cont_genes(
+            pw_fit_dict, binning_output, q=params.continuous_quantile
+        )
+
+        discontinuous_genes = spatial_gene_classification.get_discont_genes(
+            pw_fit_dict, binning_output, q=params.discontinuous_quantile
+        )
+
+        if context:
+            await context.info(f"Found {len(continuous_genes)} genes with continuous gradients")
+            await context.info(f"Found {len(discontinuous_genes)} genes with discontinuities")
+
+    except Exception as e:
+        if context:
+            await context.info(f"Warning: GASTON analysis failed: {e}")
+            await context.info("Falling back to basic spatial domain analysis")
+
+        # Fallback to basic analysis if GASTON functions fail
+        continuous_genes = {}
+        discontinuous_genes = {}
+        binning_output = {'gene_labels_idx': gene_labels}
+
     # Performance metrics
     mse = np.mean((predictions - expression_features) ** 2)
-    r2 = 1 - (np.sum((expression_features - predictions) ** 2) / 
+    r2 = 1 - (np.sum((expression_features - predictions) ** 2) /
               np.sum((expression_features - np.mean(expression_features, axis=0)) ** 2))
-    
+
     performance_metrics = {
         'mse': float(mse),
         'r2': float(r2),
         'isodepth_range': [float(isodepth.min()), float(isodepth.max())],
-        'isodepth_std': float(isodepth.std())
+        'isodepth_std': float(isodepth.std()),
+        'n_genes_analyzed': len(binning_output['gene_labels_idx'])
     }
-    
-    # Spatial autocorrelation metrics (placeholder)
+
+    # Spatial autocorrelation metrics (placeholder for now)
     autocorrelation_metrics = {
-        'moran_i': 0.0,  # Would compute Moran's I for isodepth
-        'geary_c': 0.0   # Would compute Geary's C for isodepth
+        'moran_i': 0.0,  # Could compute Moran's I for isodepth
+        'geary_c': 0.0   # Could compute Geary's C for isodepth
     }
-    
+
     return {
         'isodepth': isodepth,
         'spatial_domains': spatial_domains,
@@ -321,123 +391,13 @@ async def _analyze_spatial_patterns(
         'continuous_genes': continuous_genes,
         'discontinuous_genes': discontinuous_genes,
         'performance_metrics': performance_metrics,
-        'autocorrelation_metrics': autocorrelation_metrics
+        'autocorrelation_metrics': autocorrelation_metrics,
+        'binning_output': binning_output  # Store for potential future use
     }
 
 
-async def _generate_visualizations(
-    adata, spatial_analysis: Dict[str, Any], params: SpatialVariableGenesParameters,
-    temp_dir: str, context
-) -> Dict[str, Image]:
-    """Generate visualizations for GASTON results."""
-
-    visualizations = {}
-    spatial_coords = adata.obsm['spatial']
-
-    # Create figure directory
-    fig_dir = os.path.join(temp_dir, "figures")
-    os.makedirs(fig_dir, exist_ok=True)
-
-    try:
-        # Isodepth map visualization
-        if params.plot_isodepth_map:
-            fig, ax = plt.subplots(1, 1, figsize=(10, 8))
-            scatter = ax.scatter(
-                spatial_coords[:, 0], spatial_coords[:, 1],
-                c=spatial_analysis['isodepth'],
-                cmap='viridis', s=20, alpha=0.7
-            )
-            plt.colorbar(scatter, ax=ax, label='Isodepth')
-            ax.set_title('GASTON Isodepth Map')
-            ax.set_xlabel('Spatial X')
-            ax.set_ylabel('Spatial Y')
-            ax.set_aspect('equal')
-
-            isodepth_path = os.path.join(fig_dir, f"isodepth_map.{params.image_format}")
-            plt.savefig(isodepth_path, dpi=params.image_dpi, bbox_inches='tight')
-            plt.close()
-
-            with open(isodepth_path, 'rb') as f:
-                visualizations['isodepth_map'] = Image(
-                    data=f.read(),
-                    format=params.image_format,
-                    description="GASTON isodepth topographic map"
-                )
-
-        # Spatial domains visualization
-        if params.plot_spatial_domains:
-            fig, ax = plt.subplots(1, 1, figsize=(10, 8))
-            scatter = ax.scatter(
-                spatial_coords[:, 0], spatial_coords[:, 1],
-                c=spatial_analysis['spatial_domains'],
-                cmap='tab10', s=20, alpha=0.7
-            )
-            plt.colorbar(scatter, ax=ax, label='Spatial Domain')
-            ax.set_title('GASTON Spatial Domains')
-            ax.set_xlabel('Spatial X')
-            ax.set_ylabel('Spatial Y')
-            ax.set_aspect('equal')
-
-            domains_path = os.path.join(fig_dir, f"spatial_domains.{params.image_format}")
-            plt.savefig(domains_path, dpi=params.image_dpi, bbox_inches='tight')
-            plt.close()
-
-            with open(domains_path, 'rb') as f:
-                visualizations['spatial_domains'] = Image(
-                    data=f.read(),
-                    format=params.image_format,
-                    description="GASTON spatial domains"
-                )
-
-        # Model performance visualization
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-
-        # Predicted vs actual scatter plot
-        predictions = spatial_analysis['predictions']
-        if params.preprocessing_method == "glmpca":
-            # For GLM-PCA, show first component
-            actual = predictions[:, 0] if predictions.shape[1] > 0 else []
-            predicted = predictions[:, 0] if predictions.shape[1] > 0 else []
-        else:
-            # For Pearson residuals, show first PC
-            actual = predictions[:, 0] if predictions.shape[1] > 0 else []
-            predicted = predictions[:, 0] if predictions.shape[1] > 0 else []
-
-        if len(actual) > 0:
-            ax1.scatter(actual, predicted, alpha=0.5, s=10)
-            ax1.plot([actual.min(), actual.max()], [actual.min(), actual.max()], 'r--', lw=2)
-            ax1.set_xlabel('Actual')
-            ax1.set_ylabel('Predicted')
-            ax1.set_title('Model Predictions vs Actual')
-
-            # Add R² to plot
-            r2 = spatial_analysis['performance_metrics']['r2']
-            ax1.text(0.05, 0.95, f'R² = {r2:.3f}', transform=ax1.transAxes,
-                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-
-        # Isodepth distribution
-        ax2.hist(spatial_analysis['isodepth'], bins=50, alpha=0.7, edgecolor='black')
-        ax2.set_xlabel('Isodepth Value')
-        ax2.set_ylabel('Frequency')
-        ax2.set_title('Isodepth Distribution')
-
-        plt.tight_layout()
-        performance_path = os.path.join(fig_dir, f"model_performance.{params.image_format}")
-        plt.savefig(performance_path, dpi=params.image_dpi, bbox_inches='tight')
-        plt.close()
-
-        with open(performance_path, 'rb') as f:
-            visualizations['model_performance'] = Image(
-                data=f.read(),
-                format=params.image_format,
-                description="GASTON model performance metrics"
-            )
-
-    except Exception as e:
-        if context:
-            await context.info(f"Warning: Error generating visualizations: {e}")
-
-    return visualizations
+# Note: Visualization functions have been moved to visualization.py
+# Use visualize_data tool with plot_type="gaston_isodepth", "gaston_domains", or "gaston_genes"
 
 
 async def _store_results_in_adata(

@@ -74,6 +74,12 @@ async def identify_spatial_domains(
                 await context.info("Normalizing and log-transforming data...")
             sc.pp.normalize_total(adata_subset, target_sum=1e4)
             sc.pp.log1p(adata_subset)
+
+        # Ensure data is float type for SpaGCN compatibility
+        if adata_subset.X.dtype != np.float32 and adata_subset.X.dtype != np.float64:
+            if context:
+                await context.info("Converting data to float32 for SpaGCN compatibility...")
+            adata_subset.X = adata_subset.X.astype(np.float32)
         
         # Identify domains based on method
         if params.method == "spagcn":
@@ -194,21 +200,37 @@ async def _identify_domains_spagcn(
 
         # Import and call SpaGCN function directly
         from SpaGCN.ez_mode import detect_spatial_domains_ez_mode
-        
-        domain_labels = detect_spatial_domains_ez_mode(
-            adata,
-            img,
-            x_array,
-            y_array,
-            x_pixel,
-            y_pixel,
-            n_clusters=params.n_domains,
-            histology=params.spagcn_use_histology,
-            s=params.spagcn_s,
-            b=params.spagcn_b,
-            p=params.spagcn_p,
-            r_seed=params.spagcn_random_seed
-        )
+
+        # Add detailed logging for debugging
+        if context:
+            await context.info(f"SpaGCN parameters: n_clusters={params.n_domains}, s={params.spagcn_s}, b={params.spagcn_b}, p={params.spagcn_p}")
+            await context.info(f"Data shape: {adata.shape}, spatial coords: {len(x_array)} spots")
+
+        # Call SpaGCN with error handling
+        try:
+            domain_labels = detect_spatial_domains_ez_mode(
+                adata,
+                img,
+                x_array,
+                y_array,
+                x_pixel,
+                y_pixel,
+                n_clusters=params.n_domains,
+                histology=params.spagcn_use_histology,
+                s=params.spagcn_s,
+                b=params.spagcn_b,
+                p=params.spagcn_p,
+                r_seed=params.spagcn_random_seed
+            )
+        except Exception as spagcn_error:
+            # Capture and re-raise with more details
+            error_msg = f"SpaGCN detect_spatial_domains_ez_mode failed: {str(spagcn_error)}"
+            if context:
+                await context.warning(error_msg)
+            raise RuntimeError(error_msg) from spagcn_error
+
+        if context:
+            await context.info(f"SpaGCN completed, got {len(set(domain_labels))} domains")
 
         domain_labels = pd.Series(domain_labels, index=adata.obs.index).astype(str)
 
@@ -224,7 +246,11 @@ async def _identify_domains_spagcn(
         return domain_labels, None, statistics
 
     except Exception as e:
-        raise RuntimeError(f"SpaGCN execution failed: {str(e)}")
+        # Enhanced error reporting
+        error_msg = f"SpaGCN execution failed: {str(e)}"
+        if context:
+            await context.warning(f"Full error details: {traceback.format_exc()}")
+        raise RuntimeError(error_msg) from e
 
 
 async def _identify_domains_clustering(

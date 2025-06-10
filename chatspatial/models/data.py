@@ -36,8 +36,8 @@ class VisualizationParameters(BaseModel):
     plot_type: Literal[
         "spatial", "heatmap", "violin", "umap",
         "spatial_domains", "cell_communication", "deconvolution",
-        "trajectory", "gaston_isodepth", "spatial_analysis",
-        "multi_gene", "lr_pairs", "gene_correlation"
+        "trajectory", "spatial_analysis", "multi_gene", "lr_pairs", "gene_correlation",
+        "gaston_isodepth", "gaston_domains", "gaston_genes"
     ] = "spatial"
     colormap: str = "viridis"
 
@@ -77,6 +77,9 @@ class VisualizationParameters(BaseModel):
     show_colorbar: bool = True
     show_axes: bool = True
     add_gene_labels: bool = True  # Whether to add gene names as labels
+
+    # Trajectory visualization parameters
+    basis: Optional[str] = None  # Basis for trajectory visualization (e.g., 'spatial', 'umap', 'pca')
 
     # Legacy parameters (for backward compatibility)
     show_deconvolution: bool = False  # Whether to show deconvolution results
@@ -127,6 +130,13 @@ class TrajectoryParameters(BaseModel):
     method: Literal["cellrank", "palantir"] = "cellrank"
     spatial_weight: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5  # Spatial information weight
     root_cells: Optional[List[str]] = None  # For Palantir method
+    
+    # CellRank specific parameters
+    cellrank_kernel_weights: Tuple[float, float] = (0.8, 0.2)  # (velocity_weight, connectivity_weight)
+    cellrank_n_states: Annotated[int, Field(gt=0, le=20)] = 5  # Number of macrostates for CellRank
+    
+    # Fallback control
+    allow_fallback_to_dpt: bool = True  # Whether to fall back to DPT if other methods fail
 
 
 class IntegrationParameters(BaseModel):
@@ -204,16 +214,19 @@ class SpatialVariableGenesParameters(BaseModel):
     random_seed: Annotated[int, Field(ge=0, le=1000)] = 0  # Random seed for reproducibility
 
     # Analysis parameters
-    spatial_domain_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = 0.95  # Quantile threshold for spatial domain identification
-    gradient_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = 0.95  # Quantile threshold for gradient detection
+    n_domains: Annotated[int, Field(gt=0, le=20)] = 5  # Number of spatial domains to identify
+    num_bins: Annotated[int, Field(gt=10, le=200)] = 70  # Number of bins for isodepth binning
+    umi_threshold: Annotated[int, Field(gt=0)] = 500  # Minimum UMI count threshold for genes
 
-    # Visualization parameters
-    include_visualization: bool = True  # Whether to generate visualizations
-    plot_isodepth_map: bool = True  # Whether to plot isodepth map
-    plot_spatial_domains: bool = True  # Whether to plot spatial domains
-    plot_top_genes: Annotated[int, Field(gt=0, le=20)] = 6  # Number of top genes to visualize
-    image_dpi: Annotated[int, Field(gt=0, le=300)] = 100  # DPI for output images
-    image_format: Literal["png", "jpg"] = "png"  # Image format
+    # Gene classification parameters
+    continuous_quantile: Annotated[float, Field(gt=0.0, le=1.0)] = 0.9  # Quantile threshold for continuous genes
+    discontinuous_quantile: Annotated[float, Field(gt=0.0, le=1.0)] = 0.9  # Quantile threshold for discontinuous genes
+    pvalue_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = 0.1  # P-value threshold for slope significance
+    zero_fit_threshold: Annotated[int, Field(ge=0)] = 0  # Minimum non-zero count per domain
+
+    # Poisson regression parameters
+    isodepth_mult_factor: Annotated[float, Field(gt=0.0)] = 1.0  # Scaling factor for isodepth values
+    regularization: Annotated[float, Field(ge=0.0)] = 0.0  # Regularization parameter
 
 
 class CellCommunicationParameters(BaseModel):
