@@ -391,6 +391,109 @@ async def visualize_top_cell_types(adata, deconv_key, n_cell_types=4, context=No
     return features
 
 
+def get_spatial_coordinates(adata):
+    """Get spatial coordinates from AnnData object
+    
+    Args:
+        adata: AnnData object
+        
+    Returns:
+        Tuple of (x_coords, y_coords) or None if no spatial coordinates found
+    """
+    # Try different spatial coordinate locations
+    if 'spatial' in adata.obsm:
+        coords = adata.obsm['spatial']
+        return coords[:, 0], coords[:, 1]
+    elif 'X_spatial' in adata.obsm:
+        coords = adata.obsm['X_spatial']
+        return coords[:, 0], coords[:, 1]
+    elif 'x' in adata.obs and 'y' in adata.obs:
+        return adata.obs['x'].values, adata.obs['y'].values
+    else:
+        # Fallback to indices
+        return range(len(adata)), range(len(adata))
+
+
+async def create_cell_type_annotation_visualization(adata, cell_types: List[str], cell_type_df=None, context: Optional[Context] = None):
+    """Create spatial visualization of cell type annotations
+    
+    Args:
+        adata: AnnData object with cell type annotations
+        cell_types: List of cell types
+        cell_type_df: Optional DataFrame with cell type probabilities for probability plots
+        context: MCP context for logging
+        
+    Returns:
+        Image object with the visualization
+    """
+    try:
+        if cell_type_df is None:
+            # Simple cell type plot
+            fig, ax = plt.subplots(figsize=(10, 8))
+            
+            # Get spatial coordinates
+            x_coords, y_coords = get_spatial_coordinates(adata)
+            
+            # Create categorical color map
+            unique_types = adata.obs['cell_type'].cat.categories
+            colors = plt.cm.Set1(np.linspace(0, 1, len(unique_types)))
+            color_map = dict(zip(unique_types, colors))
+            
+            for cell_type in unique_types:
+                mask = adata.obs['cell_type'] == cell_type
+                ax.scatter(x_coords[mask], y_coords[mask], 
+                          c=[color_map[cell_type]], label=cell_type, s=10, alpha=0.7)
+            
+            ax.set_title("Cell Type Annotation")
+            ax.set_xlabel("X coordinate")
+            ax.set_ylabel("Y coordinate")
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            plt.tight_layout()
+            
+            visualization = fig_to_image(fig, format="png")
+            plt.close(fig)
+        else:
+            # Multi-panel probability plot
+            n_cols = min(3, len(cell_types))
+            n_rows = (len(cell_types) + n_cols - 1) // n_cols
+            
+            fig, axes = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+            if n_rows * n_cols > 1:
+                axes = axes.flatten()
+            else:
+                axes = [axes]
+            
+            # Get spatial coordinates
+            x_coords, y_coords = get_spatial_coordinates(adata)
+            
+            # Plot each cell type probability
+            for i, cell_type in enumerate(cell_types):
+                if i < len(axes):
+                    ax = axes[i]
+                    scatter = ax.scatter(x_coords, y_coords,
+                                       c=cell_type_df[cell_type].values,
+                                       s=10, cmap='viridis', alpha=0.7)
+                    ax.set_title(f"{cell_type}")
+                    ax.set_xlabel("X coordinate")
+                    ax.set_ylabel("Y coordinate")
+                    plt.colorbar(scatter, ax=ax, shrink=0.8)
+            
+            # Hide empty axes
+            for i in range(len(cell_types), len(axes)):
+                axes[i].axis('off')
+            
+            plt.tight_layout()
+            visualization = fig_to_image(fig, format="png")
+            plt.close(fig)
+        
+        return visualization
+    
+    except Exception as viz_error:
+        if context:
+            await context.warning(f"Could not create visualization: {viz_error}")
+        return None
+
+
 async def visualize_data(
     data_id: str,
     data_store: Dict[str, Any],
@@ -1066,15 +1169,10 @@ async def create_spatial_domains_visualization(
         await context.info(f"Visualizing spatial domains using column: {domain_key}")
 
     # Get spatial coordinates
-    if 'spatial' in adata.obsm:
-        x_coords = adata.obsm['spatial'][:, 0]
-        y_coords = adata.obsm['spatial'][:, 1]
+    try:
+        x_coords, y_coords = get_spatial_coordinates(adata)
         coord_type = 'spatial'
-    elif 'X_spatial' in adata.obsm:
-        x_coords = adata.obsm['X_spatial'][:, 0]
-        y_coords = adata.obsm['X_spatial'][:, 1]
-        coord_type = 'X_spatial'
-    else:
+    except:
         # Fallback to first two PCs if available
         if 'X_pca' in adata.obsm:
             x_coords = adata.obsm['X_pca'][:, 0]
@@ -1158,14 +1256,279 @@ async def create_cell_communication_visualization(
     params: VisualizationParameters,
     context = None
 ) -> plt.Figure:
-    """Create cell communication visualization (placeholder)"""
-    # TODO: Implement cell communication visualization
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.text(0.5, 0.5, 'Cell communication visualization\n(To be implemented)',
-           ha='center', va='center', transform=ax.transAxes)
-    ax.set_title('Cell Communication')
-    ax.axis('off')
-    return fig
+    """Create cell communication visualization"""
+    if context:
+        await context.info("Creating cell communication visualization")
+    
+    # Look for LIANA+ results in adata.uns
+    liana_keys = [key for key in adata.uns.keys() if 'liana' in key.lower()]
+    spatial_score_keys = [key for key in adata.uns.keys() if 'spatial_scores' in key.lower()]
+    
+    # Try to find communication results
+    communication_results = None
+    spatial_scores = None
+    analysis_type = "none"
+    
+    # Check for LIANA+ spatial results
+    if spatial_score_keys:
+        spatial_scores_key = spatial_score_keys[0]
+        if spatial_scores_key in adata.uns:
+            spatial_scores = adata.uns[spatial_scores_key]
+            analysis_type = "spatial"
+            if context:
+                await context.info(f"Found LIANA+ spatial scores: {spatial_scores_key}")
+    
+    # Check for general LIANA+ results
+    elif liana_keys:
+        liana_key = liana_keys[0]
+        if liana_key in adata.uns:
+            communication_results = adata.uns[liana_key]
+            analysis_type = "cluster"
+            if context:
+                await context.info(f"Found LIANA+ results: {liana_key}")
+    
+    # Check for ligand-receptor pair results in obs
+    lr_columns = [col for col in adata.obs.columns if any(pattern in col.lower() for pattern in ['ligand', 'receptor', 'lr_', 'communication'])]
+    
+    if analysis_type == "spatial" and spatial_scores is not None:
+        return _create_spatial_communication_plot(adata, spatial_scores, params, context)
+    elif analysis_type == "cluster" and communication_results is not None:
+        return _create_cluster_communication_plot(adata, communication_results, params, context)
+    elif lr_columns:
+        return _create_lr_expression_plot(adata, lr_columns, params, context)
+    else:
+        # No communication data found, create instructional plot
+        fig, ax = plt.subplots(figsize=params.figure_size or (10, 8))
+        ax.text(0.5, 0.5,
+               'No cell communication results found in dataset.\n\n'
+               'To analyze cell communication, first run:\n'
+               'analyze_cell_communication(data_id="data_1", params={"method": "liana"})\n\n'
+               'This will generate LIANA+ results for visualization.',
+               ha='center', va='center', transform=ax.transAxes, fontsize=12)
+        ax.set_title('Cell Communication - Not Available')
+        ax.axis('off')
+        return fig
+
+
+def _create_spatial_communication_plot(adata, spatial_scores, params, context):
+    """Create spatial communication visualization using LIANA+ spatial scores"""
+    try:
+        # Get spatial coordinates
+        x_coords, y_coords = get_spatial_coordinates(adata)
+        
+        # Get top communication pairs from spatial scores
+        if hasattr(spatial_scores, 'var_names'):
+            # It's an AnnData object
+            top_pairs = list(spatial_scores.var_names)[:6]  # Top 6 pairs
+        else:
+            # It's a different format, try to extract pair names
+            top_pairs = []
+        
+        if not top_pairs:
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.text(0.5, 0.5, 'No communication pairs found in spatial scores',
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title('Cell Communication - Spatial')
+            ax.axis('off')
+            return fig
+        
+        # Create subplot layout
+        n_pairs = min(len(top_pairs), 6)  # Limit to 6 for display
+        n_cols = min(3, n_pairs)
+        n_rows = (n_pairs + n_cols - 1) // n_cols
+        
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 4*n_rows))
+        if n_pairs == 1:
+            axes = [axes]
+        elif n_rows == 1:
+            axes = axes.flatten()
+        else:
+            axes = axes.flatten()
+        
+        for i, pair in enumerate(top_pairs[:n_pairs]):
+            ax = axes[i]
+            
+            try:
+                # Get spatial scores for this pair
+                if hasattr(spatial_scores, 'var_names') and pair in spatial_scores.var_names:
+                    if hasattr(spatial_scores.X, 'toarray'):
+                        scores = spatial_scores[:, pair].X.toarray().flatten()
+                    else:
+                        scores = spatial_scores[:, pair].X.flatten()
+                else:
+                    scores = np.zeros(len(adata))
+                
+                # Create scatter plot
+                scatter = ax.scatter(
+                    x_coords, y_coords,
+                    c=scores,
+                    cmap=params.colormap or 'viridis',
+                    s=15, alpha=0.8
+                )
+                
+                # Format pair name for display
+                display_name = pair.replace('_', ' → ') if '_' in pair else pair
+                ax.set_title(display_name, fontsize=10)
+                ax.set_xlabel('X coordinate')
+                ax.set_ylabel('Y coordinate')
+                
+                # Add colorbar
+                plt.colorbar(scatter, ax=ax, shrink=0.7, label='Communication Score')
+                
+            except Exception as e:
+                ax.text(0.5, 0.5, f'Error: {str(e)}', ha='center', va='center', transform=ax.transAxes)
+                ax.set_title(pair, fontsize=10)
+        
+        # Hide unused subplots
+        for i in range(n_pairs, len(axes)):
+            axes[i].set_visible(False)
+        
+        plt.suptitle('Cell Communication - Spatial Distribution', fontsize=14)
+        plt.tight_layout()
+        return fig
+        
+    except Exception as e:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, f'Error creating spatial communication plot:\n{str(e)}',
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title('Cell Communication - Error')
+        ax.axis('off')
+        return fig
+
+
+def _create_cluster_communication_plot(adata, communication_results, params, context):
+    """Create cluster-based communication visualization"""
+    try:
+        # Try to extract top communication pairs from results
+        if isinstance(communication_results, pd.DataFrame):
+            # Results are in DataFrame format
+            df = communication_results
+            
+            # Look for common LIANA+ columns
+            score_cols = [col for col in df.columns if any(term in col.lower() for term in ['score', 'pvalue', 'significant'])]
+            
+            if score_cols and len(df) > 0:
+                # Sort by first score column and get top pairs
+                top_results = df.nlargest(8, score_cols[0])
+                
+                # Create ligand-receptor pair names
+                if 'ligand' in df.columns and 'receptor' in df.columns:
+                    pair_names = [f"{row['ligand']} → {row['receptor']}" for _, row in top_results.iterrows()]
+                    scores = top_results[score_cols[0]].values
+                elif 'lr_pair' in df.columns:
+                    pair_names = top_results['lr_pair'].tolist()
+                    scores = top_results[score_cols[0]].values
+                else:
+                    pair_names = [f"Pair {i+1}" for i in range(len(top_results))]
+                    scores = top_results[score_cols[0]].values
+            else:
+                pair_names = ["No significant pairs"]
+                scores = [0]
+        else:
+            # Results in other format
+            pair_names = ["Communication analysis completed"]
+            scores = [1.0]
+        
+        # Create horizontal bar plot
+        fig, ax = plt.subplots(figsize=params.figure_size or (12, 8))
+        
+        y_pos = np.arange(len(pair_names))
+        bars = ax.barh(y_pos, scores, color='steelblue', alpha=0.7)
+        
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(pair_names, fontsize=10)
+        ax.set_xlabel('Communication Strength')
+        ax.set_title('Top Cell Communication Pairs')
+        ax.invert_yaxis()
+        
+        # Add value labels on bars
+        for i, (bar, score) in enumerate(zip(bars, scores)):
+            if score > 0:
+                ax.text(score + max(scores) * 0.01, bar.get_y() + bar.get_height()/2,
+                       f'{score:.3f}', va='center', fontsize=9)
+        
+        plt.tight_layout()
+        return fig
+        
+    except Exception as e:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, f'Error creating cluster communication plot:\n{str(e)}',
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title('Cell Communication - Error')
+        ax.axis('off')
+        return fig
+
+
+def _create_lr_expression_plot(adata, lr_columns, params, context):
+    """Create ligand-receptor expression visualization"""
+    try:
+        # Get spatial coordinates
+        x_coords, y_coords = get_spatial_coordinates(adata)
+        
+        # Select top LR columns (limit to 6)
+        selected_cols = lr_columns[:6]
+        
+        # Create subplot layout
+        n_cols = min(3, len(selected_cols))
+        n_rows = (len(selected_cols) + n_cols - 1) // n_cols
+        
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 4*n_rows))
+        if len(selected_cols) == 1:
+            axes = [axes]
+        elif n_rows == 1:
+            axes = axes.flatten()
+        else:
+            axes = axes.flatten()
+        
+        for i, col in enumerate(selected_cols):
+            ax = axes[i]
+            
+            try:
+                values = adata.obs[col].values
+                
+                # Handle categorical or numeric data
+                if pd.api.types.is_numeric_dtype(values):
+                    scatter = ax.scatter(x_coords, y_coords, c=values, 
+                                       cmap=params.colormap or 'viridis', s=15, alpha=0.8)
+                    plt.colorbar(scatter, ax=ax, shrink=0.7)
+                else:
+                    # Categorical data
+                    unique_vals = pd.unique(values)
+                    colors = plt.cm.Set1(np.linspace(0, 1, len(unique_vals)))
+                    
+                    for j, val in enumerate(unique_vals):
+                        mask = values == val
+                        ax.scatter(x_coords[mask], y_coords[mask], 
+                                 c=[colors[j]], label=str(val), s=15, alpha=0.8)
+                    
+                    if len(unique_vals) <= 10:
+                        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+                
+                # Clean up column name for display
+                display_name = col.replace('_', ' ').title()
+                ax.set_title(display_name, fontsize=10)
+                ax.set_xlabel('X coordinate')
+                ax.set_ylabel('Y coordinate')
+                
+            except Exception as e:
+                ax.text(0.5, 0.5, f'Error: {str(e)}', ha='center', va='center', transform=ax.transAxes)
+                ax.set_title(col, fontsize=10)
+        
+        # Hide unused subplots
+        for i in range(len(selected_cols), len(axes)):
+            axes[i].set_visible(False)
+        
+        plt.suptitle('Ligand-Receptor Expression Patterns', fontsize=14)
+        plt.tight_layout()
+        return fig
+        
+    except Exception as e:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, f'Error creating LR expression plot:\n{str(e)}',
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title('Cell Communication - Error')
+        ax.axis('off')
+        return fig
 
 
 @handle_visualization_errors("Multi-Gene UMAP")

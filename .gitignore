@@ -1,8 +1,12 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -16,59 +20,263 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# Virtual environments
-venv/
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
 env/
+venv/
 ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# PyTorch
+*.pth
+*.pt
+
+# TensorFlow
+*.pb
+*.ckpt*
+*.tfrecords
+saved_model/
+
+# Jupyter Lab
+.jupyter
 
 # IDE files
 .idea/
 .vscode/
 *.swp
 *.swo
+*.kate-swp
+.spyproject/
 
 # OS specific files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Data files
+# Third-party libraries and dependencies
+third_party/
+node_modules/
+bower_components/
+
+# Scientific computing data files
 *.h5ad
 *.h5
+*.hdf5
 *.csv
 *.tsv
+*.txt
+*.xlsx
+*.xls
 *.parquet
 *.zarr
 *.loom
 *.rds
 *.pkl
 *.pickle
+*.npy
+*.npz
+*.mat
 
-# Image files
+# Image and plot files
 *.png
 *.jpg
 *.jpeg
 *.gif
 *.svg
 *.pdf
+*.eps
+*.tiff
+*.bmp
 
-# Logs
+# Video files
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.flv
+
+# Audio files
+*.mp3
+*.wav
+*.flac
+*.aac
+
+# Archive files
+*.zip
+*.tar.gz
+*.tar.bz2
+*.rar
+*.7z
+
+# Large model files
+*.model
+*.bin
+*.weights
+
+# Logs and debugging
 logs/
 *.log
+debug_scripts/
+test_*.py
+profile_output/
 
-# Temporary files
+# Temporary files and directories
 tmp/
 temp/
 debug_output/
 test_outputs/
+.tmp/
+.temp/
+
+# Config files that might contain secrets
+config.ini
+config.yaml
+config.json
+.env.local
+.env.production
+secrets.py
+credentials.json
+
+# Claude Code specific
+.claude/
+
+# MCP server specific
+*.mcprc
+.mcp/
+
+# Documentation build artifacts
+docs/_build/
+docs/build/
+site/
+
+# Development artifacts
+experiments/
+scratch/
+notes/
+dev_notebooks/
+
+# Profiling data
+*.prof
+profile_*.txt
 
 # Keep important example data files
 !data/MOp_markers.csv
 !data/mop_sn_tutorial.h5ad
 !data/slideseq_MOp_1217.h5ad
+
+# Keep documentation images
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.svg
+
+# Keep README images
+!README_*.png
+!README_*.jpg
+!assets/*.png
+!assets/*.jpg
+!assets/*.svg
