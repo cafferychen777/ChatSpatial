@@ -266,8 +266,6 @@ profile_*.txt
 
 # Keep important example data files
 !data/MOp_markers.csv
-!data/mop_sn_tutorial.h5ad
-!data/slideseq_MOp_1217.h5ad
 
 # Keep documentation images
 !docs/**/*.png
