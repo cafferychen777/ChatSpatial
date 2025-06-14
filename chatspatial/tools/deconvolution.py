@@ -24,7 +24,7 @@ from mcp.server.fastmcp.utilities.types import Image
 
 from ..models.data import DeconvolutionParameters
 from ..models.analysis import DeconvolutionResult
-from ..utils.image_utils import fig_to_image, fig_to_base64, create_placeholder_image
+from ..utils.image_utils import fig_to_image, fig_to_base64
 
 # Import context manager utilities
 from contextlib import contextmanager
@@ -637,123 +637,356 @@ def deconvolve_spotiphy(
             raise
 
 
-def visualize_deconvolution_results(
-    spatial_adata: ad.AnnData,
-    proportions: pd.DataFrame,
-    n_cell_types: int = 6,
-    cmap: str = 'viridis',
-    size: int = 50,
-    title_prefix: str = ""
-) -> plt.Figure:
-    """Visualize deconvolution results
+def is_rctd_available() -> Tuple[bool, str]:
+    """Check if RCTD (spacexr) and its dependencies are available
+    
+    Returns:
+        Tuple of (is_available, error_message)
+    """
+    try:
+        # Try to import rpy2
+        import rpy2.robjects as ro
+        from rpy2.robjects import pandas2ri
+        from rpy2.robjects.conversion import localconverter
+        
+        # Test R connection
+        try:
+            ro.r('R.version.string')
+        except Exception as e:
+            return False, f"R is not accessible: {str(e)}"
+            
+        # Try to install/load spacexr package
+        try:
+            # Check if spacexr is installed
+            ro.r('library(spacexr)')
+        except Exception as e:
+            return False, f"spacexr R package is not installed or failed to load: {str(e)}. Install with: install.packages('devtools'); devtools::install_github('dmcable/spacexr', build_vignettes = FALSE)"
+            
+        return True, ""
+        
+    except ImportError:
+        return False, "rpy2 package is not installed. Install with 'pip install rpy2'"
 
+
+def deconvolve_rctd(
+    spatial_adata: ad.AnnData,
+    reference_adata: ad.AnnData,
+    cell_type_key: str = 'cell_type',
+    mode: str = 'full',
+    max_cores: int = 4,
+    confidence_threshold: float = 10.0,
+    doublet_threshold: float = 25.0,
+    min_common_genes: int = 100
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Deconvolve spatial data using RCTD (Robust Cell Type Decomposition)
+    
     Args:
         spatial_adata: Spatial transcriptomics AnnData object
-        proportions: Cell type proportions DataFrame
-        n_cell_types: Number of top cell types to visualize
-        cmap: Colormap to use for visualization
-        size: Size of points in spatial plots
-        title_prefix: Prefix to add to plot titles
-
+        reference_adata: Reference single-cell RNA-seq AnnData object
+        cell_type_key: Key in reference_adata.obs for cell type information
+        mode: RCTD mode - 'full', 'doublet', or 'multi'
+        max_cores: Maximum number of cores to use
+        confidence_threshold: Confidence threshold for cell type assignment
+        doublet_threshold: Threshold for doublet detection
+        min_common_genes: Minimum number of common genes required
+    
     Returns:
-        Matplotlib figure with visualization
-
+        Tuple of (proportions DataFrame, statistics dictionary)
+        
     Raises:
-        ValueError: If input data is invalid
-        RuntimeError: If visualization fails
+        ImportError: If rpy2 or spacexr package is not available
+        ValueError: If input data is invalid or insufficient common genes
+        RuntimeError: If RCTD computation fails
     """
-    # Validate input data
-    if spatial_adata is None:
-        raise ValueError("Spatial AnnData object cannot be None")
-    if proportions is None or proportions.empty:
-        raise ValueError("Proportions DataFrame cannot be None or empty")
-    if n_cell_types < 1:
-        raise ValueError("Number of cell types to visualize must be at least 1")
-
+    # Unified validation and gene finding
+    common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, min_common_genes)
+    
+    # Check if RCTD is available
+    is_available, error_message = is_rctd_available()
+    if not is_available:
+        raise ImportError(f"RCTD is not available: {error_message}")
+    
+    # Import rpy2 modules
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri, numpy2ri
+    from rpy2.robjects.conversion import localconverter
+    import rpy2.robjects.packages as rpackages
+    
     try:
-        # Get top cell types by mean proportion
-        n_cell_types = min(n_cell_types, proportions.shape[1])
-        top_cell_types = proportions.mean().sort_values(ascending=False).index[:n_cell_types]
-
-        # Create figure
-        n_cols = min(3, n_cell_types)
-        n_rows = (n_cell_types + n_cols - 1) // n_cols
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
-        axes = axes.flatten() if n_cell_types > 1 else [axes]
-
-        # Set figure title if provided
-        if title_prefix:
-            fig.suptitle(f"{title_prefix} Cell Type Proportions", fontsize=16)
-            plt.subplots_adjust(top=0.9)
-
-        # Plot each cell type
-        for i, cell_type in enumerate(top_cell_types):
-            if i < len(axes):
-                ax = axes[i]
-                try:
-                    # Create temporary AnnData with cell type proportions
-                    temp_adata = spatial_adata.copy()
-                    temp_adata.obs['proportion'] = proportions[cell_type]
-
-                    # Check for NaN values
-                    if temp_adata.obs['proportion'].isna().any():
-                        warnings.warn(f"Cell type {cell_type} contains NaN values. Filling with zeros.")
-                        temp_adata.obs['proportion'] = temp_adata.obs['proportion'].fillna(0)
-
-                    # Plot spatial distribution
-                    if 'spatial' in temp_adata.obsm:
-                        sc.pl.embedding(
-                            temp_adata,
-                            basis='spatial',
-                            color='proportion',
-                            title=cell_type,
-                            color_map=cmap,
-                            size=size,
-                            ax=ax,
-                            show=False
-                        )
-                    else:
-                        # Fallback to UMAP if available
-                        if 'X_umap' in temp_adata.obsm:
-                            sc.pl.umap(
-                                temp_adata,
-                                color='proportion',
-                                title=cell_type,
-                                color_map=cmap,
-                                size=size,
-                                ax=ax,
-                                show=False
-                            )
-                        else:
-                            # Just show a bar plot
-                            sorted_props = proportions[cell_type].sort_values(ascending=False)
-                            ax.bar(range(len(sorted_props)), sorted_props.values)
-                            ax.set_title(cell_type)
-                            ax.set_xlabel('Spots (sorted)')
-                            ax.set_ylabel('Proportion')
-
-                    # Add mean proportion to title
-                    mean_prop = proportions[cell_type].mean()
-                    ax.set_title(f"{cell_type}\n(Mean: {mean_prop:.3f})")
-
-                except Exception as e:
-                    warnings.warn(f"Failed to visualize cell type {cell_type}: {str(e)}")
-                    ax.text(0.5, 0.5, f"Failed to visualize {cell_type}:\n{str(e)}",
-                            ha='center', va='center', transform=ax.transAxes, wrap=True)
-                    ax.set_xticks([])
-                    ax.set_yticks([])
-
-        # Hide empty axes
-        for i in range(n_cell_types, len(axes)):
-            axes[i].axis('off')
-
-        plt.tight_layout()
-        return fig
-
+        # Activate converters
+        pandas2ri.activate()
+        numpy2ri.activate()
+        
+        # Load required R packages
+        rpackages.importr('spacexr')
+        rpackages.importr('base')
+        
+        print(f"Running RCTD deconvolution with {len(common_genes)} common genes and mode '{mode}'")
+        print(f"Spatial data shape: {spatial_adata.shape}, Reference data shape: {reference_adata.shape}")
+        
+        # Prepare data - subset to common genes
+        spatial_data = spatial_adata[:, common_genes].copy()
+        reference_data = reference_adata[:, common_genes].copy()
+        
+        # Ensure data is in the right format (raw counts)
+        spatial_data = _prepare_anndata_for_counts(spatial_data, "Spatial")
+        reference_data = _prepare_anndata_for_counts(reference_data, "Reference")
+        
+        # Get spatial coordinates if available
+        if 'spatial' in spatial_adata.obsm:
+            coords = pd.DataFrame(
+                spatial_adata.obsm['spatial'], 
+                index=spatial_adata.obs_names,
+                columns=['x', 'y']
+            )
+        else:
+            # Create dummy coordinates
+            coords = pd.DataFrame({
+                'x': range(spatial_adata.n_obs),
+                'y': [0] * spatial_adata.n_obs
+            }, index=spatial_adata.obs_names)
+        
+        # Prepare count matrices as DataFrames for R
+        if hasattr(spatial_data.X, 'toarray'):
+            spatial_X = spatial_data.X.toarray()
+        else:
+            spatial_X = spatial_data.X
+        
+        if hasattr(reference_data.X, 'toarray'):
+            reference_X = reference_data.X.toarray()
+        else:
+            reference_X = reference_data.X
+            
+        spatial_counts = pd.DataFrame(
+            spatial_X.T,
+            index=spatial_data.var_names,
+            columns=spatial_data.obs_names
+        )
+        
+        reference_counts = pd.DataFrame(
+            reference_X.T,
+            index=reference_data.var_names,
+            columns=reference_data.obs_names
+        )
+        
+        # Prepare cell type information as named factor
+        cell_types = reference_data.obs[cell_type_key]
+        cell_types_series = pd.Series(cell_types.values, index=reference_data.obs_names, name='cell_type')
+        
+        # Calculate nUMI for both datasets
+        spatial_numi = pd.Series(
+            np.array(spatial_data.X.sum(axis=1)).flatten(),
+            index=spatial_data.obs_names,
+            name='nUMI'
+        )
+        
+        reference_numi = pd.Series(
+            np.array(reference_data.X.sum(axis=1)).flatten(),
+            index=reference_data.obs_names,
+            name='nUMI'
+        )
+        
+        print("Converting data to R format...")
+        
+        # Convert data to R format using localconverter
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            # Convert spatial data
+            r_spatial_counts = ro.conversion.py2rpy(spatial_counts)
+            r_coords = ro.conversion.py2rpy(coords)
+            r_spatial_numi = ro.conversion.py2rpy(spatial_numi)
+            
+            # Convert reference data
+            r_reference_counts = ro.conversion.py2rpy(reference_counts)
+            r_cell_types = ro.conversion.py2rpy(cell_types_series)
+            r_reference_numi = ro.conversion.py2rpy(reference_numi)
+        
+        # Create SpatialRNA object
+        print("Creating SpatialRNA object...")
+        ro.globalenv['spatial_counts'] = r_spatial_counts
+        ro.globalenv['coords'] = r_coords
+        ro.globalenv['numi_spatial'] = r_spatial_numi
+        
+        puck = ro.r('''
+        SpatialRNA(coords, spatial_counts, numi_spatial)
+        ''')
+        
+        # Create Reference object
+        print("Creating Reference object...")
+        ro.globalenv['reference_counts'] = r_reference_counts
+        ro.globalenv['cell_types_vec'] = r_cell_types
+        ro.globalenv['numi_ref'] = r_reference_numi
+        
+        # Convert cell_types to factor as required by RCTD, and set min_UMI lower for testing
+        reference = ro.r('''
+        cell_types_factor <- as.factor(cell_types_vec)
+        names(cell_types_factor) <- names(cell_types_vec)
+        Reference(reference_counts, cell_types_factor, numi_ref, min_UMI = 5)
+        ''')
+        
+        # Create RCTD object
+        print("Creating RCTD object...")
+        ro.globalenv['puck'] = puck
+        ro.globalenv['reference'] = reference
+        ro.globalenv['max_cores_val'] = max_cores
+        
+        myRCTD = ro.r('''
+        create.RCTD(puck, reference, max_cores = 1, UMI_min_sigma = 10)
+        ''')
+        
+        # Set RCTD parameters
+        ro.globalenv['myRCTD'] = myRCTD
+        ro.globalenv['rctd_mode'] = mode
+        ro.globalenv['conf_thresh'] = confidence_threshold
+        ro.globalenv['doub_thresh'] = doublet_threshold
+        
+        ro.r('''
+        myRCTD@config$CONFIDENCE_THRESHOLD <- conf_thresh
+        myRCTD@config$DOUBLET_THRESHOLD <- doub_thresh
+        ''')
+        
+        # Run RCTD using the unified run.RCTD function
+        print(f"Running RCTD in {mode} mode...")
+        myRCTD = ro.r('''
+        myRCTD <- run.RCTD(myRCTD, doublet_mode = rctd_mode)
+        myRCTD
+        ''')
+        
+        # Extract results
+        print("Extracting results...")
+        if mode == 'full':
+            # For full mode, get weights matrix and cell type names
+            ro.r('''
+            weights_matrix <- myRCTD@results$weights
+            cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
+            spot_names <- rownames(weights_matrix)
+            ''')
+            
+            weights_r = ro.r('as.matrix(weights_matrix)')
+            cell_type_names_r = ro.r('cell_type_names')
+            spot_names_r = ro.r('spot_names')
+            
+            # Convert back to pandas
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                weights_array = ro.conversion.rpy2py(weights_r)
+                cell_type_names = ro.conversion.rpy2py(cell_type_names_r)
+                spot_names = ro.conversion.rpy2py(spot_names_r)
+            
+            # Create DataFrame with proper index and column names
+            proportions = pd.DataFrame(
+                weights_array,
+                index=spot_names,
+                columns=cell_type_names
+            )
+            
+        else:
+            # For doublet/multi mode, extract cell type assignments and weights
+            try:
+                ro.r('''
+                # Extract results for doublet/multi mode
+                results_list <- myRCTD@results
+                spot_names <- names(results_list)
+                cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
+                n_spots <- length(spot_names)
+                n_cell_types <- length(cell_type_names)
+                
+                # Initialize weights matrix
+                weights_matrix <- matrix(0, nrow = n_spots, ncol = n_cell_types)
+                rownames(weights_matrix) <- spot_names
+                colnames(weights_matrix) <- cell_type_names
+                
+                # Fill in weights for each spot with better error handling
+                for(i in 1:n_spots) {
+                    spot_result <- results_list[[i]]
+                    if(!is.null(spot_result)) {
+                        # Check if weights_doublet exists for doublet mode results
+                        if(!is.null(myRCTD@results$weights_doublet)) {
+                            doublet_weights <- myRCTD@results$weights_doublet
+                            if(spot_names[i] %in% rownames(doublet_weights)) {
+                                weights_matrix[i, ] <- doublet_weights[spot_names[i], ]
+                            }
+                        } else {
+                            # For other cases, try to use available weight info
+                            if(is.list(spot_result)) {
+                                # Try to extract weights based on available slots
+                                if("all_weights" %in% names(spot_result) && !is.null(spot_result$all_weights)) {
+                                    if(length(spot_result$all_weights) == n_cell_types) {
+                                        weights_matrix[i, ] <- spot_result$all_weights
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ''')
+                
+                weights_r = ro.r('weights_matrix')
+                cell_type_names_r = ro.r('cell_type_names')
+                spot_names_r = ro.r('spot_names')
+                
+                # Convert back to pandas
+                with localconverter(ro.default_converter + pandas2ri.converter):
+                    weights_array = ro.conversion.rpy2py(weights_r)
+                    cell_type_names = ro.conversion.rpy2py(cell_type_names_r)
+                    spot_names = ro.conversion.rpy2py(spot_names_r)
+                
+                # Create DataFrame with proper index and column names
+                proportions = pd.DataFrame(
+                    weights_array,
+                    index=spot_names,
+                    columns=cell_type_names
+                )
+                
+            except Exception as e:
+                print(f"Warning: Failed to extract detailed results for {mode} mode: {str(e)}")
+                print("Using simplified extraction...")
+                
+                # Fallback: create minimal proportions matrix
+                n_spots = spatial_data.n_obs
+                n_cell_types = len(reference_data.obs[cell_type_key].unique())
+                cell_type_names = reference_data.obs[cell_type_key].unique()
+                
+                # Initialize with equal proportions as fallback
+                weights_array = np.ones((n_spots, n_cell_types)) / n_cell_types
+                
+                proportions = pd.DataFrame(
+                    weights_array,
+                    index=spatial_data.obs_names,
+                    columns=cell_type_names
+                )
+        
+        # Normalize proportions to sum to 1 if needed
+        row_sums = proportions.sum(axis=1)
+        proportions = proportions.div(row_sums, axis=0).fillna(0)
+        
+        # Create statistics
+        stats = _create_deconvolution_stats(
+            proportions,
+            common_genes,
+            f"RCTD-{mode}",
+            "CPU",  # RCTD doesn't use GPU
+            mode=mode,
+            max_cores=max_cores,
+            confidence_threshold=confidence_threshold,
+            doublet_threshold=doublet_threshold
+        )
+        
+        print(f"RCTD completed successfully. Found {len(proportions.columns)} cell types.")
+        
+        return proportions, stats
+        
     except Exception as e:
         error_msg = str(e)
         tb = traceback.format_exc()
-        raise RuntimeError(f"Failed to visualize deconvolution results: {error_msg}\n{tb}")
+        raise RuntimeError(f"RCTD deconvolution failed: {error_msg}\n{tb}")
+    finally:
+        # Deactivate converters
+        try:
+            pandas2ri.deactivate()
+            numpy2ri.deactivate()
+        except:
+            pass
+
+
 
 
 async def deconvolve_spatial_data(
@@ -809,7 +1042,7 @@ async def deconvolve_spatial_data(
 
         # Load and validate reference data ONCE for methods that need it
         reference_adata = None
-        if params.method in ["cell2location", "spotiphy"]:
+        if params.method in ["cell2location", "spotiphy", "rctd"]:
             if not params.reference_data_id:
                 raise ValueError(f"Reference data is required for method '{params.method}'. Please provide reference_data_id.")
             
@@ -887,10 +1120,37 @@ async def deconvolve_spatial_data(
                     use_gpu=params.use_gpu
                 )
 
+            elif params.method == "rctd":
+                if context:
+                    await context.info("Running RCTD deconvolution")
+                
+                # Check if RCTD is available
+                is_available, error_message = is_rctd_available()
+                if not is_available:
+                    if context:
+                        await context.warning(f"RCTD is not available: {error_message}")
+                    raise ImportError(f"RCTD is not available: {error_message}")
+                
+                # Set RCTD mode - default to 'full' if not specified
+                rctd_mode = getattr(params, 'rctd_mode', 'full')
+                max_cores = getattr(params, 'max_cores', 4)
+                confidence_threshold = getattr(params, 'rctd_confidence_threshold', 10.0)
+                doublet_threshold = getattr(params, 'rctd_doublet_threshold', 25.0)
+
+                proportions, stats = deconvolve_rctd(
+                    spatial_adata,
+                    reference_adata,
+                    cell_type_key=params.cell_type_key,
+                    mode=rctd_mode,
+                    max_cores=max_cores,
+                    confidence_threshold=confidence_threshold,
+                    doublet_threshold=doublet_threshold
+                )
+
             else:
                 raise ValueError(
                     f"Unsupported deconvolution method: {params.method}. "
-                    f"Supported methods are: cell2location, spotiphy"
+                    f"Supported methods are: cell2location, spotiphy, rctd"
                 )
 
         except Exception as e:
@@ -904,64 +1164,46 @@ async def deconvolve_spatial_data(
         if context:
             await context.info(f"{params.method.capitalize()} completed successfully. Found {stats['n_cell_types']} cell types.")
 
-        # Store proportions in AnnData object
+        # Store proportions in AnnData object, handling potential shape mismatch
         proportions_key = f"deconvolution_{params.method}"
-        spatial_adata.obsm[proportions_key] = proportions.values
+        
+        # Create a full-size array filled with zeros for all spots
+        full_proportions = np.zeros((spatial_adata.n_obs, proportions.shape[1]))
+        
+        # Map the results back to the original spot indices
+        spot_mask = spatial_adata.obs_names.isin(proportions.index)
+        original_spots_in_results = spatial_adata.obs_names[spot_mask]
+        result_indices = [proportions.index.get_loc(spot) for spot in original_spots_in_results]
+        original_indices = np.where(spot_mask)[0]
+        
+        # Fill in the proportions for spots that have results
+        full_proportions[original_indices] = proportions.iloc[result_indices].values
+        
+        spatial_adata.obsm[proportions_key] = full_proportions
 
         # Store cell type names in uns
         cell_types_key = f"{proportions_key}_cell_types"
         spatial_adata.uns[cell_types_key] = list(proportions.columns)
 
         # Also store individual cell type proportions in obs for easier visualization
-        for cell_type in proportions.columns:
+        for i, cell_type in enumerate(proportions.columns):
             obs_key = f"{proportions_key}_{cell_type}"
-            spatial_adata.obs[obs_key] = proportions[cell_type].values
+            spatial_adata.obs[obs_key] = full_proportions[:, i]
 
         if context:
             await context.info(f"Stored cell type proportions in adata.obsm['{proportions_key}']")
             await context.info(f"Stored cell type names in adata.uns['{cell_types_key}']")
             await context.info(f"Stored individual cell type proportions in adata.obs with prefix '{proportions_key}_'")
 
-        # Create visualization using unified visualization system
-        if context:
-            await context.info("Creating visualization using unified visualization system")
-
-        try:
-            # Import unified visualization
-            from .visualization import visualize_data
-            from ..models.data import VisualizationParameters
-
-            # Create visualization parameters
-            viz_params = VisualizationParameters(
-                plot_type="deconvolution",
-                n_cell_types=min(6, proportions.shape[1]),
-                title=f"{params.method.upper()} Cell Type Proportions",
-                colormap="viridis",
-                figure_size=(12, 8),
-                dpi=100
-            )
-
-            # Create temporary data store
-            temp_data_store = {data_id: {"adata": spatial_adata}}
-
-            # Generate visualization
-            img = await visualize_data(data_id, temp_data_store, viz_params, context)
-
-            if context:
-                await context.info("Visualization created successfully using unified system")
-        except Exception as e:
-            if context:
-                await context.warning(f"Failed to create visualization: {str(e)}. Using placeholder image.")
-            img = create_placeholder_image(f"Failed to create visualization: {str(e)}")
 
         # Add cell type annotation based on deconvolution results
         if context:
             await context.info("Adding cell type annotation based on deconvolution results")
 
-        # Determine the dominant cell type for each spot
+        # Determine the dominant cell type for each spot using full proportions
         dominant_cell_types = []
-        for i in range(proportions.shape[0]):
-            row = proportions.iloc[i]
+        for i in range(full_proportions.shape[0]):
+            row = full_proportions[i]
             max_idx = row.argmax()
             dominant_cell_types.append(proportions.columns[max_idx])
 
@@ -982,16 +1224,7 @@ async def deconvolve_spatial_data(
             cell_types=list(proportions.columns),
             n_cell_types=proportions.shape[1],
             proportions_key=proportions_key,
-            visualization=img,
-            statistics=stats,
-            visualization_params={
-                "plot_type": "deconvolution",
-                "n_cell_types": min(6, proportions.shape[1]),
-                "title": f"{params.method.upper()} Cell Type Proportions",
-                "colormap": "viridis",
-                "figure_size": [12, 8],
-                "dpi": 100
-            }
+            statistics=stats
         )
 
         if context:

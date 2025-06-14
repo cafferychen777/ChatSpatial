@@ -150,7 +150,7 @@ class IntegrationParameters(BaseModel):
 
 class DeconvolutionParameters(BaseModel):
     """Spatial deconvolution parameters model"""
-    method: Literal["cell2location", "spotiphy"] = "cell2location"
+    method: Literal["cell2location", "spotiphy", "rctd"] = "cell2location"
     reference_data_id: Optional[str] = None  # Reference single-cell data for deconvolution
     cell_type_key: str = "cell_type"  # Key in reference data for cell type information
     n_top_genes: Annotated[int, Field(gt=0, le=5000)] = 2000  # Number of top genes to use
@@ -163,6 +163,12 @@ class DeconvolutionParameters(BaseModel):
     spotiphy_batch_prior: Annotated[float, Field(gt=0)] = 2.0  # Parameter of the prior distribution of the batch effect
     spotiphy_adam_lr: Annotated[float, Field(gt=0)] = 0.003  # Learning rate for Adam optimizer in Spotiphy
     spotiphy_adam_betas: Tuple[float, float] = (0.95, 0.999)  # Beta parameters for Adam optimizer in Spotiphy
+
+    # RCTD specific parameters
+    rctd_mode: Literal["full", "doublet", "multi"] = "full"  # RCTD mode
+    max_cores: Annotated[int, Field(gt=0, le=16)] = 4  # Maximum number of cores to use
+    rctd_confidence_threshold: Annotated[float, Field(gt=0)] = 10.0  # Confidence threshold for cell type assignment
+    rctd_doublet_threshold: Annotated[float, Field(gt=0)] = 25.0  # Threshold for doublet detection
 
 
 class SpatialDomainParameters(BaseModel):

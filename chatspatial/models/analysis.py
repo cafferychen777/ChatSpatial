@@ -94,7 +94,7 @@ class DeconvolutionResult(BaseModel):
     cell_types: List[str]
     n_cell_types: int
     proportions_key: str  # Key in adata.obsm where cell type proportions are stored
-    visualization: Image  # Visualization of cell type proportions
+    visualization: Optional[Image] = None  # Visualization of cell type proportions
     statistics: Dict[str, Any]  # Statistics about the deconvolution results
     visualization_params: Optional[Dict[str, Any]] = None  # Parameters for visualizing the results
 
