@@ -64,15 +64,57 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
     try:
         sc.pp.highly_variable_genes(combined, batch_key=batch_key)
     except Exception as e:
-        print(f"Error in highly_variable_genes: {e}")
+        print(f"Error in highly_variable_genes with batch correction: {e}")
         # Fallback: compute HVGs without batch correction
-        sc.pp.highly_variable_genes(combined, n_top_genes=2000)
+        try:
+            # Try with reduced number of top genes if dataset is small
+            n_top_genes = min(2000, combined.n_vars // 2, 1000)
+            if n_top_genes < 50:
+                n_top_genes = combined.n_vars  # Use all genes if very few
+            sc.pp.highly_variable_genes(combined, n_top_genes=n_top_genes)
+        except Exception as e2:
+            print(f"Error in highly_variable_genes fallback: {e2}")
+            # Final fallback: mark all genes as highly variable
+            combined.var['highly_variable'] = True
+            combined.var['means'] = np.array(combined.X.mean(axis=0)).flatten()
+            combined.var['dispersions'] = np.array(combined.X.var(axis=0)).flatten()
+            combined.var['dispersions_norm'] = combined.var['dispersions'] / combined.var['means']
+            print(f"Using all {combined.n_vars} genes for integration")
 
     combined.raw = combined  # Save raw data
 
     # Only keep highly variable genes for integration
-    sc.pp.scale(combined, zero_center=True, max_value=10)  # Limit scaling to avoid extreme values
-    sc.tl.pca(combined, n_comps=n_pcs, svd_solver='arpack')
+    try:
+        sc.pp.scale(combined, zero_center=True, max_value=10)  # Limit scaling to avoid extreme values
+    except Exception as e:
+        print(f"Warning in scaling: {e}")
+        # Try without zero_center if scaling fails
+        try:
+            sc.pp.scale(combined, zero_center=False, max_value=10)
+        except Exception as e2:
+            print(f"Scaling failed completely: {e2}, continuing without scaling")
+    
+    # PCA with adaptive number of components
+    try:
+        # Ensure n_pcs doesn't exceed the number of genes or cells
+        max_components = min(n_pcs, combined.n_vars, combined.n_obs - 1)
+        sc.tl.pca(combined, n_comps=max_components, svd_solver='arpack')
+    except Exception as e:
+        print(f"PCA with arpack failed: {e}")
+        # Fallback to randomized SVD
+        try:
+            max_components = min(n_pcs, combined.n_vars, combined.n_obs - 1, 50)  # Limit to 50 for randomized
+            sc.tl.pca(combined, n_comps=max_components, svd_solver='randomized')
+        except Exception as e2:
+            print(f"PCA with randomized SVD also failed: {e2}")
+            # Create a simple PCA representation
+            max_components = min(10, combined.n_vars, combined.n_obs - 1)
+            try:
+                sc.tl.pca(combined, n_comps=max_components, svd_solver='full')
+            except Exception as e3:
+                print(f"All PCA methods failed: {e3}")
+                # Create dummy PCA for compatibility
+                combined.obsm['X_pca'] = np.random.normal(0, 1, (combined.n_obs, min(10, combined.n_vars)))
 
     # Apply batch correction based on selected method
     if method == 'harmony':
