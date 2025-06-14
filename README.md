@@ -8,12 +8,12 @@ ChatSpatial is an interactive spatial transcriptomics data analysis assistant ba
 - **Enhanced Data Preprocessing**: User-controlled filtering, subsampling, normalization, and dimensionality reduction with intelligent defaults for different data types
 - **Spatial Visualization**: Spatial distribution of gene expression, visualization of clustering results, etc.
 - **Differential Expression Analysis**: Identification of differentially expressed genes between cell populations
-- **Cell Type Annotation**: Multiple cell type annotation methods, including marker-based, correlation-based, and supervised classification
+- **Cell Type Annotation**: Multiple methods including marker-based, CellAssign, scANVI deep learning annotation
 - **Spatial Analysis**: Spatial autocorrelation (Moran's I, Getis-Ord Gi*), neighborhood analysis, spatial trajectories, etc.
 - **Spatial Domain Identification**: STAGATE, SpaGCN, and clustering-based methods for identifying spatial domains
 - **Advanced Spatial Variable Genes**: GASTON (Graph Attention Spatial Transcriptomics Organizer Network) for learning tissue topology and identifying spatial gene patterns through deep learning
 - **Cell Communication Analysis**: LIANA+ integration for fast and comprehensive ligand-receptor interaction analysis with spatial bivariate metrics
-- **Deconvolution Analysis**: Support for NNLS, Cell2location, and Spotiphy methods with enhanced error handling and user feedback
+- **Advanced Deconvolution**: Complete scvi-tools integration with DestVI, Stereoscope, Cell2location, and traditional methods
 - **Standardized Image Processing**: Unified image processing module ensuring all visualization functions return standardized Image objects
 
 ## Installation
@@ -184,6 +184,27 @@ ChatSpatial integrates GASTON (Graph Attention Spatial Transcriptomics Organizer
 "Visualize tissue topology using GASTON isodepth mapping"
 ```
 
+### Deep Learning Integration with scvi-tools
+
+ChatSpatial provides complete integration with scvi-tools for state-of-the-art deep learning analysis:
+
+**Cell Type Annotation:**
+- **CellAssign**: Probabilistic cell type assignment using marker genes with confidence scores
+- **scANVI**: Semi-supervised annotation with reference data transfer learning
+
+**Spatial Deconvolution:**
+- **DestVI**: Multi-resolution deconvolution with continuous sub-cell-type variation modeling
+- **Stereoscope**: Spatial deconvolution using RNAStereoscope workflow
+
+**Example Usage:**
+
+```text
+"Annotate cell types using CellAssign with marker genes"
+"Use scANVI to transfer annotations from reference dataset"
+"Deconvolve spatial data using DestVI with VampPrior"
+"Run Stereoscope deconvolution for cell type proportions"
+```
+
 ### Enhanced Data Preprocessing
 
 ChatSpatial provides comprehensive, user-controlled data preprocessing with intelligent defaults:
@@ -212,6 +233,7 @@ The server provides the following resources:
 
 ## Dependencies
 
+### Core Dependencies
 - mcp - Model Context Protocol Python SDK
 - numpy, pandas - Data processing
 - matplotlib - Visualization
@@ -219,14 +241,20 @@ The server provides the following resources:
 - squidpy - Spatial transcriptomics analysis
 - anndata - AnnData data structure
 - scikit-learn - Machine learning algorithms
-- liana (optional) - Cell communication analysis with LIANA+
-- cell2location (optional) - Spatial transcriptomics deconvolution
-- Spotiphy (optional) - Spatial transcriptomics deconvolution
-- torch, pyro-ppl (optional) - For Spotiphy and cell2location
-- cellrank (optional) - Trajectory analysis
-- scvelo (optional) - RNA velocity analysis
-- GASTON (optional) - Advanced spatial variable genes identification with deep learning
-- glmpca (optional) - GLM-PCA preprocessing for GASTON
+
+### Optional Dependencies
+- **Deep Learning & Advanced Methods**:
+  - scvi-tools - Deep learning methods (CellAssign, scANVI, DestVI, Stereoscope)
+  - torch, pyro-ppl - PyTorch and Pyro for deep learning models
+  - GASTON - Advanced spatial variable genes identification with deep learning
+  - glmpca - GLM-PCA preprocessing for GASTON
+
+- **Specialized Analysis**:
+  - liana - Cell communication analysis with LIANA+
+  - cell2location - Spatial transcriptomics deconvolution
+  - Spotiphy - Spatial transcriptomics deconvolution
+  - cellrank - Trajectory analysis
+  - scvelo - RNA velocity analysis
 
 ## License
 

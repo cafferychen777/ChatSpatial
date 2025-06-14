@@ -124,6 +124,16 @@ async def preprocess_data(
 
     Returns:
         Preprocessing result
+        
+    Notes:
+        Available normalization methods:
+        - log: Standard log normalization (default)
+        - sct: SCTransform normalization
+        - none: No normalization
+        - scvi: Use scVI for normalization and dimensionality reduction
+        
+        When use_scvi_preprocessing=True, scVI will be used for advanced preprocessing
+        including denoising and batch effect correction.
     """
     # Import to avoid name conflict
     from .tools.preprocessing import preprocess_data as preprocess_func
@@ -201,18 +211,26 @@ async def annotate_cells(
         Annotation result with cell type information and optional visualization
 
     Notes:
-        For Tangram method, a reference_data_id must be provided pointing to a single-cell dataset.
-        The Tangram method maps single-cell data to spatial data to infer cell types in space.
+        Available methods:
+        - marker_genes: Use known marker genes for annotation
+        - tangram: Maps single-cell data to spatial data (requires reference_data_id)
+        - scanvi: Semi-supervised annotation using scANVI from scvi-tools (requires reference_data_id)
+        - cellassign: Probabilistic cell type assignment using marker genes (from scvi-tools)
+        - correlation, supervised, popv, gptcelltype, scrgcl: Other available methods
+        
+        For methods requiring reference data (tangram, scanvi), reference_data_id must point to a loaded single-cell dataset.
     """
     # Validate dataset
     validate_dataset(data_id)
 
-    # Validate reference data for Tangram method
-    if params.method == "tangram" and params.reference_data_id:
+    # Validate reference data for methods that require it
+    if params.method in ["tangram", "scanvi"] and params.reference_data_id:
         if params.reference_data_id not in data_store:
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
         if context:
-            await context.info(f"Using reference dataset {params.reference_data_id} for Tangram mapping")
+            await context.info(f"Using reference dataset {params.reference_data_id} for {params.method} method")
+    elif params.method in ["tangram", "scanvi"] and not params.reference_data_id:
+        raise ValueError(f"{params.method} method requires a reference_data_id")
 
     # Call annotation function
     result = await annotate_cell_types(data_id, data_store, params, context)
@@ -346,6 +364,15 @@ async def analyze_trajectory_data(
 
     Returns:
         Trajectory analysis result
+        
+    Notes:
+        Available methods:
+        - cellrank: Uses CellRank for trajectory inference (default)
+        - palantir: Uses Palantir for trajectory inference
+        - velovi: Uses VeloVI from scvi-tools for velocity-based trajectory inference
+        
+        VeloVI provides probabilistic velocity modeling and is particularly useful
+        for spatial transcriptomics data with velocity information.
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -380,6 +407,16 @@ async def integrate_samples(
 
     Returns:
         Integration result with visualizations
+        
+    Notes:
+        Available methods:
+        - harmony: Uses Harmony for batch effect correction
+        - bbknn: Uses BBKNN for batch-aware k-NN graph construction
+        - scanorama: Uses Scanorama for integration
+        - mnn: Uses mutual nearest neighbors for integration
+        - scvi: Uses scVI from scvi-tools for probabilistic integration
+        - multivi: Uses MultiVI from scvi-tools for multi-modal integration
+        - totalvi: Uses TotalVI from scvi-tools for protein+RNA integration
     """
     if context:
         await context.info(f"Integrating {len(data_ids)} samples using {params.method} method")
@@ -408,6 +445,16 @@ async def deconvolve_data(
 
     Returns:
         Deconvolution result with cell type proportions and visualization
+        
+    Notes:
+        Available methods:
+        - cell2location: Uses Cell2location for spatial deconvolution (requires reference_data_id)
+        - spotiphy: Uses Spotiphy for spatial deconvolution (requires reference_data_id)
+        - rctd: Uses RCTD (Robust Cell Type Decomposition) (requires reference_data_id)
+        - destvi: Uses DestVI from scvi-tools for spatial deconvolution (requires reference_data_id)
+        - stereoscope: Uses Stereoscope from scvi-tools for spatial deconvolution (requires reference_data_id)
+        
+        All methods require a reference single-cell dataset specified by reference_data_id.
     """
     try:
         if context:
@@ -448,7 +495,7 @@ async def deconvolve_data(
             await context.warning(error_msg)
             await context.info("If you're having issues with parameter formatting, try using this format:")
             await context.info('deconvolve_data(data_id="data_1", params={"method": "cell2location", "reference_data_id": "data_2", "cell_type_key": "CellType"})')
-            await context.info("Available methods: cell2location, spotiphy")
+            await context.info("Available methods: cell2location, spotiphy, rctd, destvi, stereoscope")
         raise
 
 
