@@ -16,6 +16,14 @@ try:
 except ImportError:
     tg = None
 
+# Import scvi-tools for cell type annotation
+try:
+    import scvi
+    from scvi.external import CellAssign
+except ImportError:
+    scvi = None
+    CellAssign = None
+
 from ..models.data import AnnotationParameters
 from ..models.analysis import AnnotationResult
 from ..utils.image_utils import fig_to_image
@@ -271,6 +279,211 @@ async def annotate_cell_types(
                 await context.error(f"Error in Tangram mapping: {str(e)}")
             raise ValueError(f"Tangram mapping failed: {str(e)}")
 
+    elif params.method == "scanvi":
+        if context:
+            await context.info("Using scANVI method for annotation")
+
+        if scvi is None:
+            raise ImportError("scvi-tools package is not installed. Please install it with 'pip install scvi-tools'")
+
+        # Check if reference data is provided
+        if params.reference_data_id is None:
+            raise ValueError("Reference data ID is required for scANVI method")
+
+        if params.reference_data_id not in data_store:
+            raise ValueError(f"Reference dataset {params.reference_data_id} not found")
+
+        try:
+            # Get reference single-cell data
+            adata_ref = data_store[params.reference_data_id]["adata"]
+            
+            # Setup AnnData for scANVI
+            scvi.model.SCANVI.setup_anndata(
+                adata_ref,
+                labels_key=params.cell_type_key if hasattr(params, 'cell_type_key') else "cell_type",
+                unlabeled_category=params.scanvi_unlabeled_category
+            )
+            
+            # Train scANVI model
+            if context:
+                await context.info("Training scANVI model...")
+            
+            # Create scANVI model with correct parameter positioning
+            model = scvi.model.SCANVI(
+                adata_ref,
+                n_hidden=params.scanvi_n_hidden,
+                n_latent=params.scanvi_n_latent,
+                n_layers=params.scanvi_n_layers,
+                dropout_rate=params.scanvi_dropout_rate
+            )
+            
+            model.train(max_epochs=params.num_epochs)
+            
+            # Prepare spatial data - add dummy cell_type column for setup
+            cell_type_key = params.cell_type_key if hasattr(params, 'cell_type_key') else "cell_type"
+            if cell_type_key not in adata.obs.columns:
+                # Add dummy cell type column filled with unlabeled category
+                adata.obs[cell_type_key] = params.scanvi_unlabeled_category
+            
+            scvi.model.SCANVI.setup_anndata(adata, labels_key=cell_type_key, unlabeled_category=params.scanvi_unlabeled_category)
+            
+            # Transfer model to spatial data
+            spatial_model = scvi.model.SCANVI.load_query_data(adata, model)
+            spatial_model.train(max_epochs=200)
+            
+            # Get predictions
+            predictions = spatial_model.predict()
+            adata.obs["cell_type"] = predictions
+            adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
+            
+            # Get cell types and counts
+            cell_types = list(adata.obs["cell_type"].cat.categories)
+            counts = adata.obs["cell_type"].value_counts().to_dict()
+            
+            # Get prediction probabilities as confidence scores
+            try:
+                probs = spatial_model.predict(soft=True)
+                confidence_scores = {}
+                for i, cell_type in enumerate(cell_types):
+                    cells_of_type = adata.obs["cell_type"] == cell_type
+                    if np.sum(cells_of_type) > 0 and isinstance(probs, pd.DataFrame):
+                        if cell_type in probs.columns:
+                            mean_prob = probs.loc[cells_of_type, cell_type].mean()
+                            confidence_scores[cell_type] = round(float(mean_prob), 2)
+                        else:
+                            confidence_scores[cell_type] = 0.5
+                    elif np.sum(cells_of_type) > 0 and hasattr(probs, 'shape') and probs.shape[1] > i:
+                        mean_prob = probs[cells_of_type, i].mean()
+                        confidence_scores[cell_type] = round(float(mean_prob), 2)
+                    else:
+                        confidence_scores[cell_type] = 0.5
+            except Exception as e:
+                if context:
+                    await context.warning(f"Could not get confidence scores: {e}")
+                confidence_scores = {cell_type: 0.5 for cell_type in cell_types}
+                    
+        except Exception as e:
+            if context:
+                await context.error(f"Error in scANVI annotation: {str(e)}")
+            raise ValueError(f"scANVI annotation failed: {str(e)}")
+
+    elif params.method == "cellassign":
+        if context:
+            await context.info("Using CellAssign method for annotation")
+
+        if CellAssign is None:
+            raise ImportError("CellAssign from scvi-tools package is not installed")
+
+        # Check if marker genes are provided
+        if params.marker_genes is None:
+            if context:
+                await context.warning("No marker genes provided, using default marker genes")
+            marker_genes = DEFAULT_MARKER_GENES
+        else:
+            marker_genes = params.marker_genes
+
+        try:
+            # Prepare marker gene matrix
+            all_genes = set(adata.var_names)
+            valid_cell_types = []
+            marker_gene_list = []
+            
+            for cell_type, genes in marker_genes.items():
+                existing_genes = [gene for gene in genes if gene in all_genes]
+                if existing_genes:
+                    valid_cell_types.append(cell_type)
+                    marker_gene_list.extend(existing_genes)
+            
+            if not valid_cell_types:
+                raise ValueError("No valid marker genes found for any cell type")
+            
+            # Create marker gene matrix as DataFrame (required by CellAssign API)
+            # Filter to only use genes that exist in the data
+            available_marker_genes = [gene for gene in marker_gene_list if gene in adata.var_names]
+            
+            if not available_marker_genes:
+                raise ValueError("No marker genes found in the dataset")
+            
+            # Create DataFrame with genes as index, cell types as columns
+            marker_gene_matrix = pd.DataFrame(
+                np.zeros((len(available_marker_genes), len(valid_cell_types))),
+                index=available_marker_genes,
+                columns=valid_cell_types
+            )
+            
+            # Fill marker matrix
+            for j, cell_type in enumerate(valid_cell_types):
+                for gene in marker_genes[cell_type]:
+                    if gene in available_marker_genes:
+                        marker_gene_matrix.loc[gene, cell_type] = 1
+            
+            # Add size factors if not present
+            if 'size_factors' not in adata.obs:
+                # Ensure size_factors is a pandas Series, not numpy array
+                if hasattr(adata.X, 'sum'):
+                    size_factors = adata.X.sum(axis=1)
+                    if hasattr(size_factors, 'A1'):  # sparse matrix
+                        size_factors = size_factors.A1
+                    adata.obs['size_factors'] = pd.Series(size_factors, index=adata.obs.index)
+                else:
+                    adata.obs['size_factors'] = pd.Series(np.ones(adata.n_obs), index=adata.obs.index)
+            
+            # Setup CellAssign
+            CellAssign.setup_anndata(adata, size_factor_key='size_factors')
+            
+            # Subset data to only marker genes
+            adata_subset = adata[:, available_marker_genes].copy()
+            
+            # Setup CellAssign on subset data
+            CellAssign.setup_anndata(adata_subset, size_factor_key='size_factors')
+            
+            # Train CellAssign model (no n_hidden parameter in newer API)
+            model = CellAssign(
+                adata_subset,
+                marker_gene_matrix
+            )
+            
+            model.train(
+                max_epochs=params.cellassign_max_iter,
+                lr=params.cellassign_learning_rate
+            )
+            
+            # Get predictions
+            predictions = model.predict()
+            
+            # Handle different prediction formats
+            if isinstance(predictions, pd.DataFrame):
+                # CellAssign returns DataFrame with probabilities
+                predicted_indices = predictions.values.argmax(axis=1)
+                adata.obs["cell_type"] = [valid_cell_types[i] for i in predicted_indices]
+                
+                # Get confidence scores from probabilities DataFrame
+                confidence_scores = {}
+                for i, cell_type in enumerate(valid_cell_types):
+                    cells_of_type = adata.obs["cell_type"] == cell_type
+                    if np.sum(cells_of_type) > 0:
+                        # Use iloc with boolean indexing properly
+                        cell_indices = np.where(cells_of_type)[0]
+                        mean_prob = predictions.iloc[cell_indices, i].mean()
+                        confidence_scores[cell_type] = round(float(mean_prob), 2)
+                    else:
+                        confidence_scores[cell_type] = 0.5
+            else:
+                # Other models return indices directly
+                adata.obs["cell_type"] = [valid_cell_types[i] for i in predictions]
+                confidence_scores = {cell_type: 0.5 for cell_type in valid_cell_types}
+            
+            adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
+            
+            # Get cell types and counts
+            cell_types = valid_cell_types
+            counts = adata.obs["cell_type"].value_counts().to_dict()
+                    
+        except Exception as e:
+            if context:
+                await context.error(f"Error in CellAssign annotation: {str(e)}")
+            raise ValueError(f"CellAssign annotation failed: {str(e)}")
+
     elif params.method == "marker_genes":
         if context:
             await context.info("Using marker genes method for annotation")
@@ -304,7 +517,7 @@ async def annotate_cell_types(
             score_name = f"{cell_type}_score"
 
             # Use scanpy's score_genes function
-            sc.tl.score_genes(adata, gene_list=genes, score_name=score_name, use_raw=True)
+            sc.tl.score_genes(adata, gene_list=genes, score_name=score_name, use_raw=False)
             cell_type_scores[cell_type] = score_name
 
         # Create a DataFrame with all scores

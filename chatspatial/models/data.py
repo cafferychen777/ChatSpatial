@@ -2,7 +2,7 @@
 Data models for spatial transcriptomics analysis.
 """
 
-from typing import Annotated, Dict, List, Literal, Optional, Tuple, Union
+from typing import Annotated, Dict, List, Literal, Optional, Tuple
 from pydantic import BaseModel, Field
 
 
@@ -24,10 +24,18 @@ class AnalysisParameters(BaseModel):
     subsample_random_seed: int = 42  # Random seed for subsampling
 
     # Normalization and scaling parameters
-    normalization: Literal["log", "sct", "none"] = "log"
+    normalization: Literal["log", "sct", "none", "scvi"] = "log"
     scale: bool = True
     n_hvgs: Annotated[int, Field(gt=0, le=5000)] = 2000
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
+    
+    # scVI preprocessing parameters
+    use_scvi_preprocessing: bool = False  # Whether to use scVI for preprocessing
+    scvi_n_hidden: int = 128
+    scvi_n_latent: int = 10
+    scvi_n_layers: int = 1
+    scvi_dropout_rate: float = 0.1
+    scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
 
 
 class VisualizationParameters(BaseModel):
@@ -88,7 +96,7 @@ class VisualizationParameters(BaseModel):
 
 class AnnotationParameters(BaseModel):
     """Cell type annotation parameters model"""
-    method: Literal["marker_genes", "correlation", "supervised", "popv", "gptcelltype", "scrgcl", "tangram"] = "marker_genes"
+    method: Literal["marker_genes", "correlation", "supervised", "popv", "gptcelltype", "scrgcl", "tangram", "scanvi", "cellassign"] = "marker_genes"
     marker_genes: Optional[Dict[str, List[str]]] = None
     reference_data: Optional[str] = None
     reference_data_id: Optional[str] = None  # For Tangram method - ID of reference single-cell dataset
@@ -96,6 +104,18 @@ class AnnotationParameters(BaseModel):
     num_epochs: int = 500  # For Tangram method - number of training epochs
     mode: Literal["cells", "clusters"] = "cells"  # For Tangram method - mapping mode
     cluster_label: Optional[str] = None  # For Tangram method - cluster label in reference data
+    
+    # scANVI parameters
+    scanvi_n_hidden: int = 128
+    scanvi_n_latent: int = 10
+    scanvi_n_layers: int = 1
+    scanvi_dropout_rate: float = 0.1
+    scanvi_unlabeled_category: str = "Unknown"
+    
+    # CellAssign parameters
+    cellassign_n_hidden: int = 100
+    cellassign_learning_rate: float = 1e-3
+    cellassign_max_iter: int = 1000
 
 
 class SpatialAnalysisParameters(BaseModel):
@@ -127,7 +147,7 @@ class RNAVelocityParameters(BaseModel):
 
 class TrajectoryParameters(BaseModel):
     """Trajectory analysis parameters model"""
-    method: Literal["cellrank", "palantir"] = "cellrank"
+    method: Literal["cellrank", "palantir", "velovi"] = "cellrank"
     spatial_weight: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5  # Spatial information weight
     root_cells: Optional[List[str]] = None  # For Palantir method
     
@@ -135,22 +155,49 @@ class TrajectoryParameters(BaseModel):
     cellrank_kernel_weights: Tuple[float, float] = (0.8, 0.2)  # (velocity_weight, connectivity_weight)
     cellrank_n_states: Annotated[int, Field(gt=0, le=20)] = 5  # Number of macrostates for CellRank
     
+    # VeloVI parameters
+    velovi_n_hidden: int = 128
+    velovi_n_latent: int = 10
+    velovi_n_layers: int = 1
+    velovi_dropout_rate: float = 0.1
+    velovi_learning_rate: float = 1e-3
+    
     # Fallback control
     allow_fallback_to_dpt: bool = True  # Whether to fall back to DPT if other methods fail
 
 
 class IntegrationParameters(BaseModel):
     """Sample integration parameters model"""
-    method: Literal["harmony", "bbknn", "scanorama", "mnn"] = "harmony"
+    method: Literal["harmony", "bbknn", "scanorama", "mnn", "scvi", "multivi", "totalvi"] = "harmony"
     batch_key: str = "batch"  # Batch information key
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30  # Number of principal components for integration
     align_spatial: bool = True  # Whether to align spatial coordinates
     reference_batch: Optional[str] = None  # Reference batch for spatial alignment
+    
+    # scVI integration parameters
+    scvi_n_hidden: int = 128
+    scvi_n_latent: int = 10
+    scvi_n_layers: int = 1
+    scvi_dropout_rate: float = 0.1
+    scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
+    
+    # MultiVI parameters
+    multivi_n_hidden: int = 128
+    multivi_n_latent: int = 10
+    multivi_n_layers: int = 1
+    multivi_dropout_rate: float = 0.1
+    
+    # TotalVI parameters
+    totalvi_n_hidden: int = 128
+    totalvi_n_latent: int = 10
+    totalvi_n_layers: int = 1
+    totalvi_dropout_rate: float = 0.1
+    totalvi_protein_dispersion: Literal["gene", "gene-batch", "gene-label", "gene-cell"] = "gene"
 
 
 class DeconvolutionParameters(BaseModel):
     """Spatial deconvolution parameters model"""
-    method: Literal["cell2location", "spotiphy", "rctd"] = "cell2location"
+    method: Literal["cell2location", "spotiphy", "rctd", "destvi", "stereoscope"] = "cell2location"
     reference_data_id: Optional[str] = None  # Reference single-cell data for deconvolution
     cell_type_key: str = "cell_type"  # Key in reference data for cell type information
     n_top_genes: Annotated[int, Field(gt=0, le=5000)] = 2000  # Number of top genes to use
@@ -158,6 +205,18 @@ class DeconvolutionParameters(BaseModel):
     n_epochs: Annotated[int, Field(gt=0)] = 10000  # Number of epochs for cell2location or spotiphy
     n_cells_per_spot: Optional[int] = None  # Expected number of cells per spot
     reference_profiles: Optional[Dict[str, List[float]]] = None  # Reference expression profiles
+    
+    # DestVI parameters
+    destvi_n_hidden: int = 128
+    destvi_n_latent: int = 10
+    destvi_n_layers: int = 1
+    destvi_dropout_rate: float = 0.1
+    destvi_learning_rate: float = 1e-3
+    
+    # Stereoscope parameters
+    stereoscope_n_epochs: int = 10000
+    stereoscope_learning_rate: float = 0.01
+    stereoscope_batch_size: int = 128
 
     # Spotiphy specific parameters
     spotiphy_batch_prior: Annotated[float, Field(gt=0)] = 2.0  # Parameter of the prior distribution of the batch effect

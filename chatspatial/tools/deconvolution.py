@@ -22,6 +22,14 @@ from mcp.server.fastmcp.utilities.types import Image
 # Try to import Spotiphy directly
 # If it's not installed, we'll handle the ImportError when the function is called
 
+# Import scvi-tools for deconvolution
+try:
+    import scvi
+    from scvi.external import SpatialStereoscope as Stereoscope
+except ImportError:
+    scvi = None
+    Stereoscope = None
+
 from ..models.data import DeconvolutionParameters
 from ..models.analysis import DeconvolutionResult
 from ..utils.image_utils import fig_to_image, fig_to_base64
@@ -1042,7 +1050,7 @@ async def deconvolve_spatial_data(
 
         # Load and validate reference data ONCE for methods that need it
         reference_adata = None
-        if params.method in ["cell2location", "spotiphy", "rctd"]:
+        if params.method in ["cell2location", "spotiphy", "rctd", "destvi", "stereoscope"]:
             if not params.reference_data_id:
                 raise ValueError(f"Reference data is required for method '{params.method}'. Please provide reference_data_id.")
             
@@ -1147,10 +1155,49 @@ async def deconvolve_spatial_data(
                     doublet_threshold=doublet_threshold
                 )
 
+            elif params.method == "destvi":
+                if context:
+                    await context.info("Running DestVI deconvolution")
+                
+                if scvi is None:
+                    raise ImportError("scvi-tools package is not installed. Please install it with 'pip install scvi-tools'")
+                
+                proportions, stats = await deconvolve_destvi(
+                    spatial_adata,
+                    reference_adata,
+                    cell_type_key=params.cell_type_key,
+                    n_epochs=params.n_epochs,
+                    n_hidden=params.destvi_n_hidden,
+                    n_latent=params.destvi_n_latent,
+                    n_layers=params.destvi_n_layers,
+                    dropout_rate=params.destvi_dropout_rate,
+                    learning_rate=params.destvi_learning_rate,
+                    use_gpu=params.use_gpu,
+                    context=context
+                )
+
+            elif params.method == "stereoscope":
+                if context:
+                    await context.info("Running Stereoscope deconvolution")
+                
+                if Stereoscope is None:
+                    raise ImportError("Stereoscope from scvi-tools package is not installed")
+                
+                proportions, stats = await deconvolve_stereoscope(
+                    spatial_adata,
+                    reference_adata,
+                    cell_type_key=params.cell_type_key,
+                    n_epochs=params.stereoscope_n_epochs,
+                    learning_rate=params.stereoscope_learning_rate,
+                    batch_size=params.stereoscope_batch_size,
+                    use_gpu=params.use_gpu,
+                    context=context
+                )
+
             else:
                 raise ValueError(
                     f"Unsupported deconvolution method: {params.method}. "
-                    f"Supported methods are: cell2location, spotiphy, rctd"
+                    f"Supported methods are: cell2location, spotiphy, rctd, destvi, stereoscope"
                 )
 
         except Exception as e:
@@ -1243,3 +1290,277 @@ async def deconvolve_spatial_data(
             if context:
                 await context.warning(f"Deconvolution failed: {str(e)}")
             raise
+
+
+async def deconvolve_destvi(
+    spatial_adata: ad.AnnData,
+    reference_adata: ad.AnnData,
+    cell_type_key: str = 'cell_type',
+    n_epochs: int = 10000,
+    n_hidden: int = 128,
+    n_latent: int = 10,
+    n_layers: int = 1,
+    dropout_rate: float = 0.1,
+    learning_rate: float = 1e-3,
+    use_gpu: bool = False,
+    context: Optional[Context] = None
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Deconvolve spatial data using DestVI from scvi-tools
+    
+    DestVI performs multi-resolution deconvolution by first training a CondSCVI 
+    model on reference data, then using it to initialize a DestVI model for 
+    spatial deconvolution.
+    
+    Args:
+        spatial_adata: Spatial transcriptomics AnnData object
+        reference_adata: Reference single-cell RNA-seq AnnData object
+        cell_type_key: Key in reference_adata.obs for cell type information
+        n_epochs: Number of epochs for training
+        n_hidden: Number of hidden units in neural networks
+        n_latent: Dimensionality of latent space
+        n_layers: Number of layers in neural networks
+        dropout_rate: Dropout rate
+        learning_rate: Learning rate for optimization
+        use_gpu: Whether to use GPU for training
+        context: MCP context for logging
+        
+    Returns:
+        Tuple of (proportions DataFrame, statistics dictionary)
+    """
+    try:
+        # Validate inputs
+        common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, 100)
+        
+        # Prepare data
+        ref_data = reference_adata[:, common_genes].copy()
+        spatial_data = spatial_adata[:, common_genes].copy()
+        
+        if context:
+            await context.info(f"Training DestVI with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types")
+        
+        # Step 1: Setup and train CondSCVI model on reference data
+        if context:
+            await context.info("Step 1: Training CondSCVI model on reference data...")
+        
+        # Setup reference data for CondSCVI (not regular SCVI)
+        scvi.model.CondSCVI.setup_anndata(ref_data, labels_key=cell_type_key)
+        
+        # Create CondSCVI model
+        condscvi_model = scvi.model.CondSCVI(
+            ref_data,
+            n_hidden=n_hidden,
+            n_latent=n_latent,
+            n_layers=n_layers,
+            dropout_rate=dropout_rate
+        )
+        
+        # Train CondSCVI model
+        if use_gpu:
+            condscvi_model.train(max_epochs=n_epochs//3, accelerator='gpu')
+        else:
+            condscvi_model.train(max_epochs=n_epochs//3)
+        
+        if context:
+            await context.info("CondSCVI model training completed")
+        
+        # Step 2: Setup spatial data for DestVI
+        if context:
+            await context.info("Step 2: Setting up DestVI model...")
+        
+        scvi.model.DestVI.setup_anndata(spatial_data)
+        
+        # Step 3: Create DestVI model using from_rna_model
+        destvi_model = scvi.model.DestVI.from_rna_model(
+            spatial_data,
+            condscvi_model,  # Pass the trained CondSCVI model
+            vamp_prior_p=15,  # VampPrior components
+            l1_reg=10.0       # L1 regularization for sparsity
+        )
+        
+        if context:
+            await context.info("DestVI model created successfully")
+        
+        # Step 4: Train DestVI model
+        if context:
+            await context.info("Step 3: Training DestVI model on spatial data...")
+        
+        if use_gpu:
+            destvi_model.train(max_epochs=n_epochs//2, accelerator='gpu')
+        else:
+            destvi_model.train(max_epochs=n_epochs//2)
+        
+        if context:
+            await context.info("DestVI training completed")
+        
+        # Step 5: Get results
+        if context:
+            await context.info("Extracting cell type proportions...")
+        
+        # Get cell type proportions
+        proportions_df = destvi_model.get_proportions()
+        
+        # Get cell types from the mapping
+        cell_types = list(proportions_df.columns)
+        
+        if context:
+            await context.info(f"Generated proportions for {len(cell_types)} cell types: {cell_types}")
+        
+        # Create statistics
+        stats = _create_deconvolution_stats(
+            proportions_df,
+            common_genes,
+            "DestVI",
+            "gpu" if use_gpu else "cpu",
+            n_epochs=n_epochs,
+            n_hidden=n_hidden,
+            n_latent=n_latent,
+            n_layers=n_layers,
+            dropout_rate=dropout_rate,
+            vamp_prior_p=15,
+            l1_reg=10.0
+        )
+        
+        return proportions_df, stats
+        
+    except Exception as e:
+        error_msg = f"DestVI deconvolution failed: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise RuntimeError(error_msg)
+
+
+async def deconvolve_stereoscope(
+    spatial_adata: ad.AnnData,
+    reference_adata: ad.AnnData,
+    cell_type_key: str = 'cell_type',
+    n_epochs: int = 10000,
+    learning_rate: float = 0.01,
+    batch_size: int = 128,
+    use_gpu: bool = False,
+    context: Optional[Context] = None
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Deconvolve spatial data using Stereoscope from scvi-tools
+    
+    Args:
+        spatial_adata: Spatial transcriptomics AnnData object
+        reference_adata: Reference single-cell RNA-seq AnnData object
+        cell_type_key: Key in reference_adata.obs for cell type information
+        n_epochs: Number of epochs for training
+        learning_rate: Learning rate for optimization
+        batch_size: Batch size for training
+        use_gpu: Whether to use GPU for training
+        context: MCP context for logging
+        
+    Returns:
+        Tuple of (proportions DataFrame, statistics dictionary)
+    """
+    try:
+        # Validate inputs
+        common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, 100)
+        
+        # Prepare data
+        ref_data = reference_adata[:, common_genes].copy()
+        spatial_data = spatial_adata[:, common_genes].copy()
+        
+        if context:
+            await context.info(f"Training Stereoscope with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types")
+        
+        # Setup data for Stereoscope - fix API call
+        try:
+            # Try new API first
+            Stereoscope.setup_anndata(ref_data, labels_key=cell_type_key)
+        except Exception:
+            # Fallback to older API if new one fails
+            Stereoscope.setup_anndata(ref_data)
+        Stereoscope.setup_anndata(spatial_data)
+        
+        # Create Stereoscope model with proper parameters
+        try:
+            # Ensure cell_type_key is categorical and get cell types  
+            if not ref_data.obs[cell_type_key].dtype.name == 'category':
+                ref_data.obs[cell_type_key] = ref_data.obs[cell_type_key].astype('category')
+                
+            cell_types = list(ref_data.obs[cell_type_key].cat.categories)
+            n_cell_types = len(cell_types)
+            n_genes = len(common_genes)
+            
+            # Create cell type mapping (identity matrix)
+            cell_type_mapping = np.eye(n_cell_types)
+            
+            # Use RNAStereoscope workflow for proper Stereoscope setup
+            # Import RNAStereoscope for the two-step workflow
+            from scvi.external import RNAStereoscope
+            
+            # Step 1: Train RNAStereoscope model on reference data
+            if context:
+                await context.info("Step 1: Training RNAStereoscope model on reference data...")
+            
+            # Setup reference data (no labels_key parameter needed)
+            RNAStereoscope.setup_anndata(ref_data)
+            
+            # Create and train RNA model
+            rna_model = RNAStereoscope(ref_data)
+            if use_gpu:
+                rna_model.train(max_epochs=n_epochs//2, accelerator='gpu')
+            else:
+                rna_model.train(max_epochs=n_epochs//2)
+            
+            if context:
+                await context.info("RNAStereoscope training completed")
+            
+            # Step 2: Create SpatialStereoscope using from_rna_model
+            if context:
+                await context.info("Step 2: Creating SpatialStereoscope model...")
+            
+            # Setup spatial data
+            Stereoscope.setup_anndata(spatial_data)
+            
+            # Create spatial model from RNA model
+            model = Stereoscope.from_rna_model(spatial_data, rna_model)
+            
+            if context:
+                await context.info("SpatialStereoscope model created successfully")
+            
+        except Exception as e:
+            if context:
+                await context.warning(f"Stereoscope creation failed: {e}")
+            raise ValueError(f"Stereoscope model creation failed: {str(e)}")
+        
+        # Train SpatialStereoscope model
+        if context:
+            await context.info("Training SpatialStereoscope model...")
+        
+        if use_gpu:
+            model.train(max_epochs=n_epochs//2, accelerator='gpu')
+        else:
+            model.train(max_epochs=n_epochs//2)
+        
+        # Get cell type proportions
+        proportions_array = model.get_proportions()
+        cell_types = list(ref_data.obs[cell_type_key].cat.categories)
+        
+        # Create proportions DataFrame
+        proportions = pd.DataFrame(
+            proportions_array,
+            index=spatial_data.obs_names,
+            columns=cell_types
+        )
+        
+        # Create statistics
+        stats = _create_deconvolution_stats(
+            proportions,
+            common_genes,
+            "Stereoscope",
+            "gpu" if use_gpu else "cpu",
+            n_epochs=n_epochs,
+            learning_rate=learning_rate,
+            batch_size=batch_size
+        )
+        
+        return proportions, stats
+        
+    except Exception as e:
+        error_msg = f"Stereoscope deconvolution failed: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise RuntimeError(error_msg)

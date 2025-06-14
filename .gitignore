@@ -65,3 +65,10 @@ logs/
 # Temporary files
 tmp/
 temp/
+debug_output/
+test_outputs/
+
+# Keep important example data files
+!data/MOp_markers.csv
+!data/mop_sn_tutorial.h5ad
+!data/slideseq_MOp_1217.h5ad
