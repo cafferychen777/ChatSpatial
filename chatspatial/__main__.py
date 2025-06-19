@@ -26,7 +26,7 @@ from .server import mcp
 )
 @click.option(
     "--host",
-    default="0.0.0.0",
+    default="127.0.0.1",  # nosec B104 - Default to localhost for security
     help="Host to bind to for SSE transport"
 )
 @click.option(

@@ -991,7 +991,7 @@ def deconvolve_rctd(
         try:
             pandas2ri.deactivate()
             numpy2ri.deactivate()
-        except:
+        except Exception:  # nosec B110 - Specific exception handling for R interface cleanup
             pass
 
 
