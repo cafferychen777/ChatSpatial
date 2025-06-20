@@ -13,10 +13,17 @@ ChatSpatial is an interactive spatial transcriptomics data analysis assistant ba
 - **Spatial Domain Identification**: STAGATE, SpaGCN, and clustering-based methods for identifying spatial domains
 - **Advanced Spatial Variable Genes**: GASTON (Graph Attention Spatial Transcriptomics Organizer Network) for learning tissue topology and identifying spatial gene patterns through deep learning
 - **Cell Communication Analysis**: LIANA+ integration for fast and comprehensive ligand-receptor interaction analysis with spatial bivariate metrics
+- **Spatially-aware Enrichment Analysis**: EnrichMap integration for gene set enrichment with spatial smoothing and covariate correction
 - **Advanced Deconvolution**: Complete scvi-tools integration with DestVI, Stereoscope, Cell2location, and traditional methods
 - **Standardized Image Processing**: Unified image processing module ensuring all visualization functions return standardized Image objects
 
 ## Installation
+
+### Python Version Requirements
+
+- **Core ChatSpatial**: Python 3.8+
+- **Spotiphy deconvolution**: Python 3.8-3.11 (TensorFlow 2.12.0 limitation)
+- **Recommended**: Python 3.10 or 3.11 for best compatibility
 
 ```bash
 # Clone the repository
@@ -30,11 +37,18 @@ pip install -e .
 pip install -e .[all]
 
 # Or install specific optional dependencies
+pip install -e .[enrichmap]  # Install EnrichMap enrichment analysis dependencies
 pip install -e .[deconvolution]  # Install deconvolution-related dependencies
 pip install -e .[spatial_domains]  # Install spatial domain identification dependencies
 pip install -e .[spatial_genes]  # Install GASTON and spatial variable genes identification dependencies
 pip install -e .[cell_communication]  # Install cell communication analysis dependencies
 ```
+
+### Special Installation Notes
+
+- **Spotiphy**: Available on PyPI but requires Python 3.8-3.11. See [docs/SPOTIPHY_INSTALLATION.md](docs/SPOTIPHY_INSTALLATION.md) for detailed instructions.
+- **GASTON**: Automatically uses the included version in `third_party/GASTON/`
+- **EnrichMap**: Automatically uses the included version in `third_party/EnrichMap/`
 
 ## Usage
 
@@ -182,6 +196,27 @@ ChatSpatial now includes **Getis-Ord Gi*** local spatial autocorrelation analysi
 "Find spatial hot spots for CCL21 using Getis-Ord Gi* with FDR correction"
 "Analyze top 10 highly variable genes for local spatial autocorrelation"
 "Detect immune infiltration hot spots using Getis-Ord analysis"
+```
+
+### Spatially-aware Gene Set Enrichment with EnrichMap
+
+ChatSpatial integrates EnrichMap for sophisticated gene set enrichment analysis with spatial awareness:
+
+**Features:**
+
+- **Spatial Smoothing**: Apply k-nearest neighbor smoothing to enrichment scores
+- **Spatial Covariate Correction**: Use GAM to correct for spatial bias in enrichment
+- **Batch Correction**: Support for multi-sample analysis with batch normalization
+- **Gene Weighting**: Automatic or custom gene weights for enrichment calculation
+- **Multi-signature Analysis**: Analyze multiple gene sets simultaneously
+- **Comprehensive Visualization**: Spatial enrichment maps with customizable parameters
+
+**Example Usage:**
+
+```text
+"Analyze T cell enrichment with gene set CD3D, CD3E, CD8A using spatial smoothing"
+"Perform enrichment analysis for immune signatures with batch correction"
+"Visualize enrichment scores for T_cell signature" (after running analyze_enrichment)
 ```
 
 ### Advanced Spatial Variable Genes with GASTON

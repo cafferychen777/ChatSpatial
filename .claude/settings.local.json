@@ -17,7 +17,11 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(cp:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(jupyter nbconvert:*)",
+      "Bash(pip index versions:*)",
+      "Bash(source:*)",
+      "Bash(git clone:*)"
     ],
     "deny": []
   }
