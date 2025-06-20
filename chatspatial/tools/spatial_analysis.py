@@ -60,15 +60,15 @@ async def _ensure_cluster_key(adata: sc.AnnData, requested_key: str, context: Op
         raise ProcessingError(error_msg) from e
 
 
-async def analyze_spatial_unified(
+async def analyze_spatial_patterns(
     data_id: str,
     data_store: Dict[str, Any],
     params: SpatialAnalysisParameters = SpatialAnalysisParameters(),
     context: Optional[Context] = None
 ) -> SpatialAnalysisResult:
-    """Unified function to perform spatial analysis on transcriptomics data
+    """Analyze spatial patterns in transcriptomics data
 
-    This function performs the computation and stores results in the AnnData object.
+    This function performs various spatial statistics and pattern analysis.
     For visualization, use the visualize_data function with plot_type="spatial_analysis".
 
     Args:
@@ -437,5 +437,5 @@ async def analyze_spatial_unified(
             ) from e
 
 
-# The analyze_spatial function has been removed in favor of directly using analyze_spatial_unified
+# The analyze_spatial function has been removed in favor of directly using analyze_spatial_patterns
 # This simplifies the code structure and reduces complexity

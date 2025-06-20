@@ -6,15 +6,12 @@ from typing import Dict, Any, Optional, List, Tuple
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import matplotlib.pyplot as plt
 import traceback
 
 from mcp.server.fastmcp import Context
-from mcp.server.fastmcp.utilities.types import Image
 
 from ..models.data import CellCommunicationParameters
 from ..models.analysis import CellCommunicationResult
-from ..utils.image_utils import fig_to_image, create_placeholder_image
 
 
 # Import LIANA+ for cell communication analysis
@@ -75,15 +72,10 @@ async def analyze_cell_communication(
         else:
             raise ValueError(f"Unsupported method: {params.method}. Only 'liana' is supported.")
         
-        # Create visualization if requested
-        visualization = None
-        network_visualization = None
-        if params.include_image:
-            if context:
-                await context.info("Creating cell communication visualizations...")
-            visualization, network_visualization = _create_communication_visualizations(
-                adata, result_data, params
-            )
+        # Note: Visualizations should be created using the separate visualize_data tool
+        # This maintains clean separation between analysis and visualization
+        if params.include_image and context:
+            await context.info("Cell communication analysis complete. Use visualize_data tool with plot_type='cell_communication' to visualize results")
         
         # Update data store
         data_store[data_id]["adata"] = adata
@@ -108,8 +100,8 @@ async def analyze_cell_communication(
             patterns_identified=result_data.get("patterns_identified", False),
             n_patterns=result_data.get("n_patterns"),
             patterns_key=result_data.get("patterns_key"),
-            visualization=visualization,
-            network_visualization=network_visualization,
+            visualization=None,  # Use visualize_data tool instead
+            network_visualization=None,  # Use visualize_data tool instead
             statistics=result_data.get("statistics", {})
         )
         
@@ -128,188 +120,6 @@ async def analyze_cell_communication(
 
 
 
-
-
-
-
-
-def _create_communication_visualizations(
-    adata: Any,
-    result_data: Dict[str, Any],
-    params: CellCommunicationParameters
-) -> Tuple[Optional[Image], Optional[Image]]:
-    """Create visualizations for LIANA+ cell communication analysis"""
-    try:
-        # Get spatial coordinates
-        if 'spatial' in adata.obsm:
-            coords = adata.obsm['spatial']
-        else:
-            # Use first available spatial coordinates
-            spatial_keys = [key for key in adata.obsm.keys() if 'spatial' in key]
-            if spatial_keys:
-                coords = adata.obsm[spatial_keys[0]]
-            else:
-                return create_placeholder_image("No spatial coordinates found"), None
-
-        # Create LIANA+ visualization
-        if params.method == "liana":
-            visualization = _create_liana_visualization(adata, coords, result_data, params)
-        else:
-            visualization = create_placeholder_image(f"Visualization not supported for method: {params.method}")
-
-        # No network visualization for LIANA+ currently
-        network_visualization = None
-
-        return visualization, network_visualization
-
-    except Exception as e:
-        return create_placeholder_image(f"Visualization failed: {str(e)}"), None
-
-
-def _create_liana_visualization(
-    adata: Any,
-    coords: np.ndarray,
-    result_data: Dict[str, Any],
-    params: CellCommunicationParameters
-) -> Image:
-    """Create LIANA+ visualization"""
-    try:
-        # Get top LR pairs
-        top_pairs = result_data.get("top_lr_pairs", [])[:4]  # Show top 4
-
-        if not top_pairs:
-            return create_placeholder_image("No significant communication pairs found")
-
-        # Check if we have spatial results
-        spatial_results_key = result_data.get("liana_spatial_scores_key")
-        analysis_type = result_data.get("analysis_type", "cluster")
-
-        if analysis_type == "spatial" and spatial_results_key:
-            return _create_liana_spatial_visualization(adata, coords, result_data, params)
-        else:
-            return _create_liana_cluster_visualization(adata, coords, result_data, params)
-
-    except Exception as e:
-        return create_placeholder_image(f"LIANA+ visualization failed: {str(e)}")
-
-
-def _create_liana_spatial_visualization(
-    adata: Any,
-    coords: np.ndarray,
-    result_data: Dict[str, Any],
-    params: CellCommunicationParameters
-) -> Image:
-    """Create LIANA+ spatial bivariate visualization"""
-    try:
-        spatial_scores_key = result_data.get("liana_spatial_scores_key")
-
-        if not spatial_scores_key or spatial_scores_key not in adata.uns:
-            return create_placeholder_image("No LIANA+ spatial scores found")
-
-        # Get spatial scores data
-        spatial_adata = adata.uns[spatial_scores_key]
-        top_pairs = result_data.get("top_lr_pairs", [])[:4]
-
-        if not top_pairs:
-            return create_placeholder_image("No significant pairs to visualize")
-
-        # Create subplot layout
-        n_pairs = len(top_pairs)
-        n_cols = min(2, n_pairs)
-        n_rows = (n_pairs + n_cols - 1) // n_cols
-
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(6*n_cols, 5*n_rows))
-        if n_pairs == 1:
-            axes = [axes]
-        elif n_rows == 1:
-            axes = axes.flatten()
-        else:
-            axes = axes.flatten()
-
-        for i, pair in enumerate(top_pairs):
-            ax = axes[i]
-
-            # Get spatial scores for this pair
-            if pair in spatial_adata.var_names:
-                scores = spatial_adata[:, pair].X.toarray().flatten()
-            else:
-                scores = np.zeros(len(adata))
-
-            # Create scatter plot
-            scatter = ax.scatter(
-                coords[:, 0],
-                coords[:, 1],
-                c=scores,
-                cmap='viridis',
-                s=20,
-                alpha=0.8
-            )
-
-            ax.set_title(f'{pair}', fontsize=12)
-            ax.set_xlabel('Spatial X')
-            ax.set_ylabel('Spatial Y')
-            ax.invert_yaxis()
-            ax.set_aspect('equal')
-
-            # Add colorbar
-            plt.colorbar(scatter, ax=ax, shrink=0.8, label='Spatial Score')
-
-        # Hide unused subplots
-        for i in range(n_pairs, len(axes)):
-            axes[i].set_visible(False)
-
-        plt.suptitle(f'Top {n_pairs} Cell Communication Pairs (LIANA+ Spatial)', fontsize=14)
-        plt.tight_layout()
-
-        return fig_to_image(fig, dpi=params.image_dpi, format=params.image_format)
-
-    except Exception as e:
-        return create_placeholder_image(f"LIANA+ spatial visualization failed: {str(e)}")
-
-
-def _create_liana_cluster_visualization(
-    adata: Any,
-    coords: np.ndarray,
-    result_data: Dict[str, Any],
-    params: CellCommunicationParameters
-) -> Image:
-    """Create LIANA+ cluster-based visualization"""
-    try:
-        # For cluster analysis, create a simple summary plot
-        top_pairs = result_data.get("top_lr_pairs", [])[:6]
-
-        if not top_pairs:
-            return create_placeholder_image("No significant communication pairs found")
-
-        # Create a simple bar plot of top pairs
-        fig, ax = plt.subplots(figsize=(10, 6))
-
-        # Simplified pair names for display
-        pair_names = [pair.replace('_', ' → ') for pair in top_pairs]
-        y_pos = np.arange(len(pair_names))
-
-        # Create dummy scores (in real implementation, use actual significance scores)
-        scores = np.linspace(1.0, 0.5, len(pair_names))
-
-        bars = ax.barh(y_pos, scores, color='steelblue', alpha=0.7)
-
-        ax.set_yticks(y_pos)
-        ax.set_yticklabels(pair_names)
-        ax.set_xlabel('Communication Strength')
-        ax.set_title('Top Cell Communication Pairs (LIANA+ Cluster Analysis)')
-        ax.invert_yaxis()
-
-        # Add value labels on bars
-        for i, (bar, score) in enumerate(zip(bars, scores)):
-            ax.text(score + 0.01, bar.get_y() + bar.get_height()/2,
-                   f'{score:.2f}', va='center', fontsize=10)
-
-        plt.tight_layout()
-
-        return fig_to_image(fig, dpi=params.image_dpi, format=params.image_format)
-
-    except Exception as e:
-        return create_placeholder_image(f"LIANA+ cluster visualization failed: {str(e)}")
 
 
 async def _analyze_communication_liana(

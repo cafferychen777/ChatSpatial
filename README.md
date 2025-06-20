@@ -93,16 +93,22 @@ To use ChatSpatial with Claude Desktop:
 
 Here are some example prompts to get started with ChatSpatial:
 
+**Basic Workflow:**
 - "Load my 10x Visium dataset from `/path/to/data.h5ad`"
 - "Preprocess my data with custom filtering: filter genes in less than 10 cells and subsample to 1000 spots"
 - "Visualize the spatial expression of gene Cd8a"
-- "Perform cell type annotation using marker genes"
-- "Identify spatial domains using STAGATE method"
-- "Find spatial variable genes using GASTON with GLM-PCA preprocessing"
-- "Analyze cell communication using LIANA+"
+
+**Analysis and Visualization (Two-Step Process):**
+- "Perform cell type annotation using marker genes" → "Visualize the cell type annotations"
+- "Identify spatial domains using STAGATE method" → "Visualize the spatial domains"
+- "Find spatial variable genes using GASTON with GLM-PCA preprocessing" → "Visualize GASTON isodepth map"
+- "Analyze cell communication using LIANA+" → "Visualize cell communication results"
+- "Integrate multiple spatial samples" → "Visualize the integrated UMAP colored by batch"
+- "Deconvolve my spatial data using the NNLS method" → "Visualize deconvolution results"
+
+**Advanced Analysis:**
 - "Run spatial trajectory analysis"
-- "Deconvolve my spatial data using the NNLS method"
-- "Integrate multiple spatial samples"
+- "Analyze spatial hot spots for immune genes using Getis-Ord Gi*"
 
 ## Available Tools
 
@@ -110,10 +116,10 @@ The server provides the following tools:
 
 1. `load_data` - Load spatial transcriptomics data
 2. `preprocess` - Preprocess data
-3. `visualize` - Visualize data
+3. `visualize` - Visualize data (supports all analysis results)
 4. `annotate` - Cell type annotation
 5. `identify_domains` - Spatial domain identification
-6. `find_spatial_genes_gaston` - Advanced spatial variable genes identification using GASTON
+6. `find_spatial_genes` - Advanced spatial variable genes identification using GASTON
 7. `analyze_communication` - Cell-cell communication analysis with LIANA+
 8. `analyze_spatial_data` - Spatial analysis (Moran's I, Getis-Ord Gi*, neighborhood, co-occurrence, Ripley's K, centrality)
 9. `find_markers` - Differential expression analysis
@@ -121,6 +127,21 @@ The server provides the following tools:
 11. `analyze_trajectory_pseudotime` - Trajectory pseudotime analysis
 12. `analyze_velocity` - RNA velocity analysis
 13. `deconvolve` - Spatial transcriptomics deconvolution
+
+### Visualization Architecture
+
+ChatSpatial uses a clean separation between analysis and visualization:
+- All analysis tools focus solely on computation and return analysis results
+- The `visualize` tool handles all visualization needs with various plot types
+- This design ensures modularity and allows for flexible visualization options
+
+To visualize analysis results, use the `visualize` tool with appropriate `plot_type`:
+- `spatial` - Spatial gene expression or annotations
+- `umap` - UMAP embeddings (e.g., for integrated data)
+- `cell_communication` - Cell communication analysis results
+- `spatial_domains` - Spatial domain identification results
+- `gaston_isodepth`, `gaston_domains`, `gaston_genes` - GASTON analysis results
+- And many more plot types for different analyses
 
 ### Cell Communication Analysis with LIANA+
 
@@ -181,7 +202,9 @@ ChatSpatial integrates GASTON (Graph Attention Spatial Transcriptomics Organizer
 ```text
 "Find spatial variable genes using GASTON with GLM-PCA preprocessing"
 "Identify spatial domains using GASTON with 1000 training epochs"
-"Visualize tissue topology using GASTON isodepth mapping"
+"Visualize GASTON isodepth map" (after running find_spatial_genes)
+"Visualize GASTON spatial domains" (after running find_spatial_genes)
+"Visualize top GASTON spatial genes" (after running find_spatial_genes)
 ```
 
 ### Deep Learning Integration with scvi-tools

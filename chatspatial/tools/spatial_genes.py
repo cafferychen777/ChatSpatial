@@ -22,9 +22,12 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 import warnings
 
-# Add GASTON to path
-GASTON_PATH = "/Users/apple/Research/SpatialTrans_MCP/GASTON/src"
-if GASTON_PATH not in sys.path:
+# Get the path to the third_party directory relative to this file
+current_dir = Path(__file__).parent
+project_root = current_dir.parent.parent  # Go up to chatspatial root
+GASTON_PATH = os.path.join(project_root, "third_party", "GASTON", "src")
+
+if os.path.exists(GASTON_PATH) and GASTON_PATH not in sys.path:
     sys.path.insert(0, GASTON_PATH)
 
 try:
@@ -41,7 +44,7 @@ from ..models.data import SpatialVariableGenesParameters
 from ..models.analysis import SpatialVariableGenesResult
 
 
-async def identify_spatial_variable_genes_gaston(
+async def identify_spatial_genes(
     data_id: str,
     data_store: Dict[str, Any],
     params: SpatialVariableGenesParameters,
