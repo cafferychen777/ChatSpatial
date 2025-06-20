@@ -104,12 +104,42 @@ async def identify_spatial_domains(
             if context:
                 await context.info(f"Using all {adata.n_vars} genes")
         
-        # Ensure data is properly normalized and log-transformed
-        if 'log1p' not in adata_subset.uns:
+        # Check if data has been scaled (z-score normalized)
+        # Scaled data typically has negative values and is centered around 0
+        from scipy.sparse import issparse
+        
+        data_min = adata_subset.X.min() if not issparse(adata_subset.X) else adata_subset.X.data.min()
+        data_max = adata_subset.X.max() if not issparse(adata_subset.X) else adata_subset.X.data.max()
+        
+        if data_min < -1:  # Likely scaled data
             if context:
-                await context.info("Normalizing and log-transforming data...")
-            sc.pp.normalize_total(adata_subset, target_sum=1e4)
-            sc.pp.log1p(adata_subset)
+                await context.warning("Data appears to be scaled (z-score). SpaGCN requires unscaled data.")
+                await context.info("Attempting to use raw data if available...")
+            
+            # Try to use raw data if available
+            if hasattr(adata, 'raw') and adata.raw is not None:
+                if context:
+                    await context.info("Using raw (unscaled) data for SpaGCN")
+                # Get the same genes from raw data
+                gene_mask = adata.raw.var_names.isin(adata_subset.var_names)
+                adata_subset = adata.raw[:, gene_mask].to_adata()
+                
+                # Now normalize the raw data
+                sc.pp.normalize_total(adata_subset, target_sum=1e4)
+                sc.pp.log1p(adata_subset)
+            else:
+                raise ValueError(
+                    "Data has been scaled but raw data is not available. "
+                    "SpaGCN requires unscaled data. Please run spatial domain identification "
+                    "before scaling, or ensure raw data is preserved (adata.raw = adata before scaling)."
+                )
+        else:
+            # Ensure data is properly normalized and log-transformed
+            if 'log1p' not in adata_subset.uns:
+                if context:
+                    await context.info("Normalizing and log-transforming data...")
+                sc.pp.normalize_total(adata_subset, target_sum=1e4)
+                sc.pp.log1p(adata_subset)
 
         # Ensure data is float type for SpaGCN compatibility
         if adata_subset.X.dtype != np.float32 and adata_subset.X.dtype != np.float64:
@@ -365,7 +395,7 @@ async def _identify_domains_spagcn(
                 future = loop.run_in_executor(
                     executor,
                     lambda: detect_spatial_domains_ez_mode(
-                        adata,
+                        adata,  # Pass the adata parameter (which is actually adata_subset)
                         img,
                         x_array,
                         y_array,

@@ -18,8 +18,8 @@ project_root = current_dir.parent.parent
 enrichmap_path = os.path.join(project_root, "third_party", "EnrichMap")
 sys.path.insert(0, enrichmap_path)
 
-from ..models.data import Context
-from ..models.exceptions import ToolError
+from mcp.server.fastmcp import Context
+from ..utils.error_handling import ProcessingError
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +30,25 @@ def is_enrichmap_available() -> Tuple[bool, str]:
         import enrichmap as em
         
         # Check for required dependencies
-        required_modules = [
-            'scanpy', 'squidpy', 'scipy', 'scikit-learn',
-            'statsmodels', 'pygam', 'scikit-gstat', 'adjustText', 'splot'
-        ]
+        # Map package names to their import names
+        module_mapping = {
+            'scanpy': 'scanpy',
+            'squidpy': 'squidpy', 
+            'scipy': 'scipy',
+            'scikit-learn': 'sklearn',
+            'statsmodels': 'statsmodels',
+            'pygam': 'pygam',
+            'scikit-gstat': 'skgstat',
+            'adjustText': 'adjustText',
+            'splot': 'splot'
+        }
         
         missing = []
-        for module in required_modules:
+        for package, module in module_mapping.items():
             try:
-                __import__(module.replace('-', '_'))
+                __import__(module)
             except ImportError:
-                missing.append(module)
+                missing.append(package)
         
         if missing:
             return False, f"Missing EnrichMap dependencies: {', '.join(missing)}"
@@ -106,20 +114,20 @@ async def perform_enrichment_analysis(
     # Check if EnrichMap is available
     is_available, error_msg = is_enrichmap_available()
     if not is_available:
-        raise ToolError(f"EnrichMap is not available: {error_msg}")
+        raise ProcessingError(f"EnrichMap is not available: {error_msg}")
     
     # Import EnrichMap
     import enrichmap as em
     
     # Get data
     if data_id not in data_store:
-        raise ToolError(f"Data '{data_id}' not found in data store")
+        raise ProcessingError(f"Data '{data_id}' not found in data store")
     
     adata = data_store[data_id]["adata"]
     
     # Validate spatial coordinates
     if spatial_key not in adata.obsm:
-        raise ToolError(f"Spatial coordinates '{spatial_key}' not found in adata.obsm")
+        raise ProcessingError(f"Spatial coordinates '{spatial_key}' not found in adata.obsm")
     
     # Convert single gene list to dictionary format
     if isinstance(gene_sets, list):
@@ -140,7 +148,7 @@ async def perform_enrichment_analysis(
         logger.info(f"Signature '{sig_name}': {len(common_genes)}/{len(genes)} genes found")
     
     if not validated_gene_sets:
-        raise ToolError("No valid gene signatures found with at least 2 genes")
+        raise ProcessingError("No valid gene signatures found with at least 2 genes")
     
     # Run EnrichMap scoring
     try:
@@ -156,7 +164,7 @@ async def perform_enrichment_analysis(
             batch_key=batch_key
         )
     except Exception as e:
-        raise ToolError(f"EnrichMap scoring failed: {str(e)}")
+        raise ProcessingError(f"EnrichMap scoring failed: {str(e)}")
     
     # Collect results
     score_columns = [f"{sig}_score" for sig in validated_gene_sets.keys()]
@@ -239,19 +247,19 @@ async def compute_spatial_metrics(
     # Check if EnrichMap is available
     is_available, error_msg = is_enrichmap_available()
     if not is_available:
-        raise ToolError(f"EnrichMap is not available: {error_msg}")
+        raise ProcessingError(f"EnrichMap is not available: {error_msg}")
     
     import enrichmap as em
     
     # Get data
     if data_id not in data_store:
-        raise ToolError(f"Data '{data_id}' not found in data store")
+        raise ProcessingError(f"Data '{data_id}' not found in data store")
     
     adata = data_store[data_id]["adata"]
     
     # Validate score column
     if score_key not in adata.obs.columns:
-        raise ToolError(f"Score column '{score_key}' not found in adata.obs")
+        raise ProcessingError(f"Score column '{score_key}' not found in adata.obs")
     
     # Default metrics
     if metrics is None:
@@ -287,7 +295,7 @@ async def compute_spatial_metrics(
         }
         
     except Exception as e:
-        raise ToolError(f"Spatial metrics computation failed: {str(e)}")
+        raise ProcessingError(f"Spatial metrics computation failed: {str(e)}")
 
 
 async def cluster_gene_correlation(
@@ -324,23 +332,23 @@ async def cluster_gene_correlation(
     # Check if EnrichMap is available
     is_available, error_msg = is_enrichmap_available()
     if not is_available:
-        raise ToolError(f"EnrichMap is not available: {error_msg}")
+        raise ProcessingError(f"EnrichMap is not available: {error_msg}")
     
     import enrichmap as em
     
     # Get data
     if data_id not in data_store:
-        raise ToolError(f"Data '{data_id}' not found in data store")
+        raise ProcessingError(f"Data '{data_id}' not found in data store")
     
     adata = data_store[data_id]["adata"]
     
     # Validate inputs
     score_key = f"{signature_name}_score"
     if score_key not in adata.obs.columns:
-        raise ToolError(f"Score column '{score_key}' not found. Run enrichment analysis first.")
+        raise ProcessingError(f"Score column '{score_key}' not found. Run enrichment analysis first.")
     
     if cluster_key not in adata.obs.columns:
-        raise ToolError(f"Cluster column '{cluster_key}' not found in adata.obs")
+        raise ProcessingError(f"Cluster column '{cluster_key}' not found in adata.obs")
     
     try:
         # Compute cluster-gene correlations
@@ -370,4 +378,4 @@ async def cluster_gene_correlation(
         }
         
     except Exception as e:
-        raise ToolError(f"Cluster gene correlation failed: {str(e)}")
+        raise ProcessingError(f"Cluster gene correlation failed: {str(e)}")
