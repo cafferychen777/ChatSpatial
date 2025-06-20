@@ -219,26 +219,72 @@ def plot_spatial_feature(
             ax.text(0.5, 0.5, f"Feature '{feature}' not found", 
                     ha='center', va='center', transform=ax.transAxes)
             return
-        color_values = color_data.values
+        
+        # Check if this is categorical data
+        if pd.api.types.is_categorical_dtype(color_data) or pd.api.types.is_object_dtype(color_data):
+            # For categorical data, we need to plot manually to avoid scanpy's multi-panel behavior
+            x_coords = adata.obsm['spatial'][:, 0]
+            y_coords = adata.obsm['spatial'][:, 1]
+            
+            # Get unique categories and create color map
+            categories = pd.Categorical(color_data).categories
+            n_cats = len(categories)
+            
+            # Use the specified colormap or default to tab10/tab20
+            if params.colormap in ['tab10', 'tab20', 'tab20b', 'tab20c']:
+                cmap = plt.cm.get_cmap(params.colormap)
+            else:
+                cmap = plt.cm.get_cmap('tab10' if n_cats <= 10 else 'tab20')
+            
+            colors = [cmap(i / max(n_cats - 1, 1)) for i in range(n_cats)]
+            
+            # Plot each category
+            for i, cat in enumerate(categories):
+                mask = color_data == cat
+                ax.scatter(x_coords[mask], y_coords[mask], 
+                          c=[colors[i]], label=str(cat), 
+                          s=params.spot_size or 50, 
+                          alpha=params.alpha)
+            
+            # Add legend if requested
+            if params.show_legend and n_cats <= 20:  # Limit legend items
+                ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', 
+                         frameon=False, fontsize='small')
+            
+            ax.set_title(feature or 'Spatial Distribution')
+            ax.set_aspect('equal')
+            ax.invert_yaxis()  # Match image orientation
+            
+            if not params.show_axes:
+                ax.axis('off')
+        else:
+            # For continuous data, use scanpy's function
+            color_values = color_data.values
+            sc.pl.embedding(
+                adata,
+                basis="spatial",
+                color=color_values,
+                cmap=params.colormap,
+                ax=ax,
+                show=False,
+                s=params.spot_size or 50,
+                alpha=params.alpha,
+                frameon=params.show_axes,
+                title=feature or 'Spatial Distribution',
+                colorbar_loc='right' if params.show_colorbar else None
+            )
+            ax.set_aspect('equal')
+            ax.invert_yaxis()  # Match image orientation
     else:
-        color_values = None
-    
-    # Use scanpy's embedding plot for consistency
-    sc.pl.embedding(
-        adata,
-        basis="spatial",
-        color=color_values,
-        cmap=params.colormap if (color_values is not None and pd.api.types.is_numeric_dtype(color_data)) else None,
-        ax=ax,
-        show=False,
-        s=params.spot_size or 50,
-        alpha=params.alpha,
-        frameon=params.show_axes,
-        title=feature or 'Spatial Distribution',
-        colorbar_loc='right' if params.show_colorbar else None
-    )
-    ax.set_aspect('equal')
-    ax.invert_yaxis()  # Match image orientation
+        # No feature specified, just plot spots
+        x_coords = adata.obsm['spatial'][:, 0]
+        y_coords = adata.obsm['spatial'][:, 1]
+        ax.scatter(x_coords, y_coords, c='gray', s=params.spot_size or 50, alpha=params.alpha)
+        ax.set_title('Spatial Distribution')
+        ax.set_aspect('equal')
+        ax.invert_yaxis()
+        if not params.show_axes:
+            ax.axis('off')
 
 
 # --- CORE VISUALIZATION FUNCTIONS ---
