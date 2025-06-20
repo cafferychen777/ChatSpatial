@@ -5,13 +5,10 @@ Integration tools for spatial transcriptomics data.
 from typing import Dict, List, Optional, Any
 import numpy as np
 import scanpy as sc
-import matplotlib.pyplot as plt
 from mcp.server.fastmcp import Context
-from mcp.server.fastmcp.utilities.types import Image
 
 from ..models.data import IntegrationParameters
 from ..models.analysis import IntegrationResult
-from ..utils.image_utils import fig_to_image, fig_to_base64, create_placeholder_image
 
 
 def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pcs=30):
@@ -350,9 +347,6 @@ async def integrate_samples(
     Returns:
         Integration result
     """
-    import matplotlib.pyplot as plt
-    import scanpy as sc
-
     if context:
         await context.info(f"Integrating {len(data_ids)} samples using {params.method} method")
 
@@ -384,21 +378,10 @@ async def integrate_samples(
             reference_batch=params.reference_batch
         )
 
-    # Create visualizations
-    # 1. UMAP embedding colored by batch
+    # Note: Visualizations should be created using the separate visualize_data tool
+    # This maintains clean separation between analysis and visualization
     if context:
-        await context.info("Creating UMAP visualization")
-    fig, ax = plt.subplots(figsize=(10, 8))
-    sc.pl.umap(combined_adata, color=params.batch_key, ax=ax, show=False)
-    umap_img = fig_to_image(fig)
-
-    # 2. Spatial coordinates colored by batch
-    if context:
-        await context.info("Creating spatial visualization")
-    fig, ax = plt.subplots(figsize=(10, 8))
-    spatial_key = 'spatial_aligned' if params.align_spatial and 'spatial_aligned' in combined_adata.obsm else 'spatial'
-    sc.pl.embedding(combined_adata, basis=spatial_key, color=params.batch_key, ax=ax, show=False)
-    spatial_img = fig_to_image(fig)
+        await context.info("Integration analysis complete. Use visualize_data tool with plot_type='integration_umap' or 'integration_spatial' to visualize results")
 
     # Generate new integrated dataset ID
     integrated_id = f"integrated_{'-'.join(data_ids)}"
@@ -414,6 +397,6 @@ async def integrate_samples(
         data_id=integrated_id,
         n_samples=len(data_ids),
         integration_method=params.method,
-        umap_visualization=umap_img,
-        spatial_visualization=spatial_img
+        umap_visualization=None,  # Use visualize_data tool instead
+        spatial_visualization=None  # Use visualize_data tool instead
     )

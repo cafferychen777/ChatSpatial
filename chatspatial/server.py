@@ -41,11 +41,11 @@ from .models.analysis import (
     CellCommunicationResult
 )
 from .tools.annotation import annotate_cell_types
-from .tools.spatial_analysis import analyze_spatial_unified
+from .tools.spatial_analysis import analyze_spatial_patterns
 from .tools.differential import differential_expression
 from .tools.trajectory import analyze_rna_velocity
 from .tools.deconvolution import deconvolve_spatial_data
-from .tools.gaston_spatial_genes import identify_spatial_variable_genes_gaston
+from .tools.spatial_genes import identify_spatial_genes
 from .utils.data_loader import load_spatial_data
 
 # Create MCP server
@@ -268,7 +268,7 @@ async def analyze_spatial_data(
     validate_dataset(data_id)
 
     # Call spatial analysis unified function (without return_type parameter)
-    result = await analyze_spatial_unified(data_id, data_store, params, context)
+    result = await analyze_spatial_patterns(data_id, data_store, params, context)
 
     # Log and return the result object
     if context:
@@ -617,7 +617,7 @@ async def find_spatial_genes(
     validate_dataset(data_id)
 
     # Call GASTON spatial variable genes identification function
-    result = await identify_spatial_variable_genes_gaston(data_id, data_store, params, context)
+    result = await identify_spatial_genes(data_id, data_store, params, context)
 
     if context:
         await context.info(f"Successfully completed GASTON analysis")

@@ -12,8 +12,11 @@ import time
 import sys
 import os
 
-# Add the chatspatial path
-sys.path.insert(0, '/Users/apple/Research/SpatialTrans_MCP/chatspatial')
+# Add the chatspatial path dynamically
+from pathlib import Path
+current_dir = Path(__file__).parent
+project_root = current_dir.parent.parent  # Go up to chatspatial root
+sys.path.insert(0, str(project_root))
 
 import warnings
 warnings.filterwarnings('ignore')
