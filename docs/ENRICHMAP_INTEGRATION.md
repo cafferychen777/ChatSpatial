@@ -89,18 +89,29 @@ pip install -e .[all]
 
 ### Visualization
 
-After running enrichment analysis:
+ChatSpatial follows a separation of analysis and visualization. After running enrichment analysis, use the visualization tool:
 
 ```python
-# Visualize single enrichment score
+# Basic spatial visualization
 "Visualize enrichment plot for T_cell"
+"Show spatial plot for T_cell_score"
 
-# Visualize multiple scores
+# Multiple scores
 "Visualize enrichment for T_cell, B_cell, and Macrophage"
 
-# Or use standard spatial visualization
-"Show spatial plot for T_cell_score"
+# Violin plots by cluster
+"Create violin plot with plot_type enrichment for T_cell_score"
+
+# Gene contribution heatmap (if supported in future)
+# Would show the weight of each gene in the enrichment score
+
+# Advanced visualizations (if EnrichMap plotting is available)
+# - Moran's I correlogram
+# - Variogram analysis
+# - Cross-correlation between signatures
 ```
+
+Note: All visualizations are handled by the `visualize_data` tool with `plot_type="enrichment"`
 
 ### Spatial Metrics
 

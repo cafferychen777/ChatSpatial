@@ -2745,9 +2745,19 @@ async def create_enrichment_visualization(
 ) -> plt.Figure:
     """Create EnrichMap enrichment visualization
     
+    Supports multiple visualization types:
+    - Default: Spatial enrichment map
+    - violin: Enrichment scores by cluster
+    - heatmap: Gene contributions heatmap
+    - correlation: Signature correlation heatmap
+    
     Args:
         adata: AnnData object with enrichment scores
-        params: Visualization parameters (feature should be score column name)
+        params: Visualization parameters
+            - feature: Score column name or signature name
+            - features: List of scores for multi-panel plot
+            - color_by: For violin plots, the grouping variable (default: leiden)
+            - show_gene_contributions: Show gene contribution heatmap
         context: MCP context
         
     Returns:
@@ -2756,12 +2766,160 @@ async def create_enrichment_visualization(
     if context:
         await context.info("Creating EnrichMap enrichment visualization")
     
+    # Import EnrichMap for specialized visualizations
+    try:
+        # Add EnrichMap to Python path
+        from pathlib import Path
+        import sys
+        current_dir = Path(__file__).parent
+        project_root = current_dir.parent.parent
+        enrichmap_path = str(project_root / "third_party" / "EnrichMap")
+        if enrichmap_path not in sys.path:
+            sys.path.insert(0, enrichmap_path)
+        import enrichmap as em
+    except ImportError:
+        # Fallback to basic visualization
+        if context:
+            await context.info("EnrichMap not available, using basic visualization")
+        em = None
+    
     # Find enrichment score columns
     score_cols = [col for col in adata.obs.columns if col.endswith('_score')]
     
     if not score_cols:
         raise DataNotFoundError("No enrichment scores found. Please run 'analyze_enrichment' first.")
     
+    # Check if user wants gene contribution visualization
+    if hasattr(params, 'show_gene_contributions') and params.show_gene_contributions:
+        if 'gene_contributions' not in adata.uns:
+            raise DataNotFoundError("Gene contributions not found. Please run 'analyze_enrichment' first.")
+        
+        # Create gene contribution heatmap
+        gene_contribs = adata.uns['gene_contributions']
+        
+        if not gene_contribs:
+            raise DataNotFoundError("No gene contributions available.")
+        
+        # Convert to DataFrame for visualization
+        import pandas as pd
+        contrib_data = {}
+        for sig, genes in gene_contribs.items():
+            contrib_data[sig] = genes
+        
+        if not contrib_data:
+            raise DataNotFoundError("No gene contribution data to visualize.")
+        
+        df = pd.DataFrame(contrib_data).fillna(0)
+        
+        # Create heatmap
+        fig, ax = create_figure(figsize=(max(8, len(df.columns) * 1.5), max(6, len(df) * 0.3)))
+        
+        sns.heatmap(df, annot=True, fmt='.3f', cmap='RdBu_r', center=0,
+                   ax=ax, cbar_kws={'label': 'Gene Weight'})
+        ax.set_title('Gene Contributions to Enrichment Scores', fontsize=14)
+        ax.set_xlabel('Signatures', fontsize=12)
+        ax.set_ylabel('Genes', fontsize=12)
+        
+        plt.tight_layout()
+        return fig
+    
+    # Check if user wants violin plot by cluster
+    if params.plot_type == "violin" or (hasattr(params, 'show_violin') and params.show_violin):
+        # Determine grouping variable
+        group_by = params.color_by if hasattr(params, 'color_by') and params.color_by else 'leiden'
+        
+        if group_by not in adata.obs.columns:
+            raise DataNotFoundError(f"Grouping variable '{group_by}' not found in adata.obs")
+        
+        # Determine which scores to plot
+        if params.features and len(params.features) > 1:
+            scores_to_plot = []
+            for feat in params.features:
+                if feat in adata.obs.columns:
+                    scores_to_plot.append(feat)
+                elif f"{feat}_score" in adata.obs.columns:
+                    scores_to_plot.append(f"{feat}_score")
+        elif params.feature:
+            if params.feature in adata.obs.columns:
+                scores_to_plot = [params.feature]
+            elif f"{params.feature}_score" in adata.obs.columns:
+                scores_to_plot = [f"{params.feature}_score"]
+            else:
+                scores_to_plot = [score_cols[0]]
+        else:
+            scores_to_plot = score_cols[:3]  # Limit to 3 scores for clarity
+        
+        # Create violin plot
+        n_scores = len(scores_to_plot)
+        fig, axes = plt.subplots(1, n_scores, figsize=(5 * n_scores, 6))
+        
+        if n_scores == 1:
+            axes = [axes]
+        
+        for i, score in enumerate(scores_to_plot):
+            ax = axes[i]
+            
+            # Create violin plot using seaborn
+            data_for_plot = pd.DataFrame({
+                group_by: adata.obs[group_by],
+                'Score': adata.obs[score]
+            })
+            
+            sns.violinplot(data=data_for_plot, x=group_by, y='Score', ax=ax)
+            
+            sig_name = score.replace('_score', '')
+            ax.set_title(f"{sig_name} by {group_by}", fontsize=12)
+            ax.set_xlabel(group_by, fontsize=10)
+            ax.set_ylabel('Enrichment Score', fontsize=10)
+            ax.tick_params(axis='x', rotation=45)
+        
+        plt.tight_layout()
+        return fig
+    
+    # Check if EnrichMap is available for advanced visualizations
+    if em is not None and hasattr(params, 'enrichmap_plot_type'):
+        plot_type = params.enrichmap_plot_type
+        
+        # Determine score to visualize
+        if params.feature:
+            if params.feature in adata.obs.columns:
+                score_col = params.feature
+            elif f"{params.feature}_score" in adata.obs.columns:
+                score_col = f"{params.feature}_score"
+            else:
+                score_col = score_cols[0]
+        else:
+            score_col = score_cols[0]
+        
+        fig = plt.figure(figsize=(10, 8))
+        
+        try:
+            if plot_type == "correlogram":
+                # Moran's I correlogram
+                em.pl.morans_correlogram(adata, score_key=score_col)
+            elif plot_type == "variogram":
+                # Variogram
+                em.pl.variogram(adata, score_key=score_col)
+            elif plot_type == "cross_correlation":
+                # Cross-correlation between scores
+                if len(score_cols) >= 2:
+                    em.pl.cross_moran_scatter(adata, score_keys=score_cols[:2])
+                else:
+                    raise DataNotFoundError("Need at least 2 enrichment scores for cross-correlation")
+            else:
+                # Default spatial enrichment
+                em.pl.spatial_enrichmap(adata, score_key=score_col)
+        except Exception as e:
+            if context:
+                await context.warning(f"EnrichMap visualization failed: {e}. Using fallback.")
+            plt.close(fig)
+            # Fall back to standard visualization
+            fig, ax = create_figure(figsize=(10, 8))
+            plot_spatial_feature(adata, feature=score_col, ax=ax, params=params)
+        
+        return fig
+    
+    # Standard spatial visualization (original code)
     # Determine which score to visualize
     if params.feature:
         # User specified a score

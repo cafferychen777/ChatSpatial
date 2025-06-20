@@ -214,9 +214,14 @@ ChatSpatial integrates EnrichMap for sophisticated gene set enrichment analysis 
 **Example Usage:**
 
 ```text
+# Analysis (separate from visualization)
 "Analyze T cell enrichment with gene set CD3D, CD3E, CD8A using spatial smoothing"
 "Perform enrichment analysis for immune signatures with batch correction"
-"Visualize enrichment scores for T_cell signature" (after running analyze_enrichment)
+
+# Visualization (after running analyze_enrichment)
+"Visualize enrichment plot for T_cell" 
+"Show spatial plot for T_cell_score"
+"Create violin plot with plot_type enrichment for T_cell_score grouped by leiden"
 ```
 
 ### Advanced Spatial Variable Genes with GASTON
