@@ -21,7 +21,7 @@ from mcp.server.fastmcp.utilities.types import Image
 from ..models.data import VisualizationParameters
 
 # Import standardized image utilities
-from ..utils.image_utils import fig_to_image, fig_to_base64, create_placeholder_image
+from ..utils.image_utils import fig_to_image, create_placeholder_image
 
 # Import error handling utilities
 from ..utils.error_handling import (
@@ -523,7 +523,8 @@ async def visualize_data(
         "deconvolution", "spatial_domains", "cell_communication",
         "trajectory", "rna_velocity", "spatial_analysis",
         "multi_gene", "lr_pairs", "gene_correlation",
-        "gaston_isodepth", "gaston_domains", "gaston_genes"
+        "gaston_isodepth", "gaston_domains", "gaston_genes",
+        "enrichment"
     ]
     if params.plot_type not in valid_plot_types:
         error_msg = f"Invalid plot_type: {params.plot_type}. Must be one of {valid_plot_types}"
@@ -972,6 +973,11 @@ async def visualize_data(
             if context:
                 await context.info("Creating GASTON spatial genes visualization")
             fig = await create_gaston_genes_visualization(adata, params, context)
+
+        elif params.plot_type == "enrichment":
+            if context:
+                await context.info("Creating EnrichMap enrichment visualization")
+            fig = await create_enrichment_visualization(adata, params, context)
 
         else:
             # This should never happen due to parameter validation at the beginning
@@ -2729,3 +2735,93 @@ async def create_gaston_genes_visualization(
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     return fig
+
+
+@handle_visualization_errors("EnrichMap")
+async def create_enrichment_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context = None
+) -> plt.Figure:
+    """Create EnrichMap enrichment visualization
+    
+    Args:
+        adata: AnnData object with enrichment scores
+        params: Visualization parameters (feature should be score column name)
+        context: MCP context
+        
+    Returns:
+        Matplotlib figure with enrichment visualization
+    """
+    if context:
+        await context.info("Creating EnrichMap enrichment visualization")
+    
+    # Find enrichment score columns
+    score_cols = [col for col in adata.obs.columns if col.endswith('_score')]
+    
+    if not score_cols:
+        raise DataNotFoundError("No enrichment scores found. Please run 'analyze_enrichment' first.")
+    
+    # Determine which score to visualize
+    if params.feature:
+        # User specified a score
+        if params.feature in adata.obs.columns:
+            score_col = params.feature
+        elif f"{params.feature}_score" in adata.obs.columns:
+            score_col = f"{params.feature}_score"
+        else:
+            raise DataNotFoundError(f"Score column '{params.feature}' not found. Available scores: {score_cols}")
+    else:
+        # Use the first available score
+        score_col = score_cols[0]
+        if context:
+            await context.info(f"Using score column: {score_col}")
+    
+    # Check if we should create multi-panel plot for multiple scores
+    if params.features and len(params.features) > 1:
+        # Multi-score visualization
+        scores_to_plot = []
+        for feat in params.features:
+            if feat in adata.obs.columns:
+                scores_to_plot.append(feat)
+            elif f"{feat}_score" in adata.obs.columns:
+                scores_to_plot.append(f"{feat}_score")
+        
+        if not scores_to_plot:
+            raise DataNotFoundError(f"None of the specified scores found: {params.features}")
+        
+        # Create multi-panel figure
+        fig, axes = setup_multi_panel_figure(
+            n_panels=len(scores_to_plot),
+            params=params,
+            default_title="EnrichMap Enrichment Scores"
+        )
+        
+        # Plot each score
+        for i, score in enumerate(scores_to_plot):
+            if i < len(axes):
+                ax = axes[i]
+                plot_spatial_feature(adata, feature=score, ax=ax, params=params)
+                
+                # Extract signature name from score column
+                sig_name = score.replace('_score', '')
+                ax.set_title(f"{sig_name} Enrichment")
+    else:
+        # Single score visualization
+        fig, ax = create_figure(figsize=(10, 8))
+        plot_spatial_feature(adata, feature=score_col, ax=ax, params=params)
+        
+        # Extract signature name from score column
+        sig_name = score_col.replace('_score', '')
+        ax.set_title(f"{sig_name} Enrichment Score", fontsize=14)
+        
+        # Add colorbar label if shown
+        if params.show_colorbar:
+            # Find the colorbar and update its label
+            if hasattr(ax, 'collections') and ax.collections:
+                cbar = plt.colorbar(ax.collections[0], ax=ax)
+                cbar.set_label('Enrichment Score', fontsize=12)
+    
+    plt.tight_layout()
+    return fig
+EOF < /dev/null

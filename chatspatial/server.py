@@ -2,7 +2,7 @@
 Main server implementation for ChatSpatial.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import warnings
 
 # Suppress warnings to speed up startup
@@ -569,6 +569,78 @@ async def analyze_cell_communication(
         if result.top_lr_pairs:
             await context.info(f"Top LR pair: {result.top_lr_pairs[0]}")
 
+    return result
+
+
+# Add tool for enrichment analysis using EnrichMap
+@mcp.tool()
+async def analyze_enrichment(
+    data_id: str,
+    gene_sets: Union[List[str], Dict[str, List[str]]],
+    score_keys: Optional[Union[str, List[str]]] = None,
+    spatial_key: str = "spatial",
+    n_neighbors: int = 6,
+    smoothing: bool = True,
+    correct_spatial_covariates: bool = True,
+    batch_key: Optional[str] = None,
+    context: Context = None
+) -> Dict[str, Any]:
+    """Perform spatially-aware gene set enrichment analysis using EnrichMap
+    
+    EnrichMap computes and visualizes enrichment scores of gene sets in spatial transcriptomics
+    datasets with spatial smoothing and covariate correction.
+    
+    Args:
+        data_id: Dataset ID
+        gene_sets: Either a single gene list or a dictionary of gene sets where keys are 
+                  signature names and values are lists of genes
+        score_keys: Names for the gene signatures if gene_sets is a list
+        spatial_key: Key in adata.obsm containing spatial coordinates (default: "spatial")
+        n_neighbors: Number of nearest spatial neighbors for smoothing (default: 6)
+        smoothing: Whether to perform spatial smoothing (default: True)
+        correct_spatial_covariates: Whether to correct for spatial covariates using GAM (default: True)
+        batch_key: Column in adata.obs for batch-wise normalization
+    
+    Returns:
+        Enrichment analysis result with scores, gene contributions, and statistics
+        
+    Examples:
+        # Single gene set
+        analyze_enrichment(data_id="data_1", gene_sets=["CD3D", "CD3E", "CD8A"], score_keys="T_cell")
+        
+        # Multiple gene sets
+        analyze_enrichment(data_id="data_1", gene_sets={
+            "T_cell": ["CD3D", "CD3E", "CD8A"],
+            "B_cell": ["CD19", "MS4A1", "CD79A"]
+        })
+    """
+    if context:
+        await context.info("Performing spatially-aware enrichment analysis using EnrichMap")
+    
+    # Validate dataset
+    validate_dataset(data_id)
+    
+    # Import and call enrichment analysis function
+    from .tools.enrichment_analysis import perform_enrichment_analysis
+    result = await perform_enrichment_analysis(
+        data_id=data_id,
+        data_store=data_store,
+        gene_sets=gene_sets,
+        score_keys=score_keys,
+        spatial_key=spatial_key,
+        n_neighbors=n_neighbors,
+        smoothing=smoothing,
+        correct_spatial_covariates=correct_spatial_covariates,
+        batch_key=batch_key,
+        context=context
+    )
+    
+    if context:
+        await context.info(f"Successfully computed enrichment scores for {len(result['signatures'])} signatures")
+        for sig in result['signatures']:
+            stats = result['summary_stats'][sig]
+            await context.info(f"  {sig}: mean={stats['mean']:.3f}, std={stats['std']:.3f}, n_genes={stats['n_genes']}")
+    
     return result
 
 

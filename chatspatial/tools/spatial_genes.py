@@ -14,8 +14,6 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from typing import Dict, List, Tuple, Optional, Any
-import matplotlib.pyplot as plt
-import seaborn as sns
 from pathlib import Path
 import scanpy as sc
 from sklearn.decomposition import PCA

@@ -8,7 +8,6 @@ to estimate cell type proportions in each spatial location.
 from typing import Dict, List, Optional, Any, Tuple, Union
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import scanpy as sc
 import anndata as ad
 
@@ -17,7 +16,6 @@ import warnings
 import sys
 import os
 from mcp.server.fastmcp import Context
-from mcp.server.fastmcp.utilities.types import Image
 
 # Try to import Spotiphy directly
 # If it's not installed, we'll handle the ImportError when the function is called
@@ -32,7 +30,6 @@ except ImportError:
 
 from ..models.data import DeconvolutionParameters
 from ..models.analysis import DeconvolutionResult
-from ..utils.image_utils import fig_to_image, fig_to_base64
 
 # Import context manager utilities
 from contextlib import contextmanager

@@ -30,14 +30,26 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+enrichmap = [
+    # EnrichMap specific dependencies
+    "statannotations",
+    "pygam",
+    "scikit-gstat",
+    "adjustText",
+    "splot",
+    "dask==2024.11.2",
+]
 deconvolution = [
     "cell2location",  # 空间转录组去卷积
-    "spotiphy",  # 空间转录组去卷积
+    "spotiphy",  # 空间转录组去卷积 (requires Python 3.8-3.11)
     "torch>=1.7.1",  # 用于Spotiphy和cell2location
     "pyro-ppl>=1.8.0",  # 用于Spotiphy
 ]
 spotiphy = [
-    "spotiphy",  # Spotiphy包
+    # Note: Spotiphy is available on PyPI but requires Python 3.8-3.11
+    # Install with: pip install spotiphy
+    # Or from local: pip install -e third_party/Spotiphy/
+    "spotiphy",  # Spatial transcriptomics deconvolution
     "torch>=1.7.1",  # 用于Spotiphy
     "pyro-ppl>=1.8.0",  # 用于Spotiphy
     "opencv-python",  # 用于Spotiphy图像处理
@@ -66,13 +78,25 @@ cell_communication = [
     "tqdm",  # LIANA+ 进度条
 ]
 all = [
+    # EnrichMap dependencies
+    "statannotations",
+    "pygam",
+    "scikit-gstat",
+    "adjustText",
+    "splot",
+    "dask==2024.11.2",
+    # Deconvolution dependencies
     "cell2location",
-    "spotiphy",
+    "spotiphy",  # Requires Python 3.8-3.11
+    # Spatial domain dependencies
     "STAGATE",
     "SpaGCN",
+    # Spatial genes dependencies  
     "spatialde",
     "NaiveDE",
+    # Cell communication dependencies
     "liana",
+    # Common dependencies
     "torch>=1.7.1",
     "pyro-ppl>=1.8.0",
     "tensorflow>=1.15.0,<2.0",
