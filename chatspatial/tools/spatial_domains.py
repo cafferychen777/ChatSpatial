@@ -118,10 +118,21 @@ async def identify_spatial_domains(
             adata_subset.X = adata_subset.X.astype(np.float32)
         
         # Check for problematic values that can cause SpaGCN to hang
-        if np.any(np.isnan(adata_subset.X)) or np.any(np.isinf(adata_subset.X)):
-            if context:
-                await context.warning("Found NaN or infinite values in data, replacing with 0")
-            adata_subset.X = np.nan_to_num(adata_subset.X, nan=0.0, posinf=0.0, neginf=0.0)
+        # Handle both dense and sparse matrices
+        from scipy.sparse import issparse
+        
+        if issparse(adata_subset.X):
+            # For sparse matrices, check the data attribute
+            if np.any(np.isnan(adata_subset.X.data)) or np.any(np.isinf(adata_subset.X.data)):
+                if context:
+                    await context.warning("Found NaN or infinite values in sparse data, replacing with 0")
+                adata_subset.X.data = np.nan_to_num(adata_subset.X.data, nan=0.0, posinf=0.0, neginf=0.0)
+        else:
+            # For dense matrices
+            if np.any(np.isnan(adata_subset.X)) or np.any(np.isinf(adata_subset.X)):
+                if context:
+                    await context.warning("Found NaN or infinite values in data, replacing with 0")
+                adata_subset.X = np.nan_to_num(adata_subset.X, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Smart preprocessing for SpaGCN to prevent hanging
         # Based on deep analysis of SpaGCN bottlenecks
@@ -284,6 +295,8 @@ async def _identify_domains_spagcn(
 
         # Create a dummy histology image if not available
         img = None
+        scale_factor = 1.0  # Default scale factor
+        
         if params.spagcn_use_histology:
             # Try to get histology image from adata.uns
             if 'spatial' in adata.uns and 'images' in adata.uns['spatial']:
@@ -291,10 +304,21 @@ async def _identify_domains_spagcn(
                 img_key = list(adata.uns['spatial'].keys())[0]
                 if 'images' in adata.uns['spatial'][img_key]:
                     img_dict = adata.uns['spatial'][img_key]['images']
-                    if 'hires' in img_dict:
-                        img = img_dict['hires']
-                    elif 'lowres' in img_dict:
-                        img = img_dict['lowres']
+                    # Check for scalefactors
+                    if 'scalefactors' in adata.uns['spatial'][img_key]:
+                        scalefactors = adata.uns['spatial'][img_key]['scalefactors']
+                        if 'hires' in img_dict and 'tissue_hires_scalef' in scalefactors:
+                            img = img_dict['hires']
+                            scale_factor = scalefactors['tissue_hires_scalef']
+                        elif 'lowres' in img_dict and 'tissue_lowres_scalef' in scalefactors:
+                            img = img_dict['lowres']
+                            scale_factor = scalefactors['tissue_lowres_scalef']
+                    else:
+                        # No scalefactors, try to get image anyway
+                        if 'hires' in img_dict:
+                            img = img_dict['hires']
+                        elif 'lowres' in img_dict:
+                            img = img_dict['lowres']
 
         if img is None:
             # Create dummy image or disable histology
@@ -302,6 +326,13 @@ async def _identify_domains_spagcn(
                 await context.info("No histology image found, running SpaGCN without histology")
             params.spagcn_use_histology = False
             img = np.ones((100, 100, 3), dtype=np.uint8) * 255  # White dummy image
+        else:
+            # Apply scale factor to get pixel coordinates
+            # SpaGCN expects integer pixel coordinates
+            x_pixel = [int(x * scale_factor) for x in x_array]
+            y_pixel = [int(y * scale_factor) for y in y_array]
+            if context:
+                await context.info(f"Using image with scale factor {scale_factor}")
 
         # Run SpaGCN easy mode
         if context:
