@@ -13,13 +13,88 @@ from ..models.analysis import RNAVelocityResult, TrajectoryResult
 from ..utils.output_utils import suppress_output, ProcessingError
 
 
+def validate_velocity_data(adata) -> Tuple[bool, List[str]]:
+    """
+    Validate if AnnData object has necessary data for RNA velocity analysis.
+    
+    Returns:
+        Tuple of (is_valid, list_of_issues)
+    """
+    issues = []
+    
+    # Check for required layers
+    if 'spliced' not in adata.layers:
+        issues.append("Missing 'spliced' layer required for RNA velocity")
+    if 'unspliced' not in adata.layers:
+        issues.append("Missing 'unspliced' layer required for RNA velocity")
+    
+    # Check if layers have data
+    if 'spliced' in adata.layers and 'unspliced' in adata.layers:
+        # Check for empty or all-zero layers
+        if hasattr(adata.layers['spliced'], 'nnz'):  # Sparse matrix
+            if adata.layers['spliced'].nnz == 0:
+                issues.append("'spliced' layer is empty (all zeros)")
+            if adata.layers['unspliced'].nnz == 0:
+                issues.append("'unspliced' layer is empty (all zeros)")
+        else:  # Dense matrix
+            if np.all(adata.layers['spliced'] == 0):
+                issues.append("'spliced' layer is empty (all zeros)")
+            if np.all(adata.layers['unspliced'] == 0):
+                issues.append("'unspliced' layer is empty (all zeros)")
+        
+        # Check for NaN values
+        if hasattr(adata.layers['spliced'], 'data'):  # Sparse
+            if np.any(np.isnan(adata.layers['spliced'].data)):
+                issues.append("'spliced' layer contains NaN values")
+            if np.any(np.isnan(adata.layers['unspliced'].data)):
+                issues.append("'unspliced' layer contains NaN values")
+        else:  # Dense
+            if np.any(np.isnan(adata.layers['spliced'])):
+                issues.append("'spliced' layer contains NaN values")
+            if np.any(np.isnan(adata.layers['unspliced'])):
+                issues.append("'unspliced' layer contains NaN values")
+    
+    return len(issues) == 0, issues
+
+
+def validate_spatial_data(adata) -> Tuple[bool, List[str]]:
+    """
+    Validate if AnnData object has necessary spatial information.
+    
+    Returns:
+        Tuple of (is_valid, list_of_issues)
+    """
+    issues = []
+    
+    # Check for spatial coordinates
+    if 'spatial' not in adata.obsm:
+        issues.append("Missing 'spatial' coordinates in adata.obsm")
+    else:
+        spatial_coords = adata.obsm['spatial']
+        
+        # Check dimensions
+        if spatial_coords.shape[1] < 2:
+            issues.append(f"Spatial coordinates should have at least 2 dimensions, found {spatial_coords.shape[1]}")
+        
+        # Check for NaN values
+        if np.any(np.isnan(spatial_coords)):
+            issues.append("Spatial coordinates contain NaN values")
+        
+        # Check for constant coordinates
+        if np.std(spatial_coords[:, 0]) == 0 and np.std(spatial_coords[:, 1]) == 0:
+            issues.append("All spatial coordinates are identical")
+    
+    return len(issues) == 0, issues
+
+
 def preprocess_for_velocity(adata):
     """Prepare data for RNA velocity analysis"""
     import scvelo as scv
 
-    # Check if data contains unspliced and spliced counts
-    if 'spliced' not in adata.layers or 'unspliced' not in adata.layers:
-        raise ValueError("Data lacks unspliced and spliced counts")
+    # Validate velocity data
+    is_valid, issues = validate_velocity_data(adata)
+    if not is_valid:
+        raise ValueError(f"Invalid velocity data: {'; '.join(issues)}")
 
     # Standard preprocessing
     scv.pp.filter_and_normalize(adata)
@@ -53,13 +128,15 @@ def prepare_for_sirv(spatial_adata, scrna_adata):
     """Prepare spatial data and scRNA-seq data for SIRV analysis"""
     import scvelo as scv
 
-    # Ensure scRNA-seq data contains unspliced and spliced counts
-    if 'spliced' not in scrna_adata.layers or 'unspliced' not in scrna_adata.layers:
-        raise ValueError("scRNA-seq data lacks unspliced and spliced counts")
+    # Validate scRNA-seq velocity data
+    is_valid, issues = validate_velocity_data(scrna_adata)
+    if not is_valid:
+        raise ValueError(f"Invalid scRNA-seq velocity data: {'; '.join(issues)}")
 
-    # Ensure spatial data contains spatial coordinates
-    if 'spatial' not in spatial_adata.obsm:
-        raise ValueError("Spatial data lacks spatial coordinates")
+    # Validate spatial data
+    is_valid, issues = validate_spatial_data(spatial_adata)
+    if not is_valid:
+        raise ValueError(f"Invalid spatial data: {'; '.join(issues)}")
 
     # Preprocess scRNA-seq data
     scv.pp.filter_and_normalize(scrna_adata)
@@ -99,9 +176,10 @@ def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=
     from scipy.spatial.distance import pdist, squareform
     from scipy.sparse import csr_matrix
 
-    # Get spatial coordinates
-    if 'spatial' not in adata.obsm:
-        raise ValueError("Data lacks spatial coordinate information")
+    # Validate spatial data
+    is_valid, issues = validate_spatial_data(adata)
+    if not is_valid:
+        raise ValueError(f"Invalid spatial data: {'; '.join(issues)}")
 
     spatial_coords = adata.obsm['spatial']
 
@@ -164,9 +242,10 @@ def spatial_aware_embedding(adata, spatial_weight=0.3):
     from sklearn.metrics.pairwise import euclidean_distances
     from umap import UMAP
 
-    # Get spatial coordinates
-    if 'spatial' not in adata.obsm:
-        raise ValueError("Data lacks spatial coordinates")
+    # Validate spatial data
+    is_valid, issues = validate_spatial_data(adata)
+    if not is_valid:
+        raise ValueError(f"Invalid spatial data: {'; '.join(issues)}")
 
     spatial_coords = adata.obsm['spatial']
 
@@ -300,8 +379,16 @@ async def analyze_rna_velocity(
     # Copy AnnData to avoid modifying original data
     adata = data_store[data_id]["adata"].copy()
 
-    # Check if data has velocity information
-    has_velocity_data = 'spliced' in adata.layers and 'unspliced' in adata.layers
+    # Validate data for velocity analysis
+    velocity_valid, velocity_issues = validate_velocity_data(adata)
+    has_velocity_data = velocity_valid
+    
+    if not velocity_valid and not params.reference_data_id:
+        if context:
+            await context.warning("Data validation issues found:")
+            for issue in velocity_issues:
+                await context.warning(f"  - {issue}")
+            await context.info("Tip: Provide reference_data_id with spliced/unspliced layers for SIRV analysis")
 
     velocity_computed = False
 
