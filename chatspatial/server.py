@@ -12,6 +12,19 @@ warnings.filterwarnings("ignore", category=UserWarning)
 from mcp.server.fastmcp import FastMCP, Context
 from mcp.server.fastmcp.utilities.types import Image
 from .utils.image_utils import fig_to_image, create_placeholder_image
+from .mcp_improvements import (
+    TOOL_ANNOTATIONS, SPATIAL_PROMPTS, ErrorType, format_mcp_error,
+    get_resource_list, read_resource_content, prompt_to_tool_params,
+    get_all_tools_with_annotations
+)
+from .utils.tool_error_handling import mcp_tool_error_handler
+from .utils.pydantic_error_handler import mcp_pydantic_error_handler
+from .utils.mcp_parameter_handler import (
+    manual_parameter_validation,
+    validate_analysis_params,
+    validate_visualization_params,
+    validate_spatial_analysis_params
+)
 
 from .models.data import (
     SpatialDataset,
@@ -69,6 +82,7 @@ def validate_dataset(data_id: str) -> None:
 
 
 @mcp.tool()
+@mcp_tool_error_handler()
 async def load_data(
     data_path: str,
     data_type: str = "auto",
@@ -111,9 +125,13 @@ async def load_data(
 
 
 @mcp.tool()
+@mcp_tool_error_handler()
+@manual_parameter_validation(
+    ("params", validate_analysis_params)
+)
 async def preprocess_data(
     data_id: str,
-    params: AnalysisParameters = AnalysisParameters(),
+    params: Any = None,
     context: Context = None
 ) -> PreprocessingResult:
     """Preprocess spatial transcriptomics data
@@ -148,9 +166,13 @@ async def preprocess_data(
 
 
 @mcp.tool()
+@mcp_tool_error_handler()
+@manual_parameter_validation(
+    ("params", validate_visualization_params)
+)
 async def visualize_data(
     data_id: str,
-    params: VisualizationParameters = VisualizationParameters(),
+    params: Any = None,
     context: Context = None
 ):
     """Visualize spatial transcriptomics data
@@ -196,6 +218,7 @@ async def visualize_data(
 
 
 @mcp.tool()
+@mcp_tool_error_handler()
 async def annotate_cells(
     data_id: str,
     params: AnnotationParameters = AnnotationParameters(),
@@ -245,6 +268,8 @@ async def annotate_cells(
 
 
 @mcp.tool()
+@mcp_tool_error_handler()
+@mcp_pydantic_error_handler()
 async def analyze_spatial_data(
     data_id: str,
     params: SpatialAnalysisParameters = SpatialAnalysisParameters(),
@@ -281,6 +306,7 @@ async def analyze_spatial_data(
 
 
 @mcp.tool()
+@mcp_tool_error_handler()
 async def find_markers(
     data_id: str,
     group_key: str,
@@ -314,6 +340,7 @@ async def find_markers(
 
 # Add RNA velocity analysis tool
 @mcp.tool()
+@mcp_tool_error_handler()
 async def analyze_velocity_data(
     data_id: str,
     params: RNAVelocityParameters = RNAVelocityParameters(),
@@ -347,6 +374,7 @@ async def analyze_velocity_data(
 
 # Add trajectory analysis tool
 @mcp.tool()
+@mcp_tool_error_handler()
 async def analyze_trajectory_data(
     data_id: str,
     params: TrajectoryParameters = TrajectoryParameters(),
@@ -394,6 +422,7 @@ async def analyze_trajectory_data(
 
 # Add tool for integrating multiple samples
 @mcp.tool()
+@mcp_tool_error_handler()
 async def integrate_samples(
     data_ids: List[str],
     params: IntegrationParameters = IntegrationParameters(),
@@ -432,6 +461,7 @@ async def integrate_samples(
 
 # Add tool for spatial deconvolution
 @mcp.tool()
+@mcp_tool_error_handler()
 async def deconvolve_data(
     data_id: str,
     params: DeconvolutionParameters = DeconvolutionParameters(),
@@ -501,6 +531,7 @@ async def deconvolve_data(
 
 # Add tool for spatial domain identification
 @mcp.tool()
+@mcp_tool_error_handler()
 async def identify_spatial_domains(
     data_id: str,
     params: SpatialDomainParameters = SpatialDomainParameters(),
@@ -536,6 +567,7 @@ async def identify_spatial_domains(
 
 # Add tool for cell communication analysis
 @mcp.tool()
+@mcp_tool_error_handler()
 async def analyze_cell_communication(
     data_id: str,
     params: CellCommunicationParameters = CellCommunicationParameters(),
@@ -574,6 +606,7 @@ async def analyze_cell_communication(
 
 # Add tool for enrichment analysis using EnrichMap
 @mcp.tool()
+@mcp_tool_error_handler()
 async def analyze_enrichment(
     data_id: str,
     gene_sets: Union[List[str], Dict[str, List[str]]],
@@ -646,6 +679,7 @@ async def analyze_enrichment(
 
 # Add tool for spatial variable genes identification using GASTON
 @mcp.tool()
+@mcp_tool_error_handler()
 async def find_spatial_genes(
     data_id: str,
     params: SpatialVariableGenesParameters = SpatialVariableGenesParameters(),
@@ -714,10 +748,138 @@ def get_dataset_info(data_id: str) -> Dict[str, Any]:
     return data_store[data_id]
 
 
+# The list_resources handler is automatically provided by FastMCP
+# We just need to register resources using mcp.add_resource()
+
+
+# # Implement read_resource handler
+# @mcp.read_resource
+# async def read_resource(uri: str) -> str:
+#     """Read resource content"""
+#     try:
+#         return read_resource_content(uri, data_store)
+#     except Exception as e:
+#         error = format_mcp_error(
+#             ErrorType.INTERNAL_ERROR,
+#             f"Failed to read resource: {str(e)}",
+#             {"uri": uri}
+#         )
+#         raise ValueError(error)
+
+
+# # # Implement list_prompts handler
+# # @mcp.list_prompts
+# # async def list_prompts() -> List[Dict[str, Any]]:
+# #     """List available prompts for spatial analysis"""
+# #     return [
+# #         {
+# #             "name": p.name,
+# #             "description": p.description,
+# #             "arguments": p.arguments
+# #         }
+# #         for p in SPATIAL_PROMPTS
+# #     ]
+# 
+# 
+# # # Implement get_prompt handler
+# # @mcp.get_prompt()
+# # async def get_prompt(name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+#     """Get a specific prompt with filled arguments"""
+#     # Find the prompt
+#     prompt = next((p for p in SPATIAL_PROMPTS if p.name == name), None)
+#     if not prompt:
+#         error = format_mcp_error(
+#             ErrorType.INVALID_REQUEST,
+#             f"Prompt '{name}' not found"
+#         )
+#         raise ValueError(error)
+#     
+#     # Convert to tool parameters
+#     try:
+#         if arguments:
+#             tool_params = prompt_to_tool_params(name, arguments, data_store)
+#             # Format as a helpful message
+#             tool_name = tool_params["tool"]
+#             params = tool_params["params"]
+#             
+#             # Create a formatted prompt message
+#             messages = [
+#                 {
+#                     "role": "user",
+#                     "content": f"Please run the {tool_name} tool with these parameters: {params}"
+#                 }
+#             ]
+#         else:
+#             # Return the prompt template
+#             messages = [
+#                 {
+#                     "role": "user", 
+#                     "content": f"Please help me with: {prompt.description}"
+#                 }
+#             ]
+#         
+#         return {
+#             "description": prompt.description,
+#             "messages": messages
+#         }
+#     except Exception as e:
+#         error = format_mcp_error(
+#             ErrorType.INTERNAL_ERROR,
+#             f"Failed to process prompt: {str(e)}"
+#         )
+#         raise ValueError(error)
+# 
+# 
+# # # Override list_tools to include annotations
+# # @mcp.list_tools
+# # async def list_tools() -> List[Dict[str, Any]]:
+#     """List all available tools with annotations"""
+#     # Get the default tools list from FastMCP
+#     tools = []
+#     
+#     # Get registered tools from mcp instance
+#     for tool_name, tool_info in mcp._tool_handlers.items():
+#         # Get annotations if available
+#         annotations = TOOL_ANNOTATIONS.get(tool_name, {})
+        
+#         # Create tool info with annotations
+#         tool_data = {
+#             "name": tool_name,
+#             "description": tool_info.description or "",
+#             "inputSchema": tool_info.parameters_schema
+#         }
+#         
+#         # Add annotations if available
+#         if annotations:
+#             tool_data["annotations"] = {
+#                 "title": annotations.get("title", tool_name),
+#                 "readOnlyHint": annotations.get("readOnlyHint", False),
+#                 "destructiveHint": annotations.get("destructiveHint", False),
+#                 "idempotentHint": annotations.get("idempotentHint", False),
+#                 "openWorldHint": annotations.get("openWorldHint", False)
+#             }
+#         
+#         tools.append(tool_data)
+#     
+#     return tools
+
+
 def main():
     """Run the MCP server"""
-    print("Starting ChatSpatial server...")
-    mcp.run(transport='stdio')
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="ChatSpatial MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse"],
+        default="stdio",
+        help="Transport protocol to use (default: stdio)"
+    )
+    
+    args = parser.parse_args()
+    
+    print(f"Starting ChatSpatial server with {args.transport} transport...")
+    mcp.run(transport=args.transport)
 
 
 if __name__ == "__main__":

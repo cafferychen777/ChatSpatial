@@ -45,7 +45,7 @@ class VisualizationParameters(BaseModel):
         "spatial", "heatmap", "violin", "umap",
         "spatial_domains", "cell_communication", "deconvolution",
         "trajectory", "spatial_analysis", "multi_gene", "lr_pairs", "gene_correlation",
-        "gaston_isodepth", "gaston_domains", "gaston_genes"
+        "gaston_isodepth", "gaston_domains", "gaston_genes", "gsea", "enrichment"
     ] = "spatial"
     colormap: str = "viridis"
 
@@ -89,6 +89,11 @@ class VisualizationParameters(BaseModel):
     # Trajectory visualization parameters
     basis: Optional[str] = None  # Basis for trajectory visualization (e.g., 'spatial', 'umap', 'pca')
 
+    # GSEA visualization parameters
+    gsea_results_key: str = "gsea_results"  # Key in adata.uns for GSEA results
+    gsea_plot_type: Literal["enrichment_plot", "barplot", "dotplot", "spatial"] = "barplot"
+    n_top_pathways: int = 10  # Number of top pathways to show in barplot
+    
     # Legacy parameters (for backward compatibility)
     show_deconvolution: bool = False  # Whether to show deconvolution results
     n_cell_types: Annotated[int, Field(gt=0, le=10)] = 4  # Number of top cell types to show
@@ -197,7 +202,7 @@ class IntegrationParameters(BaseModel):
 
 class DeconvolutionParameters(BaseModel):
     """Spatial deconvolution parameters model"""
-    method: Literal["cell2location", "spotiphy", "rctd", "destvi", "stereoscope"] = "cell2location"
+    method: Literal["cell2location", "spotiphy", "rctd", "destvi", "stereoscope", "spotlight"] = "cell2location"
     reference_data_id: Optional[str] = None  # Reference single-cell data for deconvolution
     cell_type_key: str = "cell_type"  # Key in reference data for cell type information
     n_top_genes: Annotated[int, Field(gt=0, le=5000)] = 2000  # Number of top genes to use
@@ -232,7 +237,7 @@ class DeconvolutionParameters(BaseModel):
 
 class SpatialDomainParameters(BaseModel):
     """Spatial domain identification parameters model"""
-    method: Literal["spagcn", "leiden", "louvain"] = "spagcn"
+    method: Literal["spagcn", "leiden", "louvain", "stagate", "banksy"] = "spagcn"
     n_domains: Annotated[int, Field(gt=0, le=50)] = 7  # Number of spatial domains to identify
 
     # SpaGCN specific parameters
@@ -250,6 +255,22 @@ class SpatialDomainParameters(BaseModel):
     # Clustering-specific parameters for leiden/louvain methods
     cluster_n_neighbors: Optional[Annotated[int, Field(gt=0)]] = None  # Number of neighbors for clustering (default: 15)
     cluster_spatial_weight: Optional[Annotated[float, Field(ge=0.0, le=1.0)]] = None  # Weight for spatial information (default: 0.3)
+    cluster_resolution: Optional[float] = None  # Resolution parameter for clustering
+    
+    # STAGATE specific parameters
+    stagate_rad_cutoff: Optional[float] = None  # Radius cutoff for spatial neighbors (default: 150)
+    stagate_learning_rate: Optional[float] = None  # Learning rate (default: 0.001)
+    stagate_weight_decay: Optional[float] = None  # Weight decay (default: 0.0001)
+    stagate_epochs: Optional[int] = None  # Number of training epochs (default: 1000)
+    stagate_dim_output: Optional[int] = None  # Dimension of output representation (default: 15)
+    stagate_random_seed: Optional[int] = None  # Random seed (default: 42)
+    
+    # BANKSY specific parameters
+    banksy_n_neighbors: Optional[int] = None  # Number of spatial neighbors (default: 15)
+    banksy_lambda: Optional[float] = None  # Lambda parameter for spatial weight (default: 0.2)
+    banksy_max_m: Optional[int] = None  # Maximum order of neighbors (default: 1)
+    banksy_decay_type: Optional[Literal["uniform", "reciprocal", "gaussian", "scaled_gaussian"]] = None  # Decay type (default: "scaled_gaussian")
+    banksy_n_pcs: Optional[int] = None  # Number of principal components (default: 20)
 
 
 

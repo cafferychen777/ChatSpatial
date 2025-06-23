@@ -11,6 +11,7 @@ from mcp.server.fastmcp import Context
 
 from ..models.data import AnalysisParameters
 from ..models.analysis import PreprocessingResult
+from ..utils.tool_error_handling import mcp_tool_error_handler
 
 # Constants for preprocessing
 DEFAULT_TARGET_SUM = 1e4
@@ -79,6 +80,7 @@ def _safe_matrix_operation(adata, operation: str):
         return None
 
 
+@mcp_tool_error_handler()
 async def preprocess_data(
     data_id: str,
     data_store: Dict[str, Any],
