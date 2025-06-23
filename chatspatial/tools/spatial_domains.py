@@ -28,6 +28,18 @@ try:
 except ImportError:
     SPAGCN_AVAILABLE = False
 
+try:
+    import STAGATE
+    STAGATE_AVAILABLE = True
+except ImportError:
+    STAGATE_AVAILABLE = False
+
+try:
+    import banksy as bk
+    BANKSY_AVAILABLE = True
+except ImportError:
+    BANKSY_AVAILABLE = False
+
 
 def _check_environment_compatibility():
     """Check environment compatibility for spatial domain identification"""
@@ -40,6 +52,14 @@ def _check_environment_compatibility():
     # Check SpaGCN availability  
     if not SPAGCN_AVAILABLE:
         issues.append("SpaGCN not available - only clustering methods available")
+    
+    # Check STAGATE availability
+    if not STAGATE_AVAILABLE:
+        issues.append("STAGATE not available - graph attention method unavailable")
+    
+    # Check BANKSY availability  
+    if not BANKSY_AVAILABLE:
+        issues.append("BANKSY not available - neighborhood aggregation method unavailable")
     
     # Check version compatibility
     try:
@@ -201,8 +221,16 @@ async def identify_spatial_domains(
             domain_labels, embeddings_key, statistics = await _identify_domains_clustering(
                 adata_subset, params, context
             )
+        elif params.method == "stagate":
+            domain_labels, embeddings_key, statistics = await _identify_domains_stagate(
+                adata_subset, params, context
+            )
+        elif params.method == "banksy":
+            domain_labels, embeddings_key, statistics = await _identify_domains_banksy(
+                adata_subset, params, context
+            )
         else:
-            raise ValueError(f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain")
+            raise ValueError(f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain, stagate, banksy")
         
         # Store domain labels in original adata
         domain_key = f"spatial_domains_{params.method}"
@@ -642,3 +670,197 @@ def _refine_spatial_domains(adata: Any, domain_key: str, refined_key: str) -> pd
     except Exception as e:
         # Raise error instead of silently failing
         raise RuntimeError(f"Failed to refine spatial domains: {str(e)}") from e
+
+
+async def _identify_domains_stagate(
+    adata: Any,
+    params: SpatialDomainParameters,
+    context: Optional[Context] = None
+) -> tuple:
+    """Identify spatial domains using STAGATE"""
+    if not STAGATE_AVAILABLE:
+        raise ImportError("STAGATE is not installed. Please install it with: pip install STAGATE")
+    
+    if context:
+        await context.info("Running STAGATE for spatial domain identification...")
+    
+    try:
+        import torch
+        import STAGATE
+        
+        # STAGATE requires specific preprocessing
+        adata_stagate = adata.copy()
+        
+        # Calculate spatial graph
+        if context:
+            await context.info("Calculating spatial neighbor graph...")
+        
+        # STAGATE uses its own graph construction
+        STAGATE.Cal_Spatial_Net(adata_stagate, rad_cutoff=params.stagate_rad_cutoff or 150)
+        
+        # Run STAGATE
+        if context:
+            await context.info("Training STAGATE model...")
+        
+        # Set device
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if context:
+            await context.info(f"Using device: {device}")
+        
+        # Train STAGATE
+        adata_stagate = STAGATE.train_STAGATE(
+            adata_stagate,
+            device=device,
+            learning_rate=params.stagate_learning_rate or 0.001,
+            weight_decay=params.stagate_weight_decay or 0.0001,
+            epochs=params.stagate_epochs or 1000,
+            dim_output=params.stagate_dim_output or 15,
+            random_seed=params.stagate_random_seed or 42
+        )
+        
+        # Get embeddings
+        embeddings_key = 'STAGATE'
+        
+        # Perform clustering on STAGATE embeddings
+        if context:
+            await context.info("Clustering STAGATE embeddings...")
+        
+        sc.pp.neighbors(adata_stagate, use_rep='STAGATE', n_neighbors=params.cluster_n_neighbors or 15)
+        
+        if params.method == "stagate":
+            # Use mclust for clustering as recommended by STAGATE
+            try:
+                import rpy2.robjects as ro
+                from rpy2.robjects import pandas2ri
+                pandas2ri.activate()
+                
+                # Use R's mclust
+                ro.r('''
+                    library(mclust)
+                    mclust_clustering <- function(embedding, n_clusters) {
+                        fit <- Mclust(embedding, G=n_clusters)
+                        return(fit$classification)
+                    }
+                ''')
+                
+                mclust_func = ro.r['mclust_clustering']
+                embedding_df = pd.DataFrame(adata_stagate.obsm['STAGATE'])
+                clusters = mclust_func(embedding_df, params.n_domains)
+                domain_labels = pd.Series(clusters, index=adata.obs.index).astype(str)
+                
+            except ImportError:
+                if context:
+                    await context.warning("mclust not available, using leiden clustering instead")
+                sc.tl.leiden(adata_stagate, resolution=params.cluster_resolution or 1.0)
+                domain_labels = adata_stagate.obs['leiden'].astype(str)
+        
+        # Copy embeddings to original adata
+        adata.obsm[embeddings_key] = adata_stagate.obsm['STAGATE']
+        
+        statistics = {
+            "method": "stagate",
+            "n_clusters": len(domain_labels.unique()),
+            "rad_cutoff": params.stagate_rad_cutoff or 150,
+            "epochs": params.stagate_epochs or 1000,
+            "device": str(device)
+        }
+        
+        return domain_labels, embeddings_key, statistics
+        
+    except Exception as e:
+        error_msg = f"STAGATE execution failed: {str(e)}"
+        if context:
+            await context.warning(error_msg)
+        raise RuntimeError(error_msg) from e
+
+
+async def _identify_domains_banksy(
+    adata: Any,
+    params: SpatialDomainParameters,
+    context: Optional[Context] = None
+) -> tuple:
+    """Identify spatial domains using BANKSY"""
+    if not BANKSY_AVAILABLE:
+        raise ImportError("BANKSY is not installed. Please install it from: https://github.com/prabhakarlab/Banksy_py")
+    
+    if context:
+        await context.info("Running BANKSY for spatial domain identification...")
+    
+    try:
+        from banksy_utils.main import generate_spatial_weights_fixed_nbrs, run_banksy_multiparam
+        
+        # BANKSY requires specific setup
+        adata_banksy = adata.copy()
+        
+        # Generate spatial weights
+        if context:
+            await context.info("Generating BANKSY spatial weights...")
+        
+        banksy_dict = generate_spatial_weights_fixed_nbrs(
+            adata_banksy,
+            coord_keys=['x', 'y'] if 'x' in adata_banksy.obs else None,
+            spatial_key='spatial' if 'spatial' in adata_banksy.obsm else 'X_spatial',
+            n_neighbors=params.banksy_n_neighbors or 15,
+            decay_type=params.banksy_decay_type or 'scaled_gaussian',
+            max_m=params.banksy_max_m or 1
+        )
+        
+        # Run BANKSY
+        if context:
+            await context.info("Running BANKSY analysis...")
+        
+        results_dict = run_banksy_multiparam(
+            adata_banksy,
+            banksy_dict,
+            lambda_list=[params.banksy_lambda or 0.2],
+            resolutions=[params.cluster_resolution or 1.0],
+            color_list=['blue'],
+            max_m=params.banksy_max_m or 1,
+            n_pcs=params.banksy_n_pcs or 20,
+            annotation_key=None,
+            max_labels=params.n_domains,
+            cluster_algorithm='leiden',
+            match_labels=False,
+            savefig=False,
+            save_path=None,
+            save_prefix='',
+            save_suffix='',
+            figsize=(5, 5),
+            verbose=False
+        )
+        
+        # Get clustering results
+        lambda_val = params.banksy_lambda or 0.2
+        res_val = params.cluster_resolution or 1.0
+        domain_key = f'labels_l{lambda_val}_r{res_val}'
+        
+        if domain_key in adata_banksy.obs:
+            domain_labels = adata_banksy.obs[domain_key].astype(str)
+        else:
+            # Fallback to first available clustering
+            label_cols = [col for col in adata_banksy.obs.columns if col.startswith('labels_')]
+            if label_cols:
+                domain_labels = adata_banksy.obs[label_cols[0]].astype(str)
+            else:
+                raise ValueError("No BANKSY clustering results found")
+        
+        # Get embeddings
+        embeddings_key = f'BANKSY_l{lambda_val}'
+        if embeddings_key in adata_banksy.obsm:
+            adata.obsm[embeddings_key] = adata_banksy.obsm[embeddings_key]
+        
+        statistics = {
+            "method": "banksy",
+            "n_clusters": len(domain_labels.unique()),
+            "lambda": lambda_val,
+            "n_neighbors": params.banksy_n_neighbors or 15,
+            "decay_type": params.banksy_decay_type or 'scaled_gaussian'
+        }
+        
+        return domain_labels, embeddings_key, statistics
+        
+    except Exception as e:
+        error_msg = f"BANKSY execution failed: {str(e)}"
+        if context:
+            await context.warning(error_msg)
+        raise RuntimeError(error_msg) from e

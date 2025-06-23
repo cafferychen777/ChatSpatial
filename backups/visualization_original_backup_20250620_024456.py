@@ -979,11 +979,6 @@ async def visualize_data(
                 await context.info("Creating EnrichMap enrichment visualization")
             fig = await create_enrichment_visualization(adata, params, context)
 
-        elif params.plot_type == "gsea":
-            if context:
-                await context.info("Creating GSEA visualization")
-            fig = await create_gsea_visualization(adata, params, context)
-
         else:
             # This should never happen due to parameter validation at the beginning
             error_msg = f"Unsupported plot type: {params.plot_type}"
@@ -1271,29 +1266,23 @@ async def create_cell_communication_visualization(
     if context:
         await context.info("Creating cell communication visualization")
     
-    # Look for LIANA+ results in adata.uns and adata.obsm
+    # Look for LIANA+ results in adata.uns
     liana_keys = [key for key in adata.uns.keys() if 'liana' in key.lower()]
-    spatial_score_keys = [key for key in adata.obsm.keys() if 'liana_spatial_scores' in key.lower()]
+    spatial_score_keys = [key for key in adata.uns.keys() if 'spatial_scores' in key.lower()]
     
     # Try to find communication results
     communication_results = None
     spatial_scores = None
-    lr_pairs = None
     analysis_type = "none"
     
     # Check for LIANA+ spatial results
-    if spatial_score_keys or 'liana_spatial_scores' in adata.obsm:
-        spatial_scores_key = 'liana_spatial_scores'
-        if spatial_scores_key in adata.obsm:
-            spatial_scores = adata.obsm[spatial_scores_key]
-            # Get LR pair names from uns
-            if 'liana_spatial_interactions' in adata.uns:
-                lr_pairs = adata.uns['liana_spatial_interactions']
+    if spatial_score_keys:
+        spatial_scores_key = spatial_score_keys[0]
+        if spatial_scores_key in adata.uns:
+            spatial_scores = adata.uns[spatial_scores_key]
             analysis_type = "spatial"
             if context:
-                await context.info(f"Found LIANA+ spatial scores in obsm: {spatial_scores_key}")
-                if lr_pairs:
-                    await context.info(f"Found {len(lr_pairs)} LR pairs")
+                await context.info(f"Found LIANA+ spatial scores: {spatial_scores_key}")
     
     # Check for general LIANA+ results
     elif liana_keys:
@@ -1308,7 +1297,7 @@ async def create_cell_communication_visualization(
     lr_columns = [col for col in adata.obs.columns if any(pattern in col.lower() for pattern in ['ligand', 'receptor', 'lr_', 'communication'])]
     
     if analysis_type == "spatial" and spatial_scores is not None:
-        return _create_spatial_communication_plot(adata, spatial_scores, lr_pairs, params, context)
+        return _create_spatial_communication_plot(adata, spatial_scores, params, context)
     elif analysis_type == "cluster" and communication_results is not None:
         return _create_cluster_communication_plot(adata, communication_results, params, context)
     elif lr_columns:
@@ -1327,56 +1316,19 @@ async def create_cell_communication_visualization(
         return fig
 
 
-def _create_spatial_communication_plot(adata, spatial_scores, lr_pairs, params, context):
+def _create_spatial_communication_plot(adata, spatial_scores, params, context):
     """Create spatial communication visualization using LIANA+ spatial scores"""
     try:
         # Get spatial coordinates
         x_coords, y_coords = get_spatial_coordinates(adata)
         
-        # Get LR results with significance info
-        liana_res = None
-        global_metric_col = None
-        if 'liana_spatial_res' in adata.uns:
-            liana_res = adata.uns['liana_spatial_res']
-        
-        # Get top communication pairs
-        if lr_pairs and liana_res is not None:
-            # Get top pairs based on global metric (morans or lee)
-            import pandas as pd
-            if isinstance(liana_res, pd.DataFrame):
-                # Find global metric column
-                global_metric_col = None
-                for col in ['morans', 'lee', 'global_score']:
-                    if col in liana_res.columns:
-                        global_metric_col = col
-                        break
-                
-                if global_metric_col:
-                    # Sort by global metric and get top pairs
-                    n_top = getattr(params, 'plot_top_pairs', 6)
-                    top_results = liana_res.nlargest(n_top, global_metric_col)
-                    top_pairs = top_results.index.tolist()
-                    # Get the indices of these pairs in the original list
-                    pair_indices = [lr_pairs.index(pair) if pair in lr_pairs else -1 for pair in top_pairs]
-                    pair_indices = [idx for idx in pair_indices if idx >= 0]
-                else:
-                    # Use first N pairs
-                    n_top = getattr(params, 'plot_top_pairs', 6)
-                    top_pairs = lr_pairs[:n_top]
-                    pair_indices = list(range(len(top_pairs)))
-            else:
-                # Use first N pairs
-                n_top = getattr(params, 'plot_top_pairs', 6)
-                top_pairs = lr_pairs[:n_top]
-                pair_indices = list(range(len(top_pairs)))
-        elif lr_pairs:
-            # Use provided LR pairs
-            n_top = getattr(params, 'plot_top_pairs', 6)
-            top_pairs = lr_pairs[:n_top]
-            pair_indices = list(range(len(top_pairs)))
+        # Get top communication pairs from spatial scores
+        if hasattr(spatial_scores, 'var_names'):
+            # It's an AnnData object
+            top_pairs = list(spatial_scores.var_names)[:6]  # Top 6 pairs
         else:
+            # It's a different format, try to extract pair names
             top_pairs = []
-            pair_indices = []
         
         if not top_pairs:
             fig, ax = plt.subplots(figsize=(8, 6))
@@ -1399,18 +1351,16 @@ def _create_spatial_communication_plot(adata, spatial_scores, lr_pairs, params, 
         else:
             axes = axes.flatten()
         
-        # Ensure pair_indices matches top_pairs
-        if len(pair_indices) < len(top_pairs):
-            pair_indices.extend(list(range(len(pair_indices), len(top_pairs))))
-        
-        for i, (pair, pair_idx) in enumerate(zip(top_pairs[:n_pairs], pair_indices[:n_pairs])):
+        for i, pair in enumerate(top_pairs[:n_pairs]):
             ax = axes[i]
             
             try:
                 # Get spatial scores for this pair
-                # spatial_scores is a numpy array where columns are LR pairs
-                if pair_idx < spatial_scores.shape[1]:
-                    scores = spatial_scores[:, pair_idx]
+                if hasattr(spatial_scores, 'var_names') and pair in spatial_scores.var_names:
+                    if hasattr(spatial_scores.X, 'toarray'):
+                        scores = spatial_scores[:, pair].X.toarray().flatten()
+                    else:
+                        scores = spatial_scores[:, pair].X.flatten()
                 else:
                     scores = np.zeros(len(adata))
                 
@@ -1423,20 +1373,7 @@ def _create_spatial_communication_plot(adata, spatial_scores, lr_pairs, params, 
                 )
                 
                 # Format pair name for display
-                # LR pairs are typically formatted as "Ligand^Receptor"
-                if '^' in pair:
-                    display_name = pair.replace('^', ' → ')
-                elif '_' in pair:
-                    display_name = pair.replace('_', ' → ')
-                else:
-                    display_name = pair
-                
-                # Add global metric value if available
-                if liana_res is not None and isinstance(liana_res, pd.DataFrame) and pair in liana_res.index:
-                    if global_metric_col and global_metric_col in liana_res.columns:
-                        metric_value = liana_res.loc[pair, global_metric_col]
-                        display_name += f"\n({global_metric_col}: {metric_value:.3f})"
-                
+                display_name = pair.replace('_', ' → ') if '_' in pair else pair
                 ax.set_title(display_name, fontsize=10)
                 ax.set_xlabel('X coordinate')
                 ax.set_ylabel('Y coordinate')
@@ -3042,343 +2979,6 @@ async def create_enrichment_visualization(
             if hasattr(ax, 'collections') and ax.collections:
                 cbar = plt.colorbar(ax.collections[0], ax=ax)
                 cbar.set_label('Enrichment Score', fontsize=12)
-    
-    plt.tight_layout()
-    return fig
-
-
-@handle_visualization_errors("GSEA")
-async def create_gsea_visualization(
-    adata: ad.AnnData,
-    params: VisualizationParameters,
-    context = None
-) -> plt.Figure:
-    """Create GSEA (Gene Set Enrichment Analysis) visualization
-    
-    Supports multiple visualization types:
-    - enrichment_plot: Classic GSEA enrichment score plot
-    - barplot: Top enriched pathways barplot
-    - dotplot: Multi-cluster enrichment dotplot
-    - spatial: Spatial distribution of enrichment scores
-    
-    Args:
-        adata: AnnData object with GSEA results
-        params: Visualization parameters
-            - gsea_results_key: Key in adata.uns for GSEA results (default: 'gsea_results')
-            - gsea_plot_type: Type of plot ('enrichment_plot', 'barplot', 'dotplot', 'spatial')
-            - feature: Specific pathway/gene set to visualize
-            - n_top_pathways: Number of top pathways to show (default: 10)
-        context: MCP context
-        
-    Returns:
-        Matplotlib figure with GSEA visualization
-    """
-    if context:
-        await context.info("Creating GSEA visualization")
-    
-    # Get GSEA results
-    gsea_key = getattr(params, 'gsea_results_key', 'gsea_results')
-    if gsea_key not in adata.uns:
-        # Try common alternative keys
-        alt_keys = ['rank_genes_groups', 'de_results', 'pathway_enrichment']
-        for key in alt_keys:
-            if key in adata.uns:
-                gsea_key = key
-                break
-        else:
-            raise DataNotFoundError(f"GSEA results not found. Expected key: {gsea_key}")
-    
-    gsea_results = adata.uns[gsea_key]
-    plot_type = getattr(params, 'gsea_plot_type', 'barplot')
-    
-    if plot_type == 'enrichment_plot':
-        # Classic GSEA enrichment score plot
-        return _create_gsea_enrichment_plot(adata, gsea_results, params, context)
-    elif plot_type == 'barplot':
-        # Top pathways barplot
-        return _create_gsea_barplot(adata, gsea_results, params, context)
-    elif plot_type == 'dotplot':
-        # Multi-cluster dotplot
-        return _create_gsea_dotplot(adata, gsea_results, params, context)
-    elif plot_type == 'spatial':
-        # Spatial distribution of pathway scores
-        return _create_gsea_spatial_plot(adata, gsea_results, params, context)
-    else:
-        # Default to barplot
-        return _create_gsea_barplot(adata, gsea_results, params, context)
-
-
-def _create_gsea_enrichment_plot(adata, gsea_results, params, context):
-    """Create classic GSEA enrichment score plot"""
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), height_ratios=[3, 1])
-    
-    # Get specific pathway if specified
-    pathway = params.feature if params.feature else None
-    
-    if isinstance(gsea_results, dict):
-        if pathway and pathway in gsea_results:
-            result = gsea_results[pathway]
-        else:
-            # Use first available pathway
-            pathway = list(gsea_results.keys())[0]
-            result = gsea_results[pathway]
-    else:
-        # Assume it's a single result
-        result = gsea_results
-        pathway = pathway or "Gene Set"
-    
-    # Extract enrichment data
-    if isinstance(result, dict):
-        es = result.get('es', np.random.randn(1000).cumsum())
-        nes = result.get('nes', result.get('NES', 2.0))
-        pval = result.get('pval', result.get('pvalue', 0.001))
-        positions = result.get('positions', np.random.choice(1000, 50, replace=False))
-    else:
-        # Generate demo data if structure is unknown
-        es = np.random.randn(1000).cumsum()
-        es = es / np.abs(es).max()
-        nes = 2.0 if es[-1] > 0 else -2.0
-        pval = 0.001
-        positions = np.random.choice(1000, 50, replace=False)
-    
-    # Normalize ES if needed
-    if isinstance(es, (list, np.ndarray)):
-        es = np.array(es)
-        if es.max() > 1 or es.min() < -1:
-            es = es / np.abs(es).max()
-    
-    # Plot enrichment score
-    x = np.arange(len(es))
-    ax1.plot(x, es, 'b-', linewidth=2)
-    ax1.axhline(y=0, color='gray', linestyle='-', alpha=0.5)
-    
-    # Mark maximum/minimum ES
-    if es.max() > abs(es.min()):
-        max_idx = np.argmax(es)
-        ax1.axhline(y=es[max_idx], color='red', linestyle='--', alpha=0.8)
-        ax1.text(max_idx, es[max_idx], f'ES = {es[max_idx]:.3f}', 
-                 ha='left', va='bottom', fontsize=10)
-    else:
-        min_idx = np.argmin(es)
-        ax1.axhline(y=es[min_idx], color='red', linestyle='--', alpha=0.8)
-        ax1.text(min_idx, es[min_idx], f'ES = {es[min_idx]:.3f}', 
-                 ha='left', va='top', fontsize=10)
-    
-    # Fill under curve
-    ax1.fill_between(x, 0, es, alpha=0.3, color='blue')
-    
-    ax1.set_xlim(0, len(es)-1)
-    ax1.set_ylabel('Enrichment Score (ES)', fontsize=12)
-    ax1.set_title(f'{pathway}\nNES = {nes:.2f}, p-value = {pval:.3e}', 
-                  fontsize=14, fontweight='bold')
-    
-    # Gene hit positions
-    ax2.eventplot(positions, colors='black', linewidths=0.5)
-    ax2.set_xlim(0, len(es)-1)
-    ax2.set_ylim(0, 1)
-    ax2.set_xlabel('Rank in Ordered Gene List', fontsize=12)
-    ax2.set_ylabel('Hits', fontsize=10)
-    ax2.set_yticks([])
-    
-    plt.tight_layout()
-    return fig
-
-
-def _create_gsea_barplot(adata, gsea_results, params, context):
-    """Create barplot of top enriched pathways"""
-    n_top = getattr(params, 'n_top_pathways', 10)
-    
-    # Convert results to DataFrame for easier handling
-    import pandas as pd
-    
-    if isinstance(gsea_results, pd.DataFrame):
-        df = gsea_results
-    elif isinstance(gsea_results, dict):
-        # Convert dict to DataFrame
-        rows = []
-        for pathway, data in gsea_results.items():
-            if isinstance(data, dict):
-                row = {'pathway': pathway}
-                row.update(data)
-                rows.append(row)
-        df = pd.DataFrame(rows)
-    else:
-        raise ValueError("Unsupported GSEA results format")
-    
-    # Determine score column
-    score_cols = ['NES', 'nes', 'enrichment_score', 'score']
-    score_col = None
-    for col in score_cols:
-        if col in df.columns:
-            score_col = col
-            break
-    
-    if not score_col:
-        raise DataNotFoundError("No enrichment score column found in results")
-    
-    # Sort by score and get top pathways
-    df_sorted = df.nlargest(n_top, score_col)
-    
-    # Create barplot
-    fig, ax = plt.subplots(figsize=(10, max(6, n_top * 0.4)))
-    
-    y_pos = np.arange(len(df_sorted))
-    scores = df_sorted[score_col].values
-    pathways = df_sorted['pathway'].values if 'pathway' in df_sorted.columns else df_sorted.index
-    
-    # Color based on score
-    colors = ['darkred' if s > 2 else 'red' if s > 1.5 else 'orange' if s > 1 else 'gray' 
-              for s in scores]
-    
-    bars = ax.barh(y_pos, scores, color=colors, alpha=0.8)
-    
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(pathways, fontsize=10)
-    ax.set_xlabel('Normalized Enrichment Score (NES)', fontsize=12)
-    ax.set_title('Top Enriched Pathways', fontsize=14, fontweight='bold')
-    ax.axvline(x=0, color='black', linewidth=0.8)
-    
-    # Add significance markers
-    if 'pval' in df_sorted.columns or 'pvalue' in df_sorted.columns:
-        pval_col = 'pval' if 'pval' in df_sorted.columns else 'pvalue'
-        pvals = df_sorted[pval_col].values
-        
-        for i, (score, pval) in enumerate(zip(scores, pvals)):
-            if pval < 0.001:
-                sig_marker = '***'
-            elif pval < 0.01:
-                sig_marker = '**'
-            elif pval < 0.05:
-                sig_marker = '*'
-            else:
-                sig_marker = ''
-            
-            if sig_marker:
-                ax.text(score + max(scores) * 0.02, i, sig_marker, 
-                       va='center', fontsize=10)
-    
-    # Add FDR info if available
-    if 'FDR' in df_sorted.columns or 'fdr' in df_sorted.columns:
-        fdr_col = 'FDR' if 'FDR' in df_sorted.columns else 'fdr'
-        ax.text(0.95, 0.05, 'FDR < 0.05', transform=ax.transAxes,
-                ha='right', va='bottom', fontsize=10,
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-    
-    plt.tight_layout()
-    return fig
-
-
-def _create_gsea_dotplot(adata, gsea_results, params, context):
-    """Create dotplot showing enrichment across multiple conditions"""
-    fig, ax = plt.subplots(figsize=(12, 8))
-    
-    # This assumes results are organized by cluster/condition
-    if not isinstance(gsea_results, dict) or not all(isinstance(v, dict) for v in gsea_results.values()):
-        raise ValueError("Dotplot requires nested dict structure: {condition: {pathway: scores}}")
-    
-    # Extract data for plotting
-    conditions = list(gsea_results.keys())
-    all_pathways = set()
-    for cond_results in gsea_results.values():
-        all_pathways.update(cond_results.keys())
-    pathways = sorted(all_pathways)[:20]  # Limit to top 20 pathways
-    
-    # Create matrices for plotting
-    nes_matrix = np.zeros((len(conditions), len(pathways)))
-    pval_matrix = np.ones((len(conditions), len(pathways)))
-    
-    for i, condition in enumerate(conditions):
-        for j, pathway in enumerate(pathways):
-            if pathway in gsea_results[condition]:
-                result = gsea_results[condition][pathway]
-                nes_matrix[i, j] = result.get('NES', result.get('nes', 0))
-                pval_matrix[i, j] = result.get('pval', result.get('pvalue', 1))
-    
-    # Create dotplot
-    for i, condition in enumerate(conditions):
-        for j, pathway in enumerate(pathways):
-            nes = nes_matrix[i, j]
-            pval = pval_matrix[i, j]
-            
-            if pval < 0.05:  # Only show significant results
-                size = -np.log10(pval) * 100  # Size based on significance
-                color = nes  # Color based on NES
-                
-                scatter = ax.scatter(j, i, s=size, c=color, 
-                                   cmap='RdBu_r', vmin=-3, vmax=3,
-                                   alpha=0.8, edgecolors='black', linewidth=0.5)
-    
-    # Formatting
-    ax.set_xticks(range(len(pathways)))
-    ax.set_xticklabels(pathways, rotation=45, ha='right', fontsize=10)
-    ax.set_yticks(range(len(conditions)))
-    ax.set_yticklabels(conditions, fontsize=10)
-    ax.set_xlim(-0.5, len(pathways) - 0.5)
-    ax.set_ylim(-0.5, len(conditions) - 0.5)
-    ax.set_title('Pathway Enrichment Across Conditions', fontsize=14, fontweight='bold')
-    
-    # Add colorbar
-    cbar = plt.colorbar(scatter, ax=ax, label='NES')
-    
-    # Add size legend
-    for size, label in [(100, 'p < 0.1'), (200, 'p < 0.01'), (300, 'p < 0.001')]:
-        ax.scatter([], [], s=size, c='gray', alpha=0.8, 
-                  edgecolors='black', linewidth=0.5, label=label)
-    ax.legend(loc='upper left', bbox_to_anchor=(1.2, 1), title='Significance')
-    
-    plt.tight_layout()
-    return fig
-
-
-def _create_gsea_spatial_plot(adata, gsea_results, params, context):
-    """Create spatial visualization of pathway enrichment scores"""
-    # Get spatial coordinates
-    x_coords, y_coords = get_spatial_coordinates(adata)
-    
-    # Get pathway scores (these should be pre-computed and stored in adata.obs)
-    pathway = params.feature if params.feature else None
-    
-    # Look for pathway scores in obs
-    pathway_score_cols = [col for col in adata.obs.columns 
-                         if 'pathway' in col.lower() or 'gsea' in col.lower()]
-    
-    if pathway and f"{pathway}_score" in adata.obs.columns:
-        score_col = f"{pathway}_score"
-    elif pathway and pathway in adata.obs.columns:
-        score_col = pathway
-    elif pathway_score_cols:
-        score_col = pathway_score_cols[0]
-    else:
-        # Generate example scores based on gene expression if available
-        scores = np.random.randn(len(adata))
-        score_col = "Example_Pathway"
-        adata.obs[score_col] = scores
-    
-    scores = adata.obs[score_col].values
-    
-    # Create spatial plot
-    fig, ax = plt.subplots(figsize=(10, 8))
-    
-    scatter = ax.scatter(x_coords, y_coords, c=scores, 
-                        cmap='RdBu_r', s=50, alpha=0.8,
-                        vmin=np.percentile(scores, 5),
-                        vmax=np.percentile(scores, 95))
-    
-    ax.set_xlabel('Spatial X')
-    ax.set_ylabel('Spatial Y')
-    ax.set_title(f'Spatial Distribution of {score_col.replace("_", " ").title()}',
-                 fontsize=14, fontweight='bold')
-    ax.set_aspect('equal')
-    
-    # Add colorbar
-    cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label('Enrichment Score', fontsize=12)
-    
-    # Add statistics
-    stats_text = f'Mean: {scores.mean():.3f}\nStd: {scores.std():.3f}'
-    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-            verticalalignment='top', fontsize=10,
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
     
     plt.tight_layout()
     return fig

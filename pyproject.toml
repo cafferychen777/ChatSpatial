@@ -27,6 +27,10 @@ dependencies = [
     "harmonypy",  # 批次效应校正
     "bbknn",  # 批次平衡的KNN
     "scanorama",  # 多样本整合
+    # HTTP server dependencies
+    "fastapi",  # Web framework
+    "uvicorn[standard]",  # ASGI server
+    "aiohttp",  # HTTP client library
 ]
 
 [project.optional-dependencies]
@@ -108,3 +112,4 @@ all = [
 
 [project.scripts]
 chatspatial = "chatspatial.__main__:main"
+chatspatial-http = "chatspatial.http_server:main"
