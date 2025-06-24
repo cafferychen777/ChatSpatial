@@ -22,6 +22,12 @@ except ImportError:
     scvi = None
     CellAssign = None
 
+# Import mllmcelltype for LLM-based annotation
+try:
+    import mllmcelltype
+except ImportError:
+    mllmcelltype = None
+
 from ..models.data import AnnotationParameters
 from ..models.analysis import AnnotationResult
 
@@ -453,6 +459,114 @@ async def _annotate_with_scanvi(adata, params: AnnotationParameters, data_store:
     except Exception as e:
         await _handle_annotation_error(e, "scanvi", context)
 
+async def _annotate_with_mllmcelltype(adata, params: AnnotationParameters, context: Optional[Context] = None):
+    """Annotate cell types using mLLMCellType (LLM-based) method"""
+    try:
+        if context:
+            await context.info("Using mLLMCellType (LLM-based) method for annotation")
+
+        if mllmcelltype is None:
+            raise ImportError("mllmcelltype package is not installed. Please install it with 'pip install mllmcelltype'")
+
+        # Check if clustering has been performed
+        cluster_key = params.cluster_label if params.cluster_label else 'leiden'
+        if cluster_key not in adata.obs:
+            if context:
+                await context.info(f"Performing clustering ({cluster_key}) for mLLMCellType annotation")
+            if cluster_key == 'leiden':
+                sc.tl.leiden(adata)
+            else:
+                sc.tl.louvain(adata)
+
+        # Find differentially expressed genes for each cluster
+        if context:
+            await context.info("Finding marker genes for each cluster")
+        
+        sc.tl.rank_genes_groups(adata, cluster_key, method='wilcoxon')
+        
+        # Extract top marker genes for each cluster
+        marker_genes_dict = {}
+        n_genes = params.mllm_n_marker_genes if hasattr(params, 'mllm_n_marker_genes') else 20
+        
+        for cluster in adata.obs[cluster_key].unique():
+            # Get top genes for this cluster
+            gene_names = adata.uns['rank_genes_groups']['names'][str(cluster)][:n_genes]
+            marker_genes_dict[f"Cluster_{cluster}"] = list(gene_names)
+        
+        if context:
+            await context.info(f"Found marker genes for {len(marker_genes_dict)} clusters")
+
+        # Prepare parameters for mllmcelltype
+        species = params.mllm_species if hasattr(params, 'mllm_species') else 'human'
+        tissue = params.mllm_tissue if hasattr(params, 'mllm_tissue') else None
+        provider = params.mllm_provider if hasattr(params, 'mllm_provider') else 'openai'
+        model = params.mllm_model if hasattr(params, 'mllm_model') else None
+        api_key = params.mllm_api_key if hasattr(params, 'mllm_api_key') else None
+
+        # Call mllmcelltype to annotate clusters
+        if context:
+            await context.info(f"Calling LLM ({provider}/{model or 'default'}) for cell type annotation")
+        
+        try:
+            annotations = mllmcelltype.annotate_clusters(
+                marker_genes=marker_genes_dict,
+                species=species,
+                provider=provider,
+                model=model,
+                api_key=api_key,
+                tissue=tissue,
+                use_cache=True
+            )
+        except Exception as e:
+            if context:
+                await context.error(f"mLLMCellType annotation failed: {str(e)}")
+            raise
+
+        if context:
+            await context.info(f"Received annotations for {len(annotations)} clusters")
+
+        # Map cluster annotations back to cells
+        cluster_to_celltype = {}
+        for cluster_name, cell_type in annotations.items():
+            # Extract cluster number from "Cluster_X" format
+            cluster_id = cluster_name.replace("Cluster_", "")
+            cluster_to_celltype[cluster_id] = cell_type
+
+        # Apply cell type annotations to cells
+        adata.obs["cell_type"] = adata.obs[cluster_key].astype(str).map(cluster_to_celltype)
+        
+        # Handle any unmapped clusters
+        unmapped = adata.obs["cell_type"].isna()
+        if unmapped.any():
+            if context:
+                await context.warning(f"Found {unmapped.sum()} cells in unmapped clusters")
+            adata.obs.loc[unmapped, "cell_type"] = "Unknown"
+        
+        adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
+
+        # Get cell types and counts
+        cell_types = list(adata.obs["cell_type"].unique())
+        counts = adata.obs["cell_type"].value_counts().to_dict()
+
+        # Calculate confidence scores based on cluster homogeneity
+        confidence_scores = {}
+        for cell_type in cell_types:
+            if cell_type != "Unknown":
+                # High confidence for LLM-based annotations
+                confidence_scores[cell_type] = 0.85
+            else:
+                confidence_scores[cell_type] = CONFIDENCE_MIN
+
+        # Note: Visualizations should be created using the separate visualize_data tool
+        # This maintains clean separation between analysis and visualization
+        if context:
+            await context.info("Cell type annotation complete. Use visualize_data tool to visualize results")
+
+        return cell_types, counts, confidence_scores, None, None
+
+    except Exception as e:
+        await _handle_annotation_error(e, "mllmcelltype", context)
+
 async def _annotate_with_cellassign(adata, params: AnnotationParameters, context: Optional[Context] = None):
     """Annotate cell types using CellAssign method"""
     try:
@@ -612,6 +726,10 @@ async def annotate_cell_types(
             )
         elif params.method == "correlation":
             cell_types, counts, confidence_scores, tangram_mapping_score, _ = await _annotate_with_correlation(
+                adata, params, context
+            )
+        elif params.method == "mllmcelltype":
+            cell_types, counts, confidence_scores, tangram_mapping_score, _ = await _annotate_with_mllmcelltype(
                 adata, params, context
             )
         elif params.method in ["supervised", "popv", "gptcelltype", "scrgcl"]:

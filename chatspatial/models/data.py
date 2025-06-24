@@ -101,7 +101,7 @@ class VisualizationParameters(BaseModel):
 
 class AnnotationParameters(BaseModel):
     """Cell type annotation parameters model"""
-    method: Literal["marker_genes", "correlation", "supervised", "popv", "gptcelltype", "scrgcl", "tangram", "scanvi", "cellassign"] = "marker_genes"
+    method: Literal["marker_genes", "correlation", "supervised", "popv", "gptcelltype", "scrgcl", "tangram", "scanvi", "cellassign", "mllmcelltype"] = "marker_genes"
     marker_genes: Optional[Dict[str, List[str]]] = None
     reference_data: Optional[str] = None
     reference_data_id: Optional[str] = None  # For Tangram method - ID of reference single-cell dataset
@@ -121,6 +121,14 @@ class AnnotationParameters(BaseModel):
     cellassign_n_hidden: int = 100
     cellassign_learning_rate: float = 1e-3
     cellassign_max_iter: int = 1000
+    
+    # mLLMCellType parameters
+    mllm_n_marker_genes: Annotated[int, Field(gt=0, le=50)] = 20  # Number of marker genes per cluster
+    mllm_species: Literal["human", "mouse"] = "human"  # Species
+    mllm_tissue: Optional[str] = None  # Tissue type (e.g., "brain", "liver")
+    mllm_provider: Literal["openai", "anthropic", "deepseek", "kimi", "glm", "qianfan", "ollama"] = "openai"  # LLM provider
+    mllm_model: Optional[str] = None  # Model name (e.g., "gpt-4", "claude-3-opus-20240229")
+    mllm_api_key: Optional[str] = None  # API key for the LLM provider
 
 
 class SpatialAnalysisParameters(BaseModel):
