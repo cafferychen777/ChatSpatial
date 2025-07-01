@@ -67,6 +67,10 @@ mcp = FastMCP("ChatSpatial")
 # Store for loaded datasets
 data_store: Dict[str, Any] = {}
 
+# Global storage for visualization resources
+if not hasattr(mcp, '_visualization_resources'):
+    mcp._visualization_resources = {}
+
 
 def validate_dataset(data_id: str) -> None:
     """Validate that a dataset exists in the data store
@@ -214,7 +218,59 @@ async def visualize_data(
         params = VisualizationParameters()
 
     # Call visualization function
-    return await visualize_func(data_id, data_store, params, context)
+    image = await visualize_func(data_id, data_store, params, context)
+
+    # Save image as MCP Resource and return reference
+    if image is not None:
+        import time
+        from pathlib import Path
+
+        # Create visualization resources directory
+        resources_dir = Path("visualization_resources")
+        resources_dir.mkdir(exist_ok=True)
+
+        # Generate unique resource URI
+        timestamp = int(time.time())
+        resource_id = f"viz_{data_id}_{params.plot_type}_{timestamp}"
+        resource_uri = f"visualization://{resource_id}"
+        resource_file = resources_dir / f"{resource_id}.png"
+
+        # Save image to file
+        with open(resource_file, 'wb') as f:
+            f.write(image.data)
+
+        # Store resource info globally for MCP resource handler
+        if not hasattr(mcp, '_visualization_resources'):
+            mcp._visualization_resources = {}
+
+        mcp._visualization_resources[resource_uri] = {
+            'file_path': str(resource_file),
+            'name': f"{params.plot_type} - {getattr(params, 'feature', 'N/A')}",
+            'description': f"Visualization of {data_id}",
+            'mime_type': 'image/png',
+            'size': len(image.data)
+        }
+
+        file_size_kb = len(image.data) / 1024
+
+        if context:
+            await context.info(f"Image saved as resource: {resource_uri} ({file_size_kb:.1f}KB)")
+
+        return f"""✅ 可视化已成功生成！
+
+📊 **可视化信息**:
+- 类型: {params.plot_type}
+- 特征: {getattr(params, 'feature', 'N/A')}
+- 数据集: {data_id}
+- 图像大小: {file_size_kb:.1f} KB
+
+🖼️ **图像资源**: `{resource_uri}`
+
+💡 **提示**: 图像已保存为 MCP 资源。在 Claude Desktop 中，你可以通过资源面板访问和查看此图像。资源 URI: {resource_uri}"""
+
+    else:
+        # Return error message if no image was generated
+        return "❌ 可视化生成失败，请检查数据和参数设置。"
 
 
 @mcp.tool()
@@ -862,6 +918,52 @@ def get_dataset_info(data_id: str) -> Dict[str, Any]:
 #         tools.append(tool_data)
 #     
 #     return tools
+
+
+# MCP Resources handlers
+@mcp.resource()
+async def list_visualization_resources():
+    """List available visualization resources"""
+    resources = []
+
+    if hasattr(mcp, '_visualization_resources'):
+        for uri, info in mcp._visualization_resources.items():
+            resources.append({
+                "uri": uri,
+                "name": info['name'],
+                "description": info['description'],
+                "mimeType": info['mime_type'],
+                "size": info['size']
+            })
+
+    return resources
+
+@mcp.resource()
+async def read_visualization_resource(uri: str):
+    """Read a visualization resource"""
+    if not hasattr(mcp, '_visualization_resources'):
+        raise ValueError(f"Resource not found: {uri}")
+
+    if uri not in mcp._visualization_resources:
+        raise ValueError(f"Resource not found: {uri}")
+
+    resource_info = mcp._visualization_resources[uri]
+    file_path = resource_info['file_path']
+
+    try:
+        with open(file_path, 'rb') as f:
+            image_data = f.read()
+
+        import base64
+        base64_data = base64.b64encode(image_data).decode('utf-8')
+
+        return {
+            "uri": uri,
+            "mimeType": resource_info['mime_type'],
+            "blob": base64_data
+        }
+    except FileNotFoundError:
+        raise ValueError(f"Resource file not found: {file_path}")
 
 
 def main():

@@ -109,8 +109,13 @@ async def analyze_spatial_patterns(
         # Make a copy of the AnnData object to avoid modifying the original
         adata = data_store[data_id]["adata"].copy()
 
-        # Validate AnnData object
-        validate_adata(adata, require_spatial=True, min_cells=10)
+        # Validate AnnData object - basic validation
+        if adata.n_obs < 10:
+            raise DataNotFoundError("Dataset has too few cells (minimum 10 required)")
+
+        # Check for spatial coordinates
+        if 'spatial' not in adata.obsm:
+            raise DataNotFoundError("Dataset missing spatial coordinates in adata.obsm['spatial']")
 
         # --- REFACTORED CLUSTER HANDLING ---
         # 1. Handle deconvolution case first
@@ -427,13 +432,7 @@ async def analyze_spatial_patterns(
         else:
             # Wrap generic errors
             raise ProcessingError(
-                f"Failed to perform {params.analysis_type} analysis: {str(e)}",
-                details={
-                    "analysis_type": params.analysis_type,
-                    "data_id": data_id,
-                    "error_type": type(e).__name__,
-                    "traceback": traceback.format_exc()
-                }
+                f"Failed to perform {params.analysis_type} analysis: {str(e)}"
             ) from e
 
 

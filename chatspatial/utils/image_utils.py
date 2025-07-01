@@ -201,6 +201,85 @@ def fig_to_base64(
         return base64.b64encode(buf.read()).decode('utf-8')
 
 
+def fig_to_image_mcp_optimized(
+    fig: plt.Figure,
+    max_size_kb: int = 50,  # Much smaller limit for MCP
+    close_fig: bool = True
+) -> Image:
+    """Convert matplotlib figure to Image object optimized for MCP with very small size
+
+    This function prioritizes small file size over image quality for MCP usage.
+
+    Args:
+        fig: Matplotlib figure
+        max_size_kb: Maximum size in KB for the image (default: 50KB)
+        close_fig: Whether to close the figure after conversion
+
+    Returns:
+        Image object with very small file size
+    """
+    # Start with very aggressive compression settings
+    settings = [
+        {'dpi': 60, 'format': 'jpg', 'quality': 60},
+        {'dpi': 50, 'format': 'jpg', 'quality': 50},
+        {'dpi': 40, 'format': 'jpg', 'quality': 40},
+        {'dpi': 30, 'format': 'jpg', 'quality': 30},
+        {'dpi': 25, 'format': 'png'},  # Fallback to PNG with very low DPI
+    ]
+
+    for setting in settings:
+        buf = io.BytesIO()
+
+        try:
+            save_kwargs = {
+                'format': setting['format'],
+                'dpi': setting['dpi'],
+                'bbox_inches': 'tight',
+                'transparent': False,
+                'facecolor': 'white',
+                'edgecolor': 'none',
+                'pad_inches': 0.05,  # Minimal padding
+            }
+
+            # Add quality for JPEG
+            if setting['format'] == 'jpg' and 'quality' in setting:
+                save_kwargs['quality'] = setting['quality']
+
+            fig.savefig(buf, **save_kwargs)
+            buf.seek(0)
+            img_data = buf.read()
+            size_kb = len(img_data) / 1024
+
+            # If small enough, return it
+            if size_kb <= max_size_kb:
+                if close_fig:
+                    plt.close(fig)
+                return Image(data=img_data, format=setting['format'])
+
+        except Exception:
+            continue  # Try next setting
+
+    # If all attempts failed, create a minimal placeholder
+    if close_fig:
+        plt.close(fig)
+
+    # Create a very simple placeholder
+    simple_fig = plt.figure(figsize=(3, 2), dpi=30)
+    ax = simple_fig.add_subplot(111)
+    ax.text(0.5, 0.5, "Visualization\nGenerated", ha='center', va='center', fontsize=8)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+
+    buf = io.BytesIO()
+    simple_fig.savefig(buf, format='png', dpi=30, bbox_inches='tight')
+    buf.seek(0)
+    img_data = buf.read()
+    plt.close(simple_fig)
+
+    return Image(data=img_data, format='png')
+
+
 def base64_to_image(base64_str: str, format: str = 'png') -> Image:
     """Convert base64 encoded string to Image object
 
