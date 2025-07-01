@@ -550,8 +550,11 @@ async def visualize_data(
     try:
         adata = data_store[data_id]["adata"]
 
-        # Validate AnnData object
-        validate_adata(adata, min_cells=5, min_genes=5)
+        # Validate AnnData object - basic validation
+        if adata.n_obs < 5:
+            raise DataNotFoundError("Dataset has too few cells (minimum 5 required)")
+        if adata.n_vars < 5:
+            raise DataNotFoundError("Dataset has too few genes (minimum 5 required)")
 
         # Set matplotlib style for better visualizations
         sc.settings.set_figure_params(dpi=120, facecolor='white')
@@ -608,7 +611,7 @@ async def visualize_data(
                     # Convert figure to image with lower DPI and PNG format (Claude doesn't support JPG)
                     if context:
                         await context.info(f"Created multi-panel figure with {len(features)} cell types")
-                    return fig_to_image(fig, dpi=80, format="png", max_size_kb=300)
+                    return fig_to_image(fig, dpi=60, format="png", max_size_kb=30)
 
         # Create figure based on plot type
         if params.plot_type == "spatial":
@@ -994,7 +997,9 @@ async def visualize_data(
         # Convert figure directly to Image object
         if context:
             await context.info(f"Converting {params.plot_type} figure to image...")
-        return fig_to_image(fig, format="png", dpi=params.dpi)
+        # Use smaller DPI and size limit for MCP efficiency
+        effective_dpi = min(params.dpi, 80)  # Cap DPI at 80 for smaller files
+        return fig_to_image(fig, format="png", dpi=effective_dpi, max_size_kb=30)
 
     except Exception as e:
         # Make sure to close any open figures in case of error
@@ -1017,14 +1022,7 @@ async def visualize_data(
         else:
             # Wrap generic errors
             raise ProcessingError(
-                f"Failed to create {params.plot_type} visualization: {str(e)}",
-                details={
-                    "plot_type": params.plot_type,
-                    "feature": params.feature,
-                    "data_id": data_id,
-                    "error_type": type(e).__name__,
-                    "traceback": traceback.format_exc()
-                }
+                f"Failed to create {params.plot_type} visualization: {str(e)}"
             ) from e
 
 
