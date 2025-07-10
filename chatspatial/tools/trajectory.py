@@ -337,9 +337,31 @@ def compute_dpt_fallback(adata, root_cells=None):
     if root_cells is not None and len(root_cells) > 0:
         if root_cells[0] in adata.obs_names:
             adata.uns['iroot'] = np.where(adata.obs_names == root_cells[0])[0][0]
+        else:
+            # If provided root cell not found, use first cell and warn
+            print(f"Warning: Root cell '{root_cells[0]}' not found in data. Using first cell instead.")
+            adata.uns['iroot'] = 0
+    else:
+        # If no root cell specified, set the first cell as root
+        adata.uns['iroot'] = 0
 
     # Compute diffusion pseudotime
-    sc.tl.dpt(adata)
+    try:
+        sc.tl.dpt(adata)
+    except Exception as e:
+        # If DPT fails, create a simple pseudotime based on diffusion components
+        if 'X_diffmap' in adata.obsm:
+            # Use first diffusion component as pseudotime
+            pseudotime = adata.obsm['X_diffmap'][:, 0]
+            # Normalize to [0, 1]
+            pseudotime = (pseudotime - pseudotime.min()) / (pseudotime.max() - pseudotime.min())
+            adata.obs['dpt_pseudotime'] = pseudotime
+        else:
+            raise RuntimeError(f"Failed to compute DPT and no diffusion map available: {e}")
+    
+    # Check if dpt_pseudotime was created
+    if 'dpt_pseudotime' not in adata.obs.columns:
+        raise RuntimeError("DPT computation did not create 'dpt_pseudotime' column")
     
     # Handle any NaN values
     adata.obs['dpt_pseudotime'] = adata.obs['dpt_pseudotime'].fillna(0)
