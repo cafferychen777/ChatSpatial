@@ -1,22 +1,26 @@
 """
-Main server implementation for ChatSpatial.
+Main server implementation for ChatSpatial using the Spatial MCP Adapter.
 """
 
 from typing import Dict, Any, List, Optional, Union
 import warnings
+import asyncio
+import logging
 
 # Suppress warnings to speed up startup
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.utilities.types import Image
-from .utils.image_utils import fig_to_image, create_placeholder_image
-from .mcp_improvements import (
-    TOOL_ANNOTATIONS, SPATIAL_PROMPTS, ErrorType, format_mcp_error,
-    get_resource_list, read_resource_content, prompt_to_tool_params,
-    get_all_tools_with_annotations
+
+from .spatial_mcp_adapter import (
+    create_spatial_mcp_server,
+    SpatialMCPAdapter,
+    DefaultSpatialDataManager,
+    MCPToolMetadata
 )
+
 from .utils.tool_error_handling import mcp_tool_error_handler
 from .utils.pydantic_error_handler import mcp_pydantic_error_handler
 from .utils.mcp_parameter_handler import (
@@ -38,7 +42,8 @@ from .models.data import (
     DeconvolutionParameters,
     SpatialDomainParameters,
     SpatialVariableGenesParameters,
-    CellCommunicationParameters
+    CellCommunicationParameters,
+    EnrichmentParameters
 )
 from .models.analysis import (
     PreprocessingResult,
@@ -51,7 +56,8 @@ from .models.analysis import (
     DeconvolutionResult,
     SpatialDomainResult,
     SpatialVariableGenesResult,
-    CellCommunicationResult
+    CellCommunicationResult,
+    EnrichmentResult
 )
 from .tools.annotation import annotate_cell_types
 from .tools.spatial_analysis import analyze_spatial_patterns
@@ -61,15 +67,13 @@ from .tools.deconvolution import deconvolve_spatial_data
 from .tools.spatial_genes import identify_spatial_genes
 from .utils.data_loader import load_spatial_data
 
-# Create MCP server
-mcp = FastMCP("ChatSpatial")
+logger = logging.getLogger(__name__)
 
-# Store for loaded datasets
-data_store: Dict[str, Any] = {}
+# Create MCP server and adapter
+mcp, adapter = create_spatial_mcp_server("ChatSpatial")
 
-# Global storage for visualization resources
-if not hasattr(mcp, '_visualization_resources'):
-    mcp._visualization_resources = {}
+# Get data manager from adapter
+data_manager = adapter.data_manager
 
 
 def validate_dataset(data_id: str) -> None:
@@ -81,7 +85,7 @@ def validate_dataset(data_id: str) -> None:
     Raises:
         ValueError: If the dataset is not found
     """
-    if data_id not in data_store:
+    if data_id not in data_manager.data_store:
         raise ValueError(f"Dataset {data_id} not found")
 
 
@@ -107,17 +111,15 @@ async def load_data(
     if context:
         await context.info(f"Loading data from {data_path} (type: {data_type})")
 
-    # Load data
-    dataset_info = await load_spatial_data(data_path, data_type, name)
+    # Load data using data manager
+    data_id = await data_manager.load_dataset(data_path, data_type, name)
+    dataset_info = await data_manager.get_dataset(data_id)
 
     if context:
         await context.info(f"Successfully loaded {dataset_info['type']} data with {dataset_info['n_cells']} cells and {dataset_info['n_genes']} genes")
 
-    # Generate unique ID
-    data_id = f"data_{len(data_store) + 1}"
-
-    # Store data
-    data_store[data_id] = dataset_info
+    # Create resource for the dataset
+    await adapter.resource_manager.create_dataset_resource(data_id, dataset_info)
 
     # Return dataset information
     return SpatialDataset(
@@ -163,8 +165,18 @@ async def preprocess_data(
     # Validate dataset
     validate_dataset(data_id)
 
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
     # Call preprocessing function
     result = await preprocess_func(data_id, data_store, params, context)
+
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
+
+    # Save preprocessing result
+    await data_manager.save_result(data_id, "preprocessing", result)
 
     return result
 
@@ -201,6 +213,10 @@ async def visualize_data(
     # Validate dataset
     validate_dataset(data_id)
 
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
     # Handle different parameter formats for backward compatibility
     if isinstance(params, str):
         # Handle simple string format like "gene:CCL21"
@@ -220,42 +236,28 @@ async def visualize_data(
     # Call visualization function
     image = await visualize_func(data_id, data_store, params, context)
 
-    # Return the image directly for Claude frontend display
+    # Create visualization resource and return the image
     if image is not None:
-        # Optionally save image as MCP Resource for future reference
         import time
-        from pathlib import Path
-
-        # Create visualization resources directory
-        resources_dir = Path("visualization_resources")
-        resources_dir.mkdir(exist_ok=True)
-
-        # Generate unique resource URI
-        timestamp = int(time.time())
-        resource_id = f"viz_{data_id}_{params.plot_type}_{timestamp}"
-        resource_uri = f"visualization://{resource_id}"
-        resource_file = resources_dir / f"{resource_id}.png"
-
-        # Save image to file
-        with open(resource_file, 'wb') as f:
-            f.write(image.data)
-
-        # Store resource info globally for MCP resource handler
-        if not hasattr(mcp, '_visualization_resources'):
-            mcp._visualization_resources = {}
-
-        mcp._visualization_resources[resource_uri] = {
-            'file_path': str(resource_file),
-            'name': f"{params.plot_type} - {getattr(params, 'feature', 'N/A')}",
-            'description': f"Visualization of {data_id}",
-            'mime_type': 'image/png',
-            'size': len(image.data)
+        viz_id = f"{data_id}_{params.plot_type}_{int(time.time())}"
+        
+        metadata = {
+            "data_id": data_id,
+            "plot_type": params.plot_type,
+            "feature": getattr(params, 'feature', 'N/A'),
+            "timestamp": int(time.time()),
+            "name": f"{params.plot_type} - {getattr(params, 'feature', 'N/A')}",
+            "description": f"Visualization of {data_id}"
         }
+        
+        await adapter.resource_manager.create_visualization_resource(
+            viz_id, image.data, metadata
+        )
 
         file_size_kb = len(image.data) / 1024
 
         if context:
-            await context.info(f"Image saved as resource: {resource_uri} ({file_size_kb:.1f}KB)")
+            await context.info(f"Image saved as resource: spatial://visualizations/{viz_id} ({file_size_kb:.1f}KB)")
             await context.info(f"Visualization type: {params.plot_type}, feature: {getattr(params, 'feature', 'N/A')}")
 
         # Return the Image object directly for Claude to display
@@ -295,61 +297,94 @@ async def annotate_cells(
     # Validate dataset
     validate_dataset(data_id)
 
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
     # Validate reference data for methods that require it
     if params.method in ["tangram", "scanvi"] and params.reference_data_id:
-        if params.reference_data_id not in data_store:
+        if params.reference_data_id not in data_manager.data_store:
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
-        if context:
-            await context.info(f"Using reference dataset {params.reference_data_id} for {params.method} method")
-    elif params.method in ["tangram", "scanvi"] and not params.reference_data_id:
-        raise ValueError(f"{params.method} method requires a reference_data_id")
+        ref_info = await data_manager.get_dataset(params.reference_data_id)
+        data_store[params.reference_data_id] = ref_info
 
     # Call annotation function
     result = await annotate_cell_types(data_id, data_store, params, context)
 
-    # Log results
-    if context:
-        await context.info(f"Annotation completed with {len(result.cell_types)} cell types identified")
-        if params.method == "tangram" and result.tangram_mapping_score is not None:
-            await context.info(f"Tangram mapping score: {result.tangram_mapping_score:.4f}")
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
+
+    # Save annotation result
+    await data_manager.save_result(data_id, "annotation", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "annotation", result)
+
+    # Create visualization if available
+    if params.visualize:
+        vis_image = await adapter.create_visualization_from_result(
+            data_id, "spatial", result, context
+        )
+        if vis_image:
+            result.visualization = vis_image
 
     return result
 
 
 @mcp.tool()
 @mcp_tool_error_handler()
-@mcp_pydantic_error_handler()
+@manual_parameter_validation(
+    ("params", validate_spatial_analysis_params)
+)
 async def analyze_spatial_data(
     data_id: str,
-    params: SpatialAnalysisParameters = SpatialAnalysisParameters(),
+    params: Any = None,
     context: Context = None
 ) -> SpatialAnalysisResult:
-    """Perform spatial analysis on transcriptomics data and return the results.
-
-    This tool runs the specified spatial analysis (e.g., neighborhood, Moran's I)
-    and stores the results in the AnnData object. It returns a summary of the analysis.
-    To visualize the results, use the 'visualize_data' tool with
-    plot_type='spatial_analysis' and the corresponding 'analysis_sub_type'.
+    """Analyze spatial patterns and relationships in the data
 
     Args:
         data_id: Dataset ID
-        params: Spatial analysis parameters
+        params: Analysis parameters
 
     Returns:
-        A SpatialAnalysisResult object containing statistics and metadata.
+        Spatial analysis result with statistics and optional visualization
+
+    Notes:
+        Available analysis types:
+        - spatial_autocorrelation: Moran's I for spatial patterns
+        - nearest_neighbor: Analyze nearest neighbor relationships
+        - co_expression: Spatial co-expression analysis
+        - spatial_enrichment: Enrichment of features in spatial regions
+        - interaction_analysis: Cell-cell interaction based on proximity
+        - ligand_receptor: Ligand-receptor interaction analysis
     """
     # Validate dataset
     validate_dataset(data_id)
 
-    # Call spatial analysis unified function (without return_type parameter)
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
+    # Call spatial analysis function
     result = await analyze_spatial_patterns(data_id, data_store, params, context)
 
-    # Log and return the result object
-    if context:
-        await context.info(f"Spatial analysis '{params.analysis_type}' completed.")
-        await context.info(f"Results stored in adata.uns['{result.statistics.get('analysis_key_in_adata', 'N/A')}']")
-        await context.info("To visualize the results, use the 'visualize_data' tool with:")
-        await context.info(f"  plot_type='spatial_analysis', analysis_sub_type='{params.analysis_type}'")
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
+
+    # Save spatial analysis result
+    await data_manager.save_result(data_id, "spatial_analysis", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "spatial_analysis", result)
+
+    # Create visualization if available
+    if params and getattr(params, 'visualize', True):
+        vis_image = await adapter.create_visualization_from_result(
+            data_id, "spatial_analysis", result, context
+        )
+        if vis_image:
+            result.visualization = vis_image
 
     return result
 
@@ -359,35 +394,49 @@ async def analyze_spatial_data(
 async def find_markers(
     data_id: str,
     group_key: str,
-    group1: str,
-    group2: str,
-    n_top_genes: int = 50,
+    group1: Optional[str] = None,
+    group2: Optional[str] = None,
     method: str = "wilcoxon",
+    n_genes: int = 25,
     context: Context = None
 ) -> DifferentialExpressionResult:
-    """Find marker genes between groups
+    """Find differentially expressed genes between groups
 
     Args:
         data_id: Dataset ID
-        group_key: Key in adata.obs for grouping cells
-        group1: First group for comparison
-        group2: Second group for comparison
-        n_top_genes: Number of top differentially expressed genes to return
-        method: Statistical method for DE analysis
+        group_key: Column name defining groups
+        group1: First group (if None, compare against all others)
+        group2: Second group (if None, compare group1 against all others)
+        method: Statistical test method
+        n_genes: Number of top genes to return
 
     Returns:
-        Differential expression analysis result
+        Differential expression result with top marker genes
     """
     # Validate dataset
     validate_dataset(data_id)
 
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
     # Call differential expression function
-    return await differential_expression(
-        data_id, data_store, group_key, group1, group2, n_top_genes, method, context
+    result = await differential_expression(
+        data_id, data_store, group_key, group1, group2, method, n_genes, context
     )
 
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
 
-# Add RNA velocity analysis tool
+    # Save differential expression result
+    await data_manager.save_result(data_id, "differential_expression", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "markers", result)
+
+    return result
+
+
 @mcp.tool()
 @mcp_tool_error_handler()
 async def analyze_velocity_data(
@@ -395,11 +444,11 @@ async def analyze_velocity_data(
     params: RNAVelocityParameters = RNAVelocityParameters(),
     context: Context = None
 ) -> RNAVelocityResult:
-    """Analyze RNA velocity in spatial transcriptomics data
+    """Analyze RNA velocity to understand cellular dynamics
 
     Args:
         data_id: Dataset ID
-        params: RNA velocity analysis parameters
+        params: RNA velocity parameters
 
     Returns:
         RNA velocity analysis result
@@ -407,21 +456,33 @@ async def analyze_velocity_data(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Call RNA velocity analysis function
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
+    # Call RNA velocity function
     result = await analyze_rna_velocity(data_id, data_store, params, context)
 
-    # Log results
-    if context:
-        if result.velocity_computed:
-            await context.info(f"RNA velocity analysis completed using {params.mode} mode.")
-            await context.info("To visualize results, use the 'visualize_data' tool with plot_type='spatial' and feature='velocity'.")
-        else:
-            await context.warning("Could not compute RNA velocity.")
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
+
+    # Save velocity result
+    await data_manager.save_result(data_id, "rna_velocity", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "velocity", result)
+
+    # Create visualization if available
+    if params.visualize:
+        vis_image = await adapter.create_visualization_from_result(
+            data_id, "trajectory", result, context
+        )
+        if vis_image:
+            result.visualization = vis_image
 
     return result
 
 
-# Add trajectory analysis tool
 @mcp.tool()
 @mcp_tool_error_handler()
 async def analyze_trajectory_data(
@@ -429,47 +490,56 @@ async def analyze_trajectory_data(
     params: TrajectoryParameters = TrajectoryParameters(),
     context: Context = None
 ) -> TrajectoryResult:
-    """Analyze trajectory and return results
-
-    This function performs trajectory analysis and returns computation results.
-    For visualization, use the 'visualize_data' tool with plot_type='trajectory'.
+    """Infer cellular trajectories and pseudotime
 
     Args:
         data_id: Dataset ID
         params: Trajectory analysis parameters
-        context: MCP context
 
     Returns:
         Trajectory analysis result
-        
+
     Notes:
         Available methods:
-        - cellrank: Uses CellRank for trajectory inference (default)
-        - palantir: Uses Palantir for trajectory inference
-        - velovi: Uses VeloVI from scvi-tools for velocity-based trajectory inference
-        
-        VeloVI provides probabilistic velocity modeling and is particularly useful
-        for spatial transcriptomics data with velocity information.
+        - paga: Partition-based graph abstraction
+        - palantir: Probabilistic trajectory inference
+        - cellrank: RNA velocity-based trajectory inference
+        - dpt: Diffusion pseudotime
+        - gaston: GASTON spatial trajectory analysis
     """
+    # Import trajectory function
+    from .tools.trajectory import infer_trajectory
+
     # Validate dataset
     validate_dataset(data_id)
 
-    # Import the trajectory analysis function
-    from .tools.trajectory import analyze_trajectory
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
 
-    # Call trajectory analysis function
-    result = await analyze_trajectory(data_id, data_store, params, context)
+    # Call trajectory function
+    result = await infer_trajectory(data_id, data_store, params, context)
 
-    # Log results
-    if context:
-        await context.info(f"Trajectory analysis with method '{params.method}' completed.")
-        await context.info(f"Results stored in adata.obs['{result.pseudotime_key}'].")
-        await context.info("To visualize results, use the 'visualize_data' tool with plot_type='trajectory'.")
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
+
+    # Save trajectory result
+    await data_manager.save_result(data_id, "trajectory", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "trajectory", result)
+
+    # Create visualization if available
+    if params.visualize:
+        vis_image = await adapter.create_visualization_from_result(
+            data_id, "trajectory", result, context
+        )
+        if vis_image:
+            result.visualization = vis_image
 
     return result
 
 
-# Add tool for integrating multiple samples
 @mcp.tool()
 @mcp_tool_error_handler()
 async def integrate_samples(
@@ -484,31 +554,51 @@ async def integrate_samples(
         params: Integration parameters
 
     Returns:
-        Integration result with visualizations
-        
+        Integration result with integrated dataset ID
+
     Notes:
         Available methods:
-        - harmony: Uses Harmony for batch effect correction
-        - bbknn: Uses BBKNN for batch-aware k-NN graph construction
-        - scanorama: Uses Scanorama for integration
-        - mnn: Uses mutual nearest neighbors for integration
-        - scvi: Uses scVI from scvi-tools for probabilistic integration
-        - multivi: Uses MultiVI from scvi-tools for multi-modal integration
-        - totalvi: Uses TotalVI from scvi-tools for protein+RNA integration
+        - harmony: Fast batch correction
+        - scvi: Deep learning-based integration
+        - combat: ComBat batch correction
+        - mnn: Mutual nearest neighbors
+        - PASTE: Probabilistic Alignment of Spatial Transcriptomics Experiments
     """
-    if context:
-        await context.info(f"Integrating {len(data_ids)} samples using {params.method} method")
+    # Import integration function
+    from .tools.integration import integrate_spatial_data
 
-    # Validate all dataset IDs
+    # Validate all datasets
     for data_id in data_ids:
         validate_dataset(data_id)
 
+    # Get all datasets from data manager
+    data_store = {}
+    for data_id in data_ids:
+        dataset_info = await data_manager.get_dataset(data_id)
+        data_store[data_id] = dataset_info
+
     # Call integration function
-    from .tools.integration import integrate_samples as integrate_func
-    return await integrate_func(data_ids, data_store, params, context)
+    result = await integrate_spatial_data(data_ids, data_store, params, context)
+
+    # Save integrated dataset
+    integrated_id = result.integrated_data_id
+    if integrated_id and integrated_id in data_store:
+        data_manager.data_store[integrated_id] = data_store[integrated_id]
+        
+        # Create resource for integrated dataset
+        await adapter.resource_manager.create_dataset_resource(
+            integrated_id, data_store[integrated_id]
+        )
+
+    # Save integration result
+    await data_manager.save_result(integrated_id, "integration", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(integrated_id, "integration", result)
+
+    return result
 
 
-# Add tool for spatial deconvolution
 @mcp.tool()
 @mcp_tool_error_handler()
 async def deconvolve_data(
@@ -516,69 +606,62 @@ async def deconvolve_data(
     params: DeconvolutionParameters = DeconvolutionParameters(),
     context: Context = None
 ) -> DeconvolutionResult:
-    """Deconvolve spatial transcriptomics data to estimate cell type proportions
+    """Deconvolve spatial spots to estimate cell type proportions
 
     Args:
         data_id: Dataset ID
         params: Deconvolution parameters
 
     Returns:
-        Deconvolution result with cell type proportions and visualization
-        
+        Deconvolution result with cell type proportions
+
     Notes:
         Available methods:
-        - cell2location: Uses Cell2location for spatial deconvolution (requires reference_data_id)
-        - spotiphy: Uses Spotiphy for spatial deconvolution (requires reference_data_id)
-        - rctd: Uses RCTD (Robust Cell Type Decomposition) (requires reference_data_id)
-        - destvi: Uses DestVI from scvi-tools for spatial deconvolution (requires reference_data_id)
-        - stereoscope: Uses Stereoscope from scvi-tools for spatial deconvolution (requires reference_data_id)
-        
-        All methods require a reference single-cell dataset specified by reference_data_id.
+        - spotlight: SPOTlight deconvolution
+        - cell2location: Probabilistic mapping
+        - rctd: Robust Cell Type Decomposition
+        - stereoscope: Probabilistic model
+        - tangram: Tangram spatial mapping
+        - destvi: DestVI from scvi-tools
+        - spotiphy: Spotiphy deconvolution
     """
-    try:
-        if context:
-            await context.info(f"Deconvolving spatial data using {params.method} method")
-            await context.info(f"Parameters: {params}")
+    # Validate dataset
+    validate_dataset(data_id)
 
-        # Validate dataset
-        validate_dataset(data_id)
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
 
-        # Validate reference data if provided
-        if params.reference_data_id and params.reference_data_id not in data_store:
+    # Validate reference data if provided
+    if params.reference_data_id:
+        if params.reference_data_id not in data_manager.data_store:
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
+        ref_info = await data_manager.get_dataset(params.reference_data_id)
+        data_store[params.reference_data_id] = ref_info
 
-        # Call deconvolution function
-        result = await deconvolve_spatial_data(data_id, data_store, params, context)
+    # Call deconvolution function
+    result = await deconvolve_spatial_data(data_id, data_store, params, context)
 
-        # Automatically visualize the results if visualization_params are provided
-        if result.visualization_params:
-            if context:
-                await context.info("Automatically visualizing deconvolution results")
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
 
-            # Create visualization parameters
-            vis_params = VisualizationParameters(**result.visualization_params)
+    # Save deconvolution result
+    await data_manager.save_result(data_id, "deconvolution", result)
 
-            # Call visualization function
-            try:
-                # This will create a multi-panel figure with top cell types
-                from .tools.visualization import visualize_data as visualize_func
-                await visualize_func(data_id, data_store, vis_params, context)
-            except Exception as e:
-                if context:
-                    await context.warning(f"Failed to automatically visualize deconvolution results: {str(e)}")
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "deconvolution", result)
 
-        return result
-    except Exception as e:
-        error_msg = f"Error in deconvolution: {str(e)}"
-        if context:
-            await context.warning(error_msg)
-            await context.info("If you're having issues with parameter formatting, try using this format:")
-            await context.info('deconvolve_data(data_id="data_1", params={"method": "cell2location", "reference_data_id": "data_2", "cell_type_key": "CellType"})')
-            await context.info("Available methods: cell2location, spotiphy, rctd, destvi, stereoscope")
-        raise
+    # Create visualization if available
+    if params.visualize:
+        vis_image = await adapter.create_visualization_from_result(
+            data_id, "deconvolution", result, context
+        )
+        if vis_image:
+            result.visualization = vis_image
+
+    return result
 
 
-# Add tool for spatial domain identification
 @mcp.tool()
 @mcp_tool_error_handler()
 async def identify_spatial_domains(
@@ -586,35 +669,58 @@ async def identify_spatial_domains(
     params: SpatialDomainParameters = SpatialDomainParameters(),
     context: Context = None
 ) -> SpatialDomainResult:
-    """Identify spatial domains in spatial transcriptomics data
+    """Identify spatial domains and tissue architecture
 
     Args:
         data_id: Dataset ID
-        params: Spatial domain identification parameters
+        params: Spatial domain parameters
 
     Returns:
-        Spatial domain identification result with domain labels and statistics
+        Spatial domain result with identified domains
+
+    Notes:
+        Available methods:
+        - stlearn: stLearn spatial domains
+        - spagcn: SpaGCN graph convolutional network
+        - sedr: SEDR deep learning method
+        - bayesspace: BayesSpace Bayesian method
+        - banksy: BANKSY spatial domains
+        - stagate: STAGATE spatial domains
+        - gaston: GASTON spatial domains
     """
-    if context:
-        await context.info(f"Identifying spatial domains using {params.method} method")
+    # Import spatial domains function
+    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
 
-    # Call spatial domain identification function
-    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
+    # Call spatial domains function
     result = await identify_domains_func(data_id, data_store, params, context)
 
-    if context:
-        await context.info(f"Successfully identified {result.n_domains} spatial domains")
-        await context.info(f"Domain labels stored in adata.obs['{result.domain_key}']")
-        if result.refined_domain_key:
-            await context.info(f"Refined domain labels stored in adata.obs['{result.refined_domain_key}']")
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
+
+    # Save spatial domains result
+    await data_manager.save_result(data_id, "spatial_domains", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "domains", result)
+
+    # Create visualization if available
+    if params.visualize:
+        vis_image = await adapter.create_visualization_from_result(
+            data_id, "spatial_domains", result, context
+        )
+        if vis_image:
+            result.visualization = vis_image
 
     return result
 
 
-# Add tool for cell communication analysis
 @mcp.tool()
 @mcp_tool_error_handler()
 async def analyze_cell_communication(
@@ -622,111 +728,112 @@ async def analyze_cell_communication(
     params: CellCommunicationParameters = CellCommunicationParameters(),
     context: Context = None
 ) -> CellCommunicationResult:
-    """Analyze cell-cell communication in spatial transcriptomics data
+    """Analyze cell-cell communication patterns
 
     Args:
         data_id: Dataset ID
-        params: Cell communication analysis parameters
+        params: Cell communication parameters
 
     Returns:
-        Cell communication analysis result with LR pairs and communication networks
+        Cell communication analysis result
+
+    Notes:
+        Available methods:
+        - liana: LIANA framework with multiple methods
+        - cellphonedb: CellPhoneDB statistical framework
+        - cellchat: CellChat network analysis
+        - nichenet: NicheNet ligand-target analysis
+        - connectome: Connectome weighted networks
+        - cytotalk: CytoTalk crosstalk analysis
+        - squidpy: Squidpy permutation test
     """
-    if context:
-        await context.info(f"Analyzing cell communication using {params.method} method")
+    # Import cell communication function
+    from .tools.cell_communication import analyze_cell_communication as analyze_comm_func
 
     # Validate dataset
     validate_dataset(data_id)
 
-    # Call cell communication analysis function
-    from .tools.cell_communication import analyze_cell_communication as analyze_comm_func
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
+    # Call cell communication function
     result = await analyze_comm_func(data_id, data_store, params, context)
 
-    if context:
-        await context.info(f"Successfully analyzed {result.n_significant_pairs} significant LR pairs")
-        if result.global_results_key:
-            await context.info(f"Global results stored in adata.uns['{result.global_results_key}']")
-        if result.local_analysis_performed and result.local_results_key:
-            await context.info(f"Local results stored in adata.uns['{result.local_results_key}']")
-        if result.top_lr_pairs:
-            await context.info(f"Top LR pair: {result.top_lr_pairs[0]}")
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
+
+    # Save communication result
+    await data_manager.save_result(data_id, "cell_communication", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "communication", result)
+
+    # Create visualization if available
+    if params.visualize:
+        vis_image = await adapter.create_visualization_from_result(
+            data_id, "cell_communication", result, context
+        )
+        if vis_image:
+            result.visualization = vis_image
 
     return result
 
 
-# Add tool for enrichment analysis using EnrichMap
 @mcp.tool()
 @mcp_tool_error_handler()
 async def analyze_enrichment(
     data_id: str,
-    gene_sets: Union[List[str], Dict[str, List[str]]],
-    score_keys: Optional[Union[str, List[str]]] = None,
-    spatial_key: str = "spatial",
-    n_neighbors: int = 6,
-    smoothing: bool = True,
-    correct_spatial_covariates: bool = True,
-    batch_key: Optional[str] = None,
+    params: EnrichmentParameters = EnrichmentParameters(),
     context: Context = None
-) -> Dict[str, Any]:
-    """Perform spatially-aware gene set enrichment analysis using EnrichMap
-    
-    EnrichMap computes and visualizes enrichment scores of gene sets in spatial transcriptomics
-    datasets with spatial smoothing and covariate correction.
-    
+) -> EnrichmentResult:
+    """Perform gene set enrichment analysis
+
     Args:
         data_id: Dataset ID
-        gene_sets: Either a single gene list or a dictionary of gene sets where keys are 
-                  signature names and values are lists of genes
-        score_keys: Names for the gene signatures if gene_sets is a list
-        spatial_key: Key in adata.obsm containing spatial coordinates (default: "spatial")
-        n_neighbors: Number of nearest spatial neighbors for smoothing (default: 6)
-        smoothing: Whether to perform spatial smoothing (default: True)
-        correct_spatial_covariates: Whether to correct for spatial covariates using GAM (default: True)
-        batch_key: Column in adata.obs for batch-wise normalization
-    
+        params: Enrichment analysis parameters
+
     Returns:
-        Enrichment analysis result with scores, gene contributions, and statistics
+        Enrichment analysis result
+
+    Notes:
+        Available methods:
+        - gsea: Gene Set Enrichment Analysis
+        - ora: Over-representation analysis
+        - enrichr: Enrichr web service
+        - enrichmap: EnrichMap spatial enrichment
         
-    Examples:
-        # Single gene set
-        analyze_enrichment(data_id="data_1", gene_sets=["CD3D", "CD3E", "CD8A"], score_keys="T_cell")
-        
-        # Multiple gene sets
-        analyze_enrichment(data_id="data_1", gene_sets={
-            "T_cell": ["CD3D", "CD3E", "CD8A"],
-            "B_cell": ["CD19", "MS4A1", "CD79A"]
-        })
+        Available gene sets:
+        - GO_Molecular_Function, GO_Biological_Process, GO_Cellular_Component
+        - KEGG, Reactome, WikiPathways
+        - MSigDB collections (H, C1-C8)
+        - Custom gene sets via gene_sets parameter
     """
-    if context:
-        await context.info("Performing spatially-aware enrichment analysis using EnrichMap")
-    
+    # Import enrichment analysis function
+    from .tools.enrichment_analysis import analyze_enrichment as analyze_enrich_func
+
     # Validate dataset
     validate_dataset(data_id)
-    
-    # Import and call enrichment analysis function
-    from .tools.enrichment_analysis import perform_enrichment_analysis
-    result = await perform_enrichment_analysis(
-        data_id=data_id,
-        data_store=data_store,
-        gene_sets=gene_sets,
-        score_keys=score_keys,
-        spatial_key=spatial_key,
-        n_neighbors=n_neighbors,
-        smoothing=smoothing,
-        correct_spatial_covariates=correct_spatial_covariates,
-        batch_key=batch_key,
-        context=context
-    )
-    
-    if context:
-        await context.info(f"Successfully computed enrichment scores for {len(result['signatures'])} signatures")
-        for sig in result['signatures']:
-            stats = result['summary_stats'][sig]
-            await context.info(f"  {sig}: mean={stats['mean']:.3f}, std={stats['std']:.3f}, n_genes={stats['n_genes']}")
-    
+
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
+    # Call enrichment function
+    result = await analyze_enrich_func(data_id, data_store, params, context)
+
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
+
+    # Save enrichment result
+    await data_manager.save_result(data_id, "enrichment", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "enrichment", result)
+
     return result
 
 
-# Add tool for spatial variable genes identification using GASTON
 @mcp.tool()
 @mcp_tool_error_handler()
 async def find_spatial_genes(
@@ -734,229 +841,276 @@ async def find_spatial_genes(
     params: SpatialVariableGenesParameters = SpatialVariableGenesParameters(),
     context: Context = None
 ) -> SpatialVariableGenesResult:
-    """Identify spatial variable genes using GASTON method
-
-    GASTON (Generative Adversarial Spatial Transcriptomics Optimization Network) learns
-    a topographic map of tissue slices by modeling gene expression through isodepth coordinates.
-
-    Key features:
-    - Learns 1D isodepth coordinate that varies smoothly across tissue
-    - Identifies spatial domains and continuous/discontinuous gene expression patterns
-    - Uses interpretable deep learning with neural networks
-    - Supports GLM-PCA or Pearson residuals preprocessing
+    """Identify spatially variable genes
 
     Args:
         data_id: Dataset ID
-        params: GASTON analysis parameters including:
-            - preprocessing_method: "glmpca" (recommended) or "pearson_residuals"
-            - spatial_hidden_layers: Architecture for spatial embedding network
-            - expression_hidden_layers: Architecture for expression function network
-            - epochs: Number of training epochs
-            - learning_rate: Learning rate for optimization
-            - use_positional_encoding: Whether to use positional encoding
-            - n_domains: Number of spatial domains to identify (default: 5)
-            - num_bins: Number of bins for isodepth binning (default: 70)
-            - continuous_quantile: Quantile threshold for continuous genes (default: 0.9)
-            - discontinuous_quantile: Quantile threshold for discontinuous genes (default: 0.9)
-            - umi_threshold: Minimum UMI count threshold for genes (default: 500)
+        params: Spatial variable gene parameters
 
     Returns:
-        Spatial variable genes identification result with spatial domains and gene classification.
-        Use visualize_data with plot_type="gaston_isodepth", "gaston_domains", or "gaston_genes"
-        to visualize the results.
-    """
-    if context:
-        await context.info(f"Identifying spatial variable genes using GASTON method")
+        Spatial variable genes result
 
+    Notes:
+        Available methods:
+        - squidpy: Moran's I and Geary's C
+        - sepal: SEPAL neural network
+        - somde: SOMDE Gaussian process
+        - spark: SPARK statistical model
+        - spatialde: SpatialDE Gaussian process
+        - hotspot: Hotspot local autocorrelation
+    """
     # Validate dataset
     validate_dataset(data_id)
 
-    # Call GASTON spatial variable genes identification function
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
+    # Call spatial genes function
     result = await identify_spatial_genes(data_id, data_store, params, context)
 
-    if context:
-        await context.info(f"Successfully completed GASTON analysis")
-        await context.info(f"Identified {result.n_spatial_domains} spatial domains")
-        await context.info(f"Found {result.n_continuous_genes} genes with continuous gradients")
-        await context.info(f"Found {result.n_discontinuous_genes} genes with discontinuities")
-        await context.info(f"Final training loss: {result.final_loss:.6f}")
-        await context.info(f"Model R²: {result.model_performance.get('r2', 'N/A')}")
-        await context.info(f"Results stored with keys: {result.isodepth_key}, {result.spatial_domains_key}")
-        await context.info("Use visualize_data tool with plot_type='gaston_isodepth', 'gaston_domains', or 'gaston_genes' to visualize results")
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
+
+    # Save spatial genes result
+    await data_manager.save_result(data_id, "spatial_genes", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "spatial_genes", result)
+
+    # Create visualization if available
+    if params.visualize:
+        vis_image = await adapter.create_visualization_from_result(
+            data_id, "spatial", result, context
+        )
+        if vis_image:
+            result.visualization = vis_image
 
     return result
 
 
-# Add resource for dataset information
-@mcp.resource("dataset://{data_id}")
-def get_dataset_info(data_id: str) -> Dict[str, Any]:
-    """Get information about a dataset"""
+@mcp.tool()
+@mcp_tool_error_handler()
+async def register_spatial_data(
+    source_id: str,
+    target_id: str,
+    method: str = "paste",
+    landmarks: Optional[List[Dict[str, Any]]] = None,
+    context: Context = None
+) -> Dict[str, Any]:
+    """Register/align spatial transcriptomics data across sections
+
+    Args:
+        source_id: Source dataset ID
+        target_id: Target dataset ID to align to
+        method: Registration method (paste, manual)
+        landmarks: Manual landmarks for alignment (if method='manual')
+
+    Returns:
+        Registration result with transformation matrix
+    """
+    # Import registration function
+    from .tools.spatial_registration import register_spatial_sections
+
+    # Validate datasets
+    validate_dataset(source_id)
+    validate_dataset(target_id)
+
+    # Get datasets from data manager
+    source_info = await data_manager.get_dataset(source_id)
+    target_info = await data_manager.get_dataset(target_id)
+    data_store = {
+        source_id: source_info,
+        target_id: target_info
+    }
+
+    # Call registration function
+    result = await register_spatial_sections(
+        source_id, target_id, data_store, method, landmarks, context
+    )
+
+    # Update datasets in data manager
+    data_manager.data_store[source_id] = data_store[source_id]
+    data_manager.data_store[target_id] = data_store[target_id]
+
+    # Save registration result
+    await data_manager.save_result(source_id, "registration", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(source_id, "registration", result)
+
+    return result
+
+
+@mcp.tool()
+@mcp_tool_error_handler()
+async def calculate_spatial_statistics(
+    data_id: str,
+    feature: str,
+    statistic: str = "morans_i",
+    n_neighbors: int = 6,
+    context: Context = None
+) -> Dict[str, Any]:
+    """Calculate spatial statistics for features
+
+    Args:
+        data_id: Dataset ID
+        feature: Feature/gene to analyze
+        statistic: Type of statistic (morans_i, gearys_c, local_morans)
+        n_neighbors: Number of neighbors for spatial graph
+
+    Returns:
+        Spatial statistics result
+    """
+    # Import spatial statistics function
+    from .tools.spatial_statistics import calculate_spatial_stats
+
     # Validate dataset
     validate_dataset(data_id)
 
-    return data_store[data_id]
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
+    # Call spatial statistics function
+    result = await calculate_spatial_stats(
+        data_id, data_store, feature, statistic, n_neighbors, context
+    )
+
+    # Save statistics result
+    await data_manager.save_result(data_id, f"spatial_stats_{feature}", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(
+        data_id, f"statistics_{feature}", result
+    )
+
+    return result
 
 
-# The list_resources handler is automatically provided by FastMCP
-# We just need to register resources using mcp.add_resource()
+# Register tool metadata with the adapter
+tool_metadata = {
+    "load_data": MCPToolMetadata(
+        name="load_data",
+        title="Load Spatial Data",
+        description="Load spatial transcriptomics data from file",
+        read_only_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True
+    ),
+    "preprocess_data": MCPToolMetadata(
+        name="preprocess_data",
+        title="Preprocess Spatial Data",
+        description="Preprocess and normalize spatial data",
+        read_only_hint=False,
+        idempotent_hint=False
+    ),
+    "visualize_data": MCPToolMetadata(
+        name="visualize_data",
+        title="Visualize Spatial Data",
+        description="Create visualizations of spatial data",
+        read_only_hint=True,
+        idempotent_hint=True
+    ),
+    "annotate_cells": MCPToolMetadata(
+        name="annotate_cells",
+        title="Annotate Cell Types",
+        description="Identify cell types in spatial data",
+        read_only_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True
+    ),
+    "analyze_spatial_data": MCPToolMetadata(
+        name="analyze_spatial_data",
+        title="Spatial Pattern Analysis",
+        description="Analyze spatial patterns and correlations",
+        read_only_hint=False,
+        idempotent_hint=True
+    ),
+    "find_markers": MCPToolMetadata(
+        name="find_markers",
+        title="Find Marker Genes",
+        description="Identify differentially expressed genes",
+        read_only_hint=True,
+        idempotent_hint=True
+    ),
+    "analyze_velocity_data": MCPToolMetadata(
+        name="analyze_velocity_data",
+        title="RNA Velocity Analysis",
+        description="Analyze RNA velocity dynamics",
+        read_only_hint=False,
+        idempotent_hint=False
+    ),
+    "analyze_trajectory_data": MCPToolMetadata(
+        name="analyze_trajectory_data",
+        title="Trajectory Analysis",
+        description="Infer cellular trajectories",
+        read_only_hint=False,
+        idempotent_hint=False
+    ),
+    "integrate_samples": MCPToolMetadata(
+        name="integrate_samples",
+        title="Integrate Multiple Samples",
+        description="Integrate multiple spatial datasets",
+        read_only_hint=False,
+        idempotent_hint=False
+    ),
+    "deconvolve_data": MCPToolMetadata(
+        name="deconvolve_data",
+        title="Spatial Deconvolution",
+        description="Deconvolve spatial spots into cell types",
+        read_only_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True
+    ),
+    "identify_spatial_domains": MCPToolMetadata(
+        name="identify_spatial_domains",
+        title="Identify Spatial Domains",
+        description="Find spatial domains and niches",
+        read_only_hint=False,
+        idempotent_hint=False
+    ),
+    "analyze_cell_communication": MCPToolMetadata(
+        name="analyze_cell_communication",
+        title="Cell Communication Analysis",
+        description="Analyze cell-cell communication",
+        read_only_hint=False,
+        idempotent_hint=True,
+        open_world_hint=True
+    ),
+    "analyze_enrichment": MCPToolMetadata(
+        name="analyze_enrichment",
+        title="Gene Set Enrichment Analysis",
+        description="Perform gene set enrichment analysis",
+        read_only_hint=False,
+        idempotent_hint=True
+    ),
+    "find_spatial_genes": MCPToolMetadata(
+        name="find_spatial_genes",
+        title="Find Spatial Variable Genes",
+        description="Identify spatially variable genes",
+        read_only_hint=False,
+        idempotent_hint=False
+    ),
+    "register_spatial_data": MCPToolMetadata(
+        name="register_spatial_data",
+        title="Register Spatial Sections",
+        description="Align spatial sections",
+        read_only_hint=False,
+        idempotent_hint=False
+    ),
+    "calculate_spatial_statistics": MCPToolMetadata(
+        name="calculate_spatial_statistics",
+        title="Calculate Spatial Statistics",
+        description="Calculate spatial statistics for features",
+        read_only_hint=True,
+        idempotent_hint=True
+    )
+}
 
-
-# # Implement read_resource handler
-# @mcp.read_resource
-# async def read_resource(uri: str) -> str:
-#     """Read resource content"""
-#     try:
-#         return read_resource_content(uri, data_store)
-#     except Exception as e:
-#         error = format_mcp_error(
-#             ErrorType.INTERNAL_ERROR,
-#             f"Failed to read resource: {str(e)}",
-#             {"uri": uri}
-#         )
-#         raise ValueError(error)
-
-
-# # # Implement list_prompts handler
-# # @mcp.list_prompts
-# # async def list_prompts() -> List[Dict[str, Any]]:
-# #     """List available prompts for spatial analysis"""
-# #     return [
-# #         {
-# #             "name": p.name,
-# #             "description": p.description,
-# #             "arguments": p.arguments
-# #         }
-# #         for p in SPATIAL_PROMPTS
-# #     ]
-# 
-# 
-# # # Implement get_prompt handler
-# # @mcp.get_prompt()
-# # async def get_prompt(name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-#     """Get a specific prompt with filled arguments"""
-#     # Find the prompt
-#     prompt = next((p for p in SPATIAL_PROMPTS if p.name == name), None)
-#     if not prompt:
-#         error = format_mcp_error(
-#             ErrorType.INVALID_REQUEST,
-#             f"Prompt '{name}' not found"
-#         )
-#         raise ValueError(error)
-#     
-#     # Convert to tool parameters
-#     try:
-#         if arguments:
-#             tool_params = prompt_to_tool_params(name, arguments, data_store)
-#             # Format as a helpful message
-#             tool_name = tool_params["tool"]
-#             params = tool_params["params"]
-#             
-#             # Create a formatted prompt message
-#             messages = [
-#                 {
-#                     "role": "user",
-#                     "content": f"Please run the {tool_name} tool with these parameters: {params}"
-#                 }
-#             ]
-#         else:
-#             # Return the prompt template
-#             messages = [
-#                 {
-#                     "role": "user", 
-#                     "content": f"Please help me with: {prompt.description}"
-#                 }
-#             ]
-#         
-#         return {
-#             "description": prompt.description,
-#             "messages": messages
-#         }
-#     except Exception as e:
-#         error = format_mcp_error(
-#             ErrorType.INTERNAL_ERROR,
-#             f"Failed to process prompt: {str(e)}"
-#         )
-#         raise ValueError(error)
-# 
-# 
-# # # Override list_tools to include annotations
-# # @mcp.list_tools
-# # async def list_tools() -> List[Dict[str, Any]]:
-#     """List all available tools with annotations"""
-#     # Get the default tools list from FastMCP
-#     tools = []
-#     
-#     # Get registered tools from mcp instance
-#     for tool_name, tool_info in mcp._tool_handlers.items():
-#         # Get annotations if available
-#         annotations = TOOL_ANNOTATIONS.get(tool_name, {})
-        
-#         # Create tool info with annotations
-#         tool_data = {
-#             "name": tool_name,
-#             "description": tool_info.description or "",
-#             "inputSchema": tool_info.parameters_schema
-#         }
-#         
-#         # Add annotations if available
-#         if annotations:
-#             tool_data["annotations"] = {
-#                 "title": annotations.get("title", tool_name),
-#                 "readOnlyHint": annotations.get("readOnlyHint", False),
-#                 "destructiveHint": annotations.get("destructiveHint", False),
-#                 "idempotentHint": annotations.get("idempotentHint", False),
-#                 "openWorldHint": annotations.get("openWorldHint", False)
-#             }
-#         
-#         tools.append(tool_data)
-#     
-#     return tools
-
-
-# MCP Resources handlers - commented out due to FastMCP API issues
-# @mcp.resource("visualization://{resource_id}")
-# async def get_visualization_resource(resource_id: str):
-#     """Get a visualization resource"""
-#     uri = f"visualization://{resource_id}"
-#     
-#     if not hasattr(mcp, '_visualization_resources'):
-#         raise ValueError(f"Resource not found: {uri}")
-#     
-#     if uri not in mcp._visualization_resources:
-#         raise ValueError(f"Resource not found: {uri}")
-#     
-#     info = mcp._visualization_resources[uri]
-#     
-#     # Read the file
-#     with open(info['file_path'], 'rb') as f:
-#         return f.read()
-
-# Simplified version without resource handlers for now
-async def read_visualization_resource(uri: str):
-    """Read a visualization resource"""
-    if not hasattr(mcp, '_visualization_resources'):
-        raise ValueError(f"Resource not found: {uri}")
-
-    if uri not in mcp._visualization_resources:
-        raise ValueError(f"Resource not found: {uri}")
-
-    resource_info = mcp._visualization_resources[uri]
-    file_path = resource_info['file_path']
-
-    try:
-        with open(file_path, 'rb') as f:
-            image_data = f.read()
-
-        import base64
-        base64_data = base64.b64encode(image_data).decode('utf-8')
-
-        return {
-            "uri": uri,
-            "mimeType": resource_info['mime_type'],
-            "blob": base64_data
-        }
-    except FileNotFoundError:
-        raise ValueError(f"Resource file not found: {file_path}")
+# Update adapter with tool metadata
+for name, metadata in tool_metadata.items():
+    adapter._tool_metadata[name] = metadata
 
 
 def main():
