@@ -17,7 +17,7 @@ def fig_to_image(
     fig: plt.Figure,
     dpi: int = 100,
     format: str = 'png',
-    max_size_kb: int = 500,
+    max_size_kb: int = 900,
     close_fig: bool = True
 ) -> Image:
     """Convert matplotlib figure to Image object with size control
@@ -26,7 +26,7 @@ def fig_to_image(
         fig: Matplotlib figure
         dpi: Resolution in dots per inch (lower = smaller file)
         format: Image format (png, jpg)
-        max_size_kb: Maximum size in KB for the image
+        max_size_kb: Maximum size in KB for the image (MCP limit is 1MB)
         close_fig: Whether to close the figure after conversion
 
     Returns:
@@ -203,10 +203,10 @@ def fig_to_base64(
 
 def fig_to_image_mcp_optimized(
     fig: plt.Figure,
-    max_size_kb: int = 50,  # Much smaller limit for MCP
+    max_size_kb: int = 200,  # Optimized for MCP (under 1MB limit)
     close_fig: bool = True
 ) -> Image:
-    """Convert matplotlib figure to Image object optimized for MCP with very small size
+    """Convert matplotlib figure to Image object optimized for MCP
 
     This function prioritizes small file size over image quality for MCP usage.
 

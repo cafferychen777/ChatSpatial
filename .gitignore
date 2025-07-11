@@ -254,6 +254,10 @@ docs/_build/
 docs/build/
 site/
 
+# Exclude paper and docs folders
+paper/
+docs/
+
 # Development artifacts
 experiments/
 scratch/

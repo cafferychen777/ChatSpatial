@@ -611,7 +611,7 @@ async def visualize_data(
                     # Convert figure to image with lower DPI and PNG format (Claude doesn't support JPG)
                     if context:
                         await context.info(f"Created multi-panel figure with {len(features)} cell types")
-                    return fig_to_image(fig, dpi=60, format="png", max_size_kb=30)
+                    return fig_to_image(fig, dpi=100, format="png", max_size_kb=900)
 
         # Create figure based on plot type
         if params.plot_type == "spatial":
@@ -997,9 +997,9 @@ async def visualize_data(
         # Convert figure directly to Image object
         if context:
             await context.info(f"Converting {params.plot_type} figure to image...")
-        # Use smaller DPI and size limit for MCP efficiency
-        effective_dpi = min(params.dpi, 80)  # Cap DPI at 80 for smaller files
-        return fig_to_image(fig, format="png", dpi=effective_dpi, max_size_kb=30)
+        # Use reasonable DPI and size limit for MCP (must be under 1MB)
+        effective_dpi = min(params.dpi, 120)  # Cap DPI at 120 for balance between quality and size
+        return fig_to_image(fig, format="png", dpi=effective_dpi, max_size_kb=900)
 
     except Exception as e:
         # Make sure to close any open figures in case of error

@@ -220,8 +220,9 @@ async def visualize_data(
     # Call visualization function
     image = await visualize_func(data_id, data_store, params, context)
 
-    # Save image as MCP Resource and return reference
+    # Return the image directly for Claude frontend display
     if image is not None:
+        # Optionally save image as MCP Resource for future reference
         import time
         from pathlib import Path
 
@@ -255,18 +256,10 @@ async def visualize_data(
 
         if context:
             await context.info(f"Image saved as resource: {resource_uri} ({file_size_kb:.1f}KB)")
+            await context.info(f"Visualization type: {params.plot_type}, feature: {getattr(params, 'feature', 'N/A')}")
 
-        return f"""✅ 可视化已成功生成！
-
-📊 **可视化信息**:
-- 类型: {params.plot_type}
-- 特征: {getattr(params, 'feature', 'N/A')}
-- 数据集: {data_id}
-- 图像大小: {file_size_kb:.1f} KB
-
-🖼️ **图像资源**: `{resource_uri}`
-
-💡 **提示**: 图像已保存为 MCP 资源。在 Claude Desktop 中，你可以通过资源面板访问和查看此图像。资源 URI: {resource_uri}"""
+        # Return the Image object directly for Claude to display
+        return image
 
     else:
         # Return error message if no image was generated
@@ -920,25 +913,25 @@ def get_dataset_info(data_id: str) -> Dict[str, Any]:
 #     return tools
 
 
-# MCP Resources handlers
-@mcp.resource()
-async def list_visualization_resources():
-    """List available visualization resources"""
-    resources = []
+# MCP Resources handlers - commented out due to FastMCP API issues
+# @mcp.resource("visualization://{resource_id}")
+# async def get_visualization_resource(resource_id: str):
+#     """Get a visualization resource"""
+#     uri = f"visualization://{resource_id}"
+#     
+#     if not hasattr(mcp, '_visualization_resources'):
+#         raise ValueError(f"Resource not found: {uri}")
+#     
+#     if uri not in mcp._visualization_resources:
+#         raise ValueError(f"Resource not found: {uri}")
+#     
+#     info = mcp._visualization_resources[uri]
+#     
+#     # Read the file
+#     with open(info['file_path'], 'rb') as f:
+#         return f.read()
 
-    if hasattr(mcp, '_visualization_resources'):
-        for uri, info in mcp._visualization_resources.items():
-            resources.append({
-                "uri": uri,
-                "name": info['name'],
-                "description": info['description'],
-                "mimeType": info['mime_type'],
-                "size": info['size']
-            })
-
-    return resources
-
-@mcp.resource()
+# Simplified version without resource handlers for now
 async def read_visualization_resource(uri: str):
     """Read a visualization resource"""
     if not hasattr(mcp, '_visualization_resources'):

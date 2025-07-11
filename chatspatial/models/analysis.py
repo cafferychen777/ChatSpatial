@@ -80,8 +80,8 @@ class IntegrationResult(BaseModel):
     data_id: str
     n_samples: int
     integration_method: str
-    umap_visualization: Image  # UMAP visualization image
-    spatial_visualization: Image  # Spatial coordinates visualization image
+    umap_visualization: Optional[Image] = None  # UMAP visualization image
+    spatial_visualization: Optional[Image] = None  # Spatial coordinates visualization image
 
     class Config:
         arbitrary_types_allowed = True
