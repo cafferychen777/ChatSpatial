@@ -841,21 +841,22 @@ def create_spatial_mcp_server(
     adapter = SpatialMCPAdapter(mcp, data_manager)
     
     # Configure resource handlers
-    @mcp.list_resources()
-    async def handle_list_resources():
-        return await adapter.handle_resource_list()
-    
-    @mcp.read_resource()
-    async def handle_read_resource(uri: str):
-        return await adapter.handle_resource_read(uri)
-    
-    # Configure prompt handlers
-    @mcp.list_prompts()
-    async def handle_list_prompts():
-        return await adapter.handle_prompt_list()
-    
-    @mcp.complete_prompt()
-    async def handle_complete_prompt(name: str, arguments: Dict[str, Any]):
-        return await adapter.handle_prompt_execute(name, arguments)
+    # Note: Uncomment these when FastMCP supports resource/prompt decorators
+    # @mcp.list_resources
+    # async def handle_list_resources():
+    #     return await adapter.handle_resource_list()
+    # 
+    # @mcp.read_resource
+    # async def handle_read_resource(uri: str):
+    #     return await adapter.handle_resource_read(uri)
+    # 
+    # # Configure prompt handlers
+    # @mcp.list_prompts
+    # async def handle_list_prompts():
+    #     return await adapter.handle_prompt_list()
+    # 
+    # @mcp.get_prompt
+    # async def handle_get_prompt(name: str, arguments: Dict[str, Any]):
+    #     return await adapter.handle_prompt_execute(name, arguments)
     
     return mcp, adapter
