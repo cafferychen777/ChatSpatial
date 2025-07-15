@@ -14,10 +14,10 @@ async def differential_expression(
     data_id: str,
     data_store: Dict[str, Any],
     group_key: str,
-    group1: str,
-    group2: str,
-    n_top_genes: int = 50,
+    group1: Optional[str] = None,
+    group2: Optional[str] = None,
     method: str = "wilcoxon",
+    n_top_genes: int = 50,
     context: Optional[Context] = None
 ) -> DifferentialExpressionResult:
     """Perform differential expression analysis
@@ -26,8 +26,8 @@ async def differential_expression(
         data_id: Dataset ID
         data_store: Dictionary storing loaded datasets
         group_key: Key in adata.obs for grouping cells
-        group1: First group for comparison
-        group2: Second group for comparison
+        group1: First group for comparison (if None, find markers for all groups)
+        group2: Second group for comparison (if None, compare against rest)
         n_top_genes: Number of top differentially expressed genes to return
         method: Statistical method for DE analysis
         context: MCP context
@@ -35,9 +35,6 @@ async def differential_expression(
     Returns:
         Differential expression analysis result
     """
-    if context:
-        await context.info(f"Performing differential expression analysis between {group1} and {group2}")
-
     # Retrieve the AnnData object from data store
     if data_id not in data_store:
         raise ValueError(f"Dataset {data_id} not found in data store")
@@ -48,14 +45,68 @@ async def differential_expression(
     if group_key not in adata.obs.columns:
         raise ValueError(f"Group key '{group_key}' not found in adata.obs")
 
+    # If group1 is None, find markers for all groups
+    if group1 is None:
+        if context:
+            await context.info(f"Finding marker genes for all groups in '{group_key}'")
+        
+        # Run rank_genes_groups for all groups
+        sc.tl.rank_genes_groups(
+            adata,
+            groupby=group_key,
+            method=method,
+            n_genes=n_top_genes,
+            reference='rest'
+        )
+        
+        # Get all groups
+        groups = adata.obs[group_key].unique()
+        
+        # Collect top genes from all groups
+        all_top_genes = []
+        if 'rank_genes_groups' in adata.uns and 'names' in adata.uns['rank_genes_groups']:
+            gene_names = adata.uns['rank_genes_groups']['names']
+            for group in groups:
+                if str(group) in gene_names.dtype.names:
+                    genes = list(gene_names[str(group)][:n_top_genes])
+                    all_top_genes.extend(genes)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        top_genes = []
+        for gene in all_top_genes:
+            if gene not in seen:
+                seen.add(gene)
+                top_genes.append(gene)
+        
+        # Limit to n_top_genes
+        top_genes = top_genes[:n_top_genes]
+        
+        return DifferentialExpressionResult(
+            data_id=data_id,
+            comparison=f"All groups in {group_key}",
+            n_genes=len(top_genes),
+            top_genes=top_genes,
+            statistics={
+                "method": method,
+                "n_groups": len(groups),
+                "groups": list(map(str, groups))
+            }
+        )
+    
+    # Original logic for specific group comparison
+    if context:
+        await context.info(f"Performing differential expression analysis between {group1} and {group2}")
+
     # Check if the groups exist in the group_key
     if group1 not in adata.obs[group_key].values:
         raise ValueError(f"Group '{group1}' not found in adata.obs['{group_key}']")
 
-    # Special case for 'rest' as group2
+    # Special case for 'rest' as group2 or if group2 is None
     use_rest_as_reference = False
-    if group2 == 'rest':
+    if group2 is None or group2 == 'rest':
         use_rest_as_reference = True
+        group2 = 'rest'  # Set it explicitly for display purposes
     elif group2 not in adata.obs[group_key].values:
         raise ValueError(f"Group '{group2}' not found in adata.obs['{group_key}']")
 

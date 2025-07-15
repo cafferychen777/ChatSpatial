@@ -46,6 +46,12 @@ from .models.analysis import (
     SpatialVariableGenesResult
 )
 
+# Import MCP improvements
+from .mcp.errors import ErrorType, format_mcp_error
+from .mcp.resources import Resource, ResourceManager
+from .mcp.prompts import Prompt, PromptArgument, PromptManager
+from .mcp.annotations import get_tool_annotation, get_all_tools_with_annotations
+
 logger = logging.getLogger(__name__)
 
 
@@ -623,7 +629,7 @@ class SpatialMCPAdapter:
                 title="Find Spatial Variable Genes",
                 description="Identify spatially variable genes",
                 read_only_hint=False,
-                idempotent_hint=False,
+                idempotent_hint=True,
                 open_world_hint=False
             )
         }

@@ -23,6 +23,7 @@ from .spatial_mcp_adapter import (
 
 from .utils.tool_error_handling import mcp_tool_error_handler
 from .utils.pydantic_error_handler import mcp_pydantic_error_handler
+from .utils.error_handling import ProcessingError
 from .utils.mcp_parameter_handler import (
     manual_parameter_validation,
     validate_analysis_params,
@@ -422,7 +423,14 @@ async def find_markers(
 
     # Call differential expression function
     result = await differential_expression(
-        data_id, data_store, group_key, group1, group2, method, n_genes, context
+        data_id=data_id,
+        data_store=data_store,
+        group_key=group_key,
+        group1=group1,
+        group2=group2,
+        method=method,
+        n_top_genes=n_genes,
+        context=context
     )
 
     # Update dataset in data manager
@@ -502,7 +510,7 @@ async def analyze_trajectory_data(
         - gaston: GASTON spatial trajectory analysis
     """
     # Import trajectory function
-    from .tools.trajectory import infer_trajectory
+    from .tools.trajectory import analyze_trajectory
 
     # Validate dataset
     validate_dataset(data_id)
@@ -512,7 +520,7 @@ async def analyze_trajectory_data(
     data_store = {data_id: dataset_info}
 
     # Call trajectory function
-    result = await infer_trajectory(data_id, data_store, params, context)
+    result = await analyze_trajectory(data_id, data_store, params, context)
 
     # Update dataset in data manager
     data_manager.data_store[data_id] = data_store[data_id]
@@ -553,7 +561,7 @@ async def integrate_samples(
         - PASTE: Probabilistic Alignment of Spatial Transcriptomics Experiments
     """
     # Import integration function
-    from .tools.integration import integrate_spatial_data
+    from .tools.integration import integrate_samples
 
     # Validate all datasets
     for data_id in data_ids:
@@ -566,7 +574,7 @@ async def integrate_samples(
         data_store[data_id] = dataset_info
 
     # Call integration function
-    result = await integrate_spatial_data(data_ids, data_store, params, context)
+    result = await integrate_samples(data_ids, data_store, params, context)
 
     # Save integrated dataset
     integrated_id = result.integrated_data_id
@@ -791,11 +799,81 @@ async def analyze_enrichment(
     # Start timing
     start_time = time.time()
 
+    # Get adata for gene set handling
+    adata = data_store[data_id]["adata"]
+    
+    # Handle gene sets - either user-provided or from database
+    gene_sets = params.gene_sets
+    
+    # If no gene sets provided, load from database
+    if gene_sets is None and params.gene_set_database:
+        if context:
+            await context.info(f"Loading gene sets from {params.gene_set_database}")
+        
+        # Load gene sets based on database name
+        try:
+            from .tools.gene_set_loader import load_gene_sets
+        except ImportError:
+            raise ProcessingError("gseapy package is required for gene set loading. Install with: pip install gseapy")
+        try:
+            # Determine species from data if available
+            species = adata.uns.get('species', 'human')
+            
+            gene_sets = await load_gene_sets(
+                database=params.gene_set_database,
+                species=species,
+                min_genes=params.min_genes,
+                max_genes=params.max_genes if hasattr(params, 'max_genes') else 500,
+                context=context
+            )
+            
+            if context:
+                await context.info(f"Loaded {len(gene_sets)} gene sets from {params.gene_set_database}")
+                
+        except Exception as e:
+            # Fallback: use highly variable genes as a default gene set
+            if context:
+                await context.info(f"Failed to load gene sets from {params.gene_set_database}: {e}")
+                await context.info("Using highly variable genes as fallback")
+            
+            # Get highly variable genes if available
+            if 'highly_variable' in adata.var.columns:
+                hvg_genes = adata.var_names[adata.var.highly_variable].tolist()
+                if len(hvg_genes) >= params.min_genes:
+                    gene_sets = {"highly_variable_genes": hvg_genes[:200]}  # Use top 200 HVGs
+                else:
+                    # Use all available genes as last resort
+                    gene_sets = {"all_genes": adata.var_names.tolist()[:500]}
+            else:
+                # Use top genes by mean expression
+                import numpy as np
+                gene_means = np.array(adata.X.mean(axis=0)).flatten()
+                top_gene_indices = np.argsort(gene_means)[-500:]
+                gene_sets = {"top_expressed_genes": adata.var_names[top_gene_indices].tolist()}
+    
+    # If still no gene sets, use default strategy
+    if gene_sets is None:
+        if context:
+            await context.info("No gene sets provided or loaded. Using default gene sets based on data.")
+        
+        # Use highly variable genes or top expressed genes
+        if 'highly_variable' in adata.var.columns:
+            hvg_genes = adata.var_names[adata.var.highly_variable].tolist()
+            gene_sets = {"highly_variable_genes": hvg_genes[:200]}
+        else:
+            import numpy as np
+            gene_means = np.array(adata.X.mean(axis=0)).flatten()
+            top_gene_indices = np.argsort(gene_means)[-200:]
+            gene_sets = {"top_expressed_genes": adata.var_names[top_gene_indices].tolist()}
+    
+    if gene_sets is None or len(gene_sets) == 0:
+        raise ValueError("No valid gene sets available for enrichment analysis")
+
     # Call enrichment function with correct parameters
     result_dict = await perform_enrichment_analysis(
         data_id=data_id,
         data_store=data_store,
-        gene_sets=params.gene_sets,
+        gene_sets=gene_sets,
         score_keys=params.score_keys,
         spatial_key=params.spatial_key,
         n_neighbors=params.n_neighbors,
@@ -909,7 +987,7 @@ async def register_spatial_data(
         Registration result with transformation matrix
     """
     # Import registration function
-    from .tools.spatial_registration import register_spatial_sections
+    from .tools.spatial_registration import register_spatial_slices
 
     # Validate datasets
     validate_dataset(source_id)
@@ -924,7 +1002,7 @@ async def register_spatial_data(
     }
 
     # Call registration function
-    result = await register_spatial_sections(
+    result = await register_spatial_slices(
         source_id, target_id, data_store, method, landmarks, context
     )
 

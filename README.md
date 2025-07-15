@@ -22,7 +22,6 @@ ChatSpatial is an interactive spatial transcriptomics data analysis assistant ba
 ### Python Version Requirements
 
 - **Core ChatSpatial**: Python 3.8+
-- **Spotiphy deconvolution**: Python 3.8-3.11 (TensorFlow 2.12.0 limitation)
 - **Recommended**: Python 3.10 or 3.11 for best compatibility
 
 ```bash
@@ -46,7 +45,6 @@ pip install -e .[cell_communication]  # Install cell communication analysis depe
 
 ### Special Installation Notes
 
-- **Spotiphy**: Available on PyPI but requires Python 3.8-3.11. See [docs/SPOTIPHY_INSTALLATION.md](docs/SPOTIPHY_INSTALLATION.md) for detailed instructions.
 - **GASTON**: Automatically uses the included version in `third_party/GASTON/`
 - **EnrichMap**: Automatically uses the included version in `third_party/EnrichMap/`
 
@@ -315,7 +313,6 @@ The server provides the following resources:
 - **Specialized Analysis**:
   - liana - Cell communication analysis with LIANA+
   - cell2location - Spatial transcriptomics deconvolution
-  - Spotiphy - Spatial transcriptomics deconvolution
   - cellrank - Trajectory analysis
   - scvelo - RNA velocity analysis
 

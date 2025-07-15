@@ -437,4 +437,206 @@ async def analyze_spatial_patterns(
 
 
 # The analyze_spatial function has been removed in favor of directly using analyze_spatial_patterns
+
+
+# Import scvi-tools for advanced spatial analysis
+try:
+    import scvi
+    # SCVIVA is available in scvi-tools >= 1.3.2
+    try:
+        from scvi.external import SCVIVA
+    except ImportError:
+        # SCVIVA not available in older versions
+        SCVIVA = None
+        import warnings
+        warnings.warn(
+            "SCVIVA requires scvi-tools >= 1.3.2. Current version: "
+            f"{scvi.__version__}. Please upgrade with: pip install --upgrade scvi-tools"
+        )
+except ImportError:
+    scvi = None
+    SCVIVA = None
+
+
+async def analyze_spatial_with_scviva(
+    spatial_adata,
+    n_epochs: int = 1000,
+    n_hidden: int = 128,
+    n_latent: int = 10,
+    use_gpu: bool = False,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Analyze spatial transcriptomics data using SCVIVA
+    
+    SCVIVA is a variational auto-encoder with niche decoders for spatial 
+    transcriptomics that models both cell-intrinsic and neighborhood effects.
+    
+    Args:
+        spatial_adata: Spatial transcriptomics AnnData object with spatial coordinates
+        n_epochs: Number of epochs for training
+        n_hidden: Number of hidden units in neural networks
+        n_latent: Dimensionality of latent space
+        use_gpu: Whether to use GPU for training
+        context: MCP context for logging
+        
+    Returns:
+        Dictionary containing SCVIVA analysis results
+        
+    Raises:
+        ImportError: If scvi-tools package is not available or version < 1.3.2
+        ValueError: If input data is invalid or missing spatial coordinates
+        RuntimeError: If SCVIVA computation fails
+    """
+    try:
+        if scvi is None:
+            raise ImportError("scvi-tools package is required for SCVIVA analysis")
+            
+        if SCVIVA is None:
+            raise ImportError(
+                "SCVIVA requires scvi-tools >= 1.3.2. "
+                "Please upgrade with: pip install --upgrade scvi-tools>=1.3.2"
+            )
+            
+        # Validate spatial coordinates
+        if 'spatial' not in spatial_adata.obsm:
+            raise ValueError("Spatial coordinates not found in adata.obsm['spatial']. Required for SCVIVA analysis.")
+        
+        if context:
+            await context.info("Using SCVIVA for spatial analysis...")
+            
+        return await _analyze_with_scviva_native(
+            spatial_adata, n_epochs, n_hidden, n_latent, use_gpu, context
+        )
+        
+    except Exception as e:
+        error_msg = f"SCVIVA analysis failed: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise RuntimeError(error_msg) from e
 # This simplifies the code structure and reduces complexity
+
+
+async def _analyze_with_scviva_native(
+    spatial_adata,
+    n_epochs: int,
+    n_hidden: int,
+    n_latent: int,
+    use_gpu: bool,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Native SCVIVA implementation when available"""
+    adata = spatial_adata.copy()
+    
+    if context:
+        await context.info(f"Analyzing {adata.n_obs} cells and {adata.n_vars} genes with SCVIVA")
+        await context.info("Note: SCVIVA is designed for single-cell resolution spatial data")
+    
+    # Check if this is single-cell resolution data
+    if adata.n_obs > 10000 and context:
+        await context.warning(
+            f"Large number of observations ({adata.n_obs}). "
+            "SCVIVA is designed for single-cell resolution spatial data, not Visium spots."
+        )
+    
+    # Preprocess data for SCVIVA (compute neighborhoods, etc.)
+    if context:
+        await context.info("Preprocessing data for SCVIVA (computing spatial neighborhoods)...")
+    
+    # Add sample information if not present
+    if 'sample' not in adata.obs.columns:
+        adata.obs['sample'] = 'sample_1'  # All cells from same sample
+    
+    # Add cell type information if not present
+    if 'cell_type' not in adata.obs.columns:
+        if context:
+            await context.warning("No cell type annotations found. Using placeholder labels.")
+        adata.obs['cell_type'] = 'Unknown'
+    
+    # SCVIVA requires SCVI embeddings first
+    if 'X_scVI' not in adata.obsm:
+        if context:
+            await context.info("Running SCVI to generate expression embeddings required by SCVIVA...")
+        
+        # Setup and train SCVI first
+        scvi.model.SCVI.setup_anndata(adata, batch_key='sample')
+        scvi_model = scvi.model.SCVI(adata, n_hidden=n_hidden, n_latent=n_latent)
+        
+        # Quick training for embeddings
+        scvi_model.train(max_epochs=min(50, n_epochs), early_stopping=True)
+        
+        # Get latent representation
+        adata.obsm['X_scVI'] = scvi_model.get_latent_representation()
+        
+        if context:
+            await context.info("SCVI embeddings generated successfully.")
+    
+    # SCVIVA requires preprocessing to compute niche information
+    SCVIVA.preprocessing_anndata(
+        adata,
+        k_nn=min(20, adata.n_obs - 1),  # Number of nearest neighbors
+        sample_key='sample',  # Required for multi-sample analysis
+        labels_key='cell_type',
+        cell_coordinates_key="spatial",
+        expression_embedding_key='X_scVI',
+        log1p=False  # Assuming data is already normalized if needed
+    )
+    
+    # Setup SCVIVA with correct parameter name
+    SCVIVA.setup_anndata(
+        adata, 
+        sample_key='sample',
+        labels_key='cell_type',
+        cell_coordinates_key="spatial",
+        expression_embedding_key='X_scVI'
+    )
+    
+    # Create SCVIVA model
+    scviva_model = SCVIVA(adata, n_hidden=n_hidden, n_latent=n_latent)
+    
+    if context:
+        await context.info("Training SCVIVA model...")
+    
+    # Train model
+    train_kwargs = {"max_epochs": n_epochs}
+    if use_gpu:
+        train_kwargs["accelerator"] = "gpu"
+    
+    scviva_model.train(**train_kwargs)
+    
+    if context:
+        await context.info("Extracting SCVIVA results...")
+    
+    # Get results using SCVIVA's actual methods
+    # Get latent representation
+    latent = scviva_model.get_latent_representation()
+    
+    # Get expression embedding and niche information
+    # These are stored in adata during model training
+    niche_composition = adata.obsm.get('niche_composition', np.zeros((adata.n_obs, n_latent)))
+    expression_embedding = adata.obsm.get('X_scVI', latent)
+    niche_activation = adata.obsm.get('niche_activation', np.zeros((adata.n_obs, n_latent)))
+    
+    # Store results with consistent naming
+    spatial_adata.obsm['X_scviva_latent'] = latent
+    spatial_adata.obsm['X_scviva_niche'] = niche_composition
+    spatial_adata.obsm['X_scviva_intrinsic'] = expression_embedding
+    spatial_adata.obsm['X_scviva_niche_activation'] = niche_activation
+    
+    # Store additional SCVIVA-specific information
+    if 'niche_indexes' in adata.obsm:
+        spatial_adata.obsm['niche_indexes'] = adata.obsm['niche_indexes']
+    if 'niche_distances' in adata.obsm:
+        spatial_adata.obsm['niche_distances'] = adata.obsm['niche_distances']
+    
+    return {
+        'method': 'SCVIVA',
+        'n_latent_dims': n_latent,
+        'n_epochs': n_epochs,
+        'latent_variance_explained': float(np.var(latent, axis=0).sum()),
+        'niche_composition_shape': tuple(niche_composition.shape),
+        'intrinsic_factors_shape': tuple(expression_embedding.shape),
+        'niche_activation_shape': tuple(niche_activation.shape),
+        'training_completed': True,
+        'device': 'GPU' if use_gpu else 'CPU',
+        'model_type': 'single-cell spatial VAE with niche decoders'
+    }

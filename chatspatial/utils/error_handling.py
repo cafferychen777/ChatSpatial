@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, Optional, Union, List
 from functools import wraps
 import traceback
 import scanpy as sc
-from ..mcp_improvements import ErrorType, format_mcp_error
+from ..mcp.errors import ErrorType, format_mcp_error
 
 
 # Custom exception classes

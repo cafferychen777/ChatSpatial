@@ -12,6 +12,14 @@ from ..models.data import RNAVelocityParameters, TrajectoryParameters
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
 from ..utils.output_utils import suppress_output, ProcessingError
 
+# Import scvi-tools for advanced trajectory analysis
+try:
+    import scvi
+    from scvi.external import VELOVI
+except ImportError:
+    scvi = None
+    VELOVI = None
+
 
 def validate_velocity_data(adata) -> Tuple[bool, List[str]]:
     """
@@ -581,3 +589,163 @@ async def analyze_trajectory(
         method=method_used,
         spatial_weight=params.spatial_weight
     )
+
+
+async def analyze_velocity_with_velovi(
+    adata,
+    n_epochs: int = 1000,
+    n_hidden: int = 128,
+    n_latent: int = 10,
+    use_gpu: bool = False,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Analyze RNA velocity using VELOVI from scvi-tools
+    
+    VELOVI (Velocity Variational Inference) is a deep generative model for 
+    transcriptional dynamics that estimates velocities in a probabilistic framework.
+    
+    Args:
+        adata: AnnData object with spliced and unspliced counts
+        n_epochs: Number of epochs for training
+        n_hidden: Number of hidden units in neural networks  
+        n_latent: Dimensionality of latent space
+        use_gpu: Whether to use GPU for training
+        context: MCP context for logging
+        
+    Returns:
+        Dictionary containing VELOVI analysis results
+        
+    Raises:
+        ImportError: If scvi-tools package is not available
+        ValueError: If input data is invalid or missing required layers
+        RuntimeError: If VELOVI computation fails
+    """
+    try:
+        if scvi is None or VELOVI is None:
+            raise ImportError("scvi-tools package is required for VELOVI analysis. Install with 'pip install scvi-tools'")
+        
+        if context:
+            await context.info("Starting VELOVI velocity analysis...")
+            
+        # Validate required layers
+        is_valid, issues = validate_velocity_data(adata)
+        if not is_valid:
+            raise ValueError(f"Invalid data for velocity analysis: {'; '.join(issues)}")
+        
+        if context:
+            await context.info(f"Analyzing velocity for {adata.n_obs} cells and {adata.n_vars} genes with VELOVI")
+        
+        # Setup VELOVI
+        VELOVI.setup_anndata(
+            adata,
+            spliced_layer="spliced",
+            unspliced_layer="unspliced"
+        )
+        
+        # Create VELOVI model
+        velovi_model = VELOVI(
+            adata,
+            n_hidden=n_hidden,
+            n_latent=n_latent
+        )
+        
+        if context:
+            await context.info("Training VELOVI model...")
+        
+        # Train model
+        if use_gpu:
+            velovi_model.train(max_epochs=n_epochs, accelerator='gpu')
+        else:
+            velovi_model.train(max_epochs=n_epochs)
+            
+        if context:
+            await context.info("VELOVI training completed")
+        
+        # Get results
+        if context:
+            await context.info("Extracting VELOVI velocity results...")
+            
+        # Get velocity estimates
+        velocity = velovi_model.get_velocity()
+        
+        # Handle different return types from get_velocity
+        if isinstance(velocity, tuple):
+            # Sometimes get_velocity returns (velocity, something_else)
+            velocity = velocity[0]
+        
+        # Ensure velocity is numpy array
+        if hasattr(velocity, 'detach'):
+            # It's a tensor, convert to numpy
+            velocity = velocity.detach().cpu().numpy()
+        elif hasattr(velocity, 'toarray'):
+            # It's a sparse matrix
+            velocity = velocity.toarray()
+        
+        # Ensure velocity is 2D array
+        if velocity.ndim == 1:
+            velocity = velocity.reshape(-1, 1)
+        
+        # Get latent representation
+        latent = velovi_model.get_latent_representation()
+        
+        # Get velocity uncertainty (if available)
+        try:
+            velocity_uncertainty = velovi_model.get_velocity_uncertainty()
+            uncertainty_computed = True
+        except AttributeError:
+            try:
+                uncertainty_result = velovi_model.get_directional_uncertainty()
+                # Handle case where method returns a tuple
+                if isinstance(uncertainty_result, tuple):
+                    velocity_uncertainty = uncertainty_result[0]  # Usually the first element is the uncertainty
+                else:
+                    velocity_uncertainty = uncertainty_result
+                uncertainty_computed = True
+            except (AttributeError, IndexError):
+                velocity_uncertainty = None
+                uncertainty_computed = False
+        
+        # Store results in adata
+        adata.layers['velocity_velovi'] = velocity
+        adata.obsm['X_velovi_latent'] = latent
+        if velocity_uncertainty is not None:
+            try:
+                adata.layers['velocity_velovi_uncertainty'] = velocity_uncertainty
+            except Exception:
+                # If uncertainty storage fails, just skip it
+                uncertainty_computed = False
+        
+        # Calculate velocity statistics
+        velocity_norm = np.linalg.norm(velocity, axis=1)
+        
+        # Store velocity norm in obs
+        adata.obs['velocity_velovi_norm'] = velocity_norm
+        
+        # Calculate summary statistics
+        results = {
+            'method': 'VELOVI',
+            'n_latent_dims': n_latent,
+            'n_epochs': n_epochs,
+            'velocity_computed': True,
+            'velocity_mean_norm': velocity_norm.mean(),
+            'velocity_std_norm': velocity_norm.std(),
+            'velocity_shape': velocity.shape,
+            'latent_shape': latent.shape,
+            'uncertainty_computed': uncertainty_computed,
+            'training_completed': True,
+            'device': 'GPU' if use_gpu else 'CPU'
+        }
+        
+        if context:
+            await context.info(f"VELOVI velocity analysis completed successfully")
+            await context.info(f"Stored velocity in adata.layers['velocity_velovi']")
+            await context.info(f"Stored latent representation in adata.obsm['X_velovi_latent']")
+            await context.info(f"Stored uncertainty in adata.layers['velocity_velovi_uncertainty']")
+        
+        return results
+        
+    except Exception as e:
+        error_msg = f"VELOVI velocity analysis failed: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise RuntimeError(error_msg) from e
