@@ -869,20 +869,75 @@ async def analyze_enrichment(
     if gene_sets is None or len(gene_sets) == 0:
         raise ValueError("No valid gene sets available for enrichment analysis")
 
-    # Call enrichment function with correct parameters
-    result_dict = await perform_enrichment_analysis(
-        data_id=data_id,
-        data_store=data_store,
-        gene_sets=gene_sets,
-        score_keys=params.score_keys,
-        spatial_key=params.spatial_key,
-        n_neighbors=params.n_neighbors,
-        smoothing=params.smoothing,
-        correct_spatial_covariates=params.correct_spatial_covariates,
-        batch_key=params.batch_key,
-        gene_weights=params.gene_weights,
-        context=context
-    )
+    # Call appropriate enrichment function based on method
+    if params.method == "enrichmap":
+        # Spatial enrichment analysis using EnrichMap
+        result_dict = await perform_enrichment_analysis(
+            data_id=data_id,
+            data_store=data_store,
+            gene_sets=gene_sets,
+            score_keys=params.score_keys,
+            spatial_key=params.spatial_key,
+            n_neighbors=params.n_neighbors,
+            smoothing=params.smoothing,
+            correct_spatial_covariates=params.correct_spatial_covariates,
+            batch_key=params.batch_key,
+            gene_weights=params.gene_weights,
+            context=context
+        )
+    else:
+        # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
+        from .tools.generic_enrichment import perform_gsea, perform_ora, perform_ssgsea, perform_enrichr
+        
+        if params.method == "gsea":
+            result_dict = await perform_gsea(
+                adata=adata,
+                gene_sets=gene_sets,
+                ranking_key=params.score_keys,
+                permutation_num=params.n_permutations,
+                min_size=params.min_genes,
+                max_size=params.max_genes,
+                context=context
+            )
+        elif params.method == "ora":
+            result_dict = await perform_ora(
+                adata=adata,
+                gene_sets=gene_sets,
+                pvalue_threshold=params.pvalue_cutoff,
+                min_size=params.min_genes,
+                max_size=params.max_genes,
+                context=context
+            )
+        elif params.method == "ssgsea":
+            result_dict = await perform_ssgsea(
+                adata=adata,
+                gene_sets=gene_sets,
+                min_size=params.min_genes,
+                max_size=params.max_genes,
+                context=context
+            )
+        elif params.method == "enrichr":
+            # For Enrichr, we need a gene list
+            if hasattr(params, 'query_genes') and params.query_genes:
+                gene_list = params.query_genes
+            else:
+                # Use highly variable genes or DEGs
+                if 'highly_variable' in adata.var:
+                    gene_list = adata.var_names[adata.var['highly_variable']].tolist()[:500]
+                else:
+                    # Use top variable genes
+                    var_scores = np.array(adata.X.var(axis=0)).flatten()
+                    top_indices = np.argsort(var_scores)[-500:]
+                    gene_list = adata.var_names[top_indices].tolist()
+            
+            result_dict = await perform_enrichr(
+                gene_list=gene_list,
+                gene_sets=params.gene_set_database,
+                organism=adata.uns.get('species', 'human'),
+                context=context
+            )
+        else:
+            raise ValueError(f"Unknown enrichment method: {params.method}")
 
     # Update dataset in data manager
     data_manager.data_store[data_id] = data_store[data_id]
