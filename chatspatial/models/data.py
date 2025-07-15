@@ -2,7 +2,7 @@
 Data models for spatial transcriptomics analysis.
 """
 
-from typing import Annotated, Dict, List, Literal, Optional, Tuple
+from typing import Annotated, Dict, List, Literal, Optional, Tuple, Union
 from pydantic import BaseModel, Field
 
 
@@ -210,12 +210,12 @@ class IntegrationParameters(BaseModel):
 
 class DeconvolutionParameters(BaseModel):
     """Spatial deconvolution parameters model"""
-    method: Literal["cell2location", "spotiphy", "rctd", "destvi", "stereoscope", "spotlight"] = "cell2location"
+    method: Literal["cell2location", "rctd", "destvi", "stereoscope", "spotlight", "tangram", "mrvi"] = "cell2location"
     reference_data_id: Optional[str] = None  # Reference single-cell data for deconvolution
     cell_type_key: str = "cell_type"  # Key in reference data for cell type information
     n_top_genes: Annotated[int, Field(gt=0, le=5000)] = 2000  # Number of top genes to use
-    use_gpu: bool = False  # Whether to use GPU for cell2location or spotiphy
-    n_epochs: Annotated[int, Field(gt=0)] = 10000  # Number of epochs for cell2location or spotiphy
+    use_gpu: bool = False  # Whether to use GPU for cell2location
+    n_epochs: Annotated[int, Field(gt=0)] = 10000  # Number of epochs for cell2location
     n_cells_per_spot: Optional[int] = None  # Expected number of cells per spot
     reference_profiles: Optional[Dict[str, List[float]]] = None  # Reference expression profiles
     
@@ -231,10 +231,6 @@ class DeconvolutionParameters(BaseModel):
     stereoscope_learning_rate: float = 0.01
     stereoscope_batch_size: int = 128
 
-    # Spotiphy specific parameters
-    spotiphy_batch_prior: Annotated[float, Field(gt=0)] = 2.0  # Parameter of the prior distribution of the batch effect
-    spotiphy_adam_lr: Annotated[float, Field(gt=0)] = 0.003  # Learning rate for Adam optimizer in Spotiphy
-    spotiphy_adam_betas: Tuple[float, float] = (0.95, 0.999)  # Beta parameters for Adam optimizer in Spotiphy
 
     # RCTD specific parameters
     rctd_mode: Literal["full", "doublet", "multi"] = "full"  # RCTD mode
@@ -348,4 +344,37 @@ class CellCommunicationParameters(BaseModel):
     include_image: bool = True  # Whether to include visualization
     plot_top_pairs: Annotated[int, Field(gt=0, le=20)] = 6  # Number of top LR pairs to visualize
     image_dpi: Annotated[int, Field(gt=0, le=300)] = 100  # DPI for output image
-    image_format: Literal["png", "jpg"] = "png"  # Image format
+
+
+class EnrichmentParameters(BaseModel):
+    """Parameters for gene set enrichment analysis"""
+    
+    # Method selection
+    method: Literal["gsea", "ora", "enrichr", "enrichmap"] = "enrichmap"  # Enrichment method
+    
+    # Gene sets
+    gene_sets: Optional[Union[List[str], Dict[str, List[str]]]] = None  # Gene sets to analyze
+    score_keys: Optional[Union[str, List[str]]] = None  # Names for gene signatures
+    gene_set_database: Optional[str] = "GO_Biological_Process"  # Gene set database for enrichr
+    
+    # Spatial parameters (for enrichmap)
+    spatial_key: str = "spatial"  # Key for spatial coordinates
+    n_neighbors: Annotated[int, Field(gt=0)] = 6  # Number of spatial neighbors
+    smoothing: bool = True  # Whether to perform spatial smoothing
+    correct_spatial_covariates: bool = True  # Whether to correct for spatial covariates
+    
+    # Analysis parameters
+    batch_key: Optional[str] = None  # Column for batch-wise normalization
+    gene_weights: Optional[Dict[str, Dict[str, float]]] = None  # Pre-computed gene weights
+    min_genes: Annotated[int, Field(gt=0)] = 10  # Minimum genes in gene set
+    max_genes: Annotated[int, Field(gt=0)] = 500  # Maximum genes in gene set
+    
+    # Statistical parameters
+    pvalue_cutoff: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.05  # P-value cutoff
+    adjust_method: Literal["bonferroni", "fdr", "none"] = "fdr"  # Multiple testing correction
+    n_permutations: Annotated[int, Field(gt=0)] = 1000  # Number of permutations for GSEA
+    
+    # Visualization parameters
+    include_image: bool = True  # Whether to include visualization
+    plot_top_terms: Annotated[int, Field(gt=0, le=30)] = 10  # Number of top terms to plot
+    image_dpi: Annotated[int, Field(gt=0, le=300)] = 100  # DPI for output image

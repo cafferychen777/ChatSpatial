@@ -202,3 +202,41 @@ class CellCommunicationResult(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
+
+class EnrichmentResult(BaseModel):
+    """Result from gene set enrichment analysis"""
+    
+    # Basic information
+    method: str  # Method used (gsea, ora, enrichr, enrichmap)
+    n_gene_sets: int  # Number of gene sets analyzed
+    n_significant: int  # Number of significant gene sets
+    
+    # Enrichment scores and statistics
+    enrichment_scores: Dict[str, float]  # Enrichment scores for each gene set
+    pvalues: Dict[str, float]  # Raw p-values
+    adjusted_pvalues: Dict[str, float]  # Adjusted p-values
+    gene_set_statistics: Dict[str, Dict[str, Any]]  # Additional statistics per gene set
+    
+    # Spatial metrics (for enrichmap)
+    spatial_metrics: Optional[Dict[str, Any]] = None  # Spatial autocorrelation metrics
+    spatial_scores_key: Optional[str] = None  # Key in adata.obsm for spatial enrichment scores
+    
+    # Gene set information
+    gene_sets_used: Dict[str, List[str]]  # Gene sets that were actually used
+    genes_found: Dict[str, List[str]]  # Genes found in data for each gene set
+    
+    # Top results
+    top_gene_sets: List[str]  # Top enriched gene sets
+    top_depleted_sets: List[str]  # Top depleted gene sets
+    
+    # Visualization
+    visualization: Optional[Image] = None  # Enrichment plot
+    spatial_visualization: Optional[Image] = None  # Spatial enrichment maps
+    
+    # Additional metadata
+    parameters_used: Dict[str, Any]  # Parameters used for analysis
+    computation_time: float  # Time taken for computation
+    
+    class Config:
+        arbitrary_types_allowed = True

@@ -182,7 +182,7 @@ async def preprocess_data(
 
 
 @mcp.tool()
-@mcp_tool_error_handler()
+@mcp_tool_error_handler()  # ⚠️ CRITICAL: This decorator has special Image handling - see /docs/CRITICAL_IMAGE_DISPLAY_BUG.md
 @manual_parameter_validation(
     ("params", validate_visualization_params)
 )
@@ -190,7 +190,7 @@ async def visualize_data(
     data_id: str,
     params: Any = None,
     context: Context = None
-):
+) -> Image:  # ⚠️ CRITICAL: Must return Image object, NOT ImageContent or dict!
     """Visualize spatial transcriptomics data
 
     Args:
@@ -260,7 +260,13 @@ async def visualize_data(
             await context.info(f"Image saved as resource: spatial://visualizations/{viz_id} ({file_size_kb:.1f}KB)")
             await context.info(f"Visualization type: {params.plot_type}, feature: {getattr(params, 'feature', 'N/A')}")
 
-        # Return the Image object directly for Claude to display
+        # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
+        # MUST return the raw Image object here!
+        # DO NOT wrap in dictionary, DO NOT call to_image_content()!
+        # The error handler will pass it through to FastMCP unchanged.
+        # See /docs/CRITICAL_IMAGE_DISPLAY_BUG.md for why this is critical.
+        # This bug took 2 WEEKS to find - DO NOT CHANGE!
+        # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
         return image
 
     else:
@@ -320,13 +326,7 @@ async def annotate_cells(
     # Create result resource
     await adapter.resource_manager.create_result_resource(data_id, "annotation", result)
 
-    # Create visualization if available
-    if params.visualize:
-        vis_image = await adapter.create_visualization_from_result(
-            data_id, "spatial", result, context
-        )
-        if vis_image:
-            result.visualization = vis_image
+    # Visualization should be done separately via visualization tools
 
     return result
 
@@ -472,13 +472,7 @@ async def analyze_velocity_data(
     # Create result resource
     await adapter.resource_manager.create_result_resource(data_id, "velocity", result)
 
-    # Create visualization if available
-    if params.visualize:
-        vis_image = await adapter.create_visualization_from_result(
-            data_id, "trajectory", result, context
-        )
-        if vis_image:
-            result.visualization = vis_image
+    # Visualization should be done separately via visualization tools
 
     return result
 
@@ -529,13 +523,7 @@ async def analyze_trajectory_data(
     # Create result resource
     await adapter.resource_manager.create_result_resource(data_id, "trajectory", result)
 
-    # Create visualization if available
-    if params.visualize:
-        vis_image = await adapter.create_visualization_from_result(
-            data_id, "trajectory", result, context
-        )
-        if vis_image:
-            result.visualization = vis_image
+    # Visualization should be done separately via visualization tools
 
     return result
 
@@ -621,9 +609,9 @@ async def deconvolve_data(
         - cell2location: Probabilistic mapping
         - rctd: Robust Cell Type Decomposition
         - stereoscope: Probabilistic model
-        - tangram: Tangram spatial mapping
         - destvi: DestVI from scvi-tools
-        - spotiphy: Spotiphy deconvolution
+        - tangram: Tangram spatial mapping
+        - mrvi: MRVI multi-resolution analysis
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -651,13 +639,7 @@ async def deconvolve_data(
     # Create result resource
     await adapter.resource_manager.create_result_resource(data_id, "deconvolution", result)
 
-    # Create visualization if available
-    if params.visualize:
-        vis_image = await adapter.create_visualization_from_result(
-            data_id, "deconvolution", result, context
-        )
-        if vis_image:
-            result.visualization = vis_image
+    # Visualization should be done separately via visualization tools
 
     return result
 
@@ -710,14 +692,6 @@ async def identify_spatial_domains(
     # Create result resource
     await adapter.resource_manager.create_result_resource(data_id, "domains", result)
 
-    # Create visualization if available
-    if params.visualize:
-        vis_image = await adapter.create_visualization_from_result(
-            data_id, "spatial_domains", result, context
-        )
-        if vis_image:
-            result.visualization = vis_image
-
     return result
 
 
@@ -769,13 +743,7 @@ async def analyze_cell_communication(
     # Create result resource
     await adapter.resource_manager.create_result_resource(data_id, "communication", result)
 
-    # Create visualization if available
-    if params.visualize:
-        vis_image = await adapter.create_visualization_from_result(
-            data_id, "cell_communication", result, context
-        )
-        if vis_image:
-            result.visualization = vis_image
+    # Visualization should be done separately via visualization tools
 
     return result
 
@@ -810,7 +778,8 @@ async def analyze_enrichment(
         - Custom gene sets via gene_sets parameter
     """
     # Import enrichment analysis function
-    from .tools.enrichment_analysis import analyze_enrichment as analyze_enrich_func
+    from .tools.enrichment_analysis import perform_enrichment_analysis
+    import time
 
     # Validate dataset
     validate_dataset(data_id)
@@ -819,11 +788,47 @@ async def analyze_enrichment(
     dataset_info = await data_manager.get_dataset(data_id)
     data_store = {data_id: dataset_info}
 
-    # Call enrichment function
-    result = await analyze_enrich_func(data_id, data_store, params, context)
+    # Start timing
+    start_time = time.time()
+
+    # Call enrichment function with correct parameters
+    result_dict = await perform_enrichment_analysis(
+        data_id=data_id,
+        data_store=data_store,
+        gene_sets=params.gene_sets,
+        score_keys=params.score_keys,
+        spatial_key=params.spatial_key,
+        n_neighbors=params.n_neighbors,
+        smoothing=params.smoothing,
+        correct_spatial_covariates=params.correct_spatial_covariates,
+        batch_key=params.batch_key,
+        gene_weights=params.gene_weights,
+        context=context
+    )
 
     # Update dataset in data manager
     data_manager.data_store[data_id] = data_store[data_id]
+
+    # Create EnrichmentResult object
+    result = EnrichmentResult(
+        method=params.method,
+        n_gene_sets=result_dict.get('n_gene_sets', 0),
+        n_significant=result_dict.get('n_significant', 0),
+        enrichment_scores=result_dict.get('enrichment_scores', {}),
+        pvalues=result_dict.get('pvalues', {}),
+        adjusted_pvalues=result_dict.get('adjusted_pvalues', {}),
+        gene_set_statistics=result_dict.get('gene_set_statistics', {}),
+        spatial_metrics=result_dict.get('spatial_metrics'),
+        spatial_scores_key=result_dict.get('spatial_scores_key'),
+        gene_sets_used=result_dict.get('gene_sets_used', {}),
+        genes_found=result_dict.get('genes_found', {}),
+        top_gene_sets=result_dict.get('top_gene_sets', []),
+        top_depleted_sets=result_dict.get('top_depleted_sets', []),
+        visualization=result_dict.get('visualization'),
+        spatial_visualization=result_dict.get('spatial_visualization'),
+        parameters_used=params.model_dump(),
+        computation_time=time.time() - start_time
+    )
 
     # Save enrichment result
     await data_manager.save_result(data_id, "enrichment", result)
@@ -878,13 +883,7 @@ async def find_spatial_genes(
     # Create result resource
     await adapter.resource_manager.create_result_resource(data_id, "spatial_genes", result)
 
-    # Create visualization if available
-    if params.visualize:
-        vis_image = await adapter.create_visualization_from_result(
-            data_id, "spatial", result, context
-        )
-        if vis_image:
-            result.visualization = vis_image
+    # Visualization should be done separately via visualization tools
 
     return result
 

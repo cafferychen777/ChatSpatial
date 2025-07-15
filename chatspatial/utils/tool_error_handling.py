@@ -3,6 +3,13 @@ Enhanced error handling for MCP tools according to specification.
 
 Tools should return errors in the result object, not as protocol-level errors.
 This allows LLMs to see and potentially handle the error.
+
+!!!!!!!!!! CRITICAL WARNING - IMAGE HANDLING !!!!!!!!!!
+This module contains CRITICAL code for handling Image objects from FastMCP.
+DO NOT modify the Image handling logic in mcp_tool_error_handler without
+reading /docs/CRITICAL_IMAGE_DISPLAY_BUG.md first!
+A bug in this code caused images to display as object strings for 2 WEEKS!
+!!!!!!!!!! CRITICAL WARNING - IMAGE HANDLING !!!!!!!!!!
 """
 
 from typing import Any, Dict, List, Union, Optional
@@ -106,6 +113,17 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 # If the function already returns a ToolResult, use it
                 if isinstance(result, ToolResult):
                     return result.to_dict()
+                # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
+                # Image objects MUST be returned directly without any wrapping!
+                # FastMCP needs to see the raw Image object to convert it properly.
+                # If you wrap Image objects in dictionaries or ToolResult, 
+                # Claude Desktop will show "<Image object at 0x...>" instead of the actual image.
+                # This bug took 2 WEEKS to find and fix. DO NOT CHANGE THIS!
+                # See /docs/CRITICAL_IMAGE_DISPLAY_BUG.md for full details.
+                # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
+                from mcp.server.fastmcp.utilities.types import Image
+                if isinstance(result, Image):
+                    return result  # MUST return raw Image object!
                 # Otherwise, wrap the result
                 return create_success_result(result).to_dict()
             except Exception as e:
@@ -119,6 +137,17 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 # If the function already returns a ToolResult, use it
                 if isinstance(result, ToolResult):
                     return result.to_dict()
+                # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
+                # Image objects MUST be returned directly without any wrapping!
+                # FastMCP needs to see the raw Image object to convert it properly.
+                # If you wrap Image objects in dictionaries or ToolResult, 
+                # Claude Desktop will show "<Image object at 0x...>" instead of the actual image.
+                # This bug took 2 WEEKS to find and fix. DO NOT CHANGE THIS!
+                # See /docs/CRITICAL_IMAGE_DISPLAY_BUG.md for full details.
+                # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
+                from mcp.server.fastmcp.utilities.types import Image
+                if isinstance(result, Image):
+                    return result  # MUST return raw Image object!
                 # Otherwise, wrap the result
                 return create_success_result(result).to_dict()
             except Exception as e:
