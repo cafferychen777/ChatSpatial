@@ -161,6 +161,17 @@ async def perform_gsea(
         top_enriched = results_df_sorted[results_df_sorted['NES'] > 0].head(10)['Term'].tolist()
         top_depleted = results_df_sorted[results_df_sorted['NES'] < 0].head(10)['Term'].tolist()
         
+        # Save results to adata.uns for visualization
+        adata.uns['gsea_results'] = {
+            'results_df': results_df,
+            'enrichment_scores': enrichment_scores,
+            'pvalues': pvalues,
+            'adjusted_pvalues': adjusted_pvalues,
+            'top_enriched': top_enriched,
+            'top_depleted': top_depleted,
+            'method': 'gsea'
+        }
+        
         return {
             'method': 'gsea',
             'n_gene_sets': len(gene_sets),
@@ -305,6 +316,17 @@ async def perform_ora(
     # Get top results
     sorted_by_pval = sorted(pvalues.items(), key=lambda x: x[1])
     top_gene_sets = [x[0] for x in sorted_by_pval[:10]]
+    
+    # Save results to adata.uns for visualization
+    adata.uns['ora_results'] = {
+        'enrichment_scores': enrichment_scores,
+        'pvalues': pvalues,
+        'adjusted_pvalues': adjusted_pvalues,
+        'gene_set_statistics': gene_set_statistics,
+        'query_genes': list(query_genes),
+        'top_gene_sets': top_gene_sets,
+        'method': 'ora'
+    }
     
     return {
         'method': 'ora',
