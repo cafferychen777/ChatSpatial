@@ -3,7 +3,8 @@
 ## 当前状态
 
 CellRank 已经可以正常工作，但会显示以下警告：
-```
+
+```text
 WARNING: Unable to import `petsc4py` or `slepc4py`. Using `method='brandts'`
 WARNING: For `method='brandts'`, dense matrix is required. Densifying
 ```
