@@ -757,6 +757,5 @@ async def annotate_cell_types(
         cell_types=cell_types,
         counts=counts,
         confidence_scores=confidence_scores,
-        tangram_mapping_score=tangram_mapping_score,
-        visualization=None  # Use visualize_data tool instead
+        tangram_mapping_score=tangram_mapping_score
     )

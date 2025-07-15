@@ -177,8 +177,8 @@ async def run_liana_communication_analysis():
             for i, pair in enumerate(liana_result.top_lr_pairs[:5], 1):
                 print(f"     {i}. {pair}")
         
-        if liana_result.visualization:
-            print(f"   - Visualization generated: ✅")
+        # Note: Visualization should be created separately using create_visualization tool
+        print(f"   - To visualize results, use create_visualization with plot_type='cell_communication'")
         
         # Display some statistics
         if liana_result.statistics:
