@@ -176,6 +176,10 @@ async def perform_gsea(
             'method': 'gsea'
         }
         
+        # Inform user about visualization options
+        if context:
+            await context.info("GSEA analysis complete. Use create_visualization tool with plot_type='gsea' to visualize results")
+        
         return {
             'method': 'gsea',
             'n_gene_sets': len(gene_sets),
@@ -335,6 +339,10 @@ async def perform_ora(
     
     adata.uns['ora_results'] = ora_df
     adata.uns['gsea_results'] = ora_df  # Also save as gsea_results for visualization compatibility
+    
+    # Inform user about visualization options
+    if context:
+        await context.info("ORA analysis complete. Use create_visualization tool with plot_type='gsea' to visualize results")
     
     return {
         'method': 'ora',

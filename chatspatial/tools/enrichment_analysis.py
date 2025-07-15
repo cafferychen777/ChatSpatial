@@ -194,6 +194,10 @@ async def perform_enrichment_analysis(
             for sig, contribs in adata.uns["gene_contributions"].items()
         }
     
+    # Inform user about visualization options
+    if context:
+        await context.info("Spatial enrichment analysis complete. Use create_visualization tool with plot_type='enrichment' to visualize results")
+    
     return {
         "data_id": data_id,
         "signatures": list(validated_gene_sets.keys()),
