@@ -965,6 +965,20 @@ async def analyze_enrichment(
     filtered_pvalues = {k: v for k, v in pvals.items() if k in display_sets}
     filtered_adjusted_pvalues = {k: v for k, v in adjusted_pvals.items() if k in display_sets}
     filtered_gene_set_statistics = {k: v for k, v in result_dict.get('gene_set_statistics', {}).items() if k in display_sets}
+    
+    # Create gene_sets_used with only display sets to avoid size issues
+    # If original gene_sets_used has counts, use empty lists; otherwise filter to display sets
+    gene_sets_used_raw = result_dict.get('gene_sets_used', {})
+    if gene_sets_used_raw and isinstance(next(iter(gene_sets_used_raw.values()), None), int):
+        # It's already counts from our fix, create empty lists for compatibility
+        filtered_gene_sets_used = {k: [] for k in display_sets}
+    else:
+        # It's the original gene lists, filter to display sets
+        filtered_gene_sets_used = {k: v for k, v in gene_sets_used_raw.items() if k in display_sets}
+    
+    # Also filter genes_found to display sets
+    genes_found_raw = result_dict.get('genes_found', {})
+    filtered_genes_found = {k: v for k, v in genes_found_raw.items() if k in display_sets}
 
     # Create EnrichmentResult object
     result = EnrichmentResult(
@@ -977,8 +991,8 @@ async def analyze_enrichment(
         gene_set_statistics=filtered_gene_set_statistics,
         spatial_metrics=result_dict.get('spatial_metrics'),
         spatial_scores_key=result_dict.get('spatial_scores_key'),
-        gene_sets_used=result_dict.get('gene_sets_used', {}),  # Already filtered in tools
-        genes_found=result_dict.get('genes_found', {}),
+        gene_sets_used=filtered_gene_sets_used,
+        genes_found=filtered_genes_found,
         top_gene_sets=result_dict.get('top_gene_sets', []),
         top_depleted_sets=result_dict.get('top_depleted_sets', []),
         visualization=result_dict.get('visualization'),
