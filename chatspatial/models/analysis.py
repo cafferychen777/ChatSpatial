@@ -34,7 +34,6 @@ class AnnotationResult(BaseModel):
     counts: Dict[str, int]
     confidence_scores: Optional[Dict[str, float]] = None
     tangram_mapping_score: Optional[float] = None  # For Tangram method - mapping score
-    visualization: Optional[Image] = None  # For Tangram method - visualization of cell type mapping
 
     class Config:
         arbitrary_types_allowed = True
@@ -54,7 +53,6 @@ class RNAVelocityResult(BaseModel):
     velocity_computed: bool
     velocity_graph_key: Optional[str] = None  # Key for velocity graph in adata.uns
     mode: str  # RNA velocity computation mode
-    visualization: Optional[Image] = None  # Image object
 
     class Config:
         arbitrary_types_allowed = True
@@ -68,8 +66,6 @@ class TrajectoryResult(BaseModel):
     pseudotime_key: str
     method: str  # Trajectory analysis method used
     spatial_weight: float  # Spatial information weight
-    pseudotime_visualization: Optional[Image] = None  # Image object - now optional
-    velocity_visualization: Optional[Image] = None  # Image object
 
     class Config:
         arbitrary_types_allowed = True
@@ -80,8 +76,6 @@ class IntegrationResult(BaseModel):
     data_id: str
     n_samples: int
     integration_method: str
-    umap_visualization: Optional[Image] = None  # UMAP visualization image
-    spatial_visualization: Optional[Image] = None  # Spatial coordinates visualization image
 
     class Config:
         arbitrary_types_allowed = True
@@ -94,9 +88,7 @@ class DeconvolutionResult(BaseModel):
     cell_types: List[str]
     n_cell_types: int
     proportions_key: str  # Key in adata.obsm where cell type proportions are stored
-    visualization: Optional[Image] = None  # Visualization of cell type proportions
     statistics: Dict[str, Any]  # Statistics about the deconvolution results
-    visualization_params: Optional[Dict[str, Any]] = None  # Parameters for visualizing the results
 
     class Config:
         arbitrary_types_allowed = True
@@ -146,11 +138,6 @@ class SpatialVariableGenesResult(BaseModel):
     model_predictions_key: str  # Key in adata.obsm where model predictions are stored
     spatial_embedding_key: str  # Key in adata.obsm where spatial embeddings are stored
 
-    # Visualizations (use visualize_data tool for GASTON visualizations)
-    isodepth_map_visualization: Optional[Image] = None  # Deprecated: use visualize_data with plot_type="gaston_isodepth"
-    spatial_domains_visualization: Optional[Image] = None  # Deprecated: use visualize_data with plot_type="gaston_domains"
-    top_genes_visualization: Optional[Image] = None  # Deprecated: use visualize_data with plot_type="gaston_genes"
-
     # Statistics and metrics
     model_performance: Dict[str, Any]  # Model performance metrics
     spatial_autocorrelation: Dict[str, float]  # Spatial autocorrelation metrics
@@ -193,10 +180,6 @@ class CellCommunicationResult(BaseModel):
     n_patterns: Optional[int] = None
     patterns_key: Optional[str] = None  # Key in adata.obs where communication patterns are stored
 
-    # Visualization
-    visualization: Optional[Image] = None  # Visualization of top LR pairs
-    network_visualization: Optional[Image] = None  # Communication network visualization
-
     # Statistics
     statistics: Dict[str, Any]  # General statistics about the communication analysis
 
@@ -229,10 +212,6 @@ class EnrichmentResult(BaseModel):
     # Top results
     top_gene_sets: List[str]  # Top enriched gene sets
     top_depleted_sets: List[str]  # Top depleted gene sets
-    
-    # Visualization
-    visualization: Optional[Image] = None  # Enrichment plot
-    spatial_visualization: Optional[Image] = None  # Spatial enrichment maps
     
     # Additional metadata
     parameters_used: Dict[str, Any]  # Parameters used for analysis
