@@ -166,7 +166,7 @@ async def _annotate_with_marker_genes(adata, params: AnnotationParameters, conte
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
         
-        return cell_types, counts, confidence_scores, None, None
+        return cell_types, counts, confidence_scores, None
         
     except Exception as e:
         await _handle_annotation_error(e, "marker_genes", context)
@@ -197,7 +197,7 @@ async def _annotate_with_correlation(adata, params: AnnotationParameters, contex
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
         
-        return cell_types, counts, confidence_scores, None, None
+        return cell_types, counts, confidence_scores, None
         
     except Exception as e:
         await _handle_annotation_error(e, "correlation", context)
@@ -454,7 +454,7 @@ async def _annotate_with_scanvi(adata, params: AnnotationParameters, data_store:
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
         
-        return cell_types, counts, confidence_scores, None, None
+        return cell_types, counts, confidence_scores, None
                 
     except Exception as e:
         await _handle_annotation_error(e, "scanvi", context)
@@ -675,7 +675,7 @@ async def _annotate_with_cellassign(adata, params: AnnotationParameters, context
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
         
-        return cell_types, counts, confidence_scores, None, None
+        return cell_types, counts, confidence_scores, None
                 
     except Exception as e:
         await _handle_annotation_error(e, "cellassign", context)
@@ -709,34 +709,34 @@ async def annotate_cell_types(
     # Route to appropriate annotation method
     try:
         if params.method == "tangram":
-            cell_types, counts, confidence_scores, tangram_mapping_score, _ = await _annotate_with_tangram(
+            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_tangram(
                 adata, params, data_store, context
             )
         elif params.method == "scanvi":
-            cell_types, counts, confidence_scores, tangram_mapping_score, _ = await _annotate_with_scanvi(
+            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_scanvi(
                 adata, params, data_store, context
             )
         elif params.method == "cellassign":
-            cell_types, counts, confidence_scores, tangram_mapping_score, _ = await _annotate_with_cellassign(
+            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_cellassign(
                 adata, params, context
             )
         elif params.method == "marker_genes":
-            cell_types, counts, confidence_scores, tangram_mapping_score, _ = await _annotate_with_marker_genes(
+            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_marker_genes(
                 adata, params, context
             )
         elif params.method == "correlation":
-            cell_types, counts, confidence_scores, tangram_mapping_score, _ = await _annotate_with_correlation(
+            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_correlation(
                 adata, params, context
             )
         elif params.method == "mllmcelltype":
-            cell_types, counts, confidence_scores, tangram_mapping_score, _ = await _annotate_with_mllmcelltype(
+            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_mllmcelltype(
                 adata, params, context
             )
         elif params.method in ["supervised", "popv", "gptcelltype", "scrgcl"]:
             # These methods fall back to marker genes
             if context:
                 await context.warning(f"{params.method} method not fully implemented, falling back to marker genes method")
-            cell_types, counts, confidence_scores, tangram_mapping_score, _ = await _annotate_with_marker_genes(
+            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_marker_genes(
                 adata, params, context
             )
         else:
@@ -749,6 +749,10 @@ async def annotate_cell_types(
 
     # Update the AnnData object in the data store
     data_store[data_id]["adata"] = adata
+
+    # Inform user about visualization options
+    if context:
+        await context.info("Cell type annotation complete. Use create_visualization tool with plot_type='cell_types' to visualize results")
 
     # Return result
     return AnnotationResult(
