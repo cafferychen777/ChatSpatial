@@ -1007,6 +1007,52 @@ async def analyze_enrichment(
     # Create result resource
     await adapter.resource_manager.create_result_resource(data_id, "enrichment", result)
 
+    # Generate visualization if requested
+    if hasattr(params, 'include_image') and params.include_image:
+        try:
+            from .tools.visualization import create_gsea_visualization, VisualizationParameters
+            
+            # Create visualization parameters
+            viz_params = VisualizationParameters(
+                plot_type='gsea',
+                gsea_plot_type='barplot',  # Default to barplot
+                n_top_pathways=params.plot_top_terms if hasattr(params, 'plot_top_terms') else 10,
+                gsea_results_key=f'{params.method}_results',
+                title=f'{params.method.upper()} Results - Top Enriched Terms',
+                save_path=None,
+                show_plot=False,
+                figsize=(10, 8),
+                dpi=100
+            )
+            
+            # Generate visualization
+            fig = await create_gsea_visualization(adata, viz_params, context)
+            
+            if fig:
+                # Convert to base64 image
+                import io
+                import base64
+                from matplotlib import pyplot as plt
+                
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+                buf.seek(0)
+                img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+                plt.close(fig)
+                
+                # Add to result
+                result.visualization = Image(
+                    content=img_base64,
+                    caption=f"{params.method.upper()} enrichment analysis results"
+                )
+                
+                if context:
+                    await context.info(f"Generated {params.method.upper()} visualization")
+                    
+        except Exception as e:
+            if context:
+                await context.warning(f"Could not generate visualization: {e}")
+
     return result
 
 
