@@ -143,10 +143,6 @@ class SpatialAnalysisParameters(BaseModel):
     getis_ord_correction: Literal["bonferroni", "fdr_bh", "none"] = "fdr_bh"  # Multiple testing correction
     getis_ord_alpha: Annotated[float, Field(gt=0.0, le=1.0)] = 0.05  # Significance threshold
 
-    include_image: bool = True
-    image_dpi: Annotated[int, Field(gt=0, le=300)] = 100
-    image_format: Literal["png", "jpg"] = "png"
-
 
 class RNAVelocityParameters(BaseModel):
     """RNA velocity analysis parameters model"""
@@ -340,10 +336,8 @@ class CellCommunicationParameters(BaseModel):
     # Custom ligand-receptor pairs (for advanced users)
     custom_lr_pairs: Optional[List[Tuple[str, str]]] = None  # Custom LR pairs as (ligand, receptor) tuples
 
-    # Visualization parameters
-    include_image: bool = True  # Whether to include visualization
-    plot_top_pairs: Annotated[int, Field(gt=0, le=20)] = 6  # Number of top LR pairs to visualize
-    image_dpi: Annotated[int, Field(gt=0, le=300)] = 100  # DPI for output image
+    # Result filtering parameters
+    plot_top_pairs: Annotated[int, Field(gt=0, le=20)] = 6  # Number of top LR pairs to include in results
 
 
 class EnrichmentParameters(BaseModel):
@@ -374,7 +368,5 @@ class EnrichmentParameters(BaseModel):
     adjust_method: Literal["bonferroni", "fdr", "none"] = "fdr"  # Multiple testing correction
     n_permutations: Annotated[int, Field(gt=0)] = 1000  # Number of permutations for GSEA
     
-    # Visualization parameters
-    include_image: bool = True  # Whether to include visualization
-    plot_top_terms: Annotated[int, Field(gt=0, le=30)] = 10  # Number of top terms to plot
-    image_dpi: Annotated[int, Field(gt=0, le=300)] = 100  # DPI for output image
+    # Result filtering parameters
+    plot_top_terms: Annotated[int, Field(gt=0, le=30)] = 10  # Number of top terms to include in results
