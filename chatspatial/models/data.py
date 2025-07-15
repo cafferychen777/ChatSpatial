@@ -350,7 +350,7 @@ class EnrichmentParameters(BaseModel):
     """Parameters for gene set enrichment analysis"""
     
     # Method selection
-    method: Literal["gsea", "ora", "enrichr", "enrichmap"] = "enrichmap"  # Enrichment method
+    method: Literal["gsea", "ora", "enrichr", "enrichmap", "ssgsea"] = "enrichmap"  # Enrichment method
     
     # Gene sets
     gene_sets: Optional[Union[List[str], Dict[str, List[str]]]] = None  # Gene sets to analyze
