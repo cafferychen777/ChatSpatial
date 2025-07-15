@@ -169,10 +169,10 @@ async def perform_gsea(
             'pvalues': pvalues,
             'adjusted_pvalues': adjusted_pvalues,
             'gene_set_statistics': gene_set_statistics,
-            'gene_sets_used': gene_sets,
+            'gene_sets_used': {k: len(v) for k, v in gene_sets.items()},  # Only return gene set sizes
             'top_gene_sets': top_enriched,
             'top_depleted_sets': top_depleted,
-            'results_df': results_df
+            # Don't return the full DataFrame - it's too large
         }
         
     except Exception as e:
@@ -314,7 +314,7 @@ async def perform_ora(
         'pvalues': pvalues,
         'adjusted_pvalues': adjusted_pvalues,
         'gene_set_statistics': gene_set_statistics,
-        'gene_sets_used': gene_sets,
+        'gene_sets_used': {k: len(v) for k, v in gene_sets.items()},  # Only return gene set sizes
         'query_genes': list(query_genes),
         'top_gene_sets': top_gene_sets,
         'top_depleted_sets': []  # ORA doesn't have depleted sets
@@ -456,10 +456,10 @@ async def perform_ssgsea(
             'pvalues': {},  # ssGSEA doesn't provide p-values
             'adjusted_pvalues': {},
             'gene_set_statistics': gene_set_statistics,
-            'gene_sets_used': gene_sets,
+            'gene_sets_used': {k: len(v) for k, v in gene_sets.items()},  # Only return gene set sizes
             'top_gene_sets': top_gene_sets,
             'top_depleted_sets': [],
-            'scores_df': scores_df,
+            # Don't return the full DataFrame - it's too large
             'scores_added_to_obs': True
         }
         
@@ -563,7 +563,7 @@ async def perform_enrichr(
             'query_genes': gene_list,
             'top_gene_sets': top_gene_sets,
             'top_depleted_sets': [],
-            'results_df': all_results
+            # Don't return the full DataFrame - it's too large
         }
         
     except Exception as e:
