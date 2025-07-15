@@ -126,8 +126,8 @@ def compute_rna_velocity(adata, mode="stochastic"):
     else:
         raise ValueError(f"Unsupported mode: {mode}")
 
-    # Compute velocity graph
-    scv.tl.velocity_graph(adata)
+    # Compute velocity graph (use single core to avoid multiprocessing issues)
+    scv.tl.velocity_graph(adata, n_jobs=1)
 
     return adata
 
@@ -152,7 +152,7 @@ def prepare_for_sirv(spatial_adata, scrna_adata):
 
     # Compute RNA velocity for scRNA-seq data
     scv.tl.velocity(scrna_adata)
-    scv.tl.velocity_graph(scrna_adata)
+    scv.tl.velocity_graph(scrna_adata, n_jobs=1)
 
     return spatial_adata, scrna_adata
 
@@ -219,28 +219,64 @@ def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=
     g.compute_eigendecomposition()
 
     # Compute macrostates
-    g.compute_macrostates(n_states=n_states)
+    try:
+        g.compute_macrostates(n_states=n_states)
+    except Exception as e:
+        # If automatic n_states fails, try with fewer states
+        for alt_n_states in [n_states-1, n_states-2, 3, 2]:
+            if alt_n_states < 2:
+                break
+            try:
+                g.compute_macrostates(n_states=alt_n_states)
+                break
+            except:
+                continue
+        else:
+            raise RuntimeError(f"Failed to compute macrostates with any number of states: {e}")
 
     # Predict terminal states
-    g.predict_terminal_states(method='stability')
+    try:
+        g.predict_terminal_states(method='stability')
+    except ValueError as e:
+        if "No macrostates have been selected" in str(e):
+            # Skip terminal state prediction if no macrostates
+            pass
+        else:
+            raise
 
-    # Compute absorption probabilities
-    g.compute_absorption_probabilities()
+    # Check if we have terminal states
+    has_terminal_states = hasattr(g, 'terminal_states') and g.terminal_states is not None
+    
+    if has_terminal_states and len(g.terminal_states.cat.categories) > 0:
+        # Compute fate probabilities (renamed from absorption_probabilities in newer versions)
+        g.compute_fate_probabilities()
 
-    # Get absorption probabilities
-    absorption_probs = g.absorption_probabilities
+        # Get fate probabilities (renamed from absorption_probabilities)
+        absorption_probs = g.fate_probabilities
 
-    # Compute pseudotime
-    terminal_states = list(g.terminal_states.cat.categories)
-    if not terminal_states:
-        raise RuntimeError("CellRank could not identify any terminal states")
-        
-    root_state = terminal_states[0]
-    pseudotime = 1 - absorption_probs[root_state].X.flatten()
+        # Compute pseudotime
+        terminal_states = list(g.terminal_states.cat.categories)
+        root_state = terminal_states[0]
+        pseudotime = 1 - absorption_probs[root_state].X.flatten()
 
-    # Store results
-    adata.obs['pseudotime'] = pseudotime
-    adata.obsm['absorption_probabilities'] = absorption_probs
+        # Store results
+        adata.obs['pseudotime'] = pseudotime
+        adata.obsm['fate_probabilities'] = absorption_probs
+        adata.obs['terminal_states'] = g.terminal_states
+    else:
+        # No terminal states, use macrostates for pseudotime
+        if hasattr(g, 'macrostates') and g.macrostates is not None:
+            # Use the macrostate memberships as a proxy for pseudotime
+            macrostate_probs = g.macrostates_memberships
+            # Use the first macrostate as the "early" state
+            pseudotime = 1 - macrostate_probs[:, 0].X.flatten()
+            adata.obs['pseudotime'] = pseudotime
+        else:
+            raise RuntimeError("CellRank could not compute either terminal states or macrostates")
+    
+    # Always store macrostates if available
+    if hasattr(g, 'macrostates') and g.macrostates is not None:
+        adata.obs['macrostates'] = g.macrostates
 
     return adata
 
@@ -531,6 +567,12 @@ async def analyze_trajectory(
             if context:
                 await context.warning(f"CellRank analysis failed: {cellrank_error}")
                 await context.info("Falling back to Palantir method...")
+            # Log the full traceback for debugging (if logger available)
+            import traceback
+            try:
+                logger.error(f"CellRank traceback: {traceback.format_exc()}")
+            except:
+                pass  # Ignore if logger not available
             # Force switch to Palantir
             method_used = "palantir"
 

@@ -160,7 +160,7 @@ class RNAVelocityParameters(BaseModel):
 
 class TrajectoryParameters(BaseModel):
     """Trajectory analysis parameters model"""
-    method: Literal["cellrank", "palantir", "velovi"] = "cellrank"
+    method: Literal["cellrank", "palantir", "velovi", "dpt"] = "cellrank"
     spatial_weight: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5  # Spatial information weight
     root_cells: Optional[List[str]] = None  # For Palantir method
     

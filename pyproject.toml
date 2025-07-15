@@ -69,6 +69,11 @@ cell_communication = [
     "scipy",  # LIANA+ 科学计算依赖
     "tqdm",  # LIANA+ 进度条
 ]
+cellrank_full = [
+    "petsc4py",  # PETSc Python接口，用于大规模线性代数计算
+    "slepc4py",  # SLEPc Python接口，用于特征值问题求解
+    "mpi4py",  # MPI Python接口，PETSc的依赖
+]
 all = [
     # EnrichMap dependencies
     "statannotations",
@@ -87,6 +92,10 @@ all = [
     "NaiveDE",
     # Cell communication dependencies
     "liana",
+    # CellRank full dependencies
+    "petsc4py",
+    "slepc4py",
+    "mpi4py",
     # Common dependencies
     "torch>=1.7.1",
     "pyro-ppl>=1.8.0",
