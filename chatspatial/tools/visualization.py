@@ -3222,7 +3222,13 @@ def _create_gsea_barplot(adata, gsea_results, params, context):
     
     y_pos = np.arange(len(df_sorted))
     scores = df_sorted[score_col].values
-    pathways = df_sorted['pathway'].values if 'pathway' in df_sorted.columns else df_sorted.index
+    # Handle different column names for pathways
+    if 'pathway' in df_sorted.columns:
+        pathways = df_sorted['pathway'].values
+    elif 'Term' in df_sorted.columns:
+        pathways = df_sorted['Term'].values
+    else:
+        pathways = df_sorted.index
     
     # Color based on score
     colors = ['darkred' if s > 2 else 'red' if s > 1.5 else 'orange' if s > 1 else 'gray' 
