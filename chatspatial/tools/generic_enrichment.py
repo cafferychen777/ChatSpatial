@@ -162,7 +162,11 @@ async def perform_gsea(
         top_depleted = results_df_sorted[results_df_sorted['NES'] < 0].head(10)['Term'].tolist()
         
         # Save results to adata.uns for visualization
-        adata.uns['gsea_results'] = {
+        # Store full results DataFrame for visualization
+        adata.uns['gsea_results'] = results_df
+        
+        # Also store as dict format for backward compatibility
+        adata.uns['gsea_results_dict'] = {
             'results_df': results_df,
             'enrichment_scores': enrichment_scores,
             'pvalues': pvalues,
@@ -318,15 +322,19 @@ async def perform_ora(
     top_gene_sets = [x[0] for x in sorted_by_pval[:10]]
     
     # Save results to adata.uns for visualization
-    adata.uns['ora_results'] = {
-        'enrichment_scores': enrichment_scores,
-        'pvalues': pvalues,
-        'adjusted_pvalues': adjusted_pvalues,
-        'gene_set_statistics': gene_set_statistics,
-        'query_genes': list(query_genes),
-        'top_gene_sets': top_gene_sets,
-        'method': 'ora'
-    }
+    # Create DataFrame for visualization compatibility
+    import pandas as pd
+    ora_df = pd.DataFrame({
+        'pathway': list(enrichment_scores.keys()),
+        'odds_ratio': list(enrichment_scores.values()),
+        'pvalue': [pvalues.get(k, 1.0) for k in enrichment_scores.keys()],
+        'adjusted_pvalue': [adjusted_pvalues.get(k, 1.0) for k in enrichment_scores.keys()]
+    })
+    ora_df['NES'] = ora_df['odds_ratio']  # Use odds_ratio as score for visualization
+    ora_df = ora_df.sort_values('pvalue')
+    
+    adata.uns['ora_results'] = ora_df
+    adata.uns['gsea_results'] = ora_df  # Also save as gsea_results for visualization compatibility
     
     return {
         'method': 'ora',
