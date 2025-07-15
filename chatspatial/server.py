@@ -941,19 +941,43 @@ async def analyze_enrichment(
 
     # Update dataset in data manager
     data_manager.data_store[data_id] = data_store[data_id]
+    
+    # Filter results to reduce size
+    # Get top significant gene sets
+    adjusted_pvals = result_dict.get('adjusted_pvalues', {})
+    pvals = result_dict.get('pvalues', {})
+    
+    # For display, limit to top results
+    max_results = params.plot_top_terms if hasattr(params, 'plot_top_terms') and params.plot_top_terms else 50
+    
+    # Get significant gene sets
+    significant_sets = {k for k, v in adjusted_pvals.items() if v < params.pvalue_cutoff} if adjusted_pvals else set()
+    
+    # Get top gene sets
+    top_sets = set(result_dict.get('top_gene_sets', []))
+    top_depleted = set(result_dict.get('top_depleted_sets', []))
+    
+    # Combine significant and top sets, limit to max_results
+    display_sets = list((significant_sets | top_sets | top_depleted))[:max_results]
+    
+    # Filter large dictionaries to only include display sets
+    filtered_enrichment_scores = {k: v for k, v in result_dict.get('enrichment_scores', {}).items() if k in display_sets}
+    filtered_pvalues = {k: v for k, v in pvals.items() if k in display_sets}
+    filtered_adjusted_pvalues = {k: v for k, v in adjusted_pvals.items() if k in display_sets}
+    filtered_gene_set_statistics = {k: v for k, v in result_dict.get('gene_set_statistics', {}).items() if k in display_sets}
 
     # Create EnrichmentResult object
     result = EnrichmentResult(
         method=params.method,
         n_gene_sets=result_dict.get('n_gene_sets', 0),
         n_significant=result_dict.get('n_significant', 0),
-        enrichment_scores=result_dict.get('enrichment_scores', {}),
-        pvalues=result_dict.get('pvalues', {}),
-        adjusted_pvalues=result_dict.get('adjusted_pvalues', {}),
-        gene_set_statistics=result_dict.get('gene_set_statistics', {}),
+        enrichment_scores=filtered_enrichment_scores,
+        pvalues=filtered_pvalues,
+        adjusted_pvalues=filtered_adjusted_pvalues,
+        gene_set_statistics=filtered_gene_set_statistics,
         spatial_metrics=result_dict.get('spatial_metrics'),
         spatial_scores_key=result_dict.get('spatial_scores_key'),
-        gene_sets_used=result_dict.get('gene_sets_used', {}),
+        gene_sets_used=result_dict.get('gene_sets_used', {}),  # Already filtered in tools
         genes_found=result_dict.get('genes_found', {}),
         top_gene_sets=result_dict.get('top_gene_sets', []),
         top_depleted_sets=result_dict.get('top_depleted_sets', []),
