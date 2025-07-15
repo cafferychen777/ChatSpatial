@@ -379,13 +379,8 @@ async def analyze_spatial_data(
     # Create result resource
     await adapter.resource_manager.create_result_resource(data_id, "spatial_analysis", result)
 
-    # Create visualization if available
-    if params and getattr(params, 'visualize', True):
-        vis_image = await adapter.create_visualization_from_result(
-            data_id, "spatial_analysis", result, context
-        )
-        if vis_image:
-            result.visualization = vis_image
+    # Note: Visualization should be created separately using create_visualization tool
+    # This maintains clean separation between analysis and visualization
 
     return result
 

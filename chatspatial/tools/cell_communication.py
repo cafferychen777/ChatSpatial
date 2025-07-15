@@ -74,7 +74,7 @@ async def analyze_cell_communication(
         
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
-        if params.include_image and context:
+        if context:
             await context.info("Cell communication analysis complete. Use visualize_data tool with plot_type='cell_communication' to visualize results")
         
         # Update data store
