@@ -990,8 +990,6 @@ async def analyze_enrichment(
         genes_found=filtered_genes_found,
         top_gene_sets=result_dict.get('top_gene_sets', []),
         top_depleted_sets=result_dict.get('top_depleted_sets', []),
-        visualization=result_dict.get('visualization'),
-        spatial_visualization=result_dict.get('spatial_visualization'),
         parameters_used=params.model_dump(),
         computation_time=time.time() - start_time
     )
