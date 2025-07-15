@@ -44,11 +44,7 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
         if batch_key not in combined.obs:
             raise ValueError(f"Merged dataset is missing batch information key '{batch_key}'")
 
-    # Standard preprocessing
-    sc.pp.normalize_total(combined)
-    sc.pp.log1p(combined)
-
-    # Handle NaN values
+    # Handle NaN values first
     import numpy as np
     # Replace NaN values with zeros
     if isinstance(combined.X, np.ndarray):
@@ -56,6 +52,10 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
     else:
         # For sparse matrices
         combined.X.data = np.nan_to_num(combined.X.data)
+
+    # Standard preprocessing
+    sc.pp.normalize_total(combined)
+    sc.pp.log1p(combined)
 
     # Find highly variable genes
     try:
@@ -73,9 +73,22 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
             print(f"Error in highly_variable_genes fallback: {e2}")
             # Final fallback: mark all genes as highly variable
             combined.var['highly_variable'] = True
-            combined.var['means'] = np.array(combined.X.mean(axis=0)).flatten()
-            combined.var['dispersions'] = np.array(combined.X.var(axis=0)).flatten()
-            combined.var['dispersions_norm'] = combined.var['dispersions'] / combined.var['means']
+            
+            # Calculate means and variances properly for both dense and sparse matrices
+            if hasattr(combined.X, 'toarray'):
+                # Sparse matrix
+                X_dense = combined.X.toarray()
+                combined.var['means'] = np.mean(X_dense, axis=0)
+                combined.var['dispersions'] = np.var(X_dense, axis=0)
+            else:
+                # Dense matrix
+                combined.var['means'] = np.mean(combined.X, axis=0)
+                combined.var['dispersions'] = np.var(combined.X, axis=0)
+            
+            # Handle division by zero for dispersions_norm
+            with np.errstate(divide='ignore', invalid='ignore'):
+                combined.var['dispersions_norm'] = combined.var['dispersions'] / combined.var['means']
+                combined.var['dispersions_norm'] = np.nan_to_num(combined.var['dispersions_norm'], nan=0.0, posinf=0.0)
             print(f"Using all {combined.n_vars} genes for integration")
 
     combined.raw = combined  # Save raw data
@@ -292,6 +305,11 @@ def analyze_integrated_trajectory(combined_adata, spatial_weight=0.5, use_aligne
     # Get spatial coordinates
     spatial_coords = combined_adata.obsm[spatial_key]
 
+    # Check if velocity data is available
+    if 'Ms' not in combined_adata.layers or 'velocity' not in combined_adata.layers:
+        raise ValueError("RNA velocity data (layers['Ms'] or layers['velocity']) is required for trajectory analysis. "
+                        "Please run RNA velocity analysis first using scvelo or velocyto.")
+
     # Create RNA velocity kernel
     vk = cr.kernels.VelocityKernel(combined_adata)
     vk.compute_transition_matrix()
@@ -328,6 +346,192 @@ def analyze_integrated_trajectory(combined_adata, spatial_weight=0.5, use_aligne
     combined_adata.obsm['absorption_probabilities'] = g.absorption_probabilities
 
     return combined_adata
+
+
+# Import scvi-tools for advanced integration methods
+try:
+    import scvi
+    from scvi.external import ContrastiveVI
+except ImportError:
+    scvi = None
+    ContrastiveVI = None
+
+
+async def integrate_with_contrastive_vi(
+    adata,
+    batch_key: str = 'batch',
+    condition_key: Optional[str] = None,
+    n_epochs: int = 400,
+    n_hidden: int = 128,
+    n_background_latent: int = 10,
+    n_salient_latent: int = 10,
+    use_gpu: bool = False,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Integrate data using ContrastiveVI for identifying condition-specific variations
+    
+    ContrastiveVI is particularly useful for identifying variations that are 
+    specific to certain conditions (e.g., disease vs. healthy) while accounting 
+    for batch effects.
+    
+    Args:
+        adata: AnnData object with batch information
+        batch_key: Key in adata.obs for batch information
+        condition_key: Key in adata.obs for condition information (e.g., 'disease_state')
+        n_epochs: Number of epochs for training
+        n_hidden: Number of hidden units in neural networks
+        n_background_latent: Dimensionality of background (shared) latent space
+        n_salient_latent: Dimensionality of salient (condition-specific) latent space
+        use_gpu: Whether to use GPU for training
+        context: MCP context for logging
+        
+    Returns:
+        Dictionary containing integration results
+        
+    Raises:
+        ImportError: If scvi-tools package is not available
+        ValueError: If required keys are missing
+        RuntimeError: If integration fails
+    """
+    try:
+        if scvi is None or ContrastiveVI is None:
+            raise ImportError("scvi-tools package with ContrastiveVI is required. Install with 'pip install scvi-tools'")
+        
+        if context:
+            await context.info("Starting ContrastiveVI integration...")
+            
+        # Validate batch key
+        if batch_key not in adata.obs:
+            raise ValueError(f"Batch key '{batch_key}' not found in adata.obs")
+        
+        # If no condition key provided, use batch key as condition
+        if condition_key is None:
+            condition_key = batch_key
+            if context:
+                await context.info(f"No condition key provided, using batch key '{batch_key}' as condition")
+        elif condition_key not in adata.obs:
+            raise ValueError(f"Condition key '{condition_key}' not found in adata.obs")
+        
+        if context:
+            await context.info(f"Integrating {adata.n_obs} cells with {len(adata.obs[batch_key].unique())} batches")
+            if condition_key != batch_key:
+                await context.info(f"Conditions: {len(adata.obs[condition_key].unique())} unique values")
+        
+        # Setup ContrastiveVI
+        ContrastiveVI.setup_anndata(
+            adata,
+            batch_key=batch_key,
+            labels_key=condition_key
+        )
+        
+        # Create ContrastiveVI model
+        model = ContrastiveVI(
+            adata,
+            n_hidden=n_hidden,
+            n_background_latent=n_background_latent,
+            n_salient_latent=n_salient_latent
+        )
+        
+        if context:
+            await context.info("Training ContrastiveVI model...")
+        
+        # ContrastiveVI requires background and target indices
+        # Background indices: cells from a reference condition (e.g., healthy)
+        # Target indices: cells from condition of interest (e.g., disease)
+        
+        # Get unique conditions
+        conditions = adata.obs[condition_key].unique()
+        if len(conditions) < 2:
+            raise ValueError(f"ContrastiveVI requires at least 2 conditions, found {len(conditions)}")
+        
+        # Use first condition as background, others as target
+        background_condition = conditions[0]
+        background_indices = np.where(adata.obs[condition_key] == background_condition)[0]
+        target_indices = np.where(adata.obs[condition_key] != background_condition)[0]
+        
+        if context:
+            await context.info(f"Using '{background_condition}' as background ({len(background_indices)} cells)")
+            await context.info(f"Using other conditions as target ({len(target_indices)} cells)")
+        
+        # Train model
+        if use_gpu:
+            model.train(
+                background_indices=background_indices,
+                target_indices=target_indices,
+                max_epochs=n_epochs,
+                accelerator='gpu'
+            )
+        else:
+            model.train(
+                background_indices=background_indices,
+                target_indices=target_indices,
+                max_epochs=n_epochs
+            )
+            
+        if context:
+            await context.info("ContrastiveVI training completed")
+        
+        # Get results
+        if context:
+            await context.info("Extracting integrated representations...")
+            
+        # Get background (shared) latent representation
+        background_latent = model.get_latent_representation(adata, representation_kind="background")
+        
+        # Get salient (condition-specific) latent representation  
+        salient_latent = model.get_latent_representation(adata, representation_kind="salient")
+        
+        # Store results in adata
+        adata.obsm['X_contrastive_background'] = background_latent
+        adata.obsm['X_contrastive_salient'] = salient_latent
+        
+        # Use background representation for standard analyses (UMAP, clustering)
+        adata.obsm['X_integrated'] = background_latent
+        
+        # Calculate integration metrics
+        # Compute silhouette score for batch mixing in background space
+        from sklearn.metrics import silhouette_score
+        try:
+            background_silhouette = silhouette_score(background_latent, adata.obs[batch_key])
+            
+            # For salient space, we expect separation by condition
+            if condition_key != batch_key:
+                salient_silhouette = silhouette_score(salient_latent, adata.obs[condition_key])
+            else:
+                salient_silhouette = background_silhouette
+        except:
+            background_silhouette = 0.0
+            salient_silhouette = 0.0
+        
+        # Calculate summary statistics
+        results = {
+            'method': 'ContrastiveVI',
+            'n_background_latent': n_background_latent,
+            'n_salient_latent': n_salient_latent,
+            'n_epochs': n_epochs,
+            'n_batches': len(adata.obs[batch_key].unique()),
+            'n_conditions': len(adata.obs[condition_key].unique()),
+            'background_mixing_score': float(background_silhouette),
+            'salient_separation_score': float(salient_silhouette),
+            'background_latent_shape': background_latent.shape,
+            'salient_latent_shape': salient_latent.shape,
+            'integration_completed': True,
+            'device': 'GPU' if use_gpu else 'CPU'
+        }
+        
+        if context:
+            await context.info(f"ContrastiveVI integration completed successfully")
+            await context.info(f"Background representation captures batch-corrected shared variation")
+            await context.info(f"Salient representation captures condition-specific variation")
+            await context.info(f"Stored in adata.obsm['X_contrastive_background'] and adata.obsm['X_contrastive_salient']")
+        
+        return results
+        
+    except Exception as e:
+        error_msg = f"ContrastiveVI integration failed: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise RuntimeError(error_msg) from e
 
 
 async def integrate_samples(

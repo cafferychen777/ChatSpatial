@@ -1047,7 +1047,7 @@ async def create_deconvolution_visualization(
 
     if not deconv_keys:
         # Look for individual cell type proportions in obs
-        cell_type_cols = [col for col in adata.obs.columns if any(method in col.lower() for method in ['cell2location', 'spotiphy'])]
+        cell_type_cols = [col for col in adata.obs.columns if any(method in col.lower() for method in ['cell2location'])]
 
         if not cell_type_cols:
             raise DataNotFoundError("No deconvolution results found in adata.obsm or adata.obs")

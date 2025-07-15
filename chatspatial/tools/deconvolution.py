@@ -17,16 +17,19 @@ import sys
 import os
 from mcp.server.fastmcp import Context
 
-# Try to import Spotiphy directly
-# If it's not installed, we'll handle the ImportError when the function is called
 
 # Import scvi-tools for deconvolution
 try:
     import scvi
-    from scvi.external import SpatialStereoscope as Stereoscope
+    from scvi.external import SpatialStereoscope as Stereoscope, Tangram, MRVI
+    # DestVI is now in scvi.model, not scvi.external
+    from scvi.model import DestVI
 except ImportError:
     scvi = None
     Stereoscope = None
+    Tangram = None
+    MRVI = None
+    DestVI = None
 
 from ..models.data import DeconvolutionParameters
 from ..models.analysis import DeconvolutionResult
@@ -112,18 +115,14 @@ def _get_device(use_gpu: bool, method: str) -> str:
     
     # MPS support - handle differently for different methods
     if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-        if method.lower() == 'spotiphy':
-            print(f"Using Apple MPS acceleration for {method}")
-            return "mps"
-        else:
-            # Cell2location has issues with MPS
-            warnings.warn(
-                f"MPS acceleration is available but disabled for {method} due to numerical instability issues "
-                f"with cell2location 0.1.4. Using CPU instead. Consider upgrading cell2location "
-                f"or PyTorch for better MPS support in the future."
-            )
-            print(f"Using CPU for {method} (MPS disabled due to compatibility issues)")
-            return "cpu"
+        # Cell2location has issues with MPS
+        warnings.warn(
+            f"MPS acceleration is available but disabled for {method} due to numerical instability issues "
+            f"with cell2location 0.1.4. Using CPU instead. Consider upgrading cell2location "
+            f"or PyTorch for better MPS support in the future."
+        )
+        print(f"Using CPU for {method} (MPS disabled due to compatibility issues)")
+        return "cpu"
     
     warnings.warn(f"GPU requested for {method} but neither CUDA nor MPS is available. Using CPU instead.")
     print(f"Using CPU for {method}")
@@ -438,208 +437,7 @@ def deconvolve_cell2location(
 
 
 
-# Check if Spotiphy is available
-def is_spotiphy_available() -> Tuple[bool, str]:
-    """Check if Spotiphy and its dependencies are available
 
-    Returns:
-        Tuple of (is_available, error_message)
-    """
-    try:
-        # Try to import Spotiphy
-        import spotiphy
-
-        # Check for required modules
-        try:
-            # First check if we can import the specific modules we need
-            from spotiphy import sc_reference, deconvolution
-            import torch
-
-            # Try to import stardist but don't fail if it's not available
-            try:
-                import stardist
-            except ImportError:
-                pass  # We'll handle this later if needed
-
-            # Try to import tensorflow but don't fail if it's not available
-            try:
-                import tensorflow
-            except ImportError:
-                pass  # We'll handle this later if needed
-
-            return True, ""
-        except ImportError as e:
-            if "stardist" in str(e):
-                return False, "Spotiphy requires stardist which is not installed. Install with 'pip install stardist'"
-            elif "tensorflow" in str(e) or "keras" in str(e):
-                return False, "Spotiphy requires tensorflow which is not installed. Install with 'pip install tensorflow'"
-            elif "torch" in str(e):
-                return False, "Spotiphy requires PyTorch which is not installed. Install with 'pip install torch'"
-            else:
-                return False, f"Spotiphy dependency missing: {str(e)}"
-    except ImportError:
-        return False, "Spotiphy package is not installed. Install with 'pip install spotiphy'"
-
-
-def deconvolve_spotiphy(
-    spatial_adata: ad.AnnData,
-    reference_adata: ad.AnnData,
-    cell_type_key: str = 'cell_type',
-    n_epochs: int = 8000,
-    batch_prior: float = 2.0,
-    adam_params: Optional[Dict[str, Any]] = None,
-    use_gpu: bool = False,
-    min_common_genes: int = 100
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """Deconvolve spatial data using Spotiphy
-
-    Args:
-        spatial_adata: Spatial transcriptomics AnnData object
-        reference_adata: Reference single-cell RNA-seq AnnData object
-        cell_type_key: Key in reference_adata.obs for cell type information
-        n_epochs: Number of epochs for training
-        batch_prior: Parameter of the prior distribution of the batch effect
-        adam_params: Parameters for the Adam optimizer
-        use_gpu: Whether to use GPU for training
-        min_common_genes: Minimum number of common genes required
-
-    Returns:
-        Tuple of (proportions DataFrame, statistics dictionary)
-
-    Raises:
-        ImportError: If Spotiphy package is not installed
-        ValueError: If input data is invalid or insufficient common genes
-        RuntimeError: If Spotiphy computation fails
-    """
-    # Unified validation and gene finding
-    common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, min_common_genes)
-
-    # Check if Spotiphy is available
-    is_available, error_message = is_spotiphy_available()
-    if not is_available:
-        raise ImportError(
-            f"{error_message}. "
-            "For complete installation, run: "
-            "'pip install spotiphy stardist tensorflow torch'"
-        )
-
-    # Import required modules
-    from spotiphy import sc_reference, deconvolution
-
-    try:
-        # Unified device selection
-        device = _get_device(use_gpu, 'Spotiphy')
-
-        # Subset to common genes
-        spatial_data = spatial_adata[:, common_genes].copy()
-        reference_data = reference_adata[:, common_genes].copy()
-
-        # Ensure data is in the right format for Spotiphy
-        # Convert to dense arrays if sparse
-        if hasattr(spatial_data.X, 'toarray'):
-            spatial_data.X = spatial_data.X.toarray()
-        if hasattr(reference_data.X, 'toarray'):
-            reference_data.X = reference_data.X.toarray()
-
-        # Ensure non-negative values
-        spatial_data.X = np.maximum(spatial_data.X, 0)
-        reference_data.X = np.maximum(reference_data.X, 0)
-
-        # Normalize data using Spotiphy's initialization function
-        # This performs CPM normalization and filtering
-        sc_ref_data, spatial_data = sc_reference.initialization(
-            reference_data,
-            spatial_data,
-            filtering=False,  # We already filtered for common genes
-            verbose=1
-        )
-
-        # Get cell types from the processed reference data
-        type_list = sorted(list(sc_ref_data.obs[cell_type_key].unique()))
-
-        print(f"Found {len(type_list)} cell types: {type_list}")
-
-        # Construct reference profiles using Spotiphy's method
-        sc_ref = sc_reference.construct_sc_ref(sc_ref_data, cell_type_key)
-
-        print(f"Constructed reference profiles with shape: {sc_ref.shape}")
-
-        # Extract expression matrices - ensure it's a numpy array
-        X = spatial_data.X
-        if isinstance(X, np.matrix):
-            X = X.A
-        elif hasattr(X, 'toarray'):
-            X = X.toarray()
-
-        # Ensure X is float64 for compatibility with PyTorch
-        X = X.astype(np.float64)
-
-        # Set Adam parameters
-        if adam_params is None:
-            adam_params = {"lr": 0.003, "betas": (0.95, 0.999)}
-
-        # Run Spotiphy deconvolution
-        print(f"Running Spotiphy deconvolution with {len(common_genes)} common genes and {len(type_list)} cell types")
-        print(f"Device: {device}, Epochs: {n_epochs}")
-
-        # Estimate cell proportions using the core deconvolute function
-        print("Running Spotiphy deconvolute function...")
-
-        # Run the core deconvolution
-        pyro_params = deconvolution.deconvolute(
-            X,
-            sc_ref,
-            device=device,
-            n_epoch=n_epochs,
-            adam_params=adam_params,
-            batch_prior=batch_prior,
-            plot=False
-        )
-
-        # Extract sigma parameter and convert to cell proportions
-        sigma = pyro_params['sigma'].cpu().detach().numpy()
-
-        # Calculate mean expression per cell type from reference data
-        Y = np.array(sc_ref_data.X)
-        if hasattr(sc_ref_data.X, 'toarray'):
-            Y = sc_ref_data.X.toarray()
-
-        mean_exp = np.array([np.mean(np.sum(Y[sc_ref_data.obs[cell_type_key]==cell_type], axis=1))
-                             for cell_type in type_list])
-
-        # Avoid division by zero
-        mean_exp = np.maximum(mean_exp, 1e-8)
-
-        # Convert to cell proportions
-        cell_proportions = sigma / mean_exp
-        cell_proportions = cell_proportions / np.sum(cell_proportions, axis=1)[:, np.newaxis]
-
-        # Create DataFrame with results
-        proportions = pd.DataFrame(
-            cell_proportions,
-            index=spatial_data.obs_names,
-            columns=type_list
-        )
-
-        # Create standardized statistics using helper function
-        stats = _create_deconvolution_stats(
-            proportions,
-            common_genes,
-            "Spotiphy",
-            device,
-            n_epochs=n_epochs,
-            batch_prior=batch_prior
-        )
-
-        return proportions, stats
-
-    except Exception as e:
-        if not isinstance(e, (ValueError, ImportError)):
-            error_msg = str(e)
-            tb = traceback.format_exc()
-            raise RuntimeError(f"Spotiphy deconvolution failed: {error_msg}\n{tb}")
-        else:
-            raise
 
 
 def is_rctd_available() -> Tuple[bool, str]:
@@ -1047,7 +845,7 @@ async def deconvolve_spatial_data(
 
         # Load and validate reference data ONCE for methods that need it
         reference_adata = None
-        if params.method in ["cell2location", "spotiphy", "rctd", "destvi", "stereoscope"]:
+        if params.method in ["cell2location", "rctd", "destvi", "stereoscope", "tangram", "mrvi"]:
             if not params.reference_data_id:
                 raise ValueError(f"Reference data is required for method '{params.method}'. Please provide reference_data_id.")
             
@@ -1098,32 +896,6 @@ async def deconvolve_spatial_data(
                     use_gpu=params.use_gpu
                 )
 
-            elif params.method == "spotiphy":
-                if context:
-                    await context.info("Running Spotiphy deconvolution")
-                
-                # Check if Spotiphy is available
-                is_available, error_message = is_spotiphy_available()
-                if not is_available:
-                    if context:
-                        await context.warning(f"Spotiphy is not available: {error_message}")
-                    raise ImportError(f"Spotiphy is not available: {error_message}")
-                
-                # Set Adam parameters
-                adam_params = {
-                    "lr": params.spotiphy_adam_lr,
-                    "betas": params.spotiphy_adam_betas
-                }
-
-                proportions, stats = deconvolve_spotiphy(
-                    spatial_adata,
-                    reference_adata,
-                    cell_type_key=params.cell_type_key,
-                    n_epochs=params.n_epochs,
-                    batch_prior=params.spotiphy_batch_prior,
-                    adam_params=adam_params,
-                    use_gpu=params.use_gpu
-                )
 
             elif params.method == "rctd":
                 if context:
@@ -1209,10 +981,42 @@ async def deconvolve_spatial_data(
                     n_top_genes=params.n_top_genes
                 )
 
+            elif params.method == "tangram":
+                if context:
+                    await context.info("Running Tangram deconvolution")
+                
+                if scvi is None or Tangram is None:
+                    raise ImportError("scvi-tools and Tangram are required for this method. Install with 'pip install scvi-tools'")
+                
+                proportions, stats = await deconvolve_tangram(
+                    spatial_adata,
+                    reference_adata,
+                    cell_type_key=params.cell_type_key,
+                    n_epochs=params.n_epochs,
+                    use_gpu=params.use_gpu,
+                    context=context
+                )
+
+            elif params.method == "mrvi":
+                if context:
+                    await context.info("Running MRVI deconvolution")
+                
+                if scvi is None or MRVI is None:
+                    raise ImportError("scvi-tools and MRVI are required for this method. Install with 'pip install scvi-tools'")
+                
+                proportions, stats = await deconvolve_mrvi(
+                    spatial_adata,
+                    reference_adata,
+                    cell_type_key=params.cell_type_key,
+                    n_epochs=params.n_epochs,
+                    use_gpu=params.use_gpu,
+                    context=context
+                )
+
             else:
                 raise ValueError(
                     f"Unsupported deconvolution method: {params.method}. "
-                    f"Supported methods are: cell2location, spotiphy, rctd, destvi, stereoscope, spotlight"
+                    f"Supported methods are: cell2location, rctd, destvi, stereoscope, spotlight, tangram, mrvi"
                 )
 
         except Exception as e:
@@ -1803,5 +1607,319 @@ def deconvolve_spotlight(
     except Exception as e:
         tb = traceback.format_exc()
         error_msg = f"SPOTlight deconvolution failed: {str(e)}"
+        print(f"Error details:\n{tb}")
+        raise RuntimeError(error_msg) from e
+
+
+async def deconvolve_tangram(
+    spatial_adata: ad.AnnData,
+    reference_adata: ad.AnnData,
+    cell_type_key: str = 'cell_type',
+    n_epochs: int = 1000,
+    use_gpu: bool = False,
+    context: Optional[Context] = None
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Deconvolve spatial data using Tangram from scvi-tools
+    
+    Tangram maps single-cell RNA-seq data to spatial data, permitting 
+    deconvolution of cell types in spatial data like Visium.
+    
+    Args:
+        spatial_adata: Spatial transcriptomics AnnData object
+        reference_adata: Reference single-cell RNA-seq AnnData object
+        cell_type_key: Key in reference_adata.obs for cell type information
+        n_epochs: Number of epochs for training
+        use_gpu: Whether to use GPU for training
+        context: FastMCP context for logging
+        
+    Returns:
+        Tuple of (proportions DataFrame, statistics dictionary)
+        
+    Raises:
+        ImportError: If scvi-tools package is not available
+        ValueError: If input data is invalid or insufficient common genes
+        RuntimeError: If Tangram computation fails
+    """
+    try:
+        if scvi is None or Tangram is None:
+            raise ImportError("scvi-tools and Tangram are required for this method. Install with 'pip install scvi-tools'")
+            
+        # Import mudata
+        try:
+            import mudata as md
+        except ImportError:
+            raise ImportError("mudata package is required for Tangram. Install with 'pip install mudata'")
+            
+        # Validate inputs
+        common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, 100)
+        
+        # Prepare data
+        ref_data = reference_adata[:, common_genes].copy()
+        spatial_data = spatial_adata[:, common_genes].copy()
+        
+        if context:
+            await context.info(f"Training Tangram with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types")
+        
+        # Create density prior (normalized uniform distribution)
+        if context:
+            await context.info("Setting up Tangram with MuData...")
+            
+        # Create normalized density prior that sums to 1
+        density_values = np.ones(spatial_data.n_obs)
+        density_values = density_values / density_values.sum()  # Normalize to sum to 1
+        spatial_data.obs['density_prior'] = density_values
+        
+        # Create MuData object combining spatial and single-cell data
+        mdata = md.MuData({
+            'sc_train': ref_data,
+            'sp_train': spatial_data
+        })
+        
+        # Setup MuData for Tangram
+        Tangram.setup_mudata(
+            mdata,
+            density_prior_key="density_prior",
+            modalities={
+                "density_prior_key": "sp_train",
+                "sc_layer": "sc_train", 
+                "sp_layer": "sp_train",
+            }
+        )
+        
+        # Create Tangram model
+        target_count = max(1, int(spatial_data.n_obs * 0.1))  # Simple heuristic
+        tangram_model = Tangram(mdata, constrained=True, target_count=target_count)
+        
+        if context:
+            await context.info("Training Tangram model...")
+        
+        # Train model
+        if use_gpu:
+            tangram_model.train(max_epochs=n_epochs, accelerator='gpu')
+        else:
+            tangram_model.train(max_epochs=n_epochs)
+            
+        if context:
+            await context.info("Tangram training completed")
+        
+        # Get cell type proportions
+        if context:
+            await context.info("Extracting cell type proportions...")
+            
+        # Get mapping matrix (shape: n_cells x n_spots)
+        mapping_matrix = tangram_model.get_mapper_matrix()
+        
+        # Calculate cell type proportions
+        cell_types = ref_data.obs[cell_type_key].unique()
+        proportions_list = []
+        
+        for cell_type in cell_types:
+            # Get cells of this type
+            cell_mask = ref_data.obs[cell_type_key] == cell_type
+            cell_indices = np.where(cell_mask)[0]
+            
+            # Sum mapping weights for this cell type across spots
+            # mapping_matrix[cell_indices, :] gives weights for this cell type to all spots
+            if len(cell_indices) > 0:
+                cell_type_props = mapping_matrix[cell_indices, :].sum(axis=0)  # Sum across cells, keep spots
+            else:
+                cell_type_props = np.zeros(spatial_data.n_obs)
+            
+            proportions_list.append(cell_type_props)
+        
+        # Create proportions DataFrame (transpose to get spots x cell_types)
+        proportions_array = np.column_stack(proportions_list)
+        
+        # Normalize to sum to 1
+        row_sums = proportions_array.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1  # Avoid division by zero
+        proportions_array = proportions_array / row_sums
+        
+        proportions = pd.DataFrame(
+            proportions_array,
+            index=spatial_data.obs_names,
+            columns=cell_types
+        )
+        
+        # Create statistics dictionary
+        stats = _create_deconvolution_stats(
+            proportions,
+            common_genes,
+            "Tangram",
+            "GPU" if use_gpu else "CPU",
+            n_epochs=n_epochs,
+            use_gpu=use_gpu
+        )
+        
+        return proportions, stats
+        
+    except Exception as e:
+        tb = traceback.format_exc()
+        error_msg = f"Tangram deconvolution failed: {str(e)}"
+        print(f"Error details:\n{tb}")
+        raise RuntimeError(error_msg) from e
+
+
+async def deconvolve_mrvi(
+    spatial_adata: ad.AnnData,
+    reference_adata: ad.AnnData,
+    cell_type_key: str = 'cell_type',
+    n_epochs: int = 500,
+    n_latent: int = 10,
+    use_gpu: bool = False,
+    context: Optional[Context] = None
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Deconvolve spatial data using MRVI from scvi-tools
+    
+    MRVI (Multi-resolution Variational Inference) is a deep generative model 
+    designed for analysis of large-scale single-cell transcriptomics data with 
+    multi-sample, multi-batch experimental designs.
+    
+    Args:
+        spatial_adata: Spatial transcriptomics AnnData object
+        reference_adata: Reference single-cell RNA-seq AnnData object
+        cell_type_key: Key in reference_adata.obs for cell type information
+        n_epochs: Number of epochs for training
+        n_latent: Dimensionality of latent space
+        use_gpu: Whether to use GPU for training
+        context: FastMCP context for logging
+        
+    Returns:
+        Tuple of (proportions DataFrame, statistics dictionary)
+        
+    Raises:
+        ImportError: If scvi-tools package is not available
+        ValueError: If input data is invalid or insufficient common genes
+        RuntimeError: If MRVI computation fails
+    """
+    try:
+        if scvi is None or MRVI is None:
+            raise ImportError("scvi-tools and MRVI are required for this method. Install with 'pip install scvi-tools'")
+            
+        # Validate inputs
+        common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, 100)
+        
+        # Prepare data
+        ref_data = reference_adata[:, common_genes].copy()
+        spatial_data = spatial_adata[:, common_genes].copy()
+        
+        # Create combined dataset for MRVI
+        combined_data = ad.concat([ref_data, spatial_data], axis=0)
+        combined_data.obs['batch'] = ['reference'] * ref_data.n_obs + ['spatial'] * spatial_data.n_obs
+        combined_data.obs['sample'] = combined_data.obs['batch']
+        
+        # Add cell type info for reference cells
+        cell_type_values = ['Unknown'] * combined_data.n_obs
+        cell_type_values[:ref_data.n_obs] = ref_data.obs[cell_type_key].values
+        combined_data.obs[cell_type_key] = cell_type_values
+        
+        if context:
+            await context.info(f"Training MRVI with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types")
+        
+        # Setup MRVI
+        if context:
+            await context.info("Setting up MRVI model...")
+            
+        MRVI.setup_anndata(
+            combined_data,
+            sample_key='sample',
+            batch_key='batch'
+        )
+        
+        # Create MRVI model
+        mrvi_model = MRVI(
+            combined_data,
+            n_latent=n_latent
+        )
+        
+        if context:
+            await context.info("Training MRVI model...")
+        
+        # Train model
+        if use_gpu:
+            mrvi_model.train(max_epochs=n_epochs, accelerator='gpu')
+        else:
+            mrvi_model.train(max_epochs=n_epochs)
+            
+        if context:
+            await context.info("MRVI training completed")
+        
+        # Get latent representations
+        if context:
+            await context.info("Extracting cell type proportions...")
+            
+        # Get latent representation for spatial data
+        spatial_latent = mrvi_model.get_latent_representation(
+            combined_data[combined_data.obs['batch'] == 'spatial']
+        )
+        
+        # Get latent representation for reference data
+        ref_latent = mrvi_model.get_latent_representation(
+            combined_data[combined_data.obs['batch'] == 'reference']
+        )
+        
+        # Calculate proportions using nearest neighbors in latent space
+        from sklearn.neighbors import NearestNeighbors
+        
+        # Fit KNN on reference latent space
+        knn = NearestNeighbors(n_neighbors=min(50, ref_data.n_obs), metric='cosine')
+        knn.fit(ref_latent)
+        
+        # Find neighbors for spatial data
+        distances, indices = knn.kneighbors(spatial_latent)
+        
+        # Calculate proportions based on neighbor cell types
+        cell_types = ref_data.obs[cell_type_key].unique()
+        proportions_list = []
+        
+        for i in range(spatial_data.n_obs):
+            neighbor_indices = indices[i]
+            neighbor_distances = distances[i]
+            
+            # Weight by inverse distance
+            weights = 1.0 / (neighbor_distances + 1e-6)
+            weights = weights / weights.sum()
+            
+            # Get neighbor cell types
+            neighbor_cell_types = ref_data.obs[cell_type_key].iloc[neighbor_indices].values
+            
+            # Calculate weighted proportions
+            spot_proportions = []
+            for cell_type in cell_types:
+                cell_type_mask = neighbor_cell_types == cell_type
+                prop = weights[cell_type_mask].sum() if cell_type_mask.any() else 0.0
+                spot_proportions.append(prop)
+            
+            proportions_list.append(spot_proportions)
+        
+        # Create proportions DataFrame
+        proportions_array = np.array(proportions_list)
+        
+        # Normalize to sum to 1
+        row_sums = proportions_array.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1
+        proportions_array = proportions_array / row_sums
+        
+        proportions = pd.DataFrame(
+            proportions_array,
+            index=spatial_data.obs_names,
+            columns=cell_types
+        )
+        
+        # Create statistics dictionary
+        stats = _create_deconvolution_stats(
+            proportions,
+            common_genes,
+            "MRVI",
+            "GPU" if use_gpu else "CPU",
+            n_epochs=n_epochs,
+            use_gpu=use_gpu
+        )
+        
+        return proportions, stats
+        
+    except Exception as e:
+        tb = traceback.format_exc()
+        error_msg = f"MRVI deconvolution failed: {str(e)}"
         print(f"Error details:\n{tb}")
         raise RuntimeError(error_msg) from e

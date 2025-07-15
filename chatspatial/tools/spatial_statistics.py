@@ -239,39 +239,57 @@ class SpatialStatistics:
             logger.error("SPARK not installed in R. Install with: install.packages('SPARK')")
             raise ImportError("Please install SPARK in R")
         
-        # Prepare data for R
-        coords = pd.DataFrame(adata.obsm[spatial_key], columns=['x', 'y'])
+        # Prepare data for R - SPARK has specific requirements
+        # 1. Coordinates must be a data.frame with row names matching column names of counts
+        coords = pd.DataFrame(
+            adata.obsm[spatial_key], 
+            columns=['x', 'y'],
+            index=adata.obs_names
+        )
+        
+        # 2. Counts must be genes x cells matrix
         counts = pd.DataFrame(
             adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X,
             columns=adata.var_names,
             index=adata.obs_names
         ).T  # SPARK expects genes x cells
         
+        # 3. Calculate library sizes (total counts per cell)
+        lib_sizes = counts.sum(axis=0).values  # Sum for each cell
+        
         # Convert to R objects
         r_coords = pandas2ri.py2rpy(coords)
         r_counts = pandas2ri.py2rpy(counts)
+        r_lib_sizes = ro.FloatVector(lib_sizes)
         
-        # Run SPARK
+        # Run SPARK with correct parameters
         ro.r('''
-        run_spark <- function(counts, coords) {
+        run_spark <- function(counts, coords, lib_sizes) {
+            library(SPARK)
+            
+            # Create SPARK object
             spark_obj <- CreateSPARKObject(counts=counts, 
                                          location=coords,
                                          percentage=0.1,
                                          min_total_counts=10)
+            
+            # Run SPARK analysis with proper lib_size vector
             spark_obj <- spark.vc(spark_obj, 
                                 covariates=NULL, 
-                                lib_size=TRUE, 
+                                lib_size=lib_sizes,  # Use actual library sizes
                                 num_core=1,
                                 verbose=FALSE)
+                                
             spark_obj <- spark.test(spark_obj, 
                                    check_positive=TRUE, 
                                    verbose=FALSE)
+                                   
             return(spark_obj@res_mtest)
         }
         ''')
         
         run_spark = ro.r['run_spark']
-        results = run_spark(r_counts, r_coords)
+        results = run_spark(r_counts, r_coords, r_lib_sizes)
         
         # Convert back to pandas
         results_df = pandas2ri.rpy2py(results)
@@ -362,7 +380,11 @@ class SpatialStatistics:
                 continue
             
             # Get expression values
-            expr = adata[:, gene].X.flatten()
+            expr = adata[:, gene].X
+            if hasattr(expr, 'toarray'):
+                expr = expr.toarray().flatten()
+            else:
+                expr = expr.flatten()
             
             if method == 'moran':
                 mi = Moran(expr, w)
@@ -446,7 +468,11 @@ class SpatialStatistics:
                 continue
             
             # Get expression values
-            expr = adata[:, gene].X.flatten()
+            expr = adata[:, gene].X
+            if hasattr(expr, 'toarray'):
+                expr = expr.toarray().flatten()
+            else:
+                expr = expr.flatten()
             
             if method == 'local_moran':
                 lisa = Moran_Local(expr, w)
@@ -492,11 +518,11 @@ class SpatialStatistics:
             Point pattern statistics
         """
         try:
-            from pointpats import PointPattern, Ripley
-            from pointpats.distance_statistics import NearestNeighborDistances
+            from pointpats import k, l
+            use_pointpats = True
         except ImportError:
             logger.warning("pointpats not installed, using basic implementation")
-            return self._basic_point_patterns(adata, cell_type_key, spatial_key)
+            use_pointpats = False
         
         coords = adata.obsm[spatial_key]
         cell_types = adata.obs[cell_type_key]
@@ -510,29 +536,63 @@ class SpatialStatistics:
             
             if len(ct_coords) < 3:
                 continue
-            
-            # Create point pattern
-            pp = PointPattern(ct_coords)
-            
-            if method == 'ripley':
-                # Compute Ripley's K function
-                rip = Ripley(pp)
-                results[cell_type] = {
-                    'support': rip.d,
-                    'K': rip.Kest,
-                    'L': np.sqrt(rip.Kest / np.pi) - rip.d  # L function
-                }
-            elif method == 'nearest_neighbor':
-                # Nearest neighbor distances
-                nnd = NearestNeighborDistances(pp)
-                results[cell_type] = {
-                    'mean_distance': nnd.mean(),
-                    'std_distance': nnd.std(),
-                    'min_distance': nnd.min(),
-                    'max_distance': nnd.max()
-                }
+                
+            try:
+                if use_pointpats and method == 'ripley':
+                    # Use numpy arrays directly to avoid PointPattern bugs
+                    try:
+                        # pointpats k and l functions work with raw numpy arrays
+                        k_result = k(ct_coords)
+                        l_result = l(ct_coords)
+                        
+                        # k and l return tuples: (support, statistic)
+                        k_support, k_statistic = k_result
+                        l_support, l_statistic = l_result
+                        
+                        results[cell_type] = {
+                            'support': k_support,
+                            'K': k_statistic,
+                            'L': l_statistic
+                        }
+                    except Exception as e:
+                        logger.warning(f"pointpats analysis failed for {cell_type}: {str(e)}")
+                        # Fall back to basic implementation for this cell type
+                        basic_result = self._basic_point_patterns_single(ct_coords, coords)
+                        results[cell_type] = basic_result
+                        
+                else:
+                    # Use basic implementation
+                    basic_result = self._basic_point_patterns_single(ct_coords, coords)
+                    results[cell_type] = basic_result
+                    
+            except Exception as e:
+                logger.warning(f"Point pattern analysis failed for {cell_type}: {str(e)}")
+                continue
         
         return results
+    
+    def _basic_point_patterns_single(
+        self,
+        ct_coords: np.ndarray,
+        all_coords: np.ndarray
+    ) -> Dict[str, float]:
+        """
+        Basic point pattern analysis for a single cell type.
+        """
+        # Basic nearest neighbor analysis
+        nbrs = NearestNeighbors(n_neighbors=min(2, len(ct_coords)))
+        nbrs.fit(ct_coords)
+        distances, _ = nbrs.kneighbors(ct_coords)
+        
+        # Exclude self-distance
+        nn_distances = distances[:, 1] if distances.shape[1] > 1 else distances[:, 0]
+        
+        return {
+            'n_cells': len(ct_coords),
+            'mean_nn_distance': float(nn_distances.mean()),
+            'std_nn_distance': float(nn_distances.std()),
+            'density': len(ct_coords) / self._compute_area(all_coords)
+        }
     
     def _basic_point_patterns(
         self,
@@ -628,3 +688,125 @@ def compute_spatial_autocorrelation(
     """
     stats_tool = SpatialStatistics()
     return stats_tool.compute_spatial_autocorrelation(adata, genes=genes, **kwargs)
+
+
+async def calculate_spatial_stats(
+    data_id: str,
+    data_store: Dict[str, Any],
+    feature: str,
+    statistic: str = "morans_i",
+    n_neighbors: int = 6,
+    context = None
+) -> Dict[str, Any]:
+    """
+    Calculate spatial statistics for a single feature/gene.
+    
+    Parameters
+    ----------
+    data_id : str
+        Dataset identifier
+    data_store : Dict[str, Any]
+        Data storage dictionary
+    feature : str
+        Feature/gene name to analyze
+    statistic : str
+        Type of statistic to compute
+    n_neighbors : int
+        Number of spatial neighbors
+    context : optional
+        MCP context for logging
+        
+    Returns
+    -------
+    Dict[str, Any]
+        Statistics result
+    """
+    if data_id not in data_store:
+        raise ValueError(f"Dataset {data_id} not found")
+    
+    adata = data_store[data_id]["adata"]
+    
+    if feature not in adata.var_names:
+        raise ValueError(f"Feature '{feature}' not found in dataset")
+    
+    if context:
+        await context.info(f"Computing {statistic} for {feature}")
+    
+    # Map statistic names to methods
+    statistic_map = {
+        "morans_i": "moran",
+        "gearys_c": "geary",
+        "local_morans": "local_moran"
+    }
+    
+    method = statistic_map.get(statistic, "moran")
+    
+    try:
+        stats_tool = SpatialStatistics()
+        
+        if statistic == "local_morans":
+            # Local statistics
+            result = stats_tool.local_spatial_statistics(
+                adata=adata,
+                genes=[feature],
+                spatial_key='spatial',
+                method='local_moran',
+                n_neighbors=n_neighbors
+            )
+            
+            return {
+                "feature": feature,
+                "statistic": statistic,
+                "local_values": result[feature]['Is'].tolist(),
+                "p_values": result[feature]['p_values'].tolist(),
+                "clusters": result[feature]['clusters'].tolist() if 'clusters' in result[feature] else None,
+                "n_neighbors": n_neighbors
+            }
+        else:
+            # Global statistics
+            result_df = stats_tool.compute_spatial_autocorrelation(
+                adata=adata,
+                genes=[feature],
+                spatial_key='spatial',
+                method=method,
+                n_neighbors=n_neighbors
+            )
+            
+            if len(result_df) > 0:
+                row = result_df.iloc[0]
+                
+                if method == "moran":
+                    return {
+                        "feature": feature,
+                        "statistic": statistic,
+                        "value": float(row['moran_I']),
+                        "expected": float(row['expected_I']),
+                        "variance": float(row['variance']),
+                        "z_score": float(row['z_score']),
+                        "p_value": float(row['p_value']),
+                        "q_value": float(row['q_value']) if 'q_value' in row else None,
+                        "n_neighbors": n_neighbors
+                    }
+                else:  # geary
+                    return {
+                        "feature": feature,
+                        "statistic": statistic,
+                        "value": float(row['geary_C']),
+                        "expected": float(row['expected_C']),
+                        "variance": float(row['variance']),
+                        "z_score": float(row['z_score']),
+                        "p_value": float(row['p_value']),
+                        "q_value": float(row['q_value']) if 'q_value' in row else None,
+                        "n_neighbors": n_neighbors
+                    }
+            else:
+                raise ValueError(f"No statistics computed for {feature}")
+                
+    except ImportError as e:
+        if context:
+            await context.info(f"Required package not installed: {e}")
+        raise ImportError("Please install pysal: pip install pysal")
+    except Exception as e:
+        if context:
+            await context.info(f"Error computing statistics: {e}")
+        raise

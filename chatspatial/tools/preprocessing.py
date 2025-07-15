@@ -13,6 +13,14 @@ from ..models.data import AnalysisParameters
 from ..models.analysis import PreprocessingResult
 from ..utils.tool_error_handling import mcp_tool_error_handler
 
+# Import scvi-tools for advanced preprocessing
+try:
+    import scvi
+    from scvi.external import RESOLVI
+except ImportError:
+    scvi = None
+    RESOLVI = None
+
 # Constants for preprocessing
 DEFAULT_TARGET_SUM = 1e4
 MAX_SCALE_VALUE = 10
@@ -457,3 +465,168 @@ async def preprocess_data(
             await context.warning(error_msg)
             await context.info(f"Error details: {tb}")
         raise RuntimeError(f"{error_msg}\n{tb}")
+
+
+async def preprocess_with_resolvi(
+    adata,
+    n_epochs: int = 50,  # Reduced for testing
+    n_hidden: int = 128,
+    n_latent: int = 10,
+    use_gpu: bool = False,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Preprocess spatial transcriptomics data using RESOLVI
+    
+    RESOLVI addresses noise and bias in single-cell resolved spatial 
+    transcriptomics data through denoising and bias correction.
+    
+    Args:
+        adata: Spatial transcriptomics AnnData object
+        n_epochs: Number of epochs for training
+        n_hidden: Number of hidden units in neural networks
+        n_latent: Dimensionality of latent space
+        use_gpu: Whether to use GPU for training
+        context: MCP context for logging
+        
+    Returns:
+        Dictionary containing RESOLVI preprocessing results
+        
+    Raises:
+        ImportError: If scvi-tools package is not available
+        ValueError: If input data is invalid
+        RuntimeError: If RESOLVI computation fails
+    """
+    try:
+        if scvi is None or RESOLVI is None:
+            raise ImportError("scvi-tools package is required for RESOLVI preprocessing. Install with 'pip install scvi-tools'")
+        
+        if context:
+            await context.info("Starting RESOLVI spatial data preprocessing...")
+            
+        # Validate spatial coordinates
+        if 'spatial' not in adata.obsm:
+            if context:
+                await context.warning("Spatial coordinates not found. RESOLVI works best with spatial information.")
+        
+        # Ensure data is in the correct format for RESOLVI
+        import scipy.sparse as sp
+        
+        # Convert sparse matrices to dense if needed
+        if sp.issparse(adata.X):
+            adata.X = adata.X.toarray()
+        
+        # RESOLVI expects count data (integers)
+        # Check if data appears to be normalized (has decimals)
+        if np.any(adata.X != adata.X.astype(int)):
+            if context:
+                await context.warning("RESOLVI expects integer count data, but found decimals. Converting to integer counts.")
+            # Round to nearest integer and ensure non-negative
+            adata.X = np.maximum(0, np.round(adata.X)).astype(np.int32)
+        else:
+            # Ensure integer type
+            adata.X = adata.X.astype(np.int32)
+        
+        if context:
+            await context.info(f"Preprocessing {adata.n_obs} spots and {adata.n_vars} genes with RESOLVI")
+        
+        # Setup RESOLVI
+        if 'spatial' in adata.obsm:
+            # Ensure spatial coordinates are in the correct format for RESOLVI
+            spatial_coords = adata.obsm['spatial']
+            if spatial_coords.shape[1] == 2:
+                # Add spatial coordinates as X_spatial for RESOLVI
+                adata.obsm['X_spatial'] = spatial_coords
+        else:
+            # RESOLVI requires spatial coordinates, create dummy ones if not available
+            if context:
+                await context.warning("No spatial coordinates found. Creating dummy spatial coordinates for RESOLVI.")
+            # Create a simple 2D grid layout
+            n_spots = adata.n_obs
+            grid_size = int(np.ceil(np.sqrt(n_spots)))
+            x_coords = np.arange(n_spots) % grid_size
+            y_coords = np.arange(n_spots) // grid_size
+            adata.obsm['X_spatial'] = np.column_stack([x_coords, y_coords]).astype(np.float32)
+        
+        # RESOLVI setup without spatial_key parameter (not supported in current version)
+        RESOLVI.setup_anndata(adata)
+        
+        # Create RESOLVI model with proper parameter types
+        # Disable downsample_counts to avoid the LogNormal parameter issue
+        resolvi_model = RESOLVI(
+            adata,
+            n_hidden=int(n_hidden),
+            n_latent=int(n_latent),
+            downsample_counts=False  # Disable to avoid torch tensor type issues
+        )
+        
+        if context:
+            await context.info("Training RESOLVI model...")
+        
+        # Train model
+        if use_gpu:
+            resolvi_model.train(max_epochs=n_epochs, accelerator='gpu')
+        else:
+            resolvi_model.train(max_epochs=n_epochs)
+            
+        if context:
+            await context.info("RESOLVI training completed")
+        
+        # Get results
+        if context:
+            await context.info("Extracting RESOLVI denoised data...")
+            
+        # Get denoised expression
+        denoised_expression = resolvi_model.get_normalized_expression()
+        
+        # Get latent representation
+        latent = resolvi_model.get_latent_representation()
+        
+        # Store results in adata
+        adata.layers['resolvi_denoised'] = denoised_expression
+        adata.obsm['X_resolvi_latent'] = latent
+        
+        # Calculate preprocessing statistics
+        original_mean = np.mean(adata.X)
+        denoised_mean = np.mean(denoised_expression)
+        
+        # Calculate noise reduction metrics
+        if hasattr(adata.X, 'toarray'):
+            orig_data = adata.X.toarray()
+        else:
+            orig_data = adata.X
+            
+        if hasattr(denoised_expression, 'toarray'):
+            denoised_data = denoised_expression.toarray()
+        else:
+            denoised_data = denoised_expression
+            
+        noise_reduction = np.mean(np.abs(orig_data - denoised_data))
+        
+        # Calculate summary statistics
+        results = {
+            'method': 'RESOLVI',
+            'n_latent_dims': n_latent,
+            'n_epochs': n_epochs,
+            'denoising_completed': True,
+            'original_mean_expression': float(original_mean),
+            'denoised_mean_expression': float(denoised_mean),
+            'noise_reduction_metric': float(noise_reduction),
+            'latent_shape': latent.shape,
+            'denoised_shape': denoised_expression.shape,
+            'training_completed': True,
+            'device': 'GPU' if use_gpu else 'CPU'
+        }
+        
+        if context:
+            await context.info(f"RESOLVI preprocessing completed successfully")
+            await context.info(f"Stored denoised data in adata.layers['resolvi_denoised']")
+            await context.info(f"Stored latent representation in adata.obsm['X_resolvi_latent']")
+            await context.info(f"Noise reduction metric: {noise_reduction:.4f}")
+        
+        return results
+        
+    except Exception as e:
+        error_msg = f"RESOLVI preprocessing failed: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise RuntimeError(error_msg) from e

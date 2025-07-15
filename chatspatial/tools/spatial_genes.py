@@ -270,37 +270,35 @@ async def _analyze_spatial_patterns(
     """Analyze spatial patterns from trained GASTON model using complete GASTON workflow."""
 
     if context:
-        await context.info("Extracting isodepth values from trained model")
+        await context.info("Processing neural network output following GASTON tutorial")
 
-    # Step 1: Get isodepth values from spatial embedding
+    # Step 1: Use dp_related.get_isodepth_labels to get isodepth and labels
+    # This is the official GASTON way according to the tutorial
     S_torch = torch.tensor(spatial_coords, dtype=torch.float32)
-    with torch.no_grad():
-        isodepth = model.spatial_embedding(S_torch).numpy().flatten()
+    A_torch = torch.tensor(expression_features, dtype=torch.float32)
+    
+    # Use GASTON's official method to get isodepth and labels
+    gaston_isodepth, gaston_labels = dp_related.get_isodepth_labels(
+        model, A_torch, S_torch, params.n_domains
+    )
 
-    # Step 2: Get model predictions
+    if context:
+        await context.info(f"Identified {params.n_domains} spatial domains using GASTON's dp_related.get_isodepth_labels")
+        await context.info(f"Isodepth range: [{gaston_isodepth.min():.3f}, {gaston_isodepth.max():.3f}]")
+
+    # Step 2: Get model predictions for performance metrics
     with torch.no_grad():
         predictions = model(S_torch).numpy()
 
-    # Step 3: Create spatial domains based on isodepth quantiles
-    n_domains = params.n_domains
-    domain_boundaries = np.quantile(isodepth, np.linspace(0, 1, n_domains + 1))
-    spatial_domains = np.digitize(isodepth, domain_boundaries) - 1
-    spatial_domains = np.clip(spatial_domains, 0, n_domains - 1)
-
-    if context:
-        await context.info(f"Created {n_domains} spatial domains based on isodepth")
-        await context.info("Performing data binning and piecewise linear fitting")
-
-    # Step 4: Prepare data for GASTON binning and fitting
+    # Step 3: Prepare data for GASTON analysis
     # Get original count matrix (need raw counts for Poisson regression)
     if hasattr(adata.X, 'toarray'):
-        counts_mat = adata.X.toarray().T  # GASTON expects G x N matrix
+        counts_mat = adata.X.toarray()  # GASTON expects N x G matrix
     else:
-        counts_mat = adata.X.T
+        counts_mat = adata.X
 
     # Ensure counts are non-negative integers
     counts_mat = np.maximum(counts_mat, 0).astype(int)
-
     gene_labels = adata.var_names.values
 
     # Create dummy cell type dataframe (for all cell types analysis)
@@ -308,11 +306,15 @@ async def _analyze_spatial_patterns(
                                index=adata.obs_names)
 
     try:
-        # Step 5: Perform binning using GASTON's binning function
+        # Step 4: Perform binning using GASTON's binning function
+        if context:
+            await context.info(f"Running GASTON binning with {len(gene_labels)} genes")
+            await context.info(f"UMI threshold: {params.umi_threshold}")
+        
         binning_output = binning_and_plotting.bin_data(
             counts_mat=counts_mat,
-            gaston_labels=spatial_domains,
-            gaston_isodepth=isodepth,
+            gaston_labels=gaston_labels,
+            gaston_isodepth=gaston_isodepth,
             cell_type_df=cell_type_df,
             gene_labels=gene_labels,
             num_bins=params.num_bins,
@@ -324,13 +326,16 @@ async def _analyze_spatial_patterns(
         if context:
             await context.info(f"Binning completed. Analyzing {len(binning_output['gene_labels_idx'])} genes")
 
-        # Step 6: Perform piecewise linear fitting using GASTON's segmented fit
+        # Step 5: Perform piecewise linear fitting using GASTON's segmented fit
+        if context:
+            await context.info("Running piecewise linear fitting")
+            
         pw_fit_dict = segmented_fit.pw_linear_fit(
             counts_mat=counts_mat,
-            gaston_labels=spatial_domains,
-            gaston_isodepth=isodepth,
+            gaston_labels=gaston_labels,
+            gaston_isodepth=gaston_isodepth,
             cell_type_df=cell_type_df,
-            ct_list=['All'],  # Only analyze all cell types
+            ct_list=[],  # Empty list for all cell types analysis only
             umi_threshold=params.umi_threshold,
             t=params.pvalue_threshold,
             isodepth_mult_factor=params.isodepth_mult_factor,
@@ -342,7 +347,7 @@ async def _analyze_spatial_patterns(
             await context.info("Piecewise linear fitting completed")
             await context.info("Classifying genes into continuous and discontinuous patterns")
 
-        # Step 7: Classify genes using GASTON's classification functions
+        # Step 6: Classify genes using GASTON's classification functions
         continuous_genes = spatial_gene_classification.get_cont_genes(
             pw_fit_dict, binning_output, q=params.continuous_quantile
         )
@@ -363,7 +368,7 @@ async def _analyze_spatial_patterns(
         # Fallback to basic analysis if GASTON functions fail
         continuous_genes = {}
         discontinuous_genes = {}
-        binning_output = {'gene_labels_idx': gene_labels}
+        binning_output = {'gene_labels_idx': list(range(len(gene_labels)))}
 
     # Performance metrics
     mse = np.mean((predictions - expression_features) ** 2)
@@ -373,8 +378,8 @@ async def _analyze_spatial_patterns(
     performance_metrics = {
         'mse': float(mse),
         'r2': float(r2),
-        'isodepth_range': [float(isodepth.min()), float(isodepth.max())],
-        'isodepth_std': float(isodepth.std()),
+        'isodepth_range': [float(gaston_isodepth.min()), float(gaston_isodepth.max())],
+        'isodepth_std': float(gaston_isodepth.std()),
         'n_genes_analyzed': len(binning_output['gene_labels_idx'])
     }
 
@@ -385,9 +390,9 @@ async def _analyze_spatial_patterns(
     }
 
     return {
-        'isodepth': isodepth,
-        'spatial_domains': spatial_domains,
-        'n_domains': n_domains,
+        'isodepth': gaston_isodepth,
+        'spatial_domains': gaston_labels,
+        'n_domains': params.n_domains,
         'predictions': predictions,
         'continuous_genes': continuous_genes,
         'discontinuous_genes': discontinuous_genes,
