@@ -44,8 +44,9 @@ class VisualizationParameters(BaseModel):
     plot_type: Literal[
         "spatial", "heatmap", "violin", "umap",
         "spatial_domains", "cell_communication", "deconvolution",
-        "trajectory", "spatial_analysis", "multi_gene", "lr_pairs", "gene_correlation",
-        "gaston_isodepth", "gaston_domains", "gaston_genes", "gsea", "enrichment"
+        "trajectory", "rna_velocity", "spatial_analysis", "multi_gene", "lr_pairs", "gene_correlation",
+        "gaston_isodepth", "gaston_domains", "gaston_genes", 
+        "pathway_enrichment", "spatial_enrichment"  # Clear enrichment types
     ] = "spatial"
     colormap: str = "viridis"
 
@@ -344,14 +345,14 @@ class EnrichmentParameters(BaseModel):
     """Parameters for gene set enrichment analysis"""
     
     # Method selection
-    method: Literal["gsea", "ora", "enrichr", "enrichmap", "ssgsea"] = "enrichmap"  # Enrichment method
+    method: Literal["spatial_enrichmap", "pathway_gsea", "pathway_ora", "pathway_enrichr", "pathway_ssgsea"] = "spatial_enrichmap"  # Enrichment method
     
     # Gene sets
     gene_sets: Optional[Union[List[str], Dict[str, List[str]]]] = None  # Gene sets to analyze
     score_keys: Optional[Union[str, List[str]]] = None  # Names for gene signatures
     gene_set_database: Optional[str] = "GO_Biological_Process"  # Gene set database for enrichr
     
-    # Spatial parameters (for enrichmap)
+    # Spatial parameters (for spatial_enrichmap)
     spatial_key: str = "spatial"  # Key for spatial coordinates
     n_neighbors: Annotated[int, Field(gt=0)] = 6  # Number of spatial neighbors
     smoothing: bool = True  # Whether to perform spatial smoothing

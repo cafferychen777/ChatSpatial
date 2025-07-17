@@ -392,9 +392,16 @@ class SpatialPromptManager:
         vis_params = {
             "plot_type": args["plot_type"]
         }
+        
+        # Handle features properly based on plot type
         if "features" in args:
             features = args["features"]
-            vis_params["feature"] = features[0] if isinstance(features, list) else features
+            # For multi_gene plot type, keep features as a list
+            if args["plot_type"] == "multi_gene":
+                vis_params["features"] = features if isinstance(features, list) else [features]
+            else:
+                # For single gene plots, use feature (singular)
+                vis_params["feature"] = features[0] if isinstance(features, list) else features
         
         return {
             "tool": "visualize_data",
@@ -497,7 +504,7 @@ class SpatialPromptManager:
                 "data_id": data_id,
                 "params": {
                     "gene_sets": args.get("gene_sets", ["GO_Biological_Process"]),
-                    "method": args.get("method", "gsea")
+                    "method": args.get("method", "pathway_gsea")
                 }
             }
         }
