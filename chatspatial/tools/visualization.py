@@ -524,7 +524,7 @@ async def visualize_data(
         "trajectory", "rna_velocity", "spatial_analysis",
         "multi_gene", "lr_pairs", "gene_correlation",
         "gaston_isodepth", "gaston_domains", "gaston_genes",
-        "enrichment"
+        "pathway_enrichment", "spatial_enrichment"
     ]
     if params.plot_type not in valid_plot_types:
         error_msg = f"Invalid plot_type: {params.plot_type}. Must be one of {valid_plot_types}"
@@ -977,14 +977,14 @@ async def visualize_data(
                 await context.info("Creating GASTON spatial genes visualization")
             fig = await create_gaston_genes_visualization(adata, params, context)
 
-        elif params.plot_type == "enrichment":
+        elif params.plot_type == "spatial_enrichment":
             if context:
-                await context.info("Creating EnrichMap enrichment visualization")
+                await context.info("Creating spatial enrichment visualization")
             fig = await create_enrichment_visualization(adata, params, context)
 
-        elif params.plot_type == "gsea":
+        elif params.plot_type == "pathway_enrichment":
             if context:
-                await context.info("Creating GSEA visualization")
+                await context.info("Creating pathway enrichment visualization")
             fig = await create_gsea_visualization(adata, params, context)
 
         else:
@@ -3214,8 +3214,17 @@ def _create_gsea_barplot(adata, gsea_results, params, context):
     if not score_col:
         raise DataNotFoundError("No enrichment score column found in results")
     
+    # Convert score column to numeric type
+    df[score_col] = pd.to_numeric(df[score_col], errors='coerce')
+    
+    # Remove rows with NaN scores
+    df = df.dropna(subset=[score_col])
+    
+    if df.empty:
+        raise DataNotFoundError("No valid enrichment scores found in results")
+    
     # Sort by score and get top pathways
-    df_sorted = df.nlargest(n_top, score_col)
+    df_sorted = df.nlargest(min(n_top, len(df)), score_col)
     
     # Create barplot
     fig, ax = plt.subplots(figsize=(10, max(6, n_top * 0.4)))

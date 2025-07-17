@@ -191,7 +191,7 @@ class EnrichmentResult(BaseModel):
     """Result from gene set enrichment analysis"""
     
     # Basic information
-    method: str  # Method used (gsea, ora, enrichr, enrichmap)
+    method: str  # Method used (pathway_gsea, pathway_ora, pathway_enrichr, pathway_ssgsea, spatial_enrichmap)
     n_gene_sets: int  # Number of gene sets analyzed
     n_significant: int  # Number of significant gene sets
     
