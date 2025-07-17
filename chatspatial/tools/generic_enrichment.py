@@ -178,7 +178,7 @@ async def perform_gsea(
         
         # Inform user about visualization options
         if context:
-            await context.info("GSEA analysis complete. Use create_visualization tool with plot_type='gsea' to visualize results")
+            await context.info("GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results")
         
         return {
             'method': 'gsea',
@@ -342,7 +342,7 @@ async def perform_ora(
     
     # Inform user about visualization options
     if context:
-        await context.info("ORA analysis complete. Use create_visualization tool with plot_type='gsea' to visualize results")
+        await context.info("ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results")
     
     return {
         'method': 'ora',

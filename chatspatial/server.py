@@ -272,7 +272,7 @@ async def visualize_data(
 
     else:
         # Return error message if no image was generated
-        return "❌ 可视化生成失败，请检查数据和参数设置。"
+        return "❌ Visualization generation failed, please check the data and parameter settings."
 
 
 @mcp.tool()
@@ -769,10 +769,11 @@ async def analyze_enrichment(
 
     Notes:
         Available methods:
-        - gsea: Gene Set Enrichment Analysis
-        - ora: Over-representation analysis
-        - enrichr: Enrichr web service
-        - enrichmap: EnrichMap spatial enrichment
+        - pathway_gsea: Gene Set Enrichment Analysis
+        - pathway_ora: Over-representation analysis
+        - pathway_enrichr: Enrichr web service
+        - pathway_ssgsea: Single-sample GSEA
+        - spatial_enrichmap: EnrichMap spatial enrichment
         
         Available gene sets:
         - GO_Molecular_Function, GO_Biological_Process, GO_Cellular_Component
@@ -865,7 +866,7 @@ async def analyze_enrichment(
         raise ValueError("No valid gene sets available for enrichment analysis")
 
     # Call appropriate enrichment function based on method
-    if params.method == "enrichmap":
+    if params.method == "spatial_enrichmap":
         # Spatial enrichment analysis using EnrichMap
         result_dict = await perform_enrichment_analysis(
             data_id=data_id,
@@ -880,11 +881,13 @@ async def analyze_enrichment(
             gene_weights=params.gene_weights,
             context=context
         )
+        if context:
+            await context.info("Spatial enrichment analysis complete. Use create_visualization tool with plot_type='spatial_enrichment' to visualize results")
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
         from .tools.generic_enrichment import perform_gsea, perform_ora, perform_ssgsea, perform_enrichr
         
-        if params.method == "gsea":
+        if params.method == "pathway_gsea":
             result_dict = await perform_gsea(
                 adata=adata,
                 gene_sets=gene_sets,
@@ -894,7 +897,9 @@ async def analyze_enrichment(
                 max_size=params.max_genes,
                 context=context
             )
-        elif params.method == "ora":
+            if context:
+                await context.info("Pathway GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results")
+        elif params.method == "pathway_ora":
             result_dict = await perform_ora(
                 adata=adata,
                 gene_sets=gene_sets,
@@ -903,7 +908,9 @@ async def analyze_enrichment(
                 max_size=params.max_genes,
                 context=context
             )
-        elif params.method == "ssgsea":
+            if context:
+                await context.info("Pathway ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results")
+        elif params.method == "pathway_ssgsea":
             result_dict = await perform_ssgsea(
                 adata=adata,
                 gene_sets=gene_sets,
@@ -911,7 +918,9 @@ async def analyze_enrichment(
                 max_size=params.max_genes,
                 context=context
             )
-        elif params.method == "enrichr":
+            if context:
+                await context.info("Pathway ssGSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results")
+        elif params.method == "pathway_enrichr":
             # For Enrichr, we need a gene list
             if hasattr(params, 'query_genes') and params.query_genes:
                 gene_list = params.query_genes
@@ -931,6 +940,8 @@ async def analyze_enrichment(
                 organism=adata.uns.get('species', 'human'),
                 context=context
             )
+            if context:
+                await context.info("Pathway Enrichr analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results")
         else:
             raise ValueError(f"Unknown enrichment method: {params.method}")
 
