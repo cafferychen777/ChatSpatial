@@ -24,6 +24,22 @@ ChatSpatial is an interactive spatial transcriptomics data analysis assistant ba
 - **Core ChatSpatial**: Python 3.8+
 - **Recommended**: Python 3.10 or 3.11 for best compatibility
 
+### Setting up a Dedicated Environment
+
+Due to ChatSpatial's complex dependencies (PyTorch, scvi-tools, spatial analysis packages), we **strongly recommend** creating a dedicated Python environment:
+
+```bash
+# Create a dedicated environment for ChatSpatial
+conda create -n chatspatial_env python=3.10
+conda activate chatspatial_env
+
+# Or using virtualenv
+python3.10 -m venv chatspatial_env
+source chatspatial_env/bin/activate  # On Windows: chatspatial_env\Scripts\activate
+```
+
+### Install ChatSpatial
+
 ```bash
 # Clone the repository
 git clone https://github.com/cafferychen777/ChatSpatial.git
@@ -32,7 +48,7 @@ cd ChatSpatial
 # Install basic dependencies
 pip install -e .
 
-# Install all optional dependencies
+# Install all optional dependencies (recommended for full functionality)
 pip install -e .[all]
 
 # Or install specific optional dependencies
@@ -43,10 +59,21 @@ pip install -e .[spatial_genes]  # Install GASTON and spatial variable genes ide
 pip install -e .[cell_communication]  # Install cell communication analysis dependencies
 ```
 
+### Verify Installation
+
+```bash
+# Test the installation
+chatspatial --help
+
+# Find the exact path to your chatspatial executable (needed for MCP configuration)
+which chatspatial
+# Or if using conda/virtual environment:
+which python
+```
+
 ### Special Installation Notes
 
 - **GASTON**: Automatically uses the included version in `third_party/GASTON/`
-- **EnrichMap**: Automatically uses the included version in `third_party/EnrichMap/`
 
 ## Usage
 
@@ -79,15 +106,16 @@ To use ChatSpatial with Claude Desktop:
    {
      "mcpServers": {
        "chatspatial": {
-         "command": "/path/to/your/venv/bin/chatspatial",
-         "args": [],
+         "command": "/path/to/your/chatspatial_env/bin/python",
+         "args": ["-m", "chatspatial"],
          "env": {}
        }
      }
    }
    ```
 
-   - Replace `/path/to/your/venv/bin/chatspatial` with the actual full path to your chatspatial executable
+   - Replace `/path/to/your/chatspatial_env/bin/python` with the actual path to your ChatSpatial environment's Python executable
+   - Use `python -m chatspatial` instead of direct executable for better compatibility
    - Save the file and close the editor
 
 4. **Restart Claude Desktop**:
@@ -100,6 +128,62 @@ To use ChatSpatial with Claude Desktop:
    - Click the hammer icon and select "ChatSpatial" from the tools list
    - Claude will connect to your ChatSpatial server
    - You can now interact with Claude to analyze spatial transcriptomics data
+
+### Using with Cherry Studio
+
+To use ChatSpatial with Cherry Studio (recommended for tasks requiring longer processing time):
+
+1. **Install Cherry Studio**: Download and install Cherry Studio from the [official website](https://cherrystudio.ai/).
+
+2. **Configure MCP Server**:
+   - Open Cherry Studio Settings
+   - Navigate to the MCP Servers section
+   - Click "Add Server" and configure as follows:
+
+   **Basic Configuration:**
+   ```json
+   {
+     "name": "ChatSpatial",
+     "command": "/path/to/your/chatspatial_env/bin/python",
+     "args": ["-m", "chatspatial"],
+     "env": {}
+   }
+   ```
+
+   **Configuration Details:**
+   - **Name**: `ChatSpatial` (or any name you prefer)
+   - **Command**: `/path/to/your/chatspatial_env/bin/python` (path to your environment's Python)
+   - **Args**: `["-m", "chatspatial"]` (run as Python module)
+   - **Timeout**: Set to `3600` seconds in the separate timeout field
+   - **Transport**: Select `stdio` (standard input/output)
+
+   - Replace the command path with your actual ChatSpatial environment Python path
+   - **Important**: Set the timeout to `3600` seconds to allow sufficient time for complex spatial analysis tasks
+
+   **Finding Your Environment Path:**
+   ```bash
+   # Activate your ChatSpatial environment first
+   conda activate chatspatial_env  # or: source chatspatial_env/bin/activate
+   
+   # Then find the Python path
+   which python
+   # Example output: /opt/anaconda3/envs/chatspatial_env/bin/python
+   ```
+
+3. **Save and Enable**:
+   - Save the MCP server configuration
+   - Enable the ChatSpatial MCP server
+   - Restart Cherry Studio if required
+
+4. **Use ChatSpatial in Cherry Studio**:
+   - Start a new conversation
+   - ChatSpatial tools will be automatically available
+   - Cherry Studio's configurable timeout makes it ideal for computationally intensive spatial analysis
+
+**Advantages of Cherry Studio over Claude Desktop:**
+- **Configurable Timeout**: Set custom timeout (recommended: 3600s) for long-running analysis
+- **Better Performance**: More suitable for computationally intensive spatial transcriptomics workflows
+- **Stable Processing**: No interruptions during complex analysis tasks like GASTON, deconvolution, or large dataset processing
 
 #### Example Prompts
 
