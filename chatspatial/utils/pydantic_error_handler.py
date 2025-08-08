@@ -74,7 +74,7 @@ def validate_pydantic_params(func, args, kwargs) -> Dict[str, Any]:
                     error_details.append(error_msg)
                 
                 # Create comprehensive error message
-                full_error = f"参数验证失败 - {param_name}:\n" + "\n".join(f"  • {detail}" for detail in error_details)
+                full_error = f"Parameter validation failed - {param_name}:\n" + "\n".join(f"  • {detail}" for detail in error_details)
                 
                 # Return the error in the proper format
                 raise ValueError(full_error)
@@ -87,21 +87,21 @@ def format_validation_error(error: Dict[str, Any], field_name: str, param_value:
     error_type = error["type"]
     error_input = error.get("input", param_value)
     
-    # Map common validation errors to Chinese messages
+    # Map common validation errors to English messages
     error_messages = {
-        "greater_than": f"'{field_name}' 必须大于 {error.get('ctx', {}).get('gt', 0)}，当前值: {error_input}",
-        "greater_than_equal": f"'{field_name}' 必须大于等于 {error.get('ctx', {}).get('ge', 0)}，当前值: {error_input}",
-        "less_than": f"'{field_name}' 必须小于 {error.get('ctx', {}).get('lt', 0)}，当前值: {error_input}",
-        "less_than_equal": f"'{field_name}' 必须小于等于 {error.get('ctx', {}).get('le', 0)}，当前值: {error_input}",
-        "type_error": f"'{field_name}' 类型错误，期望: {error.get('ctx', {}).get('expected_type', 'unknown')}，实际: {type(error_input).__name__}",
-        "value_error": f"'{field_name}' 值错误: {error.get('msg', 'Invalid value')}",
-        "missing": f"缺少必需参数: '{field_name}'",
-        "string_too_short": f"'{field_name}' 长度不足，最少需要 {error.get('ctx', {}).get('min_length', 0)} 个字符",
-        "string_too_long": f"'{field_name}' 长度过长，最多允许 {error.get('ctx', {}).get('max_length', 0)} 个字符",
-        "literal_error": f"'{field_name}' 值无效，允许的值: {error.get('ctx', {}).get('expected', [])}",
+        "greater_than": f"'{field_name}' must be greater than {error.get('ctx', {}).get('gt', 0)}, current value: {error_input}",
+        "greater_than_equal": f"'{field_name}' must be greater than or equal to {error.get('ctx', {}).get('ge', 0)}, current value: {error_input}",
+        "less_than": f"'{field_name}' must be less than {error.get('ctx', {}).get('lt', 0)}, current value: {error_input}",
+        "less_than_equal": f"'{field_name}' must be less than or equal to {error.get('ctx', {}).get('le', 0)}, current value: {error_input}",
+        "type_error": f"'{field_name}' type error, expected: {error.get('ctx', {}).get('expected_type', 'unknown')}, actual: {type(error_input).__name__}",
+        "value_error": f"'{field_name}' value error: {error.get('msg', 'Invalid value')}",
+        "missing": f"Missing required parameter: '{field_name}'",
+        "string_too_short": f"'{field_name}' length insufficient, minimum required: {error.get('ctx', {}).get('min_length', 0)} characters",
+        "string_too_long": f"'{field_name}' length too long, maximum allowed: {error.get('ctx', {}).get('max_length', 0)} characters",
+        "literal_error": f"'{field_name}' invalid value, allowed values: {error.get('ctx', {}).get('expected', [])}",
     }
-    
-    return error_messages.get(error_type, f"'{field_name}' 验证失败: {error.get('msg', 'Unknown error')}")
+
+    return error_messages.get(error_type, f"'{field_name}' validation failed: {error.get('msg', 'Unknown error')}")
 
 
 def mcp_pydantic_error_handler():
@@ -132,7 +132,7 @@ def mcp_pydantic_error_handler():
             except ValidationError as e:
                 # This shouldn't happen if validate_pydantic_params works correctly,
                 # but include as fallback
-                error_msg = f"参数验证失败: {str(e)}"
+                error_msg = f"Parameter validation failed: {str(e)}"
                 raise ValueError(error_msg)
         
         @wraps(func)
@@ -149,7 +149,7 @@ def mcp_pydantic_error_handler():
                 raise e
             except ValidationError as e:
                 # Fallback for validation errors
-                error_msg = f"参数验证失败: {str(e)}"
+                error_msg = f"Parameter validation failed: {str(e)}"
                 raise ValueError(error_msg)
         
         # Return appropriate wrapper based on function type
@@ -177,26 +177,26 @@ def validate_analysis_parameters(params_dict: Dict[str, Any]) -> Dict[str, Any]:
             "type": int,
             "min": 1,
             "max": 100,
-            "description": "主成分数量必须在 1-100 之间"
+            "description": "Number of principal components must be between 1-100"
         },
         "n_hvgs": {
-            "type": int, 
+            "type": int,
             "min": 100,
             "max": 5000,
-            "description": "高变基因数量必须在 100-5000 之间"
+            "description": "Number of highly variable genes must be between 100-5000"
         },
         "subsample_spots": {
             "type": int,
             "min": 1,
             "max": 50000,
-            "description": "spot 子采样数量必须在 1-50000 之间",
+            "description": "Spot subsampling count must be between 1-50000",
             "optional": True
         },
         "subsample_genes": {
             "type": int,
-            "min": 1, 
+            "min": 1,
             "max": 50000,
-            "description": "基因子采样数量必须在 1-50000 之间",
+            "description": "Gene subsampling count must be between 1-50000",
             "optional": True
         }
     }
@@ -213,18 +213,18 @@ def validate_analysis_parameters(params_dict: Dict[str, Any]) -> Dict[str, Any]:
                 
             # Type validation
             if not isinstance(value, rules["type"]):
-                errors.append(f"{param_name}: 类型错误，期望 {rules['type'].__name__}，实际 {type(value).__name__}")
+                errors.append(f"{param_name}: Type error, expected {rules['type'].__name__}, actual {type(value).__name__}")
                 continue
-            
+
             # Range validation
             if "min" in rules and value < rules["min"]:
-                errors.append(f"{param_name}: 值 {value} 小于最小值 {rules['min']}")
-            
+                errors.append(f"{param_name}: Value {value} is less than minimum {rules['min']}")
+
             if "max" in rules and value > rules["max"]:
-                errors.append(f"{param_name}: 值 {value} 大于最大值 {rules['max']}")
-    
+                errors.append(f"{param_name}: Value {value} is greater than maximum {rules['max']}")
+
     if errors:
-        error_msg = "参数验证失败:\n" + "\n".join(f"  • {error}" for error in errors)
+        error_msg = "Parameter validation failed:\n" + "\n".join(f"  • {error}" for error in errors)
         raise ValueError(error_msg)
     
     # If validation passes, try to create the Pydantic model
@@ -232,5 +232,5 @@ def validate_analysis_parameters(params_dict: Dict[str, Any]) -> Dict[str, Any]:
         return AnalysisParameters(**params_dict)
     except ValidationError as e:
         # Fallback to Pydantic's error message if our validation missed something
-        error_msg = f"参数验证失败: {str(e)}"
+        error_msg = f"Parameter validation failed: {str(e)}"
         raise ValueError(error_msg)

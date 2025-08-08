@@ -1,5 +1,5 @@
 """
-测试错误处理和用户反馈增强
+Test error handling and user feedback enhancements
 """
 
 import sys
@@ -11,7 +11,7 @@ import anndata as ad
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-# 添加项目根目录到 Python 路径
+# Add project root directory to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from spatial_transcriptomics_mcp.tools.spatial_analysis import analyze_spatial_unified
@@ -26,7 +26,7 @@ from spatial_transcriptomics_mcp.utils.error_handling import (
 
 
 class MockContext:
-    """模拟 MCP 上下文"""
+    """Mock MCP context"""
     def __init__(self):
         self.logs = []
         self.warnings = []
@@ -42,114 +42,114 @@ class MockContext:
 
 
 async def test_error_handling():
-    """测试错误处理和用户反馈增强"""
-    print("创建测试数据...")
-    
-    # 创建一个简单的 AnnData 对象用于测试
+    """Test error handling and user feedback enhancements"""
+    print("Creating test data...")
+
+    # Create a simple AnnData object for testing
     np.random.seed(42)
     n_obs = 100
     n_vars = 50
-    
+
     X = np.random.rand(n_obs, n_vars)
     obs = {"leiden": np.random.choice(["0", "1", "2"], size=n_obs)}
     var = {"gene_name": [f"gene_{i}" for i in range(n_vars)]}
-    
-    # 创建 AnnData 对象
+
+    # Create AnnData object
     adata = ad.AnnData(X, obs=obs, var=var)
-    
-    # 将leiden列转换为分类类型
+
+    # Convert leiden column to categorical type
     adata.obs["leiden"] = adata.obs["leiden"].astype("category")
-    
-    # 添加空间坐标
+
+    # Add spatial coordinates
     adata.obsm["spatial"] = np.random.rand(n_obs, 2) * 100
-    
-    # 添加高变基因
+
+    # Add highly variable genes
     adata.var["highly_variable"] = np.random.choice([True, False], size=n_vars, p=[0.2, 0.8])
-    
-    # 创建数据存储
+
+    # Create data store
     data_store = {"test_data": {"adata": adata, "name": "Test Data"}}
-    
-    # 创建模拟上下文
+
+    # Create mock context
     context = MockContext()
     
-    # 测试 1: 数据不存在错误
-    print("\n测试 1: 数据不存在错误")
+    # Test 1: Data not found error
+    print("\nTest 1: Data not found error")
     try:
-        result = await analyze_spatial_unified("non_existent_data", data_store, 
+        result = await analyze_spatial_unified("non_existent_data", data_store,
                                               SpatialAnalysisParameters(), context)
-        print("错误: 应该抛出 DataNotFoundError 异常")
+        print("Error: Should have thrown DataNotFoundError exception")
     except DataNotFoundError as e:
-        print(f"成功捕获 DataNotFoundError: {str(e)}")
-        print(f"警告消息数量: {len(context.warnings)}")
+        print(f"Successfully caught DataNotFoundError: {str(e)}")
+        print(f"Number of warning messages: {len(context.warnings)}")
     except Exception as e:
-        print(f"错误: 捕获到意外异常: {type(e).__name__}: {str(e)}")
-    
-    # 测试 2: 无效参数错误
-    print("\n测试 2: 无效参数错误")
+        print(f"Error: Caught unexpected exception: {type(e).__name__}: {str(e)}")
+
+    # Test 2: Invalid parameter error
+    print("\nTest 2: Invalid parameter error")
     try:
         params = SpatialAnalysisParameters(analysis_type="invalid_type")
         result = await analyze_spatial_unified("test_data", data_store, params, context)
-        print("错误: 应该抛出 InvalidParameterError 异常")
+        print("Error: Should have thrown InvalidParameterError exception")
     except InvalidParameterError as e:
-        print(f"成功捕获 InvalidParameterError: {str(e)}")
-        print(f"警告消息数量: {len(context.warnings)}")
+        print(f"Successfully caught InvalidParameterError: {str(e)}")
+        print(f"Number of warning messages: {len(context.warnings)}")
     except Exception as e:
-        print(f"错误: 捕获到意外异常: {type(e).__name__}: {str(e)}")
-    
-    # 测试 3: 可视化错误处理
-    print("\n测试 3: 可视化错误处理")
+        print(f"Error: Caught unexpected exception: {type(e).__name__}: {str(e)}")
+
+    # Test 3: Visualization error handling
+    print("\nTest 3: Visualization error handling")
     try:
         params = VisualizationParameters(plot_type="invalid_plot")
         result = await visualize_data("test_data", data_store, params, context)
-        print("错误: 应该抛出 InvalidParameterError 异常")
+        print("Error: Should have thrown InvalidParameterError exception")
     except InvalidParameterError as e:
-        print(f"成功捕获 InvalidParameterError: {str(e)}")
-        print(f"警告消息数量: {len(context.warnings)}")
+        print(f"Successfully caught InvalidParameterError: {str(e)}")
+        print(f"Number of warning messages: {len(context.warnings)}")
     except Exception as e:
-        print(f"错误: 捕获到意外异常: {type(e).__name__}: {str(e)}")
+        print(f"Error: Caught unexpected exception: {type(e).__name__}: {str(e)}")
     
-    # 测试 4: 处理错误但返回占位图像
-    print("\n测试 4: 处理错误但返回占位图像")
-    
-    # 创建一个没有空间坐标的 AnnData 对象
+    # Test 4: Handle error but return placeholder image
+    print("\nTest 4: Handle error but return placeholder image")
+
+    # Create an AnnData object without spatial coordinates
     adata_no_spatial = ad.AnnData(X, obs=obs, var=var)
     data_store["no_spatial_data"] = {"adata": adata_no_spatial, "name": "No Spatial Data"}
-    
+
     try:
         params = SpatialAnalysisParameters(analysis_type="neighborhood")
         result = await analyze_spatial_unified("no_spatial_data", data_store, params, context, return_type="image")
-        print("错误: 应该抛出 DataCompatibilityError 异常")
+        print("Error: Should have thrown DataCompatibilityError exception")
     except DataCompatibilityError as e:
-        print(f"成功捕获 DataCompatibilityError: {str(e)}")
-        print(f"警告消息数量: {len(context.warnings)}")
+        print(f"Successfully caught DataCompatibilityError: {str(e)}")
+        print(f"Number of warning messages: {len(context.warnings)}")
     except Exception as e:
-        print(f"错误: 捕获到意外异常: {type(e).__name__}: {str(e)}")
-    
-    # 测试 5: 测试 UMAP 计算失败但使用 PCA 作为回退
-    print("\n测试 5: 测试 UMAP 计算失败但使用 PCA 作为回退")
-    
-    # 创建一个模拟 UMAP 计算失败的情况
-    # 通过修改 adata 使其在计算 UMAP 时失败
+        print(f"Error: Caught unexpected exception: {type(e).__name__}: {str(e)}")
+
+    # Test 5: Test UMAP calculation failure but use PCA as fallback
+    print("\nTest 5: Test UMAP calculation failure but use PCA as fallback")
+
+    # Create a scenario that simulates UMAP calculation failure
+    # Modify adata to make it fail during UMAP calculation
     adata_bad = adata.copy()
-    adata_bad.X = np.zeros((n_obs, n_vars))  # 全零矩阵会导致 UMAP 计算失败
+    adata_bad.X = np.zeros((n_obs, n_vars))  # All-zero matrix will cause UMAP calculation to fail
     data_store["bad_data"] = {"adata": adata_bad, "name": "Bad Data"}
-    
+
     try:
         params = VisualizationParameters(plot_type="umap")
         result = await visualize_data("bad_data", data_store, params, context)
-        print(f"成功: 返回了占位图像")
-        print(f"警告消息数量: {len(context.warnings)}")
-        print(f"信息消息数量: {len(context.infos)}")
-        
-        # 保存图像到文件
+        print(f"Success: Returned placeholder image")
+        print(f"Number of warning messages: {len(context.warnings)}")
+        print(f"Number of info messages: {len(context.infos)}")
+
+        # Save image to file
         if isinstance(result, Image):
             with open("error_handling_umap_fallback.png", "wb") as f:
                 f.write(result.data)
-            print("图像已保存到 error_handling_umap_fallback.png")
+            print("Image saved to error_handling_umap_fallback.png")
     except Exception as e:
-        print(f"错误: 捕获到意外异常: {type(e).__name__}: {str(e)}")
-    
-    print("\n测试完成！")
+        print(f"Error: Caught unexpected exception: {type(e).__name__}: {str(e)}")
+
+    print("\nTesting completed!")
 
 
 if __name__ == "__main__":

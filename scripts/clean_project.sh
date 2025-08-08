@@ -1,42 +1,42 @@
 #!/bin/bash
-# ChatSpatial 项目清理脚本
+# ChatSpatial project cleanup script
 
-echo "ChatSpatial 项目清理工具"
-echo "========================"
+echo "ChatSpatial Project Cleanup Tool"
+echo "================================"
 
-# 清理Python缓存
-echo "清理Python缓存..."
+# Clean Python cache
+echo "Cleaning Python cache..."
 find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
 find . -type f -name "*.pyc" -delete 2>/dev/null
 find . -type f -name "*.pyo" -delete 2>/dev/null
 
-# 清理临时文件
-echo "清理临时文件..."
+# Clean temporary files
+echo "Cleaning temporary files..."
 find . -type f -name ".DS_Store" -delete 2>/dev/null
 find . -type f -name "*.log" -delete 2>/dev/null
 find . -type f -name "*.tmp" -delete 2>/dev/null
 
-# 清理测试生成的文件（可选）
-read -p "是否清理测试生成的可视化文件? (y/n) " -n 1 -r
+# Clean test-generated files (optional)
+read -p "Do you want to clean test-generated visualization files? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "清理可视化文件..."
+    echo "Cleaning visualization files..."
     rm -rf visualization_resources/*.png 2>/dev/null
     rm -rf visualization_resources/*.html 2>/dev/null
 fi
 
-# 清理egg-info（可选）
-read -p "是否清理egg-info目录? (y/n) " -n 1 -r
+# Clean egg-info (optional)
+read -p "Do you want to clean egg-info directories? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "清理egg-info..."
+    echo "Cleaning egg-info..."
     rm -rf *.egg-info 2>/dev/null
 fi
 
-echo "清理完成！"
+echo "Cleanup completed!"
 
-# 显示目录大小
-echo -e "\n目录大小统计："
+# Show directory sizes
+echo -e "\nDirectory size statistics:"
 du -sh . 2>/dev/null
 du -sh data/ 2>/dev/null
 du -sh third_party/ 2>/dev/null
