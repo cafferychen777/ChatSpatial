@@ -393,11 +393,10 @@ class SpatialPromptManager:
             "plot_type": args["plot_type"]
         }
         
-        # Handle features/feature parameter (support both for backward compatibility)
+        # Handle features/feature parameter (unified to 'feature')
         if "features" in args:
-            features = args["features"]
-            # Always use the unified 'feature' parameter
-            vis_params["feature"] = features
+            # Convert features to feature for consistency
+            vis_params["feature"] = args["features"]
         elif "feature" in args:
             # Direct feature parameter
             vis_params["feature"] = args["feature"]

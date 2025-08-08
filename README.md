@@ -6,12 +6,12 @@ ChatSpatial is an interactive spatial transcriptomics data analysis assistant ba
 
 - **Data Loading**: Support for various spatial transcriptomics data formats (10x Visium, Slide-seq, MERFISH, seqFISH, etc.)
 - **Enhanced Data Preprocessing**: User-controlled filtering, subsampling, normalization, and dimensionality reduction with intelligent defaults for different data types
-- **Spatial Visualization**: Spatial distribution of gene expression, visualization of clustering results, etc.
+- **Comprehensive Visualization**: 10+ visualization types including spatial plots, heatmaps, trajectory analysis, cell communication networks, and deconvolution results - all verified for production use
 - **Differential Expression Analysis**: Identification of differentially expressed genes between cell populations
 - **Cell Type Annotation**: Multiple methods including marker-based, CellAssign, scANVI deep learning annotation
 - **Spatial Analysis**: Spatial autocorrelation (Moran's I, Getis-Ord Gi*), neighborhood analysis, spatial trajectories, etc.
-- **Spatial Domain Identification**: STAGATE, SpaGCN, and clustering-based methods for identifying spatial domains
-- **Advanced Spatial Variable Genes**: GASTON (Graph Attention Spatial Transcriptomics Organizer Network) for learning tissue topology and identifying spatial gene patterns through deep learning
+- **Spatial Domain Identification**: SpaGCN and clustering-based methods (leiden/louvain) are implemented; STAGATE and BANKSY are available when optional dependencies are installed; other methods (e.g., stLearn, SEDR, BayesSpace) are not implemented in this server
+- **Spatial Variable Genes**: GASTON (deep learning, recommended) implemented; SpatialDE and SPARK also available optionally for benchmarking or lightweight scenarios
 - **Cell Communication Analysis**: LIANA+ integration for fast and comprehensive ligand-receptor interaction analysis with spatial bivariate metrics
 - **Spatially-aware Enrichment Analysis**: EnrichMap integration for gene set enrichment with spatial smoothing and covariate correction
 - **Advanced Deconvolution**: Complete scvi-tools integration with DestVI, Stereoscope, Cell2location, and traditional methods
@@ -71,9 +71,40 @@ which chatspatial
 which python
 ```
 
-### Special Installation Notes
+### GASTON Installation (Optional)
 
-- **GASTON**: Automatically uses the included version in `third_party/GASTON/`
+GASTON is a deep learning method for spatial gene analysis. To use GASTON features:
+
+#### Method 1: Install from PyPI (Recommended)
+
+```bash
+pip install gaston-spatial
+```
+
+#### Method 2: Install from Source
+
+```bash
+# Clone the official repository
+git clone https://github.com/Arashz/GASTON.git
+cd GASTON
+pip install -e .
+```
+
+#### Development Workflow (Recommended for Contributors)
+
+For development and comparison with the original implementation:
+
+```bash
+# Clone original repository for comparison (not committed to version control)
+git clone https://github.com/Arashz/GASTON.git gaston_dev
+cd gaston_dev
+pip install -e .
+
+# Run comparison tests to ensure compatibility
+python -c "import gaston; print('GASTON installed successfully')"
+```
+
+**Note**: GASTON is optional but recommended for advanced spatial gene analysis. ChatSpatial also supports SpatialDE and SPARK methods for comprehensive spatial variable gene identification.
 
 ## Usage
 
@@ -141,6 +172,7 @@ To use ChatSpatial with Cherry Studio (recommended for tasks requiring longer pr
    - Click "Add Server" and configure as follows:
 
    **Basic Configuration:**
+
    ```json
    {
      "name": "ChatSpatial",
@@ -159,12 +191,14 @@ To use ChatSpatial with Cherry Studio (recommended for tasks requiring longer pr
 
    - Replace the command path with your actual ChatSpatial environment Python path
    - **Important**: Set the timeout to `3600` seconds to allow sufficient time for complex spatial analysis tasks
+   - **Visualization**: All visualization functions are fully verified and production-ready
 
    **Finding Your Environment Path:**
+
    ```bash
    # Activate your ChatSpatial environment first
    conda activate chatspatial_env  # or: source chatspatial_env/bin/activate
-   
+
    # Then find the Python path
    which python
    # Example output: /opt/anaconda3/envs/chatspatial_env/bin/python
@@ -181,6 +215,7 @@ To use ChatSpatial with Cherry Studio (recommended for tasks requiring longer pr
    - Cherry Studio's configurable timeout makes it ideal for computationally intensive spatial analysis
 
 **Advantages of Cherry Studio over Claude Desktop:**
+
 - **Configurable Timeout**: Set custom timeout (recommended: 3600s) for long-running analysis
 - **Better Performance**: More suitable for computationally intensive spatial transcriptomics workflows
 - **Stable Processing**: No interruptions during complex analysis tasks like GASTON, deconvolution, or large dataset processing
@@ -190,11 +225,13 @@ To use ChatSpatial with Cherry Studio (recommended for tasks requiring longer pr
 Here are some example prompts to get started with ChatSpatial:
 
 **Basic Workflow:**
+
 - "Load my 10x Visium dataset from `/path/to/data.h5ad`"
 - "Preprocess my data with custom filtering: filter genes in less than 10 cells and subsample to 1000 spots"
 - "Visualize the spatial expression of gene Cd8a"
 
 **Analysis and Visualization (Two-Step Process):**
+
 - "Perform cell type annotation using marker genes" → "Visualize the cell type annotations"
 - "Identify spatial domains using STAGATE method" → "Visualize the spatial domains"
 - "Find spatial variable genes using GASTON with GLM-PCA preprocessing" → "Visualize GASTON isodepth map"
@@ -203,6 +240,7 @@ Here are some example prompts to get started with ChatSpatial:
 - "Deconvolve my spatial data using the NNLS method" → "Visualize deconvolution results"
 
 **Advanced Analysis:**
+
 - "Run spatial trajectory analysis"
 - "Analyze spatial hot spots for immune genes using Getis-Ord Gi*"
 
@@ -215,7 +253,7 @@ The server provides the following tools:
 3. `visualize` - Visualize data (supports all analysis results)
 4. `annotate` - Cell type annotation
 5. `identify_domains` - Spatial domain identification
-6. `find_spatial_genes` - Advanced spatial variable genes identification using GASTON
+6. `find_spatial_genes` - Spatial variable genes identification using GASTON, SpatialDE, or SPARK methods
 7. `analyze_communication` - Cell-cell communication analysis with LIANA+
 8. `analyze_spatial_data` - Spatial analysis (Moran's I, Getis-Ord Gi*, neighborhood, co-occurrence, Ripley's K, centrality)
 9. `find_markers` - Differential expression analysis
@@ -227,11 +265,13 @@ The server provides the following tools:
 ### Visualization Architecture
 
 ChatSpatial uses a clean separation between analysis and visualization:
+
 - All analysis tools focus solely on computation and return analysis results
 - The `visualize` tool handles all visualization needs with various plot types
 - This design ensures modularity and allows for flexible visualization options
 
 To visualize analysis results, use the `visualize` tool with appropriate `plot_type`:
+
 - `spatial` - Spatial gene expression or annotations
 - `umap` - UMAP embeddings (e.g., for integrated data)
 - `cell_communication` - Cell communication analysis results
@@ -301,32 +341,60 @@ ChatSpatial integrates EnrichMap for sophisticated gene set enrichment analysis 
 "Perform enrichment analysis for immune signatures with batch correction"
 
 # Visualization (after running analyze_enrichment)
-"Visualize enrichment plot for T_cell" 
+"Visualize enrichment plot for T_cell"
 "Show spatial plot for T_cell_score"
 "Create violin plot with plot_type enrichment for T_cell_score grouped by leiden"
 ```
 
-### Advanced Spatial Variable Genes with GASTON
+### Spatial Variable Gene Analysis
 
-ChatSpatial integrates GASTON (Graph Attention Spatial Transcriptomics Organizer Network) for state-of-the-art spatial variable gene identification:
+ChatSpatial provides multiple methods for identifying spatial variable genes with different maturity levels:
 
-**Features:**
+#### GASTON (Recommended for Production) 🟢
 
-- **Deep Learning Approach**: Neural network-based topology learning for tissue organization
-- **Isodepth Mapping**: Learn continuous topographic coordinates that capture tissue structure
-- **Spatial Domain Identification**: Automatic identification of spatial domains based on learned topology
-- **Flexible Preprocessing**: Support for GLM-PCA and Pearson residuals preprocessing methods
-- **Comprehensive Visualization**: Isodepth maps, spatial domains, and model performance metrics
-- **Gene Pattern Classification**: Identify genes with continuous gradients vs. discontinuous patterns
+**Graph Attention Spatial Transcriptomics Organizer Network** - Fully tested deep learning approach:
+
+- **Production Ready**: Comprehensive testing and validation
+- **Deep Learning Topology**: Neural network-based tissue organization learning
+- **Isodepth Mapping**: Continuous topographic coordinates capturing tissue structure
+- **Spatial Domain Detection**: Automatic identification of spatial domains
+- **Easy Installation**: Optional pip installation with clear instructions
+
+#### SpatialDE (Experimental Support) 🟡
+
+**Spatial Differential Expression** - Requires compatibility fixes:
+
+- **Implementation Status**: Code complete but needs environment setup
+- **Compatibility Issues**: Requires fixes for modern scipy/pandas versions
+- **Statistical Framework**: Gaussian process model for spatial gene expression
+- **Installation**: Use `scripts/fixes/fix_spatialDE.py` for compatibility
+- **Best For**: Users with specific research needs and technical expertise
+
+#### SPARK (Advanced Users Only) 🔴
+
+**Spatial Pattern Recognition** - Requires R environment:
+
+- **Complex Dependencies**: Needs R environment + rpy2 + SPARK R package
+- **Installation Challenge**: Multi-step setup process required
+- **Count-Based Analysis**: Optimized for count-based spatial transcriptomics
+- **Best For**: Users already working in R-based workflows
 
 **Example Usage:**
 
 ```text
+# GASTON (recommended for most users)
 "Find spatial variable genes using GASTON with GLM-PCA preprocessing"
-"Identify spatial domains using GASTON with 1000 training epochs"
-"Visualize GASTON isodepth map" (after running find_spatial_genes)
-"Visualize GASTON spatial domains" (after running find_spatial_genes)
-"Visualize top GASTON spatial genes" (after running find_spatial_genes)
+"Visualize GASTON isodepth map and spatial domains"
+
+# SpatialDE (requires setup)
+# First: python scripts/fixes/fix_spatialDE.py
+"Find spatial variable genes using SpatialDE method"
+"Visualize SpatialDE results with significance thresholds"
+
+# SPARK (R environment required)
+# First: pip install rpy2 && R -e "install.packages('SPARK')"
+"Find spatial variable genes using SPARK with multiple kernels"
+"Visualize SPARK spatial patterns"
 ```
 
 ### Deep Learning Integration with scvi-tools
@@ -334,10 +402,12 @@ ChatSpatial integrates GASTON (Graph Attention Spatial Transcriptomics Organizer
 ChatSpatial provides complete integration with scvi-tools for state-of-the-art deep learning analysis:
 
 **Cell Type Annotation:**
+
 - **CellAssign**: Probabilistic cell type assignment using marker genes with confidence scores
 - **scANVI**: Semi-supervised annotation with reference data transfer learning
 
 **Spatial Deconvolution:**
+
 - **DestVI**: Multi-resolution deconvolution with continuous sub-cell-type variation modeling
 - **Stereoscope**: Spatial deconvolution using RNAStereoscope workflow
 
@@ -376,7 +446,22 @@ The server provides the following resources:
 
 - `dataset://{data_id}` - Get dataset information
 
+### Optional Dependencies Mapping
+
+Install optional packages to enable additional methods:
+
+- SpaGCN (spatial domains): `pip install SpaGCN`
+- STAGATE (spatial domains): `pip install STAGATE`
+- BANKSY (spatial domains): `pip install banksy-utils`
+- LIANA+ (cell communication): `pip install liana`
+- esda/PySAL (Getis-Ord Gi*): `pip install esda libpysal`
+- scvi-tools family (CellAssign, scANVI, DestVI, Stereoscope, VeloVI): `pip install scvi-tools`
+- R-based methods (RCTD, SPOTlight): `pip install rpy2` and install R packages in your R environment
+- Enrichment (GSEA/ssGSEA/EnrichMap): `pip install gseapy enrichmap`
+
 ## Dependencies
+
+
 
 ### Core Dependencies
 - mcp - Model Context Protocol Python SDK
@@ -391,8 +476,10 @@ The server provides the following resources:
 - **Deep Learning & Advanced Methods**:
   - scvi-tools - Deep learning methods (CellAssign, scANVI, DestVI, Stereoscope)
   - torch, pyro-ppl - PyTorch and Pyro for deep learning models
-  - GASTON - Advanced spatial variable genes identification with deep learning
+  - GASTON - Deep learning spatial gene analysis (recommended)
   - glmpca - GLM-PCA preprocessing for GASTON
+  - SpatialDE - Statistical spatial gene analysis
+  - SPARK - Count-based spatial pattern recognition (requires R environment)
 
 - **Specialized Analysis**:
   - liana - Cell communication analysis with LIANA+

@@ -1,76 +1,81 @@
-# ChatSpatial 测试套件
+# ChatSpatial Test Suite
 
-本目录包含ChatSpatial的所有测试脚本，按功能分类组织。
+This directory contains all test scripts for ChatSpatial, organized by functionality.
 
-## 目录结构
+## Directory Structure
 
-```
+```text
 tests/
-├── README.md                          # 本文档
-├── visualization_tests/               # 可视化功能测试
+├── README.md                          # This document
+├── visualization_tests/               # Visualization tests
 │   ├── test_visualization_comprehensive.py
 │   ├── test_visualization_scenarios.py
 │   ├── test_direct_visualization.py
 │   ├── test_final_visualization.py
 │   ├── test_mcp_server_visualization.py
 │   └── test_image_extraction.py
-├── claude_tests/                      # Claude前端交互测试
-│   ├── test_claude_conversation_simulation.py    # 原始对话模拟
-│   ├── test_claude_conversation_improved.py      # 改进版（有一些失败）
-│   ├── test_claude_conversation_fixed.py         # 修复版（100%成功）
+├── claude_tests/                      # Claude frontend interaction tests
+│   ├── test_claude_conversation_simulation.py    # Original conversation simulation
+│   ├── test_claude_conversation_improved.py      # Improved version (some failures)
+│   ├── test_claude_conversation_fixed.py         # Fixed version (100% success)
 │   ├── test_claude_frontend_complete.py
 │   ├── test_claude_frontend_simulation.py
 │   └── test_claude_functionality_simple.py
-├── stress_tests/                      # 压力测试和真实场景测试
+├── stress_tests/                      # Stress tests & real-world scenarios
 │   ├── test_comprehensive_stress.py
 │   ├── test_real_analysis_session.py
 │   └── test_real_world_scenarios.py
-├── test_all_features_claude.py        # 全功能测试
-└── test_fixes_verification.py         # 修复验证测试
+├── test_all_features_claude.py        # Full feature tests
+└── test_fixes_verification.py         # Fix verification tests
 ```
 
-## 运行测试
+## Run Tests
 
-### 1. 运行所有功能测试（推荐）
+### 1. Run all feature tests (recommended)
+
 ```bash
 python tests/test_all_features_claude.py
 ```
 
-### 2. 运行Claude对话模拟测试（最完整）
+### 2. Run Claude conversation simulation tests (most complete)
+
 ```bash
 python tests/claude_tests/test_claude_conversation_fixed.py
 ```
 
-### 3. 运行可视化测试
+### 3. Run visualization tests
+
 ```bash
 python tests/visualization_tests/test_visualization_scenarios.py
 ```
 
-### 4. 运行压力测试
+### 4. Run stress tests
+
 ```bash
 python tests/stress_tests/test_comprehensive_stress.py
 ```
 
-## 测试结果
+## Test Results
 
-最新的测试结果：
-- **成功率**: 100% (所有测试通过)
-- **测试报告位置**: `docs/test_reports/FINAL_TEST_REPORT.md`
+Latest results:
 
-## 依赖要求
+- Success rate: 100% (all tests passed)
+- Test report: `docs/test_reports/FINAL_TEST_REPORT.md`
 
-运行测试前，请确保安装了所有必需的依赖：
+## Dependencies
+
+Before running tests, ensure required dependencies are installed:
 
 ```bash
-# 基础依赖
+# Base dependencies
 pip install -r requirements.txt
 
-# 完整依赖（包括高级功能）
+# Full dependencies (including advanced features)
 pip install -r requirements-full.txt
 ```
 
-## 注意事项
+## Notes
 
-1. 某些测试会生成临时数据和可视化文件
-2. 测试运行时间约2-5分钟（取决于测试范围）
-3. 如果遇到依赖问题，请参考`requirements-full.txt`
+1. Some tests generate temporary data and visualization files
+2. Test runtime is about 2–5 minutes (depending on the scope)
+3. If you encounter dependency issues, see `requirements-full.txt`

@@ -218,21 +218,8 @@ async def visualize_data(
     dataset_info = await data_manager.get_dataset(data_id)
     data_store = {data_id: dataset_info}
 
-    # Handle different parameter formats for backward compatibility
-    if isinstance(params, str):
-        # Handle simple string format like "gene:CCL21"
-        if params.startswith("gene:"):
-            feature = params.split(":", 1)[1]
-            params = VisualizationParameters(feature=feature, plot_type="spatial")
-        else:
-            # Treat as feature name
-            params = VisualizationParameters(feature=params, plot_type="spatial")
-    elif isinstance(params, dict):
-        # Handle dictionary format
-        params = VisualizationParameters(**params)
-    elif params is None:
-        # Handle None
-        params = VisualizationParameters()
+    # Parameter preprocessing and validation is now handled by the @manual_parameter_validation decorator
+    # params is already a validated VisualizationParameters instance
 
     # Call visualization function
     image = await visualize_func(data_id, data_store, params, context)
@@ -292,13 +279,15 @@ async def annotate_cells(
         Annotation result with cell type information and optional visualization
 
     Notes:
-        Available methods:
-        - marker_genes: Use known marker genes for annotation
-        - tangram: Maps single-cell data to spatial data (requires reference_data_id)
-        - scanvi: Semi-supervised annotation using scANVI from scvi-tools (requires reference_data_id)
-        - cellassign: Probabilistic cell type assignment using marker genes (from scvi-tools)
-        - correlation, supervised, popv, gptcelltype, scrgcl: Other available methods
-        
+        Annotation methods (status):
+        - marker_genes: Implemented (marker-based)
+        - tangram: Implemented (requires reference_data_id)
+        - scanvi: Implemented (requires scvi-tools and reference_data_id)
+        - cellassign: Implemented (via scvi-tools)
+        - correlation: Implemented (correlation-based)
+        - mllmcelltype: Implemented (multimodal LLM classifier)
+        - supervised / popv / gptcelltype / scrgcl: Not fully implemented yet; currently fallbacks to marker_genes
+
         For methods requiring reference data (tangram, scanvi), reference_data_id must point to a loaded single-cell dataset.
     """
     # Validate dataset
@@ -352,13 +341,13 @@ async def analyze_spatial_data(
         Spatial analysis result with statistics and optional visualization
 
     Notes:
-        Available analysis types:
-        - spatial_autocorrelation: Moran's I for spatial patterns
-        - nearest_neighbor: Analyze nearest neighbor relationships
-        - co_expression: Spatial co-expression analysis
-        - spatial_enrichment: Enrichment of features in spatial regions
-        - interaction_analysis: Cell-cell interaction based on proximity
-        - ligand_receptor: Ligand-receptor interaction analysis
+        Available analysis types (implemented):
+        - moran: Moran's I spatial autocorrelation (squidpy)
+        - getis_ord: Getis-Ord Gi* hot/cold spot detection (esda/PySAL)
+        - neighborhood: Neighborhood enrichment (squidpy)
+        - co_occurrence: Co-occurrence analysis (squidpy)
+        - centrality: Graph centrality scores (squidpy)
+        - ripley: Ripley's K/L
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -497,12 +486,13 @@ async def analyze_trajectory_data(
         Trajectory analysis result
 
     Notes:
-        Available methods:
-        - paga: Partition-based graph abstraction
-        - palantir: Probabilistic trajectory inference
-        - cellrank: RNA velocity-based trajectory inference
-        - dpt: Diffusion pseudotime
-        - gaston: GASTON spatial trajectory analysis
+        Trajectory methods (status):
+        - dpt: Diffusion pseudotime (implemented)
+        - palantir: Probabilistic trajectory inference (implemented when palantir installed)
+        - cellrank: RNA velocity-based trajectory inference (implemented when cellrank installed)
+        - velovi: scvi-tools VeloVI (implemented when scvi-tools available)
+        - paga: Not implemented in tools/trajectory.py (planned)
+        - gaston: Not implemented for trajectory in this server (GASTON integrated for spatial genes)
     """
     # Import trajectory function
     from .tools.trajectory import analyze_trajectory
@@ -548,12 +538,10 @@ async def integrate_samples(
         Integration result with integrated dataset ID
 
     Notes:
-        Available methods:
-        - harmony: Fast batch correction
-        - scvi: Deep learning-based integration
-        - combat: ComBat batch correction
-        - mnn: Mutual nearest neighbors
-        - PASTE: Probabilistic Alignment of Spatial Transcriptomics Experiments
+        Integration methods (status):
+        - harmony, bbknn, scanorama, mnn: Implemented in tools/integration.py
+        - scvi / multivi / totalvi / contrastivevi: Implemented when scvi-tools available
+        - PASTE: Mentioned historically in scripts/tests; not part of server integration tool
     """
     # Import integration function
     from .tools.integration import integrate_samples
@@ -607,14 +595,9 @@ async def deconvolve_data(
         Deconvolution result with cell type proportions
 
     Notes:
-        Available methods:
-        - spotlight: SPOTlight deconvolution
-        - cell2location: Probabilistic mapping
-        - rctd: Robust Cell Type Decomposition
-        - stereoscope: Probabilistic model
-        - destvi: DestVI from scvi-tools
-        - tangram: Tangram spatial mapping
-        - mrvi: MRVI multi-resolution analysis
+        Deconvolution methods (status):
+        - cell2location, destvi, stereoscope, tangram, mrvi: Implemented when scvi-tools available
+        - rctd, spotlight: Implemented via rpy2/R when R packages are installed
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -664,14 +647,12 @@ async def identify_spatial_domains(
         Spatial domain result with identified domains
 
     Notes:
-        Available methods:
-        - stlearn: stLearn spatial domains
-        - spagcn: SpaGCN graph convolutional network
-        - sedr: SEDR deep learning method
-        - bayesspace: BayesSpace Bayesian method
-        - banksy: BANKSY spatial domains
-        - stagate: STAGATE spatial domains
-        - gaston: GASTON spatial domains
+        Spatial domain methods (status):
+        - spagcn: SpaGCN graph convolutional network (implemented; optional dependency SpaGCN)
+        - leiden / louvain: clustering-based (implemented; no extra deps)
+        - stagate: STAGATE (implemented; optional dependency STAGATE)
+        - banksy: BANKSY (implemented; optional dependency banksy-utils)
+        - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
     from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
@@ -715,14 +696,9 @@ async def analyze_cell_communication(
         Cell communication analysis result
 
     Notes:
-        Available methods:
-        - liana: LIANA framework with multiple methods
-        - cellphonedb: CellPhoneDB statistical framework
-        - cellchat: CellChat network analysis
-        - nichenet: NicheNet ligand-target analysis
-        - connectome: Connectome weighted networks
-        - cytotalk: CytoTalk crosstalk analysis
-        - squidpy: Squidpy permutation test
+        Cell communication methods (status):
+        - liana: Implemented (global/cluster and spatial bivariate modes; requires liana)
+        - cellphonedb / cellchat / nichenet / connectome / cytotalk / squidpy: Not implemented in this server
     """
     # Import cell communication function
     from .tools.cell_communication import analyze_cell_communication as analyze_comm_func
@@ -1021,7 +997,7 @@ async def find_spatial_genes(
     params: SpatialVariableGenesParameters = SpatialVariableGenesParameters(),
     context: Context = None
 ) -> SpatialVariableGenesResult:
-    """Identify spatially variable genes
+    """Identify spatially variable genes using various methods
 
     Args:
         data_id: Dataset ID
@@ -1032,12 +1008,13 @@ async def find_spatial_genes(
 
     Notes:
         Available methods:
-        - squidpy: Moran's I and Geary's C
-        - sepal: SEPAL neural network
-        - somde: SOMDE Gaussian process
-        - spark: SPARK statistical model
-        - spatialde: SpatialDE Gaussian process
-        - hotspot: Hotspot local autocorrelation
+        - gaston: GASTON neural network for spatial gene classification (default)
+        - spatialde: SpatialDE Gaussian process-based method
+        - spark: SPARK statistical model using R integration
+        - somde: SOMDE method (coming soon)
+
+        Method selection via params.method parameter.
+        Each method has specific parameters - see SpatialVariableGenesParameters model.
     """
     # Validate dataset
     validate_dataset(data_id)

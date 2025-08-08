@@ -1,12 +1,12 @@
 """
-imageprocessingmodule使用示例
+Examples for image processing utilities
 """
 
 import matplotlib.pyplot as plt
 import numpy as np
 from mcp.server.fastmcp.utilities.types import Image
 
-# 导入imageprocessingmodule
+# Import image processing utilities
 from spatial_transcriptomics_mcp.utils.image_utils import (
     fig_to_image,
     fig_to_base64,
@@ -15,12 +15,12 @@ from spatial_transcriptomics_mcp.utils.image_utils import (
 
 
 def create_sample_figure():
-    """create一个示例图形"""
-    # createdata
+    """Create a sample figure"""
+    # create data
     x = np.linspace(0, 10, 100)
     y = np.sin(x)
     
-    # create图形
+    # create figure
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.plot(x, y, 'b-', linewidth=2)
     ax.set_title("Sample Sine Wave")
@@ -32,10 +32,10 @@ def create_sample_figure():
 
 
 def example_fig_to_image():
-    """fig_to_image function示例"""
+    """Example: fig_to_image function"""
     fig = create_sample_figure()
-    
-    # 转换为 Image object
+
+    # Convert to Image object
     image = fig_to_image(fig, dpi=100, format='png')
     
     print(f"Image object created: format={image._format}, size={len(image.data)/1024:.2f} KB")
@@ -43,8 +43,8 @@ def example_fig_to_image():
 
 
 def example_create_placeholder_image():
-    """create_placeholder_image function示例"""
-    # create占位image
+    """Example: create_placeholder_image function"""
+    # create placeholder image
     image = create_placeholder_image(
         message="This is a placeholder image",
         figsize=(6, 6),
@@ -56,10 +56,10 @@ def example_create_placeholder_image():
 
 
 def example_fig_to_base64():
-    """fig_to_base64 function示例（向后兼容）"""
+    """Example: fig_to_base64 function (backward compatible)"""
     fig = create_sample_figure()
-    
-    # 转换为 base64 字符串
+
+    # Convert to base64 string
     base64_str = fig_to_base64(fig, dpi=100, format='png')
     
     print(f"Base64 string created: length={len(base64_str)} characters")
@@ -67,7 +67,7 @@ def example_fig_to_base64():
 
 
 def main():
-    """run所有示例"""
+    """Run all examples"""
     print("Running fig_to_image example...")
     example_fig_to_image()
     

@@ -155,7 +155,13 @@ async def demonstrate_spatial_domain_identification():
     print(f"   Identified {louvain_result.n_domains} domains")
     print(f"   Domain counts: {louvain_result.domain_counts}")
     
-    # Method 3: SpaGCN (if available) - updating from STAGATE since STAGATE is not in supported methods
+    # Method 3: SpaGCN (if available)
+    # Note: ChatSpatial supports multiple spatial domain methods when installed, e.g.,
+    #   - method="spagcn" (SpaGCN)
+    #   - method="leiden" / method="louvain" (clustering)
+    #   - method="stagate" (STAGATE)
+    #   - method="banksy" (BANKSY)
+    # Install optional packages as needed: pip install SpaGCN STAGATE banksy-utils
     print("\n--- Method 3: SpaGCN ---")
     try:
         spagcn_params = SpatialDomainParameters(
