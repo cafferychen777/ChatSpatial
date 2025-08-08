@@ -4,7 +4,12 @@ Analysis result models for spatial transcriptomics data.
 
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
-from mcp.server.fastmcp.utilities.types import Image
+
+try:
+    from mcp.server.fastmcp.utilities.types import Image
+except ImportError:
+    # Fallback for when MCP is not available
+    Image = Any
 
 
 class PreprocessingResult(BaseModel):
@@ -112,38 +117,33 @@ class SpatialDomainResult(BaseModel):
 
 
 class SpatialVariableGenesResult(BaseModel):
-    """Result of GASTON spatial variable genes identification"""
+    """Result of spatial variable genes identification"""
     data_id: str
-    preprocessing_method: str
-    n_components: int
-    n_epochs_trained: int
-    final_loss: float
+    method: str  # Method used for analysis
 
-    # Model architecture info
-    spatial_hidden_layers: List[int]
-    expression_hidden_layers: List[int]
+    # Common results for all methods
+    n_genes_analyzed: int  # Total number of genes analyzed
+    n_significant_genes: int  # Number of significant spatial genes found
+    spatial_genes: List[str]  # List of significant spatial variable gene names
 
-    # Spatial domains and patterns
-    n_spatial_domains: int
-    spatial_domains_key: str  # Key in adata.obs where spatial domain assignments are stored
-    isodepth_key: str  # Key in adata.obs where isodepth values are stored
+    # Statistical results (available for all methods)
+    gene_statistics: Dict[str, float]  # Gene name -> primary statistic value
+    p_values: Dict[str, float]  # Gene name -> p-value
+    q_values: Dict[str, float]  # Gene name -> FDR-corrected p-value
 
-    # Gene classification results
-    continuous_gradient_genes: Dict[str, List[int]]  # Gene -> list of domains with continuous gradients
-    discontinuous_genes: Dict[str, List[int]]  # Gene -> list of domain boundaries with discontinuities
-    n_continuous_genes: int
-    n_discontinuous_genes: int
+    # Storage keys for results in adata
+    results_key: str  # Base key for storing results in adata
 
-    # Model outputs stored in adata
-    model_predictions_key: str  # Key in adata.obsm where model predictions are stored
-    spatial_embedding_key: str  # Key in adata.obsm where spatial embeddings are stored
+    # Method-specific results (optional, only populated for respective methods)
+    gaston_results: Optional[Dict[str, Any]] = None  # GASTON-specific results
+    spatialde_results: Optional[Dict[str, Any]] = None  # SpatialDE-specific results
+    spark_results: Optional[Dict[str, Any]] = None  # SPARK-specific results
+    somde_results: Optional[Dict[str, Any]] = None  # SOMDE-specific results
 
-    # Statistics and metrics
-    model_performance: Dict[str, Any]  # Model performance metrics
-    spatial_autocorrelation: Dict[str, float]  # Spatial autocorrelation metrics
-
-    # File paths for saved model
-    model_checkpoint_path: Optional[str] = None  # Path to saved model checkpoint
+    # Visualization hints (optional)
+    isodepth_visualization: Optional[Dict[str, Any]] = None  # For GASTON isodepth plots
+    spatial_domains_visualization: Optional[Dict[str, Any]] = None  # For spatial domain plots
+    top_genes_visualization: Optional[Dict[str, Any]] = None  # For top genes visualization
 
     class Config:
         arbitrary_types_allowed = True

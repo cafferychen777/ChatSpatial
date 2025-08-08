@@ -1051,6 +1051,9 @@ async def create_deconvolution_visualization(
     # Find deconvolution results in obsm
     deconv_keys = [key for key in adata.obsm.keys() if 'deconvolution' in key.lower() or 'proportions' in key.lower()]
 
+    # Import pandas at the top to ensure it's always available
+    import pandas as pd
+
     if not deconv_keys:
         # Look for individual cell type proportions in obs
         cell_type_cols = [col for col in adata.obs.columns if any(method in col.lower() for method in ['cell2location'])]
@@ -1059,7 +1062,6 @@ async def create_deconvolution_visualization(
             raise DataNotFoundError("No deconvolution results found in adata.obsm or adata.obs")
 
         # Create proportions DataFrame from obs columns
-        import pandas as pd
         # Extract base key (e.g., 'deconvolution_cell2location' from 'deconvolution_cell2location_T_cell')
         base_keys = set()
         for col in cell_type_cols:

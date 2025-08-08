@@ -1,7 +1,11 @@
 """
 Spatial Statistics Tool
 
-This module provides advanced spatial statistical methods for analyzing spatial transcriptomics data.
+This module provides spatial statistical methods for analyzing spatial transcriptomics data.
+Focuses on spatial autocorrelation, local indicators of spatial association (LISA),
+and spatial point pattern analysis.
+
+Note: Spatial variable gene identification has been moved to spatial_genes.py
 """
 
 import logging
@@ -18,312 +22,22 @@ logger = logging.getLogger(__name__)
 
 class SpatialStatistics:
     """
-    A class for performing advanced spatial statistical analysis.
-    
+    A class for performing spatial statistical analysis.
+
     This class provides methods for:
-    - Spatial variable gene detection (SpatialDE, SPARK)
-    - Spatial autocorrelation analysis
-    - Spatial point pattern analysis
-    - Local indicators of spatial association
+    - Spatial autocorrelation analysis (Moran's I, Geary's C)
+    - Local indicators of spatial association (LISA)
+    - Spatial point pattern analysis (Ripley's K)
+
+    Note: Spatial variable gene identification methods have been moved to spatial_genes.py
     """
-    
+
     def __init__(self):
         """Initialize the SpatialStatistics tool."""
-        self.method_info = {
-            'spatialDE': {
-                'name': 'SpatialDE',
-                'description': 'Gaussian process-based spatial gene expression analysis',
-                'reference': 'Svensson et al., Nature Methods 2018',
-                'type': 'python'
-            },
-            'spark': {
-                'name': 'SPARK',
-                'description': 'Spatial Pattern Recognition via Kernels',
-                'reference': 'Sun et al., Nature Methods 2020',
-                'type': 'R'
-            },
-            'somde': {
-                'name': 'SOMDE',
-                'description': 'Spatial Omnibus test for Differential Expression',
-                'reference': 'Hao et al., Genome Biology 2021',
-                'type': 'python'
-            }
-        }
+        pass
     
-    def find_spatial_genes(
-        self,
-        adata: ad.AnnData,
-        method: str = 'spatialDE',
-        n_genes: Optional[int] = None,
-        spatial_key: str = 'spatial',
-        **kwargs
-    ) -> pd.DataFrame:
-        """
-        Find spatially variable genes.
-        
-        Parameters
-        ----------
-        adata : ad.AnnData
-            Annotated data matrix
-        method : str
-            Method to use ('spatialDE', 'spark', 'somde')
-        n_genes : Optional[int]
-            Number of top genes to return
-        spatial_key : str
-            Key in obsm containing spatial coordinates
-        **kwargs
-            Method-specific parameters
-            
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with spatial statistics for each gene
-        """
-        if method not in self.method_info:
-            raise ValueError(f"Unknown method: {method}. Available: {list(self.method_info.keys())}")
-        
-        logger.info(f"Finding spatial genes using {method}")
-        
-        if method == 'spatialDE':
-            return self._run_spatialDE(adata, n_genes, spatial_key, **kwargs)
-        elif method == 'spark':
-            return self._run_spark(adata, n_genes, spatial_key, **kwargs)
-        elif method == 'somde':
-            return self._run_somde(adata, n_genes, spatial_key, **kwargs)
-        else:
-            raise NotImplementedError(f"Method {method} not implemented")
-    
-    def _run_spatialDE(
-        self,
-        adata: ad.AnnData,
-        n_genes: Optional[int],
-        spatial_key: str,
-        normalized: bool = True,
-        **kwargs
-    ) -> pd.DataFrame:
-        """
-        Run SpatialDE for spatial gene detection.
-        
-        Parameters
-        ----------
-        adata : ad.AnnData
-            Annotated data matrix
-        n_genes : Optional[int]
-            Number of top genes to return
-        spatial_key : str
-            Key in obsm containing spatial coordinates
-        normalized : bool
-            Whether data is already normalized
-        **kwargs
-            Additional SpatialDE parameters
-            
-        Returns
-        -------
-        pd.DataFrame
-            SpatialDE results
-        """
-        try:
-            import SpatialDE
-        except ImportError:
-            logger.error("SpatialDE not installed. Install with: pip install spatialde")
-            raise ImportError("Please install SpatialDE: pip install spatialde")
-        
-        # Prepare data
-        coords = pd.DataFrame(
-            adata.obsm[spatial_key][:, :2],  # Ensure 2D coordinates
-            columns=['x', 'y'],
-            index=adata.obs_names
-        )
-        
-        # Get expression data
-        if normalized:
-            # Use normalized data
-            if 'log1p' in adata.uns_keys():
-                counts = pd.DataFrame(
-                    adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X,
-                    columns=adata.var_names,
-                    index=adata.obs_names
-                )
-            else:
-                logger.warning("Data may not be log-normalized")
-                counts = pd.DataFrame(
-                    adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X,
-                    columns=adata.var_names,
-                    index=adata.obs_names
-                )
-        else:
-            # Use raw counts and normalize
-            if adata.raw is not None:
-                raw_counts = pd.DataFrame(
-                    adata.raw.X.toarray() if hasattr(adata.raw.X, 'toarray') else adata.raw.X,
-                    columns=adata.raw.var_names,
-                    index=adata.obs_names
-                )
-            else:
-                raw_counts = pd.DataFrame(
-                    adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X,
-                    columns=adata.var_names,
-                    index=adata.obs_names
-                )
-            
-            # Normalize using standard approach (similar to scanpy)
-            # Total count normalization and log1p transformation
-            total_counts = raw_counts.sum(axis=1)
-            norm_counts = raw_counts.div(total_counts, axis=0) * np.median(total_counts)
-            counts = np.log1p(norm_counts)
-        
-        # Run SpatialDE
-        logger.info("Running SpatialDE analysis")
-        # SpatialDE expects numpy arrays for coordinates
-        results = SpatialDE.run(coords.values, counts, **kwargs)
-        
-        # Multiple testing correction
-        from SpatialDE.util import qvalue
-        results['qval'] = qvalue(results['pval'].values, pi0=0.1)
-        
-        # Sort by q-value
-        results = results.sort_values('qval')
-        
-        # Get top genes if requested
-        if n_genes is not None:
-            results = results.head(n_genes)
-        
-        # Add to adata
-        adata.var['spatial_pval'] = results.set_index('g')['pval']
-        adata.var['spatial_qval'] = results.set_index('g')['qval']
-        adata.var['spatial_l'] = results.set_index('g')['l']
-        
-        return results
-    
-    def _run_spark(
-        self,
-        adata: ad.AnnData,
-        n_genes: Optional[int],
-        spatial_key: str,
-        **kwargs
-    ) -> pd.DataFrame:
-        """
-        Run SPARK using rpy2.
-        
-        Parameters
-        ----------
-        adata : ad.AnnData
-            Annotated data matrix
-        n_genes : Optional[int]
-            Number of top genes
-        spatial_key : str
-            Spatial coordinate key
-        **kwargs
-            SPARK parameters
-            
-        Returns
-        -------
-        pd.DataFrame
-            SPARK results
-        """
-        try:
-            import rpy2.robjects as ro
-            from rpy2.robjects import pandas2ri
-            from rpy2.robjects.packages import importr
-            pandas2ri.activate()
-        except ImportError:
-            logger.error("rpy2 not installed. Install with: pip install rpy2")
-            raise ImportError("Please install rpy2 for R integration")
-        
-        logger.info("Running SPARK through R")
-        
-        # Check if SPARK is installed in R
-        try:
-            spark = importr('SPARK')
-        except:
-            logger.error("SPARK not installed in R. Install with: install.packages('SPARK')")
-            raise ImportError("Please install SPARK in R")
-        
-        # Prepare data for R - SPARK has specific requirements
-        # 1. Coordinates must be a data.frame with row names matching column names of counts
-        coords = pd.DataFrame(
-            adata.obsm[spatial_key], 
-            columns=['x', 'y'],
-            index=adata.obs_names
-        )
-        
-        # 2. Counts must be genes x cells matrix
-        counts = pd.DataFrame(
-            adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X,
-            columns=adata.var_names,
-            index=adata.obs_names
-        ).T  # SPARK expects genes x cells
-        
-        # 3. Calculate library sizes (total counts per cell)
-        lib_sizes = counts.sum(axis=0).values  # Sum for each cell
-        
-        # Convert to R objects
-        r_coords = pandas2ri.py2rpy(coords)
-        r_counts = pandas2ri.py2rpy(counts)
-        r_lib_sizes = ro.FloatVector(lib_sizes)
-        
-        # Run SPARK with correct parameters
-        ro.r('''
-        run_spark <- function(counts, coords, lib_sizes) {
-            library(SPARK)
-            
-            # Create SPARK object
-            spark_obj <- CreateSPARKObject(counts=counts, 
-                                         location=coords,
-                                         percentage=0.1,
-                                         min_total_counts=10)
-            
-            # Run SPARK analysis with proper lib_size vector
-            spark_obj <- spark.vc(spark_obj, 
-                                covariates=NULL, 
-                                lib_size=lib_sizes,  # Use actual library sizes
-                                num_core=1,
-                                verbose=FALSE)
-                                
-            spark_obj <- spark.test(spark_obj, 
-                                   check_positive=TRUE, 
-                                   verbose=FALSE)
-                                   
-            return(spark_obj@res_mtest)
-        }
-        ''')
-        
-        run_spark = ro.r['run_spark']
-        results = run_spark(r_counts, r_coords, r_lib_sizes)
-        
-        # Convert back to pandas
-        results_df = pandas2ri.rpy2py(results)
-        results_df = results_df.reset_index().rename(columns={'index': 'gene'})
-        
-        # Sort by adjusted p-value
-        results_df = results_df.sort_values('adjusted_pvalue')
-        
-        if n_genes is not None:
-            results_df = results_df.head(n_genes)
-        
-        # Add to adata
-        for _, row in results_df.iterrows():
-            gene = row['gene']
-            if gene in adata.var_names:
-                adata.var.loc[gene, 'spark_pval'] = row['combined_pvalue']
-                adata.var.loc[gene, 'spark_qval'] = row['adjusted_pvalue']
-        
-        return results_df
-    
-    def _run_somde(
-        self,
-        adata: ad.AnnData,
-        n_genes: Optional[int],
-        spatial_key: str,
-        **kwargs
-    ) -> pd.DataFrame:
-        """
-        Run SOMDE for spatial gene detection.
-        
-        Note: This is a placeholder for SOMDE integration.
-        """
-        logger.warning("SOMDE integration not yet implemented")
-        raise NotImplementedError("SOMDE integration coming soon")
+
+
     
     def compute_spatial_autocorrelation(
         self,
@@ -638,31 +352,8 @@ class SpatialStatistics:
         max_coords = coords.max(axis=0)
         return np.prod(max_coords - min_coords)
 
-# Convenience functions
-def find_spatial_variable_genes(
-    adata: ad.AnnData,
-    method: str = 'spatialDE',
-    **kwargs
-) -> pd.DataFrame:
-    """
-    Find spatially variable genes.
-    
-    Parameters
-    ----------
-    adata : ad.AnnData
-        Annotated data matrix
-    method : str
-        Method to use
-    **kwargs
-        Method-specific parameters
-        
-    Returns
-    -------
-    pd.DataFrame
-        Spatial gene statistics
-    """
-    stats_tool = SpatialStatistics()
-    return stats_tool.find_spatial_genes(adata, method=method, **kwargs)
+# Note: Spatial variable gene identification functions have been moved to spatial_genes.py
+# Use the find_spatial_genes function from the main server interface instead
 
 def compute_spatial_autocorrelation(
     adata: ad.AnnData,

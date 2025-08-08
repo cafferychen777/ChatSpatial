@@ -40,7 +40,7 @@ class AnalysisParameters(BaseModel):
 
 class VisualizationParameters(BaseModel):
     """Visualization parameters model"""
-    model_config = {"extra": "forbid"}  # Forbid extra fields like 'features'
+    model_config = {"extra": "forbid"}  # Strict validation after preprocessing
 
     feature: Optional[Union[str, List[str]]] = None  # Single feature or list of features
     plot_type: Literal[
@@ -277,7 +277,16 @@ class SpatialDomainParameters(BaseModel):
 
 
 class SpatialVariableGenesParameters(BaseModel):
-    """GASTON spatial variable genes identification parameters model"""
+    """Spatial variable genes identification parameters model"""
+
+    # Method selection
+    method: Literal["gaston", "spatialde", "spark"] = "gaston"
+
+    # Common parameters for all methods
+    n_genes: Optional[Annotated[int, Field(gt=0, le=5000)]] = None  # Number of top genes to return (None = all significant)
+    spatial_key: str = "spatial"  # Key in obsm containing spatial coordinates
+
+    # GASTON-specific parameters
     # Preprocessing parameters
     preprocessing_method: Literal["glmpca", "pearson_residuals"] = "glmpca"
     n_components: Annotated[int, Field(gt=0, le=50)] = 10  # Number of components for dimensionality reduction
@@ -315,6 +324,16 @@ class SpatialVariableGenesParameters(BaseModel):
     # Poisson regression parameters
     isodepth_mult_factor: Annotated[float, Field(gt=0.0)] = 1.0  # Scaling factor for isodepth values
     regularization: Annotated[float, Field(ge=0.0)] = 0.0  # Regularization parameter
+
+    # SpatialDE-specific parameters
+    spatialde_normalized: bool = True  # Whether data is already normalized
+    spatialde_kernel: str = "SE"  # Kernel function type for SpatialDE
+
+    # SPARK-specific parameters
+    spark_percentage: Annotated[float, Field(gt=0.0, le=1.0)] = 0.1  # Percentage of total expression for filtering
+    spark_min_total_counts: Annotated[int, Field(gt=0)] = 10  # Minimum total counts per gene
+    spark_num_core: Annotated[int, Field(gt=0, le=16)] = 1  # Number of cores for parallel processing
+
 
 
 class CellCommunicationParameters(BaseModel):

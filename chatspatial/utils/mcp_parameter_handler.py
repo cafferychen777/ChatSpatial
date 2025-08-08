@@ -115,9 +115,52 @@ def validate_analysis_params(params: Union[Dict[str, Any], BaseModel, None]):
 
 
 def validate_visualization_params(params: Union[Dict[str, Any], BaseModel, None]):
-    """Validate VisualizationParameters with friendly error messages"""
+    """Validate VisualizationParameters with friendly error messages and preprocessing"""
     from ..models.data import VisualizationParameters
-    return validate_parameters_manually(params, VisualizationParameters, "visualization_params")
+
+    # Preprocess parameters to handle different input formats
+    preprocessed_params = _preprocess_visualization_params(params)
+
+    return validate_parameters_manually(preprocessed_params, VisualizationParameters, "visualization_params")
+
+
+def _preprocess_visualization_params(params: Union[Dict[str, Any], BaseModel, str, None]) -> Union[Dict[str, Any], BaseModel, None]:
+    """
+    Preprocess visualization parameters to handle different input formats.
+
+    Handles:
+    - None: Returns empty dict
+    - str: Converts to feature parameter (supports "gene:CCL21" and "CCL21" formats)
+    - dict: Normalizes features/feature naming
+    - VisualizationParameters: Returns as-is
+    """
+    if params is None:
+        return {}
+
+    if isinstance(params, str):
+        # Handle string format parameters
+        if params.startswith("gene:"):
+            feature = params.split(":", 1)[1]
+            return {"feature": feature, "plot_type": "spatial"}
+        else:
+            return {"feature": params, "plot_type": "spatial"}
+
+    if isinstance(params, dict):
+        # Handle dictionary format parameters
+        result = params.copy()
+
+        # Handle features -> feature conversion
+        if "features" in result:
+            if "feature" not in result:
+                # Use features as feature
+                result["feature"] = result["features"]
+            # Always remove features to avoid Pydantic validation conflicts
+            del result["features"]
+
+        return result
+
+    # For VisualizationParameters instances or other types, return as-is
+    return params
 
 
 def validate_spatial_analysis_params(params: Union[Dict[str, Any], BaseModel, None]):
