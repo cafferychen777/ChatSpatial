@@ -338,7 +338,9 @@ class SpatialVariableGenesParameters(BaseModel):
 
 class CellCommunicationParameters(BaseModel):
     """Cell-cell communication analysis parameters model"""
-    method: Literal["liana"] = "liana"  # Only LIANA+ is supported
+    
+    # Method selection - expanded to support multiple methods
+    method: Literal["liana", "cellphonedb", "cellchat_liana"] = "liana"
 
     # General parameters
     species: Literal["human", "mouse", "zebrafish"] = "human"  # Species for ligand-receptor database
@@ -353,6 +355,20 @@ class CellCommunicationParameters(BaseModel):
     liana_bandwidth: Optional[int] = None  # Bandwidth for spatial connectivity (auto-determined if None)
     liana_cutoff: Annotated[float, Field(gt=0.0, le=1.0)] = 0.1  # Cutoff for spatial connectivity
     perform_spatial_analysis: bool = True  # Whether to perform spatial bivariate analysis (vs cluster-based)
+
+    # CellPhoneDB specific parameters
+    cellphonedb_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = 0.1  # Expression threshold
+    cellphonedb_iterations: Annotated[int, Field(gt=0, le=10000)] = 1000  # Statistical permutations
+    cellphonedb_result_precision: Annotated[int, Field(gt=0, le=5)] = 3  # Result decimal precision
+    cellphonedb_pvalue: Annotated[float, Field(gt=0.0, le=1.0)] = 0.05  # P-value significance threshold
+    cellphonedb_use_microenvironments: bool = True  # Whether to use spatial microenvironments
+    cellphonedb_spatial_radius: Optional[Annotated[float, Field(gt=0.0)]] = None  # Spatial radius for microenvironments (auto if None)
+    cellphonedb_debug_seed: Optional[int] = None  # Random seed for reproducible results
+
+    # CellChat specific parameters (via LIANA)
+    cellchat_type: Literal["triMean", "truncatedMean", "median"] = "triMean"  # Method for computing communication probability
+    cellchat_trim: Annotated[float, Field(ge=0.0, le=0.5)] = 0.1  # Trimming parameter for truncatedMean
+    cellchat_population_size: bool = False  # Whether to consider population size effect
 
     # Custom ligand-receptor pairs (for advanced users)
     custom_lr_pairs: Optional[List[Tuple[str, str]]] = None  # Custom LR pairs as (ligand, receptor) tuples

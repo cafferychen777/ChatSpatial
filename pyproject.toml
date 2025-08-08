@@ -66,8 +66,10 @@ spatial_genes = [
 ]
 cell_communication = [
     "liana",  # LIANA+ 细胞通讯分析
-    "scipy",  # LIANA+ 科学计算依赖
-    "tqdm",  # LIANA+ 进度条
+    "cellphonedb",  # CellPhoneDB 细胞通讯分析
+    "scipy",  # 科学计算依赖
+    "tqdm",  # 进度条
+    "scikit-learn",  # 用于空间邻居计算
 ]
 cellrank_full = [
     "petsc4py",  # PETSc Python接口，用于大规模线性代数计算
@@ -92,6 +94,7 @@ all = [
     "NaiveDE",
     # Cell communication dependencies
     "liana",
+    "cellphonedb",
     # CellRank full dependencies
     "petsc4py",
     "slepc4py",

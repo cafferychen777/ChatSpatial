@@ -21,6 +21,14 @@ try:
 except ImportError:
     LIANA_AVAILABLE = False
 
+# Import CellPhoneDB for cell communication analysis
+try:
+    from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
+    from cellphonedb.src.core.methods import cpdb_degs_analysis_method
+    CELLPHONEDB_AVAILABLE = True
+except ImportError:
+    CELLPHONEDB_AVAILABLE = False
+
 
 async def analyze_cell_communication(
     data_id: str,
@@ -64,13 +72,24 @@ async def analyze_cell_communication(
             sc.pp.normalize_total(adata, target_sum=1e4)
             sc.pp.log1p(adata)
         
-        # Analyze cell communication using LIANA+
+        # Analyze cell communication using selected method
         if params.method == "liana":
             if not LIANA_AVAILABLE:
                 raise ImportError("LIANA+ is not installed. Please install it with: pip install liana")
             result_data = await _analyze_communication_liana(adata, params, context)
+        
+        elif params.method == "cellphonedb":
+            if not CELLPHONEDB_AVAILABLE:
+                raise ImportError("CellPhoneDB is not installed. Please install it with: pip install cellphonedb")
+            result_data = await _analyze_communication_cellphonedb(adata, params, context)
+            
+        elif params.method == "cellchat_liana":
+            if not LIANA_AVAILABLE:
+                raise ImportError("LIANA+ is not installed. Please install it with: pip install liana")
+            result_data = await _analyze_communication_cellchat_liana(adata, params, context)
+            
         else:
-            raise ValueError(f"Unsupported method: {params.method}. Only 'liana' is supported.")
+            raise ValueError(f"Unsupported method: {params.method}. Supported methods: 'liana', 'cellphonedb', 'cellchat_liana'")
         
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
@@ -404,3 +423,325 @@ async def _run_liana_spatial_analysis(
         "analysis_type": "spatial",
         "statistics": statistics
     }
+
+
+async def _analyze_communication_cellphonedb(
+    adata: Any,
+    params: CellCommunicationParameters,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Analyze cell communication using CellPhoneDB"""
+    try:
+        from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
+        import tempfile
+        import os
+    except ImportError:
+        raise ImportError("CellPhoneDB is not installed. Please install it with: pip install cellphonedb")
+
+    if context:
+        await context.info("Running CellPhoneDB statistical analysis...")
+
+    try:
+        import time
+        start_time = time.time()
+
+        # Prepare data for CellPhoneDB
+        if context:
+            await context.info("Preparing data for CellPhoneDB analysis...")
+
+        # Check for required cell type information
+        cell_type_col = None
+        for col in ['cell_type', 'celltype', 'cluster', 'leiden', 'louvain']:
+            if col in adata.obs.columns:
+                cell_type_col = col
+                break
+        
+        if not cell_type_col:
+            raise ValueError("No cell type information found. Please ensure your data has one of: 'cell_type', 'celltype', 'cluster', 'leiden', 'louvain' columns")
+
+        # Prepare counts data (genes x cells)
+        if hasattr(adata.X, 'toarray'):
+            counts_df = pd.DataFrame(
+                adata.X.toarray().T,
+                index=adata.var.index,
+                columns=adata.obs.index
+            )
+        else:
+            counts_df = pd.DataFrame(
+                adata.X.T,
+                index=adata.var.index,
+                columns=adata.obs.index
+            )
+
+        # Prepare meta data
+        meta_df = pd.DataFrame({
+            'Cell': adata.obs.index,
+            'cell_type': adata.obs[cell_type_col].astype(str)
+        })
+
+        if context:
+            await context.info(f"Data prepared: {counts_df.shape[0]} genes, {counts_df.shape[1]} cells, {meta_df['cell_type'].nunique()} cell types")
+
+        # Create microenvironments file if spatial data is available and requested
+        microenvs_file = None
+        if params.cellphonedb_use_microenvironments and 'spatial' in adata.obsm:
+            if context:
+                await context.info("Creating spatial microenvironments...")
+            microenvs_file = await _create_microenvironments_file(adata, params, context)
+
+        # Set random seed for reproducibility
+        if params.cellphonedb_debug_seed is not None:
+            np.random.seed(params.cellphonedb_debug_seed)
+
+        # Run CellPhoneDB statistical analysis
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Save data to temporary files
+            counts_file = os.path.join(temp_dir, 'counts.txt')
+            meta_file = os.path.join(temp_dir, 'meta.txt')
+            
+            counts_df.to_csv(counts_file, sep='\t')
+            meta_df.to_csv(meta_file, sep='\t', index=False)
+            
+            if context:
+                await context.info("Running CellPhoneDB statistical analysis (this may take several minutes)...")
+
+            try:
+                # Run the analysis
+                deconvoluted, means, pvalues, significant_means = cpdb_statistical_analysis_method.call(
+                    cpdb_file_path=None,  # Use default database
+                    meta_file_path=meta_file,
+                    counts_file_path=counts_file,
+                    counts_data='ensembl',
+                    threshold=params.cellphonedb_threshold,
+                    result_precision=params.cellphonedb_result_precision,
+                    pvalue=params.cellphonedb_pvalue,
+                    iterations=params.cellphonedb_iterations,
+                    debug_seed=params.cellphonedb_debug_seed,
+                    output_path=temp_dir,
+                    microenvs_file_path=microenvs_file
+                )
+            except Exception as api_error:
+                # Fallback to simpler API call if the above fails
+                if context:
+                    await context.warning(f"CellPhoneDB API call failed, trying alternative approach: {str(api_error)}")
+                
+                deconvoluted, means, pvalues, significant_means = cpdb_statistical_analysis_method.call(
+                    cpdb_file_path=None,
+                    meta_file_path=meta_file,
+                    counts_file_path=counts_file,
+                    threshold=params.cellphonedb_threshold,
+                    result_precision=params.cellphonedb_result_precision,
+                    pvalue=params.cellphonedb_pvalue,
+                    iterations=params.cellphonedb_iterations
+                )
+
+            # Store results in AnnData object
+            adata.uns['cellphonedb_deconvoluted'] = deconvoluted
+            adata.uns['cellphonedb_means'] = means
+            adata.uns['cellphonedb_pvalues'] = pvalues
+            adata.uns['cellphonedb_significant_means'] = significant_means
+
+        # Calculate statistics
+        n_lr_pairs = len(means) if means is not None and hasattr(means, '__len__') else 0
+        n_significant_pairs = len(significant_means) if significant_means is not None and hasattr(significant_means, '__len__') else 0
+
+        # Get top LR pairs
+        top_lr_pairs = []
+        if significant_means is not None and hasattr(significant_means, 'head'):
+            # CellPhoneDB returns interactions in 'interacting_pair' column
+            if hasattr(significant_means, 'columns') and 'interacting_pair' in significant_means.columns:
+                top_pairs_df = significant_means.head(params.plot_top_pairs)
+                top_lr_pairs = top_pairs_df['interacting_pair'].tolist()
+
+        end_time = time.time()
+        analysis_time = end_time - start_time
+
+        if context:
+            await context.info(f"CellPhoneDB analysis completed in {analysis_time:.2f} seconds")
+            await context.info(f"Found {n_significant_pairs} significant interactions out of {n_lr_pairs} tested")
+
+        statistics = {
+            "method": "cellphonedb",
+            "iterations": params.cellphonedb_iterations,
+            "threshold": params.cellphonedb_threshold,
+            "pvalue_threshold": params.cellphonedb_pvalue,
+            "n_cell_types": meta_df['cell_type'].nunique(),
+            "microenvironments_used": microenvs_file is not None,
+            "analysis_time_seconds": analysis_time
+        }
+
+        return {
+            "n_lr_pairs": n_lr_pairs,
+            "n_significant_pairs": n_significant_pairs,
+            "top_lr_pairs": top_lr_pairs,
+            "cellphonedb_results_key": "cellphonedb_means",
+            "cellphonedb_pvalues_key": "cellphonedb_pvalues",
+            "cellphonedb_significant_key": "cellphonedb_significant_means",
+            "analysis_type": "statistical",
+            "statistics": statistics
+        }
+
+    except Exception as e:
+        raise RuntimeError(f"CellPhoneDB analysis failed: {str(e)}")
+
+
+async def _analyze_communication_cellchat_liana(
+    adata: Any,
+    params: CellCommunicationParameters,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Analyze cell communication using CellChat via LIANA"""
+    try:
+        import liana as li
+    except ImportError:
+        raise ImportError("LIANA+ is not installed. Please install it with: pip install liana")
+
+    if context:
+        await context.info("Running CellChat analysis via LIANA...")
+
+    try:
+        import time
+        start_time = time.time()
+
+        # Determine groupby column for CellChat
+        groupby_col = None
+        for col in ['cell_type', 'celltype', 'cluster', 'leiden', 'louvain']:
+            if col in adata.obs.columns:
+                groupby_col = col
+                break
+
+        if not groupby_col:
+            raise ValueError("No suitable groupby column found. Please ensure your data has cell type annotations")
+
+        if context:
+            await context.info(f"Running CellChat analysis grouped by '{groupby_col}'...")
+
+        # Get appropriate resource name based on species
+        resource_name = _get_liana_resource_name(params.species, "cellchat")
+        if context:
+            await context.info(f"Using CellChat resource: {resource_name} for species: {params.species}")
+
+        # Use parameters from user or optimize for performance
+        n_perms = params.liana_n_perms
+        if adata.n_obs > 3000 and n_perms > 500:
+            n_perms = 500
+            if context:
+                await context.info(f"Large dataset detected, reducing permutations to {n_perms}")
+
+        # Run LIANA with CellChat resource
+        li.mt.rank_aggregate(
+            adata,
+            groupby=groupby_col,
+            resource_name=resource_name,
+            expr_prop=params.liana_nz_prop,
+            min_cells=params.min_cells,
+            n_perms=n_perms,
+            verbose=False,
+            use_raw=True if adata.raw is not None else False
+        )
+
+        # Get results
+        liana_res = adata.uns['liana_res']
+
+        # Calculate statistics
+        n_lr_pairs = len(liana_res)
+        n_significant_pairs = len(liana_res[liana_res['specificity_rank'] <= 0.05])
+
+        # Get top pairs
+        top_lr_pairs = []
+        if 'magnitude_rank' in liana_res.columns:
+            top_pairs_df = liana_res.nsmallest(params.plot_top_pairs, 'magnitude_rank')
+            top_lr_pairs = [f"{row['ligand_complex']}_{row['receptor_complex']}"
+                           for _, row in top_pairs_df.iterrows()]
+
+        end_time = time.time()
+        analysis_time = end_time - start_time
+
+        if context:
+            await context.info(f"CellChat via LIANA analysis completed in {analysis_time:.2f} seconds")
+
+        statistics = {
+            "method": "cellchat_liana",
+            "groupby": groupby_col,
+            "n_lr_pairs_tested": n_lr_pairs,
+            "n_permutations": n_perms,
+            "significance_threshold": 0.05,
+            "resource": "cellchat",
+            "cellchat_type": params.cellchat_type,
+            "analysis_time_seconds": analysis_time
+        }
+
+        return {
+            "n_lr_pairs": n_lr_pairs,
+            "n_significant_pairs": n_significant_pairs,
+            "top_lr_pairs": top_lr_pairs,
+            "liana_results_key": "liana_res",
+            "analysis_type": "cellchat_via_liana",
+            "statistics": statistics
+        }
+
+    except Exception as e:
+        raise RuntimeError(f"CellChat via LIANA analysis failed: {str(e)}")
+
+
+async def _create_microenvironments_file(
+    adata: Any,
+    params: CellCommunicationParameters,
+    context: Optional[Context] = None
+) -> Optional[str]:
+    """Create microenvironments file for CellPhoneDB spatial analysis"""
+    try:
+        import tempfile
+        import os
+        from sklearn.neighbors import NearestNeighbors
+        
+        if 'spatial' not in adata.obsm:
+            return None
+            
+        spatial_coords = adata.obsm['spatial']
+        
+        # Determine spatial radius
+        if params.cellphonedb_spatial_radius is not None:
+            radius = params.cellphonedb_spatial_radius
+        else:
+            # Auto-determine radius based on data density
+            # Use median distance to 5th nearest neighbor as a heuristic
+            nn = NearestNeighbors(n_neighbors=6)
+            nn.fit(spatial_coords)
+            distances, _ = nn.kneighbors(spatial_coords)
+            radius = np.median(distances[:, 5]) * 2  # 5th neighbor (0-indexed), doubled
+            
+        if context:
+            await context.info(f"Using spatial radius: {radius:.2f}")
+        
+        # Find spatial neighbors for each cell
+        nn = NearestNeighbors(radius=radius)
+        nn.fit(spatial_coords)
+        neighbor_matrix = nn.radius_neighbors_graph(spatial_coords)
+        
+        # Create microenvironments based on spatial connectivity
+        microenvs = []
+        for i in range(adata.n_obs):
+            neighbors = neighbor_matrix[i].indices
+            if len(neighbors) > 1:  # At least one neighbor besides itself
+                microenv_cells = [adata.obs.index[j] for j in neighbors]
+                microenv_name = f"microenv_{i}"
+                for cell in microenv_cells:
+                    microenvs.append([cell, microenv_name])
+        
+        # Save to temporary file
+        temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='_microenvironments.txt')
+        temp_file.write("cell\tmicroenvironment\n")
+        for cell, microenv in microenvs:
+            temp_file.write(f"{cell}\t{microenv}\n")
+        temp_file.close()
+        
+        if context:
+            await context.info(f"Created microenvironments file with {len(set([m[1] for m in microenvs]))} microenvironments")
+            
+        return temp_file.name
+        
+    except Exception as e:
+        if context:
+            await context.warning(f"Failed to create microenvironments file: {str(e)}")
+        return None
