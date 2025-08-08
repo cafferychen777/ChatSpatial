@@ -1,21 +1,43 @@
-# ChatSpatial - Interactive Spatial Transcriptomics Assistant
+# ChatSpatial MCP Server
 
-ChatSpatial is an interactive spatial transcriptomics data analysis assistant based on the Model Context Protocol (MCP), providing a suite of tools for spatial transcriptomics data processing, visualization, and analysis. It helps researchers analyze spatial transcriptomics data through natural language dialogue.
+**Interactive Spatial Transcriptomics Analysis via Model Context Protocol**
 
-## Features
+ChatSpatial is a **Model Context Protocol (MCP) server** that provides AI assistants with comprehensive spatial transcriptomics analysis capabilities. It enables natural language interaction with spatial data analysis through 32+ standardized MCP tools.
 
-- **Data Loading**: Support for various spatial transcriptomics data formats (10x Visium, Slide-seq, MERFISH, seqFISH, etc.)
-- **Enhanced Data Preprocessing**: User-controlled filtering, subsampling, normalization, and dimensionality reduction with intelligent defaults for different data types
-- **Comprehensive Visualization**: 10+ visualization types including spatial plots, heatmaps, trajectory analysis, cell communication networks, and deconvolution results - all verified for production use
-- **Differential Expression Analysis**: Identification of differentially expressed genes between cell populations
-- **Cell Type Annotation**: Multiple methods including marker-based, CellAssign, scANVI deep learning annotation
-- **Spatial Analysis**: Spatial autocorrelation (Moran's I, Getis-Ord Gi*), neighborhood analysis, spatial trajectories, etc.
-- **Spatial Domain Identification**: SpaGCN and clustering-based methods (leiden/louvain) are implemented; STAGATE and BANKSY are available when optional dependencies are installed; other methods (e.g., stLearn, SEDR, BayesSpace) are not implemented in this server
-- **Spatial Variable Genes**: GASTON (deep learning, recommended) implemented; SpatialDE and SPARK also available optionally for benchmarking or lightweight scenarios
-- **Cell Communication Analysis**: LIANA+ integration for fast and comprehensive ligand-receptor interaction analysis with spatial bivariate metrics
-- **Spatially-aware Enrichment Analysis**: EnrichMap integration for gene set enrichment with spatial smoothing and covariate correction
-- **Advanced Deconvolution**: Complete scvi-tools integration with DestVI, Stereoscope, Cell2location, and traditional methods
-- **Standardized Image Processing**: Unified image processing module ensuring all visualization functions return standardized Image objects
+🔗 **MCP Protocol**: Seamless integration with Claude Desktop, Continue, and other MCP-compatible AI tools  
+🧬 **Spatial Focus**: Specialized for spatial transcriptomics (10x Visium, Slide-seq, MERFISH, etc.)  
+⚡ **Production Ready**: All core methods tested and validated for real-world usage
+
+## MCP Tools & Capabilities
+
+### 🔄 **Data Management** 
+- `load_data` - Multi-format spatial data loading (10x Visium, Slide-seq, MERFISH, seqFISH)
+- `preprocess_data` - QC, normalization, dimensionality reduction with intelligent defaults
+
+### 📊 **Visualization**
+- `visualize_data` - 15+ plot types (spatial, UMAP, violin, heatmap, trajectory, communication)
+- Returns standard MCP `Image` objects for seamless AI assistant display
+
+### 🔬 **Cell Analysis** 
+- `annotate_cells` - Multiple annotation methods (marker-based, Tangram, scANVI, CellAssign)
+- `find_markers` - Differential expression analysis between cell populations
+
+### 🧬 **Spatial Analysis**
+- `find_spatial_genes` - **GASTON** (deep learning), **SpatialDE**, **SPARK** methods ✅ All working
+- `identify_spatial_domains` - SpaGCN, STAGATE, BANKSY spatial clustering
+- `analyze_spatial_data` - Moran's I, Geary's C, spatial autocorrelation
+
+### 💬 **Cell Communication**
+- `analyze_cell_communication` - **LIANA+** ligand-receptor analysis with spatial bivariate metrics
+
+### 🔗 **Integration & Trajectory**
+- `integrate_samples` - Multi-sample integration (Harmony, scVI, BBKNN)
+- `analyze_trajectory_data` - Pseudotime inference (Palantir, CellRank, DPT)
+- `analyze_velocity_data` - RNA velocity analysis
+
+### 🧮 **Advanced Methods**
+- `deconvolve_data` - Cell type deconvolution (DestVI, Cell2location, RCTD, SPOTlight)
+- `analyze_enrichment` - Pathway analysis (GSEA, ORA, Enrichr) with spatial smoothing
 
 ## Installation
 
@@ -116,6 +138,48 @@ chatspatial
 
 # Using SSE transport with a specified port
 chatspatial --transport sse --port 8000
+```
+
+## MCP Server Configuration
+
+ChatSpatial implements the **Model Context Protocol (MCP)** standard for seamless AI assistant integration.
+
+### Quick MCP Setup
+
+1. **Find your Python path**:
+```bash
+# Activate your ChatSpatial environment
+conda activate chatspatial_env
+
+# Get the Python executable path 
+which python
+# Example output: /opt/anaconda3/envs/chatspatial_env/bin/python
+```
+
+2. **Configure your MCP client** (Claude Desktop, Continue, etc.):
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/path/to/your/chatspatial_env/bin/python", 
+      "args": ["-m", "chatspatial"],
+      "env": {}
+    }
+  }
+}
+```
+
+### MCP Protocol Details
+
+**Server Information:**
+- **Protocol**: MCP v2024-11-05
+- **Tools**: 32 spatial transcriptomics analysis tools
+- **Resources**: Automatic dataset and result management via `spatial://` URIs
+- **Transport**: stdio (standard input/output)
+
+**Data Flow:**
+```
+AI Assistant → MCP tools/call → ChatSpatial Tool → Analysis Result → MCP ToolResult
 ```
 
 ### Using with Claude Desktop
