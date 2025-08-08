@@ -241,7 +241,7 @@ class SpatialPromptManager:
                 description="Generate spatial visualization",
                 arguments=[
                     {"name": "plot_type", "description": "Type of visualization", "required": True},
-                    {"name": "features", "description": "Features to visualize", "required": False},
+                    {"name": "feature", "description": "Feature(s) to visualize (single gene or list of genes)", "required": False},
                     {"name": "save_path", "description": "Path to save figure", "required": False}
                 ],
                 handler=self._handle_visualization
@@ -393,15 +393,14 @@ class SpatialPromptManager:
             "plot_type": args["plot_type"]
         }
         
-        # Handle features properly based on plot type
+        # Handle features/feature parameter (support both for backward compatibility)
         if "features" in args:
             features = args["features"]
-            # For multi_gene plot type, keep features as a list
-            if args["plot_type"] == "multi_gene":
-                vis_params["features"] = features if isinstance(features, list) else [features]
-            else:
-                # For single gene plots, use feature (singular)
-                vis_params["feature"] = features[0] if isinstance(features, list) else features
+            # Always use the unified 'feature' parameter
+            vis_params["feature"] = features
+        elif "feature" in args:
+            # Direct feature parameter
+            vis_params["feature"] = args["feature"]
         
         return {
             "tool": "visualize_data",

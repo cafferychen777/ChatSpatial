@@ -289,7 +289,55 @@ async def preprocess_data(
             if context:
                 await context.info("Scaling data...")
             try:
-                sc.pp.scale(adata, max_value=MAX_SCALE_VALUE)
+                # Check for genes with zero variance before scaling
+                if hasattr(adata.X, 'toarray'):
+                    X_check = adata.X.toarray()
+                else:
+                    X_check = adata.X
+
+                gene_vars = np.var(X_check, axis=0)
+                zero_var_genes = gene_vars == 0
+
+                if np.any(zero_var_genes):
+                    if context:
+                        await context.warning(f"Found {np.sum(zero_var_genes)} genes with zero variance before scaling")
+                    # Remove zero-variance genes temporarily for scaling
+                    non_zero_var_mask = ~zero_var_genes
+                    if np.sum(non_zero_var_mask) > 0:
+                        # Scale only non-zero variance genes
+                        adata_temp = adata[:, non_zero_var_mask].copy()
+                        sc.pp.scale(adata_temp, max_value=MAX_SCALE_VALUE)
+
+                        # Reconstruct the full matrix
+                        if hasattr(adata.X, 'toarray'):
+                            X_scaled = np.zeros_like(adata.X.toarray())
+                        else:
+                            X_scaled = np.zeros_like(adata.X)
+
+                        X_scaled[:, non_zero_var_mask] = adata_temp.X
+                        # Zero-variance genes remain as they were (typically zeros)
+                        X_scaled[:, zero_var_genes] = X_check[:, zero_var_genes]
+
+                        adata.X = X_scaled
+                    else:
+                        if context:
+                            await context.warning("All genes have zero variance, skipping scaling")
+                else:
+                    # Normal scaling if no zero-variance genes
+                    sc.pp.scale(adata, max_value=MAX_SCALE_VALUE)
+
+                # Final check for NaN/Inf values after scaling
+                if hasattr(adata.X, 'toarray'):
+                    X_final = adata.X.toarray()
+                else:
+                    X_final = adata.X
+
+                if np.any(np.isnan(X_final)) or np.any(np.isinf(X_final)):
+                    if context:
+                        await context.warning("Found NaN/Inf values after scaling, cleaning up")
+                    X_final = np.nan_to_num(X_final, nan=0.0, posinf=MAX_SCALE_VALUE, neginf=-MAX_SCALE_VALUE)
+                    adata.X = X_final
+
             except Exception as e:
                 if context:
                     await context.warning(f"Scaling failed: {e}. Continuing without scaling.")

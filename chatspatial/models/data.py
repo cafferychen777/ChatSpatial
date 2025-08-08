@@ -40,12 +40,14 @@ class AnalysisParameters(BaseModel):
 
 class VisualizationParameters(BaseModel):
     """Visualization parameters model"""
-    feature: Optional[str] = None
+    model_config = {"extra": "forbid"}  # Forbid extra fields like 'features'
+
+    feature: Optional[Union[str, List[str]]] = None  # Single feature or list of features
     plot_type: Literal[
         "spatial", "heatmap", "violin", "umap",
         "spatial_domains", "cell_communication", "deconvolution",
         "trajectory", "rna_velocity", "spatial_analysis", "multi_gene", "lr_pairs", "gene_correlation",
-        "gaston_isodepth", "gaston_domains", "gaston_genes", 
+        "gaston_isodepth", "gaston_domains", "gaston_genes",
         "pathway_enrichment", "spatial_enrichment"  # Clear enrichment types
     ] = "spatial"
     colormap: str = "viridis"
@@ -57,7 +59,6 @@ class VisualizationParameters(BaseModel):
     cluster_key: Optional[str] = Field(None, description="Cluster key for spatial analysis visualization (e.g., 'leiden')")  # For spatial analysis visualization
 
     # Multi-gene visualization parameters
-    features: Optional[List[str]] = None  # Multiple features for multi-panel plots
     multi_panel: bool = False  # Whether to create multi-panel plots
     panel_layout: Optional[Tuple[int, int]] = None  # (rows, cols) - auto-determined if None
 
@@ -120,8 +121,8 @@ class AnnotationParameters(BaseModel):
     
     # CellAssign parameters
     cellassign_n_hidden: int = 100
-    cellassign_learning_rate: float = 1e-3
-    cellassign_max_iter: int = 1000
+    cellassign_learning_rate: float = 0.001
+    cellassign_max_iter: int = 200
     
     # mLLMCellType parameters
     mllm_n_marker_genes: Annotated[int, Field(gt=0, le=50)] = 20  # Number of marker genes per cluster

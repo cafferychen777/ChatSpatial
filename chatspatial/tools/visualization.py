@@ -93,7 +93,7 @@ async def get_validated_features(
     context: Optional[Context] = None
 ) -> List[str]:
     """Gets a validated list of features (genes) for visualization."""
-    
+
     # Ensure unique var_names before proceeding
     if not adata.var_names.is_unique:
         if context:
@@ -101,10 +101,11 @@ async def get_validated_features(
         adata.var_names_make_unique()
 
     features = []
-    if params.features:
-        features = params.features
-    elif params.feature:
-        features = [params.feature]
+    if params.feature:
+        if isinstance(params.feature, list):
+            features = params.feature
+        else:
+            features = [params.feature]
 
     if features:
         available_features = [f for f in features if f in adata.var_names]
@@ -616,17 +617,19 @@ async def visualize_data(
         # Create figure based on plot type
         if params.plot_type == "spatial":
             # Check if this should be a multi-gene visualization
-            if params.features and params.multi_panel and len(params.features) > 1:
+            feature_list = params.feature if isinstance(params.feature, list) else ([params.feature] if params.feature else [])
+            if feature_list and params.multi_panel and len(feature_list) > 1:
                 if context:
-                    await context.info(f"Creating multi-gene spatial plot for {len(params.features)} genes")
+                    await context.info(f"Creating multi-gene spatial plot for {len(feature_list)} genes")
                 # Create multi-gene visualization
                 fig = await create_multi_gene_visualization(adata, params, context)
             else:
+                single_feature = feature_list[0] if feature_list else None
                 if context:
-                    await context.info(f"Creating spatial plot for {params.feature if params.feature else 'tissue'}")
+                    await context.info(f"Creating spatial plot for {single_feature if single_feature else 'tissue'}")
 
                 # Validate and prepare feature for visualization
-                feature = await validate_and_prepare_feature(adata, params.feature, context, default_feature=None)
+                feature = await validate_and_prepare_feature(adata, single_feature, context, default_feature=None)
 
                 # Create spatial plot
                 # For 10x Visium data
@@ -691,17 +694,19 @@ async def visualize_data(
                     adata.obsm['X_umap'] = adata.obsm['X_pca'][:, :2]
 
             # Check if we should create multi-panel plot for multiple features
-            if params.features and params.multi_panel:
+            feature_list = params.feature if isinstance(params.feature, list) else ([params.feature] if params.feature else [])
+            if feature_list and params.multi_panel and len(feature_list) > 1:
                 # Use the new dedicated function for multi-gene UMAP
                 fig = await create_multi_gene_umap_visualization(adata, params, context)
             else:
                 # Simplified feature validation: let validate_and_prepare_feature handle all cases
                 default_feature = 'leiden' if 'leiden' in adata.obs.columns else None
+                single_feature = feature_list[0] if feature_list else None
                 # Directly call the helper, it will handle all cases including deconvolution keys
                 feature = await validate_and_prepare_feature(
-                    adata, 
-                    params.feature, 
-                    context, 
+                    adata,
+                    single_feature,
+                    context,
                     default_feature=default_feature
                 )
 
@@ -766,12 +771,13 @@ async def visualize_data(
                 await context.info(f"Using top {n_genes} highly variable genes for heatmap")
 
             # Get genes for heatmap
-            if params.features and len(params.features) > 0:
+            feature_list = params.feature if isinstance(params.feature, list) else ([params.feature] if params.feature else [])
+            if feature_list and len(feature_list) > 0:
                 # Use user-specified genes
-                available_genes = [gene for gene in params.features if gene in adata.var_names]
+                available_genes = [gene for gene in feature_list if gene in adata.var_names]
                 if not available_genes:
                     if context:
-                        await context.warning(f"None of specified genes found: {params.features}. Using highly variable genes.")
+                        await context.warning(f"None of specified genes found: {feature_list}. Using highly variable genes.")
                     # Fall back to highly variable genes
                     available_genes = adata.var_names[adata.var.highly_variable][:n_genes].tolist()
                 else:
@@ -1807,15 +1813,17 @@ async def create_lr_pairs_visualization(
     # Get LR pairs to visualize
     if params.lr_pairs:
         lr_pairs = params.lr_pairs
-    elif params.features and len(params.features) >= 2:
-        # Assume pairs of genes in features list
-        lr_pairs = [(params.features[i], params.features[i+1])
-                   for i in range(0, len(params.features)-1, 2)]
     else:
-        # Default LR pairs for demonstration
-        lr_pairs = [
-            ("CCL21", "CCR7"),
-            ("CCL19", "CCR7"),
+        feature_list = params.feature if isinstance(params.feature, list) else ([params.feature] if params.feature else [])
+        if feature_list and len(feature_list) >= 2:
+            # Assume pairs of genes in features list
+            lr_pairs = [(feature_list[i], feature_list[i+1])
+                       for i in range(0, len(feature_list)-1, 2)]
+        else:
+            # Default LR pairs for demonstration
+            lr_pairs = [
+                ("CCL21", "CCR7"),
+                ("CCL19", "CCR7"),
             ("CXCL13", "CXCR5"),
             ("FN1", "CD79A")
         ]
@@ -2346,13 +2354,14 @@ async def create_getis_ord_visualization(
         raise DataNotFoundError("No Getis-Ord results found in adata.obs")
     
     # Get genes to plot
-    if params.features:
-        genes_to_plot = [g for g in params.features if g in getis_ord_genes]
+    feature_list = params.feature if isinstance(params.feature, list) else ([params.feature] if params.feature else [])
+    if feature_list:
+        genes_to_plot = [g for g in feature_list if g in getis_ord_genes]
     else:
         genes_to_plot = getis_ord_genes[:6]  # Default to first 6 genes
-    
+
     if not genes_to_plot:
-        raise DataNotFoundError(f"None of the specified genes have Getis-Ord results: {params.features}")
+        raise DataNotFoundError(f"None of the specified genes have Getis-Ord results: {feature_list}")
     
     if context:
         await context.info(f"Plotting Getis-Ord results for {len(genes_to_plot)} genes: {genes_to_plot}")
@@ -2816,7 +2825,7 @@ async def create_enrichment_visualization(
         adata: AnnData object with enrichment scores
         params: Visualization parameters
             - feature: Score column name or signature name
-            - features: List of scores for multi-panel plot
+            - feature: Score column name, signature name, or list of scores for multi-panel plot
             - color_by: For violin plots, the grouping variable (default: leiden)
             - show_gene_contributions: Show gene contribution heatmap
         context: MCP context
@@ -2893,14 +2902,15 @@ async def create_enrichment_visualization(
             raise DataNotFoundError(f"Grouping variable '{group_by}' not found in adata.obs")
         
         # Determine which scores to plot
-        if params.features and len(params.features) > 1:
+        feature_list = params.feature if isinstance(params.feature, list) else ([params.feature] if params.feature else [])
+        if feature_list and len(feature_list) > 1:
             scores_to_plot = []
-            for feat in params.features:
+            for feat in feature_list:
                 if feat in adata.obs.columns:
                     scores_to_plot.append(feat)
                 elif f"{feat}_score" in adata.obs.columns:
                     scores_to_plot.append(f"{feat}_score")
-        elif params.feature:
+        elif feature_list:
             if params.feature in adata.obs.columns:
                 scores_to_plot = [params.feature]
             elif f"{params.feature}_score" in adata.obs.columns:
@@ -2997,17 +3007,18 @@ async def create_enrichment_visualization(
             await context.info(f"Using score column: {score_col}")
     
     # Check if we should create multi-panel plot for multiple scores
-    if params.features and len(params.features) > 1:
+    feature_list = params.feature if isinstance(params.feature, list) else ([params.feature] if params.feature else [])
+    if feature_list and len(feature_list) > 1:
         # Multi-score visualization
         scores_to_plot = []
-        for feat in params.features:
+        for feat in feature_list:
             if feat in adata.obs.columns:
                 scores_to_plot.append(feat)
             elif f"{feat}_score" in adata.obs.columns:
                 scores_to_plot.append(f"{feat}_score")
-        
+
         if not scores_to_plot:
-            raise DataNotFoundError(f"None of the specified scores found: {params.features}")
+            raise DataNotFoundError(f"None of the specified scores found: {feature_list}")
         
         # Create multi-panel figure
         fig, axes = setup_multi_panel_figure(

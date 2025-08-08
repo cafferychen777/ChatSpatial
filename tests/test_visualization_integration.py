@@ -1,5 +1,5 @@
 """
-测试可视化和图像处理集成
+Test visualization and image processing integration
 """
 
 import sys
@@ -11,7 +11,7 @@ import scanpy as sc
 import anndata as ad
 from pathlib import Path
 
-# 添加项目根目录到 Python 路径
+# Add project root directory to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from spatial_transcriptomics_mcp.tools.visualization import visualize_data
@@ -20,7 +20,7 @@ from mcp.server.fastmcp.utilities.types import Image
 
 
 class MockContext:
-    """模拟 MCP 上下文"""
+    """Mock MCP context"""
     async def info(self, message):
         print(f"INFO: {message}")
     
@@ -29,11 +29,11 @@ class MockContext:
 
 
 class TestVisualizationIntegration(unittest.TestCase):
-    """测试可视化功能与图像处理的集成"""
+    """Testvisualization功能与imageprocessing的集成"""
 
     def setUp(self):
-        """设置测试数据"""
-        # 创建一个简单的 AnnData 对象用于测试
+        """setupTestdata"""
+        # create一个简单的 AnnData object用于Test
         np.random.seed(42)
         n_obs = 100
         n_vars = 50
@@ -42,46 +42,46 @@ class TestVisualizationIntegration(unittest.TestCase):
         obs = {"cluster": np.random.choice(["A", "B", "C"], size=n_obs)}
         var = {"gene_name": [f"gene_{i}" for i in range(n_vars)]}
         
-        # 创建 AnnData 对象
+        # create AnnData object
         self.adata = ad.AnnData(X, obs=obs, var=var)
         
-        # 添加空间坐标
+        # 添加spatialcoordinate
         self.adata.obsm["spatial"] = np.random.rand(n_obs, 2) * 100
         
-        # 添加 UMAP 坐标
+        # 添加 UMAP coordinate
         self.adata.obsm["X_umap"] = np.random.rand(n_obs, 2) * 10
         
-        # 添加 leiden 聚类
+        # 添加 leiden 聚class
         self.adata.obs["leiden"] = np.random.choice(["0", "1", "2"], size=n_obs)
         
-        # 创建数据存储
+        # createdatastorage
         self.data_store = {"test_data": {"adata": self.adata, "name": "Test Data"}}
 
     def test_visualize_data_returns_image(self):
-        """测试 visualize_data 函数返回 Image 对象"""
-        # 运行异步测试
+        """Test visualize_data functionreturn Image object"""
+        # run异步Test
         result = asyncio.run(self._test_visualize_data())
         
-        # 验证结果是 Image 对象
+        # validationresult是 Image object
         self.assertIsInstance(result, Image)
         
-        # 验证图像数据不为空
+        # validationimagedata不为空
         self.assertIsNotNone(result.data)
         self.assertGreater(len(result.data), 0)
 
     async def _test_visualize_data(self):
-        """异步测试 visualize_data 函数"""
-        # 创建参数
+        """异步Test visualize_data function"""
+        # createparameter
         params = VisualizationParameters(
             feature="gene_0",
             plot_type="spatial",
             colormap="viridis"
         )
         
-        # 创建模拟上下文
+        # create模拟上下文
         context = MockContext()
         
-        # 调用函数
+        # callfunction
         result = await visualize_data("test_data", self.data_store, params, context)
         return result
 
