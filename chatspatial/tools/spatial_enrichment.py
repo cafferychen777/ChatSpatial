@@ -1,5 +1,5 @@
 """
-Enrichment analysis tool for spatial transcriptomics data using EnrichMap.
+Spatial enrichment analysis tool for spatial transcriptomics data using EnrichMap.
 
 This module provides spatially-aware gene set enrichment analysis capabilities
 using the EnrichMap package.

@@ -758,7 +758,7 @@ async def analyze_enrichment(
         - Custom gene sets via gene_sets parameter
     """
     # Import enrichment analysis function
-    from .tools.enrichment_analysis import perform_enrichment_analysis
+    from .tools.spatial_enrichment import perform_enrichment_analysis
     import time
 
     # Validate dataset
@@ -861,7 +861,7 @@ async def analyze_enrichment(
             await context.info("Spatial enrichment analysis complete. Use create_visualization tool with plot_type='spatial_enrichment' to visualize results")
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.generic_enrichment import perform_gsea, perform_ora, perform_ssgsea, perform_enrichr
+        from .tools.pathway_enrichment import perform_gsea, perform_ora, perform_ssgsea, perform_enrichr
         
         if params.method == "pathway_gsea":
             result_dict = await perform_gsea(

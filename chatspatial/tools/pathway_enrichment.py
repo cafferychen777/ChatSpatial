@@ -1,5 +1,5 @@
 """
-Generic enrichment analysis tools for non-spatial data.
+Pathway enrichment analysis tools for non-spatial data.
 
 This module provides standard enrichment analysis methods including GSEA, ORA, and ssGSEA
 that don't require spatial coordinates.
