@@ -1,12 +1,12 @@
 """
-图像处理模块使用示例
+imageprocessingmodule使用示例
 """
 
 import matplotlib.pyplot as plt
 import numpy as np
 from mcp.server.fastmcp.utilities.types import Image
 
-# 导入图像处理模块
+# 导入imageprocessingmodule
 from spatial_transcriptomics_mcp.utils.image_utils import (
     fig_to_image,
     fig_to_base64,
@@ -15,12 +15,12 @@ from spatial_transcriptomics_mcp.utils.image_utils import (
 
 
 def create_sample_figure():
-    """创建一个示例图形"""
-    # 创建数据
+    """create一个示例图形"""
+    # createdata
     x = np.linspace(0, 10, 100)
     y = np.sin(x)
     
-    # 创建图形
+    # create图形
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.plot(x, y, 'b-', linewidth=2)
     ax.set_title("Sample Sine Wave")
@@ -32,10 +32,10 @@ def create_sample_figure():
 
 
 def example_fig_to_image():
-    """fig_to_image 函数示例"""
+    """fig_to_image function示例"""
     fig = create_sample_figure()
     
-    # 转换为 Image 对象
+    # 转换为 Image object
     image = fig_to_image(fig, dpi=100, format='png')
     
     print(f"Image object created: format={image._format}, size={len(image.data)/1024:.2f} KB")
@@ -43,8 +43,8 @@ def example_fig_to_image():
 
 
 def example_create_placeholder_image():
-    """create_placeholder_image 函数示例"""
-    # 创建占位图像
+    """create_placeholder_image function示例"""
+    # create占位image
     image = create_placeholder_image(
         message="This is a placeholder image",
         figsize=(6, 6),
@@ -56,7 +56,7 @@ def example_create_placeholder_image():
 
 
 def example_fig_to_base64():
-    """fig_to_base64 函数示例（向后兼容）"""
+    """fig_to_base64 function示例（向后兼容）"""
     fig = create_sample_figure()
     
     # 转换为 base64 字符串
@@ -67,7 +67,7 @@ def example_fig_to_base64():
 
 
 def main():
-    """运行所有示例"""
+    """run所有示例"""
     print("Running fig_to_image example...")
     example_fig_to_image()
     

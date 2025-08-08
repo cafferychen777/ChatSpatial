@@ -574,7 +574,7 @@ async def _annotate_with_cellassign(adata, params: AnnotationParameters, context
             await context.info("Using CellAssign method for annotation")
 
         if CellAssign is None:
-            raise ImportError("CellAssign from scvi-tools package is not installed")
+            raise ImportError("CellAssign from scvi-tools package is not installed. Please install it with 'pip install scvi-tools'")
 
         # Check if marker genes are provided
         if params.marker_genes is None:
@@ -610,24 +610,58 @@ async def _annotate_with_cellassign(adata, params: AnnotationParameters, context
                 if gene in available_marker_genes:
                     marker_gene_matrix.loc[gene, cell_type] = 1
         
+        # Subset data to only marker genes first
+        adata_subset = adata[:, available_marker_genes].copy()
+
+        # Check for invalid values in the data
+        if hasattr(adata_subset.X, 'toarray'):
+            X_array = adata_subset.X.toarray()
+        else:
+            X_array = adata_subset.X
+
+        # Replace any NaN or Inf values with zeros
+        if np.any(np.isnan(X_array)) or np.any(np.isinf(X_array)):
+            if context:
+                await context.warning("Found NaN or Inf values in data, replacing with zeros")
+            X_array = np.nan_to_num(X_array, nan=0.0, posinf=0.0, neginf=0.0)
+            adata_subset.X = X_array
+
+        # Additional data cleaning for CellAssign compatibility
+        # Check for genes with zero variance (which can cause issues in CellAssign)
+        gene_vars = np.var(X_array, axis=0)
+        zero_var_genes = gene_vars == 0
+        if np.any(zero_var_genes):
+            if context:
+                await context.warning(f"Found {np.sum(zero_var_genes)} genes with zero variance, adding small noise")
+            # Add small random noise to zero-variance genes to avoid numerical issues
+            np.random.seed(42)  # For reproducibility
+            noise_scale = 1e-6
+            for i in np.where(zero_var_genes)[0]:
+                X_array[:, i] += np.random.normal(0, noise_scale, X_array.shape[0])
+            adata_subset.X = X_array
+
+        # Ensure data is non-negative (CellAssign expects count-like data)
+        if np.any(X_array < 0):
+            if context:
+                await context.warning("Found negative values in data, clipping to zero")
+            X_array = np.maximum(X_array, 0)
+            adata_subset.X = X_array
+        
         # Add size factors if not present
-        if 'size_factors' not in adata.obs:
-            # Ensure size_factors is a pandas Series, not numpy array
-            if hasattr(adata.X, 'sum'):
-                size_factors = adata.X.sum(axis=1)
+        if 'size_factors' not in adata_subset.obs:
+            # Calculate size factors from subset data
+            if hasattr(adata_subset.X, 'sum'):
+                size_factors = adata_subset.X.sum(axis=1)
                 if hasattr(size_factors, 'A1'):  # sparse matrix
                     size_factors = size_factors.A1
-                adata.obs['size_factors'] = pd.Series(size_factors, index=adata.obs.index)
             else:
-                adata.obs['size_factors'] = pd.Series(np.ones(adata.n_obs), index=adata.obs.index)
+                size_factors = np.sum(adata_subset.X, axis=1)
+            
+            # Ensure size factors are positive (avoid division by zero)
+            size_factors = np.maximum(size_factors, 1e-6)
+            adata_subset.obs['size_factors'] = pd.Series(size_factors, index=adata_subset.obs.index)
         
-        # Setup CellAssign
-        CellAssign.setup_anndata(adata, size_factor_key='size_factors')
-        
-        # Subset data to only marker genes
-        adata_subset = adata[:, available_marker_genes].copy()
-        
-        # Setup CellAssign on subset data
+        # Setup CellAssign on subset data only
         CellAssign.setup_anndata(adata_subset, size_factor_key='size_factors')
         
         # Train CellAssign model

@@ -79,7 +79,7 @@ class PromptManager:
                 description="Generate spatial visualization",
                 arguments=[
                     PromptArgument("plot_type", "Type of visualization", required=True),
-                    PromptArgument("features", "Features to visualize", required=False),
+                    PromptArgument("feature", "Feature(s) to visualize (single gene or list of genes)", required=False),
                     PromptArgument("save_path", "Path to save figure", required=False)
                 ]
             ),
@@ -176,8 +176,11 @@ class PromptManager:
         
         elif prompt_name == "generate-visualization":
             tool_params["plot_type"] = arguments.get("plot_type")
-            if "features" in arguments:
-                tool_params["features"] = arguments["features"]
+            if "feature" in arguments:
+                tool_params["feature"] = arguments["feature"]
+            # Support legacy 'features' parameter for backward compatibility
+            elif "features" in arguments:
+                tool_params["feature"] = arguments["features"]
             if "save_path" in arguments:
                 tool_params["save_path"] = arguments["save_path"]
         

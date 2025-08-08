@@ -1,17 +1,17 @@
 """
-示例：如何启用 MCP 增强功能（使用新的 mcp 模块）
+Example: How to enable MCP enhanced features (using new mcp module)
 """
 
-# 1. 在 server.py 中添加资源管理
+# 1. Add resource management in server.py
 async def update_resources(mcp, data_store):
-    """更新可用资源列表"""
+    """Update available resource list"""
     from chatspatial.mcp.resources import ResourceManager
-    
+
     resource_manager = ResourceManager(data_store)
     resources = resource_manager.get_resource_list()
-    
+
     for resource in resources:
-        # 注册资源到 MCP
+        # Register resource to MCP
         await mcp.add_resource(
             uri=resource.uri,
             name=resource.name,
@@ -19,17 +19,17 @@ async def update_resources(mcp, data_store):
             description=resource.description
         )
 
-# 2. 在数据加载后调用
+# 2. Call after data loading
 async def enhanced_load_data(file_path: str, params: dict, context):
-    # 原有的加载逻辑
+    # Original loading logic
     result = await load_spatial_data(file_path, params)
-    
-    # 更新资源
+
+    # Update resources
     await update_resources(context.mcp, context.data_store)
-    
+
     return result
 
-# 3. 启用提示功能
+# 3. Enable prompt functionality
 from chatspatial.mcp.prompts import PromptManager
 
 prompt_manager = PromptManager()
@@ -45,7 +45,7 @@ async def get_prompt(name: str, arguments: dict = None):
         raise ValueError(f"Prompt '{name}' not found")
     
     if arguments:
-        # 转换为工具调用
+        # Convert to tool call
         tool_params = prompt_manager.prompt_to_tool_params(name, arguments)
         return {
             "description": prompt.description,
@@ -63,16 +63,16 @@ async def get_prompt(name: str, arguments: dict = None):
         }]
     }
 
-# 4. 使用工具注解
+# 4. Use tool annotations
 from chatspatial.mcp.annotations import get_tool_annotation
 
 def get_enhanced_tool_info(tool_name: str) -> dict:
-    """获取带有 MCP 注解的工具信息"""
+    """Get tool information with MCP annotations"""
     annotation = get_tool_annotation(tool_name)
     
     tool_info = {
         "name": tool_name,
-        # ... 其他工具信息
+        # ... other tool information
     }
     
     if annotation:

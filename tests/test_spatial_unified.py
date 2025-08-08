@@ -1,5 +1,5 @@
 """
-测试统一的空间分析功能
+Test unified spatial analysis functionality
 """
 
 import sys
@@ -10,7 +10,7 @@ import scanpy as sc
 import anndata as ad
 from pathlib import Path
 
-# 添加项目根目录到 Python 路径
+# Add project root directory to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from spatial_transcriptomics_mcp.tools.spatial_analysis import analyze_spatial_unified
@@ -20,7 +20,7 @@ from spatial_transcriptomics_mcp.models.analysis import SpatialAnalysisResult
 
 
 class MockContext:
-    """模拟 MCP 上下文"""
+    """Mock MCP context"""
     async def info(self, message):
         print(f"INFO: {message}")
 
@@ -29,10 +29,10 @@ class MockContext:
 
 
 async def test_spatial_unified():
-    """测试统一的空间分析功能"""
-    print("创建测试数据...")
+    """Test unified spatial analysis functionality"""
+    print("Creating test data...")
 
-    # 创建一个简单的 AnnData 对象用于测试
+    # Create a simple AnnData object for testing
     np.random.seed(42)
     n_obs = 100
     n_vars = 50
@@ -41,75 +41,75 @@ async def test_spatial_unified():
     obs = {"leiden": np.random.choice(["0", "1", "2"], size=n_obs)}
     var = {"gene_name": [f"gene_{i}" for i in range(n_vars)]}
 
-    # 创建 AnnData 对象
+    # Create AnnData object
     adata = ad.AnnData(X, obs=obs, var=var)
 
-    # 将leiden列转换为分类类型
+    # Convert leiden column to categorical type
     adata.obs["leiden"] = adata.obs["leiden"].astype("category")
 
-    # 添加空间坐标
+    # Add spatial coordinates
     adata.obsm["spatial"] = np.random.rand(n_obs, 2) * 100
 
-    # 添加高变基因
+    # Add highly variable genes
     adata.var["highly_variable"] = np.random.choice([True, False], size=n_vars, p=[0.2, 0.8])
 
-    # 创建数据存储
+    # Create data store
     data_store = {"test_data": {"adata": adata, "name": "Test Data"}}
 
-    # 创建模拟上下文
+    # Create mock context
     context = MockContext()
 
-    # 测试不同的空间分析类型
+    # Test different spatial analysis types
     analysis_types = ["neighborhood", "co_occurrence"]
 
     for analysis_type in analysis_types:
-        print(f"\n测试 {analysis_type} 空间分析...")
+        print(f"\nTesting {analysis_type} spatial analysis...")
 
-        # 创建空间分析参数
+        # Create spatial analysis parameters
         params = SpatialAnalysisParameters(
             analysis_type=analysis_type,
             n_neighbors=15,
             include_image=True
         )
 
-        # 测试返回 Image 对象
-        print(f"测试返回 Image 对象...")
+        # Test returning Image object
+        print(f"Testing Image object return...")
         try:
             result = await analyze_spatial_unified("test_data", data_store, params, context, return_type="image")
-            print(f"结果类型: {type(result)}")
+            print(f"Result type: {type(result)}")
             assert isinstance(result, Image), f"Expected Image, got {type(result)}"
-            print(f"图像大小: {len(result.data)/1024:.2f} KB")
+            print(f"Image size: {len(result.data)/1024:.2f} KB")
 
-            # 保存图像到文件
+            # Save image to file
             with open(f"unified_{analysis_type}_image.png", "wb") as f:
                 f.write(result.data)
-            print(f"图像已保存到 unified_{analysis_type}_image.png")
+            print(f"Image saved to unified_{analysis_type}_image.png")
 
         except Exception as e:
-            print(f"错误: {str(e)}")
+            print(f"Error: {str(e)}")
 
-        # 测试返回 SpatialAnalysisResult 对象
-        print(f"测试返回 SpatialAnalysisResult 对象...")
+        # Test returning SpatialAnalysisResult object
+        print(f"Testing SpatialAnalysisResult object return...")
         try:
             result = await analyze_spatial_unified("test_data", data_store, params, context, return_type="result")
-            print(f"结果类型: {type(result)}")
+            print(f"Result type: {type(result)}")
             assert isinstance(result, SpatialAnalysisResult), f"Expected SpatialAnalysisResult, got {type(result)}"
-            print(f"分析类型: {result.analysis_type}")
-            print(f"统计信息: {result.statistics}")
-            print(f"图像: {'有' if result.result_image else '无'}")
+            print(f"Analysis type: {result.analysis_type}")
+            print(f"Statistics: {result.statistics}")
+            print(f"Image: {'Yes' if result.result_image else 'No'}")
 
-            # 如果有图像，保存到文件
+            # If there's an image, save to file
             if result.result_image:
                 import base64
                 img_data = base64.b64decode(result.result_image)
                 with open(f"unified_{analysis_type}_result.png", "wb") as f:
                     f.write(img_data)
-                print(f"图像已保存到 unified_{analysis_type}_result.png")
+                print(f"Image saved to unified_{analysis_type}_result.png")
 
         except Exception as e:
-            print(f"错误: {str(e)}")
+            print(f"Error: {str(e)}")
 
-    print("\n测试完成！")
+    print("\nTesting completed!")
 
 
 if __name__ == "__main__":

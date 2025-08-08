@@ -66,7 +66,7 @@ def format_pydantic_errors(errors: list) -> str:
     formatted_errors = []
     
     for error in errors:
-        field_path = ".".join(str(x) for x in error["loc"]) if error["loc"] else "根字段"
+        field_path = ".".join(str(x) for x in error["loc"]) if error["loc"] else "root field"
         error_type = error["type"]
         error_input = error.get("input")
         ctx = error.get("ctx", {})

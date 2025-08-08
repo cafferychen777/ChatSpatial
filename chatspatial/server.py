@@ -201,7 +201,7 @@ async def visualize_data(
                         spatial_domains, cell_communication, deconvolution, trajectory,
                         spatial_analysis, multi_gene, lr_pairs, gene_correlation,
                         gaston_isodepth, gaston_domains, gaston_genes)
-            - feature: Gene or feature to visualize (for spatial plots)
+            - feature: Gene or feature to visualize (single gene as string or multiple genes as list)
             - colormap: Color scheme for visualization
             - figure_size: Size of the output figure
 
