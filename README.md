@@ -28,7 +28,7 @@ ChatSpatial is a **Model Context Protocol (MCP) server** that provides AI assist
 - `analyze_spatial_data` - Moran's I, Geary's C, spatial autocorrelation
 
 ### 💬 **Cell Communication**
-- `analyze_cell_communication` - **LIANA+** ligand-receptor analysis with spatial bivariate metrics
+- `analyze_cell_communication` - **LIANA+**, **CellPhoneDB v3**, **CellChat v2** for comprehensive ligand-receptor analysis
 
 ### 🔗 **Integration & Trajectory**
 - `integrate_samples` - Multi-sample integration (Harmony, scVI, BBKNN)
@@ -343,23 +343,50 @@ To visualize analysis results, use the `visualize` tool with appropriate `plot_t
 - `gaston_isodepth`, `gaston_domains`, `gaston_genes` - GASTON analysis results
 - And many more plot types for different analyses
 
-### Cell Communication Analysis with LIANA+
+### Cell Communication Analysis
 
-ChatSpatial uses LIANA+ (Ligand-receptor Analysis) for fast and comprehensive cell communication analysis:
+ChatSpatial supports three powerful methods for cell-cell communication analysis:
 
-**Features:**
+#### LIANA+ (Default) 🟢
+**Fast spatial bivariate analysis optimized for interactive usage:**
 
 - **Spatial Bivariate Analysis**: Analyze ligand-receptor pairs using spatial bivariate metrics (cosine, pearson, spearman, jaccard)
 - **Global Spatial Metrics**: Moran's I and Lee's L for spatial autocorrelation analysis
 - **Multiple LR Databases**: Support for consensus, CellChat, CellPhoneDB, Connectome, and OmniPath databases
 - **Fast Performance**: Optimized for interactive usage (1-2 minutes vs 10-30 minutes for other methods)
-- **Comprehensive Visualization**: Spatial plots showing communication patterns and significance
+
+#### CellPhoneDB v3 🟢
+**Classic statistical method with spatial microenvironments:**
+
+- **Statistical Analysis**: Permutation testing for ligand-receptor interaction significance
+- **Spatial Microenvironments**: Spatial neighbor-aware analysis using k-nearest neighbors
+- **Native Python**: Direct integration without R dependencies
+- **Comprehensive Database**: Extensive curated ligand-receptor interactions
+
+#### CellChat v2 (via LIANA) 🟢
+**Advanced algorithm with spatial capabilities:**
+
+- **Nature Protocols 2024**: Latest CellChat algorithm implementation
+- **Pattern Recognition**: Identifies communication patterns and pathways
+- **Spatial Features**: Enhanced spatial communication modeling
+- **LIANA Integration**: Accessed through LIANA framework for seamless usage
 
 **Example Usage:**
 
 ```text
+# LIANA+ (default method)
 "Analyze cell communication using LIANA+ with cosine similarity"
 "Find ligand-receptor pairs using Moran's I global metric"
+
+# CellPhoneDB v3
+"Analyze cell communication using CellPhoneDB method with 1000 permutations"
+"Use CellPhoneDB with spatial microenvironments and 0.05 threshold"
+
+# CellChat v2
+"Analyze cell communication using CellChat method via LIANA"
+"Find communication patterns using CellChat algorithm"
+
+# Visualization (after analysis)
 "Visualize spatial communication patterns for VEGFA-KDR interaction"
 ```
 
@@ -517,7 +544,8 @@ Install optional packages to enable additional methods:
 - SpaGCN (spatial domains): `pip install SpaGCN`
 - STAGATE (spatial domains): `pip install STAGATE`
 - BANKSY (spatial domains): `pip install banksy-utils`
-- LIANA+ (cell communication): `pip install liana`
+- LIANA+/CellChat (cell communication): `pip install liana`
+- CellPhoneDB (cell communication): `pip install cellphonedb`
 - esda/PySAL (Getis-Ord Gi*): `pip install esda libpysal`
 - scvi-tools family (CellAssign, scANVI, DestVI, Stereoscope, VeloVI): `pip install scvi-tools`
 - R-based methods (RCTD, SPOTlight): `pip install rpy2` and install R packages in your R environment
@@ -546,7 +574,8 @@ Install optional packages to enable additional methods:
   - SPARK - Count-based spatial pattern recognition (requires R environment)
 
 - **Specialized Analysis**:
-  - liana - Cell communication analysis with LIANA+
+  - liana - Cell communication analysis with LIANA+ and CellChat v2
+  - cellphonedb - Cell communication analysis with CellPhoneDB v3
   - cell2location - Spatial transcriptomics deconvolution
   - cellrank - Trajectory analysis
   - scvelo - RNA velocity analysis

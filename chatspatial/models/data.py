@@ -24,7 +24,7 @@ class AnalysisParameters(BaseModel):
     subsample_random_seed: int = 42  # Random seed for subsampling
 
     # Normalization and scaling parameters
-    normalization: Literal["log", "sct", "none", "scvi"] = "log"
+    normalization: Literal["log", "sct", "pearson_residuals", "none", "scvi"] = "log"
     scale: bool = True
     n_hvgs: Annotated[int, Field(gt=0, le=5000)] = 2000
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
@@ -36,6 +36,15 @@ class AnalysisParameters(BaseModel):
     scvi_n_layers: int = 1
     scvi_dropout_rate: float = 0.1
     scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
+    
+    # Key naming parameters (configurable hard-coded keys)
+    clustering_key: str = "leiden"  # Key name for storing clustering results
+    spatial_key: str = "spatial"   # Key name for spatial coordinates in obsm
+    batch_key: str = "batch"      # Key name for batch information in obs
+    
+    # User-controllable adaptive parameters (None = use automatic detection)
+    n_neighbors: Optional[Annotated[int, Field(gt=2, le=50)]] = None  # Number of neighbors for graph construction (None = adaptive: 3-10 based on dataset size)
+    clustering_resolution: Optional[Annotated[float, Field(gt=0.1, le=2.0)]] = None  # Leiden clustering resolution (None = adaptive: 0.4-0.8 based on dataset size)
 
 
 class VisualizationParameters(BaseModel):
@@ -48,7 +57,8 @@ class VisualizationParameters(BaseModel):
         "spatial_domains", "cell_communication", "deconvolution",
         "trajectory", "rna_velocity", "spatial_analysis", "multi_gene", "lr_pairs", "gene_correlation",
         "gaston_isodepth", "gaston_domains", "gaston_genes",
-        "pathway_enrichment", "spatial_enrichment"  # Clear enrichment types
+        "pathway_enrichment", "spatial_enrichment",  # Clear enrichment types
+        "spatial_interaction", "integration_check"  # NEW: Enhanced visualization types
     ] = "spatial"
     colormap: str = "viridis"
 
@@ -95,6 +105,32 @@ class VisualizationParameters(BaseModel):
     gsea_results_key: str = "gsea_results"  # Key in adata.uns for GSEA results
     gsea_plot_type: Literal["enrichment_plot", "barplot", "dotplot", "spatial"] = "barplot"
     n_top_pathways: int = 10  # Number of top pathways to show in barplot
+    
+    # NEW: Spatial plot enhancement parameters
+    add_outline: bool = Field(False, description="Add cluster outline/contour overlay to spatial plots")
+    outline_color: str = Field("black", description="Color for cluster outlines")
+    outline_width: float = Field(1.0, description="Line width for cluster outlines")
+    outline_cluster_key: Optional[str] = Field(None, description="Cluster key for outlines (e.g., 'leiden')")
+    
+    # NEW: UMAP enhancement parameters
+    size_by: Optional[str] = Field(None, description="Feature for point size encoding in UMAP (dual color+size encoding)")
+    show_velocity: bool = Field(False, description="Overlay RNA velocity vectors on UMAP")
+    show_trajectory: bool = Field(False, description="Show trajectory connections on UMAP (PAGA)")
+    velocity_scale: float = Field(1.0, description="Scaling factor for velocity arrows")
+    
+    # NEW: Heatmap enhancement parameters
+    obs_annotation: Optional[List[str]] = Field(None, description="List of obs keys to show as column annotations")
+    var_annotation: Optional[List[str]] = Field(None, description="List of var keys to show as row annotations")
+    annotation_colors: Optional[Dict[str, str]] = Field(None, description="Custom colors for annotations")
+    
+    # NEW: Integration assessment parameters
+    batch_key: str = Field("batch", description="Key in adata.obs for batch/sample identifier")
+    integration_method: Optional[str] = Field(None, description="Integration method used (for display)")
+    
+    # NEW: Network visualization parameters (for neighborhood analysis)
+    show_network: bool = Field(False, description="Show network-style visualization for neighborhood enrichment")
+    network_threshold: float = Field(2.0, description="Z-score threshold for network edges")
+    network_layout: Literal["spring", "circular", "kamada_kawai", "fruchterman_reingold"] = Field("spring", description="Network layout algorithm")
     
     # Legacy parameters (for backward compatibility)
     show_deconvolution: bool = False  # Whether to show deconvolution results

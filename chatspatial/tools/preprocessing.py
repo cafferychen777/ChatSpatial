@@ -223,6 +223,25 @@ async def preprocess_data(
             sc.pp.log1p(adata)
             # Note: Full SCTransform requires additional variance stabilization
             # For production use, consider integrating sctransform package
+        elif params.normalization == "pearson_residuals":
+            # Modern Pearson residuals normalization (recommended for UMI data)
+            if context:
+                await context.info("Using modern Pearson residuals normalization...")
+            try:
+                # Try experimental version first (more recent)
+                if hasattr(sc.experimental.pp, 'normalize_pearson_residuals'):
+                    sc.experimental.pp.normalize_pearson_residuals(adata, n_top_genes=min(params.n_hvgs, adata.n_vars))
+                else:
+                    # Fallback to regular version if experimental not available
+                    sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
+                    sc.pp.log1p(adata)
+                    if context:
+                        await context.warning("Pearson residuals not available, using log normalization fallback")
+            except Exception as e:
+                if context:
+                    await context.warning(f"Pearson residuals normalization failed: {e}. Using log normalization fallback.")
+                sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
+                sc.pp.log1p(adata)
 
         # 4. Find highly variable genes and apply gene subsampling
         if context:
@@ -273,71 +292,40 @@ async def preprocess_data(
                         await context.warning("Could not compute gene variance, keeping all genes")
 
         # 5. Batch effect correction (if applicable)
-        if 'batch' in adata.obs and len(adata.obs['batch'].unique()) > 1:
+        if params.batch_key in adata.obs and len(adata.obs[params.batch_key].unique()) > 1:
             if context:
                 await context.info("Detected batch information. Applying batch effect correction...")
+                # Warn about Combat limitations for large sparse matrices
+                if hasattr(adata.X, 'toarray') and adata.X.nnz > 1000000:  # >1M non-zero elements
+                    await context.warning("ComBat requires dense matrix conversion, may impact memory usage for large datasets. Consider using scVI or Harmony for better performance.")
             try:
-                sc.pp.combat(adata, key='batch')
+                sc.pp.combat(adata, key=params.batch_key)
                 if context:
                     await context.info("Batch effect correction completed using ComBat")
             except Exception as e:
                 if context:
-                    await context.warning(f"Batch effect correction failed: {e}. Continuing without correction.")
+                    await context.warning(f"Batch effect correction failed: {e}. Continuing without correction. For complex batch effects, consider using integration tools like scVI or Harmony.")
 
-        # 6. Scale data (if requested)
+        # 6. Scale data (if requested)  
         if params.scale:
             if context:
                 await context.info("Scaling data...")
             try:
-                # Check for genes with zero variance before scaling
-                if hasattr(adata.X, 'toarray'):
-                    X_check = adata.X.toarray()
+                # Trust scanpy's internal zero-variance handling and sparse matrix optimization
+                sc.pp.scale(adata, max_value=MAX_SCALE_VALUE)
+                
+                # Clean up any NaN/Inf values that might remain (sparse-matrix safe)
+                if hasattr(adata.X, 'data'):
+                    # Sparse matrix - only modify the data array
+                    adata.X.data = np.nan_to_num(adata.X.data, nan=0.0, 
+                                                posinf=MAX_SCALE_VALUE, 
+                                                neginf=-MAX_SCALE_VALUE)
                 else:
-                    X_check = adata.X
-
-                gene_vars = np.var(X_check, axis=0)
-                zero_var_genes = gene_vars == 0
-
-                if np.any(zero_var_genes):
-                    if context:
-                        await context.warning(f"Found {np.sum(zero_var_genes)} genes with zero variance before scaling")
-                    # Remove zero-variance genes temporarily for scaling
-                    non_zero_var_mask = ~zero_var_genes
-                    if np.sum(non_zero_var_mask) > 0:
-                        # Scale only non-zero variance genes
-                        adata_temp = adata[:, non_zero_var_mask].copy()
-                        sc.pp.scale(adata_temp, max_value=MAX_SCALE_VALUE)
-
-                        # Reconstruct the full matrix
-                        if hasattr(adata.X, 'toarray'):
-                            X_scaled = np.zeros_like(adata.X.toarray())
-                        else:
-                            X_scaled = np.zeros_like(adata.X)
-
-                        X_scaled[:, non_zero_var_mask] = adata_temp.X
-                        # Zero-variance genes remain as they were (typically zeros)
-                        X_scaled[:, zero_var_genes] = X_check[:, zero_var_genes]
-
-                        adata.X = X_scaled
-                    else:
-                        if context:
-                            await context.warning("All genes have zero variance, skipping scaling")
-                else:
-                    # Normal scaling if no zero-variance genes
-                    sc.pp.scale(adata, max_value=MAX_SCALE_VALUE)
-
-                # Final check for NaN/Inf values after scaling
-                if hasattr(adata.X, 'toarray'):
-                    X_final = adata.X.toarray()
-                else:
-                    X_final = adata.X
-
-                if np.any(np.isnan(X_final)) or np.any(np.isinf(X_final)):
-                    if context:
-                        await context.warning("Found NaN/Inf values after scaling, cleaning up")
-                    X_final = np.nan_to_num(X_final, nan=0.0, posinf=MAX_SCALE_VALUE, neginf=-MAX_SCALE_VALUE)
-                    adata.X = X_final
-
+                    # Dense matrix
+                    adata.X = np.nan_to_num(adata.X, nan=0.0, 
+                                          posinf=MAX_SCALE_VALUE, 
+                                          neginf=-MAX_SCALE_VALUE)
+                    
             except Exception as e:
                 if context:
                     await context.warning(f"Scaling failed: {e}. Continuing without scaling.")
@@ -373,9 +361,17 @@ async def preprocess_data(
         if context:
             await context.info("Computing neighbors graph...")
 
-        # Adjust n_neighbors based on dataset size
-        n_neighbors = min(10, int(adata.n_obs * MAX_NEIGHBORS_RATIO))  # Use at most 10% of cells as neighbors
-        n_neighbors = max(n_neighbors, MIN_NEIGHBORS)  # But at least MIN_NEIGHBORS neighbors
+        # Determine n_neighbors: user-specified or adaptive
+        if params.n_neighbors is not None:
+            n_neighbors = params.n_neighbors
+            if context:
+                await context.info(f"Using user-specified n_neighbors: {n_neighbors}")
+        else:
+            # Adaptive n_neighbors based on dataset size
+            n_neighbors = min(10, int(adata.n_obs * MAX_NEIGHBORS_RATIO))  # Use at most 10% of cells as neighbors
+            n_neighbors = max(n_neighbors, MIN_NEIGHBORS)  # But at least MIN_NEIGHBORS neighbors
+            if context:
+                await context.info(f"Auto-detected n_neighbors: {n_neighbors} (based on {adata.n_obs} cells)")
 
         if context:
             await context.info(f"Using {n_neighbors} neighbors and {n_pcs} PCs for graph construction...")
@@ -392,21 +388,32 @@ async def preprocess_data(
             if context:
                 await context.info("Running Leiden clustering...")
 
-            # Determine clustering resolution based on dataset size
-            if adata.n_obs < 100:
-                resolution = CLUSTERING_RESOLUTIONS['small']
-            elif adata.n_obs < 500:
-                resolution = CLUSTERING_RESOLUTIONS['medium']
+            # Determine clustering resolution: user-specified or adaptive
+            if params.clustering_resolution is not None:
+                resolution = params.clustering_resolution
+                if context:
+                    await context.info(f"Using user-specified clustering resolution: {resolution}")
             else:
-                resolution = CLUSTERING_RESOLUTIONS['large']
+                # Adaptive resolution based on dataset size
+                if adata.n_obs < 100:
+                    resolution = CLUSTERING_RESOLUTIONS['small']
+                    dataset_size = 'small'
+                elif adata.n_obs < 500:
+                    resolution = CLUSTERING_RESOLUTIONS['medium']
+                    dataset_size = 'medium'
+                else:
+                    resolution = CLUSTERING_RESOLUTIONS['large']
+                    dataset_size = 'large'
+                if context:
+                    await context.info(f"Auto-detected clustering resolution: {resolution} (for {dataset_size} dataset with {adata.n_obs} cells)")
 
             if context:
                 await context.info(f"Using Leiden clustering with resolution {resolution}...")
 
-            sc.tl.leiden(adata, resolution=resolution)
+            sc.tl.leiden(adata, resolution=resolution, key_added=params.clustering_key)
 
             # Count clusters
-            n_clusters = len(adata.obs['leiden'].unique())
+            n_clusters = len(adata.obs[params.clustering_key].unique())
         except Exception as e:
             if context:
                 await context.warning(f"Error in neighbors/clustering: {str(e)}")
@@ -437,13 +444,13 @@ async def preprocess_data(
 
             try:
                 kmeans = KMeans(n_clusters=n_clusters_kmeans, random_state=42, n_init=10)
-                adata.obs['leiden'] = kmeans.fit_predict(X_hvg).astype(str)
+                adata.obs[params.clustering_key] = kmeans.fit_predict(X_hvg).astype(str)
                 n_clusters = n_clusters_kmeans
             except Exception as e_kmeans:
                 if context:
                     await context.warning(f"KMeans clustering failed: {e_kmeans}. Using simple clustering.")
                 # Final fallback: random clustering
-                adata.obs['leiden'] = np.random.randint(0, MIN_KMEANS_CLUSTERS, adata.n_obs).astype(str)
+                adata.obs[params.clustering_key] = np.random.randint(0, MIN_KMEANS_CLUSTERS, adata.n_obs).astype(str)
                 n_clusters = MIN_KMEANS_CLUSTERS
 
             # Create a simple UMAP embedding if possible
@@ -469,16 +476,16 @@ async def preprocess_data(
                 adata.obsm['X_umap'] = np.random.normal(0, 1, (adata.n_obs, 2))
 
         # 11. For spatial data, compute spatial neighbors if not already done
-        if 'spatial' in adata.uns or any('spatial' in key for key in adata.obsm.keys()):
+        if params.spatial_key in adata.uns or any(params.spatial_key in key for key in adata.obsm.keys()):
             if context:
                 await context.info("Computing spatial neighbors...")
             try:
                 # Check if spatial neighbors already exist
                 if 'spatial_connectivities' not in adata.obsp:
                     # For MERFISH data, we need to ensure the spatial coordinates are correctly formatted
-                    if 'spatial' in adata.obsm:
+                    if params.spatial_key in adata.obsm:
                         # Check if this is MERFISH data by looking at the shape and content
-                        if adata.obsm['spatial'].shape[1] == 2:
+                        if adata.obsm[params.spatial_key].shape[1] == 2:
                             # This is likely MERFISH or other single-cell resolution spatial data
                             # Use delaunay method which works better for single-cell data
                             sq.gr.spatial_neighbors(adata, coord_type='generic', delaunay=True)
@@ -551,8 +558,9 @@ async def preprocess_with_resolvi(
         if context:
             await context.info("Starting RESOLVI spatial data preprocessing...")
             
-        # Validate spatial coordinates
-        if 'spatial' not in adata.obsm:
+        # Validate spatial coordinates  
+        spatial_key = 'spatial'  # Default spatial key for RESOLVI
+        if spatial_key not in adata.obsm:
             if context:
                 await context.warning("Spatial coordinates not found. RESOLVI works best with spatial information.")
         
@@ -578,9 +586,9 @@ async def preprocess_with_resolvi(
             await context.info(f"Preprocessing {adata.n_obs} spots and {adata.n_vars} genes with RESOLVI")
         
         # Setup RESOLVI
-        if 'spatial' in adata.obsm:
+        if spatial_key in adata.obsm:
             # Ensure spatial coordinates are in the correct format for RESOLVI
-            spatial_coords = adata.obsm['spatial']
+            spatial_coords = adata.obsm[spatial_key]
             if spatial_coords.shape[1] == 2:
                 # Add spatial coordinates as X_spatial for RESOLVI
                 adata.obsm['X_spatial'] = spatial_coords

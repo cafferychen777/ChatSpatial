@@ -28,7 +28,8 @@ from .utils.mcp_parameter_handler import (
     manual_parameter_validation,
     validate_analysis_params,
     validate_visualization_params,
-    validate_spatial_analysis_params
+    validate_spatial_analysis_params,
+    validate_cell_communication_params
 )
 
 from .models.data import (
@@ -154,11 +155,19 @@ async def preprocess_data(
         Available normalization methods:
         - log: Standard log normalization (default)
         - sct: SCTransform normalization
+        - pearson_residuals: Modern Pearson residuals normalization (recommended for UMI data)
         - none: No normalization
         - scvi: Use scVI for normalization and dimensionality reduction
         
         When use_scvi_preprocessing=True, scVI will be used for advanced preprocessing
         including denoising and batch effect correction.
+        
+        Advanced configuration options:
+        - n_neighbors: Number of neighbors for graph construction (None = adaptive based on dataset size)
+        - clustering_resolution: Leiden clustering resolution (None = adaptive: 0.4-0.8 based on dataset size)  
+        - clustering_key: Key name for storing clustering results (default: "leiden")
+        - spatial_key: Key name for spatial coordinates in obsm (default: "spatial")
+        - batch_key: Key name for batch information in obs (default: "batch")
     """
     # Import to avoid name conflict
     from .tools.preprocessing import preprocess_data as preprocess_func
@@ -681,6 +690,9 @@ async def identify_spatial_domains(
 
 @mcp.tool()
 @mcp_tool_error_handler()
+@manual_parameter_validation(
+    ("params", validate_cell_communication_params)
+)
 async def analyze_cell_communication(
     data_id: str,
     params: CellCommunicationParameters = CellCommunicationParameters(),
@@ -698,7 +710,9 @@ async def analyze_cell_communication(
     Notes:
         Cell communication methods (status):
         - liana: Implemented (global/cluster and spatial bivariate modes; requires liana)
-        - cellphonedb / cellchat / nichenet / connectome / cytotalk / squidpy: Not implemented in this server
+        - cellphonedb: Implemented (statistical analysis with spatial microenvironments; requires cellphonedb)
+        - cellchat_liana: Implemented (CellChat algorithm via LIANA framework; requires liana)
+        - nichenet / connectome / cytotalk / squidpy: Not implemented in this server
     """
     # Import cell communication function
     from .tools.cell_communication import analyze_cell_communication as analyze_comm_func

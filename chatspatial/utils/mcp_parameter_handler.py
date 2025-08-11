@@ -169,6 +169,12 @@ def validate_spatial_analysis_params(params: Union[Dict[str, Any], BaseModel, No
     return validate_parameters_manually(params, SpatialAnalysisParameters, "spatial_analysis_params")
 
 
+def validate_cell_communication_params(params: Union[Dict[str, Any], BaseModel, None]):
+    """Validate CellCommunicationParameters with friendly error messages"""
+    from ..models.data import CellCommunicationParameters
+    return validate_parameters_manually(params, CellCommunicationParameters, "cell_communication_params")
+
+
 # Decorator for tools that need manual parameter validation
 def manual_parameter_validation(*param_validators):
     """

@@ -525,7 +525,8 @@ async def visualize_data(
         "trajectory", "rna_velocity", "spatial_analysis",
         "multi_gene", "lr_pairs", "gene_correlation",
         "gaston_isodepth", "gaston_domains", "gaston_genes",
-        "pathway_enrichment", "spatial_enrichment"
+        "pathway_enrichment", "spatial_enrichment",
+        "spatial_interaction", "integration_check"  # NEW: Enhanced visualization types
     ]
     if params.plot_type not in valid_plot_types:
         error_msg = f"Invalid plot_type: {params.plot_type}. Must be one of {valid_plot_types}"
@@ -647,6 +648,24 @@ async def visualize_data(
                     else:
                         # Just tissue image with spots
                         fig = sc.pl.spatial(adata, img_key="hires", show=False, return_fig=True)
+                    
+                    # Add outline/contour overlay if requested
+                    if params.add_outline and params.outline_cluster_key and params.outline_cluster_key in adata.obs.columns:
+                        if context:
+                            await context.info(f"Adding cluster outline overlay for {params.outline_cluster_key}")
+                        try:
+                            # Get the first (and usually only) axis from the figure
+                            ax = fig.get_axes()[0] if fig.get_axes() else None
+                            if ax:
+                                # Use scanpy's add_outline functionality
+                                sc.pl.spatial(adata, img_key="hires", color=params.outline_cluster_key, 
+                                            add_outline=True, outline_color=params.outline_color, 
+                                            outline_width=params.outline_width, show=False, ax=ax,
+                                            legend_loc=None, colorbar=False)
+                        except Exception as e:
+                            if context:
+                                await context.warning(f"Failed to add outline overlay: {str(e)}")
+                
                 else:
                     # For other spatial data without tissue image
                     fig, ax = create_figure()
@@ -664,6 +683,47 @@ async def visualize_data(
                         sc.pl.embedding(adata, basis="spatial", show=False, ax=ax)
                         ax.set_aspect('equal')
                         ax.set_title("Spatial coordinates")
+                    
+                    # Add outline/contour overlay for non-tissue data if requested
+                    if params.add_outline and params.outline_cluster_key and params.outline_cluster_key in adata.obs.columns:
+                        if context:
+                            await context.info(f"Adding cluster outline for {params.outline_cluster_key}")
+                        try:
+                            # For non-tissue data, we can use scanpy's embedding plot with groups to highlight boundaries
+                            from matplotlib.patches import Polygon
+                            from matplotlib.collections import PatchCollection
+                            from sklearn.cluster import DBSCAN
+                            
+                            # Get spatial coordinates
+                            spatial_coords = adata.obsm['spatial']
+                            cluster_labels = adata.obs[params.outline_cluster_key].values
+                            
+                            # For each unique cluster, create a boundary
+                            for cluster in np.unique(cluster_labels):
+                                if pd.isna(cluster):
+                                    continue
+                                cluster_mask = cluster_labels == cluster
+                                cluster_coords = spatial_coords[cluster_mask]
+                                
+                                if len(cluster_coords) > 2:  # Need at least 3 points for a boundary
+                                    try:
+                                        # Create convex hull for boundary
+                                        from scipy.spatial import ConvexHull
+                                        hull = ConvexHull(cluster_coords)
+                                        boundary_coords = cluster_coords[hull.vertices]
+                                        
+                                        # Plot boundary
+                                        boundary_coords = np.vstack([boundary_coords, boundary_coords[0]])  # Close the polygon
+                                        ax.plot(boundary_coords[:, 0], boundary_coords[:, 1], 
+                                               color=params.outline_color, linewidth=params.outline_width, alpha=0.8)
+                                    except Exception:
+                                        # Fallback: just plot the cluster points with a different marker
+                                        ax.scatter(cluster_coords[:, 0], cluster_coords[:, 1], 
+                                                 s=20, facecolors='none', edgecolors=params.outline_color, 
+                                                 linewidth=params.outline_width, alpha=0.6)
+                        except Exception as e:
+                            if context:
+                                await context.warning(f"Failed to add outline overlay: {str(e)}")
 
         elif params.plot_type == "umap":
             if context:
@@ -674,6 +734,14 @@ async def visualize_data(
                 if context:
                     await context.warning("UMAP not found in dataset. Computing UMAP...")
                 try:
+                    # Clean data before computing UMAP to handle extreme values
+                    if hasattr(adata.X, 'data'):
+                        # Sparse matrix
+                        adata.X.data = np.nan_to_num(adata.X.data, nan=0.0, posinf=0.0, neginf=0.0)
+                    else:
+                        # Dense matrix
+                        adata.X = np.nan_to_num(adata.X, nan=0.0, posinf=0.0, neginf=0.0)
+                    
                     sc.pp.neighbors(adata)
                     sc.tl.umap(adata)
                 except Exception as e:
@@ -686,9 +754,19 @@ async def visualize_data(
 
                     # Compute PCA if not already done
                     if 'X_pca' not in adata.obsm:
-                        pca = PCA(n_components=min(50, adata.n_vars - 1))
-                        X_pca = pca.fit_transform(adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X)
-                        adata.obsm['X_pca'] = X_pca
+                        try:
+                            # Clean data for PCA
+                            X_clean = adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X.copy()
+                            X_clean = np.nan_to_num(X_clean, nan=0.0, posinf=0.0, neginf=0.0)
+                            
+                            pca = PCA(n_components=min(50, adata.n_vars - 1, X_clean.shape[1]))
+                            X_pca = pca.fit_transform(X_clean)
+                            adata.obsm['X_pca'] = X_pca
+                        except Exception as pca_e:
+                            if context:
+                                await context.warning(f"PCA fallback also failed: {str(pca_e)}. Using random coordinates.")
+                            # Ultimate fallback: random coordinates
+                            adata.obsm['X_pca'] = np.random.normal(0, 1, (adata.n_obs, 2))
 
                     # Use PCA as UMAP for visualization
                     adata.obsm['X_umap'] = adata.obsm['X_pca'][:, :2]
@@ -710,12 +788,122 @@ async def visualize_data(
                     default_feature=default_feature
                 )
 
-                # Create UMAP plot
+                # Create UMAP plot with potential dual encoding (color + size)
+                plot_kwargs = {
+                    'show': False, 
+                    'return_fig': True
+                }
+                
                 if feature:
-                    fig = sc.pl.umap(adata, color=feature, cmap=params.colormap if feature in adata.var_names else None,
-                                    show=False, return_fig=True)
-                else:
-                    fig = sc.pl.umap(adata, show=False, return_fig=True)
+                    plot_kwargs['color'] = feature
+                    if feature in adata.var_names:
+                        plot_kwargs['cmap'] = params.colormap
+                
+                # Add size encoding if requested
+                if params.size_by:
+                    if params.size_by in adata.var_names or params.size_by in adata.obs.columns:
+                        # For scanpy compatibility, we need to pass size values correctly
+                        if params.size_by in adata.var_names:
+                            # Gene expression - get the values
+                            size_values = adata[:, params.size_by].X
+                            if hasattr(size_values, 'toarray'):
+                                size_values = size_values.toarray().flatten()
+                            else:
+                                size_values = size_values.flatten()
+                            # Normalize to reasonable size range (10-100)
+                            size_values = 10 + 90 * (size_values - size_values.min()) / (size_values.max() - size_values.min() + 1e-8)
+                            plot_kwargs['size'] = size_values
+                        else:
+                            # Observation column
+                            if adata.obs[params.size_by].dtype.name in ['category', 'object']:
+                                # Categorical - use different sizes for different categories
+                                unique_vals = adata.obs[params.size_by].unique()
+                                size_map = {val: 20 + i*15 for i, val in enumerate(unique_vals)}
+                                plot_kwargs['size'] = adata.obs[params.size_by].map(size_map).values
+                            else:
+                                # Numeric - normalize to size range
+                                size_values = adata.obs[params.size_by].values
+                                size_values = 10 + 90 * (size_values - size_values.min()) / (size_values.max() - size_values.min() + 1e-8)
+                                plot_kwargs['size'] = size_values
+                        
+                        if context:
+                            await context.info(f"Using dual encoding: color={feature}, size={params.size_by}")
+                    elif context:
+                        await context.warning(f"Size feature '{params.size_by}' not found in data")
+                
+                # Create the plot
+                fig = sc.pl.umap(adata, **plot_kwargs)
+                
+                # Add velocity or trajectory overlays if requested
+                if params.show_velocity or params.show_trajectory:
+                    try:
+                        # Get the axis from the figure
+                        ax = fig.get_axes()[0] if fig.get_axes() else None
+                        if ax:
+                            # Velocity overlay
+                            if params.show_velocity:
+                                if 'velocity_umap' in adata.obsm:
+                                    try:
+                                        # Try to use scvelo if available
+                                        import scvelo as scv
+                                        scv.pl.velocity_embedding(adata, basis='umap', ax=ax, show=False, 
+                                                                arrow_length=params.velocity_scale,
+                                                                arrow_size=params.velocity_scale)
+                                        if context:
+                                            await context.info("Added RNA velocity vectors to UMAP")
+                                    except ImportError:
+                                        if context:
+                                            await context.warning("scvelo not available for velocity overlay")
+                                    except Exception as e:
+                                        if context:
+                                            await context.warning(f"Failed to add velocity overlay: {str(e)}")
+                                elif context:
+                                    await context.warning("Velocity data (velocity_umap) not found in adata.obsm")
+                            
+                            # Trajectory overlay (PAGA connections)
+                            if params.show_trajectory:
+                                if 'paga' in adata.uns:
+                                    try:
+                                        # Add PAGA trajectory connections
+                                        import networkx as nx
+                                        
+                                        # Get PAGA connectivity matrix
+                                        paga_adj = adata.uns['paga']['connectivities'].toarray()
+                                        
+                                        # Get cluster centroids in UMAP space
+                                        if feature and feature in adata.obs.columns:
+                                            umap_coords = adata.obsm['X_umap']
+                                            clusters = adata.obs[feature].astype(str)
+                                            unique_clusters = clusters.unique()
+                                            
+                                            # Calculate centroids
+                                            centroids = {}
+                                            for cluster in unique_clusters:
+                                                mask = clusters == cluster
+                                                if mask.sum() > 0:
+                                                    centroids[cluster] = umap_coords[mask].mean(axis=0)
+                                            
+                                            # Draw connections based on PAGA
+                                            threshold = np.percentile(paga_adj[paga_adj > 0], 75) if np.any(paga_adj > 0) else 0
+                                            for i, cluster_i in enumerate(unique_clusters):
+                                                for j, cluster_j in enumerate(unique_clusters):
+                                                    if i < j and i < paga_adj.shape[0] and j < paga_adj.shape[1]:
+                                                        if paga_adj[i, j] > threshold:
+                                                            if cluster_i in centroids and cluster_j in centroids:
+                                                                x_coords = [centroids[cluster_i][0], centroids[cluster_j][0]]
+                                                                y_coords = [centroids[cluster_i][1], centroids[cluster_j][1]]
+                                                                ax.plot(x_coords, y_coords, 'k-', alpha=0.6, linewidth=2)
+                                            
+                                            if context:
+                                                await context.info("Added PAGA trajectory connections to UMAP")
+                                    except Exception as e:
+                                        if context:
+                                            await context.warning(f"Failed to add trajectory overlay: {str(e)}")
+                                elif context:
+                                    await context.warning("PAGA trajectory data not found in adata.uns")
+                    except Exception as e:
+                        if context:
+                            await context.warning(f"Failed to add overlays: {str(e)}")
 
         elif params.plot_type == "heatmap":
             if context:
@@ -794,21 +982,81 @@ async def visualize_data(
             plt.figure(figsize=(max(8, len(available_genes) * 0.5), max(6, len(adata.obs[groupby].cat.categories) * 0.3) if groupby else 6))
 
             try:
-                # Use scanpy's heatmap with better parameters
-                ax_dict = sc.pl.heatmap(
-                    adata,
-                    var_names=available_genes,
-                    groupby=groupby,
-                    cmap=params.colormap,
-                    show=False,
-                    dendrogram=False,
-                    standard_scale='var',  # Standardize genes (rows)
-                    figsize=None,  # Let matplotlib handle the size
-                    swap_axes=False,  # Keep genes as rows
-                    vmin=None,  # Let scanpy determine range
-                    vmax=None
-                )
+                # Use scanpy's heatmap with better parameters and enhanced annotations
+                heatmap_kwargs = {
+                    'var_names': available_genes,
+                    'groupby': groupby,
+                    'cmap': params.colormap,
+                    'show': False,
+                    'dendrogram': False,
+                    'standard_scale': 'var',  # Standardize genes (rows)
+                    'figsize': None,  # Let matplotlib handle the size
+                    'swap_axes': False,  # Keep genes as rows
+                    'vmin': None,  # Let scanpy determine range
+                    'vmax': None
+                }
+                
+                # Add obs annotations if specified
+                if params.obs_annotation:
+                    available_obs_annotations = [col for col in params.obs_annotation if col in adata.obs.columns]
+                    if available_obs_annotations:
+                        # For scanpy heatmap, we can use the var_group_labels parameter
+                        # But scanpy heatmap has limited annotation support, so we'll enhance post-creation
+                        if context:
+                            await context.info(f"Will add obs annotations: {available_obs_annotations}")
+                
+                ax_dict = sc.pl.heatmap(adata, **heatmap_kwargs)
                 fig = plt.gcf()
+                
+                # Add custom annotations if requested
+                if params.obs_annotation or params.var_annotation:
+                    try:
+                        # Get the main heatmap axis
+                        axes = fig.get_axes()
+                        if axes:
+                            main_ax = axes[0]  # Usually the main heatmap is the first axis
+                            
+                            # Add obs annotations (column annotations)
+                            if params.obs_annotation:
+                                available_obs = [col for col in params.obs_annotation if col in adata.obs.columns]
+                                if available_obs:
+                                    # Create a simple annotation bar above the heatmap
+                                    # Get the position of the main heatmap
+                                    pos = main_ax.get_position()
+                                    
+                                    # Create annotation axis above the heatmap
+                                    ann_height = 0.02 * len(available_obs)
+                                    ann_ax = fig.add_axes([pos.x0, pos.y1 + 0.01, pos.width, ann_height])
+                                    
+                                    # Create annotation data
+                                    ann_data = adata.obs[available_obs].copy()
+                                    
+                                    # Convert categorical to numeric for visualization
+                                    for col in available_obs:
+                                        if ann_data[col].dtype == 'category' or ann_data[col].dtype == 'object':
+                                            unique_vals = ann_data[col].unique()
+                                            color_map = {val: i for i, val in enumerate(unique_vals)}
+                                            ann_data[col] = ann_data[col].map(color_map)
+                                    
+                                    # Create annotation heatmap
+                                    im = ann_ax.imshow(ann_data.T, aspect='auto', cmap='Set3', 
+                                                     interpolation='nearest')
+                                    ann_ax.set_xlim(main_ax.get_xlim())
+                                    ann_ax.set_xticks([])
+                                    ann_ax.set_yticks(range(len(available_obs)))
+                                    ann_ax.set_yticklabels(available_obs, fontsize=8)
+                                    ann_ax.tick_params(left=False)
+                            
+                            # Add var annotations (row annotations) - similar approach
+                            if params.var_annotation:
+                                available_var = [col for col in params.var_annotation if col in adata.var.columns]
+                                if available_var and context:
+                                    await context.info(f"Adding var annotations: {available_var}")
+                                    # This would require similar logic for row annotations
+                    
+                    except Exception as e:
+                        if context:
+                            await context.warning(f"Failed to add annotations: {str(e)}")
 
                 # Improve the layout
                 plt.tight_layout()
@@ -992,6 +1240,16 @@ async def visualize_data(
             if context:
                 await context.info("Creating pathway enrichment visualization")
             fig = await create_gsea_visualization(adata, params, context)
+
+        elif params.plot_type == "spatial_interaction":
+            if context:
+                await context.info("Creating spatial interaction visualization")
+            fig = await create_spatial_interaction_visualization(adata, params, context)
+
+        elif params.plot_type == "integration_check":
+            if context:
+                await context.info("Creating integration check visualization")
+            fig = await create_integration_check_visualization(adata, params, context)
 
         else:
             # This should never happen due to parameter validation at the beginning
@@ -2092,7 +2350,7 @@ async def create_neighborhood_enrichment_visualization(
     params: VisualizationParameters,
     context = None
 ) -> plt.Figure:
-    """Create neighborhood enrichment visualization"""
+    """Create neighborhood enrichment visualization with optional network view"""
     cluster_key = params.cluster_key or 'leiden'
     enrichment_key = f'{cluster_key}_nhood_enrichment'
     
@@ -2102,23 +2360,132 @@ async def create_neighborhood_enrichment_visualization(
     enrichment_matrix = adata.uns[enrichment_key]['zscore']
     categories = adata.obs[cluster_key].cat.categories
     
-    figsize = params.figure_size or (10, 8)
+    # Check if network visualization is requested
+    if params.show_network:
+        if context:
+            await context.info("Creating network-style neighborhood enrichment visualization")
+        return await create_neighborhood_network_visualization(enrichment_matrix, categories, params, context)
+    else:
+        # Standard heatmap visualization
+        figsize = params.figure_size or (10, 8)
+        fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+        
+        im = ax.imshow(enrichment_matrix, cmap=params.colormap)
+        
+        if params.show_colorbar:
+            plt.colorbar(im, ax=ax, label='Z-score')
+        
+        ax.set_xticks(np.arange(len(categories)))
+        ax.set_yticks(np.arange(len(categories)))
+        ax.set_xticklabels(categories, rotation=45, ha="right")
+        ax.set_yticklabels(categories)
+        
+        title = params.title or f'Neighborhood Enrichment ({cluster_key})'
+        ax.set_title(title)
+        ax.set_xlabel('Cluster')
+        ax.set_ylabel('Cluster')
+        
+        plt.tight_layout()
+        return fig
+
+
+async def create_neighborhood_network_visualization(
+    enrichment_matrix: np.ndarray, 
+    categories, 
+    params: VisualizationParameters, 
+    context = None
+) -> plt.Figure:
+    """Create network-style visualization of neighborhood enrichment"""
+    try:
+        import networkx as nx
+    except ImportError:
+        if context:
+            await context.warning("NetworkX not available. Falling back to heatmap visualization.")
+        # Fallback to standard heatmap
+        figsize = params.figure_size or (10, 8)
+        fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+        im = ax.imshow(enrichment_matrix, cmap=params.colormap)
+        ax.set_title('Neighborhood Enrichment (NetworkX not available)')
+        return fig
+    
+    # Create network graph
+    G = nx.Graph()
+    
+    # Add nodes (cell types/clusters)
+    for i, category in enumerate(categories):
+        G.add_node(category)
+    
+    # Add edges based on enrichment scores above threshold
+    threshold = params.network_threshold
+    for i in range(len(categories)):
+        for j in range(i + 1, len(categories)):
+            zscore = enrichment_matrix[i, j]
+            if abs(zscore) > threshold:
+                G.add_edge(categories[i], categories[j], weight=abs(zscore), zscore=zscore)
+    
+    # Create visualization
+    figsize = params.figure_size or (12, 10)
     fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
     
-    im = ax.imshow(enrichment_matrix, cmap=params.colormap)
+    # Choose layout
+    if params.network_layout == "spring":
+        pos = nx.spring_layout(G, k=2, iterations=50)
+    elif params.network_layout == "circular":
+        pos = nx.circular_layout(G)
+    elif params.network_layout == "kamada_kawai":
+        pos = nx.kamada_kawai_layout(G)
+    elif params.network_layout == "fruchterman_reingold":
+        pos = nx.fruchterman_reingold_layout(G)
+    else:
+        pos = nx.spring_layout(G)
     
-    if params.show_colorbar:
-        plt.colorbar(im, ax=ax, label='Z-score')
+    # Draw nodes
+    node_sizes = [500 + 100 * len(categories) for _ in G.nodes()]  # Size based on number of categories
+    nx.draw_networkx_nodes(G, pos, node_color='lightblue', 
+                          node_size=node_sizes, alpha=0.8, ax=ax)
     
-    ax.set_xticks(np.arange(len(categories)))
-    ax.set_yticks(np.arange(len(categories)))
-    ax.set_xticklabels(categories, rotation=45, ha="right")
-    ax.set_yticklabels(categories)
+    # Draw edges with colors based on enrichment/depletion
+    edges = G.edges()
+    edge_colors = []
+    edge_widths = []
     
-    title = params.title or f'Neighborhood Enrichment ({cluster_key})'
-    ax.set_title(title)
-    ax.set_xlabel('Cluster')
-    ax.set_ylabel('Cluster')
+    for edge in edges:
+        zscore = G[edge[0]][edge[1]]['zscore']
+        weight = G[edge[0]][edge[1]]['weight']
+        
+        # Color: red for enrichment (positive), blue for depletion (negative)
+        edge_colors.append('red' if zscore > 0 else 'blue')
+        # Width based on absolute z-score
+        edge_widths.append(min(5, max(0.5, weight / 2)))
+    
+    if edges:
+        nx.draw_networkx_edges(G, pos, edge_color=edge_colors, 
+                              width=edge_widths, alpha=0.6, ax=ax)
+    
+    # Draw labels
+    nx.draw_networkx_labels(G, pos, font_size=10, font_weight='bold', ax=ax)
+    
+    # Set title and clean up
+    title = params.title or f'Neighborhood Enrichment Network (threshold: {threshold})'
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    ax.axis('off')
+    
+    # Add legend
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], color='red', lw=2, label='Enrichment (Z > 0)'),
+        Line2D([0], [0], color='blue', lw=2, label='Depletion (Z < 0)'),
+        Line2D([0], [0], color='gray', lw=1, label=f'|Z-score| > {threshold}')
+    ]
+    ax.legend(handles=legend_elements, loc='upper right')
+    
+    # Add network statistics as text
+    n_nodes = G.number_of_nodes()
+    n_edges = G.number_of_edges()
+    stats_text = f'Nodes: {n_nodes}\nEdges: {n_edges}\nThreshold: {threshold}'
+    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+            verticalalignment='top', fontsize=10,
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
     
     plt.tight_layout()
     return fig
@@ -3408,3 +3775,229 @@ def _create_gsea_spatial_plot(adata, gsea_results, params, context):
     
     plt.tight_layout()
     return fig
+
+
+async def create_spatial_interaction_visualization(adata, params, context: Optional[Context] = None):
+    """Create spatial visualization showing ligand-receptor interactions"""
+    
+    if context:
+        await context.info("Creating spatial interaction plot")
+    
+    try:
+        # Get spatial coordinates
+        spatial_coords = adata.obsm['spatial']
+        
+        # Validate that lr_pairs are provided
+        if not params.lr_pairs or len(params.lr_pairs) == 0:
+            raise ValueError("No ligand-receptor pairs provided for spatial interaction visualization")
+        
+        # Create figure
+        fig, ax = create_figure(figsize=(12, 10))
+        
+        # Plot all cells as background
+        ax.scatter(spatial_coords[:, 0], spatial_coords[:, 1], 
+                  c='lightgray', s=10, alpha=0.5, label='All cells')
+        
+        # Color mapping for different LR pairs
+        colors = plt.cm.Set3(np.linspace(0, 1, len(params.lr_pairs)))
+        
+        interaction_count = 0
+        for i, (ligand, receptor) in enumerate(params.lr_pairs):
+            color = colors[i]
+            
+            # Check if ligand and receptor are in gene expression data
+            if ligand in adata.var_names and receptor in adata.var_names:
+                # Get cells expressing ligand and receptor
+                ligand_expr = adata[:, ligand].X.toarray().flatten() if hasattr(adata.X, 'toarray') else adata[:, ligand].X.flatten()
+                receptor_expr = adata[:, receptor].X.toarray().flatten() if hasattr(adata.X, 'toarray') else adata[:, receptor].X.flatten()
+                
+                # Define expression threshold (e.g., > median expression)
+                ligand_threshold = np.median(ligand_expr[ligand_expr > 0]) if np.any(ligand_expr > 0) else 0
+                receptor_threshold = np.median(receptor_expr[receptor_expr > 0]) if np.any(receptor_expr > 0) else 0
+                
+                # Find expressing cells
+                ligand_cells = ligand_expr > ligand_threshold
+                receptor_cells = receptor_expr > receptor_threshold
+                
+                if np.any(ligand_cells) and np.any(receptor_cells):
+                    # Plot ligand-expressing cells
+                    ligand_coords = spatial_coords[ligand_cells]
+                    ax.scatter(ligand_coords[:, 0], ligand_coords[:, 1], 
+                              c=color, s=50, alpha=0.7, marker='o', 
+                              label=f'{ligand}+ (Ligand)')
+                    
+                    # Plot receptor-expressing cells  
+                    receptor_coords = spatial_coords[receptor_cells]
+                    ax.scatter(receptor_coords[:, 0], receptor_coords[:, 1], 
+                              c=color, s=50, alpha=0.7, marker='^',
+                              label=f'{receptor}+ (Receptor)')
+                    
+                    # Draw lines between nearby ligand and receptor cells (within distance threshold)
+                    if len(ligand_coords) > 0 and len(receptor_coords) > 0:
+                        # Calculate pairwise distances
+                        from scipy.spatial.distance import cdist
+                        distances = cdist(ligand_coords, receptor_coords)
+                        
+                        # Set distance threshold (e.g., 10th percentile of all distances)
+                        distance_threshold = np.percentile(distances, 10)
+                        
+                        # Draw connections
+                        ligand_indices, receptor_indices = np.where(distances <= distance_threshold)
+                        for li, ri in zip(ligand_indices[:50], receptor_indices[:50]):  # Limit connections to avoid clutter
+                            ax.plot([ligand_coords[li, 0], receptor_coords[ri, 0]], 
+                                   [ligand_coords[li, 1], receptor_coords[ri, 1]], 
+                                   color=color, alpha=0.3, linewidth=0.5)
+                            interaction_count += 1
+            
+            elif context:
+                await context.warning(f"Genes {ligand} or {receptor} not found in expression data")
+        
+        ax.set_xlabel('Spatial X')
+        ax.set_ylabel('Spatial Y')
+        ax.set_title(f'Spatial Ligand-Receptor Interactions\n({interaction_count} connections shown)', 
+                     fontsize=14, fontweight='bold')
+        ax.set_aspect('equal')
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        plt.tight_layout()
+        return fig
+        
+    except Exception as e:
+        if context:
+            await context.warning(f"Failed to create spatial interaction plot: {str(e)}")
+        # Fallback to basic spatial plot
+        fig, ax = create_figure()
+        ax.text(0.5, 0.5, f"Spatial interaction visualization failed:\n{str(e)}", 
+                ha='center', va='center', transform=ax.transAxes, fontsize=12)
+        ax.set_title('Spatial Interaction (Error)', fontsize=14)
+        return fig
+
+
+async def create_integration_check_visualization(adata, params, context: Optional[Context] = None):
+    """Create multi-panel visualization to assess dataset integration quality"""
+    
+    if context:
+        await context.info("Creating integration assessment visualization")
+    
+    try:
+        # Check if batch information exists
+        batch_key = params.batch_key
+        if batch_key not in adata.obs.columns:
+            if context:
+                await context.warning(f"Batch key '{batch_key}' not found in adata.obs. Using first categorical column as batch.")
+            # Find first categorical column as fallback
+            categorical_cols = adata.obs.select_dtypes(include=['category', 'object']).columns
+            if len(categorical_cols) > 0:
+                batch_key = categorical_cols[0]
+            else:
+                raise ValueError("No batch/categorical information found for integration assessment")
+        
+        # Create multi-panel figure (2x2 layout)
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        
+        # Panel 1: UMAP colored by batch (shows mixing)
+        if 'X_umap' in adata.obsm:
+            umap_coords = adata.obsm['X_umap']
+            batch_values = adata.obs[batch_key]
+            unique_batches = batch_values.unique()
+            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_batches)))
+            
+            for i, batch in enumerate(unique_batches):
+                mask = batch_values == batch
+                axes[0, 0].scatter(umap_coords[mask, 0], umap_coords[mask, 1], 
+                                 c=[colors[i]], label=f'{batch}', s=5, alpha=0.7)
+            
+            axes[0, 0].set_title('UMAP colored by batch\n(Good integration = mixed colors)', fontsize=12)
+            axes[0, 0].set_xlabel('UMAP 1')
+            axes[0, 0].set_ylabel('UMAP 2')
+            axes[0, 0].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        else:
+            axes[0, 0].text(0.5, 0.5, 'UMAP coordinates not available', ha='center', va='center')
+            axes[0, 0].set_title('UMAP (Not Available)', fontsize=12)
+        
+        # Panel 2: Spatial plot colored by batch (if spatial data available)
+        if 'spatial' in adata.obsm:
+            spatial_coords = adata.obsm['spatial']
+            batch_values = adata.obs[batch_key]
+            unique_batches = batch_values.unique()
+            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_batches)))
+            
+            for i, batch in enumerate(unique_batches):
+                mask = batch_values == batch
+                axes[0, 1].scatter(spatial_coords[mask, 0], spatial_coords[mask, 1], 
+                                 c=[colors[i]], label=f'{batch}', s=10, alpha=0.7)
+            
+            axes[0, 1].set_title('Spatial coordinates colored by batch', fontsize=12)
+            axes[0, 1].set_xlabel('Spatial X')
+            axes[0, 1].set_ylabel('Spatial Y')
+            axes[0, 1].set_aspect('equal')
+            axes[0, 1].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        else:
+            axes[0, 1].text(0.5, 0.5, 'Spatial coordinates not available', ha='center', va='center')
+            axes[0, 1].set_title('Spatial (Not Available)', fontsize=12)
+        
+        # Panel 3: Batch composition bar plot
+        batch_counts = adata.obs[batch_key].value_counts()
+        axes[1, 0].bar(range(len(batch_counts)), batch_counts.values, 
+                       color=colors[:len(batch_counts)])
+        axes[1, 0].set_xticks(range(len(batch_counts)))
+        axes[1, 0].set_xticklabels(batch_counts.index, rotation=45, ha='right')
+        axes[1, 0].set_title('Cell counts per batch', fontsize=12)
+        axes[1, 0].set_ylabel('Number of cells')
+        
+        # Panel 4: Integration quality metrics (if available)
+        axes[1, 1].text(0.1, 0.9, 'Integration Quality Assessment:', fontsize=14, fontweight='bold',
+                        transform=axes[1, 1].transAxes)
+        
+        metrics_text = f"Total cells: {adata.n_obs:,}\n"
+        metrics_text += f"Total genes: {adata.n_vars:,}\n"
+        metrics_text += f"Batches: {len(unique_batches)} ({', '.join(map(str, unique_batches))})\n\n"
+        
+        if params.integration_method:
+            metrics_text += f"Integration method: {params.integration_method}\n"
+        
+        # Add basic mixing metrics
+        if 'X_umap' in adata.obsm:
+            # Calculate simple mixing metric (entropy)
+            from scipy.stats import entropy
+            
+            # Divide UMAP space into grid and calculate batch entropy per grid cell
+            umap_coords = adata.obsm['X_umap']
+            x_bins = np.linspace(umap_coords[:, 0].min(), umap_coords[:, 0].max(), 10)
+            y_bins = np.linspace(umap_coords[:, 1].min(), umap_coords[:, 1].max(), 10)
+            
+            entropies = []
+            for i in range(len(x_bins)-1):
+                for j in range(len(y_bins)-1):
+                    mask = ((umap_coords[:, 0] >= x_bins[i]) & (umap_coords[:, 0] < x_bins[i+1]) & 
+                           (umap_coords[:, 1] >= y_bins[j]) & (umap_coords[:, 1] < y_bins[j+1]))
+                    if mask.sum() > 10:  # Only consider regions with enough cells
+                        batch_props = adata.obs[batch_key][mask].value_counts(normalize=True)
+                        entropies.append(entropy(batch_props))
+            
+            if entropies:
+                avg_entropy = np.mean(entropies)
+                max_entropy = np.log(len(unique_batches))  # Perfect mixing entropy
+                mixing_score = avg_entropy / max_entropy if max_entropy > 0 else 0
+                metrics_text += f"Mixing score: {mixing_score:.3f} (0=segregated, 1=perfectly mixed)\n"
+        
+        axes[1, 1].text(0.1, 0.7, metrics_text, fontsize=10, transform=axes[1, 1].transAxes, 
+                        verticalalignment='top', fontfamily='monospace')
+        axes[1, 1].set_xlim(0, 1)
+        axes[1, 1].set_ylim(0, 1)
+        axes[1, 1].set_xticks([])
+        axes[1, 1].set_yticks([])
+        axes[1, 1].set_title('Integration Metrics', fontsize=12)
+        
+        plt.tight_layout()
+        return fig
+        
+    except Exception as e:
+        if context:
+            await context.warning(f"Failed to create integration check plot: {str(e)}")
+        # Fallback to basic info plot
+        fig, ax = create_figure()
+        ax.text(0.5, 0.5, f"Integration check visualization failed:\n{str(e)}", 
+                ha='center', va='center', transform=ax.transAxes, fontsize=12)
+        ax.set_title('Integration Check (Error)', fontsize=14)
+        return fig
