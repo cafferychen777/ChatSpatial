@@ -288,8 +288,8 @@ async def _identify_spatial_genes_spatialde(
     significant_genes = results[results['qval'] < 0.05]['g'].tolist()
 
     # Get top genes if requested
-    if params.n_genes is not None:
-        results = results.head(params.n_genes)
+    if params.n_top_genes is not None:
+        results = results.head(params.n_top_genes)
         significant_genes = results['g'].tolist()
 
     # Store results in adata
@@ -774,8 +774,8 @@ async def _identify_spatial_genes_spark(
     significant_genes = results_df[results_df['adjusted_pvalue'] < 0.05]['gene'].tolist()
 
     # Get top genes if requested
-    if params.n_genes is not None:
-        results_df = results_df.head(params.n_genes)
+    if params.n_top_genes is not None:
+        results_df = results_df.head(params.n_top_genes)
         significant_genes = results_df['gene'].tolist()
 
     # Store results in adata
