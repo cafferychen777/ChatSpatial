@@ -19,7 +19,7 @@ ChatSpatial is a **Model Context Protocol (MCP) server** that provides AI assist
 - Returns standard MCP `Image` objects for seamless AI assistant display
 
 ### 🔬 **Cell Analysis** 
-- `annotate_cells` - Multiple annotation methods (marker-based, Tangram, scANVI, CellAssign)
+- `annotate_cells` - Multiple annotation methods (marker-based, Tangram, scANVI, CellAssign, mLLMCellType, sc-type)
 - `find_markers` - Differential expression analysis between cell populations
 
 ### 🧬 **Spatial Analysis**
