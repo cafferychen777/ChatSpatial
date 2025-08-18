@@ -1,11 +1,8 @@
 {
   "mcpServers": {
-    "drawio": {
-      "command": "node",
-      "args": ["/Users/apple/Research/SpatialTrans_MCP/chatspatial/drawio-mcp-server/build/index.js"],
-      "env": {
-        "NODE_ENV": "production"
-      }
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
     }
   }
 }
