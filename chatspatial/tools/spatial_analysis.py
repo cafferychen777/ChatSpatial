@@ -338,15 +338,25 @@ async def analyze_spatial_patterns(
                     await context.info(f"Applying {params.getis_ord_correction} correction...")
                 from statsmodels.stats.multitest import multipletests
                 all_p_values = np.concatenate([res['p_values'] for res in getis_ord_results.values()])
-                _, p_corrected_all, _, _ = multipletests(all_p_values, method=params.getis_ord_correction)
-
-                # Distribute corrected p-values back to results
-                start_idx = 0
-                for gene in genes:
-                    if gene in getis_ord_results:
-                        n_spots = len(getis_ord_results[gene]['p_values'])
-                        getis_ord_results[gene]['p_corrected'] = p_corrected_all[start_idx : start_idx + n_spots]
-                        start_idx += n_spots
+                
+                # Check if we have p-values to correct
+                if len(all_p_values) == 0:
+                    if context:
+                        await context.warning("No p-values found for multiple testing correction")
+                    # Set all p_corrected to None for empty results
+                    for gene in genes:
+                        if gene in getis_ord_results:
+                            getis_ord_results[gene]['p_corrected'] = None
+                else:
+                    _, p_corrected_all, _, _ = multipletests(all_p_values, method=params.getis_ord_correction)
+                    
+                    # Distribute corrected p-values back to results
+                    start_idx = 0
+                    for gene in genes:
+                        if gene in getis_ord_results:
+                            n_spots = len(getis_ord_results[gene]['p_values'])
+                            getis_ord_results[gene]['p_corrected'] = p_corrected_all[start_idx : start_idx + n_spots]
+                            start_idx += n_spots
 
             # Store Getis-Ord results in adata.obs for later visualization
             for gene in genes:
