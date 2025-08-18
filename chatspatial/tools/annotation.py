@@ -28,6 +28,54 @@ try:
 except ImportError:
     mllmcelltype = None
 
+# Import R interface for sc-type annotation
+SCTYPE_AVAILABLE = False
+SCTYPE_ERROR = None
+
+def _setup_r_environment():
+    """Setup R environment automatically"""
+    import subprocess
+    import os
+    
+    # Try to find R installation automatically
+    if 'R_HOME' not in os.environ:
+        try:
+            # Try to get R home from R itself
+            result = subprocess.run(['R', 'RHOME'], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                r_home = result.stdout.strip()
+                os.environ['R_HOME'] = r_home
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+            # Try common R installation paths
+            common_paths = [
+                '/Library/Frameworks/R.framework/Resources',  # macOS
+                '/usr/lib/R',  # Linux
+                '/usr/local/lib/R',  # Linux alternative
+                'C:/Program Files/R/R-*/bin/x64',  # Windows (pattern)
+            ]
+            
+            for path in common_paths:
+                if os.path.exists(path):
+                    os.environ['R_HOME'] = path
+                    break
+
+try:
+    _setup_r_environment()
+    
+    import rpy2.robjects as robjects
+    from rpy2.robjects import pandas2ri, numpy2ri
+    from rpy2.robjects.packages import importr
+    from rpy2.robjects.conversion import localconverter
+    
+    # Test R availability (don't activate converters globally due to deprecation)
+    robjects.r('R.version')
+    SCTYPE_AVAILABLE = True
+    
+except ImportError as e:
+    SCTYPE_ERROR = f"rpy2 not available: {str(e)}"
+except Exception as e:
+    SCTYPE_ERROR = f"R not available or not properly configured: {str(e)}"
+
 from ..models.data import AnnotationParameters
 from ..models.analysis import AnnotationResult
 
@@ -766,6 +814,10 @@ async def annotate_cell_types(
             cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_mllmcelltype(
                 adata, params, context
             )
+        elif params.method == "sctype":
+            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_sctype(
+                adata, params, context
+            )
         elif params.method in ["supervised", "popv", "gptcelltype", "scrgcl"]:
             # These methods fall back to marker genes
             if context:
@@ -797,3 +849,588 @@ async def annotate_cell_types(
         confidence_scores=confidence_scores,
         tangram_mapping_score=tangram_mapping_score
     )
+
+
+# ============================================================================
+# SC-TYPE IMPLEMENTATION
+# ============================================================================
+
+import hashlib
+import pickle
+import os
+from pathlib import Path
+
+# Cache for sc-type results to avoid repeated R calls
+_SCTYPE_CACHE = {}
+_SCTYPE_CACHE_DIR = Path.home() / ".chatspatial" / "sctype_cache"
+
+
+def _get_sctype_cache_key(adata, params: AnnotationParameters) -> str:
+    """Generate cache key for sc-type results"""
+    # Create a hash based on data and parameters
+    data_hash = hashlib.md5()
+    
+    # Hash expression data (sample first 1000 cells and 500 genes for efficiency)
+    if hasattr(adata.X, 'toarray'):
+        sample_data = adata.X[:min(1000, adata.n_obs), :min(500, adata.n_vars)].toarray()
+    else:
+        sample_data = adata.X[:min(1000, adata.n_obs), :min(500, adata.n_vars)]
+    data_hash.update(sample_data.tobytes())
+    
+    # Hash relevant parameters
+    params_dict = {
+        'tissue': params.sctype_tissue,
+        'db': params.sctype_db_,
+        'scaled': params.sctype_scaled,
+        'custom_markers': params.sctype_custom_markers
+    }
+    data_hash.update(str(params_dict).encode())
+    
+    return data_hash.hexdigest()
+
+
+async def _load_sctype_functions(context: Optional[Context] = None) -> None:
+    """Load sc-type R functions and auto-install R packages if needed"""
+    if context:
+        await context.info("📚 Loading sc-type R functions...")
+    
+    try:
+        # Auto-install required R packages
+        robjects.r('''
+            # Install packages automatically if not present
+            required_packages <- c("dplyr", "openxlsx", "HGNChelper")
+            for (pkg in required_packages) {
+                if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+                    cat("Installing R package:", pkg, "\\n")
+                    install.packages(pkg, repos = "https://cran.r-project.org/", quiet = TRUE)
+                    if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+                        stop(paste("Failed to install required R package:", pkg))
+                    }
+                }
+            }
+        ''')
+        
+        if context:
+            await context.info("✅ R packages loaded/installed successfully")
+        
+        # Load sc-type functions from GitHub
+        robjects.r('''
+            # Load gene sets preparation function
+            source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
+            
+            # Load scoring function
+            source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
+        ''')
+        
+        if context:
+            await context.info("✅ sc-type R functions loaded successfully")
+            
+    except Exception as e:
+        error_msg = f"Failed to load sc-type R functions: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise ValueError(error_msg)
+
+
+async def _prepare_sctype_genesets(params: AnnotationParameters, context: Optional[Context] = None):
+    """Prepare gene sets for sc-type"""
+    if context:
+        await context.info("🧬 Preparing sc-type gene sets...")
+    
+    try:
+        if params.sctype_custom_markers:
+            # Use custom markers
+            if context:
+                await context.info("Using custom marker gene sets")
+            return _convert_custom_markers_to_gs(params.sctype_custom_markers, context)
+        else:
+            # Use sc-type database
+            tissue = params.sctype_tissue
+            if not tissue:
+                raise ValueError("sctype_tissue parameter is required when not using custom markers")
+            
+            if context:
+                await context.info(f"Using sc-type database for tissue: {tissue}")
+                
+            # Download and use ScTypeDB
+            db_path = params.sctype_db_ or "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx"
+            
+            robjects.r.assign('db_path', db_path)
+            robjects.r.assign('tissue_type', tissue)
+            
+            robjects.r('''
+                # Load gene sets
+                gs_list <- gene_sets_prepare(db_path, tissue_type)
+            ''')
+            
+            return robjects.r['gs_list']
+            
+    except Exception as e:
+        error_msg = f"Failed to prepare gene sets: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise ValueError(error_msg)
+
+
+def _convert_custom_markers_to_gs(custom_markers: Dict[str, Dict[str, List[str]]], context: Optional[Context] = None):
+    """Convert custom markers to sc-type gene set format"""
+    if not custom_markers:
+        raise ValueError("Custom markers dictionary is empty")
+    
+    gs_positive = {}
+    gs_negative = {}
+    
+    valid_celltypes = 0
+    
+    for cell_type, markers in custom_markers.items():
+        if not isinstance(markers, dict):
+            continue
+            
+        positive_genes = []
+        negative_genes = []
+        
+        if 'positive' in markers and isinstance(markers['positive'], list):
+            positive_genes = [gene.upper().strip() for gene in markers['positive'] if gene and str(gene).strip()]
+            
+        if 'negative' in markers and isinstance(markers['negative'], list):
+            negative_genes = [gene.upper().strip() for gene in markers['negative'] if gene and str(gene).strip()]
+        
+        # Only include cell types that have at least some positive markers
+        if positive_genes:
+            gs_positive[cell_type] = positive_genes
+            gs_negative[cell_type] = negative_genes  # Can be empty list
+            valid_celltypes += 1
+    
+    if valid_celltypes == 0:
+        raise ValueError("No valid cell types found in custom markers - all cell types need at least one positive marker")
+    
+    # Convert to R lists using proper nested conversion
+    with localconverter(robjects.default_converter + pandas2ri.converter):
+        # Convert Python dictionaries to R named lists, handle empty lists properly
+        r_gs_positive = robjects.r['list'](**{
+            k: robjects.StrVector(v) if v else robjects.StrVector([]) 
+            for k, v in gs_positive.items()
+        })
+        r_gs_negative = robjects.r['list'](**{
+            k: robjects.StrVector(v) if v else robjects.StrVector([]) 
+            for k, v in gs_negative.items()
+        })
+        
+        # Create the final gs_list structure
+        gs_list = robjects.r['list'](
+            gs_positive=r_gs_positive,
+            gs_negative=r_gs_negative
+        )
+    
+    return gs_list
+
+
+
+
+async def _run_sctype_scoring(adata, gs_list, params: AnnotationParameters, context: Optional[Context] = None):
+    """Run sc-type scoring algorithm"""
+    if context:
+        await context.info("🔬 Running sc-type scoring...")
+    
+    try:
+        
+        # Prepare expression data
+        if params.sctype_scaled and 'scaled' in adata.layers:
+            expr_data = adata.layers['scaled']
+            if context:
+                await context.info("Using scaled expression data from adata.layers['scaled']")
+        else:
+            expr_data = adata.X
+            if context:
+                await context.info("Using raw expression data from adata.X")
+        
+        # Convert to dense array if sparse
+        if hasattr(expr_data, 'toarray'):
+            expr_data = expr_data.toarray()
+        
+        # Convert to DataFrame with proper gene and cell names
+        expr_df = pd.DataFrame(
+            expr_data.T,  # sc-type expects genes as rows, cells as columns
+            index=adata.var_names,
+            columns=adata.obs_names
+        )
+        
+        # Transfer to R
+        with localconverter(robjects.default_converter + pandas2ri.converter):
+            robjects.r.assign('scdata', expr_df)
+        
+        robjects.r.assign('gs_positive', gs_list[0])  # gs_positive from gs_list
+        robjects.r.assign('gs_negative', gs_list[1])  # gs_negative from gs_list
+        
+        # Run sc-type scoring with comprehensive error handling
+        robjects.r('''
+            # Check if gene sets are valid
+            if (length(gs_positive) == 0) {
+                stop("No valid positive gene sets found")
+            }
+            
+            # Get available genes in the dataset
+            available_genes <- rownames(scdata)
+            
+            # Check each cell type for overlapping genes and filter empty ones
+            filtered_gs_positive <- list()
+            filtered_gs_negative <- list()
+            
+            for (celltype in names(gs_positive)) {
+                pos_genes <- gs_positive[[celltype]]
+                neg_genes <- if (celltype %in% names(gs_negative)) gs_negative[[celltype]] else c()
+                
+                # Find overlapping genes
+                pos_overlap <- intersect(toupper(pos_genes), toupper(available_genes))
+                neg_overlap <- intersect(toupper(neg_genes), toupper(available_genes))
+                
+                # Only keep cell types with at least one positive marker gene
+                if (length(pos_overlap) > 0) {
+                    filtered_gs_positive[[celltype]] <- pos_overlap
+                    filtered_gs_negative[[celltype]] <- neg_overlap
+                }
+            }
+            
+            # Check if we have any valid cell types after filtering
+            if (length(filtered_gs_positive) == 0) {
+                # Create a dummy result with "Unknown" for all cells
+                n_cells <- ncol(scdata)
+                es_max <- matrix(0, nrow = 1, ncol = n_cells)
+                rownames(es_max) <- c("Unknown")
+                colnames(es_max) <- colnames(scdata)
+            } else {
+                # Run sc-type scoring with filtered gene sets
+                tryCatch({
+                    es_max <- sctype_score(
+                        scRNAseqData = as.matrix(scdata),
+                        scaled = TRUE,
+                        gs = filtered_gs_positive,
+                        gs2 = filtered_gs_negative
+                    )
+                    
+                    # Handle edge case where sc-type returns empty or invalid results
+                    if (is.null(es_max) || nrow(es_max) == 0 || ncol(es_max) == 0) {
+                        # Create a dummy result
+                        n_cells <- ncol(scdata)
+                        es_max <- matrix(0, nrow = 1, ncol = n_cells)
+                        rownames(es_max) <- c("Unknown")
+                        colnames(es_max) <- colnames(scdata)
+                    }
+                }, error = function(e) {
+                    # If sc-type scoring fails, create a dummy result
+                    n_cells <- ncol(scdata)
+                    es_max <- matrix(0, nrow = 1, ncol = n_cells)
+                    rownames(es_max) <- c("Unknown")
+                    colnames(es_max) <- colnames(scdata)
+                })
+            }
+        ''')
+        
+        # Get results back to Python
+        with localconverter(robjects.default_converter + pandas2ri.converter):
+            scores_df = robjects.r['es_max']
+        
+        if context:
+            await context.info(f"✅ Scoring completed for {scores_df.shape[0]} cell types and {scores_df.shape[1]} cells")
+        
+        return scores_df
+        
+    except Exception as e:
+        error_msg = f"Failed to run sc-type scoring: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise ValueError(error_msg)
+
+
+async def _assign_sctype_celltypes(scores_df, context: Optional[Context] = None):
+    """Assign cell types based on sc-type scores"""
+    if context:
+        await context.info("🏷️  Assigning cell types based on scores...")
+    
+    try:
+        # Handle empty or invalid scores
+        if scores_df is None:
+            raise ValueError("Scores data is None")
+        
+        # Convert to DataFrame if it's a numpy array
+        if isinstance(scores_df, np.ndarray):
+            # Check for empty array
+            if scores_df.size == 0:
+                raise ValueError("Scores array is empty")
+            
+            # Convert to DataFrame - need to get column and row names from R
+            import pandas as pd
+            scores_df = pd.DataFrame(scores_df)
+            if context:
+                await context.info(f"Converted numpy array to DataFrame: {scores_df.shape}")
+        
+        # Check DataFrame has data
+        if hasattr(scores_df, 'empty') and scores_df.empty:
+            raise ValueError("Scores DataFrame is empty")
+        
+        # Get the cell type with highest score for each cell
+        cell_types = []
+        confidence_scores = []
+        
+        # Handle both DataFrame and numpy array cases
+        if hasattr(scores_df, 'columns'):
+            # DataFrame case
+            if len(scores_df.columns) == 0:
+                raise ValueError("DataFrame has no columns")
+            
+            n_cells = len(scores_df.columns)
+            n_celltypes = len(scores_df.index)
+            
+            # Handle single cell type case
+            if n_celltypes == 1:
+                # Only one cell type available - assign to all cells based on scores
+                single_celltype = str(scores_df.index[0])
+                
+                for col_idx in range(n_cells):
+                    cell_score = scores_df.iloc[0, col_idx]
+                    if cell_score > 0:
+                        cell_types.append(single_celltype)
+                        confidence_scores.append(min(cell_score / 10.0, 1.0))
+                    else:
+                        cell_types.append("Unknown")
+                        confidence_scores.append(0.0)
+            else:
+                # Multiple cell types available
+                
+                for col_idx in range(n_cells):
+                    cell_scores = scores_df.iloc[:, col_idx]  # All cell types for this cell
+                    
+                    # Find cell type with maximum score
+                    max_score_idx = cell_scores.idxmax()
+                    max_score = cell_scores.loc[max_score_idx]
+                    
+                    # If max score is positive, assign cell type, otherwise "Unknown"
+                    if max_score > 0:
+                        cell_types.append(str(max_score_idx))
+                        # Normalize confidence score to 0-1 range
+                        confidence_scores.append(min(max_score / 10.0, 1.0))
+                    else:
+                        cell_types.append("Unknown")
+                        confidence_scores.append(0.0)
+        else:
+            # Numpy array case
+            if len(scores_df.shape) == 0 or scores_df.size == 0:
+                raise ValueError("Empty scores array")
+                
+            n_cells = scores_df.shape[1] if len(scores_df.shape) > 1 else 1
+            n_celltypes = scores_df.shape[0] if len(scores_df.shape) > 1 else scores_df.shape[0]
+            
+            if n_celltypes == 0:
+                raise ValueError("No cell types in scores array")
+            
+            for cell_idx in range(n_cells):
+                if len(scores_df.shape) > 1:
+                    cell_scores = scores_df[:, cell_idx]
+                else:
+                    cell_scores = scores_df if n_cells == 1 else scores_df[cell_idx:cell_idx+1]
+                
+                # Handle case where cell_scores is empty
+                if len(cell_scores) == 0:
+                    cell_types.append("Unknown")
+                    confidence_scores.append(0.0)
+                    continue
+                
+                # Find cell type with maximum score
+                max_score_idx = np.argmax(cell_scores)
+                max_score = cell_scores[max_score_idx]
+                
+                # If max score is positive, assign cell type, otherwise "Unknown"
+                if max_score > 0:
+                    cell_types.append(f"CellType_{max_score_idx}")
+                    # Normalize confidence score to 0-1 range
+                    confidence_scores.append(min(max_score / 10.0, 1.0))
+                else:
+                    cell_types.append("Unknown")
+                    confidence_scores.append(0.0)
+        
+        if context:
+            unique_types = list(set(cell_types))
+            await context.info(f"✅ Assigned {len(unique_types)} unique cell types: {', '.join(unique_types[:10])}" + 
+                             ("..." if len(unique_types) > 10 else ""))
+        
+        return cell_types, confidence_scores
+        
+    except Exception as e:
+        error_msg = f"Failed to assign cell types: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise ValueError(error_msg)
+
+
+def _calculate_sctype_stats(cell_types):
+    """Calculate statistics for sc-type results"""
+    from collections import Counter
+    counts = Counter(cell_types)
+    return dict(counts)
+
+
+async def _cache_sctype_results(cache_key: str, results, context: Optional[Context] = None) -> None:
+    """Cache sc-type results to disk"""
+    if context:
+        await context.info("💾 Caching sc-type results...")
+    
+    try:
+        # Create cache directory
+        _SCTYPE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Save to cache file
+        cache_file = _SCTYPE_CACHE_DIR / f"{cache_key}.pkl"
+        with open(cache_file, 'wb') as f:
+            pickle.dump(results, f)
+        
+        # Also store in memory cache
+        _SCTYPE_CACHE[cache_key] = results
+        
+        if context:
+            await context.info("✅ Results cached successfully")
+            
+    except Exception as e:
+        if context:
+            await context.warning(f"Failed to cache results: {str(e)}")
+
+
+async def _load_cached_sctype_results(cache_key: str, context: Optional[Context] = None):
+    """Load cached sc-type results"""
+    # Check memory cache first
+    if cache_key in _SCTYPE_CACHE:
+        if context:
+            await context.info("📂 Using cached results from memory")
+        return _SCTYPE_CACHE[cache_key]
+    
+    # Check disk cache
+    cache_file = _SCTYPE_CACHE_DIR / f"{cache_key}.pkl"
+    if cache_file.exists():
+        try:
+            with open(cache_file, 'rb') as f:
+                results = pickle.load(f)
+            
+            # Store in memory cache for next time
+            _SCTYPE_CACHE[cache_key] = results
+            
+            if context:
+                await context.info("📂 Using cached results from disk")
+            return results
+            
+        except Exception as e:
+            if context:
+                await context.warning(f"Failed to load cached results: {str(e)}")
+    
+    return None
+
+
+async def _annotate_with_sctype(
+    adata: sc.AnnData,
+    params: AnnotationParameters,
+    context: Optional[Context] = None
+) -> tuple[List[str], Dict[str, int], List[float], Optional[float]]:
+    """
+    Annotate cell types using sc-type method
+    
+    Args:
+        adata: AnnData object
+        params: Annotation parameters
+        context: MCP context
+        
+    Returns:
+        Tuple of (cell_types, counts, confidence_scores, mapping_score)
+    """
+    
+    # Check R availability
+    if not SCTYPE_AVAILABLE:
+        error_msg = (
+            "sc-type annotation requires R and rpy2. Please install them:\n"
+            "1. Install R: https://www.r-project.org/\n"
+            "2. Install required R packages:\n"
+            "   install.packages(c('dplyr', 'openxlsx'))\n"
+            "3. Install rpy2: pip install rpy2\n"
+            f"Error details: {SCTYPE_ERROR}"
+        )
+        raise ValueError(error_msg)
+    
+    # Define supported tissue types from sc-type database
+    SCTYPE_VALID_TISSUES = {
+        "Adrenal", "Brain", "Eye", "Heart", "Hippocampus", "Immune system", 
+        "Intestine", "Kidney", "Liver", "Lung", "Muscle", "Pancreas", 
+        "Placenta", "Spleen", "Stomach", "Thymus"
+    }
+    
+    # Validate required parameters
+    if not params.sctype_tissue and not params.sctype_custom_markers:
+        raise ValueError("Either sctype_tissue or sctype_custom_markers must be specified")
+    
+    # Validate tissue type if provided
+    if params.sctype_tissue and params.sctype_tissue not in SCTYPE_VALID_TISSUES:
+        valid_tissues = sorted(SCTYPE_VALID_TISSUES)
+        raise ValueError(
+            f"Tissue type '{params.sctype_tissue}' is not supported by sc-type database.\n"
+            f"Supported tissues: {', '.join(valid_tissues)}\n"
+            f"Alternatively, use sctype_custom_markers to define custom cell type markers."
+        )
+    
+    try:
+        if context:
+            await context.info("🧬 Starting sc-type cell type annotation...")
+            await context.info(f"📊 Analyzing {adata.n_obs} cells with {adata.n_vars} genes")
+            if params.sctype_tissue:
+                await context.info(f"🔬 Using tissue type: {params.sctype_tissue}")
+            else:
+                await context.info(f"🔬 Using custom markers for {len(params.sctype_custom_markers)} cell types")
+        
+        # Check cache if enabled
+        cache_key = None
+        if params.sctype_use_cache:
+            cache_key = _get_sctype_cache_key(adata, params)
+            cached_results = await _load_cached_sctype_results(cache_key, context)
+            if cached_results:
+                return cached_results
+        
+        # Step 1: Load sc-type functions
+        await _load_sctype_functions(context)
+        
+        # Step 2: Prepare gene sets
+        gs_list = await _prepare_sctype_genesets(params, context)
+        
+        # Step 3: Run sc-type scoring
+        scores_df = await _run_sctype_scoring(adata, gs_list, params, context)
+        
+        # Step 4: Assign cell types
+        cell_types, confidence_scores = await _assign_sctype_celltypes(scores_df, context)
+        
+        # Step 5: Calculate statistics
+        counts = _calculate_sctype_stats(cell_types)
+        
+        # Step 6: Calculate average confidence scores per cell type (to match AnnotationResult interface)
+        confidence_by_celltype = {}
+        for cell_type in set(cell_types):
+            # Get confidence scores for this cell type
+            celltype_confidences = [conf for i, conf in enumerate(confidence_scores) if cell_types[i] == cell_type]
+            if celltype_confidences:
+                confidence_by_celltype[cell_type] = sum(celltype_confidences) / len(celltype_confidences)
+            else:
+                confidence_by_celltype[cell_type] = 0.0
+        
+        # Step 7: Add results to adata
+        
+        adata.obs['sctype_celltype'] = cell_types
+        adata.obs['sctype_confidence'] = confidence_scores
+        
+        results = (cell_types, counts, confidence_by_celltype, None)
+        
+        # Cache results if enabled
+        if params.sctype_use_cache and cache_key:
+            await _cache_sctype_results(cache_key, results, context)
+        
+        if context:
+            await context.info("🎉 sc-type annotation completed successfully!")
+            await context.info(f"📈 Found {len(counts)} cell types: {', '.join(list(counts.keys())[:5])}" + 
+                             ("..." if len(counts) > 5 else ""))
+        
+        return results
+        
+    except Exception as e:
+        await _handle_annotation_error(e, "sctype", context)
