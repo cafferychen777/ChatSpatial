@@ -1115,16 +1115,19 @@ async def register_spatial_data(
 async def calculate_spatial_statistics(
     data_id: str,
     feature: str,
-    statistic: str = "morans_i",
+    statistic: str = "gearys_c",
     n_neighbors: int = 6,
     context: Context = None
 ) -> Dict[str, Any]:
-    """Calculate spatial statistics for features
+    """Calculate specialized spatial statistics for features
+    
+    This tool provides advanced spatial statistics not available in analyze_spatial_patterns.
+    For Moran's I analysis, use analyze_spatial_patterns with analysis_type="moran".
 
     Args:
         data_id: Dataset ID
         feature: Feature/gene to analyze
-        statistic: Type of statistic (morans_i, gearys_c, local_morans)
+        statistic: Type of statistic (gearys_c, local_morans). Note: For Moran's I, use analyze_spatial_patterns
         n_neighbors: Number of neighbors for spatial graph
 
     Returns:
