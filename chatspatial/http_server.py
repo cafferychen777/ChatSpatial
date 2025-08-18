@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
-from .server import mcp, data_store
+from .server import mcp, data_store, adapter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -149,20 +149,26 @@ async def handle_rpc(request: MCPRequest, session_id: Optional[str] = None):
         if method == "initialize":
             result = await handle_initialize(params)
         elif method == "tools/list":
+            # Tools are registered directly with the mcp object
             result = await mcp.list_tools()
         elif method == "tools/call":
             result = await handle_tool_call(params, session_id)
         elif method == "resources/list":
-            result = await mcp.list_resources()
+            result = await adapter.handle_resource_list()
         elif method == "resources/read":
-            result = await mcp.read_resource(params.get("uri", ""))
+            result = await adapter.handle_resource_read(params.get("uri", ""))
         elif method == "prompts/list":
-            result = await mcp.list_prompts()
+            result = await adapter.handle_prompt_list()
         elif method == "prompts/get":
-            result = await mcp.get_prompt(
-                params.get("name", ""),
-                params.get("arguments")
-            )
+            prompt_name = params.get("name", "")
+            prompt = await adapter.prompt_manager.get_prompt(prompt_name)
+            if not prompt:
+                raise ValueError(f"Prompt '{prompt_name}' not found.")
+            result = {
+                "name": prompt.name,
+                "description": prompt.description,
+                "arguments": prompt.arguments
+            }
         else:
             raise ValueError(f"Unknown method: {method}")
         
@@ -219,17 +225,22 @@ async def handle_sse(session_id: Optional[str] = None):
 
 async def handle_initialize(params: Dict[str, Any]) -> Dict[str, Any]:
     """Handle initialization request"""
+    # Per MCP spec, protocolVersion should be date-based.
+    # Capabilities should be objects, not booleans.
+    client_info = params.get("clientInfo", {})
+    logger.info(f"Initialize request from {client_info.get('name', 'unknown client')}")
+    
     return {
-        "protocolVersion": "1.0",
+        "protocolVersion": "2025-06-18",
         "serverInfo": {
             "name": "ChatSpatial",
             "version": "1.0.0"
         },
         "capabilities": {
-            "tools": True,
-            "resources": True,
-            "prompts": True,
-            "logging": True
+            "tools": {"listChanged": False},
+            "resources": {},
+            "prompts": {},
+            "logging": {}
         }
     }
 

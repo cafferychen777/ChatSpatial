@@ -215,8 +215,7 @@ class SpatialPromptManager:
                 arguments=[
                     {"name": "genes", "description": "Genes to analyze", "required": True},
                     {"name": "method", "description": "Analysis method", "required": False}
-                ],
-                handler=self._handle_spatial_expression
+                ]
             ),
             "find-cell-types": MCPPrompt(
                 name="find-cell-types",
@@ -224,8 +223,7 @@ class SpatialPromptManager:
                 arguments=[
                     {"name": "method", "description": "Cell type identification method", "required": False},
                     {"name": "reference_data", "description": "Reference dataset path", "required": False}
-                ],
-                handler=self._handle_find_cell_types
+                ]
             ),
             "compare-conditions": MCPPrompt(
                 name="compare-conditions",
@@ -233,8 +231,7 @@ class SpatialPromptManager:
                 arguments=[
                     {"name": "condition_key", "description": "Column defining conditions", "required": True},
                     {"name": "groups", "description": "Groups to compare", "required": True}
-                ],
-                handler=self._handle_compare_conditions
+                ]
             ),
             "generate-visualization": MCPPrompt(
                 name="generate-visualization",
@@ -243,8 +240,7 @@ class SpatialPromptManager:
                     {"name": "plot_type", "description": "Type of visualization", "required": True},
                     {"name": "feature", "description": "Feature(s) to visualize (single gene or list of genes)", "required": False},
                     {"name": "save_path", "description": "Path to save figure", "required": False}
-                ],
-                handler=self._handle_visualization
+                ]
             ),
             "quality-control": MCPPrompt(
                 name="quality-control",
@@ -252,8 +248,7 @@ class SpatialPromptManager:
                 arguments=[
                     {"name": "metrics", "description": "QC metrics to compute", "required": False},
                     {"name": "thresholds", "description": "QC thresholds", "required": False}
-                ],
-                handler=self._handle_quality_control
+                ]
             ),
             "batch-correction": MCPPrompt(
                 name="batch-correction",
@@ -261,8 +256,7 @@ class SpatialPromptManager:
                 arguments=[
                     {"name": "batch_key", "description": "Column defining batches", "required": True},
                     {"name": "method", "description": "Batch correction method", "required": False}
-                ],
-                handler=self._handle_batch_correction
+                ]
             ),
             "spatial-clustering": MCPPrompt(
                 name="spatial-clustering",
@@ -271,8 +265,7 @@ class SpatialPromptManager:
                     {"name": "method", "description": "Clustering method", "required": False},
                     {"name": "n_clusters", "description": "Number of clusters", "required": False},
                     {"name": "resolution", "description": "Clustering resolution", "required": False}
-                ],
-                handler=self._handle_spatial_clustering
+                ]
             ),
             "cellular-communication": MCPPrompt(
                 name="cellular-communication",
@@ -280,8 +273,7 @@ class SpatialPromptManager:
                 arguments=[
                     {"name": "method", "description": "Communication analysis method", "required": False},
                     {"name": "lr_database", "description": "Ligand-receptor database", "required": False}
-                ],
-                handler=self._handle_cellular_communication
+                ]
             ),
             "gene-enrichment": MCPPrompt(
                 name="gene-enrichment",
@@ -289,8 +281,7 @@ class SpatialPromptManager:
                 arguments=[
                     {"name": "gene_sets", "description": "Gene sets to test", "required": True},
                     {"name": "method", "description": "Enrichment method", "required": False}
-                ],
-                handler=self._handle_gene_enrichment
+                ]
             ),
             "spatial-deconvolution": MCPPrompt(
                 name="spatial-deconvolution",
@@ -298,8 +289,7 @@ class SpatialPromptManager:
                 arguments=[
                     {"name": "reference_data", "description": "Single-cell reference data", "required": True},
                     {"name": "method", "description": "Deconvolution method", "required": False}
-                ],
-                handler=self._handle_deconvolution
+                ]
             )
         }
     
@@ -310,221 +300,6 @@ class SpatialPromptManager:
     async def list_prompts(self) -> List[MCPPrompt]:
         """List all available prompts"""
         return list(self._prompts.values())
-    
-    async def execute_prompt(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a prompt with given arguments"""
-        prompt = await self.get_prompt(name)
-        if not prompt:
-            raise ValueError(f"Unknown prompt: {name}")
-        
-        if prompt.handler:
-            return await prompt.handler(arguments)
-        
-        raise ValueError(f"No handler for prompt: {name}")
-    
-    # Prompt handlers
-    async def _handle_spatial_expression(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle spatial expression analysis prompt"""
-        datasets = await self.data_manager.list_datasets()
-        if not datasets:
-            raise ValueError("No datasets loaded")
-        
-        data_id = datasets[0]["id"]
-        
-        return {
-            "tool": "analyze_spatial_data",
-            "params": {
-                "data_id": data_id,
-                "params": {
-                    "analysis_type": "spatial_autocorrelation",
-                    "genes": args.get("genes", []),
-                    "method": args.get("method", "moran")
-                }
-            }
-        }
-    
-    async def _handle_find_cell_types(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle cell type identification prompt"""
-        datasets = await self.data_manager.list_datasets()
-        if not datasets:
-            raise ValueError("No datasets loaded")
-        
-        data_id = datasets[0]["id"]
-        
-        return {
-            "tool": "annotate_cells",
-            "params": {
-                "data_id": data_id,
-                "params": {
-                    "method": args.get("method", "marker_genes"),
-                    "reference_data_id": args.get("reference_data")
-                }
-            }
-        }
-    
-    async def _handle_compare_conditions(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle condition comparison prompt"""
-        datasets = await self.data_manager.list_datasets()
-        if not datasets:
-            raise ValueError("No datasets loaded")
-        
-        data_id = datasets[0]["id"]
-        groups = args.get("groups", [])
-        
-        return {
-            "tool": "find_markers",
-            "params": {
-                "data_id": data_id,
-                "group_key": args["condition_key"],
-                "group1": groups[0] if len(groups) > 0 else None,
-                "group2": groups[1] if len(groups) > 1 else None
-            }
-        }
-    
-    async def _handle_visualization(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle visualization prompt"""
-        datasets = await self.data_manager.list_datasets()
-        if not datasets:
-            raise ValueError("No datasets loaded")
-        
-        data_id = datasets[0]["id"]
-        
-        vis_params = {
-            "plot_type": args["plot_type"]
-        }
-        
-        # Handle features/feature parameter (unified to 'feature')
-        if "features" in args:
-            # Convert features to feature for consistency
-            vis_params["feature"] = args["features"]
-        elif "feature" in args:
-            # Direct feature parameter
-            vis_params["feature"] = args["feature"]
-        
-        return {
-            "tool": "visualize_data",
-            "params": {
-                "data_id": data_id,
-                "params": vis_params
-            }
-        }
-    
-    async def _handle_quality_control(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle quality control prompt"""
-        datasets = await self.data_manager.list_datasets()
-        if not datasets:
-            raise ValueError("No datasets loaded")
-        
-        data_id = datasets[0]["id"]
-        
-        return {
-            "tool": "preprocess_data",
-            "params": {
-                "data_id": data_id,
-                "params": {
-                    "filter_genes": True,
-                    "filter_cells": True,
-                    "normalize": False,
-                    "compute_metrics": args.get("metrics", ["n_genes", "n_counts", "percent_mito"])
-                }
-            }
-        }
-    
-    async def _handle_batch_correction(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle batch correction prompt"""
-        datasets = await self.data_manager.list_datasets()
-        if not datasets:
-            raise ValueError("No datasets loaded")
-        
-        data_ids = [d["id"] for d in datasets]
-        
-        return {
-            "tool": "integrate_samples",
-            "params": {
-                "data_ids": data_ids,
-                "params": {
-                    "batch_key": args["batch_key"],
-                    "method": args.get("method", "harmony")
-                }
-            }
-        }
-    
-    async def _handle_spatial_clustering(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle spatial clustering prompt"""
-        datasets = await self.data_manager.list_datasets()
-        if not datasets:
-            raise ValueError("No datasets loaded")
-        
-        data_id = datasets[0]["id"]
-        
-        return {
-            "tool": "identify_spatial_domains",
-            "params": {
-                "data_id": data_id,
-                "params": {
-                    "method": args.get("method", "stlearn"),
-                    "n_clusters": args.get("n_clusters"),
-                    "resolution": args.get("resolution", 1.0)
-                }
-            }
-        }
-    
-    async def _handle_cellular_communication(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle cellular communication prompt"""
-        datasets = await self.data_manager.list_datasets()
-        if not datasets:
-            raise ValueError("No datasets loaded")
-        
-        data_id = datasets[0]["id"]
-        
-        return {
-            "tool": "analyze_cell_communication",
-            "params": {
-                "data_id": data_id,
-                "params": {
-                    "method": args.get("method", "liana"),
-                    "lr_database": args.get("lr_database", "consensus")
-                }
-            }
-        }
-    
-    async def _handle_gene_enrichment(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle gene enrichment prompt"""
-        datasets = await self.data_manager.list_datasets()
-        if not datasets:
-            raise ValueError("No datasets loaded")
-        
-        data_id = datasets[0]["id"]
-        
-        return {
-            "tool": "analyze_enrichment",
-            "params": {
-                "data_id": data_id,
-                "params": {
-                    "gene_sets": args.get("gene_sets", ["GO_Biological_Process"]),
-                    "method": args.get("method", "pathway_gsea")
-                }
-            }
-        }
-    
-    async def _handle_deconvolution(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle spatial deconvolution prompt"""
-        datasets = await self.data_manager.list_datasets()
-        if not datasets:
-            raise ValueError("No datasets loaded")
-        
-        data_id = datasets[0]["id"]
-        
-        return {
-            "tool": "deconvolve_data",
-            "params": {
-                "data_id": data_id,
-                "params": {
-                    "reference_data_id": args["reference_data"],
-                    "method": args.get("method", "spotlight")
-                }
-            }
-        }
 
 
 class SpatialMCPAdapter:
