@@ -2519,27 +2519,41 @@ class SpatialStatistics:
 def compute_spatial_autocorrelation(
     adata: ad.AnnData,
     genes: Optional[List[str]] = None,
-    **kwargs
+    spatial_key: str = 'spatial',
+    method: str = 'moran',
+    n_neighbors: int = 30
 ) -> pd.DataFrame:
     """
-    Compute spatial autocorrelation.
+    Compute spatial autocorrelation for genes (convenience function).
+    
+    This is a convenience wrapper around SpatialStatistics.compute_spatial_autocorrelation.
+    For advanced usage, consider using the SpatialStatistics class directly.
     
     Parameters
     ----------
     adata : ad.AnnData
         Annotated data matrix
     genes : Optional[List[str]]
-        Genes to analyze
-    **kwargs
-        Additional parameters
+        Genes to analyze (if None, uses highly variable genes or first 100)
+    spatial_key : str, default 'spatial'
+        Spatial coordinate key in adata.obsm
+    method : str, default 'moran'
+        Method to use ('moran', 'geary')
+    n_neighbors : int, default 30
+        Number of neighbors for spatial weights
         
     Returns
     -------
     pd.DataFrame
-        Autocorrelation statistics
+        Autocorrelation statistics with columns depending on method:
+        - For 'moran': gene, moran_I, expected_I, variance, z_score, p_value, p_adjusted
+        - For 'geary': gene, geary_C, expected_C, variance, z_score, p_value, p_adjusted
     """
     stats_tool = SpatialStatistics()
-    return stats_tool.compute_spatial_autocorrelation(adata, genes=genes, **kwargs)
+    return stats_tool.compute_spatial_autocorrelation(
+        adata, genes=genes, spatial_key=spatial_key, 
+        method=method, n_neighbors=n_neighbors
+    )
 
 
 async def calculate_spatial_stats(

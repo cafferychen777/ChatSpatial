@@ -22,7 +22,6 @@ from .spatial_mcp_adapter import (
 )
 
 from .utils.tool_error_handling import mcp_tool_error_handler
-from .utils.pydantic_error_handler import mcp_pydantic_error_handler
 from .utils.error_handling import ProcessingError
 from .utils.mcp_parameter_handler import (
     manual_parameter_validation,
