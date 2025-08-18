@@ -17,6 +17,8 @@ import sys
 import os
 from mcp.server.fastmcp import Context
 
+from ..utils.error_handling import suppress_output
+
 
 # Import scvi-tools for deconvolution
 try:
@@ -34,11 +36,7 @@ except ImportError:
 from ..models.data import DeconvolutionParameters
 from ..models.analysis import DeconvolutionResult
 
-# Import context manager utilities
-from contextlib import contextmanager
-import logging
-from io import StringIO
-from contextlib import redirect_stdout, redirect_stderr
+# No longer need local context manager utilities - using centralized version
 
 
 # Helper functions to eliminate redundancy
@@ -159,19 +157,6 @@ def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str) -> ad.AnnData
     # Round to integers and ensure non-negative
     adata.X = np.round(np.maximum(X_dense, 0)).astype(np.int32)
     return adata
-
-
-@contextmanager
-def suppress_output():
-    """Context manager to temporarily suppress stdout, stderr, and logging."""
-    old_level = logging.getLogger().level
-    logging.getLogger().setLevel(logging.ERROR)
-    
-    with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-        try:
-            yield
-        finally:
-            logging.getLogger().setLevel(old_level)
 
 
 def _create_deconvolution_stats(
