@@ -7,6 +7,7 @@ from functools import wraps
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 import traceback
 import scanpy as sc
+import numpy as np
 import io
 import logging
 import warnings
@@ -39,17 +40,27 @@ class DataCompatibilityError(SpatialMCPError):
     pass
 
 
-def validate_adata(adata: sc.AnnData, required_keys: Dict[str, Union[str, List[str]]], 
-                  context: Optional[Any] = None) -> None:
-    """Validate AnnData object has required keys
+def validate_adata(
+    adata: sc.AnnData, 
+    required_keys: Dict[str, Union[str, List[str]]], 
+    context: Optional[Any] = None,
+    # New parameters for enhanced validation (backward compatible)
+    check_spatial: bool = False,
+    check_velocity: bool = False,
+    spatial_key: str = 'spatial'
+) -> None:
+    """Validate AnnData object has required keys and optional data integrity checks
     
     Args:
         adata: AnnData object to validate
         required_keys: Dict of required keys by category (obs, var, obsm, etc.)
         context: Optional context for logging
+        check_spatial: Whether to validate spatial coordinates (default: False)
+        check_velocity: Whether to validate velocity data layers (default: False) 
+        spatial_key: Key for spatial coordinates in adata.obsm (default: 'spatial')
     
     Raises:
-        DataNotFoundError: If required keys are missing
+        DataNotFoundError: If required keys are missing or validation fails
     """
     missing = []
     
@@ -74,6 +85,67 @@ def validate_adata(adata: sc.AnnData, required_keys: Dict[str, Union[str, List[s
     
     if missing:
         raise DataNotFoundError(f"Missing required keys: {', '.join(missing)}")
+    
+    # Enhanced validation checks (new functionality, backward compatible)
+    if check_spatial:
+        _validate_spatial_data_internal(adata, spatial_key, missing)
+    
+    if check_velocity:
+        _validate_velocity_data_internal(adata, missing)
+    
+    # Raise combined errors if any validation failed
+    if missing:
+        raise DataNotFoundError(f"Validation failed: {', '.join(missing)}")
+
+
+def _validate_spatial_data_internal(adata: sc.AnnData, spatial_key: str, issues: List[str]) -> None:
+    """Internal helper for spatial data validation"""
+    if spatial_key not in adata.obsm:
+        issues.append(f"Missing '{spatial_key}' coordinates in adata.obsm")
+        return
+    
+    spatial_coords = adata.obsm[spatial_key]
+    
+    # Check dimensions
+    if spatial_coords.shape[1] < 2:
+        issues.append(f"Spatial coordinates should have at least 2 dimensions, found {spatial_coords.shape[1]}")
+    
+    # Check for NaN values
+    if np.any(np.isnan(spatial_coords)):
+        issues.append("Spatial coordinates contain NaN values")
+    
+    # Check for constant coordinates
+    if np.std(spatial_coords[:, 0]) == 0 and np.std(spatial_coords[:, 1]) == 0:
+        issues.append("All spatial coordinates are identical")
+
+
+def _validate_velocity_data_internal(adata: sc.AnnData, issues: List[str]) -> None:
+    """Internal helper for velocity data validation"""
+    if 'spliced' not in adata.layers:
+        issues.append("Missing 'spliced' layer required for RNA velocity")
+    if 'unspliced' not in adata.layers:
+        issues.append("Missing 'unspliced' layer required for RNA velocity")
+    
+    # Check if layers have data
+    if 'spliced' in adata.layers and 'unspliced' in adata.layers:
+        for layer_name in ['spliced', 'unspliced']:
+            layer_data = adata.layers[layer_name]
+            
+            # Check for empty or all-zero layers  
+            if hasattr(layer_data, 'nnz'):  # Sparse matrix
+                if layer_data.nnz == 0:
+                    issues.append(f"'{layer_name}' layer is empty (all zeros)")
+            else:  # Dense matrix
+                if np.all(layer_data == 0):
+                    issues.append(f"'{layer_name}' layer is empty (all zeros)")
+            
+            # Check for NaN values
+            if hasattr(layer_data, 'data'):  # Sparse matrix
+                if np.any(np.isnan(layer_data.data)):
+                    issues.append(f"'{layer_name}' layer contains NaN values")
+            else:  # Dense matrix
+                if np.any(np.isnan(layer_data)):
+                    issues.append(f"'{layer_name}' layer contains NaN values")
 
 
 def handle_error(error: Exception, context: Optional[Any] = None) -> None:

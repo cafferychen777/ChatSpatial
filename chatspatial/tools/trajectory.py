@@ -10,7 +10,7 @@ from mcp.server.fastmcp import Context
 
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
-from ..utils.error_handling import suppress_output, ProcessingError
+from ..utils.error_handling import suppress_output, ProcessingError, validate_adata, DataNotFoundError
 
 # Import scvi-tools for advanced trajectory analysis
 try:
@@ -25,74 +25,62 @@ def validate_velocity_data(adata) -> Tuple[bool, List[str]]:
     """
     Validate if AnnData object has necessary data for RNA velocity analysis.
     
-    Returns:
+    This function now uses the unified validation system for consistency,
+    but maintains the same interface for backward compatibility.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix to validate
+        
+    Returns
+    -------
+    Tuple[bool, List[str]]
         Tuple of (is_valid, list_of_issues)
     """
-    issues = []
-    
-    # Check for required layers
-    if 'spliced' not in adata.layers:
-        issues.append("Missing 'spliced' layer required for RNA velocity")
-    if 'unspliced' not in adata.layers:
-        issues.append("Missing 'unspliced' layer required for RNA velocity")
-    
-    # Check if layers have data
-    if 'spliced' in adata.layers and 'unspliced' in adata.layers:
-        # Check for empty or all-zero layers
-        if hasattr(adata.layers['spliced'], 'nnz'):  # Sparse matrix
-            if adata.layers['spliced'].nnz == 0:
-                issues.append("'spliced' layer is empty (all zeros)")
-            if adata.layers['unspliced'].nnz == 0:
-                issues.append("'unspliced' layer is empty (all zeros)")
-        else:  # Dense matrix
-            if np.all(adata.layers['spliced'] == 0):
-                issues.append("'spliced' layer is empty (all zeros)")
-            if np.all(adata.layers['unspliced'] == 0):
-                issues.append("'unspliced' layer is empty (all zeros)")
-        
-        # Check for NaN values
-        if hasattr(adata.layers['spliced'], 'data'):  # Sparse
-            if np.any(np.isnan(adata.layers['spliced'].data)):
-                issues.append("'spliced' layer contains NaN values")
-            if np.any(np.isnan(adata.layers['unspliced'].data)):
-                issues.append("'unspliced' layer contains NaN values")
-        else:  # Dense
-            if np.any(np.isnan(adata.layers['spliced'])):
-                issues.append("'spliced' layer contains NaN values")
-            if np.any(np.isnan(adata.layers['unspliced'])):
-                issues.append("'unspliced' layer contains NaN values")
-    
-    return len(issues) == 0, issues
+    try:
+        validate_adata(adata, {}, check_velocity=True)
+        return True, []
+    except DataNotFoundError as e:
+        # Extract individual issues from the error message
+        error_msg = str(e)
+        if "Validation failed: " in error_msg:
+            issues = error_msg.replace("Validation failed: ", "").split(", ")
+        else:
+            issues = [error_msg]
+        return False, issues
 
 
-def validate_spatial_data(adata) -> Tuple[bool, List[str]]:
+def validate_spatial_data(adata, spatial_key: str = 'spatial') -> Tuple[bool, List[str]]:
     """
     Validate if AnnData object has necessary spatial information.
     
-    Returns:
+    This function now uses the unified validation system for consistency,
+    but maintains the same interface for backward compatibility.
+    
+    Parameters
+    ---------- 
+    adata : AnnData
+        Annotated data matrix to validate
+    spatial_key : str, default 'spatial'
+        Key for spatial coordinates in adata.obsm
+        
+    Returns
+    -------
+    Tuple[bool, List[str]]
         Tuple of (is_valid, list_of_issues)
     """
-    issues = []
-    
-    # Check for spatial coordinates
-    if 'spatial' not in adata.obsm:
-        issues.append("Missing 'spatial' coordinates in adata.obsm")
-    else:
-        spatial_coords = adata.obsm['spatial']
-        
-        # Check dimensions
-        if spatial_coords.shape[1] < 2:
-            issues.append(f"Spatial coordinates should have at least 2 dimensions, found {spatial_coords.shape[1]}")
-        
-        # Check for NaN values
-        if np.any(np.isnan(spatial_coords)):
-            issues.append("Spatial coordinates contain NaN values")
-        
-        # Check for constant coordinates
-        if np.std(spatial_coords[:, 0]) == 0 and np.std(spatial_coords[:, 1]) == 0:
-            issues.append("All spatial coordinates are identical")
-    
-    return len(issues) == 0, issues
+    try:
+        validate_adata(adata, {}, check_spatial=True, spatial_key=spatial_key)
+        return True, []
+    except DataNotFoundError as e:
+        # Extract individual issues from the error message  
+        error_msg = str(e)
+        if "Validation failed: " in error_msg:
+            issues = error_msg.replace("Validation failed: ", "").split(", ")
+        else:
+            issues = [error_msg]
+        return False, issues
 
 
 def preprocess_for_velocity(adata):

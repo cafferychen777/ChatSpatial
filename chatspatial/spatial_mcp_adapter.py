@@ -17,7 +17,6 @@ from mcp.server.fastmcp import FastMCP, Context
 from mcp.server.fastmcp.utilities.types import Image
 
 from .utils.tool_error_handling import mcp_tool_error_handler
-from .utils.pydantic_error_handler import mcp_pydantic_error_handler
 from .utils.mcp_parameter_handler import manual_parameter_validation
 from .utils.image_utils import fig_to_image, create_placeholder_image
 
