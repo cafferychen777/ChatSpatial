@@ -208,29 +208,3 @@ def file_operation_error(operation: str, path: str, reason: str) -> ToolResult:
     )
 
 
-# Example of migrating an existing tool function
-async def example_migrated_tool(data_id: str, param: str) -> Dict[str, Any]:
-    """
-    Example of how to migrate an existing tool to use proper error handling.
-    
-    Before:
-        if data_id not in data_store:
-            raise ValueError(f"Dataset {data_id} not found")
-        
-        try:
-            result = process_data(data_store[data_id], param)
-            return MyResult(data=result)
-        except Exception as e:
-            raise RuntimeError(f"Processing failed: {e}")
-    
-    After:
-        if data_id not in data_store:
-            return dataset_not_found_error(data_id).to_dict()
-        
-        try:
-            result = process_data(data_store[data_id], param)
-            return create_success_result(MyResult(data=result)).to_dict()
-        except Exception as e:
-            return create_error_result(e).to_dict()
-    """
-    pass
