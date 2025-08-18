@@ -394,7 +394,7 @@ async def find_markers(
     group1: Optional[str] = None,
     group2: Optional[str] = None,
     method: str = "wilcoxon",
-    n_genes: int = 25,
+    n_genes: int = 25,  # Keep as n_genes for server interface, convert to n_top_genes in function call
     context: Context = None
 ) -> DifferentialExpressionResult:
     """Find differentially expressed genes between groups
@@ -425,7 +425,7 @@ async def find_markers(
         group1=group1,
         group2=group2,
         method=method,
-        n_top_genes=n_genes,
+        n_top_genes=n_genes,  # Convert n_genes parameter to n_top_genes for tool function
         context=context
     )
 
@@ -1071,8 +1071,8 @@ async def register_spatial_data(
     Args:
         source_id: Source dataset ID
         target_id: Target dataset ID to align to
-        method: Registration method (paste, manual)
-        landmarks: Manual landmarks for alignment (if method='manual')
+        method: Registration method (paste, stalign)
+        landmarks: Additional parameters for registration methods
 
     Returns:
         Registration result with transformation matrix
@@ -1092,10 +1092,45 @@ async def register_spatial_data(
         target_id: target_info
     }
 
-    # Call registration function
-    result = await register_spatial_slices(
-        source_id, target_id, data_store, method, landmarks, context
-    )
+    # Extract AnnData objects from data store
+    source_adata = data_store[source_id]["adata"]
+    target_adata = data_store[target_id]["adata"]
+    adata_list = [source_adata, target_adata]
+    
+    if context:
+        await context.info(f"Registering {source_id} to {target_id} using method: {method}")
+    
+    # Call registration function (note: this is a sync function, not async)
+    try:
+        registered_adata_list = register_spatial_slices(
+            adata_list, 
+            method=method,
+            landmarks=landmarks if landmarks else None
+        )
+        
+        # Update data store with registered data
+        data_store[source_id]["adata"] = registered_adata_list[0]  # source (registered)
+        data_store[target_id]["adata"] = registered_adata_list[1]  # target (reference)
+        
+        # Create result dictionary
+        result = {
+            "method": method,
+            "source_id": source_id,
+            "target_id": target_id,
+            "n_source_spots": registered_adata_list[0].n_obs,
+            "n_target_spots": registered_adata_list[1].n_obs,
+            "registration_completed": True,
+            "spatial_key_registered": "spatial_registered"
+        }
+        
+        if context:
+            await context.info(f"Registration completed. Registered coordinates stored in 'spatial_registered' key.")
+            
+    except Exception as e:
+        error_msg = f"Registration failed: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise RuntimeError(error_msg) from e
 
     # Update datasets in data manager
     data_manager.data_store[source_id] = data_store[source_id]
