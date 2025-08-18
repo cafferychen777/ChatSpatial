@@ -17,70 +17,152 @@ try:
 except ImportError:
     tg = None
 
-# Import scvi-tools for cell type annotation
-try:
-    import scvi
-    from scvi.external import CellAssign
-except ImportError:
-    scvi = None
-    CellAssign = None
+# Optional imports - actual validation happens at runtime
+# This allows the module to load even if optional dependencies are missing
 
-# Import mllmcelltype for LLM-based annotation
-try:
-    import mllmcelltype
-except ImportError:
-    mllmcelltype = None
-
-# Import R interface for sc-type annotation
-SCTYPE_AVAILABLE = False
-SCTYPE_ERROR = None
-
-def _setup_r_environment():
-    """Setup R environment automatically"""
-    import subprocess
-    import os
-    
-    # Try to find R installation automatically
-    if 'R_HOME' not in os.environ:
-        try:
-            # Try to get R home from R itself
-            result = subprocess.run(['R', 'RHOME'], capture_output=True, text=True, timeout=10)
-            if result.returncode == 0:
-                r_home = result.stdout.strip()
-                os.environ['R_HOME'] = r_home
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
-            # Try common R installation paths
-            common_paths = [
-                '/Library/Frameworks/R.framework/Resources',  # macOS
-                '/usr/lib/R',  # Linux
-                '/usr/local/lib/R',  # Linux alternative
-                'C:/Program Files/R/R-*/bin/x64',  # Windows (pattern)
-            ]
-            
-            for path in common_paths:
-                if os.path.exists(path):
-                    os.environ['R_HOME'] = path
-                    break
-
-try:
-    _setup_r_environment()
-    
-    import rpy2.robjects as robjects
-    from rpy2.robjects import pandas2ri, numpy2ri
-    from rpy2.robjects.packages import importr
-    from rpy2.robjects.conversion import localconverter
-    
-    # Test R availability (don't activate converters globally due to deprecation)
-    robjects.r('R.version')
-    SCTYPE_AVAILABLE = True
-    
-except ImportError as e:
-    SCTYPE_ERROR = f"rpy2 not available: {str(e)}"
-except Exception as e:
-    SCTYPE_ERROR = f"R not available or not properly configured: {str(e)}"
+# R interface validation is now handled by _validate_rpy2_and_r() function
 
 from ..models.data import AnnotationParameters
 from ..models.analysis import AnnotationResult
+
+# ============================================================================
+# DEPENDENCY VALIDATION SYSTEM
+# ============================================================================
+
+class DependencyError(Exception):
+    """Custom exception for missing dependencies with helpful installation info"""
+    def __init__(self, package_name: str, method_name: str, install_guide: str):
+        self.package_name = package_name
+        self.method_name = method_name
+        self.install_guide = install_guide
+        super().__init__(f"{package_name} is required for {method_name} method.\n{install_guide}")
+
+def _get_installation_guide(package_name: str) -> str:
+    """Get user-friendly installation instructions for a package"""
+    guides = {
+        "scvi-tools": {
+            "pip": "pip install scvi-tools",
+            "conda": "conda install -c conda-forge scvi-tools",
+            "docs": "https://scvi-tools.org/installation.html",
+            "note": "Requires Python 3.8+ and PyTorch"
+        },
+        "tangram-sc": {
+            "pip": "pip install tangram-sc",
+            "conda": "conda install -c bioconda tangram-sc",
+            "docs": "https://tangram-sc.readthedocs.io/",
+            "note": "Requires PyTorch and scanpy"
+        },
+        "mllmcelltype": {
+            "pip": "pip install mllmcelltype",
+            "conda": "Not available via conda",
+            "docs": "https://github.com/Winnie09/mLLMCellType",
+            "note": "Requires API keys for LLM providers"
+        },
+        "rpy2": {
+            "pip": "pip install rpy2",
+            "conda": "conda install -c conda-forge rpy2",
+            "docs": "https://rpy2.github.io/doc/latest/html/overview.html",
+            "note": "Requires R installation (https://www.r-project.org/)"
+        }
+    }
+    
+    if package_name not in guides:
+        return f"Please install {package_name}"
+    
+    guide = guides[package_name]
+    installation_text = f"""
+Installation Options:
+  • pip: {guide['pip']}
+  • conda: {guide['conda']}
+  • Documentation: {guide['docs']}
+  • Note: {guide['note']}
+
+Troubleshooting:
+  • Ensure you have the latest pip: pip install --upgrade pip
+  • For conda conflicts: conda update --all
+  • Check Python version compatibility
+"""
+    return installation_text.strip()
+
+def _validate_scvi_tools(context: Optional[Context] = None):
+    """Validate scvi-tools availability and return the module"""
+    try:
+        import scvi
+        from scvi.external import CellAssign
+        
+        if context:
+            # Optional: Check version compatibility
+            import pkg_resources
+            try:
+                version = pkg_resources.get_distribution("scvi-tools").version
+                context.info(f"Using scvi-tools version {version}")
+            except:
+                pass  # Version check is optional
+        
+        return scvi, CellAssign
+    except ImportError as e:
+        install_guide = _get_installation_guide("scvi-tools")
+        raise DependencyError("scvi-tools", "scANVI", install_guide) from e
+
+def _validate_tangram(context: Optional[Context] = None):
+    """Validate tangram availability and return the module"""
+    try:
+        import tangram as tg
+        
+        if context and hasattr(tg, '__version__'):
+            context.info(f"Using tangram version {tg.__version__}")
+        
+        return tg
+    except ImportError as e:
+        install_guide = _get_installation_guide("tangram-sc")
+        raise DependencyError("tangram-sc", "Tangram", install_guide) from e
+
+def _validate_mllmcelltype(context: Optional[Context] = None):
+    """Validate mllmcelltype availability and return the module"""
+    try:
+        import mllmcelltype
+        
+        if context and hasattr(mllmcelltype, '__version__'):
+            context.info(f"Using mllmcelltype version {mllmcelltype.__version__}")
+        
+        return mllmcelltype
+    except ImportError as e:
+        install_guide = _get_installation_guide("mllmcelltype")
+        raise DependencyError("mllmcelltype", "mLLMCellType", install_guide) from e
+
+def _validate_rpy2_and_r(context: Optional[Context] = None):
+    """Validate R and rpy2 availability with detailed error reporting"""
+    try:
+        # First check rpy2
+        import rpy2.robjects as robjects
+        from rpy2.robjects import pandas2ri, numpy2ri
+        from rpy2.robjects.packages import importr
+        from rpy2.robjects.conversion import localconverter
+        
+        # Test R availability
+        robjects.r('R.version')
+        
+        if context:
+            r_version = robjects.r('R.version.string')[0]
+            context.info(f"Using R: {r_version}")
+        
+        return robjects, pandas2ri, numpy2ri, importr, localconverter
+    except ImportError as e:
+        install_guide = _get_installation_guide("rpy2")
+        raise DependencyError("rpy2 and R", "sc-type", install_guide) from e
+    except Exception as e:
+        error_msg = f"""
+R environment setup failed: {str(e)}
+
+Common solutions:
+  • Install R from https://www.r-project.org/
+  • Set R_HOME environment variable
+  • Install required R packages: install.packages(c('dplyr', 'openxlsx', 'HGNChelper'))
+  • macOS: brew install r
+  • Ubuntu: sudo apt install r-base
+  • Windows: Download from CRAN
+"""
+        raise DependencyError("R environment", "sc-type", error_msg) from e
 
 # Default marker genes for common cell types
 DEFAULT_MARKER_GENES = {
@@ -269,8 +351,8 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
         if context:
             await context.info("Using Tangram method for annotation")
 
-        if tg is None:
-            raise ImportError("Tangram package is not installed. Please install it with 'pip install tangram-sc'")
+        # Validate dependencies with comprehensive error reporting
+        tg = _validate_tangram(context)
 
         # Check if reference data is provided
         if params.reference_data_id is None:
@@ -374,11 +456,26 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
         # Project cell annotations to space
         try:
             if mode == "clusters" and cluster_label:
+                if context:
+                    await context.info(f"Projecting cluster annotations using '{cluster_label}' column")
                 tg.plot_cell_annotation(ad_map, adata_sp, annotation=cluster_label)
             else:
-                # For cells mode, project all cell types
-                if 'subclass_label' in adata_sc.obs:
-                    tg.plot_cell_annotation(ad_map, adata_sp, annotation='subclass_label')
+                # For cells mode, try multiple annotation columns
+                annotation_col = None
+                potential_cols = ['cell_type', 'celltype', 'cell_types', 'subclass_label']
+                
+                for col in potential_cols:
+                    if col in adata_sc.obs:
+                        annotation_col = col
+                        break
+                
+                if annotation_col:
+                    if context:
+                        await context.info(f"Projecting cell annotations using '{annotation_col}' column")
+                    tg.plot_cell_annotation(ad_map, adata_sp, annotation=annotation_col)
+                else:
+                    if context:
+                        await context.warning("No suitable annotation column found for cells mode projection")
         except Exception as proj_error:
             if context:
                 await context.warning(f"Could not project cell annotations: {proj_error}")
@@ -433,8 +530,8 @@ async def _annotate_with_scanvi(adata, params: AnnotationParameters, data_store:
         if context:
             await context.info("Using scANVI method for annotation")
 
-        if scvi is None:
-            raise ImportError("scvi-tools package is not installed. Please install it with 'pip install scvi-tools'")
+        # Validate dependencies with comprehensive error reporting
+        scvi, CellAssign = _validate_scvi_tools(context)
 
         # Check if reference data is provided
         if params.reference_data_id is None:
@@ -525,8 +622,8 @@ async def _annotate_with_mllmcelltype(adata, params: AnnotationParameters, conte
         if context:
             await context.info("Using mLLMCellType (LLM-based) method for annotation")
 
-        if mllmcelltype is None:
-            raise ImportError("mllmcelltype package is not installed. Please install it with 'pip install mllmcelltype'")
+        # Validate dependencies with comprehensive error reporting
+        mllmcelltype = _validate_mllmcelltype(context)
 
         # Check if clustering has been performed
         cluster_key = params.cluster_label if params.cluster_label else 'leiden'
@@ -633,8 +730,8 @@ async def _annotate_with_cellassign(adata, params: AnnotationParameters, context
         if context:
             await context.info("Using CellAssign method for annotation")
 
-        if CellAssign is None:
-            raise ImportError("CellAssign from scvi-tools package is not installed. Please install it with 'pip install scvi-tools'")
+        # Validate dependencies with comprehensive error reporting
+        scvi, CellAssign = _validate_scvi_tools(context)
 
         # Check if marker genes are provided
         if params.marker_genes is None:
@@ -1338,17 +1435,8 @@ async def _annotate_with_sctype(
         Tuple of (cell_types, counts, confidence_scores, mapping_score)
     """
     
-    # Check R availability
-    if not SCTYPE_AVAILABLE:
-        error_msg = (
-            "sc-type annotation requires R and rpy2. Please install them:\n"
-            "1. Install R: https://www.r-project.org/\n"
-            "2. Install required R packages:\n"
-            "   install.packages(c('dplyr', 'openxlsx'))\n"
-            "3. Install rpy2: pip install rpy2\n"
-            f"Error details: {SCTYPE_ERROR}"
-        )
-        raise ValueError(error_msg)
+    # Validate dependencies with comprehensive error reporting
+    robjects, pandas2ri, numpy2ri, importr, localconverter = _validate_rpy2_and_r(context)
     
     # Define supported tissue types from sc-type database
     SCTYPE_VALID_TISSUES = {
