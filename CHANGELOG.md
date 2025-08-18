@@ -1,5 +1,10 @@
 # Changelog
 
+All notable changes to ChatSpatial will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [v1.2.1] - 2025-08-18 - Code Quality and Structure Improvements
 
 ### 🧹 **Code Deduplication & Refactoring**
@@ -135,6 +140,88 @@ params = AnalysisParameters(
 - No new required dependencies
 - Enhanced compatibility with latest scanpy experimental features
 - Graceful degradation if optional features unavailable
+
+---
+
+## [v1.1.0] - 2025-08-08 - HTTP Transport and Advanced Analysis Integration
+
+### 🌐 **HTTP Transport Support**
+- **NEW**: Complete HTTP/REST API transport layer
+- **NEW**: Server-Sent Events (SSE) streaming support
+- **NEW**: Session management for multi-user support
+- **NEW**: FastAPI-based HTTP server with comprehensive security
+- **ENHANCED**: Multi-transport architecture (stdio, SSE, HTTP)
+
+### 🔒 **Security Enhancements**
+- **NEW**: CORS configuration restricted to localhost
+- **NEW**: Origin validation to prevent DNS rebinding attacks
+- **NEW**: Rate limiting (100 requests/minute per IP)
+- **NEW**: Security response headers (X-Frame-Options, X-Content-Type-Options, etc.)
+- **SECURE**: Default binding to localhost only, requires explicit flag for external access
+
+### 📡 **MCP Protocol Compliance**
+- **IMPLEMENTED**: MCP-compliant resources system
+- **IMPLEMENTED**: Tool annotations with UX hints (readOnlyHint, destructiveHint, etc.)
+- **IMPLEMENTED**: Prompts system for common workflows
+- **IMPLEMENTED**: Enhanced error handling with proper MCP error codes
+- **ENHANCED**: Full JSON-RPC 2.0 compatibility
+
+### 🧬 **Advanced Analysis Methods**
+- **NEW**: CellPhoneDB integration for cell communication analysis
+- **NEW**: CellChat integration for signaling pathway analysis
+- **NEW**: sc-type automated cell type annotation
+- **NEW**: scvi-tools integration (CellAssign, scANVI, DestVI, Stereoscope)
+- **ENHANCED**: Deep learning-based spatial analysis capabilities
+
+### 🛠 **Developer Experience**
+- **NEW**: Multi-language client support (any HTTP-capable language)
+- **NEW**: Web application integration capabilities
+- **NEW**: Comprehensive HTTP client example
+- **ENHANCED**: Better error messages and debugging tools
+
+---
+
+## [v1.0.0] - 2025-08-01 - Production Release
+
+### 🎉 **Initial Production Release**
+- **STABLE**: Core spatial transcriptomics analysis platform
+- **COMPLETE**: Full MCP (Model Context Protocol) server implementation
+- **TESTED**: 100% test coverage for core functionality
+- **READY**: Production-ready with comprehensive error handling
+
+### 🔬 **Core Analysis Tools**
+- **Preprocessing**: Quality control, normalization, batch correction
+- **Cell Annotation**: Marker-based and reference-based methods
+- **Spatial Analysis**: Spatial domains, spatial statistics, spatial genes
+- **Cell Communication**: Ligand-receptor interaction analysis
+- **Deconvolution**: Spotlight, RCTD, and other deconvolution methods
+- **Trajectory Analysis**: Cellular trajectory inference and pseudotime
+- **Visualization**: Comprehensive spatial plotting capabilities
+
+### 🧠 **Spatial Domain Methods**
+- **SpaGCN**: Graph convolutional networks for spatial domains
+- **BayesSpace**: Bayesian clustering for spatial transcriptomics
+- **BANKSY**: Spatial clustering with neighborhood information
+- **STAGATE**: Spatial transcriptomics analysis with graph attention
+
+### 📊 **Data Integration**
+- **Format Support**: Visium, Slide-seq, MERFISH, seqFISH, and more
+- **Reference Data**: Human and mouse cell type references
+- **Batch Correction**: Harmony, scVI, Combat integration
+- **Quality Control**: Comprehensive QC metrics and filtering
+
+### 🔧 **Technical Foundation**
+- **MCP Server**: Full Model Context Protocol implementation
+- **FastMCP**: Modern MCP framework with decorator-based tools
+- **Error Handling**: Robust error management with graceful fallbacks
+- **Data Validation**: Comprehensive input validation and type checking
+- **Memory Optimization**: Efficient sparse matrix handling
+
+### 📚 **Documentation**
+- **User Guides**: Complete usage documentation
+- **API Reference**: Comprehensive tool documentation
+- **Technical Docs**: MCP specification and error handling guides
+- **Examples**: Real-world usage examples and tutorials
 
 ---
 
