@@ -29,7 +29,8 @@ from .utils.mcp_parameter_handler import (
     validate_analysis_params,
     validate_visualization_params,
     validate_spatial_analysis_params,
-    validate_cell_communication_params
+    validate_cell_communication_params,
+    validate_annotation_params
 )
 
 from .models.data import (
@@ -273,9 +274,12 @@ async def visualize_data(
 
 @mcp.tool()
 @mcp_tool_error_handler()
+@manual_parameter_validation(
+    ("params", validate_annotation_params)
+)
 async def annotate_cells(
     data_id: str,
-    params: AnnotationParameters = AnnotationParameters(),
+    params: Any = None,
     context: Context = None
 ) -> AnnotationResult:
     """Annotate cell types in spatial transcriptomics data
@@ -295,6 +299,7 @@ async def annotate_cells(
         - cellassign: Implemented (via scvi-tools)
         - correlation: Implemented (correlation-based)
         - mllmcelltype: Implemented (multimodal LLM classifier)
+        - sctype: Implemented (requires R and rpy2) - NEW
         - supervised / popv / gptcelltype / scrgcl: Not fully implemented yet; currently fallbacks to marker_genes
 
         For methods requiring reference data (tangram, scanvi), reference_data_id must point to a loaded single-cell dataset.

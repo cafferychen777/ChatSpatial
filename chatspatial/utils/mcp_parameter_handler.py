@@ -175,6 +175,12 @@ def validate_cell_communication_params(params: Union[Dict[str, Any], BaseModel, 
     return validate_parameters_manually(params, CellCommunicationParameters, "cell_communication_params")
 
 
+def validate_annotation_params(params: Union[Dict[str, Any], BaseModel, None]):
+    """Validate AnnotationParameters with friendly error messages"""
+    from ..models.data import AnnotationParameters
+    return validate_parameters_manually(params, AnnotationParameters, "annotation_params")
+
+
 # Decorator for tools that need manual parameter validation
 def manual_parameter_validation(*param_validators):
     """

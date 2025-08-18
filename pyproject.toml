@@ -71,6 +71,10 @@ cell_communication = [
     "tqdm",  # 进度条
     "scikit-learn",  # 用于空间邻居计算
 ]
+sctype = [
+    "rpy2>=3.4.0",  # R interface for sc-type
+    "pandas",  # Required for R data conversion
+]
 cellrank_full = [
     "petsc4py",  # PETSc Python接口，用于大规模线性代数计算
     "slepc4py",  # SLEPc Python接口，用于特征值问题求解
@@ -95,6 +99,8 @@ all = [
     # Cell communication dependencies
     "liana",
     "cellphonedb",
+    # SC-type dependencies
+    "rpy2>=3.4.0",
     # CellRank full dependencies
     "petsc4py",
     "slepc4py",
@@ -107,6 +113,7 @@ all = [
     "tqdm",
     "scikit-learn",
     "patsy",
+    "pandas",
 ]
 
 [project.scripts]

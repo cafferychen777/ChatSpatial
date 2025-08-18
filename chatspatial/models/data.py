@@ -139,7 +139,7 @@ class VisualizationParameters(BaseModel):
 
 class AnnotationParameters(BaseModel):
     """Cell type annotation parameters model"""
-    method: Literal["marker_genes", "correlation", "supervised", "popv", "gptcelltype", "scrgcl", "tangram", "scanvi", "cellassign", "mllmcelltype"] = "marker_genes"
+    method: Literal["marker_genes", "correlation", "supervised", "popv", "gptcelltype", "scrgcl", "tangram", "scanvi", "cellassign", "mllmcelltype", "sctype"] = "marker_genes"
     marker_genes: Optional[Dict[str, List[str]]] = None
     reference_data: Optional[str] = None
     reference_data_id: Optional[str] = None  # For Tangram method - ID of reference single-cell dataset
@@ -167,6 +167,13 @@ class AnnotationParameters(BaseModel):
     mllm_provider: Literal["openai", "anthropic", "deepseek", "kimi", "glm", "qianfan", "ollama"] = "openai"  # LLM provider
     mllm_model: Optional[str] = None  # Model name (e.g., "gpt-4", "claude-3-opus-20240229")
     mllm_api_key: Optional[str] = None  # API key for the LLM provider
+    
+    # ScType parameters
+    sctype_tissue: Optional[str] = None  # Tissue type (supported: "Adrenal", "Brain", "Eye", "Heart", "Hippocampus", "Immune system", "Intestine", "Kidney", "Liver", "Lung", "Muscle", "Pancreas", "Placenta", "Spleen", "Stomach", "Thymus")
+    sctype_db_: Optional[str] = None  # Custom database path (if None, uses default ScTypeDB)
+    sctype_scaled: bool = True  # Whether input data is scaled
+    sctype_custom_markers: Optional[Dict[str, Dict[str, List[str]]]] = None  # Custom markers: {"CellType": {"positive": [...], "negative": [...]}}
+    sctype_use_cache: bool = True  # Whether to cache results to avoid repeated R calls
 
 
 class SpatialAnalysisParameters(BaseModel):
