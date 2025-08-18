@@ -2560,12 +2560,16 @@ async def calculate_spatial_stats(
     data_id: str,
     data_store: Dict[str, Any],
     feature: str,
-    statistic: str = "morans_i",
+    statistic: str = "gearys_c",
     n_neighbors: int = 6,
     context = None
 ) -> Dict[str, Any]:
     """
-    Calculate spatial statistics for a single feature/gene.
+    Calculate specialized spatial statistics for a single feature/gene.
+    
+    This function provides advanced spatial statistics not available in the main
+    spatial analysis tool. For Moran's I analysis, use analyze_spatial_patterns()
+    with analysis_type="moran".
     
     Parameters
     ----------
@@ -2576,7 +2580,8 @@ async def calculate_spatial_stats(
     feature : str
         Feature/gene name to analyze
     statistic : str
-        Type of statistic to compute
+        Type of statistic to compute. Supported: "gearys_c", "local_morans"
+        Note: For Moran's I, use analyze_spatial_patterns() instead
     n_neighbors : int
         Number of spatial neighbors
     context : optional
@@ -2587,6 +2592,16 @@ async def calculate_spatial_stats(
     Dict[str, Any]
         Statistics result
     """
+    # Validate statistic type
+    supported_stats = ["gearys_c", "local_morans"]
+    if statistic not in supported_stats:
+        error_msg = (
+            f"Unsupported statistic '{statistic}'. "
+            f"Supported: {supported_stats}. "
+            f"For Moran's I analysis, use analyze_spatial_patterns() with analysis_type='moran'."
+        )
+        raise ValueError(error_msg)
+    
     if data_id not in data_store:
         raise ValueError(f"Dataset {data_id} not found")
     
@@ -2598,14 +2613,13 @@ async def calculate_spatial_stats(
     if context:
         await context.info(f"Computing {statistic} for {feature}")
     
-    # Map statistic names to methods
+    # Map statistic names to methods (removed morans_i)
     statistic_map = {
-        "morans_i": "moran",
         "gearys_c": "geary",
         "local_morans": "local_moran"
     }
     
-    method = statistic_map.get(statistic, "moran")
+    method = statistic_map[statistic]  # Will not fail due to validation above
     
     try:
         stats_tool = SpatialStatistics()
@@ -2629,7 +2643,7 @@ async def calculate_spatial_stats(
                 "n_neighbors": n_neighbors
             }
         else:
-            # Global statistics
+            # Global statistics (only Geary's C now)
             result_df = stats_tool.compute_spatial_autocorrelation(
                 adata=adata,
                 genes=[feature],
@@ -2641,30 +2655,18 @@ async def calculate_spatial_stats(
             if len(result_df) > 0:
                 row = result_df.iloc[0]
                 
-                if method == "moran":
-                    return {
-                        "feature": feature,
-                        "statistic": statistic,
-                        "value": float(row['moran_I']),
-                        "expected": float(row['expected_I']),
-                        "variance": float(row['variance']),
-                        "z_score": float(row['z_score']),
-                        "p_value": float(row['p_value']),
-                        "q_value": float(row['q_value']) if 'q_value' in row else None,
-                        "n_neighbors": n_neighbors
-                    }
-                else:  # geary
-                    return {
-                        "feature": feature,
-                        "statistic": statistic,
-                        "value": float(row['geary_C']),
-                        "expected": float(row['expected_C']),
-                        "variance": float(row['variance']),
-                        "z_score": float(row['z_score']),
-                        "p_value": float(row['p_value']),
-                        "q_value": float(row['q_value']) if 'q_value' in row else None,
-                        "n_neighbors": n_neighbors
-                    }
+                # Only Geary's C (removed Moran's I support)
+                return {
+                    "feature": feature,
+                    "statistic": statistic,
+                    "value": float(row['geary_C']),
+                    "expected": float(row['expected_C']),
+                    "variance": float(row['variance']),
+                    "z_score": float(row['z_score']),
+                    "p_value": float(row['p_value']),
+                    "q_value": float(row['q_value']) if 'q_value' in row else None,
+                    "n_neighbors": n_neighbors
+                }
             else:
                 raise ValueError(f"No statistics computed for {feature}")
                 
