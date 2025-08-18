@@ -296,7 +296,6 @@ async def annotate_cells(
         - tangram: Implemented (requires reference_data_id)
         - scanvi: Implemented (requires scvi-tools and reference_data_id)
         - cellassign: Implemented (via scvi-tools)
-        - correlation: Implemented (correlation-based)
         - mllmcelltype: Implemented (multimodal LLM classifier)
         - sctype: Implemented (requires R and rpy2) - NEW
         - supervised / popv / gptcelltype / scrgcl: Not fully implemented yet; currently fallbacks to marker_genes
