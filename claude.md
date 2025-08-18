@@ -151,18 +151,8 @@
    - `resolve-library-id` - 解析库名到 Context7 ID
    - `get-library-docs` - 获取最新官方文档
 
-需要先安装Context7 MCP，安装后此部分可以从引导词中删除：
-```bash
-claude mcp add --transport http context7 https://mcp.context7.com/mcp
-```
-
 2. **搜索真实代码**
    - `searchGitHub` - 搜索 GitHub 上的实际使用案例
-
-需要先安装Grep MCP，安装后此部分可以从引导词中删除：
-```bash
-claude mcp add --transport http grep https://mcp.grep.app
-```
 
 ### 编写规范文档工具
 编写需求和设计文档时使用 `specs-workflow`：
@@ -173,7 +163,150 @@ claude mcp add --transport http grep https://mcp.grep.app
 
 路径：`/docs/specs/*`
 
-需要先安装spec workflow MCP，安装后此部分可以从引导词中删除：
-```bash
-claude mcp add spec-workflow-mcp -s user -- npx -y spec-workflow-mcp@latest
+当然。这是一个为专攻代码的LLM准备的，关于模型上下文协议（Model Context Protocol, MCP）的核心领域知识总结。这份总结提炼了最重要的技术概念、架构和实现模式。
+
+---
+
+### **模型上下文协议（MCP）核心领域知识库**
+
+#### 1. 核心概念与目标
+
+**MCP是什么？**
+MCP（Model Context Protocol）是一个开放的、标准化的协议，旨在连接AI应用（如代码助手、聊天机器人）与外部系统，为AI提供所需的“上下文”。它被比作“AI应用的USB-C接口”，旨在通过一个统一的标准，让任何兼容的AI应用都能与任何兼容的数据源或工具集进行交互，无需为每个组合进行定制化开发。
+
+**核心目标：**
+*   **标准化集成**：为AI提供一种统一的方式来访问文件、API、数据库等。
+*   **上下文提供**：让AI不仅限于其预训练知识，还能理解用户的具体工作环境（如项目文件、数据库模式、内部知识库）。
+*   **可组合性**：允许AI应用同时连接多个独立的MCP服务器，组合来自不同来源的工具和数据。
+*   **安全与控制**：确保所有操作都在用户的控制和许可下进行，特别是对于文件修改或API调用等有影响力的操作。
+
+#### 2. 核心架构
+
+MCP采用客户端-主机-服务器（Client-Host-Server）架构。
+
+*   **主机 (Host)**：AI应用程序本身，例如VS Code、Claude Desktop或ChatGPT。主机负责管理用户界面、与LLM交互，并协调一个或多个MCP客户端。
+*   **客户端 (Client)**：由主机实例化，负责与一个特定的MCP服务器建立和维护1对1的连接。
+*   **服务器 (Server)**：一个独立的程序，它暴露特定的功能（工具、资源、提示）给客户端。服务器可以是本地进程，也可以是远程服务。
+
+![MCP Architecture Diagram](https://mintlify.s3.us-west-1.amazonaws.com/mcp/images/mcp-simple-diagram.png)
+
+**协议分层：**
+1.  **传输层 (Transport Layer)**：定义客户端和服务器如何通信。
+    *   **`stdio`**：用于本地通信。客户端启动服务器作为一个子进程，通过标准输入/输出（stdin/stdout）交换JSON-RPC消息。这是本地文件系统、Git等集成的理想选择。
+    *   **`Streamable HTTP`**：用于远程通信。服务器作为独立的HTTP服务运行，客户端通过POST和GET请求进行交互，支持SSE（Server-Sent Events）流式传输。
+
+2.  **数据层 (Data Layer)**：定义通信的内容和格式。
+    *   **协议**：所有消息都遵循 **JSON-RPC 2.0** 规范（请求、响应、通知）。
+    *   **生命周期 (Lifecycle)**：连接必须经过一个明确的握手过程：
+        1.  客户端发送 `initialize` 请求，声明其能力（如支持工具、采样）。
+        2.  服务器响应 `initialize` 结果，声明其能力。
+        3.  客户端发送 `initialized` 通知，表示连接已就绪。
+    *   **授权 (Authorization)**：对于基于HTTP的传输，协议推荐使用 **OAuth 2.1** 进行安全认证。
+
+#### 3. 核心原语 (Primitives)
+
+这是MCP功能的核心，定义了可以交换哪些类型的信息和能力。
+
+##### A. 服务器提供给客户端的原语
+
+| 原语 (Primitive) | 描述 | 控制者 | 核心方法 | 示例 |
+| :--- | :--- | :--- | :--- | :--- |
+| **工具 (Tools)** | AI模型可以调用的**可执行函数**，用于执行操作。 | **模型驱动** | `tools/list`, `tools/call` | `git commit`, `send_email`, `query_database` |
+| **资源 (Resources)** | AI应用可以读取的**上下文数据**，如文件内容或API响应。 | **应用驱动** | `resources/list`, `resources/read` | 本地文件、数据库模式、Google Drive文档 |
+| **提示 (Prompts)** | 用户可以触发的**可复用交互模板**，用于简化常见任务。 | **用户驱动** | `prompts/list`, `prompts/get` | `/review_code`, `/plan_vacation` |
+
+**详细说明：**
+*   **工具 (Tools)**：
+    *   是**动作**的抽象。
+    *   通过JSON Schema定义输入参数，确保类型安全。
+    *   所有工具调用都需要用户明确批准，确保安全性。
+    *   返回结果可以是文本、图片，甚至是新的资源链接。
+*   **资源 (Resources)**：
+    *   是**数据**的抽象。
+    *   通过URI进行唯一标识（如 `file:///...`, `git:///...`）。
+    *   应用可以读取资源内容，并决定如何将其提供给LLM（例如，作为上下文片段或进行RAG）。
+
+##### B. 客户端提供给服务器的原语 (服务器发起)
+
+这体现了协议的双向性，允许服务器向主机请求服务。
+
+*   **采样 (Sampling)**：服务器可以请求主机中的LLM进行一次独立的推理（“思考”）。这使得服务器可以构建复杂的代理（agentic）行为，而无需自己拥有或管理LLM的API密钥。整个过程在用户监控下进行（Human-in-the-loop）。
+*   **启发 (Elicitation)**：服务器可以在执行过程中暂停，并请求用户提供额外的信息。例如，一个工具在缺少参数时，可以弹出一个表单让用户填写。
+*   **根 (Roots)**：客户端可以告知服务器其操作的文件系统边界（例如，当前打开的项目文件夹）。这使得服务器（如文件系统服务器）知道在哪个范围内提供文件列表或执行操作。
+
+#### 4. 协议实现要点
+
+*   **通信格式**：所有消息都是UTF-8编码的JSON-RPC 2.0对象，通过换行符分隔（`stdio`模式下）。
+*   **能力协商**：在`initialize`握手期间，客户端和服务器必须交换它们支持的能力。如果一方不支持另一方请求的功能，该功能将不可用。
+*   **SDKs**：官方提供了多种语言的SDK来简化客户端和服务器的开发，包括：
+    *   TypeScript, Python, Go, Kotlin, Swift, Java, C#, Ruby, Rust。
+*   **调试**：官方提供了`@modelcontextprotocol/inspector`工具，用于测试和调试MCP服务器，可以查看工具、资源列表，并直接调用它们。
+
+#### 5. 关键代码模式（以Python SDK为例）
+
+**服务器端 (Server) - 定义工具**
+使用装饰器可以非常方便地从函数生成MCP工具。
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+# 初始化服务器
+mcp = FastMCP("weather_server")
+
+@mcp.tool()
+async def get_forecast(latitude: float, longitude: float) -> str:
+    """
+    Get weather forecast for a location.
+
+    Args:
+        latitude: Latitude of the location.
+        longitude: Longitude of the location.
+    """
+    # ... 实现API调用逻辑 ...
+    forecast_data = await call_weather_api(latitude, longitude)
+    return f"Forecast: {forecast_data}"
+
+if __name__ == "__main__":
+    mcp.run(transport='stdio')
 ```
+*   `@mcp.tool()`装饰器会自动将函数转换为一个MCP工具。
+*   函数名、参数类型、文档字符串（docstring）会被自动解析，生成工具的`name`, `inputSchema` 和 `description`。
+
+**客户端 (Client) - 使用工具**
+客户端的核心逻辑是：连接服务器 -> 列出工具 -> 将工具信息传递给LLM -> 接收LLM的工具调用请求 -> 执行工具 -> 将结果返回给LLM。
+
+```python
+# 伪代码
+import mcp
+from anthropic import Anthropic
+
+# 1. 连接到服务器
+async with mcp.client.stdio_client(server_params) as transport:
+    async with mcp.ClientSession(transport) as session:
+        await session.initialize()
+
+        # 2. 列出可用工具
+        response = await session.list_tools()
+        available_tools = response.tools # 格式化为LLM API所需的格式
+
+        # 3. 与LLM交互
+        user_query = "What's the weather in San Francisco?"
+        llm_response = anthropic.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            messages=[{"role": "user", "content": user_query}],
+            tools=available_tools
+        )
+
+        # 4. 处理LLM的工具调用请求
+        if llm_response.stop_reason == "tool_use":
+            tool_name = llm_response.content[1].name
+            tool_args = llm_response.content[1].input
+
+            # 5. 执行工具
+            tool_result = await session.call_tool(tool_name, tool_args)
+
+            # 6. 将结果返回给LLM继续生成
+            final_response = anthropic.messages.create(...)
+```
+
+---

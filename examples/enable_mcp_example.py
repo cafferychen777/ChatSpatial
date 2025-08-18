@@ -44,24 +44,77 @@ async def get_prompt(name: str, arguments: dict = None):
     if not prompt:
         raise ValueError(f"Prompt '{name}' not found")
     
-    if arguments:
-        # Convert to tool call
-        tool_params = prompt_manager.prompt_to_tool_params(name, arguments)
-        return {
-            "description": prompt.description,
-            "messages": [{
-                "role": "user",
-                "content": f"Run {tool_params['tool']} with {tool_params}"
-            }]
-        }
+    # Generate structured prompt message based on template and arguments
+    message_content = _generate_prompt_message(name, arguments or {})
     
     return {
         "description": prompt.description,
         "messages": [{
             "role": "user",
-            "content": prompt.description
+            "content": message_content
         }]
     }
+
+def _generate_prompt_message(prompt_name: str, arguments: dict) -> str:
+    """Generate structured prompt message content based on template and arguments"""
+    
+    if prompt_name == "analyze-spatial-expression":
+        genes = arguments.get("genes", "")
+        method = arguments.get("method", "Moran's I")
+        if genes:
+            return f"Analyze spatial expression patterns for genes: {genes}. Use {method} statistic to identify spatial variability and create visualizations."
+        else:
+            return "Analyze spatial gene expression patterns using statistical methods to identify spatially variable genes."
+    
+    elif prompt_name == "find-cell-types":
+        method = arguments.get("method", "automated annotation")
+        reference = arguments.get("reference_data", "")
+        ref_text = f" using reference data: {reference}" if reference else ""
+        return f"Identify cell types in spatial transcriptomics data using {method}{ref_text}. Provide detailed cell type annotations with confidence scores."
+    
+    elif prompt_name == "compare-conditions":
+        condition_key = arguments.get("condition_key", "condition")
+        cond1 = arguments.get("condition1", "condition A")
+        cond2 = arguments.get("condition2", "condition B") 
+        return f"Compare spatial patterns between {cond1} and {cond2} using the '{condition_key}' grouping. Identify differentially expressed genes and spatial differences."
+    
+    elif prompt_name == "generate-visualization":
+        plot_type = arguments.get("plot_type", "spatial plot")
+        feature = arguments.get("feature", "")
+        feature_text = f" for {feature}" if feature else ""
+        return f"Generate a {plot_type}{feature_text}. Create high-quality visualizations with proper legends and color scales."
+    
+    elif prompt_name == "quality-control":
+        metrics = arguments.get("metrics", "standard QC metrics")
+        return f"Perform quality control analysis using {metrics}. Generate QC plots and filtering recommendations."
+    
+    elif prompt_name == "batch-correction":
+        batch_key = arguments.get("batch_key", "batch")
+        method = arguments.get("method", "Harmony")
+        return f"Correct batch effects using {method} method with batch information from '{batch_key}' column. Evaluate correction effectiveness."
+    
+    elif prompt_name == "spatial-clustering":
+        n_clusters = arguments.get("n_clusters", "")
+        resolution = arguments.get("resolution", "")
+        params = []
+        if n_clusters: params.append(f"{n_clusters} clusters")
+        if resolution: params.append(f"resolution {resolution}")
+        param_text = f" with {', '.join(params)}" if params else ""
+        return f"Perform spatial clustering analysis{param_text}. Identify spatially coherent domains and visualize results."
+    
+    elif prompt_name == "trajectory-inference":
+        start_cell = arguments.get("start_cell", "")
+        end_cell = arguments.get("end_cell", "")
+        trajectory_text = ""
+        if start_cell and end_cell:
+            trajectory_text = f" from {start_cell} to {end_cell}"
+        elif start_cell:
+            trajectory_text = f" starting from {start_cell}"
+        return f"Infer cellular trajectories{trajectory_text}. Compute pseudotime and identify trajectory-associated genes."
+    
+    else:
+        # Fallback for unknown prompts
+        return f"Execute {prompt_name} analysis with the provided parameters."
 
 # 4. Use tool annotations
 from chatspatial.mcp.annotations import get_tool_annotation
