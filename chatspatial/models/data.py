@@ -3,7 +3,7 @@ Data models for spatial transcriptomics analysis.
 """
 
 from typing import Annotated, Dict, List, Literal, Optional, Tuple, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SpatialDataset(BaseModel):
@@ -38,7 +38,7 @@ class AnalysisParameters(BaseModel):
     scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
     
     # Key naming parameters (configurable hard-coded keys)
-    clustering_key: str = "leiden"  # Key name for storing clustering results
+    cluster_key: str = Field("leiden", alias="clustering_key")  # Key name for storing clustering results
     spatial_key: str = "spatial"   # Key name for spatial coordinates in obsm
     batch_key: str = "batch"      # Key name for batch information in obs
     
@@ -51,7 +51,19 @@ class VisualizationParameters(BaseModel):
     """Visualization parameters model"""
     model_config = {"extra": "forbid"}  # Strict validation after preprocessing
 
-    feature: Optional[Union[str, List[str]]] = None  # Single feature or list of features
+    feature: Optional[Union[str, List[str]]] = Field(
+        None,
+        description="Single feature or list of features (accepts both 'feature' and 'features')"
+    )  # Single feature or list of features
+    
+    @model_validator(mode='before')
+    @classmethod
+    def handle_features_alias(cls, data):
+        """Handle 'features' parameter as alias for 'feature'"""
+        if isinstance(data, dict) and 'features' in data and 'feature' not in data:
+            data = data.copy()
+            data['feature'] = data.pop('features')
+        return data
     plot_type: Literal[
         "spatial", "heatmap", "violin", "umap",
         "spatial_domains", "cell_communication", "deconvolution",
@@ -326,7 +338,7 @@ class SpatialVariableGenesParameters(BaseModel):
     method: Literal["gaston", "spatialde", "spark"] = "gaston"
 
     # Common parameters for all methods
-    n_genes: Optional[Annotated[int, Field(gt=0, le=5000)]] = None  # Number of top genes to return (None = all significant)
+    n_top_genes: Optional[Annotated[int, Field(gt=0, le=5000)]] = None  # Number of top spatial variable genes to return (None = all significant)
     spatial_key: str = "spatial"  # Key in obsm containing spatial coordinates
 
     # GASTON-specific parameters

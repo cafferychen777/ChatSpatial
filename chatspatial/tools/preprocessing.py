@@ -410,10 +410,10 @@ async def preprocess_data(
             if context:
                 await context.info(f"Using Leiden clustering with resolution {resolution}...")
 
-            sc.tl.leiden(adata, resolution=resolution, key_added=params.clustering_key)
+            sc.tl.leiden(adata, resolution=resolution, key_added=params.cluster_key)
 
             # Count clusters
-            n_clusters = len(adata.obs[params.clustering_key].unique())
+            n_clusters = len(adata.obs[params.cluster_key].unique())
         except Exception as e:
             if context:
                 await context.warning(f"Error in neighbors/clustering: {str(e)}")
@@ -444,13 +444,13 @@ async def preprocess_data(
 
             try:
                 kmeans = KMeans(n_clusters=n_clusters_kmeans, random_state=42, n_init=10)
-                adata.obs[params.clustering_key] = kmeans.fit_predict(X_hvg).astype(str)
+                adata.obs[params.cluster_key] = kmeans.fit_predict(X_hvg).astype(str)
                 n_clusters = n_clusters_kmeans
             except Exception as e_kmeans:
                 if context:
                     await context.warning(f"KMeans clustering failed: {e_kmeans}. Using simple clustering.")
                 # Final fallback: random clustering
-                adata.obs[params.clustering_key] = np.random.randint(0, MIN_KMEANS_CLUSTERS, adata.n_obs).astype(str)
+                adata.obs[params.cluster_key] = np.random.randint(0, MIN_KMEANS_CLUSTERS, adata.n_obs).astype(str)
                 n_clusters = MIN_KMEANS_CLUSTERS
 
             # Create a simple UMAP embedding if possible

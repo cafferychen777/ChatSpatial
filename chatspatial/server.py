@@ -394,7 +394,7 @@ async def find_markers(
     group1: Optional[str] = None,
     group2: Optional[str] = None,
     method: str = "wilcoxon",
-    n_genes: int = 25,  # Keep as n_genes for server interface, convert to n_top_genes in function call
+    n_top_genes: int = 25,  # Number of top differentially expressed genes to return
     context: Context = None
 ) -> DifferentialExpressionResult:
     """Find differentially expressed genes between groups
@@ -405,7 +405,7 @@ async def find_markers(
         group1: First group (if None, compare against all others)
         group2: Second group (if None, compare group1 against all others)
         method: Statistical test method
-        n_genes: Number of top genes to return
+        n_top_genes: Number of top differentially expressed genes to return
 
     Returns:
         Differential expression result with top marker genes
@@ -425,7 +425,7 @@ async def find_markers(
         group1=group1,
         group2=group2,
         method=method,
-        n_top_genes=n_genes,  # Convert n_genes parameter to n_top_genes for tool function
+        n_top_genes=n_top_genes,  # Direct parameter pass-through - no conversion needed
         context=context
     )
 

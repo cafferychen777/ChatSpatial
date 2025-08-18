@@ -149,13 +149,7 @@ def _preprocess_visualization_params(params: Union[Dict[str, Any], BaseModel, st
         # Handle dictionary format parameters
         result = params.copy()
 
-        # Handle features -> feature conversion
-        if "features" in result:
-            if "feature" not in result:
-                # Use features as feature
-                result["feature"] = result["features"]
-            # Always remove features to avoid Pydantic validation conflicts
-            del result["features"]
+        # features/feature parameter handled by Pydantic model validator
 
         return result
 
