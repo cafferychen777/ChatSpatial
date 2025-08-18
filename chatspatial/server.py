@@ -1078,7 +1078,7 @@ async def register_spatial_data(
         Registration result with transformation matrix
     """
     # Import registration function
-    from .tools.spatial_registration import register_spatial_slices
+    from .tools.spatial_registration import register_spatial_slices_mcp
 
     # Validate datasets
     validate_dataset(source_id)
@@ -1092,45 +1092,10 @@ async def register_spatial_data(
         target_id: target_info
     }
 
-    # Extract AnnData objects from data store
-    source_adata = data_store[source_id]["adata"]
-    target_adata = data_store[target_id]["adata"]
-    adata_list = [source_adata, target_adata]
-    
-    if context:
-        await context.info(f"Registering {source_id} to {target_id} using method: {method}")
-    
-    # Call registration function (note: this is a sync function, not async)
-    try:
-        registered_adata_list = register_spatial_slices(
-            adata_list, 
-            method=method,
-            landmarks=landmarks if landmarks else None
-        )
-        
-        # Update data store with registered data
-        data_store[source_id]["adata"] = registered_adata_list[0]  # source (registered)
-        data_store[target_id]["adata"] = registered_adata_list[1]  # target (reference)
-        
-        # Create result dictionary
-        result = {
-            "method": method,
-            "source_id": source_id,
-            "target_id": target_id,
-            "n_source_spots": registered_adata_list[0].n_obs,
-            "n_target_spots": registered_adata_list[1].n_obs,
-            "registration_completed": True,
-            "spatial_key_registered": "spatial_registered"
-        }
-        
-        if context:
-            await context.info(f"Registration completed. Registered coordinates stored in 'spatial_registered' key.")
-            
-    except Exception as e:
-        error_msg = f"Registration failed: {str(e)}"
-        if context:
-            await context.error(error_msg)
-        raise RuntimeError(error_msg) from e
+    # Call registration function using standard architecture
+    result = await register_spatial_slices_mcp(
+        source_id, target_id, data_store, method, landmarks, context
+    )
 
     # Update datasets in data manager
     data_manager.data_store[source_id] = data_store[source_id]

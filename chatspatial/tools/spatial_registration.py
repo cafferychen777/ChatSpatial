@@ -449,3 +449,79 @@ def evaluate_registration(
     """
     registration_tool = SpatialRegistration()
     return registration_tool.compute_registration_quality(adata_list, use_registered)
+
+
+# Standard architecture-compliant wrapper function for MCP server
+async def register_spatial_slices_mcp(
+    source_id: str,
+    target_id: str,
+    data_store: dict,
+    method: str = "paste",
+    landmarks: Optional[dict] = None,
+    context = None
+) -> dict:
+    """
+    Register spatial slices following the standard MCP tool architecture.
+    
+    This function follows the standard pattern used by other tools:
+    - Accepts data IDs and data_store dictionary
+    - Extracts AnnData objects internally
+    - Returns results in standard format
+    
+    Args:
+        source_id: Source dataset ID
+        target_id: Target dataset ID to align to
+        data_store: Dictionary containing dataset information
+        method: Registration method (paste, stalign)
+        landmarks: Additional parameters (currently unused)
+        context: MCP context for logging
+        
+    Returns:
+        Dictionary with registration results
+    """
+    if context:
+        await context.info(f"Registering {source_id} to {target_id} using method: {method}")
+    
+    # Validate data exists
+    if source_id not in data_store:
+        raise ValueError(f"Source dataset {source_id} not found in data store")
+    if target_id not in data_store:
+        raise ValueError(f"Target dataset {target_id} not found in data store")
+    
+    # Extract AnnData objects
+    source_adata = data_store[source_id]["adata"].copy()
+    target_adata = data_store[target_id]["adata"].copy()
+    adata_list = [source_adata, target_adata]
+    
+    try:
+        # Call the core registration function
+        registered_adata_list = register_spatial_slices(
+            adata_list, 
+            method=method
+        )
+        
+        # Update data store with registered data
+        data_store[source_id]["adata"] = registered_adata_list[0]  # source (registered)
+        data_store[target_id]["adata"] = registered_adata_list[1]  # target (reference)
+        
+        # Create result dictionary
+        result = {
+            "method": method,
+            "source_id": source_id,
+            "target_id": target_id,
+            "n_source_spots": registered_adata_list[0].n_obs,
+            "n_target_spots": registered_adata_list[1].n_obs,
+            "registration_completed": True,
+            "spatial_key_registered": "spatial_registered"
+        }
+        
+        if context:
+            await context.info(f"Registration completed. Registered coordinates stored in 'spatial_registered' key.")
+        
+        return result
+        
+    except Exception as e:
+        error_msg = f"Registration failed: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise RuntimeError(error_msg) from e
