@@ -10,7 +10,7 @@ from mcp.server.fastmcp import Context
 
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
-from ..utils.output_utils import suppress_output, ProcessingError
+from ..utils.error_handling import suppress_output, ProcessingError
 
 # Import scvi-tools for advanced trajectory analysis
 try:

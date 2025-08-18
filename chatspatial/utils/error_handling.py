@@ -4,8 +4,12 @@ Enhanced error handling for MCP server
 
 from typing import Any, Callable, Dict, Optional, Union, List
 from functools import wraps
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 import traceback
 import scanpy as sc
+import io
+import logging
+import warnings
 from ..mcp.errors import ErrorType, format_mcp_error
 
 
@@ -216,3 +220,38 @@ def sync_mcp_error_handler(func: Callable) -> Callable:
             raise ValueError(error)
     
     return wrapper
+
+
+@contextmanager
+def suppress_output():
+    """Context manager to suppress stdout, stderr, warnings, and logging during analysis.
+    
+    This combines the best features of both previous implementations:
+    - Suppresses warnings (from previous utils implementation)
+    - Controls logging levels (from previous local implementation)  
+    - Captures stdout and stderr output
+    
+    Usage:
+        with suppress_output():
+            # Code that produces unwanted output
+            pass
+    """
+    # Save original logging level
+    old_level = logging.getLogger().level
+    logging.getLogger().setLevel(logging.ERROR)
+    
+    # Suppress warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        
+        # Capture stdout and stderr
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+        
+        try:
+            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                yield
+        finally:
+            # Restore original logging level
+            logging.getLogger().setLevel(old_level)
+            # Note: Captured output is intentionally discarded for cleaner analysis output
