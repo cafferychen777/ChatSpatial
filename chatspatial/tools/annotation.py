@@ -3,6 +3,9 @@ Cell type annotation tools for spatial transcriptomics data.
 """
 
 from typing import Dict, List, Optional, Any, Union
+import hashlib
+import pickle
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -98,6 +101,12 @@ DEFAULT_SCANVI_EPOCHS = 200
 CONFIDENCE_MIN = 0.5
 CONFIDENCE_MAX = 0.99
 
+# Supported annotation methods
+SUPPORTED_METHODS = {
+    "tangram", "scanvi", "cellassign", "marker_genes", 
+    "mllmcelltype", "sctype"
+}
+
 async def _handle_annotation_error(error: Exception, method: str, context: Optional[Context] = None) -> None:
     """Handle annotation errors consistently"""
     error_msg = f"{method} annotation failed: {str(error)}"
@@ -127,89 +136,123 @@ async def _validate_marker_genes(adata, marker_genes: Dict[str, List[str]], cont
     
     return valid_marker_genes
 
-def _calculate_cell_type_scores(adata, valid_marker_genes: Dict[str, List[str]], use_raw: bool = False) -> Dict[str, str]:
-    """Calculate cell type scores using marker genes"""
-    cell_type_scores = {}
-    for cell_type, genes in valid_marker_genes.items():
-        score_name = f"{cell_type}_score"
-        try:
-            # Try with default settings first
-            sc.tl.score_genes(adata, gene_list=genes, score_name=score_name, use_raw=use_raw)
-        except Exception as e:
-            try:
-                # Fallback: try with ctrl_as_ref=False
-                sc.tl.score_genes(adata, gene_list=genes, score_name=score_name, use_raw=use_raw, ctrl_as_ref=False)
-            except Exception as e2:
-                # Ultimate fallback: calculate simple mean expression
-                if use_raw and adata.raw is not None:
-                    expr_data = adata.raw.to_adata()
-                else:
-                    expr_data = adata
-                
-                # Calculate mean expression across marker genes
-                gene_indices = [i for i, gene in enumerate(expr_data.var_names) if gene in genes]
-                if gene_indices:
-                    if hasattr(expr_data.X, 'toarray'):
-                        scores = expr_data.X[:, gene_indices].toarray().mean(axis=1)
-                    else:
-                        scores = expr_data.X[:, gene_indices].mean(axis=1)
-                    adata.obs[score_name] = scores.flatten()
-                else:
-                    # No genes found, set to zero
-                    adata.obs[score_name] = 0.0
+async def _annotate_with_marker_genes_scanpy(adata, marker_genes: Dict[str, List[str]], context: Optional[Context] = None) -> tuple:
+    """Use scanpy's official marker_gene_overlap method for annotation"""
+    try:
+        if context:
+            await context.info("Using scanpy's official marker_gene_overlap method")
         
-        cell_type_scores[cell_type] = score_name
-    return cell_type_scores
-
-def _assign_cell_types_from_scores(adata, cell_type_scores: Dict[str, str]) -> tuple:
-    """Assign cell types based on highest scores and calculate confidence"""
-    # Create DataFrame with all scores
-    scores_df = pd.DataFrame(index=adata.obs_names)
-    for cell_type, score_name in cell_type_scores.items():
-        scores_df[cell_type] = adata.obs[score_name]
-    
-    # Assign cell type based on highest score
-    adata.obs["cell_type"] = scores_df.idxmax(axis=1)
-    adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
-    
-    # Calculate confidence scores
-    confidence_scores = {}
-    valid_cell_types = list(cell_type_scores.keys())
-    
-    for cell_type in valid_cell_types:
-        cells_of_type = adata.obs["cell_type"] == cell_type
-        if np.sum(cells_of_type) > 0:
-            mean_score = np.mean(adata.obs[cell_type_scores[cell_type]][cells_of_type])
-            # Normalize to 0-1 range (assuming scores are roughly between -1 and 1)
-            confidence = (mean_score + 1) / 2
-            confidence_scores[cell_type] = round(min(max(confidence, CONFIDENCE_MIN), CONFIDENCE_MAX), 2)
-        else:
-            confidence_scores[cell_type] = CONFIDENCE_MIN
-    
-    # Get cell types and counts
-    cell_types = list(adata.obs["cell_type"].unique())
-    counts = adata.obs["cell_type"].value_counts().to_dict()
-    
-    return cell_types, counts, confidence_scores
+        # Step 1: Ensure we have clustering for differential expression analysis
+        if 'leiden' not in adata.obs.columns:
+            if context:
+                await context.info("Running Leiden clustering for marker gene analysis")
+            # Need neighbors first
+            if 'neighbors' not in adata.uns:
+                sc.pp.neighbors(adata, n_neighbors=15, n_pcs=40)
+            sc.tl.leiden(adata, resolution=0.5)
+        
+        # Step 2: Calculate differential expression for clusters
+        if context:
+            await context.info("Computing differential expression analysis")
+        sc.tl.rank_genes_groups(adata, groupby='leiden', method='wilcoxon', n_genes=100)
+        
+        # Step 3: Use scanpy's official marker gene overlap
+        if context:
+            await context.info(f"Computing marker gene overlap for {len(marker_genes)} cell types")
+        
+        # Convert marker genes to the format expected by scanpy
+        reference_markers = {cell_type: set(genes) for cell_type, genes in marker_genes.items()}
+        
+        overlap_scores = sc.tl.marker_gene_overlap(
+            adata,
+            reference_markers=reference_markers,
+            method='overlap_count',  # Count overlapping genes
+            top_n_markers=50,  # Use top 50 DE genes per cluster
+            inplace=False
+        )
+        
+        if context:
+            await context.info(f"Overlap analysis completed for {len(overlap_scores)} clusters")
+        
+        # Step 4: Assign cell types based on highest overlap scores
+        # Note: overlap_scores has cell_types as index and clusters as columns
+        cluster_to_celltype = {}
+        confidence_scores_per_cluster = {}
+        
+        # For each cluster (column), find the cell type (index) with highest overlap
+        for cluster_col in overlap_scores.columns:
+            cluster_str = str(cluster_col)
+            # Get scores for this cluster across all cell types
+            cluster_scores = overlap_scores[cluster_col]  # This is a Series
+            best_celltype = cluster_scores.idxmax()  # Cell type with highest overlap
+            max_overlap = cluster_scores[best_celltype]
+            
+            cluster_to_celltype[cluster_str] = best_celltype
+            
+            # Calculate confidence based on overlap ratio
+            total_possible_overlap = len(reference_markers[best_celltype])
+            confidence = min(max_overlap / total_possible_overlap, 0.95) if total_possible_overlap > 0 else 0.1
+            confidence_scores_per_cluster[cluster_str] = round(max(confidence, CONFIDENCE_MIN), 2)
+        
+        # Step 5: Map cluster assignments to individual cells
+        adata.obs['cell_type'] = adata.obs['leiden'].astype(str).map(cluster_to_celltype)
+        
+        # Handle any unmapped clusters (assign as "Unknown")
+        unmapped_mask = adata.obs['cell_type'].isna()
+        if unmapped_mask.any():
+            if context:
+                await context.warning(f"Found {unmapped_mask.sum()} cells in unmapped clusters, assigning as 'Unknown'")
+            adata.obs.loc[unmapped_mask, 'cell_type'] = 'Unknown'
+            confidence_scores_per_cluster['Unknown'] = CONFIDENCE_MIN
+        
+        adata.obs['cell_type'] = adata.obs['cell_type'].astype('category')
+        
+        # Step 6: Calculate final statistics
+        cell_types = list(adata.obs['cell_type'].unique())
+        counts = adata.obs['cell_type'].value_counts().to_dict()
+        
+        # Map cluster confidence to cell type confidence (average across clusters for each cell type)
+        confidence_scores = {}
+        for cell_type in cell_types:
+            # Find all clusters assigned to this cell type
+            assigned_clusters = [k for k, v in cluster_to_celltype.items() if v == cell_type]
+            if assigned_clusters:
+                # Average confidence across clusters for this cell type
+                avg_confidence = np.mean([confidence_scores_per_cluster.get(c, CONFIDENCE_MIN) for c in assigned_clusters])
+                confidence_scores[cell_type] = round(avg_confidence, 2)
+            else:
+                confidence_scores[cell_type] = CONFIDENCE_MIN
+        
+        if context:
+            await context.info(f"✅ Marker gene annotation completed: {len(cell_types)} cell types identified")
+            top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
+            await context.info(f"Top cell types: {', '.join([f'{t}({c})' for t, c in top_types])}")
+        
+        return cell_types, counts, confidence_scores
+        
+    except Exception as e:
+        error_msg = f"Scanpy marker gene overlap annotation failed: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise ValueError(error_msg)
 
 
 async def _annotate_with_marker_genes(adata, params: AnnotationParameters, context: Optional[Context] = None):
-    """Annotate cell types using marker genes method"""
+    """Annotate cell types using scanpy's official marker gene overlap method"""
     try:
         if context:
-            await context.info("Using marker genes method for annotation")
+            await context.info("Using scanpy's official marker gene overlap method")
         
         # Use provided marker genes or default ones
         marker_genes = params.marker_genes if params.marker_genes else DEFAULT_MARKER_GENES
         
-        # Validate marker genes
+        # Validate marker genes exist in dataset
         valid_marker_genes = await _validate_marker_genes(adata, marker_genes, context)
         
-        # Calculate scores
-        cell_type_scores = _calculate_cell_type_scores(adata, valid_marker_genes, use_raw=False)
-        
-        # Assign cell types and calculate confidence
-        cell_types, counts, confidence_scores = _assign_cell_types_from_scores(adata, cell_type_scores)
+        # Use scanpy's official method
+        cell_types, counts, confidence_scores = await _annotate_with_marker_genes_scanpy(
+            adata, valid_marker_genes, context
+        )
         
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
@@ -219,36 +262,6 @@ async def _annotate_with_marker_genes(adata, params: AnnotationParameters, conte
     except Exception as e:
         await _handle_annotation_error(e, "marker_genes", context)
 
-async def _annotate_with_correlation(adata, params: AnnotationParameters, context: Optional[Context] = None):
-    """Annotate cell types using correlation method"""
-    try:
-        if context:
-            await context.info("Using correlation method for annotation")
-        
-        if not params.reference_data:
-            if context:
-                await context.warning("Reference data not provided, falling back to marker genes method")
-            return await _annotate_with_marker_genes(adata, params, context)
-        
-        # Use provided marker genes or default ones
-        marker_genes = params.marker_genes if params.marker_genes else DEFAULT_MARKER_GENES
-        
-        # Validate marker genes
-        valid_marker_genes = await _validate_marker_genes(adata, marker_genes, context)
-        
-        # Calculate scores using raw data for correlation
-        cell_type_scores = _calculate_cell_type_scores(adata, valid_marker_genes, use_raw=True)
-        
-        # Assign cell types and calculate confidence
-        cell_types, counts, confidence_scores = _assign_cell_types_from_scores(adata, cell_type_scores)
-        
-        # Note: Visualizations should be created using the separate visualize_data tool
-        # This maintains clean separation between analysis and visualization
-        
-        return cell_types, counts, confidence_scores, None
-        
-    except Exception as e:
-        await _handle_annotation_error(e, "correlation", context)
 
 async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store: Dict[str, Any], context: Optional[Context] = None):
     """Annotate cell types using Tangram method"""
@@ -375,7 +388,6 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
         cell_types = []
         counts = {}
         confidence_scores = {}
-        visualization = None
         
         if 'tangram_ct_pred' in adata_sp.obsm:
             cell_type_df = adata_sp.obsm['tangram_ct_pred']
@@ -410,7 +422,7 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
             if context:
                 await context.warning("No cell type predictions found in Tangram results")
 
-        return cell_types, counts, confidence_scores, tangram_mapping_score, None
+        return cell_types, counts, confidence_scores, tangram_mapping_score
         
     except Exception as e:
         await _handle_annotation_error(e, "tangram", context)
@@ -788,6 +800,10 @@ async def annotate_cell_types(
 
     adata = data_store[data_id]["adata"]
 
+    # Validate method first - clean and simple
+    if params.method not in SUPPORTED_METHODS:
+        raise ValueError(f"Unsupported method: {params.method}. Supported: {sorted(SUPPORTED_METHODS)}")
+
     # Route to appropriate annotation method
     try:
         if params.method == "tangram":
@@ -806,27 +822,14 @@ async def annotate_cell_types(
             cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_marker_genes(
                 adata, params, context
             )
-        elif params.method == "correlation":
-            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_correlation(
-                adata, params, context
-            )
         elif params.method == "mllmcelltype":
             cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_mllmcelltype(
                 adata, params, context
             )
-        elif params.method == "sctype":
+        else:  # sctype
             cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_sctype(
                 adata, params, context
             )
-        elif params.method in ["supervised", "popv", "gptcelltype", "scrgcl"]:
-            # These methods fall back to marker genes
-            if context:
-                await context.warning(f"{params.method} method not fully implemented, falling back to marker genes method")
-            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_marker_genes(
-                adata, params, context
-            )
-        else:
-            raise ValueError(f"Unknown annotation method: {params.method}")
 
     except Exception as e:
         if context:
@@ -854,11 +857,6 @@ async def annotate_cell_types(
 # ============================================================================
 # SC-TYPE IMPLEMENTATION
 # ============================================================================
-
-import hashlib
-import pickle
-import os
-from pathlib import Path
 
 # Cache for sc-type results to avoid repeated R calls
 _SCTYPE_CACHE = {}
