@@ -2,11 +2,13 @@
 Cell-cell communication analysis tools for spatial transcriptomics data.
 """
 
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Union
 import numpy as np
 import pandas as pd
 import scanpy as sc
 import traceback
+import warnings
+from scipy import sparse
 
 from mcp.server.fastmcp import Context
 
@@ -57,13 +59,20 @@ async def analyze_cell_communication(
     adata = data_store[data_id]["adata"].copy()
     
     try:
-        # Check if spatial coordinates exist
-        if 'spatial' not in adata.obsm and not any('spatial' in key for key in adata.obsm.keys()):
-            raise ValueError("No spatial coordinates found in the dataset")
+        # Comprehensive data validation
+        if context:
+            await context.info("Performing comprehensive data quality validation...")
+        
+        validation_result = await _comprehensive_data_validation(adata, context)
+        if not validation_result["passed"]:
+            error_msg = f"Data validation failed: {validation_result['error_message']}"
+            if validation_result.get('suggestions'):
+                error_msg += f"\n\nSuggestions to fix:\n{validation_result['suggestions']}"
+            raise ValueError(error_msg)
         
         # Prepare data for cell communication analysis
         if context:
-            await context.info("Preparing data for cell communication analysis...")
+            await context.info("Data validation passed. Preparing for cell communication analysis...")
         
         # Ensure data is properly normalized
         if 'log1p' not in adata.uns:
@@ -212,8 +221,9 @@ async def _analyze_communication_liana(
 
 
 def _detect_species_from_genes(adata: Any, context: Optional[Context] = None) -> str:
-    """Auto-detect species from gene names"""
-    gene_names = set(adata.var.index[:1000])  # Sample first 1000 genes for speed
+    """Auto-detect species from gene names using adaptive sampling strategy"""
+    # Linus's Rule: No magic numbers, no special cases
+    gene_names = _get_representative_gene_sample(adata)
 
     # Common mouse gene patterns
     mouse_patterns = [
@@ -230,13 +240,106 @@ def _detect_species_from_genes(adata: Any, context: Optional[Context] = None) ->
     mouse_score = sum(1 for gene in gene_names if any(pattern(gene) for pattern in mouse_patterns))
     human_score = sum(1 for gene in gene_names if any(pattern(gene) for pattern in human_patterns))
 
+    # Calculate confidence scores for robustness
+    total_classified = mouse_score + human_score
+    confidence = total_classified / len(gene_names) if gene_names else 0
+    
     # Note: context.info is async but we can't await in a sync function
-    # This is just for detection, logging will happen in the calling function
+    # Store confidence for potential logging by caller
+    result_species = "mouse" if mouse_score > human_score else "human"
+    
+    # Store detection metadata for debugging
+    if hasattr(adata, 'uns'):
+        adata.uns['species_detection'] = {
+            'detected_species': result_species,
+            'mouse_score': mouse_score,
+            'human_score': human_score,
+            'total_genes_sampled': len(gene_names),
+            'classification_confidence': confidence
+        }
+    
+    return result_species
 
-    if mouse_score > human_score:
-        return "mouse"
+
+def _get_representative_gene_sample(adata: Any) -> set:
+    """
+    Get representative gene sample using adaptive sampling strategy.
+    
+    Linus's principle: Eliminate special cases by making the algorithm adapt to data,
+    not the other way around.
+    """
+    total_genes = len(adata.var.index)
+    
+    if total_genes == 0:
+        return set()
+    
+    # Adaptive sample size based on dataset characteristics
+    if total_genes <= 100:
+        # Small dataset: use all genes
+        sample_size = total_genes
+        return set(adata.var.index)
+    elif total_genes <= 1000:
+        # Medium dataset: use all genes, no sampling needed
+        sample_size = total_genes
+        return set(adata.var.index)
     else:
-        return "human"
+        # Large dataset: intelligent sampling
+        # Use square root scaling with reasonable bounds
+        sample_size = max(500, min(2000, int(np.sqrt(total_genes) * 50)))
+        
+        # Stratified sampling to avoid ordering bias
+        # Take samples from different parts of the gene list
+        return _stratified_gene_sampling(adata.var.index, sample_size)
+
+
+def _stratified_gene_sampling(gene_index: Any, sample_size: int) -> set:
+    """
+    Perform stratified sampling to get representative genes from different regions.
+    
+    This eliminates the ordering bias problem that plagued the original [:1000] approach.
+    """
+    total_genes = len(gene_index)
+    
+    if sample_size >= total_genes:
+        return set(gene_index)
+    
+    # Divide gene space into strata and sample from each
+    n_strata = min(10, sample_size // 50)  # At least 50 genes per stratum
+    if n_strata < 2:
+        # Fallback to simple random sampling for very small sample sizes
+        indices = np.random.choice(total_genes, sample_size, replace=False)
+        return set(gene_index[indices])
+    
+    genes_per_stratum = sample_size // n_strata
+    remaining_genes = sample_size % n_strata
+    
+    sampled_genes = set()
+    
+    for i in range(n_strata):
+        # Calculate stratum boundaries
+        stratum_start = (total_genes * i) // n_strata
+        stratum_end = (total_genes * (i + 1)) // n_strata
+        
+        # Number of genes to sample from this stratum
+        stratum_sample_size = genes_per_stratum
+        if i < remaining_genes:
+            stratum_sample_size += 1
+        
+        # Sample from this stratum
+        stratum_size = stratum_end - stratum_start
+        if stratum_sample_size >= stratum_size:
+            # Take all genes from this stratum
+            sampled_genes.update(gene_index[stratum_start:stratum_end])
+        else:
+            # Random sample from stratum
+            stratum_indices = np.random.choice(
+                stratum_size, 
+                stratum_sample_size, 
+                replace=False
+            ) + stratum_start
+            sampled_genes.update(gene_index[stratum_indices])
+    
+    return sampled_genes
 
 
 def _get_liana_resource_name(species: str, resource_preference: str) -> str:
@@ -745,3 +848,436 @@ async def _create_microenvironments_file(
         if context:
             await context.warning(f"Failed to create microenvironments file: {str(e)}")
         return None
+
+
+async def _comprehensive_data_validation(
+    adata: Any,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Comprehensive data quality validation for AnnData objects
+    
+    This function implements Linus's "good taste" principle by:
+    1. Checking real problems that occur in production
+    2. Failing early with clear error messages
+    3. Providing actionable suggestions for fixes
+    4. Using a unified validation framework
+    
+    Args:
+        adata: AnnData object to validate
+        context: MCP context for logging
+        
+    Returns:
+        Dict with validation results:
+        {
+            "passed": bool,
+            "error_message": str,
+            "warnings": List[str],
+            "suggestions": str,
+            "validation_details": Dict[str, Any]
+        }
+    """
+    validation_result = {
+        "passed": True,
+        "error_message": "",
+        "warnings": [],
+        "suggestions": "",
+        "validation_details": {}
+    }
+    
+    errors = []
+    warnings_list = []
+    suggestions = []
+    
+    try:
+        # 1. Basic structure validation
+        structure_check = await _validate_basic_structure(adata, context)
+        validation_result["validation_details"]["structure"] = structure_check
+        if not structure_check["passed"]:
+            errors.extend(structure_check["errors"])
+            suggestions.extend(structure_check["suggestions"])
+        warnings_list.extend(structure_check["warnings"])
+        
+        # 2. Expression matrix validation
+        expression_check = await _validate_expression_matrix(adata, context)
+        validation_result["validation_details"]["expression"] = expression_check
+        if not expression_check["passed"]:
+            errors.extend(expression_check["errors"])
+            suggestions.extend(expression_check["suggestions"])
+        warnings_list.extend(expression_check["warnings"])
+        
+        # 3. Spatial coordinates validation
+        spatial_check = await _validate_spatial_coordinates(adata, context)
+        validation_result["validation_details"]["spatial"] = spatial_check
+        if not spatial_check["passed"]:
+            errors.extend(spatial_check["errors"])
+            suggestions.extend(spatial_check["suggestions"])
+        warnings_list.extend(spatial_check["warnings"])
+        
+        # 4. Metadata validation
+        metadata_check = await _validate_metadata(adata, context)
+        validation_result["validation_details"]["metadata"] = metadata_check
+        if not metadata_check["passed"]:
+            errors.extend(metadata_check["errors"])
+            suggestions.extend(metadata_check["suggestions"])
+        warnings_list.extend(metadata_check["warnings"])
+        
+        # 5. Cell communication specific validation
+        comm_check = await _validate_communication_requirements(adata, context)
+        validation_result["validation_details"]["communication"] = comm_check
+        if not comm_check["passed"]:
+            errors.extend(comm_check["errors"])
+            suggestions.extend(comm_check["suggestions"])
+        warnings_list.extend(comm_check["warnings"])
+        
+        # Compile final results
+        if errors:
+            validation_result["passed"] = False
+            validation_result["error_message"] = "\n".join([f"• {error}" for error in errors])
+        
+        validation_result["warnings"] = warnings_list
+        if suggestions:
+            validation_result["suggestions"] = "\n".join([f"• {suggestion}" for suggestion in suggestions])
+        
+        # Log summary
+        if context:
+            if validation_result["passed"]:
+                await context.info(f"✅ Data validation passed with {len(warnings_list)} warnings")
+                if warnings_list:
+                    for warning in warnings_list[:3]:  # Show first 3 warnings
+                        await context.info(f"⚠️  {warning}")
+            else:
+                await context.warning(f"❌ Data validation failed: {len(errors)} critical issues found")
+        
+        return validation_result
+        
+    except Exception as e:
+        validation_result["passed"] = False
+        validation_result["error_message"] = f"Validation process failed: {str(e)}"
+        validation_result["suggestions"] = "Please check your data format and try again"
+        return validation_result
+
+
+async def _validate_basic_structure(
+    adata: Any,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Validate basic AnnData structure"""
+    result = {"passed": True, "errors": [], "warnings": [], "suggestions": []}
+    
+    try:
+        # Check if it's actually an AnnData object
+        if not hasattr(adata, 'X') or not hasattr(adata, 'obs') or not hasattr(adata, 'var'):
+            result["errors"].append("Invalid AnnData object: missing X, obs, or var attributes")
+            result["suggestions"].append("Ensure you're passing a valid AnnData object")
+            result["passed"] = False
+            return result
+        
+        # Check dimensions consistency
+        if adata.X.shape[0] != len(adata.obs):
+            result["errors"].append(f"Dimension mismatch: X has {adata.X.shape[0]} cells but obs has {len(adata.obs)} entries")
+            result["suggestions"].append("Check data loading process - cells and observations must match")
+            result["passed"] = False
+        
+        if adata.X.shape[1] != len(adata.var):
+            result["errors"].append(f"Dimension mismatch: X has {adata.X.shape[1]} genes but var has {len(adata.var)} entries")
+            result["suggestions"].append("Check data loading process - genes and variables must match")
+            result["passed"] = False
+        
+        # Check for empty data
+        if adata.n_obs == 0:
+            result["errors"].append("Dataset is empty: no cells found")
+            result["suggestions"].append("Load data with actual cell measurements")
+            result["passed"] = False
+        
+        if adata.n_vars == 0:
+            result["errors"].append("Dataset is empty: no genes found")
+            result["suggestions"].append("Load data with actual gene measurements")
+            result["passed"] = False
+        
+        # Data size warnings
+        if adata.n_obs < 50:
+            result["warnings"].append(f"Very few cells ({adata.n_obs}) - cell communication analysis may be unreliable")
+        
+        if adata.n_vars < 1000:
+            result["warnings"].append(f"Few genes ({adata.n_vars}) - consider using more comprehensive gene set")
+        
+    except Exception as e:
+        result["errors"].append(f"Structure validation failed: {str(e)}")
+        result["suggestions"].append("Check if the input is a valid AnnData object")
+        result["passed"] = False
+    
+    return result
+
+
+async def _validate_expression_matrix(
+    adata: Any,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Validate expression matrix data quality"""
+    result = {"passed": True, "errors": [], "warnings": [], "suggestions": []}
+    
+    try:
+        X = adata.X
+        
+        # Convert sparse to dense for NaN/Inf checking (sample if too large)
+        if sparse.issparse(X):
+            # For large matrices, sample to check quality
+            if X.shape[0] > 5000 or X.shape[1] > 2000:
+                sample_cells = min(1000, X.shape[0])
+                sample_genes = min(500, X.shape[1])
+                cell_idx = np.random.choice(X.shape[0], sample_cells, replace=False)
+                gene_idx = np.random.choice(X.shape[1], sample_genes, replace=False)
+                X_sample = X[cell_idx, :][:, gene_idx].toarray()
+            else:
+                X_sample = X.toarray()
+        else:
+            X_sample = X if X.size <= 10_000_000 else X[:1000, :500]  # Sample large dense matrices
+        
+        # Check for NaN values
+        if np.isnan(X_sample).any():
+            nan_count = np.isnan(X_sample).sum()
+            nan_fraction = nan_count / X_sample.size
+            if nan_fraction > 0.1:  # More than 10% NaN
+                result["errors"].append(f"High proportion of NaN values ({nan_fraction:.2%}) in expression matrix")
+                result["suggestions"].append("Remove or impute NaN values before analysis")
+                result["passed"] = False
+            else:
+                result["warnings"].append(f"Found {nan_count} NaN values ({nan_fraction:.2%}) in expression matrix")
+        
+        # Check for infinite values
+        if np.isinf(X_sample).any():
+            inf_count = np.isinf(X_sample).sum()
+            result["errors"].append(f"Found {inf_count} infinite values in expression matrix")
+            result["suggestions"].append("Replace infinite values with finite numbers or remove affected cells/genes")
+            result["passed"] = False
+        
+        # Check for negative values (suspicious in count data)
+        if (X_sample < 0).any():
+            neg_count = (X_sample < 0).sum()
+            neg_fraction = neg_count / X_sample.size
+            if neg_fraction > 0.01:  # More than 1% negative
+                result["warnings"].append(f"Found {neg_count} negative values ({neg_fraction:.2%}) - unusual for count data")
+        
+        # Check for extremely large values
+        max_val = X_sample.max()
+        if max_val > 1e6:
+            result["warnings"].append(f"Very large expression values detected (max: {max_val:.2e}) - consider normalization")
+        
+        # Check sparsity
+        if sparse.issparse(X):
+            sparsity = 1.0 - (X.nnz / (X.shape[0] * X.shape[1]))
+        else:
+            sparsity = (X == 0).sum() / X.size
+        
+        if sparsity > 0.99:
+            result["warnings"].append(f"Very sparse data ({sparsity:.1%} zeros) - ensure sufficient sequencing depth")
+        elif sparsity < 0.3:
+            result["warnings"].append(f"Unusually dense data ({sparsity:.1%} zeros) - verify data normalization")
+        
+        # Check data type
+        if not np.issubdtype(X.dtype, np.number):
+            result["errors"].append(f"Expression matrix has non-numeric data type: {X.dtype}")
+            result["suggestions"].append("Convert expression data to numeric format")
+            result["passed"] = False
+        
+    except Exception as e:
+        result["errors"].append(f"Expression matrix validation failed: {str(e)}")
+        result["suggestions"].append("Check expression matrix format and values")
+        result["passed"] = False
+    
+    return result
+
+
+async def _validate_spatial_coordinates(
+    adata: Any,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Validate spatial coordinates for cell communication analysis"""
+    result = {"passed": True, "errors": [], "warnings": [], "suggestions": []}
+    
+    try:
+        # Check for spatial coordinates existence
+        spatial_key = None
+        for key in adata.obsm.keys():
+            if 'spatial' in key.lower():
+                spatial_key = key
+                break
+        
+        if spatial_key is None:
+            result["errors"].append("No spatial coordinates found in adata.obsm")
+            result["suggestions"].append("Add spatial coordinates to adata.obsm['spatial'] or similar key")
+            result["passed"] = False
+            return result
+        
+        spatial_coords = adata.obsm[spatial_key]
+        
+        # Check spatial coordinates shape
+        if spatial_coords.shape[0] != adata.n_obs:
+            result["errors"].append(f"Spatial coordinates shape mismatch: {spatial_coords.shape[0]} != {adata.n_obs} cells")
+            result["suggestions"].append("Ensure spatial coordinates match number of cells")
+            result["passed"] = False
+        
+        if spatial_coords.shape[1] < 2:
+            result["errors"].append(f"Spatial coordinates must have at least 2 dimensions, found {spatial_coords.shape[1]}")
+            result["suggestions"].append("Provide x,y coordinates (and optionally z) for spatial analysis")
+            result["passed"] = False
+        
+        # Check for NaN/Inf in spatial coordinates
+        if np.isnan(spatial_coords).any():
+            nan_count = np.isnan(spatial_coords).sum()
+            result["errors"].append(f"Found {nan_count} NaN values in spatial coordinates")
+            result["suggestions"].append("Remove cells with missing spatial coordinates")
+            result["passed"] = False
+        
+        if np.isinf(spatial_coords).any():
+            inf_count = np.isinf(spatial_coords).sum()
+            result["errors"].append(f"Found {inf_count} infinite values in spatial coordinates")
+            result["suggestions"].append("Replace infinite spatial coordinates with valid values")
+            result["passed"] = False
+        
+        # Check for duplicate coordinates (suspicious)
+        unique_coords = np.unique(spatial_coords, axis=0)
+        if len(unique_coords) < len(spatial_coords) * 0.95:  # More than 5% duplicates
+            duplicate_fraction = 1 - (len(unique_coords) / len(spatial_coords))
+            result["warnings"].append(f"High proportion of duplicate spatial coordinates ({duplicate_fraction:.2%})")
+        
+        # Check coordinate range reasonableness
+        coord_ranges = []
+        for dim in range(min(3, spatial_coords.shape[1])):  # Check up to 3 dimensions
+            coord_min, coord_max = spatial_coords[:, dim].min(), spatial_coords[:, dim].max()
+            coord_range = coord_max - coord_min
+            coord_ranges.append(coord_range)
+            
+            if coord_range == 0:
+                result["warnings"].append(f"All cells have identical coordinate in dimension {dim + 1}")
+            elif coord_range > 1e6:
+                result["warnings"].append(f"Very large coordinate range in dimension {dim + 1}: {coord_range:.2e}")
+        
+        # Check if coordinates are integer-like (suggesting pixel coordinates)
+        if len(coord_ranges) >= 2:
+            x_coords, y_coords = spatial_coords[:, 0], spatial_coords[:, 1]
+            x_is_int = np.allclose(x_coords, np.round(x_coords))
+            y_is_int = np.allclose(y_coords, np.round(y_coords))
+            
+            if x_is_int and y_is_int and coord_ranges[0] > 100 and coord_ranges[1] > 100:
+                result["warnings"].append("Coordinates appear to be in pixel units - consider converting to physical units")
+        
+    except Exception as e:
+        result["errors"].append(f"Spatial coordinates validation failed: {str(e)}")
+        result["suggestions"].append("Check spatial coordinates format and values")
+        result["passed"] = False
+    
+    return result
+
+
+async def _validate_metadata(
+    adata: Any,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Validate observation and variable metadata"""
+    result = {"passed": True, "errors": [], "warnings": [], "suggestions": []}
+    
+    try:
+        # Validate observation metadata (adata.obs)
+        if adata.obs.index.duplicated().any():
+            dup_count = adata.obs.index.duplicated().sum()
+            result["errors"].append(f"Found {dup_count} duplicate cell IDs in adata.obs")
+            result["suggestions"].append("Ensure all cell IDs are unique")
+            result["passed"] = False
+        
+        # Check for empty cell IDs
+        empty_ids = adata.obs.index.isna() | (adata.obs.index == '')
+        if empty_ids.any():
+            empty_count = empty_ids.sum()
+            result["errors"].append(f"Found {empty_count} empty cell IDs")
+            result["suggestions"].append("Provide valid cell IDs for all cells")
+            result["passed"] = False
+        
+        # Validate variable metadata (adata.var)
+        if adata.var.index.duplicated().any():
+            dup_count = adata.var.index.duplicated().sum()
+            result["errors"].append(f"Found {dup_count} duplicate gene names in adata.var")
+            result["suggestions"].append("Ensure all gene names are unique or use adata.var_names_unique()")
+            result["passed"] = False
+        
+        # Check for empty gene names
+        empty_genes = adata.var.index.isna() | (adata.var.index == '')
+        if empty_genes.any():
+            empty_count = empty_genes.sum()
+            result["errors"].append(f"Found {empty_count} empty gene names")
+            result["suggestions"].append("Provide valid gene names for all variables")
+            result["passed"] = False
+        
+        # Check for suspicious gene name patterns
+        gene_names = adata.var.index.astype(str)
+        numeric_genes = pd.to_numeric(gene_names, errors='coerce').notna()
+        if numeric_genes.sum() > len(gene_names) * 0.5:
+            result["warnings"].append(f"Many genes have numeric names ({numeric_genes.sum()}/{len(gene_names)})")
+        
+    except Exception as e:
+        result["errors"].append(f"Metadata validation failed: {str(e)}")
+        result["suggestions"].append("Check observation and variable metadata format")
+        result["passed"] = False
+    
+    return result
+
+
+async def _validate_communication_requirements(
+    adata: Any,
+    context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Validate specific requirements for cell communication analysis"""
+    result = {"passed": True, "errors": [], "warnings": [], "suggestions": []}
+    
+    try:
+        # Check for minimum cell count for meaningful analysis
+        min_cells_recommended = 100
+        if adata.n_obs < min_cells_recommended:
+            result["warnings"].append(
+                f"Low cell count ({adata.n_obs}) may lead to unreliable cell communication results. "
+                f"Recommended: >{min_cells_recommended} cells"
+            )
+        
+        # Check for cell type annotations (helpful for interpretation)
+        cell_type_cols = [col for col in adata.obs.columns if 'type' in col.lower() or 'cluster' in col.lower()]
+        if not cell_type_cols:
+            result["warnings"].append(
+                "No cell type annotations found. Consider adding cell type information for better interpretation"
+            )
+        else:
+            # Check cell type diversity
+            for col in cell_type_cols[:1]:  # Check first cell type column
+                n_types = adata.obs[col].nunique()
+                if n_types < 2:
+                    result["warnings"].append(f"Only {n_types} cell type(s) found - communication analysis needs diversity")
+                elif n_types > 50:
+                    result["warnings"].append(f"Very many cell types ({n_types}) - consider grouping similar types")
+        
+        # Check gene expression levels
+        if hasattr(adata.X, 'max'):
+            max_expr = adata.X.max()
+            if max_expr < 1:
+                result["warnings"].append(
+                    f"Low maximum expression value ({max_expr:.3f}) suggests data may need normalization"
+                )
+            elif max_expr > 50 and 'log1p' not in adata.uns:
+                result["warnings"].append(
+                    f"High maximum expression value ({max_expr:.1f}) suggests data may need log transformation"
+                )
+        
+        # Check for mitochondrial genes (quality control indicator)
+        gene_names = adata.var.index.astype(str).str.upper()
+        mt_genes = gene_names.str.startswith('MT-') | gene_names.str.startswith('MT.') | gene_names.str.contains('^MT-')
+        n_mt_genes = mt_genes.sum()
+        
+        if n_mt_genes == 0:
+            result["warnings"].append("No mitochondrial genes detected - consider quality control filtering")
+        elif n_mt_genes > len(gene_names) * 0.1:
+            result["warnings"].append(f"High proportion of mitochondrial genes ({n_mt_genes}/{len(gene_names)})")
+        
+    except Exception as e:
+        result["errors"].append(f"Communication requirements validation failed: {str(e)}")
+        result["suggestions"].append("Check data quality and preprocessing steps")
+        result["passed"] = False
+    
+    return result
