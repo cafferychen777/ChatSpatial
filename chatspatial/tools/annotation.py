@@ -224,14 +224,13 @@ async def _annotate_with_marker_genes_scanpy(adata, marker_genes: Dict[str, List
         if context:
             await context.info("Using scanpy's official marker_gene_overlap method")
         
-        # Step 1: Ensure we have clustering for differential expression analysis
+        # Step 1: Validate clustering for differential expression analysis
         if 'leiden' not in adata.obs.columns:
-            if context:
-                await context.info("Running Leiden clustering for marker gene analysis")
-            # Need neighbors first
-            if 'neighbors' not in adata.uns:
-                sc.pp.neighbors(adata, n_neighbors=15, n_pcs=40)
-            sc.tl.leiden(adata, resolution=0.5)
+            raise ValueError(
+                "Leiden clustering not found in adata.obs. "
+                "Marker gene analysis requires clustering information. "
+                "Please run clustering in preprocessing.py or use: sc.tl.leiden(adata)"
+            )
         
         # Step 2: Calculate differential expression for clusters
         if context:
@@ -383,10 +382,12 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
                 training_genes = list(set(training_genes))  # Remove duplicates
             else:
                 # Use highly variable genes
-                if context:
-                    await context.info("Computing highly variable genes for Tangram mapping")
                 if 'highly_variable' not in adata_sc.var:
-                    sc.pp.highly_variable_genes(adata_sc, n_top_genes=DEFAULT_HVG_COUNT)
+                    raise ValueError(
+                        "Highly variable genes not found in reference data. "
+                        "Tangram mapping requires HVG selection. "
+                        "Please run HVG selection in preprocessing.py or use: sc.pp.highly_variable_genes(adata)"
+                    )
                 training_genes = list(adata_sc.var_names[adata_sc.var.highly_variable])
 
         if context:
@@ -625,15 +626,14 @@ async def _annotate_with_mllmcelltype(adata, params: AnnotationParameters, conte
         # Validate dependencies with comprehensive error reporting
         mllmcelltype = _validate_mllmcelltype(context)
 
-        # Check if clustering has been performed
+        # Validate clustering has been performed
         cluster_key = params.cluster_label if params.cluster_label else 'leiden'
         if cluster_key not in adata.obs:
-            if context:
-                await context.info(f"Performing clustering ({cluster_key}) for mLLMCellType annotation")
-            if cluster_key == 'leiden':
-                sc.tl.leiden(adata)
-            else:
-                sc.tl.louvain(adata)
+            raise ValueError(
+                f"Clustering key '{cluster_key}' not found in adata.obs. "
+                f"mLLMCellType annotation requires clustering information. "
+                f"Please run clustering in preprocessing.py or use: sc.tl.{cluster_key}(adata)"
+            )
 
         # Find differentially expressed genes for each cluster
         if context:

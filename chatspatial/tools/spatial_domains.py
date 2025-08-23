@@ -128,38 +128,46 @@ async def identify_spatial_domains(
         # Scaled data typically has negative values and is centered around 0
         from scipy.sparse import issparse
         
+        # Validate data preprocessing state
         data_min = adata_subset.X.min() if not issparse(adata_subset.X) else adata_subset.X.data.min()
         data_max = adata_subset.X.max() if not issparse(adata_subset.X) else adata_subset.X.data.max()
         
         if data_min < -1:  # Likely scaled data
-            if context:
-                await context.warning("Data appears to be scaled (z-score). SpaGCN requires unscaled data.")
-                await context.info("Attempting to use raw data if available...")
-            
-            # Try to use raw data if available
-            if hasattr(adata, 'raw') and adata.raw is not None:
-                if context:
-                    await context.info("Using raw (unscaled) data for SpaGCN")
-                # Get the same genes from raw data
-                gene_mask = adata.raw.var_names.isin(adata_subset.var_names)
-                adata_subset = adata.raw[:, gene_mask].to_adata()
-                
-                # Now normalize the raw data
-                sc.pp.normalize_total(adata_subset, target_sum=1e4)
-                sc.pp.log1p(adata_subset)
-            else:
+            if not (hasattr(adata, 'raw') and adata.raw is not None):
                 raise ValueError(
-                    "Data has been scaled but raw data is not available. "
-                    "SpaGCN requires unscaled data. Please run spatial domain identification "
-                    "before scaling, or ensure raw data is preserved (adata.raw = adata before scaling)."
+                    "SpaGCN requires normalized (not scaled) data but detected scaled data without raw backup. "
+                    "Please run preprocessing.py with: "
+                    "1) sc.pp.normalize_total(adata, target_sum=1e4) "
+                    "2) sc.pp.log1p(adata) "
+                    "3) Ensure raw data is preserved before scaling: adata.raw = adata"
                 )
-        else:
-            # Ensure data is properly normalized and log-transformed
-            if 'log1p' not in adata_subset.uns:
-                if context:
-                    await context.info("Normalizing and log-transforming data...")
-                sc.pp.normalize_total(adata_subset, target_sum=1e4)
-                sc.pp.log1p(adata_subset)
+            
+            # Use preserved raw data
+            if context:
+                await context.info("Using preserved raw data for SpaGCN (scaled data detected)")
+            gene_mask = adata.raw.var_names.isin(adata_subset.var_names)
+            adata_subset = adata.raw[:, gene_mask].to_adata()
+            
+            # Check if raw data is properly preprocessed
+            raw_max = adata_subset.X.max() if not issparse(adata_subset.X) else adata_subset.X.data.max()
+            if raw_max > 100:  # Raw counts detected
+                raise ValueError(
+                    "Raw data appears to be unnormalized counts. SpaGCN requires preprocessed data. "
+                    "Please run in preprocessing.py: "
+                    "1) sc.pp.normalize_total(adata, target_sum=1e4) "
+                    "2) sc.pp.log1p(adata)"
+                )
+        elif data_max > 100:  # Raw counts detected
+            raise ValueError(
+                "SpaGCN requires preprocessed data but raw counts detected. "
+                "Please run in preprocessing.py: "
+                "1) sc.pp.normalize_total(adata, target_sum=1e4) "
+                "2) sc.pp.log1p(adata) "
+                "3) For large datasets: sc.pp.subsample(adata, n_obs=3000)"
+            )
+        
+        if context:
+            await context.info("Data preprocessing validation passed for SpaGCN")
 
         # Ensure data is float type for SpaGCN compatibility
         if adata_subset.X.dtype != np.float32 and adata_subset.X.dtype != np.float64:
@@ -184,33 +192,46 @@ async def identify_spatial_domains(
                     await context.warning("Found NaN or infinite values in data, replacing with 0")
                 adata_subset.X = np.nan_to_num(adata_subset.X, nan=0.0, posinf=0.0, neginf=0.0)
         
-        # Smart preprocessing for SpaGCN to prevent hanging
-        # Based on deep analysis of SpaGCN bottlenecks
-        
-        # 1. Limit spots to prevent O(n²) adjacency matrix bottleneck
+        # Validate dataset size for SpaGCN performance
         if adata_subset.n_obs > 3000:
-            if context:
-                await context.info(f"Large dataset ({adata_subset.n_obs} spots), subsampling to 3000 for SpaGCN performance")
-            # Spatial-aware subsampling to maintain structure
-            sc.pp.subsample(adata_subset, n_obs=3000, random_state=42)
+            await context.warning(
+                f"Large dataset ({adata_subset.n_obs} spots) may cause SpaGCN performance issues. "
+                "For optimal performance, consider subsampling in preprocessing.py: "
+                "sc.pp.subsample(adata, n_obs=3000, random_state=42)"
+            )
         
-        # 2. Limit genes to prevent memory issues and speed up computation  
+        # Validate gene count for SpaGCN memory efficiency
         max_genes = 2000 if adata_subset.n_obs > 1000 else 3000
         if adata_subset.n_vars > max_genes:
-            if context:
-                await context.info(f"Large number of genes ({adata_subset.n_vars}), selecting top {max_genes} variable genes for SpaGCN")
-            # Use highly variable genes if available, otherwise select top variable genes
+            if 'highly_variable' not in adata_subset.var.columns:
+                raise ValueError(
+                    f"Large gene set ({adata_subset.n_vars} genes) requires HVG selection for SpaGCN efficiency. "
+                    f"Please run HVG selection in preprocessing.py: "
+                    f"sc.pp.highly_variable_genes(adata, n_top_genes={max_genes})"
+                )
+            
+            # Use pre-selected highly variable genes
             if 'highly_variable' in adata_subset.var.columns:
-                hvg_genes = adata_subset.var['highly_variable']
-                if hvg_genes.sum() > max_genes:
-                    # Take top HVGs by variance
-                    sc.pp.highly_variable_genes(adata_subset, n_top_genes=max_genes)
-                    hvg_genes = adata_subset.var['highly_variable']
-                adata_subset = adata_subset[:, hvg_genes].copy()
-            else:
-                # Select top most variable genes
-                sc.pp.highly_variable_genes(adata_subset, n_top_genes=max_genes)
-                adata_subset = adata_subset[:, adata_subset.var['highly_variable']].copy()
+                hvg_count = adata_subset.var['highly_variable'].sum()
+                if hvg_count > 0:
+                    adata_subset = adata_subset[:, adata_subset.var['highly_variable']].copy()
+                    if context:
+                        await context.info(f"Using {hvg_count} pre-selected highly variable genes for SpaGCN")
+                else:
+                    raise ValueError(
+                        "No highly variable genes selected. Please run HVG selection in preprocessing.py: "
+                        f"sc.pp.highly_variable_genes(adata, n_top_genes={max_genes})"
+                    )
+        
+        # Apply SpaGCN-specific gene filtering (algorithm requirement)
+        if context:
+            await context.info("Applying SpaGCN-specific gene filtering...")
+        try:
+            spg.prefilter_genes(adata_subset, min_cells=3)
+            spg.prefilter_specialgenes(adata_subset)
+        except Exception as e:
+            if context:
+                await context.warning(f"SpaGCN gene filtering failed: {e}. Continuing without filtering.")
         
         # Identify domains based on method
         if params.method == "spagcn":
@@ -498,37 +519,24 @@ async def _identify_domains_clustering(
         n_neighbors = params.cluster_n_neighbors or 15
         spatial_weight = params.cluster_spatial_weight or 0.3
         
-        # Compute PCA if not already done
+        # Validate PCA requirement (Leiden/Louvain clustering official requirement)
         if 'X_pca' not in adata.obsm:
-            if context:
-                await context.info("Computing PCA...")
-            try:
-                # Use appropriate number of components based on data size
-                n_comps = min(50, adata.n_vars - 1, adata.n_obs - 1)
-                sc.tl.pca(adata, svd_solver='arpack', n_comps=n_comps)
-            except Exception as pca_error:
-                if context:
-                    await context.warning(f"PCA computation failed: {pca_error}. Trying with default parameters.")
-                # Fallback to default PCA
-                sc.tl.pca(adata, use_highly_variable=False)
+            raise ValueError(
+                f"{params.method} clustering requires PCA but X_pca not found. "
+                "Please run PCA in preprocessing.py: "
+                "sc.tl.pca(adata, n_comps=50)"
+            )
         
-        # Compute neighborhood graph
+        # Validate neighborhood graph requirement (Leiden/Louvain clustering official requirement)
+        if 'neighbors' not in adata.uns:
+            raise ValueError(
+                f"{params.method} clustering requires neighborhood graph but neighbors not found. "
+                "Please compute neighbors in preprocessing.py: "
+                f"sc.pp.neighbors(adata, n_neighbors={n_neighbors}, use_rep='X_pca')"
+            )
+        
         if context:
-            await context.info("Computing neighborhood graph...")
-        
-        # Adjust n_neighbors based on data size
-        n_neighbors = min(n_neighbors, adata.n_obs - 1)
-        if n_neighbors < 1:
-            n_neighbors = min(15, adata.n_obs - 1)
-            
-        try:
-            sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep='X_pca')
-        except Exception as neighbors_error:
-            if context:
-                await context.warning(f"Neighbors computation failed: {neighbors_error}. Trying with reduced parameters.")
-            # Fallback with minimal neighbors
-            n_neighbors = min(5, adata.n_obs - 1)
-            sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep='X_pca')
+            await context.info(f"Using pre-computed PCA and neighborhood graph for {params.method} clustering")
         
         # Add spatial information to the neighborhood graph
         if 'spatial' in adata.obsm:
@@ -721,10 +729,11 @@ async def _identify_domains_stagate(
         # Get embeddings
         embeddings_key = 'STAGATE'
         
-        # Perform clustering on STAGATE embeddings
+        # Perform clustering on STAGATE embeddings (algorithm requirement)
         if context:
-            await context.info("Clustering STAGATE embeddings...")
+            await context.info("Computing clustering on STAGATE embeddings (algorithm requirement)...")
         
+        # STAGATE-specific neighbors computation (algorithm requirement)
         sc.pp.neighbors(adata_stagate, use_rep='STAGATE', n_neighbors=params.cluster_n_neighbors or 15)
         
         if params.method == "stagate":

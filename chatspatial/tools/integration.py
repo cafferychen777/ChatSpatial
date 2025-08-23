@@ -9,19 +9,76 @@ from mcp.server.fastmcp import Context
 
 from ..models.data import IntegrationParameters
 from ..models.analysis import IntegrationResult
+import logging
+
+
+def validate_data_quality(adata, min_cells=10, min_genes=10):
+    """Validate data quality before integration
+    
+    Args:
+        adata: AnnData object
+        min_cells: Minimum number of cells required
+        min_genes: Minimum number of genes required
+    
+    Raises:
+        ValueError: If data quality is insufficient for integration
+    """
+    if adata.n_obs < min_cells:
+        raise ValueError(
+            f"Dataset has only {adata.n_obs} cells, minimum {min_cells} required for integration. "
+            f"Consider combining with other datasets or use single-sample analysis."
+        )
+    
+    if adata.n_vars < min_genes:
+        raise ValueError(
+            f"Dataset has only {adata.n_vars} genes, minimum {min_genes} required for integration. "
+            f"Check if data was properly loaded and genes were not over-filtered."
+        )
+    
+    # Check for empty cells or genes
+    if hasattr(adata.X, 'toarray'):
+        X_dense = adata.X.toarray()
+    else:
+        X_dense = adata.X
+    
+    cell_counts = np.sum(X_dense > 0, axis=1)
+    gene_counts = np.sum(X_dense > 0, axis=0)
+    
+    empty_cells = np.sum(cell_counts == 0)
+    empty_genes = np.sum(gene_counts == 0)
+    
+    if empty_cells > adata.n_obs * 0.1:
+        raise ValueError(
+            f"{empty_cells} cells ({empty_cells/adata.n_obs*100:.1f}%) have zero expression. "
+            f"Check data quality and consider filtering."
+        )
+    
+    if empty_genes > adata.n_vars * 0.5:
+        raise ValueError(
+            f"{empty_genes} genes ({empty_genes/adata.n_vars*100:.1f}%) have zero expression across all cells. "
+            f"Consider gene filtering before integration."
+        )
+    
+    logging.info(f"Data quality validation passed: {adata.n_obs} cells, {adata.n_vars} genes")
 
 
 def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pcs=30):
     """Integrate multiple spatial transcriptomics samples
+    
+    This function expects preprocessed data (normalized, log-transformed, with HVGs marked).
+    Use preprocessing.py or preprocess_data() before calling this function.
 
     Args:
-        adatas: List of AnnData objects or a single combined AnnData object
+        adatas: List of preprocessed AnnData objects or a single combined AnnData object
         batch_key: Batch information key
         method: Integration method, options: 'harmony', 'bbknn', 'scanorama', 'mnn'
         n_pcs: Number of principal components for integration
 
     Returns:
-        Integrated AnnData object
+        Integrated AnnData object with batch correction applied
+        
+    Raises:
+        ValueError: If data is not properly preprocessed
     """
     import scanpy as sc
 
@@ -44,87 +101,114 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
         if batch_key not in combined.obs:
             raise ValueError(f"Merged dataset is missing batch information key '{batch_key}'")
 
-    # Handle NaN values first
-    import numpy as np
-    # Replace NaN values with zeros
-    if isinstance(combined.X, np.ndarray):
-        combined.X = np.nan_to_num(combined.X)
+    # Validate input data is preprocessed
+    # Check if data appears to be raw (high values without log transformation)
+    max_val = combined.X.max() if hasattr(combined.X, 'max') else np.max(combined.X)
+    min_val = combined.X.min() if hasattr(combined.X, 'min') else np.min(combined.X)
+    
+    # Raw count data typically has high integer values and no negative values
+    # Properly preprocessed data should be either:
+    # 1. Log-transformed (positive values, typically 0-15 range)  
+    # 2. Scaled (centered around 0, can have negative values)
+    if min_val >= 0 and max_val > 100:
+        raise ValueError(
+            "Data appears to be raw counts (high positive values). "
+            "Please normalize and log-transform data before integration. "
+            "Use preprocessing.py or run: sc.pp.normalize_total(adata); sc.pp.log1p(adata)"
+        )
+    
+    # Check if data appears to be normalized (reasonable range after preprocessing)
+    if max_val > 50:
+        logging.warning(
+            f"Data has very high values (max={max_val:.1f}). "
+            "Consider log transformation if not already applied."
+        )
+
+    # Validate data quality before processing
+    validate_data_quality(combined)
+    
+    # Check if data has highly variable genes marked (should be done in preprocessing)
+    if 'highly_variable' not in combined.var.columns:
+        logging.warning(
+            "No highly variable genes marked. Using all genes for integration. "
+            "For better results, run HVG selection in preprocessing step."
+        )
+        combined.var['highly_variable'] = True
+        n_hvg = combined.n_vars
     else:
-        # For sparse matrices
-        combined.X.data = np.nan_to_num(combined.X.data)
-
-    # Standard preprocessing
-    sc.pp.normalize_total(combined)
-    sc.pp.log1p(combined)
-
-    # Find highly variable genes
-    try:
-        sc.pp.highly_variable_genes(combined, batch_key=batch_key)
-    except Exception as e:
-        print(f"Error in highly_variable_genes with batch correction: {e}")
-        # Fallback: compute HVGs without batch correction
-        try:
-            # Try with reduced number of top genes if dataset is small
-            n_top_genes = min(2000, combined.n_vars // 2, 1000)
-            if n_top_genes < 50:
-                n_top_genes = combined.n_vars  # Use all genes if very few
-            sc.pp.highly_variable_genes(combined, n_top_genes=n_top_genes)
-        except Exception as e2:
-            print(f"Error in highly_variable_genes fallback: {e2}")
-            # Final fallback: mark all genes as highly variable
+        n_hvg = combined.var['highly_variable'].sum()
+        if n_hvg == 0:
+            logging.warning("No genes marked as highly variable, using all genes")
             combined.var['highly_variable'] = True
-            
-            # Calculate means and variances properly for both dense and sparse matrices
-            if hasattr(combined.X, 'toarray'):
-                # Sparse matrix
-                X_dense = combined.X.toarray()
-                combined.var['means'] = np.mean(X_dense, axis=0)
-                combined.var['dispersions'] = np.var(X_dense, axis=0)
-            else:
-                # Dense matrix
-                combined.var['means'] = np.mean(combined.X, axis=0)
-                combined.var['dispersions'] = np.var(combined.X, axis=0)
-            
-            # Handle division by zero for dispersions_norm
-            with np.errstate(divide='ignore', invalid='ignore'):
-                combined.var['dispersions_norm'] = combined.var['dispersions'] / combined.var['means']
-                combined.var['dispersions_norm'] = np.nan_to_num(combined.var['dispersions_norm'], nan=0.0, posinf=0.0)
-            print(f"Using all {combined.n_vars} genes for integration")
+            n_hvg = combined.n_vars
+        elif n_hvg < 50:
+            logging.warning(f"Very few HVGs ({n_hvg}), consider using more in preprocessing")
+    
+    logging.info(f"Using {n_hvg} highly variable genes for integration")
 
-    combined.raw = combined  # Save raw data
+    # Save raw data if not already saved
+    if combined.raw is None:
+        combined.raw = combined
 
-    # Only keep highly variable genes for integration
+    # Filter to highly variable genes
+    if 'highly_variable' in combined.var.columns:
+        n_hvg = combined.var['highly_variable'].sum()
+        if n_hvg == 0:
+            raise ValueError("No highly variable genes found. Check HVG selection parameters.")
+        combined = combined[:, combined.var['highly_variable']]
+        logging.info(f"Filtered to {n_hvg} highly variable genes")
+    
+    # Scale data with proper error handling
     try:
-        sc.pp.scale(combined, zero_center=True, max_value=10)  # Limit scaling to avoid extreme values
+        sc.pp.scale(combined, zero_center=True, max_value=10)
+        logging.info("Data scaling successful with zero centering")
     except Exception as e:
-        print(f"Warning in scaling: {e}")
-        # Try without zero_center if scaling fails
+        logging.warning(f"Scaling with zero centering failed: {e}")
         try:
             sc.pp.scale(combined, zero_center=False, max_value=10)
+            logging.info("Data scaling successful without zero centering")
         except Exception as e2:
-            print(f"Scaling failed completely: {e2}, continuing without scaling")
+            raise RuntimeError(
+                f"Data scaling failed completely. Zero-center error: {e}. Non-zero-center error: {e2}. "
+                f"This usually indicates data contains extreme outliers or invalid values. "
+                f"Consider additional quality control or outlier removal."
+            )
     
-    # PCA with adaptive number of components
-    try:
-        # Ensure n_pcs doesn't exceed the number of genes or cells
-        max_components = min(n_pcs, combined.n_vars, combined.n_obs - 1)
-        sc.tl.pca(combined, n_comps=max_components, svd_solver='arpack')
-    except Exception as e:
-        print(f"PCA with arpack failed: {e}")
-        # Fallback to randomized SVD
+    # PCA with proper error handling
+    # Determine safe number of components
+    max_possible_components = min(n_pcs, combined.n_vars, combined.n_obs - 1)
+    
+    if max_possible_components < 2:
+        raise ValueError(
+            f"Cannot perform PCA: only {max_possible_components} components possible. "
+            f"Dataset has {combined.n_obs} cells and {combined.n_vars} genes. "
+            f"Minimum 2 components required for downstream analysis."
+        )
+    
+    # Try PCA with different solvers, but fail properly if none work
+    pca_success = False
+    for solver, max_comps in [('arpack', max_possible_components), 
+                             ('randomized', min(max_possible_components, 50)), 
+                             ('full', min(max_possible_components, 20))]:
         try:
-            max_components = min(n_pcs, combined.n_vars, combined.n_obs - 1, 50)  # Limit to 50 for randomized
-            sc.tl.pca(combined, n_comps=max_components, svd_solver='randomized')
-        except Exception as e2:
-            print(f"PCA with randomized SVD also failed: {e2}")
-            # Create a simple PCA representation
-            max_components = min(10, combined.n_vars, combined.n_obs - 1)
-            try:
-                sc.tl.pca(combined, n_comps=max_components, svd_solver='full')
-            except Exception as e3:
-                print(f"All PCA methods failed: {e3}")
-                # Create dummy PCA for compatibility
-                combined.obsm['X_pca'] = np.random.normal(0, 1, (combined.n_obs, min(10, combined.n_vars)))
+            sc.tl.pca(combined, n_comps=max_comps, svd_solver=solver)
+            logging.info(f"PCA successful with {solver} solver, {max_comps} components")
+            pca_success = True
+            break
+        except Exception as e:
+            logging.warning(f"PCA with {solver} solver failed: {e}")
+            continue
+    
+    if not pca_success:
+        raise RuntimeError(
+            f"All PCA methods failed for dataset with {combined.n_obs} cells and {combined.n_vars} genes. "
+            f"This usually indicates: \n"
+            f"1. Data contains NaN or infinite values\n"
+            f"2. All genes have identical expression\n"
+            f"3. Data matrix is rank-deficient\n"
+            f"4. Insufficient memory for computation\n"
+            f"Please check data quality and preprocessing steps."
+        )
 
     # Apply batch correction based on selected method
     if method == 'harmony':
@@ -159,10 +243,24 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
         except ImportError:
             raise ImportError("harmonypy package is required for harmony integration. Install with 'pip install harmonypy'")
         except Exception as e:
-            # Fallback to uncorrected PCA if harmony fails
-            import logging
-            logging.warning(f"Harmony integration failed with error: {e}. Using uncorrected PCA instead.")
-            sc.pp.neighbors(combined, use_rep='X_pca')
+            # Provide clear error message instead of silent fallback
+            logging.error(f"Harmony integration failed: {e}")
+            
+            # Check if it's an import error (harmonypy not installed)
+            if "harmonypy" in str(e).lower():
+                raise ImportError(
+                    f"Harmony integration failed due to missing harmonypy package. "
+                    f"Please install with: pip install harmonypy"
+                )
+            else:
+                raise RuntimeError(
+                    f"Harmony integration failed with error: {e}. "
+                    f"This may be due to: \n"
+                    f"1. Insufficient batch diversity (need at least 2 different batches)\n"
+                    f"2. Batch key '{batch_key}' contains invalid values\n"
+                    f"3. PCA result is corrupted or has NaN values\n"
+                    f"Consider using method='mnn' or checking your batch labels."
+                )
 
     elif method == 'bbknn':
         # Use BBKNN for batch correction
@@ -186,7 +284,7 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
                 batch_names.append(batch)
 
             # Run Scanorama
-            corrected, genes = scanorama.correct(batches, batch_names, return_dimred=True)
+            corrected, _ = scanorama.correct(batches, batch_names, return_dimred=True)
 
             # Save corrected data back to AnnData
             combined.obsm['X_scanorama'] = np.vstack(corrected)

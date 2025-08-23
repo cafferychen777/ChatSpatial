@@ -99,29 +99,31 @@ def preprocess_for_velocity(adata):
     return adata
 
 
-def compute_rna_velocity(adata, mode="stochastic"):
-    """Compute RNA velocity"""
+def validate_rna_velocity_computation(adata, mode="stochastic"):
+    """Validate RNA velocity computation requirements (no computation performed)"""
     import scvelo as scv
 
-    # Compute RNA velocity based on selected mode
-    if mode == "deterministic":
-        scv.tl.velocity(adata)
-    elif mode == "stochastic":
-        scv.tl.velocity(adata, mode="stochastic")
-    elif mode == "dynamical":
-        scv.tl.recover_dynamics(adata)
-        scv.tl.velocity(adata, mode="dynamical")
-    else:
-        raise ValueError(f"Unsupported mode: {mode}")
-
-    # Compute velocity graph (use single core to avoid multiprocessing issues)
-    scv.tl.velocity_graph(adata, n_jobs=1)
+    # Check if velocity has been computed
+    velocity_key = 'velocity'
+    if velocity_key not in adata.layers:
+        raise ValueError(
+            f"RNA velocity ({mode} mode) not found but required for analysis. "
+            "Please run velocity computation in preprocessing.py: "
+            f"scv.tl.velocity(adata, mode='{mode}')"
+        )
+    
+    # Check if velocity graph has been computed  
+    if 'velocity_graph' not in adata.uns:
+        raise ValueError(
+            "Velocity graph not found but required for trajectory analysis. "
+            "Please run in preprocessing.py: scv.tl.velocity_graph(adata)"
+        )
 
     return adata
 
 
-def prepare_for_sirv(spatial_adata, scrna_adata):
-    """Prepare spatial data and scRNA-seq data for SIRV analysis"""
+def validate_sirv_data_requirements(spatial_adata, scrna_adata):
+    """Validate SIRV data requirements (no preprocessing performed)"""
     import scvelo as scv
 
     # Validate scRNA-seq velocity data
@@ -134,13 +136,30 @@ def prepare_for_sirv(spatial_adata, scrna_adata):
     if not is_valid:
         raise ValueError(f"Invalid spatial data: {'; '.join(issues)}")
 
-    # Preprocess scRNA-seq data
-    scv.pp.filter_and_normalize(scrna_adata)
-    scv.pp.moments(scrna_adata)
-
-    # Compute RNA velocity for scRNA-seq data
-    scv.tl.velocity(scrna_adata)
-    scv.tl.velocity_graph(scrna_adata, n_jobs=1)
+    # Check if scRNA-seq data has been preprocessed and velocity computed
+    data_max = scrna_adata.X.max() if hasattr(scrna_adata.X, 'max') else np.max(scrna_adata.X)
+    if data_max > 100:
+        raise ValueError(
+            "SIRV analysis requires preprocessed scRNA-seq data but raw counts detected. "
+            "Please run preprocessing in preprocessing.py: "
+            "1) scv.pp.filter_and_normalize(scrna_adata) "
+            "2) scv.pp.moments(scrna_adata) "
+            "3) scv.tl.velocity(scrna_adata) "
+            "4) scv.tl.velocity_graph(scrna_adata)"
+        )
+    
+    # Check velocity computation
+    if 'velocity' not in scrna_adata.layers:
+        raise ValueError(
+            "SIRV analysis requires velocity computation in scRNA-seq data. "
+            "Please run in preprocessing.py: scv.tl.velocity(scrna_adata)"
+        )
+    
+    if 'velocity_graph' not in scrna_adata.uns:
+        raise ValueError(
+            "SIRV analysis requires velocity graph in scRNA-seq data. "
+            "Please run in preprocessing.py: scv.tl.velocity_graph(scrna_adata)"
+        )
 
     return spatial_adata, scrna_adata
 
@@ -313,10 +332,12 @@ def infer_pseudotime_palantir(adata, root_cells=None):
     import pandas as pd
     import numpy as np
 
-    # Make sure we have PCA computed
+    # Validate PCA requirement
     if 'X_pca' not in adata.obsm:
-        import scanpy as sc
-        sc.pp.pca(adata)
+        raise ValueError(
+            "Palantir trajectory analysis requires PCA but X_pca not found. "
+            "Please run PCA in preprocessing.py: sc.tl.pca(adata)"
+        )
 
     # Convert PCA projections to DataFrame for Palantir
     pca_df = pd.DataFrame(adata.obsm['X_pca'], index=adata.obs_names)
@@ -354,16 +375,25 @@ def compute_dpt_fallback(adata, root_cells=None):
     import scanpy as sc
     import numpy as np
 
-    # Make sure we have PCA computed
+    # Validate trajectory analysis prerequisites
     if 'X_pca' not in adata.obsm:
-        sc.pp.pca(adata)
-
-    # Compute neighbors if not already computed
+        raise ValueError(
+            "Diffusion pseudotime requires PCA but X_pca not found. "
+            "Please run PCA in preprocessing.py: sc.tl.pca(adata)"
+        )
+    
     if 'neighbors' not in adata.uns:
-        sc.pp.neighbors(adata, use_rep='X_pca')
-
-    # Compute diffusion map
-    sc.tl.diffmap(adata)
+        raise ValueError(
+            "Diffusion pseudotime requires neighborhood graph but neighbors not found. "
+            "Please run in preprocessing.py: sc.pp.neighbors(adata, use_rep='X_pca')"
+        )
+    
+    # Check if diffusion map has been computed
+    if 'X_diffmap' not in adata.obsm:
+        raise ValueError(
+            "Diffusion pseudotime requires diffusion map but X_diffmap not found. "
+            "Please run in preprocessing.py: sc.tl.diffmap(adata)"
+        )
 
     # Set root cell if provided
     if root_cells is not None and len(root_cells) > 0:
@@ -377,17 +407,20 @@ def compute_dpt_fallback(adata, root_cells=None):
         # If no root cell specified, set the first cell as root
         adata.uns['iroot'] = 0
 
-    # Compute diffusion pseudotime
-    try:
-        sc.tl.dpt(adata)
-    except Exception as e:
-        # If DPT fails, create a simple pseudotime based on diffusion components
-        if 'X_diffmap' in adata.obsm:
-            # Use first diffusion component as pseudotime
-            pseudotime = adata.obsm['X_diffmap'][:, 0]
-            # Normalize to [0, 1]
-            pseudotime = (pseudotime - pseudotime.min()) / (pseudotime.max() - pseudotime.min())
-            adata.obs['dpt_pseudotime'] = pseudotime
+    # Validate or compute diffusion pseudotime
+    if 'dpt_pseudotime' not in adata.obs:
+        # DPT needs to be computed - this is the core algorithm, not preprocessing
+        try:
+            import scanpy as sc
+            sc.tl.dpt(adata)
+        except Exception as e:
+            # If DPT fails, create a simple pseudotime based on diffusion components
+            if 'X_diffmap' in adata.obsm:
+                # Use first diffusion component as pseudotime
+                pseudotime = adata.obsm['X_diffmap'][:, 0]
+                # Normalize to [0, 1]
+                pseudotime = (pseudotime - pseudotime.min()) / (pseudotime.max() - pseudotime.min())
+                adata.obs['dpt_pseudotime'] = pseudotime
         else:
             raise RuntimeError(f"Failed to compute DPT and no diffusion map available: {e}")
     
@@ -452,9 +485,10 @@ async def analyze_rna_velocity(
                 if context:
                     await context.info("Found spliced/unspliced layers. Computing velocity directly.")
                 
-                # Preprocess and compute velocity
-                adata = preprocess_for_velocity(adata)
-                adata = compute_rna_velocity(adata, mode=params.mode)
+                # Validate preprocessing and velocity computation
+                # Note: validate_velocity_preprocessing function was renamed, 
+                # this validation is now integrated into validate_rna_velocity_computation
+                adata = validate_rna_velocity_computation(adata, mode=params.mode)
                 velocity_computed = True
                 
             elif params.reference_data_id:
@@ -466,8 +500,8 @@ async def analyze_rna_velocity(
                 
                 ref_adata = data_store[params.reference_data_id]["adata"]
                 
-                # Prepare data for SIRV
-                spatial_adata, scrna_adata = prepare_for_sirv(adata, ref_adata)
+                # Validate data requirements for SIRV
+                spatial_adata, scrna_adata = validate_sirv_data_requirements(adata, ref_adata)
                 
                 # Run SIRV
                 adata = run_sirv(
