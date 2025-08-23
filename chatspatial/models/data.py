@@ -45,6 +45,13 @@ class AnalysisParameters(BaseModel):
     # User-controllable adaptive parameters (None = use automatic detection)
     n_neighbors: Optional[Annotated[int, Field(gt=2, le=50)]] = None  # Number of neighbors for graph construction (None = adaptive: 3-10 based on dataset size)
     clustering_resolution: Optional[Annotated[float, Field(gt=0.1, le=2.0)]] = None  # Leiden clustering resolution (None = adaptive: 0.4-0.8 based on dataset size)
+    
+    # Advanced preprocessing options
+    enable_rna_velocity: bool = False  # Whether to include RNA velocity preprocessing
+    velocity_mode: Literal["stochastic", "deterministic", "dynamical"] = "stochastic"  # RNA velocity computation mode
+    enable_trajectory_analysis: bool = False  # Whether to include trajectory analysis preprocessing
+    dpt_root_cell: Optional[str] = None  # Root cell for diffusion pseudotime (cell barcode)
+    enable_spatial_domains: bool = False  # Whether to include spatial domain-specific preprocessing
 
 
 class VisualizationParameters(BaseModel):

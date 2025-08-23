@@ -742,8 +742,19 @@ async def visualize_data(
                         # Dense matrix
                         adata.X = np.nan_to_num(adata.X, nan=0.0, posinf=0.0, neginf=0.0)
                     
-                    sc.pp.neighbors(adata)
-                    sc.tl.umap(adata)
+                    # Validate UMAP prerequisites
+                    if 'neighbors' not in adata.uns:
+                        raise ValueError(
+                            "UMAP visualization requires neighborhood graph but neighbors not found. "
+                            "Please run in preprocessing.py: sc.pp.neighbors(adata)"
+                        )
+                    
+                    # Check if UMAP has been computed
+                    if 'X_umap' not in adata.obsm:
+                        raise ValueError(
+                            "UMAP visualization requires UMAP coordinates but X_umap not found. "
+                            "Please run in preprocessing.py: sc.tl.umap(adata)"
+                        )
                 except Exception as e:
                     if context:
                         await context.warning(f"Failed to compute UMAP: {str(e)}")
@@ -924,7 +935,11 @@ async def visualize_data(
                         # Dense matrix
                         adata.X = np.nan_to_num(adata.X, nan=0.0, posinf=0.0, neginf=0.0)
 
-                    sc.pp.highly_variable_genes(adata, n_top_genes=50)
+                    raise ValueError(
+                        "Visualization requires highly variable genes but none found. "
+                        "Please run HVG selection in preprocessing.py: "
+                        "sc.pp.highly_variable_genes(adata, n_top_genes=50)"
+                    )
                 except Exception as e:
                     if context:
                         await context.warning(f"Failed to compute highly variable genes: {e}. Using top expressed genes instead.")
@@ -1135,7 +1150,11 @@ async def visualize_data(
                         else:
                             adata.X = np.nan_to_num(adata.X, nan=0.0, posinf=0.0, neginf=0.0)
 
-                        sc.pp.highly_variable_genes(adata, n_top_genes=50)
+                        raise ValueError(
+                        "Visualization requires highly variable genes but none found. "
+                        "Please run HVG selection in preprocessing.py: "
+                        "sc.pp.highly_variable_genes(adata, n_top_genes=50)"
+                    )
                     except Exception:
                         # Fallback: use top expressed genes
                         gene_means = np.array(adata.X.mean(axis=0)).flatten()

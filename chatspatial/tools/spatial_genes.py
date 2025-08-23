@@ -115,14 +115,24 @@ async def _identify_spatial_genes_gaston(
     adata = data_store[data_id]["adata"]
     spatial_coords = adata.obsm[params.spatial_key]
 
-    # Preprocessing
+    # Validate data preprocessing state
+    data_max = adata.X.max() if hasattr(adata.X, 'max') else np.max(adata.X)
+    if data_max > 100:
+        raise ValueError(
+            "GASTON requires preprocessed data but raw counts detected. "
+            "Please run basic preprocessing in preprocessing.py: "
+            "1) sc.pp.normalize_total(adata, target_sum=1e4) "
+            "2) sc.pp.log1p(adata)"
+        )
+    
+    # GASTON-specific feature engineering (algorithm requirement)
     if context:
-        await context.info(f"Preprocessing data using {params.preprocessing_method}")
+        await context.info(f"Applying GASTON-specific feature engineering using {params.preprocessing_method}")
 
     if params.preprocessing_method == "glmpca":
-        expression_features = await _preprocess_glmpca(adata, params.n_components, context)
+        expression_features = await _gaston_feature_engineering_glmpca(adata, params.n_components, context)
     else:
-        expression_features = await _preprocess_pearson_residuals(adata, params.n_components, context)
+        expression_features = await _gaston_feature_engineering_pearson(adata, params.n_components, context)
 
     # Create temporary directory for GASTON outputs
     temp_dir = tempfile.mkdtemp(prefix="gaston_")
@@ -239,24 +249,30 @@ async def _identify_spatial_genes_spatialde(
         index=adata.obs_names
     )
 
-    # Get expression data
+    # Validate and get expression data for SpatialDE
     if params.spatialde_normalized:
-        # Use normalized data
-        if 'log1p' in adata.uns_keys():
-            counts = pd.DataFrame(
-                adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X,
-                columns=adata.var_names,
-                index=adata.obs_names
+        # Use pre-normalized data
+        if 'log1p' not in adata.uns_keys():
+            raise ValueError(
+                "SpatialDE normalized mode requires log-transformed data but log1p not found. "
+                "Please run preprocessing in preprocessing.py: "
+                "1) sc.pp.normalize_total(adata, target_sum=1e4) "
+                "2) sc.pp.log1p(adata)"
             )
-        else:
-            logger.warning("Data may not be log-normalized")
-            counts = pd.DataFrame(
-                adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X,
-                columns=adata.var_names,
-                index=adata.obs_names
-            )
+        
+        counts = pd.DataFrame(
+            adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X,
+            columns=adata.var_names,
+            index=adata.obs_names
+        )
+        
+        if context:
+            await context.info("Using pre-normalized data for SpatialDE")
     else:
-        # Use raw counts and normalize
+        # SpatialDE-specific normalization (algorithm requirement)
+        if context:
+            await context.info("Applying SpatialDE-specific normalization (algorithm requirement)")
+        
         if adata.raw is not None:
             raw_counts = pd.DataFrame(
                 adata.raw.X.toarray() if hasattr(adata.raw.X, 'toarray') else adata.raw.X,
@@ -264,13 +280,21 @@ async def _identify_spatial_genes_spatialde(
                 index=adata.obs_names
             )
         else:
+            # Check if current data appears to be raw counts
+            data_max = adata.X.max() if hasattr(adata.X, 'max') else np.max(adata.X)
+            if data_max <= 10:  # Likely already normalized
+                raise ValueError(
+                    "SpatialDE raw mode requires raw count data but normalized data detected. "
+                    "Either switch to normalized mode or provide raw count data."
+                )
+            
             raw_counts = pd.DataFrame(
                 adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X,
                 columns=adata.var_names,
                 index=adata.obs_names
             )
-
-        # Normalize using standard approach
+        
+        # SpatialDE-specific normalization and log transformation (algorithm requirement)
         total_counts = raw_counts.sum(axis=1)
         norm_counts = raw_counts.div(total_counts, axis=0) * np.median(total_counts)
         counts = np.log1p(norm_counts)
@@ -331,18 +355,18 @@ async def _identify_spatial_genes_spatialde(
     return result
 
 
-async def _preprocess_glmpca(adata, n_components: int, context) -> np.ndarray:
-    """Preprocess data using GLM-PCA."""
+async def _gaston_feature_engineering_glmpca(adata, n_components: int, context) -> np.ndarray:
+    """GASTON-specific feature engineering using GLM-PCA (algorithm requirement)."""
     try:
         from glmpca.glmpca import glmpca
     except ImportError:
         try:
             from glmpca import glmpca
         except ImportError:
-            raise ImportError("glmpca package is required for GLM-PCA preprocessing")
+            raise ImportError("glmpca package is required for GASTON GLM-PCA feature engineering")
 
     if context:
-        await context.info("Running GLM-PCA preprocessing")
+        await context.info("Running GASTON GLM-PCA feature engineering (algorithm requirement)")
 
     # Get count matrix
     if hasattr(adata.X, 'toarray'):
@@ -363,15 +387,15 @@ async def _preprocess_glmpca(adata, n_components: int, context) -> np.ndarray:
     return glmpca_result["factors"]
 
 
-async def _preprocess_pearson_residuals(adata, n_components: int, context) -> np.ndarray:
-    """Preprocess data using Pearson residuals PCA."""
+async def _gaston_feature_engineering_pearson(adata, n_components: int, context) -> np.ndarray:
+    """GASTON-specific feature engineering using Pearson residuals PCA (algorithm requirement)."""
     if context:
-        await context.info("Computing Pearson residuals and PCA")
+        await context.info("Computing GASTON Pearson residuals feature engineering (algorithm requirement)")
     
-    # Compute Pearson residuals
+    # GASTON-specific Pearson residuals computation (algorithm requirement)
     sc.experimental.pp.normalize_pearson_residuals(adata)
     
-    # Run PCA
+    # GASTON-specific PCA on residuals (algorithm requirement)  
     sc.tl.pca(adata, n_comps=n_components)
     
     return adata.obsm['X_pca']

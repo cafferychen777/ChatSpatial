@@ -21,6 +21,18 @@ except ImportError:
     scvi = None
     RESOLVI = None
 
+# Import scvelo for RNA velocity preprocessing
+try:
+    import scvelo as scv
+except ImportError:
+    scv = None
+
+# Import SpaGCN for spatial domain-specific preprocessing
+try:
+    import SpaGCN as spg
+except ImportError:
+    spg = None
+
 # Constants for preprocessing
 DEFAULT_TARGET_SUM = 1e4
 MAX_SCALE_VALUE = 10
@@ -475,7 +487,78 @@ async def preprocess_data(
                 # Final fallback: random coordinates
                 adata.obsm['X_umap'] = np.random.normal(0, 1, (adata.n_obs, 2))
 
-        # 11. For spatial data, compute spatial neighbors if not already done
+        # 11. Add RNA velocity preprocessing if requested
+        if getattr(params, 'enable_rna_velocity', False) and scv is not None:
+            if context:
+                await context.info("Adding RNA velocity preprocessing...")
+            try:
+                # Check for velocity data (spliced/unspliced layers)
+                has_velocity_data = ('spliced' in adata.layers and 'unspliced' in adata.layers)
+                
+                if has_velocity_data:
+                    # Apply scVelo preprocessing
+                    scv.pp.filter_and_normalize(adata, min_shared_counts=20, n_top_genes=2000)
+                    scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
+                    
+                    # Compute velocity (different modes available)
+                    velocity_mode = getattr(params, 'velocity_mode', 'stochastic')
+                    if velocity_mode == 'dynamical':
+                        scv.tl.recover_dynamics(adata)
+                        scv.tl.velocity(adata, mode='dynamical')
+                    else:
+                        scv.tl.velocity(adata, mode=velocity_mode)
+                    
+                    scv.tl.velocity_graph(adata)
+                    
+                    if context:
+                        await context.info(f"RNA velocity preprocessing completed using {velocity_mode} mode")
+                else:
+                    if context:
+                        await context.warning("RNA velocity requested but no spliced/unspliced layers found")
+            except Exception as e:
+                if context:
+                    await context.warning(f"RNA velocity preprocessing failed: {e}")
+        
+        # 12. Add trajectory analysis preprocessing if requested
+        if getattr(params, 'enable_trajectory_analysis', False):
+            if context:
+                await context.info("Adding trajectory analysis preprocessing...")
+            try:
+                # Compute diffusion map for pseudotime analysis
+                sc.tl.diffmap(adata)
+                
+                # Optionally compute DPT if root cell is specified
+                if hasattr(params, 'dpt_root_cell') and params.dpt_root_cell is not None:
+                    if params.dpt_root_cell in adata.obs_names:
+                        adata.uns['iroot'] = np.where(adata.obs_names == params.dpt_root_cell)[0][0]
+                        sc.tl.dpt(adata)
+                        if context:
+                            await context.info("Diffusion pseudotime computed with specified root cell")
+                    else:
+                        if context:
+                            await context.warning(f"Root cell {params.dpt_root_cell} not found")
+                
+                if context:
+                    await context.info("Trajectory analysis preprocessing completed")
+            except Exception as e:
+                if context:
+                    await context.warning(f"Trajectory analysis preprocessing failed: {e}")
+        
+        # 13. Add spatial domain-specific preprocessing if requested
+        if getattr(params, 'enable_spatial_domains', False) and spg is not None:
+            if context:
+                await context.info("Adding spatial domain-specific preprocessing...")
+            try:
+                # Apply SpaGCN-specific gene filtering
+                spg.prefilter_genes(adata, min_cells=3)
+                spg.prefilter_specialgenes(adata)
+                if context:
+                    await context.info("SpaGCN gene filtering completed")
+            except Exception as e:
+                if context:
+                    await context.warning(f"Spatial domain preprocessing failed: {e}")
+        
+        # 14. For spatial data, compute spatial neighbors if not already done
         if params.spatial_key in adata.uns or any(params.spatial_key in key for key in adata.obsm.keys()):
             if context:
                 await context.info("Computing spatial neighbors...")

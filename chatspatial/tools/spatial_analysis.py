@@ -44,20 +44,13 @@ async def _ensure_cluster_key(adata: sc.AnnData, requested_key: str, context: Op
             )
         return 'leiden'
 
-    if context:
-        await context.warning(f"No suitable clusters found ('{requested_key}' or 'leiden'). Running Leiden clustering...")
-    try:
-        if 'neighbors' not in adata.uns:
-            if context:
-                await context.info("Computing neighbors graph...")
-            sc.pp.neighbors(adata)
-        sc.tl.leiden(adata)
-        return 'leiden'
-    except Exception as e:
-        error_msg = f"Failed to compute Leiden clusters: {str(e)}"
-        if context:
-            await context.warning(error_msg)
-        raise ProcessingError(error_msg) from e
+    # No suitable clusters found - require preprocessing
+    raise ValueError(
+        f"Cluster key '{requested_key}' not found and no 'leiden' clustering available. "
+        f"Spatial analysis requires clustering information. "
+        f"Please run clustering in preprocessing.py or use: sc.tl.leiden(adata) "
+        f"Available keys in .obs: {list(adata.obs.select_dtypes(include=['category', 'object']).columns)}"
+    )
 
 
 async def analyze_spatial_patterns(
@@ -244,11 +237,13 @@ async def analyze_spatial_patterns(
                 await context.info("Running spatial autocorrelation (Moran's I) analysis...")
 
             # Run spatial autocorrelation
-            # We'll use top highly variable genes if not already computed
+            # Validate highly variable genes are available
             if 'highly_variable' not in adata.var or not adata.var['highly_variable'].any():
-                if context:
-                    await context.info("Computing highly variable genes...")
-                sc.pp.highly_variable_genes(adata, n_top_genes=50)
+                raise ValueError(
+                    "Highly variable genes not found for Moran's I analysis. "
+                    "Spatial autocorrelation analysis requires HVG selection. "
+                    "Please run HVG selection in preprocessing.py or use: sc.pp.highly_variable_genes(adata)"
+                )
 
             genes = adata.var_names[adata.var['highly_variable']][:20].tolist()
 
@@ -274,7 +269,11 @@ async def analyze_spatial_patterns(
                     raise ValueError(f"None of the specified genes found: {params.getis_ord_genes}")
             else:
                 if 'highly_variable' not in adata.var or not adata.var['highly_variable'].any():
-                    sc.pp.highly_variable_genes(adata, n_top_genes=min(500, adata.n_vars))
+                    raise ValueError(
+                        "Highly variable genes not found for Getis-Ord analysis. "
+                        "Spatial hotspot analysis requires HVG selection. "
+                        "Please run HVG selection in preprocessing.py or use: sc.pp.highly_variable_genes(adata)"
+                    )
                 genes = adata.var_names[adata.var['highly_variable']][:params.getis_ord_n_genes].tolist()
 
             if context:

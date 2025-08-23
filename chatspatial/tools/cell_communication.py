@@ -74,12 +74,29 @@ async def analyze_cell_communication(
         if context:
             await context.info("Data validation passed. Preparing for cell communication analysis...")
         
-        # Ensure data is properly normalized
-        if 'log1p' not in adata.uns:
-            if context:
-                await context.info("Normalizing and log-transforming data...")
-            sc.pp.normalize_total(adata, target_sum=1e4)
-            sc.pp.log1p(adata)
+        # Validate input data is preprocessed according to cell communication best practices
+        # Based on single-cell best practices (2024) and LIANA+ recommendations
+        max_val = adata.X.max() if hasattr(adata.X, 'max') else np.max(adata.X)
+        min_val = adata.X.min() if hasattr(adata.X, 'min') else np.min(adata.X)
+        
+        # Check for raw count data (typically high integer values without log transformation)
+        if min_val >= 0 and max_val > 100:
+            raise ValueError(
+                "Data appears to be raw counts. Cell communication analysis requires: "
+                "1) Count normalization (e.g., to 10,000 counts per cell), "
+                "2) Log1p transformation to stabilize variance. "
+                "According to single-cell best practices, this is essential for CCC inference. "
+                "Please use preprocessing.py or run: sc.pp.normalize_total(adata, target_sum=1e4); sc.pp.log1p(adata)"
+            )
+        
+        # Validate log transformation was applied (recommended range after log1p is typically 0-15)
+        if min_val >= 0 and max_val > 20:
+            import warnings
+            warnings.warn(
+                f"High maximum expression value ({max_val:.1f}) may indicate missing log transformation. "
+                "Cell communication inference works best with log1p-transformed data.",
+                UserWarning
+            )
         
         # Analyze cell communication using selected method
         if params.method == "liana":
