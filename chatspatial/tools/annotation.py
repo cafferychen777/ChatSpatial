@@ -86,23 +86,33 @@ Troubleshooting:
 
 def _validate_scvi_tools(context: Optional[Context] = None):
     """Validate scvi-tools availability and return the module"""
+    from ..utils.dependency_manager import try_import
+    
+    scvi, warning = try_import('scvi-tools', 'advanced cell type annotation')
+    if scvi is None:
+        install_guide = _get_installation_guide("scvi-tools")
+        if context:
+            context.error(f"scvi-tools not available: {warning}")
+        raise DependencyError("scvi-tools", "scANVI and CellAssign", install_guide)
+    
     try:
-        import scvi
         from scvi.external import CellAssign
         
+        # Log version information if context is provided
         if context:
-            # Optional: Check version compatibility
-            import pkg_resources
             try:
-                version = pkg_resources.get_distribution("scvi-tools").version
+                version = getattr(scvi, '__version__', 'unknown')
                 context.info(f"Using scvi-tools version {version}")
-            except:
-                pass  # Version check is optional
+            except Exception:
+                pass
         
         return scvi, CellAssign
     except ImportError as e:
-        install_guide = _get_installation_guide("scvi-tools")
-        raise DependencyError("scvi-tools", "scANVI", install_guide) from e
+        error_msg = (f"scvi-tools is installed but CellAssign is not available. "
+                    f"This may be due to version incompatibility. Error: {e}")
+        if context:
+            context.error(error_msg)
+        raise ImportError(error_msg) from e
 
 def _validate_tangram(context: Optional[Context] = None):
     """Validate tangram availability and return the module"""

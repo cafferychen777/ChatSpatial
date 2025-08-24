@@ -20,18 +20,29 @@ from mcp.server.fastmcp import Context
 from ..utils.error_handling import suppress_output
 
 
-# Import scvi-tools for deconvolution
-try:
-    import scvi
-    from scvi.external import SpatialStereoscope as Stereoscope, Tangram, MRVI
-    # DestVI is now in scvi.model, not scvi.external
-    from scvi.model import DestVI
-except ImportError:
-    scvi = None
-    Stereoscope = None
-    Tangram = None
-    MRVI = None
-    DestVI = None
+# Import dependencies using the dependency manager
+from ..utils.dependency_manager import try_import
+
+# Try importing deep learning dependencies
+scvi, scvi_warning = try_import('scvi-tools', 'advanced deconvolution methods')
+torch, torch_warning = try_import('torch', 'deep learning-based deconvolution')
+
+# Import specific scvi modules if available
+Stereoscope = None
+Tangram = None
+MRVI = None
+DestVI = None
+
+if scvi:
+    try:
+        from scvi.external import SpatialStereoscope as Stereoscope, Tangram, MRVI
+        from scvi.model import DestVI
+    except ImportError as e:
+        # scvi-tools version compatibility issue
+        warnings.warn(f"scvi-tools import issue: {e}. Some methods may be unavailable.")
+
+# Import cell2location with graceful fallback
+cell2location, c2l_warning = try_import('cell2location', 'cell2location deconvolution')
 
 from ..models.data import DeconvolutionParameters
 from ..models.analysis import DeconvolutionResult
@@ -225,16 +236,18 @@ def deconvolve_cell2location(
     # Unified validation and gene finding
     common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, min_common_genes)
 
-    # Import cell2location
+    # Import cell2location using dependency manager
+    from ..utils.dependency_manager import require
     try:
-        import cell2location
+        cell2location_mod = require('cell2location', 'cell2location deconvolution')
         from cell2location.models import RegressionModel, Cell2location
-    except ImportError:
+    except ImportError as e:
+        # Provide specific installation guidance
         raise ImportError(
-            "Cell2location package is required but not installed. "
-            "Install with 'pip install cell2location' or "
-            "'pip install spatial-transcriptomics-mcp[deconvolution]'"
-        )
+            "cell2location is not installed. "
+            "Install with 'pip install chatspatial[advanced]' or 'pip install cell2location>=0.1.3'. "
+            "Note: Requires PyTorch and compatible GPU drivers for optimal performance."
+        ) from e
 
     try:
         # Unified device selection
@@ -864,6 +877,36 @@ async def deconvolve_spatial_data(
                 await context.info(f"Reference dataset shape: {reference_adata.shape}")
                 cell_types = reference_adata.obs[params.cell_type_key].unique()
                 await context.info(f"Using reference with {len(cell_types)} cell types: {list(cell_types)}")
+
+        # Check method-specific dependencies and provide alternatives
+        method_deps = {
+            "cell2location": ["cell2location", "torch"],
+            "destvi": ["scvi-tools", "torch"], 
+            "stereoscope": ["scvi-tools", "torch"],
+            "tangram": ["scvi-tools", "torch"],
+            "mrvi": ["scvi-tools", "torch"],
+            "rctd": ["rpy2"]  # R-based method
+        }
+        
+        # Get available methods
+        from ..utils.dependency_manager import get_available_methods
+        available_methods = get_available_methods(method_deps)
+        
+        if params.method not in available_methods:
+            # Suggest alternatives
+            if available_methods:
+                alt_msg = f"Available alternatives: {', '.join(available_methods)}"
+                if "cell2location" in available_methods:
+                    alt_msg += " (cell2location is recommended)"
+                elif "rctd" in available_methods:
+                    alt_msg += " (RCTD provides similar functionality)"
+            else:
+                alt_msg = "No deconvolution methods available. Install dependencies with 'pip install chatspatial[advanced]'"
+            
+            error_msg = f"Method '{params.method}' is not available due to missing dependencies. {alt_msg}"
+            if context:
+                await context.error(error_msg)
+            raise ImportError(error_msg)
 
         # Run deconvolution with cleaner calls and centralized error handling
         proportions, stats = None, None

@@ -421,8 +421,8 @@ def compute_dpt_fallback(adata, root_cells=None):
                 # Normalize to [0, 1]
                 pseudotime = (pseudotime - pseudotime.min()) / (pseudotime.max() - pseudotime.min())
                 adata.obs['dpt_pseudotime'] = pseudotime
-        else:
-            raise RuntimeError(f"Failed to compute DPT and no diffusion map available: {e}")
+            else:
+                raise RuntimeError(f"Failed to compute DPT and no diffusion map available: {e}")
     
     # Check if dpt_pseudotime was created
     if 'dpt_pseudotime' not in adata.obs.columns:

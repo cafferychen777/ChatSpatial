@@ -203,7 +203,7 @@ async def _analyze_communication_liana(
             # Determine appropriate max_neighbours to avoid sklearn error
             max_neighbors = min(99, adata.n_obs - 1)  # LIANA uses max_neighbours+1 internally
 
-            li.ut.spatial_neighbors(
+            li.mu.spatial_neighbors(
                 adata,
                 bandwidth=bandwidth,
                 cutoff=cutoff,
@@ -1109,80 +1109,29 @@ async def _validate_spatial_coordinates(
     adata: Any,
     context: Optional[Context] = None
 ) -> Dict[str, Any]:
-    """Validate spatial coordinates for cell communication analysis"""
-    result = {"passed": True, "errors": [], "warnings": [], "suggestions": []}
+    """
+    Validate spatial coordinates for cell communication analysis.
     
-    try:
-        # Check for spatial coordinates existence
-        spatial_key = None
-        for key in adata.obsm.keys():
-            if 'spatial' in key.lower():
-                spatial_key = key
-                break
-        
-        if spatial_key is None:
-            result["errors"].append("No spatial coordinates found in adata.obsm")
-            result["suggestions"].append("Add spatial coordinates to adata.obsm['spatial'] or similar key")
-            result["passed"] = False
-            return result
-        
-        spatial_coords = adata.obsm[spatial_key]
-        
-        # Check spatial coordinates shape
-        if spatial_coords.shape[0] != adata.n_obs:
-            result["errors"].append(f"Spatial coordinates shape mismatch: {spatial_coords.shape[0]} != {adata.n_obs} cells")
-            result["suggestions"].append("Ensure spatial coordinates match number of cells")
-            result["passed"] = False
-        
-        if spatial_coords.shape[1] < 2:
-            result["errors"].append(f"Spatial coordinates must have at least 2 dimensions, found {spatial_coords.shape[1]}")
-            result["suggestions"].append("Provide x,y coordinates (and optionally z) for spatial analysis")
-            result["passed"] = False
-        
-        # Check for NaN/Inf in spatial coordinates
-        if np.isnan(spatial_coords).any():
-            nan_count = np.isnan(spatial_coords).sum()
-            result["errors"].append(f"Found {nan_count} NaN values in spatial coordinates")
-            result["suggestions"].append("Remove cells with missing spatial coordinates")
-            result["passed"] = False
-        
-        if np.isinf(spatial_coords).any():
-            inf_count = np.isinf(spatial_coords).sum()
-            result["errors"].append(f"Found {inf_count} infinite values in spatial coordinates")
-            result["suggestions"].append("Replace infinite spatial coordinates with valid values")
-            result["passed"] = False
-        
-        # Check for duplicate coordinates (suspicious)
-        unique_coords = np.unique(spatial_coords, axis=0)
-        if len(unique_coords) < len(spatial_coords) * 0.95:  # More than 5% duplicates
-            duplicate_fraction = 1 - (len(unique_coords) / len(spatial_coords))
-            result["warnings"].append(f"High proportion of duplicate spatial coordinates ({duplicate_fraction:.2%})")
-        
-        # Check coordinate range reasonableness
-        coord_ranges = []
-        for dim in range(min(3, spatial_coords.shape[1])):  # Check up to 3 dimensions
-            coord_min, coord_max = spatial_coords[:, dim].min(), spatial_coords[:, dim].max()
-            coord_range = coord_max - coord_min
-            coord_ranges.append(coord_range)
-            
-            if coord_range == 0:
-                result["warnings"].append(f"All cells have identical coordinate in dimension {dim + 1}")
-            elif coord_range > 1e6:
-                result["warnings"].append(f"Very large coordinate range in dimension {dim + 1}: {coord_range:.2e}")
-        
-        # Check if coordinates are integer-like (suggesting pixel coordinates)
-        if len(coord_ranges) >= 2:
-            x_coords, y_coords = spatial_coords[:, 0], spatial_coords[:, 1]
-            x_is_int = np.allclose(x_coords, np.round(x_coords))
-            y_is_int = np.allclose(y_coords, np.round(y_coords))
-            
-            if x_is_int and y_is_int and coord_ranges[0] > 100 and coord_ranges[1] > 100:
-                result["warnings"].append("Coordinates appear to be in pixel units - consider converting to physical units")
-        
-    except Exception as e:
-        result["errors"].append(f"Spatial coordinates validation failed: {str(e)}")
-        result["suggestions"].append("Check spatial coordinates format and values")
-        result["passed"] = False
+    REFACTORED: Now uses unified ChatSpatial validation system instead of 
+    duplicated validation logic. This eliminates special cases.
+    """
+    from ..utils.data_validator import validate_for_cell_communication
+    
+    # Use unified validation system - no more special cases!
+    validation_result = validate_for_cell_communication(adata, strict=False)
+    
+    # Convert to expected format for backward compatibility
+    result = {
+        "passed": validation_result.passed,
+        "errors": validation_result.errors,
+        "warnings": validation_result.warnings,
+        "suggestions": validation_result.suggestions
+    }
+    
+    if context and not validation_result.passed:
+        await context.warning(f"Cell communication validation failed: {len(validation_result.errors)} errors")
+        for error in validation_result.errors[:3]:  # Show first 3 errors
+            await context.warning(f"  • {error}")
     
     return result
 
