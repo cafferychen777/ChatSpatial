@@ -3,6 +3,7 @@ Data models for spatial transcriptomics analysis.
 """
 
 from typing import Annotated, Dict, List, Literal, Optional, Tuple, Union
+from typing_extensions import Self
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -154,6 +155,27 @@ class VisualizationParameters(BaseModel):
     # Legacy parameters (for backward compatibility)
     show_deconvolution: bool = False  # Whether to show deconvolution results
     n_cell_types: Annotated[int, Field(gt=0, le=10)] = 4  # Number of top cell types to show
+    
+    @model_validator(mode='after')
+    def validate_conditional_parameters(self) -> Self:
+        """Validate parameter dependencies and provide helpful error messages."""
+        
+        # Spatial analysis validation
+        if self.plot_type == "spatial_analysis":
+            if not self.analysis_sub_type or (isinstance(self.analysis_sub_type, str) and not self.analysis_sub_type.strip()):
+                available_subtypes = ["neighborhood", "co_occurrence", "ripley", "moran", "centrality", "getis_ord"]
+                raise ValueError(
+                    f"Parameter dependency error: analysis_sub_type is required when plot_type='spatial_analysis'.\n"
+                    f"Available analysis types: {', '.join(available_subtypes)}\n"
+                    f"Example usage: VisualizationParameters(plot_type='spatial_analysis', analysis_sub_type='neighborhood')\n"
+                    f"For more details, see spatial analysis documentation."
+                )
+        
+        # Future: Add other conditional validations here
+        # if self.plot_type == "cell_communication" and not self.method:
+        #     raise ValueError("method required for cell_communication plot_type")
+        
+        return self
 
 
 class AnnotationParameters(BaseModel):
