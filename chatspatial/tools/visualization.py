@@ -2336,9 +2336,6 @@ async def create_spatial_analysis_visualization(
     Returns:
         Matplotlib figure with spatial analysis visualization
     """
-    if not params.analysis_sub_type:
-        raise InvalidParameterError("`analysis_sub_type` is required for `plot_type='spatial_analysis'`.")
-
     if context:
         await context.info(f"Creating {params.analysis_sub_type} spatial analysis visualization")
 
