@@ -1,9 +1,0 @@
-{
-  "tested_datasets": 10,
-  "successful_loads": 10,
-  "spatial_compatible": 1,
-  "preprocessing_compatible": 10,
-  "analysis_compatible": 10,
-  "failed_datasets": [],
-  "issues_found": []
-}
