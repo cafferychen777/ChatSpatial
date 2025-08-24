@@ -12,6 +12,7 @@ from mcp.server.fastmcp import Context
 from ..models.data import AnalysisParameters
 from ..models.analysis import PreprocessingResult
 from ..utils.tool_error_handling import mcp_tool_error_handler
+from ..utils.data_adapter import standardize_adata
 
 # Import scvi-tools for advanced preprocessing
 try:
@@ -128,6 +129,19 @@ async def preprocess_data(
 
         # Make a copy of the AnnData object to avoid modifying the original
         adata = data_store[data_id]["adata"].copy()
+
+        # LINUS FIX: Standardize data format at the entry point
+        # This eliminates all downstream special cases for data format handling
+        if context:
+            await context.info("Standardizing data structure to ChatSpatial format...")
+        try:
+            adata = standardize_adata(adata, copy=False, strict=False, preserve_original=True)
+            if context:
+                await context.info("✓ Data structure standardized successfully")
+        except Exception as e:
+            if context:
+                await context.warning(f"Data standardization failed: {e}. Proceeding with original data.")
+            # Continue with original data if standardization fails
 
         # Validate input data
         if adata.n_obs == 0 or adata.n_vars == 0:

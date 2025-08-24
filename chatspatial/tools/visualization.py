@@ -392,27 +392,22 @@ async def visualize_top_cell_types(adata, deconv_key, n_cell_types=4, context=No
     return features
 
 
+# This function is deprecated - use data_adapter.get_spatial_coordinates() instead
+# Keeping for backward compatibility only
 def get_spatial_coordinates(adata):
     """Get spatial coordinates from AnnData object
+    
+    DEPRECATED: Use chatspatial.utils.data_adapter.get_spatial_coordinates() instead.
+    This function will be removed in a future version.
     
     Args:
         adata: AnnData object
         
     Returns:
-        Tuple of (x_coords, y_coords) or None if no spatial coordinates found
+        Tuple of (x_coords, y_coords)
     """
-    # Try different spatial coordinate locations
-    if 'spatial' in adata.obsm:
-        coords = adata.obsm['spatial']
-        return coords[:, 0], coords[:, 1]
-    elif 'X_spatial' in adata.obsm:
-        coords = adata.obsm['X_spatial']
-        return coords[:, 0], coords[:, 1]
-    elif 'x' in adata.obs and 'y' in adata.obs:
-        return adata.obs['x'].values, adata.obs['y'].values
-    else:
-        # Fallback to indices
-        return range(len(adata)), range(len(adata))
+    from ..utils.data_adapter import get_spatial_coordinates as get_coords_standardized
+    return get_coords_standardized(adata)
 
 
 async def create_cell_type_annotation_visualization(adata, cell_types: List[str], cell_type_df=None, context: Optional[Context] = None):
