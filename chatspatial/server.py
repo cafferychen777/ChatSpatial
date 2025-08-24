@@ -572,7 +572,7 @@ async def integrate_samples(
     result = await integrate_samples(data_ids, data_store, params, context)
 
     # Save integrated dataset
-    integrated_id = result.integrated_data_id
+    integrated_id = result.data_id
     if integrated_id and integrated_id in data_store:
         data_manager.data_store[integrated_id] = data_store[integrated_id]
         

@@ -1,0 +1,2058 @@
+{
+  "total_files": 43,
+  "valid_files": 43,
+  "invalid_files": 0,
+  "files_with_warnings": 11,
+  "total_cells": 259675,
+  "total_genes_unique": "set()",
+  "total_size_mb": 5950.220000000001,
+  "validation_timestamp": "2025-08-24 03:33:57",
+  "individual_results": [
+    {
+      "file": "ST_mouse_brain.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/core/ST_mouse_brain.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 685,
+        "n_genes": 32285,
+        "file_size_mb": 9.7,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          685,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 238.0,
+          "x_max": 2437.0,
+          "y_min": 167.0,
+          "y_max": 3886.0
+        },
+        "sparsity": 0.8668,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "in_tissue",
+          "array_row",
+          "array_col"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types",
+          "genome"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 3,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "mop_sn_tutorial.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/core/mop_sn_tutorial.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 26431,
+        "n_genes": 27742,
+        "file_size_mb": 1956.0,
+        "X_dtype": "float32",
+        "has_spatial": false,
+        "sparsity": 0.8606,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "QC",
+          "batch",
+          "class_color",
+          "class_id",
+          "class_label",
+          "cluster_color",
+          "cluster_labels",
+          "dataset",
+          "date",
+          "ident",
+          "individual",
+          "nCount_RNA",
+          "nFeature_RNA",
+          "nGene",
+          "nUMI",
+          "project",
+          "region",
+          "species",
+          "subclass_id",
+          "subclass_label"
+        ],
+        "var_columns": [],
+        "n_obs_columns": 20,
+        "n_var_columns": 0,
+        "obsm_keys": [],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "pancreas_subset_for_cellrank.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/core/pancreas_subset_for_cellrank.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 500,
+        "n_genes": 27998,
+        "file_size_mb": 23.91,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          500,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -1237.2857666015625,
+          "x_max": 951.0681762695312,
+          "y_min": -530.5858764648438,
+          "y_max": 648.3606567382812
+        },
+        "sparsity": 0.9099,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "clusters_coarse",
+          "clusters",
+          "S_score",
+          "G2M_score"
+        ],
+        "var_columns": [
+          "highly_variable_genes"
+        ],
+        "n_obs_columns": 4,
+        "n_var_columns": 1,
+        "obsm_keys": [
+          "X_pca",
+          "X_umap",
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "clusters_coarse_colors",
+          "clusters_colors",
+          "day_colors",
+          "neighbors",
+          "pca"
+        ]
+      }
+    },
+    {
+      "file": "pancreas_velocity.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/core/pancreas_velocity.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 3696,
+        "n_genes": 27998,
+        "file_size_mb": 50.05,
+        "X_dtype": "float32",
+        "has_spatial": false,
+        "sparsity": 0.9101,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "clusters_coarse",
+          "clusters",
+          "S_score",
+          "G2M_score"
+        ],
+        "var_columns": [
+          "highly_variable_genes"
+        ],
+        "n_obs_columns": 4,
+        "n_var_columns": 1,
+        "obsm_keys": [
+          "X_pca",
+          "X_umap"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "clusters_coarse_colors",
+          "clusters_colors",
+          "day_colors",
+          "neighbors",
+          "pca"
+        ]
+      }
+    },
+    {
+      "file": "pancreas_velocity_with_spatial.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/core/pancreas_velocity_with_spatial.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 3696,
+        "n_genes": 27998,
+        "file_size_mb": 169.64,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          3696,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -1247.5462646484375,
+          "x_max": 963.3479614257812,
+          "y_min": -545.5689697265625,
+          "y_max": 674.1209716796875
+        },
+        "sparsity": 0.9101,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "clusters_coarse",
+          "clusters",
+          "S_score",
+          "G2M_score"
+        ],
+        "var_columns": [
+          "highly_variable_genes"
+        ],
+        "n_obs_columns": 4,
+        "n_var_columns": 1,
+        "obsm_keys": [
+          "X_pca",
+          "X_umap",
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "clusters_coarse_colors",
+          "clusters_colors",
+          "day_colors",
+          "neighbors",
+          "pca"
+        ]
+      }
+    },
+    {
+      "file": "slideseq_MOp_1217.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/core/slideseq_MOp_1217.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 9852,
+        "n_genes": 24518,
+        "file_size_mb": 923.16,
+        "X_dtype": "float32",
+        "has_spatial": false,
+        "sparsity": 0.9769,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "orig.ident",
+          "nCount_RNA",
+          "nFeature_RNA",
+          "x",
+          "y"
+        ],
+        "var_columns": [],
+        "n_obs_columns": 5,
+        "n_var_columns": 0,
+        "obsm_keys": [],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "mtx_processed.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/format_demos/mtx_demo/mtx_processed.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1500,
+        "n_genes": 2500,
+        "file_size_mb": 4.75,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          1500,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -43.0,
+          "x_max": 9929.0,
+          "y_min": -49.0,
+          "y_max": 9939.0
+        },
+        "sparsity": 0.9,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "barcode",
+          "in_tissue",
+          "array_row",
+          "array_col"
+        ],
+        "var_columns": [
+          "gene_symbol",
+          "feature_type"
+        ],
+        "n_obs_columns": 4,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "slideseq_processed.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/format_demos/slideseq_processed.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 2000,
+        "n_genes": 1000,
+        "file_size_mb": 15.6,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          2000,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -997.3050757301818,
+          "x_max": 999.6540335744304,
+          "y_min": -997.6823593504242,
+          "y_max": 999.7205158329078
+        },
+        "sparsity": 0.7225,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "barcode",
+          "cell_type"
+        ],
+        "var_columns": [
+          "gene_symbol"
+        ],
+        "n_obs_columns": 2,
+        "n_var_columns": 1,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "st_processed.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/format_demos/st_processed.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 300,
+        "n_genes": 2000,
+        "file_size_mb": 4.82,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          300,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 0.0,
+          "x_max": 1700.0,
+          "y_min": 0.0,
+          "y_max": 1600.0
+        },
+        "sparsity": 0.0777,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "spot_id",
+          "tissue",
+          "in_tissue"
+        ],
+        "var_columns": [
+          "gene_symbol",
+          "feature_type"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "filtered_feature_bc_matrix.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/harmony/filtered_feature_bc_matrix.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1600,
+        "n_genes": 2000,
+        "file_size_mb": 24.79,
+        "X_dtype": "int64",
+        "has_spatial": false,
+        "sparsity": 0.0039,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_id",
+          "cell_type",
+          "batch",
+          "dataset",
+          "n_genes",
+          "total_counts"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types",
+          "is_t_cell_marker",
+          "is_epithelial_marker",
+          "n_cells"
+        ],
+        "n_obs_columns": 6,
+        "n_var_columns": 5,
+        "obsm_keys": [],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "jurkat_293t_mixture_simulated.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/harmony/jurkat_293t_mixture_simulated.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 4600,
+        "n_genes": 2000,
+        "file_size_mb": 70.86,
+        "X_dtype": "int64",
+        "has_spatial": false,
+        "sparsity": 0.0024,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_id",
+          "cell_type",
+          "batch",
+          "dataset",
+          "n_genes",
+          "total_counts"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types",
+          "is_t_cell_marker",
+          "is_epithelial_marker",
+          "n_cells"
+        ],
+        "n_obs_columns": 6,
+        "n_var_columns": 5,
+        "obsm_keys": [],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "mixture_simulated.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/harmony/mixture_simulated.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1600,
+        "n_genes": 2000,
+        "file_size_mb": 24.79,
+        "X_dtype": "int64",
+        "has_spatial": false,
+        "sparsity": 0.0039,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_id",
+          "cell_type",
+          "batch",
+          "dataset",
+          "n_genes",
+          "total_counts"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types",
+          "is_t_cell_marker",
+          "is_epithelial_marker",
+          "n_cells"
+        ],
+        "n_obs_columns": 6,
+        "n_var_columns": 5,
+        "obsm_keys": [],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "pure_293t_simulated.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/harmony/pure_293t_simulated.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "file_size_mb": 23.26,
+        "X_dtype": "int64",
+        "has_spatial": false,
+        "sparsity": 0.0007,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_id",
+          "cell_type",
+          "batch",
+          "dataset",
+          "n_genes",
+          "total_counts"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types",
+          "is_t_cell_marker",
+          "is_epithelial_marker",
+          "n_cells"
+        ],
+        "n_obs_columns": 6,
+        "n_var_columns": 5,
+        "obsm_keys": [],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "pure_jurkat_simulated.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/harmony/pure_jurkat_simulated.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "file_size_mb": 23.26,
+        "X_dtype": "int64",
+        "has_spatial": false,
+        "sparsity": 0.0025,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_id",
+          "cell_type",
+          "batch",
+          "dataset",
+          "n_genes",
+          "total_counts"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types",
+          "is_t_cell_marker",
+          "is_epithelial_marker",
+          "n_cells"
+        ],
+        "n_obs_columns": 6,
+        "n_var_columns": 5,
+        "obsm_keys": [],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "quick_demo_293t.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/harmony/quick_demo_293t.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 500,
+        "n_genes": 800,
+        "file_size_mb": 3.2,
+        "X_dtype": "int64",
+        "has_spatial": false,
+        "sparsity": 0.0006,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_id",
+          "cell_type",
+          "batch",
+          "dataset",
+          "n_genes",
+          "total_counts"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types",
+          "is_t_cell_marker",
+          "is_epithelial_marker",
+          "n_cells"
+        ],
+        "n_obs_columns": 6,
+        "n_var_columns": 5,
+        "obsm_keys": [],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "quick_demo_combined.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/harmony/quick_demo_combined.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1000,
+        "n_genes": 800,
+        "file_size_mb": 6.26,
+        "X_dtype": "int64",
+        "has_spatial": false,
+        "sparsity": 0.0016,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_id",
+          "cell_type",
+          "batch",
+          "dataset",
+          "n_genes",
+          "total_counts"
+        ],
+        "var_columns": [],
+        "n_obs_columns": 6,
+        "n_var_columns": 0,
+        "obsm_keys": [],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "quick_demo_jurkat.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/harmony/quick_demo_jurkat.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "缺少空间坐标信息"
+      ],
+      "metadata": {
+        "readable": true,
+        "n_cells": 500,
+        "n_genes": 800,
+        "file_size_mb": 3.2,
+        "X_dtype": "int64",
+        "has_spatial": false,
+        "sparsity": 0.0026,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_id",
+          "cell_type",
+          "batch",
+          "dataset",
+          "n_genes",
+          "total_counts"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types",
+          "is_t_cell_marker",
+          "is_epithelial_marker",
+          "n_cells"
+        ],
+        "n_obs_columns": 6,
+        "n_var_columns": 5,
+        "obsm_keys": [],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "hdst_squamous_carcinoma.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/hdst_squamous_carcinoma.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 3850,
+        "n_genes": 1530,
+        "file_size_mb": 45.33,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          3850,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 0.1470245194403752,
+          "x_max": 1999.7435103895555,
+          "y_min": 0.3295002836485317,
+          "y_max": 1998.7099978194556
+        },
+        "sparsity": 0.0007,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_type",
+          "grade",
+          "tissue_region"
+        ],
+        "var_columns": [
+          "gene_symbol",
+          "gene_type"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "osmfish_somatosensory.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/osmfish_somatosensory.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 993,
+        "n_genes": 46,
+        "file_size_mb": 0.43,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          993,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 1.573636785314081,
+          "x_max": 999.0138305246562,
+          "y_min": 0.29763983323261023,
+          "y_max": 999.7418988690598
+        },
+        "sparsity": 0.638,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_type",
+          "layer"
+        ],
+        "var_columns": [
+          "gene_symbol"
+        ],
+        "n_obs_columns": 2,
+        "n_var_columns": 1,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "pixelseq_data.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/pixelseq_data.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 4409,
+        "n_genes": 3535,
+        "file_size_mb": 119.72,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          4409,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -5.903891439692196,
+          "x_max": 664.6872437431255,
+          "y_min": -4.723127378032788,
+          "y_max": 653.5478989420643
+        },
+        "sparsity": 0.0156,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_type",
+          "batch",
+          "pixel_id"
+        ],
+        "var_columns": [
+          "gene_symbol",
+          "detection_rate"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "scanpy_paul15.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/scanpy_paul15/scanpy_paul15.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 2730,
+        "n_genes": 3451,
+        "file_size_mb": 36.25,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          2730,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 0.011634755366141114,
+          "x_max": 999.4137257706666,
+          "y_min": 0.03071884538241587,
+          "y_max": 999.7176732861305
+        },
+        "sparsity": 0.7467,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "paul15_clusters"
+        ],
+        "var_columns": [],
+        "n_obs_columns": 1,
+        "n_var_columns": 0,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "dataset_info",
+          "iroot"
+        ]
+      }
+    },
+    {
+      "file": "seqfish_demo.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/seqfish_demo.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1000,
+        "n_genes": 351,
+        "file_size_mb": 1.64,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          1000,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -2.5158540821144655,
+          "x_max": 2.4844442021407573,
+          "y_min": -3.475972516699912,
+          "y_max": 3.4887550716754987
+        },
+        "sparsity": 0.7261,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "Area",
+          "celltype_mapped_refined"
+        ],
+        "var_columns": [],
+        "n_obs_columns": 2,
+        "n_var_columns": 0,
+        "obsm_keys": [
+          "X_umap",
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "celltype_mapped_refined_colors"
+        ]
+      }
+    },
+    {
+      "file": "slideseq_cerebellum.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/slideseq_cerebellum.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 15000,
+        "n_genes": 10000,
+        "file_size_mb": 574.59,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          15000,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -1010.9856838189794,
+          "x_max": 1015.4573759375554,
+          "y_min": -1010.0757862780258,
+          "y_max": 1005.2176082737523
+        },
+        "sparsity": 0.9235,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "spot_id",
+          "tissue_type",
+          "in_tissue"
+        ],
+        "var_columns": [
+          "gene_symbol",
+          "feature_type"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "slideseq_v2_hippocampus.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/slideseq_v2_hippocampus.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 8000,
+        "n_genes": 12000,
+        "file_size_mb": 368.06,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          8000,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -3780.229583690393,
+          "x_max": 4701.376223153517,
+          "y_min": -2147.5911275907265,
+          "y_max": 2396.086159926849
+        },
+        "sparsity": 0.9235,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "spot_id",
+          "tissue_type",
+          "in_tissue"
+        ],
+        "var_columns": [
+          "gene_symbol",
+          "feature_type"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "slideseq_v2_olfactory.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/slideseq_v2_olfactory.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 6000,
+        "n_genes": 11000,
+        "file_size_mb": 253.33,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          6000,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -2571.4971201210774,
+          "x_max": 2475.7429842904944,
+          "y_min": -2653.8680484819884,
+          "y_max": 2066.2795979440857
+        },
+        "sparsity": 0.9235,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "spot_id",
+          "tissue_type",
+          "in_tissue"
+        ],
+        "var_columns": [
+          "gene_symbol",
+          "feature_type"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "squidpy_imc.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/squidpy_imc.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 4668,
+        "n_genes": 34,
+        "file_size_mb": 1.51,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          4668,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 0.7647058823529411,
+          "x_max": 731.1739130434783,
+          "y_min": 1.105263157894737,
+          "y_max": 788.1764705882352
+        },
+        "sparsity": 0.0152,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell type"
+        ],
+        "var_columns": [],
+        "n_obs_columns": 1,
+        "n_var_columns": 0,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "cell type_colors"
+        ]
+      }
+    },
+    {
+      "file": "squidpy_merfish.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/squidpy_merfish.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 73655,
+        "n_genes": 161,
+        "file_size_mb": 49.2,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          73655,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 0.0,
+          "x_max": 1.0,
+          "y_min": 0.0,
+          "y_max": 1.0
+        },
+        "sparsity": 0.607,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "Cell_ID",
+          "Animal_ID",
+          "Animal_sex",
+          "Behavior",
+          "Bregma",
+          "Centroid_X",
+          "Centroid_Y",
+          "Cell_class",
+          "Neuron_cluster_ID",
+          "batch"
+        ],
+        "var_columns": [],
+        "n_obs_columns": 10,
+        "n_var_columns": 0,
+        "obsm_keys": [
+          "spatial",
+          "spatial3d"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "Cell_class_colors"
+        ]
+      }
+    },
+    {
+      "file": "squidpy_mibitof.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/squidpy_mibitof.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 3309,
+        "n_genes": 36,
+        "file_size_mb": 19.35,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          3309,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 1.0,
+          "x_max": 1021.0,
+          "y_min": 1.0,
+          "y_max": 1021.0
+        },
+        "sparsity": 0.0,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "row_num",
+          "point",
+          "cell_id",
+          "X1",
+          "center_rowcoord",
+          "center_colcoord",
+          "cell_size",
+          "category",
+          "donor",
+          "Cluster",
+          "batch",
+          "library_id"
+        ],
+        "var_columns": [
+          "mean-0",
+          "std-0",
+          "mean-1",
+          "std-1",
+          "mean-2",
+          "std-2"
+        ],
+        "n_obs_columns": 12,
+        "n_var_columns": 6,
+        "obsm_keys": [
+          "X_scanorama",
+          "X_umap",
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "Cluster_colors",
+          "batch_colors",
+          "neighbors",
+          "spatial",
+          "umap"
+        ]
+      }
+    },
+    {
+      "file": "squidpy_seqfish.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/squidpy_seqfish.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 19416,
+        "n_genes": 351,
+        "file_size_mb": 30.68,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          19416,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -2.5493682364864583,
+          "x_max": 2.520293708124292,
+          "y_min": -3.4920842294172303,
+          "y_max": 3.4920842294172374
+        },
+        "sparsity": 0.7226,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "Area",
+          "celltype_mapped_refined"
+        ],
+        "var_columns": [],
+        "n_obs_columns": 2,
+        "n_var_columns": 0,
+        "obsm_keys": [
+          "X_umap",
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "celltype_mapped_refined_colors"
+        ]
+      }
+    },
+    {
+      "file": "squidpy_slideseqv2.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/squidpy_slideseqv2.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 41786,
+        "n_genes": 4000,
+        "file_size_mb": 251.32,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          41786,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 803.66,
+          "x_max": 5684.1,
+          "y_min": 762.16,
+          "y_max": 5594.2
+        },
+        "sparsity": 0.9736,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "barcode",
+          "x",
+          "y",
+          "n_genes_by_counts",
+          "log1p_n_genes_by_counts",
+          "total_counts",
+          "log1p_total_counts",
+          "pct_counts_in_top_50_genes",
+          "pct_counts_in_top_100_genes",
+          "pct_counts_in_top_200_genes",
+          "pct_counts_in_top_500_genes",
+          "total_counts_MT",
+          "log1p_total_counts_MT",
+          "pct_counts_MT",
+          "n_counts",
+          "leiden",
+          "cluster"
+        ],
+        "var_columns": [
+          "MT",
+          "n_cells_by_counts",
+          "mean_counts",
+          "log1p_mean_counts",
+          "pct_dropout_by_counts",
+          "total_counts",
+          "log1p_total_counts",
+          "n_cells",
+          "highly_variable",
+          "highly_variable_rank",
+          "means",
+          "variances",
+          "variances_norm"
+        ],
+        "n_obs_columns": 17,
+        "n_var_columns": 13,
+        "obsm_keys": [
+          "X_pca",
+          "X_umap",
+          "deconvolution_results",
+          "spatial"
+        ],
+        "varm_keys": [
+          "PCs"
+        ],
+        "uns_keys": [
+          "cluster_colors",
+          "hvg",
+          "leiden",
+          "leiden_colors",
+          "neighbors",
+          "pca",
+          "spatial_neighbors",
+          "umap"
+        ]
+      }
+    },
+    {
+      "file": "squidpy_visium.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/squidpy_visium/squidpy_visium.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 684,
+        "n_genes": 18078,
+        "file_size_mb": 89.92,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          684,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 130.0,
+          "x_max": 3433.0,
+          "y_min": 98.0,
+          "y_max": 3330.0
+        },
+        "sparsity": 0.7035,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "in_tissue",
+          "array_row",
+          "array_col",
+          "n_genes_by_counts",
+          "log1p_n_genes_by_counts",
+          "total_counts",
+          "log1p_total_counts",
+          "pct_counts_in_top_50_genes",
+          "pct_counts_in_top_100_genes",
+          "pct_counts_in_top_200_genes",
+          "pct_counts_in_top_500_genes",
+          "total_counts_mt",
+          "log1p_total_counts_mt",
+          "pct_counts_mt",
+          "n_counts",
+          "leiden",
+          "cluster"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types",
+          "genome",
+          "mt",
+          "n_cells_by_counts",
+          "mean_counts",
+          "log1p_mean_counts",
+          "pct_dropout_by_counts",
+          "total_counts",
+          "log1p_total_counts",
+          "n_cells",
+          "highly_variable",
+          "highly_variable_rank",
+          "means",
+          "variances",
+          "variances_norm"
+        ],
+        "n_obs_columns": 17,
+        "n_var_columns": 16,
+        "obsm_keys": [
+          "X_pca",
+          "X_umap",
+          "spatial"
+        ],
+        "varm_keys": [
+          "PCs"
+        ],
+        "uns_keys": [
+          "cluster_colors",
+          "dataset_info",
+          "hvg",
+          "leiden",
+          "leiden_colors",
+          "neighbors",
+          "pca",
+          "rank_genes_groups",
+          "spatial",
+          "umap"
+        ]
+      }
+    },
+    {
+      "file": "st_human_breast_cancer.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/st_human_breast_cancer.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 600,
+        "n_genes": 8000,
+        "file_size_mb": 19.09,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          600,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -1207.9241992099996,
+          "x_max": 1593.7328277541003,
+          "y_min": -1198.027077343688,
+          "y_max": 1299.4687934698245
+        },
+        "sparsity": 0.6536,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "spot_id",
+          "tissue_type",
+          "in_tissue"
+        ],
+        "var_columns": [
+          "gene_symbol",
+          "feature_type"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "st_mouse_brain.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/st_mouse_brain.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1000,
+        "n_genes": 15000,
+        "file_size_mb": 58.63,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          1000,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -522.1681883935406,
+          "x_max": 519.872759992308,
+          "y_min": -224.2639207053521,
+          "y_max": 299.9015519134962
+        },
+        "sparsity": 0.6539,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "spot_id",
+          "tissue_type",
+          "in_tissue"
+        ],
+        "var_columns": [
+          "gene_symbol",
+          "feature_type"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "stereoseq_mouse_embryo.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/stereoseq_mouse_embryo.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 2115,
+        "n_genes": 1850,
+        "file_size_mb": 30.16,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          2115,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -1739.4889302954448,
+          "x_max": 4094.026199412911,
+          "y_min": -1394.985790099931,
+          "y_max": 4247.0384221940085
+        },
+        "sparsity": 0.0,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_type",
+          "developmental_stage",
+          "anatomical_region"
+        ],
+        "var_columns": [
+          "gene_symbol",
+          "highly_variable"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "synthetic_human_brain.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/synthetic_human_brain/synthetic_human_brain.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 2000,
+        "n_genes": 15000,
+        "file_size_mb": 230.47,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          2000,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 0.0,
+          "x_max": 8700.0,
+          "y_min": 0.0,
+          "y_max": 8100.0
+        },
+        "sparsity": 0.7007,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "in_tissue",
+          "array_row",
+          "array_col"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "dataset_info",
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "synthetic_human_heart.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/synthetic_human_heart/synthetic_human_heart.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1200,
+        "n_genes": 10000,
+        "file_size_mb": 92.62,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          1200,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 0.0,
+          "x_max": 6700.0,
+          "y_min": 0.0,
+          "y_max": 6300.0
+        },
+        "sparsity": 0.7008,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "in_tissue",
+          "array_row",
+          "array_col"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "dataset_info",
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "synthetic_mouse_kidney.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/synthetic_mouse_kidney/synthetic_mouse_kidney.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1500,
+        "n_genes": 12000,
+        "file_size_mb": 138.6,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          1500,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 0.0,
+          "x_max": 7500.0,
+          "y_min": 0.0,
+          "y_max": 7020.0
+        },
+        "sparsity": 0.7009,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "in_tissue",
+          "array_row",
+          "array_col"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "dataset_info",
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "synthetic_small_test.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/synthetic_small_test/synthetic_small_test.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 500,
+        "n_genes": 5000,
+        "file_size_mb": 19.62,
+        "X_dtype": "int64",
+        "has_spatial": true,
+        "spatial_shape": [
+          500,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 0.0,
+          "x_max": 4300.0,
+          "y_min": 0.0,
+          "y_max": 3960.0
+        },
+        "sparsity": 0.7002,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "in_tissue",
+          "array_row",
+          "array_col"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types"
+        ],
+        "n_obs_columns": 3,
+        "n_var_columns": 2,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "dataset_info",
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "pancreas_tiny_test.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/test/pancreas_tiny_test.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 200,
+        "n_genes": 27998,
+        "file_size_mb": 10.2,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          200,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": -1220.622314453125,
+          "x_max": 838.7633666992188,
+          "y_min": -497.1968994140625,
+          "y_max": 648.3606567382812
+        },
+        "sparsity": 0.9111,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "clusters_coarse",
+          "clusters",
+          "S_score",
+          "G2M_score"
+        ],
+        "var_columns": [
+          "highly_variable_genes"
+        ],
+        "n_obs_columns": 4,
+        "n_var_columns": 1,
+        "obsm_keys": [
+          "X_pca",
+          "X_umap",
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "clusters_coarse_colors",
+          "clusters_colors",
+          "day_colors",
+          "neighbors",
+          "pca"
+        ]
+      }
+    },
+    {
+      "file": "perf_test_100_500.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/test/perf_test_100_500.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 100,
+        "n_genes": 500,
+        "file_size_mb": 0.47,
+        "X_dtype": "float64",
+        "has_spatial": true,
+        "spatial_shape": [
+          100,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 4.805876029883663,
+          "x_max": 96.05054783646274,
+          "y_min": 5.08242607806752,
+          "y_max": 90.38943690735361
+        },
+        "sparsity": 0.0017,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "spot_id",
+          "spatial_cluster",
+          "x_coord",
+          "y_coord",
+          "total_counts",
+          "n_genes_by_counts"
+        ],
+        "var_columns": [
+          "gene_id",
+          "gene_type",
+          "highly_variable"
+        ],
+        "n_obs_columns": 6,
+        "n_var_columns": 3,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "synthetic_merfish.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/test/synthetic_merfish.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 2000,
+        "n_genes": 200,
+        "file_size_mb": 3.36,
+        "X_dtype": "float64",
+        "has_spatial": true,
+        "spatial_shape": [
+          2000,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 0.6436527208557363,
+          "x_max": 199.9435346572261,
+          "y_min": 0.002326951073228223,
+          "y_max": 199.91154065008772
+        },
+        "sparsity": 0.5535,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "cell_id",
+          "cell_type",
+          "x_coord",
+          "y_coord",
+          "total_counts",
+          "n_genes_by_counts"
+        ],
+        "var_columns": [
+          "gene_id"
+        ],
+        "n_obs_columns": 6,
+        "n_var_columns": 1,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": []
+      }
+    },
+    {
+      "file": "synthetic_visium.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/test/synthetic_visium.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 500,
+        "n_genes": 1000,
+        "file_size_mb": 4.01,
+        "X_dtype": "float64",
+        "has_spatial": true,
+        "spatial_shape": [
+          500,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 3.526460501121278,
+          "x_max": 99.41538996546849,
+          "y_min": 1.7603787966264761,
+          "y_max": 96.80536148868121
+        },
+        "sparsity": 0.0019,
+        "matrix_type": "dense",
+        "obs_columns": [
+          "spot_id",
+          "spatial_cluster",
+          "x_coord",
+          "y_coord",
+          "total_counts",
+          "n_genes_by_counts"
+        ],
+        "var_columns": [
+          "gene_id",
+          "gene_type",
+          "highly_variable"
+        ],
+        "n_obs_columns": 6,
+        "n_var_columns": 3,
+        "obsm_keys": [
+          "spatial"
+        ],
+        "varm_keys": [],
+        "uns_keys": [
+          "spatial"
+        ]
+      }
+    },
+    {
+      "file": "visium_demo.h5ad",
+      "file_path": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/datasets/real_datasets/visium_demo.h5ad",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "metadata": {
+        "readable": true,
+        "n_cells": 1000,
+        "n_genes": 18078,
+        "file_size_mb": 164.41,
+        "X_dtype": "float32",
+        "has_spatial": true,
+        "spatial_shape": [
+          1000,
+          2
+        ],
+        "spatial_dims": 2,
+        "coordinate_ranges": {
+          "x_min": 1969.0,
+          "x_max": 8574.0,
+          "y_min": 1252.0,
+          "y_max": 9872.0
+        },
+        "sparsity": 0.6849,
+        "matrix_type": "sparse",
+        "obs_columns": [
+          "in_tissue",
+          "array_row",
+          "array_col",
+          "n_genes_by_counts",
+          "log1p_n_genes_by_counts",
+          "total_counts",
+          "log1p_total_counts",
+          "pct_counts_in_top_50_genes",
+          "pct_counts_in_top_100_genes",
+          "pct_counts_in_top_200_genes",
+          "pct_counts_in_top_500_genes",
+          "total_counts_mt",
+          "log1p_total_counts_mt",
+          "pct_counts_mt",
+          "n_counts",
+          "leiden",
+          "cluster"
+        ],
+        "var_columns": [
+          "gene_ids",
+          "feature_types",
+          "genome",
+          "mt",
+          "n_cells_by_counts",
+          "mean_counts",
+          "log1p_mean_counts",
+          "pct_dropout_by_counts",
+          "total_counts",
+          "log1p_total_counts",
+          "n_cells",
+          "highly_variable",
+          "highly_variable_rank",
+          "means",
+          "variances",
+          "variances_norm"
+        ],
+        "n_obs_columns": 17,
+        "n_var_columns": 16,
+        "obsm_keys": [
+          "X_pca",
+          "X_umap",
+          "spatial"
+        ],
+        "varm_keys": [
+          "PCs"
+        ],
+        "uns_keys": [
+          "cluster_colors",
+          "hvg",
+          "leiden",
+          "leiden_colors",
+          "neighbors",
+          "pca",
+          "rank_genes_groups",
+          "spatial",
+          "umap"
+        ]
+      }
+    }
+  ]
+}

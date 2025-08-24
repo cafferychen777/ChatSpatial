@@ -1,0 +1,81 @@
+{
+  "test_summary": {
+    "total_tests": 6,
+    "passed_tests": 0,
+    "failed_tests": 6,
+    "success_rate": "0.0%",
+    "total_execution_time": "0.00s"
+  },
+  "tool_statistics": {
+    "data_loader": {
+      "passed": 0,
+      "failed": 3,
+      "total_time": 0
+    },
+    "mcp_compatibility": {
+      "passed": 0,
+      "failed": 3,
+      "total_time": 0.00012183189392089844
+    }
+  },
+  "dataset_coverage": {
+    "datasets_loaded": 0,
+    "datasets_tested": 5
+  },
+  "detailed_results": [
+    {
+      "tool": "data_loader",
+      "test_name": "load_dataset",
+      "dataset": "demo_visium",
+      "passed": false,
+      "execution_time": "0.000s",
+      "error_message": "'coroutine' object has no attribute 'n_obs'",
+      "details": null
+    },
+    {
+      "tool": "data_loader",
+      "test_name": "load_dataset",
+      "dataset": "spatial_slideseq",
+      "passed": false,
+      "execution_time": "0.000s",
+      "error_message": "'coroutine' object has no attribute 'n_obs'",
+      "details": null
+    },
+    {
+      "tool": "data_loader",
+      "test_name": "load_dataset",
+      "dataset": "spatial_merfish",
+      "passed": false,
+      "execution_time": "0.000s",
+      "error_message": "'coroutine' object has no attribute 'n_obs'",
+      "details": null
+    },
+    {
+      "tool": "mcp_compatibility",
+      "test_name": "mcp_async_context",
+      "dataset": "benchmark_small",
+      "passed": false,
+      "execution_time": "0.000s",
+      "error_message": "No test dataset available",
+      "details": null
+    },
+    {
+      "tool": "mcp_compatibility",
+      "test_name": "mcp_parameter_validation",
+      "dataset": "benchmark_small",
+      "passed": false,
+      "execution_time": "0.000s",
+      "error_message": "1 validation error for SpatialAnalysisParameters\nanalysis_type\n  Input should be 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality' or 'getis_ord' [type=literal_error, input_value='invalid_analysis', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.10/v/literal_error",
+      "details": null
+    },
+    {
+      "tool": "mcp_compatibility",
+      "test_name": "mcp_error_handling",
+      "dataset": "non_existent",
+      "passed": false,
+      "execution_time": "0.000s",
+      "error_message": "Dataset non_existent_dataset not found in data store",
+      "details": null
+    }
+  ]
+}

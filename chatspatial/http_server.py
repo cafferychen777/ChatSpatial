@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
-from .server import mcp, data_store, adapter
+from .server import mcp, adapter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -83,7 +83,7 @@ async def health_check():
     return {
         "status": "healthy",
         "sessions": len(sessions),
-        "datasets": len(data_store)
+        "datasets": len(adapter.data_manager.data_store)
     }
 
 

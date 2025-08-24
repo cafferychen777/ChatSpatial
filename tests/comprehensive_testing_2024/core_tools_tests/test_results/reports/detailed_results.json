@@ -1,0 +1,596 @@
+{
+  "success": true,
+  "summary": {
+    "datasets_tested": 4,
+    "total_tests": 13,
+    "passed_tests": 9,
+    "failed_tests": 4,
+    "success_rate": 69.23076923076923,
+    "overall_success": false
+  },
+  "dataset_results": {
+    "quick_test": {
+      "preprocessing": {
+        "success": true,
+        "operations": {
+          "qc_metrics": {
+            "original_cells": 1000,
+            "original_genes": 18078,
+            "mt_genes_found": "0"
+          },
+          "normalization": {
+            "status": "completed"
+          },
+          "highly_variable_genes": {
+            "n_hvg": 2000,
+            "n_top_genes_requested": 2000
+          },
+          "pca": {
+            "n_components": 50,
+            "explained_variance_ratio": 0.21686838567256927
+          },
+          "neighbors_umap": {
+            "n_neighbors": 10,
+            "umap_computed": true
+          },
+          "clustering": {
+            "resolution": 0.4,
+            "n_clusters": 8
+          }
+        },
+        "metrics": {
+          "duration_seconds": 9.568999290466309,
+          "memory_used_mb": -708.1875,
+          "final_shape": [
+            1000,
+            2000
+          ]
+        }
+      },
+      "visualization": {
+        "success": false,
+        "plots": {},
+        "metrics": {},
+        "error": "1 validation error for VisualizationParameters\nsave_format\n  Extra inputs are not permitted [type=extra_forbidden, input_value='png', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.10/v/extra_forbidden",
+        "traceback": "Traceback (most recent call last):\n  File \"/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/core_tools_tests/test_processing_visualization_tools.py\", line 338, in test_visualization_module\n    viz_params = VisualizationParameters(\n        figure_size=(10, 8),\n        dpi=100,\n        save_format=\"png\"\n    )\n  File \"/Users/apple/Library/Python/3.13/lib/python/site-packages/pydantic/main.py\", line 214, in __init__\n    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)\npydantic_core._pydantic_core.ValidationError: 1 validation error for VisualizationParameters\nsave_format\n  Extra inputs are not permitted [type=extra_forbidden, input_value='png', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.10/v/extra_forbidden\n"
+      },
+      "differential": {
+        "success": true,
+        "differential": {
+          "marker_genes": {
+            "status": "success",
+            "n_clusters": 8,
+            "markers_per_cluster": {
+              "0": 10,
+              "1": 10,
+              "2": 10,
+              "3": 10,
+              "4": 10,
+              "5": 10,
+              "6": 10,
+              "7": 10
+            }
+          },
+          "heatmap": {
+            "status": "failed",
+            "error": "'dict' object has no attribute 'savefig'"
+          },
+          "dotplot": {
+            "status": "failed",
+            "error": "close() argument must be a Figure, an int, a string, or None, not <class 'scanpy.plotting._dotplot.DotPlot'>"
+          },
+          "pairwise": {
+            "status": "success",
+            "comparison": "0 vs 1",
+            "n_de_genes": 10,
+            "top_genes": [
+              "Agt",
+              "Sparc",
+              "Dbi",
+              "Slc6a11",
+              "Zcchc12",
+              "Rps6",
+              "Nap1l5",
+              "Nrsn2",
+              "Resp18",
+              "Scd2"
+            ],
+            "top_scores": [
+              14.079198837280273,
+              13.469291687011719,
+              13.067718505859375,
+              12.969590187072754,
+              12.279669761657715,
+              12.030573844909668,
+              11.562576293945312,
+              11.40255069732666,
+              11.337635040283203,
+              11.13533878326416
+            ]
+          }
+        },
+        "metrics": {
+          "duration_seconds": 2.742586135864258,
+          "memory_used_mb": 519.234375
+        }
+      }
+    },
+    "performance": {
+      "preprocessing": {
+        "success": true,
+        "operations": {
+          "qc_metrics": {
+            "original_cells": 5000,
+            "original_genes": 3000,
+            "mt_genes_found": "0"
+          },
+          "normalization": {
+            "status": "completed"
+          },
+          "highly_variable_genes": {
+            "n_hvg": 1500,
+            "n_top_genes_requested": 1500
+          },
+          "pca": {
+            "n_components": 50,
+            "explained_variance_ratio": 0.01563967391848564
+          },
+          "neighbors_umap": {
+            "n_neighbors": 15,
+            "umap_computed": true
+          },
+          "clustering": {
+            "resolution": 0.6,
+            "n_clusters": 2
+          }
+        },
+        "metrics": {
+          "duration_seconds": 8.978519201278687,
+          "memory_used_mb": -537.65625,
+          "final_shape": [
+            5000,
+            1500
+          ]
+        }
+      },
+      "visualization": {
+        "success": false,
+        "plots": {},
+        "metrics": {},
+        "error": "1 validation error for VisualizationParameters\nsave_format\n  Extra inputs are not permitted [type=extra_forbidden, input_value='png', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.10/v/extra_forbidden",
+        "traceback": "Traceback (most recent call last):\n  File \"/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/core_tools_tests/test_processing_visualization_tools.py\", line 338, in test_visualization_module\n    viz_params = VisualizationParameters(\n        figure_size=(10, 8),\n        dpi=100,\n        save_format=\"png\"\n    )\n  File \"/Users/apple/Library/Python/3.13/lib/python/site-packages/pydantic/main.py\", line 214, in __init__\n    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)\npydantic_core._pydantic_core.ValidationError: 1 validation error for VisualizationParameters\nsave_format\n  Extra inputs are not permitted [type=extra_forbidden, input_value='png', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.10/v/extra_forbidden\n"
+      },
+      "differential": {
+        "success": true,
+        "differential": {
+          "marker_genes": {
+            "status": "success",
+            "n_clusters": 2,
+            "markers_per_cluster": {
+              "0": 10,
+              "1": 10
+            }
+          },
+          "heatmap": {
+            "status": "failed",
+            "error": "'dict' object has no attribute 'savefig'"
+          },
+          "dotplot": {
+            "status": "failed",
+            "error": "close() argument must be a Figure, an int, a string, or None, not <class 'scanpy.plotting._dotplot.DotPlot'>"
+          },
+          "pairwise": {
+            "status": "success",
+            "comparison": "0 vs 1",
+            "n_de_genes": 10,
+            "top_genes": [
+              "2113",
+              "1758",
+              "751",
+              "633",
+              "1050",
+              "2670",
+              "268",
+              "952",
+              "38",
+              "1586"
+            ],
+            "top_scores": [
+              5.487069129943848,
+              5.39857292175293,
+              4.936594009399414,
+              4.8323469161987305,
+              4.75433874130249,
+              4.553715229034424,
+              4.4613823890686035,
+              4.423898696899414,
+              4.331418037414551,
+              4.321963310241699
+            ]
+          }
+        },
+        "metrics": {
+          "duration_seconds": 2.8778631687164307,
+          "memory_used_mb": -220.53125
+        }
+      }
+    },
+    "standard": {
+      "preprocessing": {
+        "success": true,
+        "operations": {
+          "qc_metrics": {
+            "original_cells": 41786,
+            "original_genes": 4000,
+            "mt_genes_found": "0"
+          },
+          "normalization": {
+            "status": "completed"
+          },
+          "highly_variable_genes": {
+            "n_hvg": 2000,
+            "n_top_genes_requested": 2000
+          },
+          "pca": {
+            "n_components": 50,
+            "explained_variance_ratio": 0.06417469680309296
+          },
+          "neighbors_umap": {
+            "n_neighbors": 15,
+            "umap_computed": true
+          },
+          "clustering": {
+            "resolution": 0.6,
+            "n_clusters": 12
+          }
+        },
+        "metrics": {
+          "duration_seconds": 66.66682386398315,
+          "memory_used_mb": -899.546875,
+          "final_shape": [
+            41786,
+            2000
+          ]
+        }
+      },
+      "visualization": {
+        "success": false,
+        "plots": {},
+        "metrics": {},
+        "error": "1 validation error for VisualizationParameters\nsave_format\n  Extra inputs are not permitted [type=extra_forbidden, input_value='png', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.10/v/extra_forbidden",
+        "traceback": "Traceback (most recent call last):\n  File \"/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/core_tools_tests/test_processing_visualization_tools.py\", line 338, in test_visualization_module\n    viz_params = VisualizationParameters(\n        figure_size=(10, 8),\n        dpi=100,\n        save_format=\"png\"\n    )\n  File \"/Users/apple/Library/Python/3.13/lib/python/site-packages/pydantic/main.py\", line 214, in __init__\n    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)\npydantic_core._pydantic_core.ValidationError: 1 validation error for VisualizationParameters\nsave_format\n  Extra inputs are not permitted [type=extra_forbidden, input_value='png', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.10/v/extra_forbidden\n"
+      },
+      "differential": {
+        "success": true,
+        "differential": {
+          "marker_genes": {
+            "status": "success",
+            "n_clusters": 12,
+            "markers_per_cluster": {
+              "0": 10,
+              "1": 10,
+              "2": 10,
+              "3": 10,
+              "4": 10,
+              "5": 10,
+              "6": 10,
+              "7": 10,
+              "8": 10,
+              "9": 10,
+              "10": 10,
+              "11": 10
+            }
+          },
+          "heatmap": {
+            "status": "failed",
+            "error": "index 11 is out of bounds for axis 0 with size 10"
+          },
+          "dotplot": {
+            "status": "failed",
+            "error": "close() argument must be a Figure, an int, a string, or None, not <class 'scanpy.plotting._dotplot.DotPlot'>"
+          },
+          "pairwise": {
+            "status": "success",
+            "comparison": "0 vs 1",
+            "n_de_genes": 10,
+            "top_genes": [
+              "Nrgn",
+              "Hpca",
+              "Cplx2",
+              "Cabp7",
+              "Phactr1",
+              "Tmsb4x",
+              "Itpka",
+              "Dkk3",
+              "Wipf3",
+              "2010300C02Rik"
+            ],
+            "top_scores": [
+              19.85202407836914,
+              19.31658935546875,
+              12.990044593811035,
+              7.986259460449219,
+              7.339653968811035,
+              4.18730354309082,
+              3.6931405067443848,
+              3.5739951133728027,
+              3.4260189533233643,
+              3.333291530609131
+            ]
+          }
+        },
+        "metrics": {
+          "duration_seconds": 7.830196142196655,
+          "memory_used_mb": 374.09375
+        }
+      }
+    },
+    "large_scale": {
+      "preprocessing": {
+        "success": true,
+        "operations": {
+          "qc_metrics": {
+            "original_cells": 73655,
+            "original_genes": 161,
+            "mt_genes_found": "0"
+          },
+          "normalization": {
+            "status": "completed"
+          },
+          "highly_variable_genes": {
+            "n_hvg": 80,
+            "n_top_genes_requested": 80
+          },
+          "pca": {
+            "n_components": 50,
+            "explained_variance_ratio": 0.32880889215707754
+          },
+          "neighbors_umap": {
+            "n_neighbors": 15,
+            "umap_computed": true
+          },
+          "clustering": {
+            "resolution": 0.6,
+            "n_clusters": 16
+          }
+        },
+        "metrics": {
+          "duration_seconds": 91.48388719558716,
+          "memory_used_mb": -1628.359375,
+          "final_shape": [
+            73655,
+            80
+          ]
+        }
+      },
+      "visualization": {
+        "success": false,
+        "plots": {},
+        "metrics": {},
+        "error": "1 validation error for VisualizationParameters\nsave_format\n  Extra inputs are not permitted [type=extra_forbidden, input_value='png', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.10/v/extra_forbidden",
+        "traceback": "Traceback (most recent call last):\n  File \"/Users/apple/Research/SpatialTrans_MCP/chatspatial/tests/comprehensive_testing_2024/core_tools_tests/test_processing_visualization_tools.py\", line 338, in test_visualization_module\n    viz_params = VisualizationParameters(\n        figure_size=(10, 8),\n        dpi=100,\n        save_format=\"png\"\n    )\n  File \"/Users/apple/Library/Python/3.13/lib/python/site-packages/pydantic/main.py\", line 214, in __init__\n    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)\npydantic_core._pydantic_core.ValidationError: 1 validation error for VisualizationParameters\nsave_format\n  Extra inputs are not permitted [type=extra_forbidden, input_value='png', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.10/v/extra_forbidden\n"
+      },
+      "differential": {
+        "success": true,
+        "differential": {
+          "marker_genes": {
+            "status": "success",
+            "n_clusters": 16,
+            "markers_per_cluster": {
+              "0": 10,
+              "1": 10,
+              "2": 10,
+              "3": 10,
+              "4": 10,
+              "5": 10,
+              "6": 10,
+              "7": 10,
+              "8": 10,
+              "9": 10,
+              "10": 10,
+              "11": 10,
+              "12": 10,
+              "13": 10,
+              "14": 10,
+              "15": 10
+            }
+          },
+          "heatmap": {
+            "status": "failed",
+            "error": "'dict' object has no attribute 'savefig'"
+          },
+          "dotplot": {
+            "status": "failed",
+            "error": "close() argument must be a Figure, an int, a string, or None, not <class 'scanpy.plotting._dotplot.DotPlot'>"
+          },
+          "pairwise": {
+            "status": "success",
+            "comparison": "0 vs 1",
+            "n_de_genes": 10,
+            "top_genes": [
+              "Syt4",
+              "Oprl1",
+              "Pak3",
+              "Gpr165",
+              "Gad1",
+              "Cbln2",
+              "Irs4",
+              "Cspg5",
+              "Amigo2",
+              "Ar"
+            ],
+            "top_scores": [
+              109.06771087646484,
+              108.73143005371094,
+              105.90744018554688,
+              97.42558288574219,
+              97.30615997314453,
+              91.84200286865234,
+              91.58555603027344,
+              87.08973693847656,
+              82.43279266357422,
+              81.36203002929688
+            ]
+          }
+        },
+        "metrics": {
+          "duration_seconds": 2.9314589500427246,
+          "memory_used_mb": 359.28125
+        }
+      }
+    }
+  },
+  "integration_results": {
+    "success": true,
+    "integration": {
+      "concatenation": {
+        "n_datasets": 2,
+        "common_genes": 0,
+        "total_cells": 6000,
+        "batches": [
+          "0",
+          "1"
+        ]
+      },
+      "harmony": {
+        "status": "failed",
+        "error": "The 'n_components' parameter of PCA must be an int in the range [0, inf), a float in the range (0.0, 1.0), a str among {'mle'} or None. Got -1 instead."
+      }
+    },
+    "metrics": {
+      "duration_seconds": 0.8117179870605469,
+      "memory_used_mb": 899.578125
+    }
+  },
+  "performance_metrics": {
+    "quick_test": {
+      "data_loading": {
+        "duration_seconds": 0.25692319869995117,
+        "memory_before_mb": 1355.71875,
+        "memory_after_mb": 1536.921875,
+        "memory_delta_mb": 181.203125,
+        "success": true
+      },
+      "preprocessing": {
+        "duration_seconds": 9.568999290466309,
+        "memory_before_mb": 1958.21875,
+        "memory_after_mb": 1250.03125,
+        "memory_delta_mb": -708.1875,
+        "success": true
+      },
+      "visualization": {
+        "duration_seconds": 0,
+        "memory_before_mb": 1250.03125,
+        "memory_after_mb": 1250.03125,
+        "memory_delta_mb": 0.0,
+        "success": false
+      },
+      "differential": {
+        "duration_seconds": 2.742586135864258,
+        "memory_before_mb": 1358.0,
+        "memory_after_mb": 1877.234375,
+        "memory_delta_mb": 519.234375,
+        "success": true
+      }
+    },
+    "performance": {
+      "data_loading": {
+        "duration_seconds": 0.03135514259338379,
+        "memory_before_mb": 1536.921875,
+        "memory_after_mb": 1536.9375,
+        "memory_delta_mb": 0.015625,
+        "success": true
+      },
+      "preprocessing": {
+        "duration_seconds": 8.978519201278687,
+        "memory_before_mb": 2121.90625,
+        "memory_after_mb": 1584.25,
+        "memory_delta_mb": -537.65625,
+        "success": true
+      },
+      "visualization": {
+        "duration_seconds": 0,
+        "memory_before_mb": 1584.25,
+        "memory_after_mb": 1584.25,
+        "memory_delta_mb": 0.0,
+        "success": false
+      },
+      "differential": {
+        "duration_seconds": 2.8778631687164307,
+        "memory_before_mb": 1612.875,
+        "memory_after_mb": 1392.34375,
+        "memory_delta_mb": -220.53125,
+        "success": true
+      }
+    },
+    "standard": {
+      "data_loading": {
+        "duration_seconds": 0.541388988494873,
+        "memory_before_mb": 1536.9375,
+        "memory_after_mb": 1768.34375,
+        "memory_delta_mb": 231.40625,
+        "success": true
+      },
+      "preprocessing": {
+        "duration_seconds": 66.66682386398315,
+        "memory_before_mb": 1603.71875,
+        "memory_after_mb": 704.171875,
+        "memory_delta_mb": -899.546875,
+        "success": true
+      },
+      "visualization": {
+        "duration_seconds": 0,
+        "memory_before_mb": 704.375,
+        "memory_after_mb": 704.375,
+        "memory_delta_mb": 0.0,
+        "success": false
+      },
+      "differential": {
+        "duration_seconds": 7.830196142196655,
+        "memory_before_mb": 1439.546875,
+        "memory_after_mb": 1813.640625,
+        "memory_delta_mb": 374.09375,
+        "success": true
+      }
+    },
+    "large_scale": {
+      "data_loading": {
+        "duration_seconds": 0.22288084030151367,
+        "memory_before_mb": 1768.34375,
+        "memory_after_mb": 1830.015625,
+        "memory_delta_mb": 61.671875,
+        "success": true
+      },
+      "preprocessing": {
+        "duration_seconds": 91.48388719558716,
+        "memory_before_mb": 2299.109375,
+        "memory_after_mb": 670.75,
+        "memory_delta_mb": -1628.359375,
+        "success": true
+      },
+      "visualization": {
+        "duration_seconds": 0,
+        "memory_before_mb": 671.1875,
+        "memory_after_mb": 671.1875,
+        "memory_delta_mb": 0.0,
+        "success": false
+      },
+      "differential": {
+        "duration_seconds": 2.9314589500427246,
+        "memory_before_mb": 817.5,
+        "memory_after_mb": 1176.78125,
+        "memory_delta_mb": 359.28125,
+        "success": true
+      }
+    },
+    "quick_test_performance": {
+      "integration": {
+        "duration_seconds": 0.8117179870605469,
+        "memory_before_mb": 1613.46875,
+        "memory_after_mb": 2513.046875,
+        "memory_delta_mb": 899.578125,
+        "success": true
+      }
+    }
+  }
+}

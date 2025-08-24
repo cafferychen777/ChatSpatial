@@ -1,0 +1,29 @@
+{
+  "summary": {
+    "timestamp": "2025-08-24 05:02:26",
+    "total_dependencies": 13,
+    "installed_dependencies": 13,
+    "functional_dependencies": 13,
+    "installation_rate": 1.0,
+    "functionality_rate": 1.0,
+    "critical_missing_count": 0,
+    "critical_missing": []
+  },
+  "by_category": {
+    "trajectory_analysis": {
+      "dependencies": {
+        "scvelo": {
+          "installed": true,
+          "version": "0.3.3",
+          "version_compatible": true,
+          "functional": true,
+          "error_message": null,
+          "installation_command": null,
+          "config": {
+            "category": "trajectory_analysis",
+            "pip_name": "scvelo",
+            "min_version": "0.2.5",
+            "required_for": "RNA velocity computation",
+            "critical": true,
+            "test_import": "scvelo",
+            "function_test": 

@@ -1,0 +1,677 @@
+{
+  "moran_validation": {
+    "perfect_autocorr": {
+      "moran_statistics": {
+        "mean_I": 0.9025628997869646,
+        "std_I": 0.004329239354622052,
+        "min_I": 0.8979505067440136,
+        "max_I": 0.9083639136892054,
+        "mean_expected_I": -0.010101010101010102,
+        "significant_genes": 5,
+        "total_genes": 5
+      },
+      "validations": {
+        "expected_I_correct": "True",
+        "high_autocorr_detected": "True"
+      }
+    },
+    "random": {
+      "moran_statistics": {
+        "mean_I": -0.025520691487518964,
+        "std_I": 0.05042800887331776,
+        "min_I": -0.0793787074617546,
+        "max_I": 0.03419821003366452,
+        "mean_expected_I": -0.010101010101010102,
+        "significant_genes": 0,
+        "total_genes": 5
+      },
+      "validations": {
+        "expected_I_correct": "True",
+        "random_near_expected": "True"
+      }
+    },
+    "checkerboard": {
+      "moran_statistics": {
+        "mean_I": 0.059077305849879,
+        "std_I": 0.005894828268656918,
+        "min_I": 0.05355896924906741,
+        "max_I": 0.06528755676115694,
+        "mean_expected_I": -0.010101010101010102,
+        "significant_genes": 0,
+        "total_genes": 3
+      },
+      "validations": {
+        "expected_I_correct": "True",
+        "negative_autocorr_detected": "False"
+      }
+    },
+    "hotspots": {
+      "moran_statistics": {
+        "mean_I": 0.6759540036471927,
+        "std_I": 0.10245223395862524,
+        "min_I": 0.5363888105582577,
+        "max_I": 0.768825278467152,
+        "mean_expected_I": -0.005025125628140704,
+        "significant_genes": 4,
+        "total_genes": 4
+      },
+      "validations": {
+        "expected_I_correct": "True"
+      }
+    },
+    "gradient": {
+      "moran_statistics": {
+        "mean_I": 0.8035556464320825,
+        "std_I": 0.16418612352902606,
+        "min_I": 0.5622146563974829,
+        "max_I": 0.9188829625184856,
+        "mean_expected_I": -0.006711409395973154,
+        "significant_genes": 4,
+        "total_genes": 4
+      },
+      "validations": {
+        "expected_I_correct": "True"
+      }
+    },
+    "multiscale": {
+      "moran_statistics": {
+        "mean_I": 0.4602667444500219,
+        "std_I": 0.3985708202615021,
+        "min_I": 0.04933402943153619,
+        "max_I": 0.8452029505678225,
+        "mean_expected_I": -0.0033444816053511705,
+        "significant_genes": 2,
+        "total_genes": 3
+      },
+      "validations": {
+        "expected_I_correct": "True"
+      }
+    }
+  },
+  "geary_validation": {
+    "perfect_autocorr": {
+      "geary_statistics": {
+        "mean_C": 0.06687168715943029,
+        "std_C": 0.0015597899513095771,
+        "min_C": 0.06514429961403788,
+        "max_C": 0.06817701867193562,
+        "mean_expected_C": 1.0,
+        "significant_genes": 3
+      },
+      "validations": {
+        "expected_C_correct": "True",
+        "positive_autocorr_detected": "True"
+      }
+    },
+    "random": {
+      "geary_statistics": {
+        "mean_C": 1.0125481189981107,
+        "std_C": 0.06480999389306524,
+        "min_C": 0.9386443878807783,
+        "max_C": 1.059698719950047,
+        "mean_expected_C": 1.0,
+        "significant_genes": 0
+      },
+      "validations": {
+        "expected_C_correct": "True"
+      }
+    },
+    "checkerboard": {
+      "geary_statistics": {
+        "mean_C": 0.9289733702569486,
+        "std_C": 0.006273299332525241,
+        "min_C": 0.9217534603360071,
+        "max_C": 0.933092206407463,
+        "mean_expected_C": 1.0,
+        "significant_genes": 0
+      },
+      "validations": {
+        "expected_C_correct": "True",
+        "negative_autocorr_detected": "False"
+      }
+    },
+    "hotspots": {
+      "geary_statistics": {
+        "mean_C": 0.35489698452475976,
+        "std_C": 0.0833190669518412,
+        "min_C": 0.293334778530787,
+        "max_C": 0.4497065031869189,
+        "mean_expected_C": 1.0,
+        "significant_genes": 3
+      },
+      "validations": {
+        "expected_C_correct": "True",
+        "positive_autocorr_detected": "True"
+      }
+    },
+    "gradient": {
+      "geary_statistics": {
+        "mean_C": 0.07123718897879751,
+        "std_C": 0.029214863121481912,
+        "min_C": 0.04141130935480759,
+        "max_C": 0.09980007039134048,
+        "mean_expected_C": 1.0,
+        "significant_genes": 3
+      },
+      "validations": {
+        "expected_C_correct": "True",
+        "positive_autocorr_detected": "True"
+      }
+    },
+    "multiscale": {
+      "geary_statistics": {
+        "mean_C": 0.5408758233174508,
+        "std_C": 0.39060980424514113,
+        "min_C": 0.1653479669694387,
+        "max_C": 0.9449962651498802,
+        "mean_expected_C": 1.0,
+        "significant_genes": 3
+      },
+      "validations": {
+        "expected_C_correct": "True"
+      }
+    }
+  },
+  "local_statistics_validation": {
+    "perfect_autocorr": {
+      "local_moran": {
+        "GENE_AUTOCORR_0": {
+          "mean_local_I": 0.8889710016765732,
+          "significant_spots": 55,
+          "total_spots": 100,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        },
+        "GENE_AUTOCORR_1": {
+          "mean_local_I": 0.8928875849163389,
+          "significant_spots": 56,
+          "total_spots": 100,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      },
+      "getis_ord": {
+        "GENE_AUTOCORR_0": {
+          "mean_Gi": 0.01012255318588504,
+          "mean_z_score": 0.00021930515481962675,
+          "significant_spots": 57,
+          "hotspots": 0,
+          "coldspots": 0
+        },
+        "GENE_AUTOCORR_1": {
+          "mean_Gi": 0.010124657850948203,
+          "mean_z_score": 0.001882621176597905,
+          "significant_spots": 56,
+          "hotspots": 0,
+          "coldspots": 0
+        }
+      },
+      "validations": {
+        "GENE_AUTOCORR_0_local_moran_in_obs": true,
+        "GENE_AUTOCORR_0_getis_ord_in_obs": true,
+        "GENE_AUTOCORR_1_local_moran_in_obs": true,
+        "GENE_AUTOCORR_1_getis_ord_in_obs": true
+      }
+    },
+    "random": {
+      "local_moran": {
+        "GENE_RANDOM_0": {
+          "mean_local_I": 0.03385622793332787,
+          "significant_spots": 12,
+          "total_spots": 100,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        },
+        "GENE_RANDOM_1": {
+          "mean_local_I": -0.07858492038713705,
+          "significant_spots": 4,
+          "total_spots": 100,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      },
+      "getis_ord": {
+        "GENE_RANDOM_0": {
+          "mean_Gi": 0.010101580804989312,
+          "mean_z_score": 0.00016888205421271895,
+          "significant_spots": 12,
+          "hotspots": 0,
+          "coldspots": 0
+        },
+        "GENE_RANDOM_1": {
+          "mean_Gi": 0.009971320015157902,
+          "mean_z_score": -0.04871425322872516,
+          "significant_spots": 4,
+          "hotspots": 0,
+          "coldspots": 0
+        }
+      },
+      "validations": {
+        "GENE_RANDOM_0_local_moran_in_obs": true,
+        "GENE_RANDOM_0_getis_ord_in_obs": true,
+        "GENE_RANDOM_1_local_moran_in_obs": true,
+        "GENE_RANDOM_1_getis_ord_in_obs": true
+      }
+    },
+    "checkerboard": {
+      "local_moran": {
+        "GENE_CHECKER_0": {
+          "mean_local_I": 0.053023379556576745,
+          "significant_spots": 0,
+          "total_spots": 100,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        },
+        "GENE_CHECKER_1": {
+          "mean_local_I": 0.06463468119354539,
+          "significant_spots": 0,
+          "total_spots": 100,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      },
+      "getis_ord": {
+        "GENE_CHECKER_0": {
+          "mean_Gi": 0.010129565788049936,
+          "mean_z_score": 0.002049715493607215,
+          "significant_spots": 0,
+          "hotspots": 0,
+          "coldspots": 0
+        },
+        "GENE_CHECKER_1": {
+          "mean_Gi": 0.010093492789016651,
+          "mean_z_score": -0.001451004987215207,
+          "significant_spots": 0,
+          "hotspots": 0,
+          "coldspots": 0
+        }
+      },
+      "validations": {
+        "GENE_CHECKER_0_local_moran_in_obs": true,
+        "GENE_CHECKER_0_getis_ord_in_obs": true,
+        "GENE_CHECKER_1_local_moran_in_obs": true,
+        "GENE_CHECKER_1_getis_ord_in_obs": true
+      }
+    },
+    "hotspots": {
+      "local_moran": {
+        "GENE_HOTSPOT_0": {
+          "mean_local_I": 0.5337068665054666,
+          "significant_spots": 42,
+          "total_spots": 200,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        },
+        "GENE_HOTSPOT_1": {
+          "mean_local_I": 0.7295150147892646,
+          "significant_spots": 89,
+          "total_spots": 200,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      },
+      "getis_ord": {
+        "GENE_HOTSPOT_0": {
+          "mean_Gi": 0.005007846962938338,
+          "mean_z_score": -0.0019963898870341535,
+          "significant_spots": 41,
+          "hotspots": 9,
+          "coldspots": 0
+        },
+        "GENE_HOTSPOT_1": {
+          "mean_Gi": 0.005139371087660081,
+          "mean_z_score": 0.031353522963959574,
+          "significant_spots": 92,
+          "hotspots": 12,
+          "coldspots": 0
+        }
+      },
+      "validations": {
+        "GENE_HOTSPOT_0_local_moran_in_obs": true,
+        "GENE_HOTSPOT_0_getis_ord_in_obs": true,
+        "GENE_HOTSPOT_1_local_moran_in_obs": true,
+        "GENE_HOTSPOT_1_getis_ord_in_obs": true
+      }
+    },
+    "gradient": {
+      "local_moran": {
+        "GRAD_X": {
+          "mean_local_I": 0.8869316163260408,
+          "significant_spots": 101,
+          "total_spots": 150,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        },
+        "GRAD_Y": {
+          "mean_local_I": 0.8346391840409052,
+          "significant_spots": 110,
+          "total_spots": 150,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      },
+      "getis_ord": {
+        "GRAD_X": {
+          "mean_Gi": 0.006739746236446385,
+          "mean_z_score": 0.0035014921596957294,
+          "significant_spots": 101,
+          "hotspots": 0,
+          "coldspots": 0
+        },
+        "GRAD_Y": {
+          "mean_Gi": 0.006708454612326573,
+          "mean_z_score": -0.003476461525117041,
+          "significant_spots": 109,
+          "hotspots": 0,
+          "coldspots": 0
+        }
+      },
+      "validations": {
+        "GRAD_X_local_moran_in_obs": true,
+        "GRAD_X_getis_ord_in_obs": true,
+        "GRAD_Y_local_moran_in_obs": true,
+        "GRAD_Y_getis_ord_in_obs": true
+      }
+    },
+    "multiscale": {
+      "local_moran": {
+        "LARGE_SCALE": {
+          "mean_local_I": 0.8423856073992632,
+          "significant_spots": 178,
+          "total_spots": 300,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        },
+        "MEDIUM_SCALE": {
+          "mean_local_I": 0.4846423758395381,
+          "significant_spots": 101,
+          "total_spots": 300,
+          "cluster_types": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      },
+      "getis_ord": {
+        "LARGE_SCALE": {
+          "mean_Gi": 0.007159508274062953,
+          "mean_z_score": 0.02336815779299006,
+          "significant_spots": 182,
+          "hotspots": 0,
+          "coldspots": 1
+        },
+        "MEDIUM_SCALE": {
+          "mean_Gi": 0.02426781290985235,
+          "mean_z_score": -0.0005275916777376141,
+          "significant_spots": 111,
+          "hotspots": 0,
+          "coldspots": 0
+        }
+      },
+      "validations": {
+        "LARGE_SCALE_local_moran_in_obs": true,
+        "LARGE_SCALE_getis_ord_in_obs": true,
+        "MEDIUM_SCALE_local_moran_in_obs": true,
+        "MEDIUM_SCALE_getis_ord_in_obs": true
+      }
+    }
+  },
+  "weights_matrix_validation": {
+    "k_5": {
+      "n_observations": 100,
+      "error": "object of type 'numpy.int64' has no len()"
+    },
+    "k_10": {
+      "n_observations": 100,
+      "error": "object of type 'numpy.int64' has no len()"
+    },
+    "k_15": {
+      "n_observations": 100,
+      "error": "object of type 'numpy.int64' has no len()"
+    },
+    "k_20": {
+      "n_observations": 100,
+      "error": "object of type 'numpy.int64' has no len()"
+    },
+    "k_30": {
+      "n_observations": 100,
+      "error": "object of type 'numpy.int64' has no len()"
+    }
+  },
+  "performance_benchmark": {
+    "perfect_autocorr": {
+      "moran": {
+        "execution_time": 0.04131937026977539,
+        "time_per_gene": 0.008263874053955077,
+        "results_generated": 5
+      },
+      "geary": {
+        "execution_time": 0.07110404968261719,
+        "time_per_gene": 0.014220809936523438,
+        "results_generated": 5
+      },
+      "local_moran": {
+        "execution_time": 0.026510953903198242,
+        "time_per_gene": 0.0053021907806396484,
+        "results_generated": 3
+      },
+      "getis_ord": {
+        "execution_time": 0.1999061107635498,
+        "time_per_gene": 0.03998122215270996,
+        "results_generated": 3
+      }
+    },
+    "random": {
+      "moran": {
+        "execution_time": 0.06758975982666016,
+        "time_per_gene": 0.013517951965332032,
+        "results_generated": 5
+      },
+      "geary": {
+        "execution_time": 0.09246206283569336,
+        "time_per_gene": 0.018492412567138673,
+        "results_generated": 5
+      },
+      "local_moran": {
+        "execution_time": 0.03630399703979492,
+        "time_per_gene": 0.007260799407958984,
+        "results_generated": 3
+      },
+      "getis_ord": {
+        "execution_time": 0.15588903427124023,
+        "time_per_gene": 0.031177806854248046,
+        "results_generated": 3
+      }
+    },
+    "checkerboard": {
+      "moran": {
+        "execution_time": 0.03041815757751465,
+        "time_per_gene": 0.010139385859171549,
+        "results_generated": 3
+      },
+      "geary": {
+        "execution_time": 0.0797877311706543,
+        "time_per_gene": 0.026595910390218098,
+        "results_generated": 3
+      },
+      "local_moran": {
+        "execution_time": 0.02121114730834961,
+        "time_per_gene": 0.007070382436116536,
+        "results_generated": 3
+      },
+      "getis_ord": {
+        "execution_time": 0.20250296592712402,
+        "time_per_gene": 0.06750098864237468,
+        "results_generated": 3
+      }
+    },
+    "hotspots": {
+      "moran": {
+        "execution_time": 0.0712120532989502,
+        "time_per_gene": 0.01780301332473755,
+        "results_generated": 4
+      },
+      "geary": {
+        "execution_time": 0.07230377197265625,
+        "time_per_gene": 0.018075942993164062,
+        "results_generated": 4
+      },
+      "local_moran": {
+        "execution_time": 0.028794050216674805,
+        "time_per_gene": 0.007198512554168701,
+        "results_generated": 3
+      },
+      "getis_ord": {
+        "execution_time": 0.21730279922485352,
+        "time_per_gene": 0.05432569980621338,
+        "results_generated": 3
+      }
+    },
+    "gradient": {
+      "moran": {
+        "execution_time": 0.055361032485961914,
+        "time_per_gene": 0.013840258121490479,
+        "results_generated": 4
+      },
+      "geary": {
+        "execution_time": 0.08072590827941895,
+        "time_per_gene": 0.020181477069854736,
+        "results_generated": 4
+      },
+      "local_moran": {
+        "execution_time": 0.028743267059326172,
+        "time_per_gene": 0.007185816764831543,
+        "results_generated": 3
+      },
+      "getis_ord": {
+        "execution_time": 0.2752690315246582,
+        "time_per_gene": 0.06881725788116455,
+        "results_generated": 3
+      }
+    },
+    "multiscale": {
+      "moran": {
+        "execution_time": 0.06601500511169434,
+        "time_per_gene": 0.022005001703898113,
+        "results_generated": 3
+      },
+      "geary": {
+        "execution_time": 0.3244049549102783,
+        "time_per_gene": 0.10813498497009277,
+        "results_generated": 3
+      },
+      "local_moran": {
+        "execution_time": 0.16341114044189453,
+        "time_per_gene": 0.05447038014729818,
+        "results_generated": 3
+      },
+      "getis_ord": {
+        "execution_time": 0.34592676162719727,
+        "time_per_gene": 0.1153089205423991,
+        "results_generated": 3
+      }
+    }
+  },
+  "datasets_info": {
+    "perfect_autocorr": {
+      "n_obs": 100,
+      "n_vars": 5,
+      "spatial_coords_shape": [
+        100,
+        2
+      ],
+      "description": "Data with perfect positive spatial autocorrelation (smooth gradients)"
+    },
+    "random": {
+      "n_obs": 100,
+      "n_vars": 5,
+      "spatial_coords_shape": [
+        100,
+        2
+      ],
+      "description": "Randomly distributed data with no spatial structure"
+    },
+    "checkerboard": {
+      "n_obs": 100,
+      "n_vars": 3,
+      "spatial_coords_shape": [
+        100,
+        2
+      ],
+      "description": "Checkerboard pattern with negative spatial autocorrelation"
+    },
+    "hotspots": {
+      "n_obs": 200,
+      "n_vars": 4,
+      "spatial_coords_shape": [
+        200,
+        2
+      ],
+      "description": "Data with distinct spatial hotspots"
+    },
+    "gradient": {
+      "n_obs": 150,
+      "n_vars": 4,
+      "spatial_coords_shape": [
+        150,
+        2
+      ],
+      "description": "Linear and non-linear gradient patterns"
+    },
+    "multiscale": {
+      "n_obs": 300,
+      "n_vars": 3,
+      "spatial_coords_shape": [
+        300,
+        2
+      ],
+      "description": "Multi-scale spatial patterns (large, medium, small)"
+    }
+  }
+}

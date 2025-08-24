@@ -1,0 +1,31 @@
+{
+  "test_name": "quick_integration_test",
+  "dataset": "/Users/apple/Research/SpatialTrans_MCP/chatspatial/data/demo_datasets/visium_demo.h5ad",
+  "cell_count": 1000,
+  "gene_count": 18078,
+  "start_time": 1756028796.622714,
+  "steps": [
+    {
+      "name": "preprocessing",
+      "time": 0.2677760124206543,
+      "success": true
+    },
+    {
+      "name": "spatial_analysis",
+      "time": 4.673004150390625e-05,
+      "success": true
+    },
+    {
+      "name": "clustering",
+      "time": 5.9838011264801025,
+      "success": true
+    },
+    {
+      "name": "visualization",
+      "time": 0.08504486083984375,
+      "success": true
+    }
+  ],
+  "total_time": 6.336832046508789,
+  "success": true
+}

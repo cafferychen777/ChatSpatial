@@ -1,0 +1,127 @@
+{
+  "summary": {
+    "total_tested": 5,
+    "spatial_analysis_success": 1,
+    "success_rate": 20.0,
+    "common_issues": {
+      "\u7f3a\u5c11\u7a7a\u95f4\u5750\u6807 (adata.obsm['spatial'])": 2,
+      "\u7f3a\u5c11 leiden \u805a\u7c7b": 4,
+      "\u57fa\u56e0\u6570\u8fc7\u5c11: 36 < 50": 1,
+      "\u7f3a\u5c11\u805a\u7c7b\u4fe1\u606f": 1
+    }
+  },
+  "detailed_results": {
+    "pancreas_velocity.h5ad": {
+      "requirements": {
+        "basic_loading": true,
+        "has_spatial_coords": false,
+        "spatial_coords_shape": null,
+        "has_clusters": true,
+        "cluster_keys": [
+          "clusters_coarse",
+          "clusters"
+        ],
+        "has_spatial_neighbors": false,
+        "cell_count": 3696,
+        "gene_count": 27998
+      },
+      "issues": [
+        "\u7f3a\u5c11\u7a7a\u95f4\u5750\u6807 (adata.obsm['spatial'])",
+        "\u7f3a\u5c11 leiden \u805a\u7c7b"
+      ],
+      "spatial_analysis_success": false,
+      "error_message": "Dataset missing spatial coordinates in adata.obsm['spatial']"
+    },
+    "squidpy_mibitof.h5ad": {
+      "requirements": {
+        "basic_loading": true,
+        "has_spatial_coords": true,
+        "spatial_coords_shape": [
+          3309,
+          2
+        ],
+        "has_clusters": true,
+        "cluster_keys": [
+          "category",
+          "donor",
+          "Cluster",
+          "batch",
+          "library_id"
+        ],
+        "has_spatial_neighbors": false,
+        "cell_count": 3309,
+        "gene_count": 36
+      },
+      "issues": [
+        "\u7f3a\u5c11 leiden \u805a\u7c7b",
+        "\u57fa\u56e0\u6570\u8fc7\u5c11: 36 < 50"
+      ],
+      "spatial_analysis_success": false,
+      "error_message": "Failed to perform moran analysis: Highly variable genes not found for Moran's I analysis. Spatial autocorrelation analysis requires HVG selection. Please run HVG selection in preprocessing.py or use: sc.pp.highly_variable_genes(adata)"
+    },
+    "slideseq_MOp_1217.h5ad": {
+      "requirements": {
+        "basic_loading": true,
+        "has_spatial_coords": false,
+        "spatial_coords_shape": null,
+        "has_clusters": false,
+        "cluster_keys": [],
+        "has_spatial_neighbors": false,
+        "cell_count": 9852,
+        "gene_count": 24518
+      },
+      "issues": [
+        "\u7f3a\u5c11\u7a7a\u95f4\u5750\u6807 (adata.obsm['spatial'])",
+        "\u7f3a\u5c11\u805a\u7c7b\u4fe1\u606f",
+        "\u7f3a\u5c11 leiden \u805a\u7c7b"
+      ],
+      "spatial_analysis_success": false,
+      "error_message": "Dataset missing spatial coordinates in adata.obsm['spatial']"
+    },
+    "slideseq_v2_hippocampus.h5ad": {
+      "requirements": {
+        "basic_loading": true,
+        "has_spatial_coords": true,
+        "spatial_coords_shape": [
+          8000,
+          2
+        ],
+        "has_clusters": true,
+        "cluster_keys": [
+          "spot_id",
+          "tissue_type"
+        ],
+        "has_spatial_neighbors": false,
+        "cell_count": 8000,
+        "gene_count": 12000
+      },
+      "issues": [
+        "\u7f3a\u5c11 leiden \u805a\u7c7b"
+      ],
+      "spatial_analysis_success": false,
+      "error_message": "Failed to perform moran analysis: Highly variable genes not found for Moran's I analysis. Spatial autocorrelation analysis requires HVG selection. Please run HVG selection in preprocessing.py or use: sc.pp.highly_variable_genes(adata)"
+    },
+    "squidpy_slideseqv2.h5ad": {
+      "requirements": {
+        "basic_loading": true,
+        "has_spatial_coords": true,
+        "spatial_coords_shape": [
+          41786,
+          2
+        ],
+        "has_clusters": true,
+        "cluster_keys": [
+          "barcode",
+          "leiden",
+          "cluster"
+        ],
+        "has_spatial_neighbors": true,
+        "cell_count": 41786,
+        "gene_count": 4000
+      },
+      "issues": [],
+      "spatial_analysis_success": true,
+      "error_message": null
+    }
+  }
+}
