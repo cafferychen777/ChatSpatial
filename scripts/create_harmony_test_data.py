@@ -137,7 +137,7 @@ def save_datasets():
     """Create and save simulated datasets"""
     
     # Create output directory
-    output_dir = Path("harmony_datasets")
+    output_dir = Path("data/harmony")
     output_dir.mkdir(exist_ok=True)
     
     # Create main mixture dataset
@@ -187,7 +187,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the simulated dataset
-adata = sc.read_h5ad("harmony_datasets/jurkat_293t_mixture_simulated.h5ad")
+adata = sc.read_h5ad("data/harmony/jurkat_293t_mixture_simulated.h5ad")
 
 print(f"Dataset shape: {adata.shape}")
 print(f"Cell types: {adata.obs['cell_type'].value_counts()}")
@@ -262,11 +262,11 @@ sc.tl.leiden(adata)
 sc.pl.umap(adata, color='leiden', save='_clusters.pdf')
 
 # Save integrated data
-adata.write_h5ad("harmony_datasets/jurkat_293t_integrated.h5ad")
+adata.write_h5ad("data/harmony/jurkat_293t_integrated.h5ad")
 print("💾 Saved integrated dataset")
 '''
     
-    tutorial_path = Path("harmony_datasets") / "harmony_tutorial.py"
+    tutorial_path = Path("data/harmony") / "harmony_tutorial.py"
     with open(tutorial_path, 'w') as f:
         f.write(tutorial_script)
     
@@ -286,10 +286,10 @@ def main():
     print("\n" + "=" * 50)
     print("✅ Harmony test datasets created successfully!")
     print("\nNext steps:")
-    print("1. cd harmony_datasets")
+    print("1. cd data/harmony")
     print("2. python harmony_tutorial.py")
     print("3. Or load in ChatSpatial:")
-    print("   load_data('harmony_datasets/jurkat_293t_mixture_simulated.h5ad')")
+    print("   load_data('data/harmony/jurkat_293t_mixture_simulated.h5ad')")
 
 if __name__ == "__main__":
     main()

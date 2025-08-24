@@ -200,17 +200,27 @@ async def _analyze_communication_liana(
 
             cutoff = params.liana_cutoff
 
-            # Determine appropriate max_neighbours to avoid sklearn error
-            max_neighbors = min(99, adata.n_obs - 1)  # LIANA uses max_neighbours+1 internally
-
-            li.mu.spatial_neighbors(
-                adata,
-                bandwidth=bandwidth,
-                cutoff=cutoff,
-                kernel='gaussian',
-                set_diag=True,
-                max_neighbours=max_neighbors
-            )
+            # Use Squidpy for spatial neighbor computation (not LIANA!)
+            # LIANA does not have spatial_neighbors - this was a critical bug
+            try:
+                import squidpy as sq
+                # Squidpy's spatial_neighbors has different parameters
+                sq.gr.spatial_neighbors(
+                    adata,
+                    coord_type='generic',
+                    n_neighs=min(30, max(6, adata.n_obs // 100)),  # Adaptive neighbor count
+                    radius=bandwidth if bandwidth else None,
+                    delaunay=True,  # Use Delaunay triangulation for spatial data
+                    set_diag=False  # Standard practice for spatial graphs
+                )
+                if context:
+                    await context.info("Spatial connectivity computed using Squidpy")
+            except ImportError:
+                # Fallback: use scanpy basic neighbor computation
+                import scanpy as sc
+                sc.pp.neighbors(adata, n_neighbors=min(30, max(6, adata.n_obs // 100)))
+                if context:
+                    await context.warning("Squidpy not available, using basic scanpy neighbors (less optimal for spatial data)")
 
             if context:
                 await context.info(f"Spatial connectivity computed with bandwidth={bandwidth}, cutoff={cutoff}")

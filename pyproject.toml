@@ -6,114 +6,128 @@ build-backend = "setuptools.build_meta"
 name = "chatspatial"
 version = "0.1.0"
 description = "ChatSpatial: An interactive AI assistant for spatial transcriptomics analysis"
-requires-python = ">=3.8"
+requires-python = ">=3.8,<3.13"
 dependencies = [
-    "mcp",
-    "numpy",
-    "pandas",
-    "matplotlib",
-    "scanpy",
-    "squidpy",  # 空间转录组分析包
-    "anndata",
-    "scikit-learn",
-    "click",
-    "pydantic>=2.0.0",
-    "scvelo",  # RNA速率分析
-    "cellrank",  # 轨迹分析和细胞命运映射
-    "umap-learn",  # 降维
-    "scipy",  # 科学计算
-    "igraph",  # 图分析
-    "leidenalg",  # 聚类算法
-    "harmonypy",  # 批次效应校正
-    "bbknn",  # 批次平衡的KNN
-    "scanorama",  # 多样本整合
-    # HTTP server dependencies
-    "fastapi",  # Web framework
-    "uvicorn[standard]",  # ASGI server
-    "aiohttp",  # HTTP client library
+    # Core dependencies only - minimal installation
+    "mcp>=0.1.0",
+    "numpy>=1.21.0,<2.0; python_version<'3.13'",
+    "numpy>=2.1.0,<3.0; python_version>='3.13'",
+    "pandas>=1.3.0,<3.0",
+    "scipy>=1.7.0,<2.0",
+    "scikit-learn>=1.0.0,<2.0",
+    "matplotlib>=3.5.0,<4.0",
+    "seaborn>=0.11.0,<1.0",
+    
+    # Single-cell analysis core
+    "scanpy>=1.9.0,<2.0",
+    "anndata>=0.8.0,<1.0",
+    
+    # Version constraint to handle jinja2 conflict with pygpcca
+    "jinja2>=3.0.0",
+    
+    # Spatial analysis essentials
+    "squidpy>=1.2.0,<2.0",
+    
+    # Basic clustering and dimensionality reduction
+    "umap-learn>=0.5.0,<1.0",
+    "igraph>=0.9.0,<1.0",
+    "leidenalg>=0.8.0,<1.0",
+    
+    # MCP server framework
+    "fastapi>=0.100.0,<1.0",
+    "uvicorn[standard]>=0.23.0,<1.0",
+    "pydantic>=2.0.0,<3.0",
+    "click>=8.0.0,<9.0",
+    "aiohttp>=3.8.0,<4.0",
+    
+    # Basic plotting and CLI interface
+    "Pillow>=8.0.0,<11.0",
+    "rich>=12.0.0,<14.0",  # Rich text and beautiful formatting for CLI
 ]
 
 [project.optional-dependencies]
+# Advanced features with modern dependencies
+advanced = [
+    # Deep learning frameworks (PyTorch 2.x only)
+    "torch>=2.0.0,<3.0",
+    
+    # Advanced spatial analysis
+    "SpaGCN>=1.2.5,<2.0",
+    
+    # Deconvolution methods
+    "cell2location>=0.1.3,<1.0",
+    "scvi-tools>=1.0.0,<2.0",
+    
+    # RNA velocity and trajectory
+    "scvelo>=0.2.5,<1.0",
+    "cellrank>=2.0.0,<3.0",
+    
+    # Batch integration
+    "harmonypy>=0.0.9,<1.0",
+    "bbknn>=1.5.0,<2.0",
+    "scanorama>=1.7.0,<2.0",
+    
+    # Spatial variable genes
+    "spatialde>=1.1.3,<2.0",
+    
+    # Cell communication
+    "liana>=0.1.13,<1.0",
+    
+    # Performance optimization
+    "numba>=0.57.0,<1.0",
+    "dask>=2024.1.0,<2025.0",
+    
+    # Visualization
+    "plotly>=5.0.0,<6.0",
+    "opencv-python>=4.5.0,<5.0",
+    
+    # Gene set enrichment
+    "gseapy>=1.0.0,<2.0",
+]
+
+# Experimental features (may have compatibility issues)
+experimental = [
+    # R interface (requires separate R installation)
+    "rpy2>=3.4.0,<4.0",
+    
+    # Experimental cell communication
+    "cellphonedb>=5.0.0,<6.0",
+    
+    # Spatial registration
+    "paste-bio>=1.0.0,<2.0",
+    
+    # High-performance computing
+    "petsc4py>=3.17.0,<4.0",
+    "slepc4py>=3.17.0,<4.0",
+    "mpi4py>=3.1.0,<4.0",
+    
+    # Emerging spatial methods
+    "spatialdata>=0.2.0,<1.0",
+]
+
+# EnrichMap-specific dependencies
 enrichmap = [
-    # EnrichMap specific dependencies
-    "statannotations",
-    "pygam",
-    "scikit-gstat",
-    "adjustText",
-    "splot",
-    "dask==2024.11.2",
+    "statannotations>=0.2.0,<1.0",
+    "pygam>=0.8.0,<1.0",
+    "scikit-gstat>=1.0.0,<2.0",
+    "adjustText>=0.8.0,<1.0",
+    "splot>=1.1.0,<2.0",
+    "dask>=2024.1.0,<2025.0",
 ]
-deconvolution = [
-    "cell2location",  # 空间转录组去卷积
-    "torch>=1.7.1",  # 用于cell2location
+
+# Development dependencies
+dev = [
+    "pytest>=8.0.0,<9.0",
+    "pytest-asyncio>=0.23.0,<1.0",
+    "black>=22.0.0,<25.0",
+    "mypy>=1.0.0,<2.0",
+    "pre-commit>=3.0.0,<4.0",
 ]
-cell2location = [
-    "cell2location",  # 空间转录组去卷积
-    "torch>=1.7.1",  # 用于cell2location
-]
-spatial_domains = [
-    "STAGATE",  # 空间域识别
-    "SpaGCN",  # 空间域识别
-    "tensorflow>=1.15.0,<2.0",  # STAGATE依赖
-    "torch>=1.7.1",  # SpaGCN依赖
-    "opencv-python",  # SpaGCN图像处理
-    "scikit-learn",  # 空间域细化
-]
-spatial_genes = [
-    "spatialde",  # 空间变异基因识别
-    "NaiveDE",  # SpatialDE依赖的数据预处理
-    "patsy",  # NaiveDE依赖
-]
-cell_communication = [
-    "liana",  # LIANA+ 细胞通讯分析
-    "cellphonedb",  # CellPhoneDB 细胞通讯分析
-    "scipy",  # 科学计算依赖
-    "tqdm",  # 进度条
-    "scikit-learn",  # 用于空间邻居计算
-]
-sctype = [
-    "rpy2>=3.4.0",  # R interface for sc-type
-    "pandas",  # Required for R data conversion
-]
-cellrank_full = [
-    "petsc4py",  # PETSc Python接口，用于大规模线性代数计算
-    "slepc4py",  # SLEPc Python接口，用于特征值问题求解
-    "mpi4py",  # MPI Python接口，PETSc的依赖
-]
+
+# All optional dependencies (use with caution)
 all = [
-    # EnrichMap dependencies
-    "statannotations",
-    "pygam",
-    "scikit-gstat",
-    "adjustText",
-    "splot",
-    "dask==2024.11.2",
-    # Deconvolution dependencies
-    "cell2location",
-    # Spatial domain dependencies
-    "STAGATE",
-    "SpaGCN",
-    # Spatial genes dependencies  
-    "spatialde",
-    "NaiveDE",
-    # Cell communication dependencies
-    "liana",
-    "cellphonedb",
-    # SC-type dependencies
-    "rpy2>=3.4.0",
-    # CellRank full dependencies
-    "petsc4py",
-    "slepc4py",
-    "mpi4py",
-    # Common dependencies
-    "torch>=1.7.1",
-    "pyro-ppl>=1.8.0",
-    "tensorflow>=1.15.0,<2.0",
-    "opencv-python",
-    "tqdm",
-    "scikit-learn",
-    "patsy",
-    "pandas",
+    # Include all feature sets
+    "chatspatial[advanced,experimental,enrichmap,dev]",
 ]
 
 [project.scripts]
@@ -130,3 +144,10 @@ addopts = "-v"
 # Fix pytest-asyncio warning
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# Suppress known upstream dependency version warnings
+filterwarnings = [
+    "ignore::DeprecationWarning:pkg_resources.*",
+    "ignore:pkg_resources is deprecated:DeprecationWarning",
+    "ignore:.*jinja2.*:UserWarning",
+    "ignore:.*numpy.*version.*:UserWarning",
+]

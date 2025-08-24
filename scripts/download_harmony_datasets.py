@@ -47,7 +47,7 @@ def main():
     """Download Harmony example datasets"""
     
     # Create data directory
-    data_dir = Path("harmony_datasets")
+    data_dir = Path("data/harmony")
     data_dir.mkdir(exist_ok=True)
     
     print("🔄 Downloading Harmony Example Datasets")
@@ -150,7 +150,7 @@ def main():
         print("import harmony")
         print("")
         print("# Load dataset")
-        print("adata = sc.read_10x_h5('harmony_datasets/jurkat_293t_50_50/jurkat:293t_50:50_filtered_feature_bc_matrix.h5')")
+        print("adata = sc.read_10x_h5('data/harmony/jurkat_293t_50_50/jurkat:293t_50:50_filtered_feature_bc_matrix.h5')")
         print("adata.var_names_unique()")
         print("")
         print("# Run Harmony integration")

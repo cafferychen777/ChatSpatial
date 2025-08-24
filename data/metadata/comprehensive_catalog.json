@@ -1,0 +1,4962 @@
+{
+  "metadata": {
+    "created_at": "2025-08-24T03:55:35.340106",
+    "total_datasets": 65,
+    "total_size_gb": 6.2903903517872095,
+    "directories": {
+      "spatial_datasets": {
+        "count": 24,
+        "description": "\u7a7a\u95f4\u8f6c\u5f55\u7ec4\u6570\u636e\u96c6"
+      },
+      "single_cell_datasets": {
+        "count": 1,
+        "description": "\u5355\u7ec6\u80deRNA-seq\u6570\u636e\u96c6"
+      },
+      "synthetic_datasets": {
+        "count": 4,
+        "description": "\u5408\u6210\u548c\u6a21\u62df\u6570\u636e\u96c6"
+      },
+      "demo_datasets": {
+        "count": 3,
+        "description": "\u6f14\u793a\u548c\u6559\u7a0b\u6570\u636e\u96c6"
+      },
+      "benchmark_datasets": {
+        "count": 31,
+        "description": "\u6027\u80fd\u57fa\u51c6\u6d4b\u8bd5\u6570\u636e\u96c6"
+      },
+      "reference_datasets": {
+        "count": 2,
+        "description": "\u53c2\u8003\u548c\u6807\u51c6\u6570\u636e\u96c6"
+      },
+      "metadata": {
+        "count": 0,
+        "description": "\u5143\u6570\u636e\u548c\u7d22\u5f15\u6587\u4ef6"
+      },
+      "documentation": {
+        "count": 0,
+        "description": "\u6587\u6863\u548c\u8bf4\u660e"
+      },
+      "scripts": {
+        "count": 0,
+        "description": "\u6570\u636e\u5904\u7406\u811a\u672c"
+      },
+      "archive": {
+        "count": 0,
+        "description": "\u5f52\u6863\u548c\u5907\u4efd\u6587\u4ef6"
+      }
+    }
+  },
+  "datasets_by_category": {
+    "spatial_datasets": [
+      {
+        "filename": "squidpy_slideseqv2.h5ad",
+        "path": "spatial_datasets/squidpy_slideseqv2.h5ad",
+        "n_cells": 41786,
+        "n_genes": 4000,
+        "has_spatial": true,
+        "spatial_dims": [
+          41786,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 36.897412793709826,
+        "file_size_mb": 251.32371711730957,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "squidpy_merfish.h5ad",
+        "path": "spatial_datasets/squidpy_merfish.h5ad",
+        "n_cells": 73655,
+        "n_genes": 161,
+        "has_spatial": true,
+        "spatial_dims": [
+          73655,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 1.5445280690931524,
+        "file_size_mb": 49.20067882537842,
+        "category": "spatial_datasets",
+        "technology": "merfish"
+      },
+      {
+        "filename": "empty_velocity_layers.h5ad",
+        "path": "spatial_datasets/empty_velocity_layers.h5ad",
+        "n_cells": 70,
+        "n_genes": 350,
+        "has_spatial": true,
+        "spatial_dims": [
+          70,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.051510204081632656,
+        "file_size_mb": 0.5005722045898438,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "squidpy_visium_backup_314MB.h5ad",
+        "path": "spatial_datasets/squidpy_visium_backup_314MB.h5ad",
+        "n_cells": 2688,
+        "n_genes": 18078,
+        "has_spatial": true,
+        "spatial_dims": [
+          2688,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.1529907973221,
+        "file_size_mb": 314.0865879058838,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "slideseq_v2_olfactory.h5ad",
+        "path": "spatial_datasets/slideseq_v2_olfactory.h5ad",
+        "n_cells": 6000,
+        "n_genes": 11000,
+        "has_spatial": true,
+        "spatial_dims": [
+          6000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235023181818182,
+        "file_size_mb": 253.3323516845703,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "st_mouse_brain_backup_9MB.h5ad",
+        "path": "spatial_datasets/st_mouse_brain_backup_9MB.h5ad",
+        "n_cells": 685,
+        "n_genes": 32285,
+        "has_spatial": true,
+        "spatial_dims": [
+          685,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 6.505362130462671,
+        "file_size_mb": 9.703502655029297,
+        "category": "spatial_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "pancreas_subset_for_cellrank.h5ad",
+        "path": "spatial_datasets/pancreas_subset_for_cellrank.h5ad",
+        "n_cells": 500,
+        "n_genes": 27998,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 10.102105426779557,
+        "file_size_mb": 23.91021156311035,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "squidpy_mibitof.h5ad",
+        "path": "spatial_datasets/squidpy_mibitof.h5ad",
+        "n_cells": 3309,
+        "n_genes": 36,
+        "has_spatial": true,
+        "spatial_dims": [
+          3309,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 19.351433753967285,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "slideseq_cerebellum.h5ad",
+        "path": "spatial_datasets/slideseq_cerebellum.h5ad",
+        "n_cells": 15000,
+        "n_genes": 10000,
+        "has_spatial": true,
+        "spatial_dims": [
+          15000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235087533333334,
+        "file_size_mb": 574.5903854370117,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "slideseq_v2_hippocampus.h5ad",
+        "path": "spatial_datasets/slideseq_v2_hippocampus.h5ad",
+        "n_cells": 8000,
+        "n_genes": 12000,
+        "has_spatial": true,
+        "spatial_dims": [
+          8000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235257708333333,
+        "file_size_mb": 368.06417083740234,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "missing_velocity_layers.h5ad",
+        "path": "spatial_datasets/missing_velocity_layers.h5ad",
+        "n_cells": 80,
+        "n_genes": 400,
+        "has_spatial": true,
+        "spatial_dims": [
+          80,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.00659375,
+        "file_size_mb": 0.15509796142578125,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "extreme_coordinates.h5ad",
+        "path": "spatial_datasets/extreme_coordinates.h5ad",
+        "n_cells": 60,
+        "n_genes": 250,
+        "has_spatial": true,
+        "spatial_dims": [
+          60,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.01806666666666667,
+        "file_size_mb": 0.08209228515625,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "osmfish_somatosensory.h5ad",
+        "path": "spatial_datasets/osmfish_somatosensory.h5ad",
+        "n_cells": 993,
+        "n_genes": 46,
+        "has_spatial": true,
+        "spatial_dims": [
+          993,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.6380314374534787,
+        "file_size_mb": 0.43485260009765625,
+        "category": "spatial_datasets",
+        "technology": "osmfish"
+      },
+      {
+        "filename": "squidpy_visium.h5ad",
+        "path": "spatial_datasets/squidpy_visium.h5ad",
+        "n_cells": 684,
+        "n_genes": 18078,
+        "has_spatial": true,
+        "spatial_dims": [
+          684,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.373171542099747,
+        "file_size_mb": 89.9190845489502,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "seqfish_developmental.h5ad",
+        "path": "spatial_datasets/seqfish_developmental.h5ad",
+        "n_cells": 1200,
+        "n_genes": 400,
+        "has_spatial": true,
+        "spatial_dims": [
+          1200,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.06977916666666667,
+        "file_size_mb": 6.9698486328125,
+        "category": "spatial_datasets",
+        "technology": "seqfish"
+      },
+      {
+        "filename": "st_human_breast_cancer.h5ad",
+        "path": "spatial_datasets/st_human_breast_cancer.h5ad",
+        "n_cells": 600,
+        "n_genes": 8000,
+        "has_spatial": true,
+        "spatial_dims": [
+          600,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.65356125,
+        "file_size_mb": 19.086219787597656,
+        "category": "spatial_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "identical_coordinates.h5ad",
+        "path": "spatial_datasets/identical_coordinates.h5ad",
+        "n_cells": 50,
+        "n_genes": 200,
+        "has_spatial": true,
+        "spatial_dims": [
+          50,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.048,
+        "file_size_mb": 0.062255859375,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "squidpy_seqfish.h5ad",
+        "path": "spatial_datasets/squidpy_seqfish.h5ad",
+        "n_cells": 19416,
+        "n_genes": 351,
+        "has_spatial": true,
+        "spatial_dims": [
+          19416,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2.6043220029723027,
+        "file_size_mb": 30.683151245117188,
+        "category": "spatial_datasets",
+        "technology": "seqfish"
+      },
+      {
+        "filename": "coordinates_1d.h5ad",
+        "path": "spatial_datasets/coordinates_1d.h5ad",
+        "n_cells": 40,
+        "n_genes": 150,
+        "has_spatial": true,
+        "spatial_dims": [
+          40,
+          1
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.0485,
+        "file_size_mb": 0.046234130859375,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "slideseq_beads.h5ad",
+        "path": "spatial_datasets/slideseq_beads.h5ad",
+        "n_cells": 8000,
+        "n_genes": 1500,
+        "has_spatial": true,
+        "spatial_dims": [
+          8000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.9039830833333333,
+        "file_size_mb": 146.65339279174805,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "empty_dataset.h5ad",
+        "path": "spatial_datasets/empty_dataset.h5ad",
+        "n_cells": 0,
+        "n_genes": 100,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": NaN,
+        "file_size_mb": 0.01645660400390625,
+        "category": "spatial_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "squidpy_imc.h5ad",
+        "path": "spatial_datasets/squidpy_imc.h5ad",
+        "n_cells": 4668,
+        "n_genes": 34,
+        "has_spatial": true,
+        "spatial_dims": [
+          4668,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.015159534250718282,
+        "file_size_mb": 1.5064888000488281,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "stereo_seq_brain.h5ad",
+        "path": "spatial_datasets/stereo_seq_brain.h5ad",
+        "n_cells": 15000,
+        "n_genes": 4000,
+        "has_spatial": true,
+        "spatial_dims": [
+          15000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.35e-06,
+        "file_size_mb": 702.5589065551758,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "high_res_merfish.h5ad",
+        "path": "spatial_datasets/high_res_merfish.h5ad",
+        "n_cells": 5000,
+        "n_genes": 300,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.990016,
+        "file_size_mb": 22.46282958984375,
+        "category": "spatial_datasets",
+        "technology": "merfish"
+      }
+    ],
+    "single_cell_datasets": [
+      {
+        "filename": "single_cell.h5ad",
+        "path": "single_cell_datasets/single_cell.h5ad",
+        "n_cells": 1,
+        "n_genes": 1000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 0.0709381103515625,
+        "category": "single_cell_datasets",
+        "technology": "single_cell_rna_seq"
+      }
+    ],
+    "synthetic_datasets": [
+      {
+        "filename": "synthetic_merfish.h5ad",
+        "path": "synthetic_datasets/synthetic_merfish.h5ad",
+        "n_cells": 2000,
+        "n_genes": 200,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.5534875,
+        "file_size_mb": 3.3644027709960938,
+        "category": "synthetic_datasets",
+        "technology": "merfish"
+      },
+      {
+        "filename": "synthetic_mouse_kidney.h5ad",
+        "path": "synthetic_datasets/synthetic_mouse_kidney.h5ad",
+        "n_cells": 1500,
+        "n_genes": 12000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7008995555555556,
+        "file_size_mb": 138.59764862060547,
+        "category": "synthetic_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "synthetic_human_heart.h5ad",
+        "path": "synthetic_datasets/synthetic_human_heart.h5ad",
+        "n_cells": 1200,
+        "n_genes": 10000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1200,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7008485833333333,
+        "file_size_mb": 92.61731719970703,
+        "category": "synthetic_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "synthetic_human_brain.h5ad",
+        "path": "synthetic_datasets/synthetic_human_brain.h5ad",
+        "n_cells": 2000,
+        "n_genes": 15000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7007126,
+        "file_size_mb": 230.47462463378906,
+        "category": "synthetic_datasets",
+        "technology": "synthetic"
+      }
+    ],
+    "demo_datasets": [
+      {
+        "filename": "mop_sn_tutorial.h5ad",
+        "path": "demo_datasets/mop_sn_tutorial.h5ad",
+        "n_cells": 26431,
+        "n_genes": 27742,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6.175536645880263,
+        "file_size_mb": 1956.003176689148,
+        "category": "demo_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "visium_demo.h5ad",
+        "path": "demo_datasets/visium_demo.h5ad",
+        "n_cells": 1000,
+        "n_genes": 18078,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.1740140286574245,
+        "file_size_mb": 164.4074192047119,
+        "category": "demo_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "seqfish_demo.h5ad",
+        "path": "demo_datasets/seqfish_demo.h5ad",
+        "n_cells": 1000,
+        "n_genes": 351,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2.6504321238026893,
+        "file_size_mb": 1.6415634155273438,
+        "category": "demo_datasets",
+        "technology": "seqfish"
+      }
+    ],
+    "benchmark_datasets": [
+      {
+        "filename": "no_spatial.h5ad",
+        "path": "benchmark_datasets/no_spatial.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2e-05,
+        "file_size_mb": 0.4230804443359375,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "scanpy_paul15.h5ad",
+        "path": "benchmark_datasets/scanpy_paul15.h5ad",
+        "n_cells": 2730,
+        "n_genes": 3451,
+        "has_spatial": true,
+        "spatial_dims": [
+          2730,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.746715874678784,
+        "file_size_mb": 36.24511909484863,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix_backup_24MB.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix_backup_24MB.h5ad",
+        "n_cells": 1600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0039328125,
+        "file_size_mb": 24.79326629638672,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "string_indices.h5ad",
+        "path": "benchmark_datasets/string_indices.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.24167633056640625,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "jurkat_293t_mixture_simulated.h5ad",
+        "path": "benchmark_datasets/jurkat_293t_mixture_simulated.h5ad",
+        "n_cells": 4600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002392173913043478,
+        "file_size_mb": 70.85836791992188,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "hdst_squamous_carcinoma.h5ad",
+        "path": "benchmark_datasets/hdst_squamous_carcinoma.h5ad",
+        "n_cells": 3850,
+        "n_genes": 1530,
+        "has_spatial": true,
+        "spatial_dims": [
+          3850,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006744758509464392,
+        "file_size_mb": 45.32875633239746,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "high_sparsity.h5ad",
+        "path": "benchmark_datasets/high_sparsity.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.94983,
+        "file_size_mb": 3.8994827270507812,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "benchmark_1kx2k.h5ad",
+        "path": "benchmark_datasets/benchmark_1kx2k.h5ad",
+        "n_cells": 1000,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6.5e-06,
+        "file_size_mb": 15.498542785644531,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "nan_coordinates.h5ad",
+        "path": "benchmark_datasets/nan_coordinates.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.00658,
+        "file_size_mb": 0.23310089111328125,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "pure_293t_simulated.h5ad",
+        "path": "benchmark_datasets/pure_293t_simulated.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006753333333333333,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "small_synthetic.h5ad",
+        "path": "benchmark_datasets/small_synthetic.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 0.4455718994140625,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "benchmark_500x1k.h5ad",
+        "path": "benchmark_datasets/benchmark_500x1k.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6e-06,
+        "file_size_mb": 3.9408531188964844,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "mixed_data_types.h5ad",
+        "path": "benchmark_datasets/mixed_data_types.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.2624320983886719,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "enhanced_visium.h5ad",
+        "path": "benchmark_datasets/enhanced_visium.h5ad",
+        "n_cells": 2000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.0029333333333333334,
+        "file_size_mb": 71.71200561523438,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "slideseq_processed.h5ad",
+        "path": "benchmark_datasets/slideseq_processed.h5ad",
+        "n_cells": 2000,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.722485,
+        "file_size_mb": 15.595329284667969,
+        "category": "benchmark_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "pixelseq_data.h5ad",
+        "path": "benchmark_datasets/pixelseq_data.h5ad",
+        "n_cells": 4409,
+        "n_genes": 3535,
+        "has_spatial": true,
+        "spatial_dims": [
+          4409,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.01563254792899826,
+        "file_size_mb": 119.7187442779541,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix_dup1.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix_dup1.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006753333333333333,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "large_synthetic.h5ad",
+        "path": "benchmark_datasets/large_synthetic.h5ad",
+        "n_cells": 5000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 114.98466491699219,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "stereoseq_mouse_embryo.h5ad",
+        "path": "benchmark_datasets/stereoseq_mouse_embryo.h5ad",
+        "n_cells": 2115,
+        "n_genes": 1850,
+        "has_spatial": true,
+        "spatial_dims": [
+          2115,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 7.667241709794902e-07,
+        "file_size_mb": 30.15882968902588,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002465666666666667,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "synthetic_visium.h5ad",
+        "path": "benchmark_datasets/synthetic_visium.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.001946,
+        "file_size_mb": 4.006130218505859,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "medium_synthetic.h5ad",
+        "path": "benchmark_datasets/medium_synthetic.h5ad",
+        "n_cells": 1000,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 8e-06,
+        "file_size_mb": 15.502723693847656,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "benchmark_2kx3k.h5ad",
+        "path": "benchmark_datasets/benchmark_2kx3k.h5ad",
+        "n_cells": 2000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 5.333333333333334e-06,
+        "file_size_mb": 46.155296325683594,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "extremely_sparse.h5ad",
+        "path": "benchmark_datasets/extremely_sparse.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.999,
+        "file_size_mb": 0.43241119384765625,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "mtx_processed.h5ad",
+        "path": "benchmark_datasets/mtx_processed.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2500,
+        "has_spatial": true,
+        "spatial_dims": [
+          1500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 9.027194666666666,
+        "file_size_mb": 4.751110076904297,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "pure_jurkat_simulated.h5ad",
+        "path": "benchmark_datasets/pure_jurkat_simulated.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002465666666666667,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "synthetic_small_test.h5ad",
+        "path": "benchmark_datasets/synthetic_small_test.h5ad",
+        "n_cells": 500,
+        "n_genes": 5000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7001992,
+        "file_size_mb": 19.615203857421875,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "st_processed.h5ad",
+        "path": "benchmark_datasets/st_processed.h5ad",
+        "n_cells": 300,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          300,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.07770333333333333,
+        "file_size_mb": 4.822135925292969,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "mixture_simulated.h5ad",
+        "path": "benchmark_datasets/mixture_simulated.h5ad",
+        "n_cells": 1600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0039328125,
+        "file_size_mb": 24.79326629638672,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "benchmark_5kx5k.h5ad",
+        "path": "benchmark_datasets/benchmark_5kx5k.h5ad",
+        "n_cells": 5000,
+        "n_genes": 5000,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 5.52e-06,
+        "file_size_mb": 191.4458236694336,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "unicode_characters.h5ad",
+        "path": "benchmark_datasets/unicode_characters.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.24673080444335938,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      }
+    ],
+    "reference_datasets": [
+      {
+        "filename": "pancreas_tiny_test.h5ad",
+        "path": "reference_datasets/pancreas_tiny_test.h5ad",
+        "n_cells": 200,
+        "n_genes": 27998,
+        "has_spatial": true,
+        "spatial_dims": [
+          200,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 10.247745268579187,
+        "file_size_mb": 10.19715690612793,
+        "category": "reference_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "dimension_validation_test.h5ad",
+        "path": "reference_datasets/dimension_validation_test.h5ad",
+        "n_cells": 75,
+        "n_genes": 300,
+        "has_spatial": true,
+        "spatial_dims": [
+          75,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.13626666666666667,
+        "file_size_mb": 0.11733245849609375,
+        "category": "reference_datasets",
+        "technology": "unknown_spatial"
+      }
+    ],
+    "metadata": [],
+    "documentation": [],
+    "scripts": [],
+    "archive": []
+  },
+  "datasets_by_technology": {
+    "slide-seq": [
+      {
+        "filename": "squidpy_slideseqv2.h5ad",
+        "path": "spatial_datasets/squidpy_slideseqv2.h5ad",
+        "n_cells": 41786,
+        "n_genes": 4000,
+        "has_spatial": true,
+        "spatial_dims": [
+          41786,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 36.897412793709826,
+        "file_size_mb": 251.32371711730957,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "slideseq_v2_olfactory.h5ad",
+        "path": "spatial_datasets/slideseq_v2_olfactory.h5ad",
+        "n_cells": 6000,
+        "n_genes": 11000,
+        "has_spatial": true,
+        "spatial_dims": [
+          6000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235023181818182,
+        "file_size_mb": 253.3323516845703,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "slideseq_cerebellum.h5ad",
+        "path": "spatial_datasets/slideseq_cerebellum.h5ad",
+        "n_cells": 15000,
+        "n_genes": 10000,
+        "has_spatial": true,
+        "spatial_dims": [
+          15000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235087533333334,
+        "file_size_mb": 574.5903854370117,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "slideseq_v2_hippocampus.h5ad",
+        "path": "spatial_datasets/slideseq_v2_hippocampus.h5ad",
+        "n_cells": 8000,
+        "n_genes": 12000,
+        "has_spatial": true,
+        "spatial_dims": [
+          8000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235257708333333,
+        "file_size_mb": 368.06417083740234,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "slideseq_beads.h5ad",
+        "path": "spatial_datasets/slideseq_beads.h5ad",
+        "n_cells": 8000,
+        "n_genes": 1500,
+        "has_spatial": true,
+        "spatial_dims": [
+          8000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.9039830833333333,
+        "file_size_mb": 146.65339279174805,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "slideseq_processed.h5ad",
+        "path": "benchmark_datasets/slideseq_processed.h5ad",
+        "n_cells": 2000,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.722485,
+        "file_size_mb": 15.595329284667969,
+        "category": "benchmark_datasets",
+        "technology": "slide-seq"
+      }
+    ],
+    "merfish": [
+      {
+        "filename": "squidpy_merfish.h5ad",
+        "path": "spatial_datasets/squidpy_merfish.h5ad",
+        "n_cells": 73655,
+        "n_genes": 161,
+        "has_spatial": true,
+        "spatial_dims": [
+          73655,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 1.5445280690931524,
+        "file_size_mb": 49.20067882537842,
+        "category": "spatial_datasets",
+        "technology": "merfish"
+      },
+      {
+        "filename": "high_res_merfish.h5ad",
+        "path": "spatial_datasets/high_res_merfish.h5ad",
+        "n_cells": 5000,
+        "n_genes": 300,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.990016,
+        "file_size_mb": 22.46282958984375,
+        "category": "spatial_datasets",
+        "technology": "merfish"
+      },
+      {
+        "filename": "synthetic_merfish.h5ad",
+        "path": "synthetic_datasets/synthetic_merfish.h5ad",
+        "n_cells": 2000,
+        "n_genes": 200,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.5534875,
+        "file_size_mb": 3.3644027709960938,
+        "category": "synthetic_datasets",
+        "technology": "merfish"
+      }
+    ],
+    "unknown_spatial": [
+      {
+        "filename": "empty_velocity_layers.h5ad",
+        "path": "spatial_datasets/empty_velocity_layers.h5ad",
+        "n_cells": 70,
+        "n_genes": 350,
+        "has_spatial": true,
+        "spatial_dims": [
+          70,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.051510204081632656,
+        "file_size_mb": 0.5005722045898438,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "pancreas_subset_for_cellrank.h5ad",
+        "path": "spatial_datasets/pancreas_subset_for_cellrank.h5ad",
+        "n_cells": 500,
+        "n_genes": 27998,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 10.102105426779557,
+        "file_size_mb": 23.91021156311035,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "missing_velocity_layers.h5ad",
+        "path": "spatial_datasets/missing_velocity_layers.h5ad",
+        "n_cells": 80,
+        "n_genes": 400,
+        "has_spatial": true,
+        "spatial_dims": [
+          80,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.00659375,
+        "file_size_mb": 0.15509796142578125,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "extreme_coordinates.h5ad",
+        "path": "spatial_datasets/extreme_coordinates.h5ad",
+        "n_cells": 60,
+        "n_genes": 250,
+        "has_spatial": true,
+        "spatial_dims": [
+          60,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.01806666666666667,
+        "file_size_mb": 0.08209228515625,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "identical_coordinates.h5ad",
+        "path": "spatial_datasets/identical_coordinates.h5ad",
+        "n_cells": 50,
+        "n_genes": 200,
+        "has_spatial": true,
+        "spatial_dims": [
+          50,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.048,
+        "file_size_mb": 0.062255859375,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "coordinates_1d.h5ad",
+        "path": "spatial_datasets/coordinates_1d.h5ad",
+        "n_cells": 40,
+        "n_genes": 150,
+        "has_spatial": true,
+        "spatial_dims": [
+          40,
+          1
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.0485,
+        "file_size_mb": 0.046234130859375,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "string_indices.h5ad",
+        "path": "benchmark_datasets/string_indices.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.24167633056640625,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "high_sparsity.h5ad",
+        "path": "benchmark_datasets/high_sparsity.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.94983,
+        "file_size_mb": 3.8994827270507812,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "benchmark_1kx2k.h5ad",
+        "path": "benchmark_datasets/benchmark_1kx2k.h5ad",
+        "n_cells": 1000,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6.5e-06,
+        "file_size_mb": 15.498542785644531,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "nan_coordinates.h5ad",
+        "path": "benchmark_datasets/nan_coordinates.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.00658,
+        "file_size_mb": 0.23310089111328125,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "benchmark_500x1k.h5ad",
+        "path": "benchmark_datasets/benchmark_500x1k.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6e-06,
+        "file_size_mb": 3.9408531188964844,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "mixed_data_types.h5ad",
+        "path": "benchmark_datasets/mixed_data_types.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.2624320983886719,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "benchmark_2kx3k.h5ad",
+        "path": "benchmark_datasets/benchmark_2kx3k.h5ad",
+        "n_cells": 2000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 5.333333333333334e-06,
+        "file_size_mb": 46.155296325683594,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "extremely_sparse.h5ad",
+        "path": "benchmark_datasets/extremely_sparse.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.999,
+        "file_size_mb": 0.43241119384765625,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "mtx_processed.h5ad",
+        "path": "benchmark_datasets/mtx_processed.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2500,
+        "has_spatial": true,
+        "spatial_dims": [
+          1500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 9.027194666666666,
+        "file_size_mb": 4.751110076904297,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "unicode_characters.h5ad",
+        "path": "benchmark_datasets/unicode_characters.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.24673080444335938,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "pancreas_tiny_test.h5ad",
+        "path": "reference_datasets/pancreas_tiny_test.h5ad",
+        "n_cells": 200,
+        "n_genes": 27998,
+        "has_spatial": true,
+        "spatial_dims": [
+          200,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 10.247745268579187,
+        "file_size_mb": 10.19715690612793,
+        "category": "reference_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "dimension_validation_test.h5ad",
+        "path": "reference_datasets/dimension_validation_test.h5ad",
+        "n_cells": 75,
+        "n_genes": 300,
+        "has_spatial": true,
+        "spatial_dims": [
+          75,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.13626666666666667,
+        "file_size_mb": 0.11733245849609375,
+        "category": "reference_datasets",
+        "technology": "unknown_spatial"
+      }
+    ],
+    "visium": [
+      {
+        "filename": "squidpy_visium_backup_314MB.h5ad",
+        "path": "spatial_datasets/squidpy_visium_backup_314MB.h5ad",
+        "n_cells": 2688,
+        "n_genes": 18078,
+        "has_spatial": true,
+        "spatial_dims": [
+          2688,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.1529907973221,
+        "file_size_mb": 314.0865879058838,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "squidpy_mibitof.h5ad",
+        "path": "spatial_datasets/squidpy_mibitof.h5ad",
+        "n_cells": 3309,
+        "n_genes": 36,
+        "has_spatial": true,
+        "spatial_dims": [
+          3309,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 19.351433753967285,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "squidpy_visium.h5ad",
+        "path": "spatial_datasets/squidpy_visium.h5ad",
+        "n_cells": 684,
+        "n_genes": 18078,
+        "has_spatial": true,
+        "spatial_dims": [
+          684,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.373171542099747,
+        "file_size_mb": 89.9190845489502,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "squidpy_imc.h5ad",
+        "path": "spatial_datasets/squidpy_imc.h5ad",
+        "n_cells": 4668,
+        "n_genes": 34,
+        "has_spatial": true,
+        "spatial_dims": [
+          4668,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.015159534250718282,
+        "file_size_mb": 1.5064888000488281,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "stereo_seq_brain.h5ad",
+        "path": "spatial_datasets/stereo_seq_brain.h5ad",
+        "n_cells": 15000,
+        "n_genes": 4000,
+        "has_spatial": true,
+        "spatial_dims": [
+          15000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.35e-06,
+        "file_size_mb": 702.5589065551758,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "visium_demo.h5ad",
+        "path": "demo_datasets/visium_demo.h5ad",
+        "n_cells": 1000,
+        "n_genes": 18078,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.1740140286574245,
+        "file_size_mb": 164.4074192047119,
+        "category": "demo_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "scanpy_paul15.h5ad",
+        "path": "benchmark_datasets/scanpy_paul15.h5ad",
+        "n_cells": 2730,
+        "n_genes": 3451,
+        "has_spatial": true,
+        "spatial_dims": [
+          2730,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.746715874678784,
+        "file_size_mb": 36.24511909484863,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "enhanced_visium.h5ad",
+        "path": "benchmark_datasets/enhanced_visium.h5ad",
+        "n_cells": 2000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.0029333333333333334,
+        "file_size_mb": 71.71200561523438,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "pixelseq_data.h5ad",
+        "path": "benchmark_datasets/pixelseq_data.h5ad",
+        "n_cells": 4409,
+        "n_genes": 3535,
+        "has_spatial": true,
+        "spatial_dims": [
+          4409,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.01563254792899826,
+        "file_size_mb": 119.7187442779541,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "stereoseq_mouse_embryo.h5ad",
+        "path": "benchmark_datasets/stereoseq_mouse_embryo.h5ad",
+        "n_cells": 2115,
+        "n_genes": 1850,
+        "has_spatial": true,
+        "spatial_dims": [
+          2115,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 7.667241709794902e-07,
+        "file_size_mb": 30.15882968902588,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "synthetic_visium.h5ad",
+        "path": "benchmark_datasets/synthetic_visium.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.001946,
+        "file_size_mb": 4.006130218505859,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "benchmark_5kx5k.h5ad",
+        "path": "benchmark_datasets/benchmark_5kx5k.h5ad",
+        "n_cells": 5000,
+        "n_genes": 5000,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 5.52e-06,
+        "file_size_mb": 191.4458236694336,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      }
+    ],
+    "spatial_transcriptomics": [
+      {
+        "filename": "st_mouse_brain_backup_9MB.h5ad",
+        "path": "spatial_datasets/st_mouse_brain_backup_9MB.h5ad",
+        "n_cells": 685,
+        "n_genes": 32285,
+        "has_spatial": true,
+        "spatial_dims": [
+          685,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 6.505362130462671,
+        "file_size_mb": 9.703502655029297,
+        "category": "spatial_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "st_human_breast_cancer.h5ad",
+        "path": "spatial_datasets/st_human_breast_cancer.h5ad",
+        "n_cells": 600,
+        "n_genes": 8000,
+        "has_spatial": true,
+        "spatial_dims": [
+          600,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.65356125,
+        "file_size_mb": 19.086219787597656,
+        "category": "spatial_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "no_spatial.h5ad",
+        "path": "benchmark_datasets/no_spatial.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2e-05,
+        "file_size_mb": 0.4230804443359375,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "hdst_squamous_carcinoma.h5ad",
+        "path": "benchmark_datasets/hdst_squamous_carcinoma.h5ad",
+        "n_cells": 3850,
+        "n_genes": 1530,
+        "has_spatial": true,
+        "spatial_dims": [
+          3850,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006744758509464392,
+        "file_size_mb": 45.32875633239746,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "st_processed.h5ad",
+        "path": "benchmark_datasets/st_processed.h5ad",
+        "n_cells": 300,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          300,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.07770333333333333,
+        "file_size_mb": 4.822135925292969,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      }
+    ],
+    "osmfish": [
+      {
+        "filename": "osmfish_somatosensory.h5ad",
+        "path": "spatial_datasets/osmfish_somatosensory.h5ad",
+        "n_cells": 993,
+        "n_genes": 46,
+        "has_spatial": true,
+        "spatial_dims": [
+          993,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.6380314374534787,
+        "file_size_mb": 0.43485260009765625,
+        "category": "spatial_datasets",
+        "technology": "osmfish"
+      }
+    ],
+    "seqfish": [
+      {
+        "filename": "seqfish_developmental.h5ad",
+        "path": "spatial_datasets/seqfish_developmental.h5ad",
+        "n_cells": 1200,
+        "n_genes": 400,
+        "has_spatial": true,
+        "spatial_dims": [
+          1200,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.06977916666666667,
+        "file_size_mb": 6.9698486328125,
+        "category": "spatial_datasets",
+        "technology": "seqfish"
+      },
+      {
+        "filename": "squidpy_seqfish.h5ad",
+        "path": "spatial_datasets/squidpy_seqfish.h5ad",
+        "n_cells": 19416,
+        "n_genes": 351,
+        "has_spatial": true,
+        "spatial_dims": [
+          19416,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2.6043220029723027,
+        "file_size_mb": 30.683151245117188,
+        "category": "spatial_datasets",
+        "technology": "seqfish"
+      },
+      {
+        "filename": "seqfish_demo.h5ad",
+        "path": "demo_datasets/seqfish_demo.h5ad",
+        "n_cells": 1000,
+        "n_genes": 351,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2.6504321238026893,
+        "file_size_mb": 1.6415634155273438,
+        "category": "demo_datasets",
+        "technology": "seqfish"
+      }
+    ],
+    "single_cell_rna_seq": [
+      {
+        "filename": "empty_dataset.h5ad",
+        "path": "spatial_datasets/empty_dataset.h5ad",
+        "n_cells": 0,
+        "n_genes": 100,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": NaN,
+        "file_size_mb": 0.01645660400390625,
+        "category": "spatial_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "single_cell.h5ad",
+        "path": "single_cell_datasets/single_cell.h5ad",
+        "n_cells": 1,
+        "n_genes": 1000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 0.0709381103515625,
+        "category": "single_cell_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "mop_sn_tutorial.h5ad",
+        "path": "demo_datasets/mop_sn_tutorial.h5ad",
+        "n_cells": 26431,
+        "n_genes": 27742,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6.175536645880263,
+        "file_size_mb": 1956.003176689148,
+        "category": "demo_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix_backup_24MB.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix_backup_24MB.h5ad",
+        "n_cells": 1600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0039328125,
+        "file_size_mb": 24.79326629638672,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix_dup1.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix_dup1.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006753333333333333,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002465666666666667,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      }
+    ],
+    "synthetic": [
+      {
+        "filename": "synthetic_mouse_kidney.h5ad",
+        "path": "synthetic_datasets/synthetic_mouse_kidney.h5ad",
+        "n_cells": 1500,
+        "n_genes": 12000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7008995555555556,
+        "file_size_mb": 138.59764862060547,
+        "category": "synthetic_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "synthetic_human_heart.h5ad",
+        "path": "synthetic_datasets/synthetic_human_heart.h5ad",
+        "n_cells": 1200,
+        "n_genes": 10000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1200,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7008485833333333,
+        "file_size_mb": 92.61731719970703,
+        "category": "synthetic_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "synthetic_human_brain.h5ad",
+        "path": "synthetic_datasets/synthetic_human_brain.h5ad",
+        "n_cells": 2000,
+        "n_genes": 15000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7007126,
+        "file_size_mb": 230.47462463378906,
+        "category": "synthetic_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "jurkat_293t_mixture_simulated.h5ad",
+        "path": "benchmark_datasets/jurkat_293t_mixture_simulated.h5ad",
+        "n_cells": 4600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002392173913043478,
+        "file_size_mb": 70.85836791992188,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "pure_293t_simulated.h5ad",
+        "path": "benchmark_datasets/pure_293t_simulated.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006753333333333333,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "small_synthetic.h5ad",
+        "path": "benchmark_datasets/small_synthetic.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 0.4455718994140625,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "large_synthetic.h5ad",
+        "path": "benchmark_datasets/large_synthetic.h5ad",
+        "n_cells": 5000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 114.98466491699219,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "medium_synthetic.h5ad",
+        "path": "benchmark_datasets/medium_synthetic.h5ad",
+        "n_cells": 1000,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 8e-06,
+        "file_size_mb": 15.502723693847656,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "pure_jurkat_simulated.h5ad",
+        "path": "benchmark_datasets/pure_jurkat_simulated.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002465666666666667,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "synthetic_small_test.h5ad",
+        "path": "benchmark_datasets/synthetic_small_test.h5ad",
+        "n_cells": 500,
+        "n_genes": 5000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7001992,
+        "file_size_mb": 19.615203857421875,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "mixture_simulated.h5ad",
+        "path": "benchmark_datasets/mixture_simulated.h5ad",
+        "n_cells": 1600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0039328125,
+        "file_size_mb": 24.79326629638672,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      }
+    ]
+  },
+  "datasets_by_size": {
+    "small": [
+      {
+        "filename": "empty_velocity_layers.h5ad",
+        "path": "spatial_datasets/empty_velocity_layers.h5ad",
+        "n_cells": 70,
+        "n_genes": 350,
+        "has_spatial": true,
+        "spatial_dims": [
+          70,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.051510204081632656,
+        "file_size_mb": 0.5005722045898438,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "st_mouse_brain_backup_9MB.h5ad",
+        "path": "spatial_datasets/st_mouse_brain_backup_9MB.h5ad",
+        "n_cells": 685,
+        "n_genes": 32285,
+        "has_spatial": true,
+        "spatial_dims": [
+          685,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 6.505362130462671,
+        "file_size_mb": 9.703502655029297,
+        "category": "spatial_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "pancreas_subset_for_cellrank.h5ad",
+        "path": "spatial_datasets/pancreas_subset_for_cellrank.h5ad",
+        "n_cells": 500,
+        "n_genes": 27998,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 10.102105426779557,
+        "file_size_mb": 23.91021156311035,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "missing_velocity_layers.h5ad",
+        "path": "spatial_datasets/missing_velocity_layers.h5ad",
+        "n_cells": 80,
+        "n_genes": 400,
+        "has_spatial": true,
+        "spatial_dims": [
+          80,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.00659375,
+        "file_size_mb": 0.15509796142578125,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "extreme_coordinates.h5ad",
+        "path": "spatial_datasets/extreme_coordinates.h5ad",
+        "n_cells": 60,
+        "n_genes": 250,
+        "has_spatial": true,
+        "spatial_dims": [
+          60,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.01806666666666667,
+        "file_size_mb": 0.08209228515625,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "osmfish_somatosensory.h5ad",
+        "path": "spatial_datasets/osmfish_somatosensory.h5ad",
+        "n_cells": 993,
+        "n_genes": 46,
+        "has_spatial": true,
+        "spatial_dims": [
+          993,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.6380314374534787,
+        "file_size_mb": 0.43485260009765625,
+        "category": "spatial_datasets",
+        "technology": "osmfish"
+      },
+      {
+        "filename": "squidpy_visium.h5ad",
+        "path": "spatial_datasets/squidpy_visium.h5ad",
+        "n_cells": 684,
+        "n_genes": 18078,
+        "has_spatial": true,
+        "spatial_dims": [
+          684,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.373171542099747,
+        "file_size_mb": 89.9190845489502,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "st_human_breast_cancer.h5ad",
+        "path": "spatial_datasets/st_human_breast_cancer.h5ad",
+        "n_cells": 600,
+        "n_genes": 8000,
+        "has_spatial": true,
+        "spatial_dims": [
+          600,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.65356125,
+        "file_size_mb": 19.086219787597656,
+        "category": "spatial_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "identical_coordinates.h5ad",
+        "path": "spatial_datasets/identical_coordinates.h5ad",
+        "n_cells": 50,
+        "n_genes": 200,
+        "has_spatial": true,
+        "spatial_dims": [
+          50,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.048,
+        "file_size_mb": 0.062255859375,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "coordinates_1d.h5ad",
+        "path": "spatial_datasets/coordinates_1d.h5ad",
+        "n_cells": 40,
+        "n_genes": 150,
+        "has_spatial": true,
+        "spatial_dims": [
+          40,
+          1
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.0485,
+        "file_size_mb": 0.046234130859375,
+        "category": "spatial_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "empty_dataset.h5ad",
+        "path": "spatial_datasets/empty_dataset.h5ad",
+        "n_cells": 0,
+        "n_genes": 100,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": NaN,
+        "file_size_mb": 0.01645660400390625,
+        "category": "spatial_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "single_cell.h5ad",
+        "path": "single_cell_datasets/single_cell.h5ad",
+        "n_cells": 1,
+        "n_genes": 1000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 0.0709381103515625,
+        "category": "single_cell_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "no_spatial.h5ad",
+        "path": "benchmark_datasets/no_spatial.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2e-05,
+        "file_size_mb": 0.4230804443359375,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "string_indices.h5ad",
+        "path": "benchmark_datasets/string_indices.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.24167633056640625,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "high_sparsity.h5ad",
+        "path": "benchmark_datasets/high_sparsity.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.94983,
+        "file_size_mb": 3.8994827270507812,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "nan_coordinates.h5ad",
+        "path": "benchmark_datasets/nan_coordinates.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.00658,
+        "file_size_mb": 0.23310089111328125,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "small_synthetic.h5ad",
+        "path": "benchmark_datasets/small_synthetic.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 0.4455718994140625,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "benchmark_500x1k.h5ad",
+        "path": "benchmark_datasets/benchmark_500x1k.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6e-06,
+        "file_size_mb": 3.9408531188964844,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "mixed_data_types.h5ad",
+        "path": "benchmark_datasets/mixed_data_types.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.2624320983886719,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "synthetic_visium.h5ad",
+        "path": "benchmark_datasets/synthetic_visium.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.001946,
+        "file_size_mb": 4.006130218505859,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "extremely_sparse.h5ad",
+        "path": "benchmark_datasets/extremely_sparse.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.999,
+        "file_size_mb": 0.43241119384765625,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "synthetic_small_test.h5ad",
+        "path": "benchmark_datasets/synthetic_small_test.h5ad",
+        "n_cells": 500,
+        "n_genes": 5000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7001992,
+        "file_size_mb": 19.615203857421875,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "st_processed.h5ad",
+        "path": "benchmark_datasets/st_processed.h5ad",
+        "n_cells": 300,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          300,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.07770333333333333,
+        "file_size_mb": 4.822135925292969,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "unicode_characters.h5ad",
+        "path": "benchmark_datasets/unicode_characters.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.24673080444335938,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "pancreas_tiny_test.h5ad",
+        "path": "reference_datasets/pancreas_tiny_test.h5ad",
+        "n_cells": 200,
+        "n_genes": 27998,
+        "has_spatial": true,
+        "spatial_dims": [
+          200,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 10.247745268579187,
+        "file_size_mb": 10.19715690612793,
+        "category": "reference_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "dimension_validation_test.h5ad",
+        "path": "reference_datasets/dimension_validation_test.h5ad",
+        "n_cells": 75,
+        "n_genes": 300,
+        "has_spatial": true,
+        "spatial_dims": [
+          75,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.13626666666666667,
+        "file_size_mb": 0.11733245849609375,
+        "category": "reference_datasets",
+        "technology": "unknown_spatial"
+      }
+    ],
+    "medium": [
+      {
+        "filename": "squidpy_visium_backup_314MB.h5ad",
+        "path": "spatial_datasets/squidpy_visium_backup_314MB.h5ad",
+        "n_cells": 2688,
+        "n_genes": 18078,
+        "has_spatial": true,
+        "spatial_dims": [
+          2688,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.1529907973221,
+        "file_size_mb": 314.0865879058838,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "slideseq_v2_olfactory.h5ad",
+        "path": "spatial_datasets/slideseq_v2_olfactory.h5ad",
+        "n_cells": 6000,
+        "n_genes": 11000,
+        "has_spatial": true,
+        "spatial_dims": [
+          6000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235023181818182,
+        "file_size_mb": 253.3323516845703,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "squidpy_mibitof.h5ad",
+        "path": "spatial_datasets/squidpy_mibitof.h5ad",
+        "n_cells": 3309,
+        "n_genes": 36,
+        "has_spatial": true,
+        "spatial_dims": [
+          3309,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 19.351433753967285,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "slideseq_v2_hippocampus.h5ad",
+        "path": "spatial_datasets/slideseq_v2_hippocampus.h5ad",
+        "n_cells": 8000,
+        "n_genes": 12000,
+        "has_spatial": true,
+        "spatial_dims": [
+          8000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235257708333333,
+        "file_size_mb": 368.06417083740234,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "seqfish_developmental.h5ad",
+        "path": "spatial_datasets/seqfish_developmental.h5ad",
+        "n_cells": 1200,
+        "n_genes": 400,
+        "has_spatial": true,
+        "spatial_dims": [
+          1200,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.06977916666666667,
+        "file_size_mb": 6.9698486328125,
+        "category": "spatial_datasets",
+        "technology": "seqfish"
+      },
+      {
+        "filename": "slideseq_beads.h5ad",
+        "path": "spatial_datasets/slideseq_beads.h5ad",
+        "n_cells": 8000,
+        "n_genes": 1500,
+        "has_spatial": true,
+        "spatial_dims": [
+          8000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.9039830833333333,
+        "file_size_mb": 146.65339279174805,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "squidpy_imc.h5ad",
+        "path": "spatial_datasets/squidpy_imc.h5ad",
+        "n_cells": 4668,
+        "n_genes": 34,
+        "has_spatial": true,
+        "spatial_dims": [
+          4668,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.015159534250718282,
+        "file_size_mb": 1.5064888000488281,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "high_res_merfish.h5ad",
+        "path": "spatial_datasets/high_res_merfish.h5ad",
+        "n_cells": 5000,
+        "n_genes": 300,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.990016,
+        "file_size_mb": 22.46282958984375,
+        "category": "spatial_datasets",
+        "technology": "merfish"
+      },
+      {
+        "filename": "synthetic_merfish.h5ad",
+        "path": "synthetic_datasets/synthetic_merfish.h5ad",
+        "n_cells": 2000,
+        "n_genes": 200,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.5534875,
+        "file_size_mb": 3.3644027709960938,
+        "category": "synthetic_datasets",
+        "technology": "merfish"
+      },
+      {
+        "filename": "synthetic_mouse_kidney.h5ad",
+        "path": "synthetic_datasets/synthetic_mouse_kidney.h5ad",
+        "n_cells": 1500,
+        "n_genes": 12000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7008995555555556,
+        "file_size_mb": 138.59764862060547,
+        "category": "synthetic_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "synthetic_human_heart.h5ad",
+        "path": "synthetic_datasets/synthetic_human_heart.h5ad",
+        "n_cells": 1200,
+        "n_genes": 10000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1200,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7008485833333333,
+        "file_size_mb": 92.61731719970703,
+        "category": "synthetic_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "synthetic_human_brain.h5ad",
+        "path": "synthetic_datasets/synthetic_human_brain.h5ad",
+        "n_cells": 2000,
+        "n_genes": 15000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7007126,
+        "file_size_mb": 230.47462463378906,
+        "category": "synthetic_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "visium_demo.h5ad",
+        "path": "demo_datasets/visium_demo.h5ad",
+        "n_cells": 1000,
+        "n_genes": 18078,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.1740140286574245,
+        "file_size_mb": 164.4074192047119,
+        "category": "demo_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "seqfish_demo.h5ad",
+        "path": "demo_datasets/seqfish_demo.h5ad",
+        "n_cells": 1000,
+        "n_genes": 351,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2.6504321238026893,
+        "file_size_mb": 1.6415634155273438,
+        "category": "demo_datasets",
+        "technology": "seqfish"
+      },
+      {
+        "filename": "scanpy_paul15.h5ad",
+        "path": "benchmark_datasets/scanpy_paul15.h5ad",
+        "n_cells": 2730,
+        "n_genes": 3451,
+        "has_spatial": true,
+        "spatial_dims": [
+          2730,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.746715874678784,
+        "file_size_mb": 36.24511909484863,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix_backup_24MB.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix_backup_24MB.h5ad",
+        "n_cells": 1600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0039328125,
+        "file_size_mb": 24.79326629638672,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "jurkat_293t_mixture_simulated.h5ad",
+        "path": "benchmark_datasets/jurkat_293t_mixture_simulated.h5ad",
+        "n_cells": 4600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002392173913043478,
+        "file_size_mb": 70.85836791992188,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "hdst_squamous_carcinoma.h5ad",
+        "path": "benchmark_datasets/hdst_squamous_carcinoma.h5ad",
+        "n_cells": 3850,
+        "n_genes": 1530,
+        "has_spatial": true,
+        "spatial_dims": [
+          3850,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006744758509464392,
+        "file_size_mb": 45.32875633239746,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "benchmark_1kx2k.h5ad",
+        "path": "benchmark_datasets/benchmark_1kx2k.h5ad",
+        "n_cells": 1000,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6.5e-06,
+        "file_size_mb": 15.498542785644531,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "pure_293t_simulated.h5ad",
+        "path": "benchmark_datasets/pure_293t_simulated.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006753333333333333,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "enhanced_visium.h5ad",
+        "path": "benchmark_datasets/enhanced_visium.h5ad",
+        "n_cells": 2000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.0029333333333333334,
+        "file_size_mb": 71.71200561523438,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "slideseq_processed.h5ad",
+        "path": "benchmark_datasets/slideseq_processed.h5ad",
+        "n_cells": 2000,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.722485,
+        "file_size_mb": 15.595329284667969,
+        "category": "benchmark_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "pixelseq_data.h5ad",
+        "path": "benchmark_datasets/pixelseq_data.h5ad",
+        "n_cells": 4409,
+        "n_genes": 3535,
+        "has_spatial": true,
+        "spatial_dims": [
+          4409,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.01563254792899826,
+        "file_size_mb": 119.7187442779541,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix_dup1.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix_dup1.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006753333333333333,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "large_synthetic.h5ad",
+        "path": "benchmark_datasets/large_synthetic.h5ad",
+        "n_cells": 5000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 114.98466491699219,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "stereoseq_mouse_embryo.h5ad",
+        "path": "benchmark_datasets/stereoseq_mouse_embryo.h5ad",
+        "n_cells": 2115,
+        "n_genes": 1850,
+        "has_spatial": true,
+        "spatial_dims": [
+          2115,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 7.667241709794902e-07,
+        "file_size_mb": 30.15882968902588,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002465666666666667,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "medium_synthetic.h5ad",
+        "path": "benchmark_datasets/medium_synthetic.h5ad",
+        "n_cells": 1000,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 8e-06,
+        "file_size_mb": 15.502723693847656,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "benchmark_2kx3k.h5ad",
+        "path": "benchmark_datasets/benchmark_2kx3k.h5ad",
+        "n_cells": 2000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 5.333333333333334e-06,
+        "file_size_mb": 46.155296325683594,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "mtx_processed.h5ad",
+        "path": "benchmark_datasets/mtx_processed.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2500,
+        "has_spatial": true,
+        "spatial_dims": [
+          1500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 9.027194666666666,
+        "file_size_mb": 4.751110076904297,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "pure_jurkat_simulated.h5ad",
+        "path": "benchmark_datasets/pure_jurkat_simulated.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002465666666666667,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "mixture_simulated.h5ad",
+        "path": "benchmark_datasets/mixture_simulated.h5ad",
+        "n_cells": 1600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0039328125,
+        "file_size_mb": 24.79326629638672,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "benchmark_5kx5k.h5ad",
+        "path": "benchmark_datasets/benchmark_5kx5k.h5ad",
+        "n_cells": 5000,
+        "n_genes": 5000,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 5.52e-06,
+        "file_size_mb": 191.4458236694336,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      }
+    ],
+    "large": [
+      {
+        "filename": "squidpy_slideseqv2.h5ad",
+        "path": "spatial_datasets/squidpy_slideseqv2.h5ad",
+        "n_cells": 41786,
+        "n_genes": 4000,
+        "has_spatial": true,
+        "spatial_dims": [
+          41786,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 36.897412793709826,
+        "file_size_mb": 251.32371711730957,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "slideseq_cerebellum.h5ad",
+        "path": "spatial_datasets/slideseq_cerebellum.h5ad",
+        "n_cells": 15000,
+        "n_genes": 10000,
+        "has_spatial": true,
+        "spatial_dims": [
+          15000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235087533333334,
+        "file_size_mb": 574.5903854370117,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "squidpy_seqfish.h5ad",
+        "path": "spatial_datasets/squidpy_seqfish.h5ad",
+        "n_cells": 19416,
+        "n_genes": 351,
+        "has_spatial": true,
+        "spatial_dims": [
+          19416,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2.6043220029723027,
+        "file_size_mb": 30.683151245117188,
+        "category": "spatial_datasets",
+        "technology": "seqfish"
+      },
+      {
+        "filename": "stereo_seq_brain.h5ad",
+        "path": "spatial_datasets/stereo_seq_brain.h5ad",
+        "n_cells": 15000,
+        "n_genes": 4000,
+        "has_spatial": true,
+        "spatial_dims": [
+          15000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.35e-06,
+        "file_size_mb": 702.5589065551758,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "mop_sn_tutorial.h5ad",
+        "path": "demo_datasets/mop_sn_tutorial.h5ad",
+        "n_cells": 26431,
+        "n_genes": 27742,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6.175536645880263,
+        "file_size_mb": 1956.003176689148,
+        "category": "demo_datasets",
+        "technology": "single_cell_rna_seq"
+      }
+    ],
+    "xl": [
+      {
+        "filename": "squidpy_merfish.h5ad",
+        "path": "spatial_datasets/squidpy_merfish.h5ad",
+        "n_cells": 73655,
+        "n_genes": 161,
+        "has_spatial": true,
+        "spatial_dims": [
+          73655,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 1.5445280690931524,
+        "file_size_mb": 49.20067882537842,
+        "category": "spatial_datasets",
+        "technology": "merfish"
+      }
+    ]
+  },
+  "spatial_datasets": [
+    {
+      "filename": "squidpy_slideseqv2.h5ad",
+      "path": "spatial_datasets/squidpy_slideseqv2.h5ad",
+      "n_cells": 41786,
+      "n_genes": 4000,
+      "has_spatial": true,
+      "spatial_dims": [
+        41786,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": true,
+      "sparsity": 36.897412793709826,
+      "file_size_mb": 251.32371711730957,
+      "category": "spatial_datasets",
+      "technology": "slide-seq"
+    },
+    {
+      "filename": "squidpy_merfish.h5ad",
+      "path": "spatial_datasets/squidpy_merfish.h5ad",
+      "n_cells": 73655,
+      "n_genes": 161,
+      "has_spatial": true,
+      "spatial_dims": [
+        73655,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 1.5445280690931524,
+      "file_size_mb": 49.20067882537842,
+      "category": "spatial_datasets",
+      "technology": "merfish"
+    },
+    {
+      "filename": "empty_velocity_layers.h5ad",
+      "path": "spatial_datasets/empty_velocity_layers.h5ad",
+      "n_cells": 70,
+      "n_genes": 350,
+      "has_spatial": true,
+      "spatial_dims": [
+        70,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.051510204081632656,
+      "file_size_mb": 0.5005722045898438,
+      "category": "spatial_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "squidpy_visium_backup_314MB.h5ad",
+      "path": "spatial_datasets/squidpy_visium_backup_314MB.h5ad",
+      "n_cells": 2688,
+      "n_genes": 18078,
+      "has_spatial": true,
+      "spatial_dims": [
+        2688,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": true,
+      "sparsity": 2.1529907973221,
+      "file_size_mb": 314.0865879058838,
+      "category": "spatial_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "slideseq_v2_olfactory.h5ad",
+      "path": "spatial_datasets/slideseq_v2_olfactory.h5ad",
+      "n_cells": 6000,
+      "n_genes": 11000,
+      "has_spatial": true,
+      "spatial_dims": [
+        6000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.9235023181818182,
+      "file_size_mb": 253.3323516845703,
+      "category": "spatial_datasets",
+      "technology": "slide-seq"
+    },
+    {
+      "filename": "st_mouse_brain_backup_9MB.h5ad",
+      "path": "spatial_datasets/st_mouse_brain_backup_9MB.h5ad",
+      "n_cells": 685,
+      "n_genes": 32285,
+      "has_spatial": true,
+      "spatial_dims": [
+        685,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 6.505362130462671,
+      "file_size_mb": 9.703502655029297,
+      "category": "spatial_datasets",
+      "technology": "spatial_transcriptomics"
+    },
+    {
+      "filename": "pancreas_subset_for_cellrank.h5ad",
+      "path": "spatial_datasets/pancreas_subset_for_cellrank.h5ad",
+      "n_cells": 500,
+      "n_genes": 27998,
+      "has_spatial": true,
+      "spatial_dims": [
+        500,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 10.102105426779557,
+      "file_size_mb": 23.91021156311035,
+      "category": "spatial_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "squidpy_mibitof.h5ad",
+      "path": "spatial_datasets/squidpy_mibitof.h5ad",
+      "n_cells": 3309,
+      "n_genes": 36,
+      "has_spatial": true,
+      "spatial_dims": [
+        3309,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.0,
+      "file_size_mb": 19.351433753967285,
+      "category": "spatial_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "slideseq_cerebellum.h5ad",
+      "path": "spatial_datasets/slideseq_cerebellum.h5ad",
+      "n_cells": 15000,
+      "n_genes": 10000,
+      "has_spatial": true,
+      "spatial_dims": [
+        15000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.9235087533333334,
+      "file_size_mb": 574.5903854370117,
+      "category": "spatial_datasets",
+      "technology": "slide-seq"
+    },
+    {
+      "filename": "slideseq_v2_hippocampus.h5ad",
+      "path": "spatial_datasets/slideseq_v2_hippocampus.h5ad",
+      "n_cells": 8000,
+      "n_genes": 12000,
+      "has_spatial": true,
+      "spatial_dims": [
+        8000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.9235257708333333,
+      "file_size_mb": 368.06417083740234,
+      "category": "spatial_datasets",
+      "technology": "slide-seq"
+    },
+    {
+      "filename": "missing_velocity_layers.h5ad",
+      "path": "spatial_datasets/missing_velocity_layers.h5ad",
+      "n_cells": 80,
+      "n_genes": 400,
+      "has_spatial": true,
+      "spatial_dims": [
+        80,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.00659375,
+      "file_size_mb": 0.15509796142578125,
+      "category": "spatial_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "extreme_coordinates.h5ad",
+      "path": "spatial_datasets/extreme_coordinates.h5ad",
+      "n_cells": 60,
+      "n_genes": 250,
+      "has_spatial": true,
+      "spatial_dims": [
+        60,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.01806666666666667,
+      "file_size_mb": 0.08209228515625,
+      "category": "spatial_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "osmfish_somatosensory.h5ad",
+      "path": "spatial_datasets/osmfish_somatosensory.h5ad",
+      "n_cells": 993,
+      "n_genes": 46,
+      "has_spatial": true,
+      "spatial_dims": [
+        993,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.6380314374534787,
+      "file_size_mb": 0.43485260009765625,
+      "category": "spatial_datasets",
+      "technology": "osmfish"
+    },
+    {
+      "filename": "squidpy_visium.h5ad",
+      "path": "spatial_datasets/squidpy_visium.h5ad",
+      "n_cells": 684,
+      "n_genes": 18078,
+      "has_spatial": true,
+      "spatial_dims": [
+        684,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": true,
+      "sparsity": 2.373171542099747,
+      "file_size_mb": 89.9190845489502,
+      "category": "spatial_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "seqfish_developmental.h5ad",
+      "path": "spatial_datasets/seqfish_developmental.h5ad",
+      "n_cells": 1200,
+      "n_genes": 400,
+      "has_spatial": true,
+      "spatial_dims": [
+        1200,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": true,
+      "sparsity": 0.06977916666666667,
+      "file_size_mb": 6.9698486328125,
+      "category": "spatial_datasets",
+      "technology": "seqfish"
+    },
+    {
+      "filename": "st_human_breast_cancer.h5ad",
+      "path": "spatial_datasets/st_human_breast_cancer.h5ad",
+      "n_cells": 600,
+      "n_genes": 8000,
+      "has_spatial": true,
+      "spatial_dims": [
+        600,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.65356125,
+      "file_size_mb": 19.086219787597656,
+      "category": "spatial_datasets",
+      "technology": "spatial_transcriptomics"
+    },
+    {
+      "filename": "identical_coordinates.h5ad",
+      "path": "spatial_datasets/identical_coordinates.h5ad",
+      "n_cells": 50,
+      "n_genes": 200,
+      "has_spatial": true,
+      "spatial_dims": [
+        50,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.048,
+      "file_size_mb": 0.062255859375,
+      "category": "spatial_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "squidpy_seqfish.h5ad",
+      "path": "spatial_datasets/squidpy_seqfish.h5ad",
+      "n_cells": 19416,
+      "n_genes": 351,
+      "has_spatial": true,
+      "spatial_dims": [
+        19416,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 2.6043220029723027,
+      "file_size_mb": 30.683151245117188,
+      "category": "spatial_datasets",
+      "technology": "seqfish"
+    },
+    {
+      "filename": "coordinates_1d.h5ad",
+      "path": "spatial_datasets/coordinates_1d.h5ad",
+      "n_cells": 40,
+      "n_genes": 150,
+      "has_spatial": true,
+      "spatial_dims": [
+        40,
+        1
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.0485,
+      "file_size_mb": 0.046234130859375,
+      "category": "spatial_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "slideseq_beads.h5ad",
+      "path": "spatial_datasets/slideseq_beads.h5ad",
+      "n_cells": 8000,
+      "n_genes": 1500,
+      "has_spatial": true,
+      "spatial_dims": [
+        8000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": true,
+      "sparsity": 0.9039830833333333,
+      "file_size_mb": 146.65339279174805,
+      "category": "spatial_datasets",
+      "technology": "slide-seq"
+    },
+    {
+      "filename": "squidpy_imc.h5ad",
+      "path": "spatial_datasets/squidpy_imc.h5ad",
+      "n_cells": 4668,
+      "n_genes": 34,
+      "has_spatial": true,
+      "spatial_dims": [
+        4668,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.015159534250718282,
+      "file_size_mb": 1.5064888000488281,
+      "category": "spatial_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "stereo_seq_brain.h5ad",
+      "path": "spatial_datasets/stereo_seq_brain.h5ad",
+      "n_cells": 15000,
+      "n_genes": 4000,
+      "has_spatial": true,
+      "spatial_dims": [
+        15000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": true,
+      "sparsity": 2.35e-06,
+      "file_size_mb": 702.5589065551758,
+      "category": "spatial_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "high_res_merfish.h5ad",
+      "path": "spatial_datasets/high_res_merfish.h5ad",
+      "n_cells": 5000,
+      "n_genes": 300,
+      "has_spatial": true,
+      "spatial_dims": [
+        5000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": true,
+      "sparsity": 0.990016,
+      "file_size_mb": 22.46282958984375,
+      "category": "spatial_datasets",
+      "technology": "merfish"
+    },
+    {
+      "filename": "synthetic_merfish.h5ad",
+      "path": "synthetic_datasets/synthetic_merfish.h5ad",
+      "n_cells": 2000,
+      "n_genes": 200,
+      "has_spatial": true,
+      "spatial_dims": [
+        2000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.5534875,
+      "file_size_mb": 3.3644027709960938,
+      "category": "synthetic_datasets",
+      "technology": "merfish"
+    },
+    {
+      "filename": "synthetic_mouse_kidney.h5ad",
+      "path": "synthetic_datasets/synthetic_mouse_kidney.h5ad",
+      "n_cells": 1500,
+      "n_genes": 12000,
+      "has_spatial": true,
+      "spatial_dims": [
+        1500,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.7008995555555556,
+      "file_size_mb": 138.59764862060547,
+      "category": "synthetic_datasets",
+      "technology": "synthetic"
+    },
+    {
+      "filename": "synthetic_human_heart.h5ad",
+      "path": "synthetic_datasets/synthetic_human_heart.h5ad",
+      "n_cells": 1200,
+      "n_genes": 10000,
+      "has_spatial": true,
+      "spatial_dims": [
+        1200,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.7008485833333333,
+      "file_size_mb": 92.61731719970703,
+      "category": "synthetic_datasets",
+      "technology": "synthetic"
+    },
+    {
+      "filename": "synthetic_human_brain.h5ad",
+      "path": "synthetic_datasets/synthetic_human_brain.h5ad",
+      "n_cells": 2000,
+      "n_genes": 15000,
+      "has_spatial": true,
+      "spatial_dims": [
+        2000,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.7007126,
+      "file_size_mb": 230.47462463378906,
+      "category": "synthetic_datasets",
+      "technology": "synthetic"
+    },
+    {
+      "filename": "visium_demo.h5ad",
+      "path": "demo_datasets/visium_demo.h5ad",
+      "n_cells": 1000,
+      "n_genes": 18078,
+      "has_spatial": true,
+      "spatial_dims": [
+        1000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": true,
+      "sparsity": 2.1740140286574245,
+      "file_size_mb": 164.4074192047119,
+      "category": "demo_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "seqfish_demo.h5ad",
+      "path": "demo_datasets/seqfish_demo.h5ad",
+      "n_cells": 1000,
+      "n_genes": 351,
+      "has_spatial": true,
+      "spatial_dims": [
+        1000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 2.6504321238026893,
+      "file_size_mb": 1.6415634155273438,
+      "category": "demo_datasets",
+      "technology": "seqfish"
+    },
+    {
+      "filename": "scanpy_paul15.h5ad",
+      "path": "benchmark_datasets/scanpy_paul15.h5ad",
+      "n_cells": 2730,
+      "n_genes": 3451,
+      "has_spatial": true,
+      "spatial_dims": [
+        2730,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.746715874678784,
+      "file_size_mb": 36.24511909484863,
+      "category": "benchmark_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "string_indices.h5ad",
+      "path": "benchmark_datasets/string_indices.h5ad",
+      "n_cells": 100,
+      "n_genes": 500,
+      "has_spatial": true,
+      "spatial_dims": [
+        100,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.019,
+      "file_size_mb": 0.24167633056640625,
+      "category": "benchmark_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "hdst_squamous_carcinoma.h5ad",
+      "path": "benchmark_datasets/hdst_squamous_carcinoma.h5ad",
+      "n_cells": 3850,
+      "n_genes": 1530,
+      "has_spatial": true,
+      "spatial_dims": [
+        3850,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.0006744758509464392,
+      "file_size_mb": 45.32875633239746,
+      "category": "benchmark_datasets",
+      "technology": "spatial_transcriptomics"
+    },
+    {
+      "filename": "high_sparsity.h5ad",
+      "path": "benchmark_datasets/high_sparsity.h5ad",
+      "n_cells": 500,
+      "n_genes": 1000,
+      "has_spatial": true,
+      "spatial_dims": [
+        500,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.94983,
+      "file_size_mb": 3.8994827270507812,
+      "category": "benchmark_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "benchmark_1kx2k.h5ad",
+      "path": "benchmark_datasets/benchmark_1kx2k.h5ad",
+      "n_cells": 1000,
+      "n_genes": 2000,
+      "has_spatial": true,
+      "spatial_dims": [
+        1000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 6.5e-06,
+      "file_size_mb": 15.498542785644531,
+      "category": "benchmark_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "nan_coordinates.h5ad",
+      "path": "benchmark_datasets/nan_coordinates.h5ad",
+      "n_cells": 100,
+      "n_genes": 500,
+      "has_spatial": true,
+      "spatial_dims": [
+        100,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.00658,
+      "file_size_mb": 0.23310089111328125,
+      "category": "benchmark_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "small_synthetic.h5ad",
+      "path": "benchmark_datasets/small_synthetic.h5ad",
+      "n_cells": 100,
+      "n_genes": 500,
+      "has_spatial": true,
+      "spatial_dims": [
+        100,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.0,
+      "file_size_mb": 0.4455718994140625,
+      "category": "benchmark_datasets",
+      "technology": "synthetic"
+    },
+    {
+      "filename": "benchmark_500x1k.h5ad",
+      "path": "benchmark_datasets/benchmark_500x1k.h5ad",
+      "n_cells": 500,
+      "n_genes": 1000,
+      "has_spatial": true,
+      "spatial_dims": [
+        500,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 6e-06,
+      "file_size_mb": 3.9408531188964844,
+      "category": "benchmark_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "mixed_data_types.h5ad",
+      "path": "benchmark_datasets/mixed_data_types.h5ad",
+      "n_cells": 100,
+      "n_genes": 500,
+      "has_spatial": true,
+      "spatial_dims": [
+        100,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.019,
+      "file_size_mb": 0.2624320983886719,
+      "category": "benchmark_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "enhanced_visium.h5ad",
+      "path": "benchmark_datasets/enhanced_visium.h5ad",
+      "n_cells": 2000,
+      "n_genes": 3000,
+      "has_spatial": true,
+      "spatial_dims": [
+        2000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": true,
+      "sparsity": 0.0029333333333333334,
+      "file_size_mb": 71.71200561523438,
+      "category": "benchmark_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "slideseq_processed.h5ad",
+      "path": "benchmark_datasets/slideseq_processed.h5ad",
+      "n_cells": 2000,
+      "n_genes": 1000,
+      "has_spatial": true,
+      "spatial_dims": [
+        2000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.722485,
+      "file_size_mb": 15.595329284667969,
+      "category": "benchmark_datasets",
+      "technology": "slide-seq"
+    },
+    {
+      "filename": "pixelseq_data.h5ad",
+      "path": "benchmark_datasets/pixelseq_data.h5ad",
+      "n_cells": 4409,
+      "n_genes": 3535,
+      "has_spatial": true,
+      "spatial_dims": [
+        4409,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.01563254792899826,
+      "file_size_mb": 119.7187442779541,
+      "category": "benchmark_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "large_synthetic.h5ad",
+      "path": "benchmark_datasets/large_synthetic.h5ad",
+      "n_cells": 5000,
+      "n_genes": 3000,
+      "has_spatial": true,
+      "spatial_dims": [
+        5000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.0,
+      "file_size_mb": 114.98466491699219,
+      "category": "benchmark_datasets",
+      "technology": "synthetic"
+    },
+    {
+      "filename": "stereoseq_mouse_embryo.h5ad",
+      "path": "benchmark_datasets/stereoseq_mouse_embryo.h5ad",
+      "n_cells": 2115,
+      "n_genes": 1850,
+      "has_spatial": true,
+      "spatial_dims": [
+        2115,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 7.667241709794902e-07,
+      "file_size_mb": 30.15882968902588,
+      "category": "benchmark_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "synthetic_visium.h5ad",
+      "path": "benchmark_datasets/synthetic_visium.h5ad",
+      "n_cells": 500,
+      "n_genes": 1000,
+      "has_spatial": true,
+      "spatial_dims": [
+        500,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.001946,
+      "file_size_mb": 4.006130218505859,
+      "category": "benchmark_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "medium_synthetic.h5ad",
+      "path": "benchmark_datasets/medium_synthetic.h5ad",
+      "n_cells": 1000,
+      "n_genes": 2000,
+      "has_spatial": true,
+      "spatial_dims": [
+        1000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 8e-06,
+      "file_size_mb": 15.502723693847656,
+      "category": "benchmark_datasets",
+      "technology": "synthetic"
+    },
+    {
+      "filename": "benchmark_2kx3k.h5ad",
+      "path": "benchmark_datasets/benchmark_2kx3k.h5ad",
+      "n_cells": 2000,
+      "n_genes": 3000,
+      "has_spatial": true,
+      "spatial_dims": [
+        2000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 5.333333333333334e-06,
+      "file_size_mb": 46.155296325683594,
+      "category": "benchmark_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "extremely_sparse.h5ad",
+      "path": "benchmark_datasets/extremely_sparse.h5ad",
+      "n_cells": 100,
+      "n_genes": 500,
+      "has_spatial": true,
+      "spatial_dims": [
+        100,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.999,
+      "file_size_mb": 0.43241119384765625,
+      "category": "benchmark_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "mtx_processed.h5ad",
+      "path": "benchmark_datasets/mtx_processed.h5ad",
+      "n_cells": 1500,
+      "n_genes": 2500,
+      "has_spatial": true,
+      "spatial_dims": [
+        1500,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 9.027194666666666,
+      "file_size_mb": 4.751110076904297,
+      "category": "benchmark_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "synthetic_small_test.h5ad",
+      "path": "benchmark_datasets/synthetic_small_test.h5ad",
+      "n_cells": 500,
+      "n_genes": 5000,
+      "has_spatial": true,
+      "spatial_dims": [
+        500,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.7001992,
+      "file_size_mb": 19.615203857421875,
+      "category": "benchmark_datasets",
+      "technology": "synthetic"
+    },
+    {
+      "filename": "st_processed.h5ad",
+      "path": "benchmark_datasets/st_processed.h5ad",
+      "n_cells": 300,
+      "n_genes": 2000,
+      "has_spatial": true,
+      "spatial_dims": [
+        300,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.07770333333333333,
+      "file_size_mb": 4.822135925292969,
+      "category": "benchmark_datasets",
+      "technology": "spatial_transcriptomics"
+    },
+    {
+      "filename": "benchmark_5kx5k.h5ad",
+      "path": "benchmark_datasets/benchmark_5kx5k.h5ad",
+      "n_cells": 5000,
+      "n_genes": 5000,
+      "has_spatial": true,
+      "spatial_dims": [
+        5000,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 5.52e-06,
+      "file_size_mb": 191.4458236694336,
+      "category": "benchmark_datasets",
+      "technology": "visium"
+    },
+    {
+      "filename": "unicode_characters.h5ad",
+      "path": "benchmark_datasets/unicode_characters.h5ad",
+      "n_cells": 100,
+      "n_genes": 500,
+      "has_spatial": true,
+      "spatial_dims": [
+        100,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 0.019,
+      "file_size_mb": 0.24673080444335938,
+      "category": "benchmark_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "pancreas_tiny_test.h5ad",
+      "path": "reference_datasets/pancreas_tiny_test.h5ad",
+      "n_cells": 200,
+      "n_genes": 27998,
+      "has_spatial": true,
+      "spatial_dims": [
+        200,
+        2
+      ],
+      "has_clusters": true,
+      "has_leiden": false,
+      "sparsity": 10.247745268579187,
+      "file_size_mb": 10.19715690612793,
+      "category": "reference_datasets",
+      "technology": "unknown_spatial"
+    },
+    {
+      "filename": "dimension_validation_test.h5ad",
+      "path": "reference_datasets/dimension_validation_test.h5ad",
+      "n_cells": 75,
+      "n_genes": 300,
+      "has_spatial": true,
+      "spatial_dims": [
+        75,
+        2
+      ],
+      "has_clusters": false,
+      "has_leiden": false,
+      "sparsity": 0.13626666666666667,
+      "file_size_mb": 0.11733245849609375,
+      "category": "reference_datasets",
+      "technology": "unknown_spatial"
+    }
+  ],
+  "quick_access": {
+    "recommended_spatial": [
+      {
+        "filename": "squidpy_merfish.h5ad",
+        "path": "spatial_datasets/squidpy_merfish.h5ad",
+        "n_cells": 73655,
+        "n_genes": 161,
+        "has_spatial": true,
+        "spatial_dims": [
+          73655,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 1.5445280690931524,
+        "file_size_mb": 49.20067882537842,
+        "category": "spatial_datasets",
+        "technology": "merfish"
+      },
+      {
+        "filename": "squidpy_slideseqv2.h5ad",
+        "path": "spatial_datasets/squidpy_slideseqv2.h5ad",
+        "n_cells": 41786,
+        "n_genes": 4000,
+        "has_spatial": true,
+        "spatial_dims": [
+          41786,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 36.897412793709826,
+        "file_size_mb": 251.32371711730957,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "squidpy_seqfish.h5ad",
+        "path": "spatial_datasets/squidpy_seqfish.h5ad",
+        "n_cells": 19416,
+        "n_genes": 351,
+        "has_spatial": true,
+        "spatial_dims": [
+          19416,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2.6043220029723027,
+        "file_size_mb": 30.683151245117188,
+        "category": "spatial_datasets",
+        "technology": "seqfish"
+      },
+      {
+        "filename": "slideseq_cerebellum.h5ad",
+        "path": "spatial_datasets/slideseq_cerebellum.h5ad",
+        "n_cells": 15000,
+        "n_genes": 10000,
+        "has_spatial": true,
+        "spatial_dims": [
+          15000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235087533333334,
+        "file_size_mb": 574.5903854370117,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "stereo_seq_brain.h5ad",
+        "path": "spatial_datasets/stereo_seq_brain.h5ad",
+        "n_cells": 15000,
+        "n_genes": 4000,
+        "has_spatial": true,
+        "spatial_dims": [
+          15000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.35e-06,
+        "file_size_mb": 702.5589065551758,
+        "category": "spatial_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "slideseq_v2_hippocampus.h5ad",
+        "path": "spatial_datasets/slideseq_v2_hippocampus.h5ad",
+        "n_cells": 8000,
+        "n_genes": 12000,
+        "has_spatial": true,
+        "spatial_dims": [
+          8000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235257708333333,
+        "file_size_mb": 368.06417083740234,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "slideseq_beads.h5ad",
+        "path": "spatial_datasets/slideseq_beads.h5ad",
+        "n_cells": 8000,
+        "n_genes": 1500,
+        "has_spatial": true,
+        "spatial_dims": [
+          8000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.9039830833333333,
+        "file_size_mb": 146.65339279174805,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "slideseq_v2_olfactory.h5ad",
+        "path": "spatial_datasets/slideseq_v2_olfactory.h5ad",
+        "n_cells": 6000,
+        "n_genes": 11000,
+        "has_spatial": true,
+        "spatial_dims": [
+          6000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.9235023181818182,
+        "file_size_mb": 253.3323516845703,
+        "category": "spatial_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "high_res_merfish.h5ad",
+        "path": "spatial_datasets/high_res_merfish.h5ad",
+        "n_cells": 5000,
+        "n_genes": 300,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.990016,
+        "file_size_mb": 22.46282958984375,
+        "category": "spatial_datasets",
+        "technology": "merfish"
+      },
+      {
+        "filename": "large_synthetic.h5ad",
+        "path": "benchmark_datasets/large_synthetic.h5ad",
+        "n_cells": 5000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 114.98466491699219,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      }
+    ],
+    "recommended_demo": [
+      {
+        "filename": "visium_demo.h5ad",
+        "path": "demo_datasets/visium_demo.h5ad",
+        "n_cells": 1000,
+        "n_genes": 18078,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 2.1740140286574245,
+        "file_size_mb": 164.4074192047119,
+        "category": "demo_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "seqfish_demo.h5ad",
+        "path": "demo_datasets/seqfish_demo.h5ad",
+        "n_cells": 1000,
+        "n_genes": 351,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2.6504321238026893,
+        "file_size_mb": 1.6415634155273438,
+        "category": "demo_datasets",
+        "technology": "seqfish"
+      },
+      {
+        "filename": "mop_sn_tutorial.h5ad",
+        "path": "demo_datasets/mop_sn_tutorial.h5ad",
+        "n_cells": 26431,
+        "n_genes": 27742,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6.175536645880263,
+        "file_size_mb": 1956.003176689148,
+        "category": "demo_datasets",
+        "technology": "single_cell_rna_seq"
+      }
+    ],
+    "recommended_benchmark": [
+      {
+        "filename": "no_spatial.h5ad",
+        "path": "benchmark_datasets/no_spatial.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 2e-05,
+        "file_size_mb": 0.4230804443359375,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "string_indices.h5ad",
+        "path": "benchmark_datasets/string_indices.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.24167633056640625,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "nan_coordinates.h5ad",
+        "path": "benchmark_datasets/nan_coordinates.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.00658,
+        "file_size_mb": 0.23310089111328125,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "small_synthetic.h5ad",
+        "path": "benchmark_datasets/small_synthetic.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 0.4455718994140625,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "mixed_data_types.h5ad",
+        "path": "benchmark_datasets/mixed_data_types.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.2624320983886719,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "extremely_sparse.h5ad",
+        "path": "benchmark_datasets/extremely_sparse.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.999,
+        "file_size_mb": 0.43241119384765625,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "unicode_characters.h5ad",
+        "path": "benchmark_datasets/unicode_characters.h5ad",
+        "n_cells": 100,
+        "n_genes": 500,
+        "has_spatial": true,
+        "spatial_dims": [
+          100,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.019,
+        "file_size_mb": 0.24673080444335938,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "st_processed.h5ad",
+        "path": "benchmark_datasets/st_processed.h5ad",
+        "n_cells": 300,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          300,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.07770333333333333,
+        "file_size_mb": 4.822135925292969,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "high_sparsity.h5ad",
+        "path": "benchmark_datasets/high_sparsity.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.94983,
+        "file_size_mb": 3.8994827270507812,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "benchmark_500x1k.h5ad",
+        "path": "benchmark_datasets/benchmark_500x1k.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6e-06,
+        "file_size_mb": 3.9408531188964844,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "synthetic_visium.h5ad",
+        "path": "benchmark_datasets/synthetic_visium.h5ad",
+        "n_cells": 500,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.001946,
+        "file_size_mb": 4.006130218505859,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "synthetic_small_test.h5ad",
+        "path": "benchmark_datasets/synthetic_small_test.h5ad",
+        "n_cells": 500,
+        "n_genes": 5000,
+        "has_spatial": true,
+        "spatial_dims": [
+          500,
+          2
+        ],
+        "has_clusters": false,
+        "has_leiden": false,
+        "sparsity": 0.7001992,
+        "file_size_mb": 19.615203857421875,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "benchmark_1kx2k.h5ad",
+        "path": "benchmark_datasets/benchmark_1kx2k.h5ad",
+        "n_cells": 1000,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 6.5e-06,
+        "file_size_mb": 15.498542785644531,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "medium_synthetic.h5ad",
+        "path": "benchmark_datasets/medium_synthetic.h5ad",
+        "n_cells": 1000,
+        "n_genes": 2000,
+        "has_spatial": true,
+        "spatial_dims": [
+          1000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 8e-06,
+        "file_size_mb": 15.502723693847656,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "pure_293t_simulated.h5ad",
+        "path": "benchmark_datasets/pure_293t_simulated.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006753333333333333,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix_dup1.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix_dup1.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006753333333333333,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002465666666666667,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "mtx_processed.h5ad",
+        "path": "benchmark_datasets/mtx_processed.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2500,
+        "has_spatial": true,
+        "spatial_dims": [
+          1500,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 9.027194666666666,
+        "file_size_mb": 4.751110076904297,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "pure_jurkat_simulated.h5ad",
+        "path": "benchmark_datasets/pure_jurkat_simulated.h5ad",
+        "n_cells": 1500,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002465666666666667,
+        "file_size_mb": 23.264240264892578,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "filtered_feature_bc_matrix_backup_24MB.h5ad",
+        "path": "benchmark_datasets/filtered_feature_bc_matrix_backup_24MB.h5ad",
+        "n_cells": 1600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0039328125,
+        "file_size_mb": 24.79326629638672,
+        "category": "benchmark_datasets",
+        "technology": "single_cell_rna_seq"
+      },
+      {
+        "filename": "mixture_simulated.h5ad",
+        "path": "benchmark_datasets/mixture_simulated.h5ad",
+        "n_cells": 1600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0039328125,
+        "file_size_mb": 24.79326629638672,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "enhanced_visium.h5ad",
+        "path": "benchmark_datasets/enhanced_visium.h5ad",
+        "n_cells": 2000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": true,
+        "sparsity": 0.0029333333333333334,
+        "file_size_mb": 71.71200561523438,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "slideseq_processed.h5ad",
+        "path": "benchmark_datasets/slideseq_processed.h5ad",
+        "n_cells": 2000,
+        "n_genes": 1000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.722485,
+        "file_size_mb": 15.595329284667969,
+        "category": "benchmark_datasets",
+        "technology": "slide-seq"
+      },
+      {
+        "filename": "benchmark_2kx3k.h5ad",
+        "path": "benchmark_datasets/benchmark_2kx3k.h5ad",
+        "n_cells": 2000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          2000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 5.333333333333334e-06,
+        "file_size_mb": 46.155296325683594,
+        "category": "benchmark_datasets",
+        "technology": "unknown_spatial"
+      },
+      {
+        "filename": "stereoseq_mouse_embryo.h5ad",
+        "path": "benchmark_datasets/stereoseq_mouse_embryo.h5ad",
+        "n_cells": 2115,
+        "n_genes": 1850,
+        "has_spatial": true,
+        "spatial_dims": [
+          2115,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 7.667241709794902e-07,
+        "file_size_mb": 30.15882968902588,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "scanpy_paul15.h5ad",
+        "path": "benchmark_datasets/scanpy_paul15.h5ad",
+        "n_cells": 2730,
+        "n_genes": 3451,
+        "has_spatial": true,
+        "spatial_dims": [
+          2730,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.746715874678784,
+        "file_size_mb": 36.24511909484863,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "hdst_squamous_carcinoma.h5ad",
+        "path": "benchmark_datasets/hdst_squamous_carcinoma.h5ad",
+        "n_cells": 3850,
+        "n_genes": 1530,
+        "has_spatial": true,
+        "spatial_dims": [
+          3850,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0006744758509464392,
+        "file_size_mb": 45.32875633239746,
+        "category": "benchmark_datasets",
+        "technology": "spatial_transcriptomics"
+      },
+      {
+        "filename": "pixelseq_data.h5ad",
+        "path": "benchmark_datasets/pixelseq_data.h5ad",
+        "n_cells": 4409,
+        "n_genes": 3535,
+        "has_spatial": true,
+        "spatial_dims": [
+          4409,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.01563254792899826,
+        "file_size_mb": 119.7187442779541,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      },
+      {
+        "filename": "jurkat_293t_mixture_simulated.h5ad",
+        "path": "benchmark_datasets/jurkat_293t_mixture_simulated.h5ad",
+        "n_cells": 4600,
+        "n_genes": 2000,
+        "has_spatial": false,
+        "spatial_dims": null,
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.002392173913043478,
+        "file_size_mb": 70.85836791992188,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "large_synthetic.h5ad",
+        "path": "benchmark_datasets/large_synthetic.h5ad",
+        "n_cells": 5000,
+        "n_genes": 3000,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 0.0,
+        "file_size_mb": 114.98466491699219,
+        "category": "benchmark_datasets",
+        "technology": "synthetic"
+      },
+      {
+        "filename": "benchmark_5kx5k.h5ad",
+        "path": "benchmark_datasets/benchmark_5kx5k.h5ad",
+        "n_cells": 5000,
+        "n_genes": 5000,
+        "has_spatial": true,
+        "spatial_dims": [
+          5000,
+          2
+        ],
+        "has_clusters": true,
+        "has_leiden": false,
+        "sparsity": 5.52e-06,
+        "file_size_mb": 191.4458236694336,
+        "category": "benchmark_datasets",
+        "technology": "visium"
+      }
+    ]
+  }
+}

@@ -15,8 +15,14 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 from .server import mcp
+from .cli.dependency_manager import deps
 
-@click.command()
+@click.group()
+def cli():
+    """ChatSpatial - AI-powered spatial transcriptomics analysis"""
+    pass
+
+@cli.command()
 @click.option("--port", default=8000, help="Port to listen on for SSE transport")
 @click.option(
     "--transport",
@@ -35,7 +41,7 @@ from .server import mcp
     default="INFO",
     help="Logging level"
 )
-def main(port: int, transport: str, host: str, log_level: str):
+def server(port: int, transport: str, host: str, log_level: str):
     """Start the ChatSpatial server.
 
     This command starts the ChatSpatial server using either stdio or SSE transport.
@@ -59,6 +65,18 @@ def main(port: int, transport: str, host: str, log_level: str):
         print(f"Error starting MCP server: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         sys.exit(1)
+
+# Add dependency management commands
+cli.add_command(deps)
+
+def main():
+    """Main entry point that preserves backward compatibility"""
+    # For backward compatibility, if no command is provided, assume server
+    if len(sys.argv) == 1 or (len(sys.argv) > 1 and sys.argv[1] not in ['server', 'deps']):
+        # Insert 'server' as the command
+        sys.argv.insert(1, 'server')
+    
+    cli()
 
 if __name__ == "__main__":
     main()

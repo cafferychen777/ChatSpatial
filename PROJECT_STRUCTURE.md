@@ -22,11 +22,12 @@ chatspatial/
 ├── scripts/                     # Utility scripts and tools
 ├── docs/                        # Documentation
 ├── examples/                    # Usage examples
-├── data/                        # Sample datasets
-├── test_data/                   # Testing datasets
+├── data/                        # All datasets organized by purpose
+│   ├── core/                    # Core example datasets
+│   ├── harmony/                 # Harmony integration test data
+│   └── test/                    # Testing datasets
 ├── archived_tests/              # Historical test scripts (organized)
 ├── archived_docs/               # Historical documentation
-├── harmony_datasets/            # Harmony integration test data
 ├── paper/                       # Research paper and figures
 └── third_party/                 # External dependencies and integrations
 ```
