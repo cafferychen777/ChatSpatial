@@ -11,18 +11,19 @@
 
 ## 🤖 What is Model Context Protocol (MCP)?
 
-**Model Context Protocol (MCP)** is an open standard that enables LLM agents to securely connect with external tools and data sources. Think of it as a universal "plugin system" for agentic systems that allows natural language interaction with specialized software.
+**Model Context Protocol (MCP)** is an open standard that enables LLM agents to securely connect with external tools and data sources. MCP functions as a universal plugin system for agentic systems that enables natural language interaction with specialized software.
 
-**� [Learn more about MCP →](what_is_mcp.md)**
+**📚 [Learn more about MCP →](what_is_mcp.md)**
 
 ### 🎥 New to MCP? Watch This!
 
 [![MCP Demo Video](https://img.shields.io/badge/▶️_Watch-MCP_Demo_Video-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/watch?v=sfCBCyNyw7U)
 
 *Simple 5-minute explanation of what MCP is and why it matters*
+
 ### Why MCP + ChatSpatial?
 
-Instead of learning complex bioinformatics tools, simply ask:
+Rather than learning complex bioinformatics tools, users can ask:
 
 > *"Load my Visium data and identify spatial domains"*
 > *"Which genes show spatial patterns in my dataset?"*
@@ -32,19 +33,20 @@ ChatSpatial handles the technical complexity while you focus on biological insig
 
 ## 🎯 What is ChatSpatial?
 
-ChatSpatial is a production-ready **MCP server** that provides LLM agents with comprehensive spatial transcriptomics analysis capabilities. It enables natural language interaction with complex spatial data analysis through **16 standardized MCP tools**.
+ChatSpatial is a production-ready MCP server that provides LLM agents with comprehensive spatial transcriptomics analysis capabilities. It enables natural language interaction with complex spatial data analysis through 16 standardized MCP tools.
 
 ### Key Features
 
-- **🔬 16+ Analysis Tools**: Complete spatial transcriptomics workflow from preprocessing to visualization
-- **🤖 Agent-Native**: Designed for seamless integration with Claude, GPT, and other LLM agents
-- **📊 Multiple Technologies**: Support for Visium, MERFISH, Slide-seq, and other spatial platforms
-- **🎨 Rich Visualizations**: 20 plot types with MCP image objects for direct agent display
-- **🔧 Production Ready**: Robust error handling, validation, and comprehensive testing
+- **16+ Analysis Tools**: Complete spatial transcriptomics workflow from preprocessing to visualization
+- **Agent-Native**: Designed for seamless integration with Claude, GPT, and other LLM agents
+- **Multiple Technologies**: Support for Visium, MERFISH, Slide-seq, and other spatial platforms
+- **Rich Visualizations**: 20 plot types with MCP image objects for direct agent display
+- **Production Ready**: Robust error handling, validation, and comprehensive testing
 
 ## 🚀 Quick Start
 
 ### 1. Installation
+
 ```bash
 # Create environment
 conda create -n chatspatial python=3.10
@@ -55,7 +57,9 @@ pip install -e .
 ```
 
 ### 2. MCP Configuration
+
 Add to your Claude Desktop configuration:
+
 ```json
 {
   "mcpServers": {
@@ -69,6 +73,7 @@ Add to your Claude Desktop configuration:
 ```
 
 ### 3. First Analysis
+
 ```python
 # Load spatial data
 result = load_data(data_path="data.h5ad", name="my_data")
@@ -86,23 +91,27 @@ visualize_data(data_id=result.id, plot_type="spatial_domains")
 ## 📚 Documentation Structure
 
 ### 🏁 Getting Started
+
 - **[Installation Guide](getting_started.md)** - Complete setup instructions
 - **[Quick Tutorial](tutorials/basic_spatial_analysis.md)** - Your first spatial analysis
 
 ### 🔧 API Reference
+
 - **[Tool Reference](api/README.md)** - Complete MCP tool documentation
 - **[Data Models](api/data_models.md)** - Parameter and result schemas
 - **[Error Handling](api/error_handling.md)** - Error codes and troubleshooting
 
 ### 📖 Tutorials
+
 - **[Basic Workflow](tutorials/basic_spatial_analysis.md)** - Standard analysis pipeline
 - **[Advanced Features](tutorials/advanced_analysis.md)** - Complex multi-modal analysis
 - **[Visualization Gallery](tutorials/visualization_gallery.md)** - All plot types with examples
 
 ### 🎯 Use Cases
-- **[Cell Type Annotation](tutorials/cell_annotation.md)** - Multiple annotation methods
-- **[Spatial Domain Discovery](tutorials/spatial_domains.md)** - Tissue architecture analysis
-- **[Cell Communication](tutorials/cell_communication.md)** - Intercellular signaling analysis
+
+- **[Cell Type Annotation](tutorials/cell_type_annotation.md)** - Multiple annotation methods
+- **[Spatial Domain Discovery](tutorials/basic_spatial_analysis.md)** - Tissue architecture analysis
+- **[Cell Communication](tutorials/cell_communication_analysis.md)** - Intercellular signaling analysis
 
 ## 🛠️ Core Analysis Tools
 
@@ -148,17 +157,19 @@ graph LR
 | **Slide-seq** | ✅ Full Support | Subcellular resolution analysis |
 | **STARmap** | ✅ Supported | 3D spatial analysis |
 | **seqFISH+** | ✅ Supported | Single-cell resolution |
-| **Xenium** | 🔄 In Progress | Next-generation spatial |
+| **Xenium** | 🔄 In Progress | Latest spatial technology |
 
 ## 📊 Analysis Capabilities
 
 ### Preprocessing & QC
+
 - Normalization (log, SCTransform, Pearson residuals)
 - Quality control metrics
 - Batch effect correction
 - Spatial coordinate validation
 
 ### Cell Type Annotation
+
 - **Marker-based**: Traditional marker gene approach
 - **Tangram**: Spatial mapping with reference data
 - **scType**: Automated cell type identification
@@ -168,12 +179,14 @@ graph LR
 - **MLLMCellType**: Multi-modal LLM classifier
 
 ### Spatial Domain Identification
+
 - **SpaGCN**: Graph convolutional networks
 - **STAGATE**: Spatial-temporal attention
 - **BANKSY**: Spatial clustering
 - **Leiden/Louvain**: Community detection
 
 ### Cell Communication Analysis
+
 - **LIANA+**: Comprehensive ligand-receptor analysis
 - **CellPhoneDB**: Statistical interaction testing
 - **CellChat**: Systematic communication analysis
