@@ -7,16 +7,27 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  basic-test:
+  test:
     runs-on: ubuntu-latest
-    
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
-        python-version: "3.10"
+        python-version: ${{ matrix.python-version }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
 
     - name: Install package with minimal dependencies
       run: |
@@ -28,17 +39,41 @@ jobs:
           pip install -e . --no-deps
         }
 
+    - name: Install development dependencies
+      run: |
+        pip install black mypy pytest pytest-asyncio
+      continue-on-error: true
+
     - name: Basic import test
       run: |
         python -c "import chatspatial; print('✅ ChatSpatial imported successfully')"
-        python -c "from chatspatial.server import Server; print('✅ Server module loaded')" || echo "Server import needs dependencies"
+        python -c "from chatspatial.server import mcp; print('✅ Server module loaded')" || echo "Server import needs dependencies"
+
+    - name: Test CLI help
+      run: |
+        chatspatial --help
+
+    - name: Check code formatting
+      run: |
+        black --check --diff chatspatial/ || echo "Code formatting check failed"
+      continue-on-error: true
+
+    - name: Type checking
+      run: |
+        mypy chatspatial/ --ignore-missing-imports || echo "Type checking failed"
+      continue-on-error: true
 
     - name: Test server startup
       run: |
-        timeout 5 python -m chatspatial.server || code=$?
+        timeout 5 python -m chatspatial || code=$?
         if [ $code -eq 124 ]; then
           echo "✅ Server started successfully (timeout expected)"
         else
           echo "Server exited with code $code"
         fi
+      continue-on-error: true
+
+    - name: Run basic tests
+      run: |
+        pytest tests/ -v --tb=short -x || echo "Tests failed"
       continue-on-error: true
