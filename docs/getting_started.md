@@ -12,6 +12,25 @@ Before installing ChatSpatial, ensure you have:
 - **8GB+ RAM** for typical spatial datasets
 - **Claude Desktop** or another MCP-compatible client
 
+### 📥 Download Claude Desktop
+
+If you don't have Claude Desktop yet:
+
+1. **Visit**: [claude.ai](https://claude.ai)
+2. **Download**: Claude Desktop for your operating system
+3. **Sign up**: Create an Anthropic account if needed
+
+### 🎥 Learn About MCP First
+
+New to Model Context Protocol? Watch this quick introduction:
+
+[![MCP Introduction](https://img.shields.io/badge/▶️_Watch-What_is_MCP?-blue?style=flat-square&logo=youtube)](https://www.youtube.com/watch?v=sfCBCyNyw7U)
+
+**Additional Resources:**
+- 📚 [Official MCP Documentation](https://modelcontextprotocol.io)
+- 📰 [Anthropic's MCP Announcement](https://www.anthropic.com/news/model-context-protocol)
+- 💻 [MCP GitHub Repository](https://github.com/modelcontextprotocol)
+
 ## Installation
 
 ### Step 1: Clone the Repository

@@ -201,9 +201,31 @@ MCP represents a fundamental shift toward:
 
 ## Learn More
 
-- **Official Documentation**: [modelcontextprotocol.io](https://modelcontextprotocol.io)
-- **GitHub Repository**: [MCP Specification](https://github.com/modelcontextprotocol)
-- **ChatSpatial Example**: See how MCP enables spatial transcriptomics analysis
+### 📚 Official Resources
+
+- **🌐 Official Website**: [modelcontextprotocol.io](https://modelcontextprotocol.io) - Complete MCP documentation
+- **📰 Anthropic Announcement**: [Introducing the Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) - Official launch blog post
+- **🔧 Claude Documentation**: [Connect Claude to tools via MCP](https://docs.anthropic.com/en/docs/claude-code/mcp) - Integration guide
+- **💻 GitHub Organization**: [Model Context Protocol](https://github.com/modelcontextprotocol) - Open source repositories
+
+### 🎥 Video Resources
+
+- **📺 Simple MCP Demo**: [I made the simplest MCP Demo to explain what it is](https://www.youtube.com/watch?v=sfCBCyNyw7U) - Clear explanation with examples
+- **🎬 Claude Code Introduction**: [Introducing Claude Code](https://www.youtube.com/watch?v=AJpK3YTTKZ4) - Official Anthropic video
+- **📖 Claude Code Tutorial**: [Claude Code Tutorial #1](https://www.youtube.com/watch?v=SUysp3sJHbA) - Setup and usage guide
+
+### 🛠️ Developer Resources
+
+- **📦 MCP Servers Collection**: [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) - Reference implementations
+- **🔨 MCP SDK**: Build your own MCP servers with official SDKs
+- **🧬 ChatSpatial Example**: See how MCP enables spatial transcriptomics analysis
+
+### 🚀 Getting Started
+
+1. **Watch the Demo Video** 📺 - Start with the simple MCP demo to understand the concept
+2. **Read the Official Announcement** 📰 - Learn about MCP's vision and goals
+3. **Try Claude Desktop** 💻 - Download and configure with ChatSpatial
+4. **Explore Examples** 🔍 - Browse the MCP servers repository for inspiration
 
 ---
 
