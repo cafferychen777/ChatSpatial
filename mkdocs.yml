@@ -7,6 +7,7 @@ edit_uri: edit/main/docs/
 
 nav:
   - Home: index.md
+  - What is MCP?: what_is_mcp.md
   - Getting Started: getting_started.md
   - Tutorials:
       - Overview: tutorials/README.md
