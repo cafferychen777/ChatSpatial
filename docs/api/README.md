@@ -38,6 +38,11 @@ preprocess_data(data_id="dataset", normalize_total=True, log1p=True)
 identify_spatial_domains(data_id="dataset", method="spagcn")
 annotate_cells(data_id="dataset", method="tangram")
 analyze_cell_communication(data_id="dataset", method="liana")
+analyze_enrichment(data_id="dataset", method="spatial_enrichmap")
+
+# Advanced spatial analysis
+register_spatial_data(source_id="section1", target_id="section2")
+calculate_spatial_statistics(data_id="dataset", feature="gene", statistic="gearys_c")
 
 # Visualization
 visualize_data(data_id="dataset", plot_type="spatial_domains")
@@ -215,6 +220,97 @@ analyze_spatial_data(
 - **`hotspots`**: Hotspot detection (Getis-Ord Gi*)
 - **`patterns`**: Spatial expression patterns
 - **`neighborhoods`**: Neighborhood analysis
+
+### register_spatial_data
+
+Register and align spatial transcriptomics data across multiple tissue sections.
+
+**Signature:**
+```python
+register_spatial_data(
+    source_id: str,
+    target_id: str,
+    method: str = "paste",
+    landmarks: Optional[List[Dict[str, Any]]] = None
+) -> Dict[str, Any]
+```
+
+**Available Methods:**
+
+| Method | Description | Best For |
+|--------|-------------|----------|
+| `paste` | PASTE algorithm for spatial alignment | Multi-slice integration |
+| `stalign` | STAlign deep learning registration | Complex tissue deformation |
+
+**Key Features:**
+- Cross-section spatial alignment
+- Transformation matrix computation
+- Landmark-guided registration
+- Batch correction integration
+- Quality metrics for alignment assessment
+
+**Example:**
+```python
+# Register consecutive tissue sections
+result = register_spatial_data(
+    source_id="section_1",
+    target_id="section_2", 
+    method="paste"
+)
+
+print(f"Registration successful with transformation matrix")
+print(f"Alignment quality score: {result['alignment_score']:.3f}")
+```
+
+### calculate_spatial_statistics
+
+Calculate advanced spatial statistics for gene expression features.
+
+**Signature:**
+```python
+calculate_spatial_statistics(
+    data_id: str,
+    feature: str,
+    statistic: str = "gearys_c",
+    n_neighbors: int = 6
+) -> Dict[str, Any]
+```
+
+**Available Statistics:**
+
+| Statistic | Description | Interpretation |
+|-----------|-------------|----------------|
+| `gearys_c` | Geary's C spatial autocorrelation | Similar to Moran's I but emphasizes local differences |
+| `local_morans` | Local Moran's I statistic | Identifies spatial clusters and outliers |
+
+**Key Features:**
+- Complementary to `analyze_spatial_data` 
+- Focus on specific advanced statistics
+- Local spatial pattern detection
+- Statistical significance testing
+- Spatial neighborhood graph construction
+
+**Example:**
+```python
+# Calculate Geary's C for a specific gene
+result = calculate_spatial_statistics(
+    data_id="tissue_dataset",
+    feature="GAPDH",
+    statistic="gearys_c",
+    n_neighbors=8
+)
+
+print(f"Geary's C: {result['statistic_value']:.3f}")
+print(f"P-value: {result['p_value']:.2e}")
+
+# Local Moran's I for hotspot detection
+result = calculate_spatial_statistics(
+    data_id="tissue_dataset", 
+    feature="MKI67",
+    statistic="local_morans",
+    n_neighbors=6
+)
+```
 
 ## Gene Analysis
 
@@ -423,6 +519,7 @@ preprocess_data(data_id=result.id)
 identify_spatial_domains(data_id=result.id, method="spagcn")
 annotate_cells(data_id=result.id, method="tangram", reference_data_id="ref")
 analyze_cell_communication(data_id=result.id, method="liana")
+analyze_enrichment(data_id=result.id, method="spatial_enrichmap")
 visualize_data(data_id=result.id, plot_type="spatial_domains")
 ```
 
@@ -447,6 +544,15 @@ for sample_file in sample_files:
     result = load_data(data_path=f"data/{sample_file}", name=sample_file.replace(".h5ad", ""))
     preprocess_data(data_id=result.id)
     identify_spatial_domains(data_id=result.id)
+
+# Register multiple tissue sections
+sections = ["section_1", "section_2", "section_3"]
+for i in range(len(sections)-1):
+    register_spatial_data(
+        source_id=sections[i+1], 
+        target_id=sections[i],
+        method="paste"
+    )
 ```
 
 ## See Also

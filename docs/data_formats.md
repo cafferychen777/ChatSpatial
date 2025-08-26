@@ -122,15 +122,24 @@ spot_3,110.1,205.9
 
 **Loading CSV data:**
 ```python
-from chatspatial.tools.data_management import load_data
+# First convert CSV to AnnData format (recommended)
+import pandas as pd
+import scanpy as sc
 
+# Load CSV files
+expr = pd.read_csv("expression_matrix.csv", index_col=0)
+coords = pd.read_csv("spatial_coordinates.csv", index_col=0)
+
+# Create AnnData object
+adata = sc.AnnData(X=expr.T)  # Transpose for spots × genes
+adata.obsm['spatial'] = coords[['x', 'y']].values
+adata.write('converted_data.h5ad')
+
+# Then load with ChatSpatial
 result = load_data(
-    file_path="expression_matrix.csv",
-    data_id="my_data",
-    format="csv",
-    spatial_coordinates_file="spatial_coordinates.csv",
-    delimiter=",",
-    first_column_names=True
+    data_path="converted_data.h5ad",
+    data_type="h5ad", 
+    name="my_data"
 )
 ```
 
