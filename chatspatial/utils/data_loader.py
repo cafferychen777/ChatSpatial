@@ -2,12 +2,14 @@
 Data loading utilities for spatial transcriptomics data.
 """
 
-from typing import Dict, Optional, Any, Literal
+from typing import Dict, Optional, Any, Literal, TYPE_CHECKING
 import os
-import numpy as np
-import scanpy as sc
-import squidpy as sq
-import anndata as ad
+
+if TYPE_CHECKING:
+    import numpy as np
+    import scanpy as sc
+    import squidpy as sq
+    import anndata as ad
 
 
 async def load_spatial_data(
@@ -50,6 +52,11 @@ async def load_spatial_data(
     if data_type == "h5ad":
         data_type = "other"
 
+    # Import dependencies  
+    import scanpy as sc
+    import squidpy as sq
+    import numpy as np
+    
     # Load data based on data_type
     if data_type == "10x_visium":
         # For 10x Visium, we need to provide the path to the directory containing the data
