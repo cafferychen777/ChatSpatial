@@ -35,6 +35,36 @@ Uncover how different cells talk to each other in your tissue.
 - Exploring spatial communication patterns
 - Understanding biological significance
 
+### [Spatial Gene Set Enrichment Analysis](spatial_enrichment.md)
+Discover biological pathways and processes that are spatially organized in your tissue using EnrichMap.
+
+**What you'll learn:**
+- "Which biological processes are active in different regions?"
+- Loading gene sets from MSigDB and other databases
+- Performing spatially-aware enrichment analysis
+- Creating pathway territory maps and interpreting results
+- Validating spatial enrichment patterns biologically
+
+### [RNA Velocity & Trajectory Analysis](trajectory_analysis.md)
+Uncover cellular dynamics, developmental trajectories, and temporal processes in your tissue.
+
+**What you'll learn:**
+- "How are my cells changing over time?"
+- Computing RNA velocity to see directional changes
+- Inferring developmental trajectories and cell fate transitions
+- Exploring spatial-temporal patterns and biological significance
+
+### [GASTON: AI-Powered Spatial Gene Discovery](gaston_analysis.md)
+**Revolutionary neural network approach!** Discover complex spatial patterns using AI-powered analysis that goes beyond traditional statistical methods.
+
+**What you'll learn:**
+- "Can you use GASTON to find AI-powered spatial patterns?"
+- Understanding neural network pattern recognition
+- Isodepth learning and topographic expression mapping
+- Gradient classification (continuous vs discontinuous patterns)
+- Advanced GLM-PCA feature engineering
+- Adversarial spatial domain discovery
+
 ### [Creating Beautiful Visualizations](visualization_tutorial.md)
 Make publication-ready figures through simple conversation.
 
@@ -65,11 +95,11 @@ These tutorials are designed around **natural conversation**, not code. You'll l
 ## 🔄 Tutorial Progression
 
 ```
-Basic Analysis → Cell Types → Communication → Visualization
-     ↓              ↓            ↓             ↓
-  Load data    Identify cells  Find signals  Make figures
-  Find domains  Validate types  Explore space Create plots
-  Preprocess   Spatial maps    Pathways      Customize
+Basic Analysis → Cell Types → Communication → GASTON ML → Trajectories → Visualization
+     ↓              ↓            ↓             ↓             ↓             ↓
+  Load data    Identify cells  Find signals   Neural nets   Track dynamics Make figures
+  Find domains  Validate types  Explore space  Isodepth maps RNA velocity   Create plots
+  Preprocess   Spatial maps    Pathways       ML patterns   Pseudotime     Customize
 ```
 
 ## 📚 Additional Resources
