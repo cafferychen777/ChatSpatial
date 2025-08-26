@@ -12,13 +12,13 @@
 
 ## Interactive Spatial Transcriptomics Analysis via Model Context Protocol
 
-ChatSpatial is a production-ready **Model Context Protocol (MCP) server** that provides AI assistants with comprehensive spatial transcriptomics analysis capabilities. It enables natural language interaction with complex spatial data analysis through 16 standardized MCP tools.
+ChatSpatial is a production-ready **Model Context Protocol (MCP) server** that provides LLM agents with comprehensive spatial transcriptomics analysis capabilities. It enables natural language interaction with complex spatial data analysis through 16 standardized MCP tools.
 
 > **📁 Data Note**: Datasets are not included in the repository. Use the provided download scripts in `data/scripts/` or see [FINAL_MCP_DATASETS_REPORT.md](FINAL_MCP_DATASETS_REPORT.md) for dataset acquisition instructions.
 
 ## 🎯 Why ChatSpatial?
 
-- **🔗 Universal AI Integration**: Works seamlessly with Claude Desktop, Cherry Studio, Continue, and any MCP-compatible AI tool
+- **🔗 Universal Agent Integration**: Works seamlessly with Claude Desktop, Cherry Studio, Continue, and any MCP-compatible LLM tool
 - **🧬 Spatial-First Design**: Purpose-built for spatial transcriptomics (10x Visium, Slide-seq, MERFISH, seqFISH)
 - **⚡ Production Ready**: All core methods tested and validated with real-world datasets
 - **🎛️ Comprehensive**: 16 tools covering the entire spatial analysis workflow
@@ -29,7 +29,7 @@ ChatSpatial is a production-ready **Model Context Protocol (MCP) server** that p
 ### Prerequisites
 
 - Python 3.8+ (Python 3.10-3.11 recommended for best compatibility)
-- An MCP-compatible AI assistant (Claude Desktop, Cherry Studio, etc.)
+- An MCP-compatible LLM agent (Claude Desktop, Cherry Studio, etc.)
 
 ### Installation
 
@@ -116,8 +116,8 @@ For detailed installation instructions, see **[INSTALLATION.md](INSTALLATION.md)
 
 ### 📈 **Visualization**
 
-- **15+ Plot Types**: Spatial, UMAP, violin, heatmap, trajectory, communication plots
-- **MCP Image Objects**: Seamless display in AI assistants
+- **20 Plot Types**: Spatial, UMAP, violin, heatmap, trajectory, communication plots
+- **MCP Image Objects**: Seamless display in LLM agents
 - **Interactive Support**: Plotly and Bokeh integration
 
 ## 🏗️ Architecture
@@ -125,9 +125,9 @@ For detailed installation instructions, see **[INSTALLATION.md](INSTALLATION.md)
 ChatSpatial implements a clean **Model Context Protocol** architecture:
 
 ```text
-AI Assistant → MCP Client → ChatSpatial Server → Analysis Tools → Results
-                ↓
-        MCP ToolResult ← Visualization ← Data Processing
+LLM Agent → MCP Client → ChatSpatial Server → Analysis Tools → Results
+             ↓
+     MCP ToolResult ← Visualization ← Data Processing
 ```
 
 **Key Features:**
@@ -286,4 +286,4 @@ If you use ChatSpatial in your research, please cite:
 
 ---
 
-**Ready to analyze spatial data with AI?** Install ChatSpatial and start exploring! 🚀
+**Ready to analyze spatial data with LLM agents?** Install ChatSpatial and start exploring! 🚀
