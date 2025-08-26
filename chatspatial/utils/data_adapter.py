@@ -388,8 +388,8 @@ class DataAdapter:
                 warnings.warn(f"Could not identify highly variable genes: {e}")
 
 
-# Global adapter instance
-_global_adapter = DataAdapter()
+# Global adapter instance (lazy initialization)
+_global_adapter = None
 
 
 def standardize_adata(adata: 'ad.AnnData', 
@@ -419,6 +419,10 @@ def standardize_adata(adata: 'ad.AnnData',
         result = await some_spatial_tool(standard_adata, params)
     """
     global _global_adapter
+    
+    # Lazy initialization of global adapter
+    if _global_adapter is None:
+        _global_adapter = DataAdapter(strict_mode=False, preserve_original=True)
     
     # Use global adapter or create custom one
     if strict != _global_adapter.strict_mode or preserve_original != _global_adapter.preserve_original:
