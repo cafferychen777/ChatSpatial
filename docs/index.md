@@ -1,16 +1,13 @@
 # ChatSpatial: AI-Powered Spatial Transcriptomics Analysis
 
-<div align="center">
-
-![ChatSpatial Logo](https://img.shields.io/badge/ChatSpatial-MCP%20Server-blue?style=for-the-badge&logo=python)
+![ChatSpatial](https://img.shields.io/badge/ChatSpatial-MCP%20Server-blue?style=for-the-badge&logo=python)
 
 **Interactive Spatial Transcriptomics Analysis via Model Context Protocol**
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
-
-</div>
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cafferychen777/ChatSpatial/blob/main/LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-black.svg?logo=github)](https://github.com/cafferychen777/ChatSpatial)
 
 ## 🤖 What is Model Context Protocol (MCP)?
 
@@ -20,13 +17,9 @@
 
 ### 🎥 New to MCP? Watch This!
 
-<div align="center">
-
 [![MCP Demo Video](https://img.shields.io/badge/▶️_Watch-MCP_Demo_Video-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/watch?v=sfCBCyNyw7U)
 
 *Simple 5-minute explanation of what MCP is and why it matters*
-
-</div>
 ### Why MCP + ChatSpatial?
 
 Instead of learning complex bioinformatics tools, simply ask:
