@@ -20,30 +20,13 @@ Every integration required bespoke, custom development, making it difficult and 
 MCP creates a standardized bridge between an **AI application (Host)** and external **Servers**. The Host (e.g., Claude Desktop, VS Code) runs **Clients**, with each client maintaining a dedicated, one-to-one connection to a server.
 
 ```mermaid
-graph TB
-    subgraph "AI Application (Host Process)"
-        H[Host] --> C1[Client 1]
-        H --> C2[Client 2]
-    end
-
-    subgraph "Local Machine"
-        S1[Server 1<br/>Filesystem]
-        R1[("Local Files")]
-        C1 --> S1
-        S1 <--> R1
-    end
-
-    subgraph "Internet"
-        S2[Server 2<br/>External API (e.g., GitHub)]
-        R2[("Remote API")]
-        C2 --> S2
-        S2 <--> R2
-    end
-
-    style H fill:#e1f5fe
-    style C1,C2 fill:#f3e5f5
-    style S1,S2 fill:#fff3e0
-    style R1,R2 fill:#fce4ec
+graph LR
+    H[AI Host] --> C1[Client 1]
+    H --> C2[Client 2]
+    C1 --> S1[Local Server]
+    C2 --> S2[Remote Server]
+    S1 --> R1[Local Files]
+    S2 --> R2[Remote API]
 ```
 
 ### Key Architectural Layers
