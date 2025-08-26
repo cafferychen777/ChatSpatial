@@ -1,0 +1,37 @@
+site_name: ChatSpatial Docs
+site_description: Documentation for ChatSpatial - Spatial Transcriptomics MCP Server
+site_url: https://cafferychen777.github.io/ChatSpatial/
+repo_url: https://github.com/cafferychen777/ChatSpatial
+repo_name: cafferychen777/ChatSpatial
+
+nav:
+  - Home: index.md
+  - Getting Started: getting_started.md
+  - Tutorials:
+      - Overview: tutorials/README.md
+      - Basic Spatial Analysis: tutorials/basic_spatial_analysis.md
+  - API: api/README.md
+  - Benchmarks: benchmarks.md
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: blue
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - admonition
+  - tables
+  - fenced_code
+  - codehilite
+
+plugins:
+  - search
+
