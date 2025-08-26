@@ -31,23 +31,23 @@ jobs:
 
     - name: Install package with minimal dependencies
       run: |
-        python -m pip install --upgrade pip
+        python3 -m pip install --upgrade pip
         # Install with error handling
-        pip install -e . || {
+        python3 -m pip install -e . || {
           echo "Full install failed, trying minimal install"
-          pip install mcp click pydantic numpy pandas
-          pip install -e . --no-deps
+          python3 -m pip install mcp click pydantic numpy pandas
+          python3 -m pip install -e . --no-deps
         }
 
     - name: Install development dependencies
       run: |
-        pip install black mypy pytest pytest-asyncio
+        python3 -m pip install black mypy pytest pytest-asyncio
       continue-on-error: true
 
     - name: Basic import test
       run: |
-        python -c "import chatspatial; print('✅ ChatSpatial imported successfully')"
-        python -c "from chatspatial.server import mcp; print('✅ Server module loaded')" || echo "Server import needs dependencies"
+        python3 -c "import chatspatial; print('✅ ChatSpatial imported successfully')"
+        python3 -c "from chatspatial.server import mcp; print('✅ Server module loaded')" || echo "Server import needs dependencies"
 
     - name: Test CLI help
       run: |
@@ -65,7 +65,7 @@ jobs:
 
     - name: Test server startup
       run: |
-        timeout 5 python -m chatspatial || code=$?
+        timeout 5 python3 -m chatspatial || code=$?
         if [ $code -eq 124 ]; then
           echo "✅ Server started successfully (timeout expected)"
         else
