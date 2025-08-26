@@ -8,12 +8,14 @@ we have ONE validation system that works everywhere.
 Every tool uses the same validation functions. No exceptions.
 """
 
-from typing import Optional, Dict, List, Any, Set, Union
-import numpy as np
-import pandas as pd
-import scanpy as sc
-from scipy import sparse
-import anndata as ad
+from typing import Optional, Dict, List, Any, Set, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import scanpy as sc
+    from scipy import sparse
+    import anndata as ad
 
 from ..models.data_standards import (
     CHATSPATIAL_STANDARDS, 
@@ -44,13 +46,26 @@ class DataValidator:
         Args:
             strict_mode: If True, warnings become errors
         """
+        # Import dependencies at runtime
+        import numpy as np
+        import pandas as pd
+        import scanpy as sc
+        from scipy import sparse
+        import anndata as ad
+        
+        self.np = np
+        self.pd = pd
+        self.sc = sc
+        self.sparse = sparse
+        self.ad = ad
+        
         self.strict_mode = strict_mode
         self.standards = CHATSPATIAL_STANDARDS
         self.field_mapping = get_field_mapping()
         self.schema = get_data_format_schema()
     
     def validate_adata(self, 
-                      adata: ad.AnnData, 
+                      adata: 'ad.AnnData', 
                       analysis_type: Optional[str] = None,
                       require_spatial: bool = True,
                       require_cell_types: bool = False) -> DataValidationResult:
@@ -100,10 +115,10 @@ class DataValidator:
         
         return result
     
-    def _validate_basic_structure(self, adata: ad.AnnData, result: DataValidationResult) -> None:
+    def _validate_basic_structure(self, adata: 'ad.AnnData', result: DataValidationResult) -> None:
         """Validate basic AnnData structure."""
         
-        if not isinstance(adata, ad.AnnData):
+        if not isinstance(adata, self.ad.AnnData):
             result.add_error(f"Expected AnnData object, got {type(adata)}")
             return
         
@@ -126,7 +141,7 @@ class DataValidator:
         if not hasattr(adata, 'obsm'):
             result.add_error("Missing multi-dimensional observation data (adata.obsm)")
     
-    def _validate_spatial_coordinates(self, adata: ad.AnnData, result: DataValidationResult) -> None:
+    def _validate_spatial_coordinates(self, adata: 'ad.AnnData', result: DataValidationResult) -> None:
         """
         Validate spatial coordinates.
         
@@ -166,7 +181,7 @@ class DataValidator:
         # Validate spatial coordinate properties
         coords = adata.obsm[spatial_key]
         
-        if not isinstance(coords, np.ndarray):
+        if not isinstance(coords, self.np.ndarray):
             result.add_error(f"Spatial coordinates must be numpy array, got {type(coords)}")
             return
         
@@ -184,13 +199,13 @@ class DataValidator:
                              f"found {coords.dtype}")
         
         # Check for invalid values
-        if np.any(np.isnan(coords)):
+        if self.np.any(self.np.isnan(coords)):
             result.add_error("Spatial coordinates contain NaN values")
             
-        if np.any(np.isinf(coords)):
+        if self.np.any(self.np.isinf(coords)):
             result.add_error("Spatial coordinates contain infinite values")
     
-    def _validate_expression_matrix(self, adata: ad.AnnData, result: DataValidationResult) -> None:
+    def _validate_expression_matrix(self, adata: 'ad.AnnData', result: DataValidationResult) -> None:
         """Validate gene expression matrix."""
         
         if adata.X is None:
@@ -204,24 +219,24 @@ class DataValidator:
                            f"expected {expected_shape}, got {adata.X.shape}")
         
         # Check for invalid values
-        if sparse.issparse(adata.X):
+        if self.sparse.issparse(adata.X):
             data = adata.X.data
         else:
             data = adata.X.flatten()
         
-        if np.any(np.isnan(data)):
+        if self.np.any(self.np.isnan(data)):
             result.add_error("Expression matrix contains NaN values")
             
-        if np.any(np.isinf(data)):
+        if self.np.any(self.np.isinf(data)):
             result.add_error("Expression matrix contains infinite values")
         
         # Check for negative values (should be rare in processed data)
-        if np.any(data < 0):
+        if self.np.any(data < 0):
             result.add_warning("Expression matrix contains negative values")
             result.add_suggestion("Consider using raw counts or properly normalized data")
         
         # Check data range
-        max_val = np.max(data)
+        max_val = self.np.max(data)
         if max_val > 1000:
             result.add_warning(f"Expression values very large (max: {max_val:.1f})")
             result.add_suggestion("Data might need normalization")
@@ -229,7 +244,7 @@ class DataValidator:
             result.add_warning(f"Expression values very small (max: {max_val:.6f})")
             result.add_suggestion("Data might be over-normalized")
     
-    def _validate_gene_names(self, adata: ad.AnnData, result: DataValidationResult) -> None:
+    def _validate_gene_names(self, adata: 'ad.AnnData', result: DataValidationResult) -> None:
         """Validate gene names in var_names."""
         
         if len(adata.var_names) == 0:
@@ -265,7 +280,7 @@ class DataValidator:
             result.add_warning(f"Found gene names with whitespace issues: {whitespace_issues[:5]}")
             result.add_suggestion("Trim whitespace from gene names")
     
-    def _validate_optional_fields(self, adata: ad.AnnData, result: DataValidationResult) -> None:
+    def _validate_optional_fields(self, adata: 'ad.AnnData', result: DataValidationResult) -> None:
         """Validate optional metadata fields."""
         
         # Check for cell type annotations
@@ -298,7 +313,7 @@ class DataValidator:
                                  f"should be '{standard_key}'")
             self._validate_categorical_field(adata.obs[key], f"Batch info ({key})", result)
     
-    def _validate_cell_types(self, adata: ad.AnnData, result: DataValidationResult) -> None:
+    def _validate_cell_types(self, adata: 'ad.AnnData', result: DataValidationResult) -> None:
         """Validate cell type annotations (when required)."""
         
         cell_type_found = self._find_field_in_obs(adata, self.standards.cell_type_alternatives)
@@ -322,7 +337,7 @@ class DataValidator:
             result.add_suggestion("Consider if cell type diversity is sufficient for analysis")
     
     def _validate_analysis_requirements(self, 
-                                      adata: ad.AnnData, 
+                                      adata: 'ad.AnnData', 
                                       analysis_type: str, 
                                       result: DataValidationResult) -> None:
         """Validate requirements for specific analysis types."""
@@ -352,10 +367,10 @@ class DataValidator:
                 result.add_error("Spatial analysis requires cluster annotations")
                 result.add_suggestion(f"Run clustering and add results to adata.obs['{self.standards.cluster_key}']")
     
-    def _validate_categorical_field(self, series: pd.Series, field_name: str, result: DataValidationResult) -> None:
+    def _validate_categorical_field(self, series: self.pd.Series, field_name: str, result: DataValidationResult) -> None:
         """Validate a categorical metadata field."""
         
-        if not pd.api.types.is_categorical_dtype(series):
+        if not self.pd.api.types.is_categorical_dtype(series):
             result.add_warning(f"{field_name} should be categorical dtype")
             result.add_suggestion(f"Convert to categorical: adata.obs[field] = adata.obs[field].astype('category')")
         
@@ -365,7 +380,7 @@ class DataValidator:
             result.add_warning(f"{field_name} has many categories ({n_categories})")
             result.add_suggestion("Consider if this categorical variable is appropriate")
     
-    def _find_field_in_obs(self, adata: ad.AnnData, alternatives: Set[str]) -> Optional[tuple]:
+    def _find_field_in_obs(self, adata: 'ad.AnnData', alternatives: Set[str]) -> Optional[tuple]:
         """
         Find a field in adata.obs using alternative names.
         
@@ -379,7 +394,7 @@ class DataValidator:
                 return key, standard_key
         return None
     
-    def _suggest_standardization(self, adata: ad.AnnData, result: DataValidationResult) -> None:
+    def _suggest_standardization(self, adata: 'ad.AnnData', result: DataValidationResult) -> None:
         """Generate suggestions for standardizing the data."""
         
         if result.standardized_fields:
@@ -396,12 +411,12 @@ class DataValidator:
         
         # Check if highly variable genes are identified
         if 'highly_variable' not in adata.var.columns:
-            result.add_suggestion("Identify highly variable genes: sc.pp.highly_variable_genes(adata)")
+            result.add_suggestion("Identify highly variable genes: self.sc.pp.highly_variable_genes(adata)")
 
 
 # Convenience functions for common validation tasks
 
-def validate_spatial_data(adata: ad.AnnData, strict: bool = False) -> DataValidationResult:
+def validate_spatial_data(adata: 'ad.AnnData', strict: bool = False) -> DataValidationResult:
     """
     Validate spatial transcriptomics data.
     
@@ -415,7 +430,7 @@ def validate_spatial_data(adata: ad.AnnData, strict: bool = False) -> DataValida
     )
 
 
-def validate_for_cell_communication(adata: ad.AnnData, strict: bool = False) -> DataValidationResult:
+def validate_for_cell_communication(adata: 'ad.AnnData', strict: bool = False) -> DataValidationResult:
     """Validate data for cell communication analysis."""
     validator = DataValidator(strict_mode=strict)
     return validator.validate_adata(
@@ -426,8 +441,8 @@ def validate_for_cell_communication(adata: ad.AnnData, strict: bool = False) -> 
     )
 
 
-def validate_for_deconvolution(adata: ad.AnnData, 
-                              reference_adata: Optional[ad.AnnData] = None,
+def validate_for_deconvolution(adata: 'ad.AnnData', 
+                              reference_adata: Optional['ad.AnnData'] = None,
                               strict: bool = False) -> DataValidationResult:
     """Validate data for deconvolution analysis."""
     validator = DataValidator(strict_mode=strict)
@@ -453,7 +468,7 @@ def validate_for_deconvolution(adata: ad.AnnData,
     return result
 
 
-def validate_for_spatial_analysis(adata: ad.AnnData, strict: bool = False) -> DataValidationResult:
+def validate_for_spatial_analysis(adata: 'ad.AnnData', strict: bool = False) -> DataValidationResult:
     """Validate data for spatial analysis."""
     validator = DataValidator(strict_mode=strict)
     return validator.validate_adata(
@@ -464,7 +479,7 @@ def validate_for_spatial_analysis(adata: ad.AnnData, strict: bool = False) -> Da
     )
 
 
-def check_data_compatibility(adata: ad.AnnData, tool_name: str) -> Dict[str, Any]:
+def check_data_compatibility(adata: 'ad.AnnData', tool_name: str) -> Dict[str, Any]:
     """
     Check if data is compatible with a specific tool.
     
@@ -491,7 +506,7 @@ def check_data_compatibility(adata: ad.AnnData, tool_name: str) -> Dict[str, Any
     }
 
 
-def raise_if_invalid(adata: ad.AnnData, 
+def raise_if_invalid(adata: 'ad.AnnData', 
                     analysis_type: Optional[str] = None,
                     message_prefix: str = "Data validation failed") -> None:
     """

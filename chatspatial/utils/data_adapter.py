@@ -9,15 +9,17 @@ The adapter is the single point where we handle all the messy reality of
 different data formats, so the tools can work with clean, standardized data.
 """
 
-from typing import Optional, Dict, Any, List, Tuple
-import numpy as np
-import pandas as pd
-import scanpy as sc
-import squidpy as sq
-import anndata as ad
-from scipy import sparse
+from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 import warnings
 from functools import wraps
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import scanpy as sc
+    import squidpy as sq
+    import anndata as ad
+    from scipy import sparse
 
 from ..models.data_standards import (
     CHATSPATIAL_STANDARDS,
@@ -76,13 +78,28 @@ class DataAdapter:
             strict_mode: If True, raise errors instead of warnings for issues
             preserve_original: If True, preserve original field names as backup
         """
+        # Import dependencies at runtime
+        import numpy as np
+        import pandas as pd
+        import scanpy as sc
+        import squidpy as sq
+        import anndata as ad
+        from scipy import sparse
+        
+        self.np = np
+        self.pd = pd
+        self.sc = sc
+        self.sq = sq
+        self.ad = ad
+        self.sparse = sparse
+        
         self.strict_mode = strict_mode
         self.preserve_original = preserve_original
         self.standards = CHATSPATIAL_STANDARDS
         self.field_mapping = get_field_mapping()
         self.validator = DataValidator(strict_mode=strict_mode)
     
-    def standardize(self, adata: ad.AnnData, copy: bool = True) -> ad.AnnData:
+    def standardize(self, adata: 'ad.AnnData', copy: bool = True) -> 'ad.AnnData':
         """
         Convert AnnData object to ChatSpatial standard format.
         
@@ -124,7 +141,7 @@ class DataAdapter:
         
         return adata
     
-    def _standardize_spatial_coordinates(self, adata: ad.AnnData) -> None:
+    def _standardize_spatial_coordinates(self, adata: 'ad.AnnData') -> None:
         """
         Standardize spatial coordinates to adata.obsm['spatial'].
         
@@ -159,13 +176,13 @@ class DataAdapter:
         # Case 3: In obs as separate x, y columns
         if 'x' in adata.obs and 'y' in adata.obs:
             try:
-                x_coords = pd.to_numeric(adata.obs['x'], errors='coerce')
-                y_coords = pd.to_numeric(adata.obs['y'], errors='coerce')
+                x_coords = self.pd.to_numeric(adata.obs['x'], errors='coerce')
+                y_coords = self.pd.to_numeric(adata.obs['y'], errors='coerce')
                 
                 if x_coords.isna().any() or y_coords.isna().any():
                     raise ValueError("Cannot convert x, y coordinates to numeric")
                 
-                coords = np.column_stack([x_coords, y_coords]).astype(self.standards.spatial_dtype)
+                coords = self.np.column_stack([x_coords, y_coords]).astype(self.standards.spatial_dtype)
                 adata.obsm[target_key] = coords
                 
                 # Clean up obs
@@ -189,7 +206,7 @@ class DataAdapter:
                 for key, value in spatial_data.items():
                     if isinstance(value, dict) and 'tissue_positions_list' in value:
                         positions = value['tissue_positions_list']
-                        if isinstance(positions, np.ndarray) and positions.shape[1] >= 2:
+                        if isinstance(positions, self.np.ndarray) and positions.shape[1] >= 2:
                             coords = positions[:, -2:].astype(self.standards.spatial_dtype)
                             adata.obsm[target_key] = coords
                             return
@@ -201,20 +218,20 @@ class DataAdapter:
         if not self.strict_mode:
             warnings.warn("No spatial coordinates found. Generating dummy coordinates.")
             n_obs = adata.n_obs
-            grid_size = int(np.ceil(np.sqrt(n_obs)))
+            grid_size = int(self.np.ceil(self.np.sqrt(n_obs)))
             
-            x_coords = np.tile(np.arange(grid_size), (grid_size, 1)).T.flatten()[:n_obs]
-            y_coords = np.repeat(np.arange(grid_size), grid_size)[:n_obs]
+            x_coords = self.np.tile(self.np.arange(grid_size), (grid_size, 1)).T.flatten()[:n_obs]
+            y_coords = self.np.repeat(self.np.arange(grid_size), grid_size)[:n_obs]
             
-            coords = np.column_stack([x_coords, y_coords]).astype(self.standards.spatial_dtype)
+            coords = self.np.column_stack([x_coords, y_coords]).astype(self.standards.spatial_dtype)
             adata.obsm[target_key] = coords
             adata.uns[f"{target_key}_dummy"] = True  # Mark as dummy data
         else:
             raise DataStandardizationError("No spatial coordinates found and strict_mode=True")
     
     def _validate_and_fix_coordinates(self, 
-                                     coords: np.ndarray, 
-                                     adata: ad.AnnData, 
+                                     coords: 'np.ndarray', 
+                                     adata: self.ad.AnnData, 
                                      target_key: str) -> None:
         """Validate and fix coordinate array issues."""
         
@@ -239,18 +256,18 @@ class DataAdapter:
             coords = coords.astype(self.standards.spatial_dtype)
         
         # Handle NaN/inf values
-        if np.any(np.isnan(coords)) or np.any(np.isinf(coords)):
+        if self.np.any(self.np.isnan(coords)) or self.np.any(self.np.isinf(coords)):
             if self.strict_mode:
                 raise DataStandardizationError("Spatial coordinates contain NaN or infinite values")
             else:
                 # Replace with median values
-                coords = np.where(np.isfinite(coords), coords, np.nanmedian(coords, axis=0))
+                coords = self.np.where(self.np.isfinite(coords), coords, self.np.nanmedian(coords, axis=0))
                 warnings.warn("Replaced NaN/inf coordinates with median values")
         
         # Update the coordinates
         adata.obsm[target_key] = coords
     
-    def _standardize_obs_metadata(self, adata: ad.AnnData) -> None:
+    def _standardize_obs_metadata(self, adata: 'ad.AnnData') -> None:
         """
         Standardize observation metadata field names.
         
@@ -282,10 +299,10 @@ class DataAdapter:
                 
                 # Ensure categorical type for metadata fields
                 if standard_key in [self.standards.cell_type_key, self.standards.cluster_key, self.standards.batch_key]:
-                    if not pd.api.types.is_categorical_dtype(adata.obs[standard_key]):
+                    if not self.pd.api.types.is_categorical_dtype(adata.obs[standard_key]):
                         adata.obs[standard_key] = adata.obs[standard_key].astype('category')
     
-    def _standardize_expression_matrix(self, adata: ad.AnnData) -> None:
+    def _standardize_expression_matrix(self, adata: 'ad.AnnData') -> None:
         """Standardize the expression matrix."""
         
         if adata.X is None:
@@ -294,30 +311,30 @@ class DataAdapter:
         # Handle data type issues
         if hasattr(adata.X, 'dtype'):
             # Convert to float32 if integer (common for count data)
-            if np.issubdtype(adata.X.dtype, np.integer):
-                if sparse.issparse(adata.X):
-                    adata.X = adata.X.astype(np.float32)
+            if self.np.issubdtype(adata.X.dtype, self.np.integer):
+                if self.sparse.issparse(adata.X):
+                    adata.X = adata.X.astype(self.np.float32)
                 else:
-                    adata.X = adata.X.astype(np.float32)
+                    adata.X = adata.X.astype(self.np.float32)
         
         # Handle NaN/inf values
-        if sparse.issparse(adata.X):
+        if self.sparse.issparse(adata.X):
             data = adata.X.data
-            if np.any(np.isnan(data)) or np.any(np.isinf(data)):
+            if self.np.any(self.np.isnan(data)) or self.np.any(self.np.isinf(data)):
                 if self.strict_mode:
                     raise DataStandardizationError("Expression matrix contains NaN or infinite values")
                 else:
-                    data[~np.isfinite(data)] = 0.0
+                    data[~self.np.isfinite(data)] = 0.0
                     warnings.warn("Replaced NaN/inf values in expression matrix with 0")
         else:
-            if np.any(np.isnan(adata.X)) or np.any(np.isinf(adata.X)):
+            if self.np.any(self.np.isnan(adata.X)) or self.np.any(self.np.isinf(adata.X)):
                 if self.strict_mode:
                     raise DataStandardizationError("Expression matrix contains NaN or infinite values")
                 else:
-                    adata.X[~np.isfinite(adata.X)] = 0.0
+                    adata.X[~self.np.isfinite(adata.X)] = 0.0
                     warnings.warn("Replaced NaN/inf values in expression matrix with 0")
     
-    def _standardize_gene_names(self, adata: ad.AnnData) -> None:
+    def _standardize_gene_names(self, adata: 'ad.AnnData') -> None:
         """Standardize gene names."""
         
         # Make gene names unique
@@ -334,12 +351,12 @@ class DataAdapter:
                 adata.var['original_gene_names'] = adata.var_names.copy()
             adata.var_names = cleaned_names
     
-    def _add_missing_standard_fields(self, adata: ad.AnnData) -> None:
+    def _add_missing_standard_fields(self, adata: 'ad.AnnData') -> None:
         """Add missing standard fields with sensible defaults."""
         
         # Add default batch information if missing
         if self.standards.batch_key not in adata.obs:
-            adata.obs[self.standards.batch_key] = pd.Categorical(['batch1'] * adata.n_obs)
+            adata.obs[self.standards.batch_key] = self.pd.Categorical(['batch1'] * adata.n_obs)
         
         # Add placeholder clustering if none exists
         if not any(key in adata.obs for key in self.standards.cluster_alternatives):
@@ -351,13 +368,13 @@ class DataAdapter:
             # Don't add default cell types - let annotation tools handle this
             pass
     
-    def _compute_derived_fields(self, adata: ad.AnnData) -> None:
+    def _compute_derived_fields(self, adata: 'ad.AnnData') -> None:
         """Compute commonly needed derived fields."""
         
         # Compute spatial neighbors if missing
         if 'spatial_connectivities' not in adata.obsp and self.standards.spatial_key in adata.obsm:
             try:
-                sq.gr.spatial_neighbors(adata, coord_type="generic", spatial_key=self.standards.spatial_key)
+                self.sq.gr.spatial_neighbors(adata, coord_type="generic", spatial_key=self.standards.spatial_key)
             except Exception as e:
                 warnings.warn(f"Could not compute spatial neighbors: {e}")
         
@@ -366,7 +383,7 @@ class DataAdapter:
             try:
                 # Only compute if we have reasonable amount of data
                 if adata.n_vars > 100 and adata.n_obs > 50:
-                    sc.pp.highly_variable_genes(adata, min_mean=0.0125, max_mean=3, min_disp=0.5)
+                    self.sc.pp.highly_variable_genes(adata, min_mean=0.0125, max_mean=3, min_disp=0.5)
             except Exception as e:
                 warnings.warn(f"Could not identify highly variable genes: {e}")
 
@@ -375,10 +392,10 @@ class DataAdapter:
 _global_adapter = DataAdapter()
 
 
-def standardize_adata(adata: ad.AnnData, 
+def standardize_adata(adata: 'ad.AnnData', 
                      copy: bool = True, 
                      strict: bool = False,
-                     preserve_original: bool = True) -> ad.AnnData:
+                     preserve_original: bool = True) -> 'ad.AnnData':
     """
     Convert any AnnData object to ChatSpatial standard format.
     
@@ -412,7 +429,7 @@ def standardize_adata(adata: ad.AnnData,
     return adapter.standardize(adata, copy=copy)
 
 
-def get_spatial_coordinates(adata: ad.AnnData) -> Tuple[np.ndarray, np.ndarray]:
+def get_spatial_coordinates(adata: 'ad.AnnData') -> Tuple['np.ndarray', 'np.ndarray']:
     """
     Get spatial coordinates in a standardized way.
     
@@ -433,7 +450,7 @@ def get_spatial_coordinates(adata: ad.AnnData) -> Tuple[np.ndarray, np.ndarray]:
     return coords[:, 0], coords[:, 1]
 
 
-def get_cell_types(adata: ad.AnnData, default: str = "Unknown") -> pd.Series:
+def get_cell_types(adata: 'ad.AnnData', default: str = "Unknown") -> 'pd.Series':
     """
     Get cell type annotations in a standardized way.
     
@@ -454,10 +471,11 @@ def get_cell_types(adata: ad.AnnData, default: str = "Unknown") -> pd.Series:
             return adata.obs[alt_key]
     
     # Return default
+    import pandas as pd
     return pd.Series([default] * adata.n_obs, index=adata.obs_names, name=CHATSPATIAL_STANDARDS.cell_type_key)
 
 
-def get_clusters(adata: ad.AnnData, default: str = "cluster_0") -> pd.Series:
+def get_clusters(adata: 'ad.AnnData', default: str = "cluster_0") -> 'pd.Series':
     """
     Get cluster annotations in a standardized way.
     
@@ -478,10 +496,11 @@ def get_clusters(adata: ad.AnnData, default: str = "cluster_0") -> pd.Series:
             return adata.obs[alt_key]
     
     # Return default
+    import pandas as pd
     return pd.Series([default] * adata.n_obs, index=adata.obs_names, name=CHATSPATIAL_STANDARDS.cluster_key)
 
 
-def ensure_spatial_neighbors(adata: ad.AnnData) -> None:
+def ensure_spatial_neighbors(adata: 'ad.AnnData') -> None:
     """
     Ensure spatial neighborhood graph is computed.
     
@@ -494,12 +513,13 @@ def ensure_spatial_neighbors(adata: ad.AnnData) -> None:
             adata = standardize_adata(adata, copy=False)
         
         try:
+            import squidpy as sq
             sq.gr.spatial_neighbors(adata, coord_type="generic", spatial_key=CHATSPATIAL_STANDARDS.spatial_key)
         except Exception as e:
             warnings.warn(f"Could not compute spatial neighbors: {e}")
 
 
-def print_standardization_summary(adata: ad.AnnData) -> None:
+def print_standardization_summary(adata: 'ad.AnnData') -> None:
     """
     Print a summary of the data standardization.
     
