@@ -9,31 +9,25 @@ import os
 import sys
 import tempfile
 import shutil
-import numpy as np
-import pandas as pd
-import torch
-import torch.nn as nn
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, TYPE_CHECKING
 from pathlib import Path
-import scanpy as sc
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 import warnings
 import logging
 
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import torch
+    import torch.nn as nn
+    import scanpy as sc
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import StandardScaler
+
 logger = logging.getLogger(__name__)
 
-# Try to import GASTON from standard Python package installation
-try:
-    import gaston
-    from gaston import neural_net, spatial_gene_classification, binning_and_plotting
-    from gaston import dp_related, segmented_fit, process_NN_output
-    GASTON_AVAILABLE = True
-    GASTON_IMPORT_ERROR = None
-except ImportError as e:
-    GASTON_AVAILABLE = False
-    # Only show warning when GASTON is actually requested
-    GASTON_IMPORT_ERROR = str(e)
+# GASTON import will be done at runtime
+GASTON_AVAILABLE = None
+GASTON_IMPORT_ERROR = None
 
 from ..models.data import SpatialVariableGenesParameters
 from ..models.analysis import SpatialVariableGenesResult
@@ -98,6 +92,25 @@ async def _identify_spatial_genes_gaston(
     context=None
 ) -> SpatialVariableGenesResult:
     """Identify spatial variable genes using GASTON method."""
+    # Import dependencies at runtime
+    import numpy as np
+    import pandas as pd
+    import torch
+    import torch.nn as nn
+    
+    # Check GASTON availability at runtime
+    global GASTON_AVAILABLE, GASTON_IMPORT_ERROR
+    if GASTON_AVAILABLE is None:
+        try:
+            import gaston
+            from gaston import neural_net, spatial_gene_classification, binning_and_plotting
+            from gaston import dp_related, segmented_fit, process_NN_output
+            GASTON_AVAILABLE = True
+            GASTON_IMPORT_ERROR = None
+        except ImportError as e:
+            GASTON_AVAILABLE = False
+            GASTON_IMPORT_ERROR = str(e)
+    
     if not GASTON_AVAILABLE:
         error_msg = (
             f"GASTON is not available: {GASTON_IMPORT_ERROR}\n\n"
@@ -231,6 +244,10 @@ async def _identify_spatial_genes_spatialde(
     context=None
 ) -> SpatialVariableGenesResult:
     """Identify spatial variable genes using SpatialDE method."""
+    # Import dependencies at runtime
+    import numpy as np
+    import pandas as pd
+    import scanpy as sc
     try:
         import SpatialDE
         from SpatialDE.util import qvalue
@@ -355,7 +372,9 @@ async def _identify_spatial_genes_spatialde(
     return result
 
 
-async def _gaston_feature_engineering_glmpca(adata, n_components: int, context) -> np.ndarray:
+async def _gaston_feature_engineering_glmpca(adata, n_components: int, context):
+    # Import dependencies at runtime
+    import numpy as np
     """GASTON-specific feature engineering using GLM-PCA (algorithm requirement)."""
     try:
         from glmpca.glmpca import glmpca
@@ -387,7 +406,11 @@ async def _gaston_feature_engineering_glmpca(adata, n_components: int, context) 
     return glmpca_result["factors"]
 
 
-async def _gaston_feature_engineering_pearson(adata, n_components: int, context) -> np.ndarray:
+async def _gaston_feature_engineering_pearson(adata, n_components: int, context):
+    # Import dependencies at runtime
+    import numpy as np
+    import scanpy as sc
+    from sklearn.decomposition import PCA
     """GASTON-specific feature engineering using Pearson residuals PCA (algorithm requirement)."""
     if context:
         await context.info("Computing GASTON Pearson residuals feature engineering (algorithm requirement)")
@@ -409,6 +432,10 @@ async def _train_gaston_model(
     context
 ) -> Tuple[Any, List[float], float]:
     """Train GASTON neural network model."""
+    # Import dependencies at runtime
+    import numpy as np
+    import torch
+    import torch.nn as nn
     
     # Load data
     S = np.load(coords_file)
@@ -442,11 +469,15 @@ async def _train_gaston_model(
 
 
 async def _analyze_spatial_patterns(
-    model, spatial_coords: np.ndarray, expression_features: np.ndarray,
+    model, spatial_coords, expression_features,
     adata, params: SpatialVariableGenesParameters, context
 ) -> Dict[str, Any]:
     """Analyze spatial patterns from trained GASTON model using complete GASTON workflow."""
-
+    # Import dependencies at runtime
+    import numpy as np
+    import pandas as pd
+    import torch
+    
     if context:
         await context.info("Processing neural network output following GASTON tutorial")
 
@@ -649,6 +680,9 @@ async def _identify_spatial_genes_spark(
     context=None
 ) -> SpatialVariableGenesResult:
     """Identify spatial variable genes using SPARK method."""
+    # Import dependencies at runtime
+    import numpy as np
+    import pandas as pd
     try:
         from rpy2 import robjects as ro
         from rpy2.robjects import conversion, default_converter
@@ -854,6 +888,8 @@ async def _identify_spatial_genes_spark(
 
 def _set_random_seeds(seed: int):
     """Set random seeds for reproducibility."""
+    import numpy as np
+    import torch
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
