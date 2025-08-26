@@ -26,7 +26,8 @@ dependencies = [
     "jinja2>=3.0.0",
     
     # Spatial analysis essentials
-    "squidpy>=1.2.0,<2.0",
+    # Pin to 1.2.x to avoid complex spatialdata dependencies in 1.3+
+    "squidpy>=1.2.0,<1.3.0",
     
     # Basic clustering and dimensionality reduction
     "umap-learn>=0.5.0,<1.0",
