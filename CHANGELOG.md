@@ -5,6 +5,30 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Pre-release Documentation and CI Fixes
+
+### 📚 **Documentation Fixes**
+- **FIXED**: All broken documentation links in README.md
+  - Updated `docs/INSTALLATION.md` → `INSTALLATION.md`
+  - Updated `docs/user_guides/ERROR_HANDLING_GUIDE.md` → `UNIFIED_ERROR_HANDLING_MIGRATION_GUIDE.md`
+  - Updated `docs/technical_docs/MCP_TOOLS_QUICK_REFERENCE.md` → `PROJECT_STRUCTURE.md`
+- **UPDATED**: Feature descriptions to match actual code implementation
+  - Corrected spatial domain methods (SpaGCN, STAGATE, BANKSY, Leiden/Louvain)
+  - Corrected deconvolution methods (Cell2location, DestVI, RCTD, Stereoscope, Tangram, MRVI)
+  - Corrected cell communication methods (LIANA, CellPhoneDB, CellChat via LIANA)
+- **ALIGNED**: Optional dependencies in README with pyproject.toml extras
+- **CORRECTED**: Tool count from 32 to 16 (actual implementation)
+
+### 🔧 **Package Configuration**
+- **MOVED**: CellPhoneDB from experimental to advanced dependencies (it's actually supported)
+- **ADDED**: Comments to clarify dependency purposes and preferences
+- **IMPROVED**: CI workflow with Python 3.10 and 3.11 testing matrix
+- **ENHANCED**: CI with code formatting, type checking, and basic tests
+
+### 🎯 **Example Updates**
+- **UPDATED**: Workflow examples to use preferred methods (SpaGCN instead of STAGATE)
+- **CORRECTED**: Method names in examples to match actual implementation
+
 ## [v1.2.1] - 2025-08-18 - Code Quality and Structure Improvements
 
 ### 🧹 **Code Deduplication & Refactoring**

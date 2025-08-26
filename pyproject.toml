@@ -67,11 +67,12 @@ advanced = [
     "bbknn>=1.5.0,<2.0",
     "scanorama>=1.7.0,<2.0",
     
-    # Spatial variable genes
+    # Spatial variable genes (GASTON is preferred, SpatialDE kept for compatibility)
     "spatialde>=1.1.3,<2.0",
     
     # Cell communication
     "liana>=0.1.13,<1.0",
+    "cellphonedb>=5.0.0,<6.0",
     
     # Performance optimization
     "numba>=0.57.0,<1.0",
@@ -90,8 +91,7 @@ experimental = [
     # R interface (requires separate R installation)
     "rpy2>=3.4.0,<4.0",
     
-    # Experimental cell communication
-    "cellphonedb>=5.0.0,<6.0",
+
     
     # Spatial registration
     "paste-bio>=1.0.0,<2.0",

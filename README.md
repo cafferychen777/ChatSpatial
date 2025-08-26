@@ -9,6 +9,8 @@
 
 ChatSpatial is a production-ready **Model Context Protocol (MCP) server** that provides AI assistants with comprehensive spatial transcriptomics analysis capabilities. It enables natural language interaction with complex spatial data analysis through 16 standardized MCP tools.
 
+> **📁 Data Note**: Datasets are not included in the repository. Use the provided download scripts in `data/scripts/` or see [FINAL_MCP_DATASETS_REPORT.md](FINAL_MCP_DATASETS_REPORT.md) for dataset acquisition instructions.
+
 ## 🎯 Why ChatSpatial?
 
 - **🔗 Universal AI Integration**: Works seamlessly with Claude Desktop, Cherry Studio, Continue, and any MCP-compatible AI tool
@@ -66,7 +68,7 @@ Annotate cell types using marker genes
 Visualize spatial cell type distribution
 ```
 
-For detailed installation instructions, see **[docs/INSTALLATION.md](docs/INSTALLATION.md)**.
+For detailed installation instructions, see **[INSTALLATION.md](INSTALLATION.md)**.
 
 ## 🛠️ Core Capabilities
 
@@ -76,22 +78,22 @@ For detailed installation instructions, see **[docs/INSTALLATION.md](docs/INSTAL
 - **Quality Control**: Comprehensive filtering and validation
 
 ### 🔬 **Cell Analysis**
-- **Cell Type Annotation**: Marker-based, Tangram, scANVI, CellAssign, mLLMCellType, sc-type
+- **Cell Type Annotation**: Marker-based, Tangram, scANVI, CellAssign, mLLMCellType, scType
 - **Differential Expression**: Advanced marker discovery between cell populations
 - **Data Integration**: Multi-sample integration (Harmony, scVI, BBKNN)
 
 ### 🧬 **Spatial Analysis**
 - **Spatial Variable Genes**: GASTON (deep learning), SpatialDE, SPARK methods
-- **Spatial Domains**: SpaGCN, STAGATE, BANKSY clustering
+- **Spatial Domains**: SpaGCN, STAGATE, BANKSY, Leiden/Louvain clustering
 - **Spatial Statistics**: Moran's I, Geary's C, Getis-Ord Gi*, spatial autocorrelation
 
 ### 💬 **Cell Communication**
 - **LIANA+**: Fast spatial bivariate analysis (cosine, pearson, spearman, jaccard)
-- **CellPhoneDB v3**: Statistical permutation testing with spatial microenvironments
-- **CellChat v2**: Advanced pattern recognition via LIANA integration
+- **CellPhoneDB**: Statistical permutation testing with spatial microenvironments
+- **CellChat via LIANA**: Advanced pattern recognition via LIANA integration
 
 ### 🧮 **Advanced Methods**
-- **Spatial Deconvolution**: DestVI, Cell2location, RCTD, SPOTlight
+- **Spatial Deconvolution**: Cell2location, DestVI, RCTD, Stereoscope, Tangram, MRVI
 - **Trajectory Analysis**: Palantir, CellRank, DPT pseudotime inference
 - **RNA Velocity**: RNA velocity analysis with spatial context
 - **Pathway Enrichment**: GSEA, ORA, Enrichr with spatial smoothing
@@ -114,7 +116,7 @@ AI Assistant → MCP Client → ChatSpatial Server → Analysis Tools → Result
 **Key Features:**
 - **Protocol**: MCP v2024-11-05 compliance
 - **Transport**: stdio (standard input/output) and SSE (Server-Sent Events)
-- **Tools**: 32 spatial transcriptomics analysis tools
+- **Tools**: 16 spatial transcriptomics analysis tools
 - **Resources**: Automatic dataset management via `spatial://` URIs
 - **Error Handling**: Robust two-layer error management system
 
@@ -126,9 +128,9 @@ AI Assistant → MCP Client → ChatSpatial Server → Analysis Tools → Result
 | **Visualization** | `visualize_data` | Spatial plots, UMAP, heatmaps |
 | **Cell Analysis** | `annotate_cells`, `find_markers` | Cell typing, differential expression |
 | **Spatial** | `find_spatial_genes`, `identify_spatial_domains` | GASTON, SpaGCN, spatial statistics |
-| **Communication** | `analyze_cell_communication` | LIANA+, CellPhoneDB, ligand-receptor |
+| **Communication** | `analyze_cell_communication` | LIANA, CellPhoneDB, ligand-receptor |
 | **Integration** | `integrate_samples`, `analyze_trajectory_data` | Harmony, pseudotime |
-| **Advanced** | `deconvolve_data`, `analyze_enrichment` | DestVI, GSEA |
+| **Advanced** | `deconvolve_data`, `analyze_enrichment` | Cell2location, GSEA |
 
 ## 🌟 Example Workflows
 
@@ -136,21 +138,21 @@ AI Assistant → MCP Client → ChatSpatial Server → Analysis Tools → Result
 ```
 1. "Load my 10x Visium dataset from /path/to/data.h5ad"
 2. "Preprocess with genes in ≥10 cells and cells with ≥500 genes"
-3. "Identify spatial domains using STAGATE"
+3. "Identify spatial domains using SpaGCN"
 4. "Visualize spatial domains"
 ```
 
 ### Cell Communication Analysis
 ```
 1. "Annotate cell types using marker genes"
-2. "Analyze cell communication using LIANA+ with cosine similarity"
+2. "Analyze cell communication using LIANA with cosine similarity"
 3. "Visualize communication for VEGFA-KDR interaction"
 ```
 
 ### Advanced Deep Learning
 ```
 1. "Find spatial variable genes using GASTON with GLM-PCA"
-2. "Deconvolve spatial data using DestVI"
+2. "Deconvolve spatial data using Cell2location"
 3. "Visualize deconvolution results and GASTON isodepth map"
 ```
 
@@ -170,7 +172,7 @@ AI Assistant → MCP Client → ChatSpatial Server → Analysis Tools → Result
 - **Stable Processing**: No interruptions during complex tasks
 - **Better Performance**: Ideal for GASTON, deconvolution, large datasets
 
-See [docs/INSTALLATION.md](docs/INSTALLATION.md) for detailed client setup.
+See [INSTALLATION.md](INSTALLATION.md) for detailed client setup.
 
 ## 📦 Optional Dependencies
 
@@ -180,12 +182,11 @@ ChatSpatial uses a modular dependency system. Install specific modules as needed
 # Full installation (recommended)
 pip install -e .[all]
 
-# Or install specific modules
+# Or install specific feature sets
+pip install -e .[advanced]         # Core spatial analysis methods
 pip install -e .[enrichmap]        # EnrichMap spatial enrichment
-pip install -e .[deconvolution]    # DestVI, Cell2location
-pip install -e .[spatial_domains]  # SpaGCN, STAGATE, BANKSY  
-pip install -e .[spatial_genes]    # GASTON, SpatialDE, SPARK
-pip install -e .[cell_communication] # LIANA+, CellPhoneDB
+pip install -e .[experimental]     # Experimental features (use with caution)
+pip install -e .[dev]              # Development tools (testing, linting)
 ```
 
 ## 📋 System Requirements
@@ -215,23 +216,23 @@ ChatSpatial is production-ready with comprehensive testing:
 - **Long Processing**: Use Cherry Studio with increased timeout
 - **Visualization**: Ensure MCP client supports Image objects
 
-See [docs/user_guides/ERROR_HANDLING_GUIDE.md](docs/user_guides/ERROR_HANDLING_GUIDE.md) for detailed troubleshooting.
+See [UNIFIED_ERROR_HANDLING_MIGRATION_GUIDE.md](UNIFIED_ERROR_HANDLING_MIGRATION_GUIDE.md) for detailed troubleshooting.
 
 ## 📚 Documentation
 
 | Document | Description |
 |----------|-------------|
-| **[INSTALLATION.md](docs/INSTALLATION.md)** | Detailed installation and setup guide |
-| **[Error Handling Guide](docs/user_guides/ERROR_HANDLING_GUIDE.md)** | Troubleshooting and error resolution |
-| **[MCP Tools Reference](docs/technical_docs/MCP_TOOLS_QUICK_REFERENCE.md)** | Complete tool documentation |
-| **[Module Documentation](docs/modules/)** | API reference for all modules |
+| **[INSTALLATION.md](INSTALLATION.md)** | Detailed installation and setup guide |
+| **[Error Handling Guide](UNIFIED_ERROR_HANDLING_MIGRATION_GUIDE.md)** | Troubleshooting and error resolution |
+| **[Dataset Guide](FINAL_MCP_DATASETS_REPORT.md)** | Dataset management and organization |
+| **[Project Structure](PROJECT_STRUCTURE.md)** | Codebase architecture and organization |
 
 ## 🤝 Contributing
 
 We welcome contributions! Please see:
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
 - [SECURITY.md](SECURITY.md) - Security policy
-- [docs/technical_docs/](docs/technical_docs/) - Technical documentation
+- [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) - Technical documentation
 
 ## 📄 License
 
