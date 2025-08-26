@@ -460,7 +460,7 @@ ChatSpatial works with any MCP-compatible client:
 
 - **MCP Inspector**: For development and testing
 - **Custom Applications**: Using the MCP SDK
-- **Other AI Assistants**: With MCP support
+- **Other LLM Agents**: With MCP support
 
 ## Data Preparation
 

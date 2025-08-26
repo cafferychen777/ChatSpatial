@@ -1,4 +1,4 @@
-# ChatSpatial: AI-Powered Spatial Transcriptomics Analysis
+# ChatSpatial: Agentic Spatial Transcriptomics Analysis
 
 ![ChatSpatial](https://img.shields.io/badge/ChatSpatial-MCP%20Server-blue?style=for-the-badge&logo=python)
 
@@ -11,7 +11,7 @@
 
 ## 🤖 What is Model Context Protocol (MCP)?
 
-**Model Context Protocol (MCP)** is an open standard that enables AI assistants to securely connect with external tools and data sources. Think of it as a universal "plugin system" for AI that allows natural language interaction with specialized software.
+**Model Context Protocol (MCP)** is an open standard that enables LLM agents to securely connect with external tools and data sources. Think of it as a universal "plugin system" for agentic systems that allows natural language interaction with specialized software.
 
 **� [Learn more about MCP →](what_is_mcp.md)**
 
@@ -32,14 +32,14 @@ ChatSpatial handles the technical complexity while you focus on biological insig
 
 ## 🎯 What is ChatSpatial?
 
-ChatSpatial is a production-ready **MCP server** that provides AI assistants with comprehensive spatial transcriptomics analysis capabilities. It enables natural language interaction with complex spatial data analysis through **16 standardized MCP tools**.
+ChatSpatial is a production-ready **MCP server** that provides LLM agents with comprehensive spatial transcriptomics analysis capabilities. It enables natural language interaction with complex spatial data analysis through **16 standardized MCP tools**.
 
 ### Key Features
 
 - **🔬 16+ Analysis Tools**: Complete spatial transcriptomics workflow from preprocessing to visualization
-- **🤖 AI-Native**: Designed for seamless integration with Claude, GPT, and other AI assistants
+- **🤖 Agent-Native**: Designed for seamless integration with Claude, GPT, and other LLM agents
 - **📊 Multiple Technologies**: Support for Visium, MERFISH, Slide-seq, and other spatial platforms
-- **🎨 Rich Visualizations**: 15+ plot types with MCP image objects for direct AI display
+- **🎨 Rich Visualizations**: 15+ plot types with MCP image objects for direct agent display
 - **🔧 Production Ready**: Robust error handling, validation, and comprehensive testing
 
 ## 🚀 Quick Start
@@ -118,11 +118,11 @@ visualize_data(data_id="my_data", plot_type="spatial_domains")
 
 ## 🏗️ MCP Architecture
 
-ChatSpatial implements the Model Context Protocol for seamless AI integration:
+ChatSpatial implements the Model Context Protocol for seamless agentic integration:
 
 ```mermaid
 graph LR
-    A[AI Assistant] --> B[MCP Client]
+    A[LLM Agent] --> B[MCP Client]
     B --> C[ChatSpatial Server]
     C --> D[Analysis Tools]
     D --> E[Results]
@@ -180,7 +180,7 @@ graph LR
 
 ## 🎨 Visualization Gallery
 
-ChatSpatial provides rich visualizations optimized for AI assistants:
+ChatSpatial provides rich visualizations optimized for LLM agents:
 
 - **Spatial Plots**: Gene expression, domains, communication
 - **UMAP/t-SNE**: Dimensionality reduction with annotations
@@ -189,7 +189,7 @@ ChatSpatial provides rich visualizations optimized for AI assistants:
 - **Trajectory Plots**: Developmental pathways
 - **Communication Networks**: Cell-cell interaction graphs
 
-All visualizations are returned as MCP Image objects for direct display in AI interfaces.
+All visualizations are returned as MCP Image objects for direct display in agent interfaces.
 
 ## 🤝 Contributing
 
