@@ -76,10 +76,21 @@ conda activate chatspatial
 # You should see (chatspatial) in your prompt
 ```
 
+**Step 2.5: Verify Environment Activation**
+```bash
+# Test that you're in the right environment
+which python
+# Should show: /path/to/miniconda3/envs/chatspatial/bin/python
+
+python --version
+# Should show: Python 3.11.x
+```
+
 **⚠️ If conda activate doesn't work:**
 ```bash
-# Alternative method - use full path
-/path/to/miniconda3/envs/chatspatial/bin/python --version
+# Alternative method - use full path directly
+/Users/yourname/miniconda3/envs/chatspatial/bin/python --version
+# Replace 'yourname' with your actual username
 ```
 
 **Step 2.4: Install Git (if needed)**
@@ -96,36 +107,66 @@ cd ChatSpatial
 pip install -e .
 ```
 
-**Step 2.6: Test Installation**
+**Step 2.6: Test ChatSpatial Installation**
+
+**Test 1: Basic Import (may take 10-30 seconds)**
 ```bash
-chatspatial --help
-# Should show help information
-# ⏳ Note: First run may take 30-60 seconds to load scientific libraries
+# Test ChatSpatial import - this loads scientific libraries
+python -c 'import chatspatial; print("ChatSpatial import successful")'
+# Note: Use single quotes to avoid bash issues with special characters
 ```
 
-**⚠️ If the command seems to hang:**
-- This is normal! ChatSpatial loads many scientific computing libraries
-- Wait 1-2 minutes for the first run
-- Subsequent runs will be faster
+**Test 2: Command Line Interface**
+```bash
+# Test the command line interface
+python -m chatspatial --help
+# Should show help information immediately
+```
+
+**Expected Output:**
+```
+Usage: python -m chatspatial server [OPTIONS]
+
+  Start the ChatSpatial server.
+  ...
+```
+
+**⚠️ Important Notes:**
+- **Import time**: First `import chatspatial` may take 10-30 seconds (loading numpy, scipy, etc.)
+- **Command help**: `python -m chatspatial --help` should be fast (< 5 seconds)
+- **Use single quotes**: Avoid bash interpretation issues with `'` instead of `"`
 
 #### Troubleshooting Installation
 
-**Common Issues:**
+**Common Issues Based on Real Testing:**
 
-1. **"conda not found"**
-   - Solution: Install Miniconda first, restart terminal
+1. **"conda activate doesn't work"**
+   ```bash
+   # Solution: Initialize conda first
+   conda init bash  # or zsh
+   source ~/.bashrc  # or ~/.zshrc
+   # Or use full path: /path/to/miniconda3/envs/chatspatial/bin/python
+   ```
 
-2. **"git not found"**
-   - Solution: Install Git for your operating system
+2. **"bash: !': event not found"**
+   ```bash
+   # Problem: Using double quotes with ! character
+   # Wrong: python -c "print('Hello!')"
+   # Right: python -c 'print("Hello!")'
+   ```
 
-3. **Permission errors**
-   - Solution: Don't use `sudo` with conda/pip
+3. **"Import takes forever"**
+   - **Normal**: First `import chatspatial` takes 10-30 seconds
+   - **Wait patiently**: Scientific libraries (numpy, scipy) are loading
+   - **Subsequent imports**: Will be faster
 
-4. **Network issues**
-   - Solution: Check internet connection, try again
+4. **"conda not found"**
+   - Install Miniconda first, restart terminal
+   - Make sure conda is in your PATH
 
-5. **Python version errors**
-   - Solution: Make sure you're using Python 3.10 or 3.11
+5. **"Python version errors"**
+   - Verify: `python --version` shows Python 3.11.x
+   - Check environment: `which python` points to chatspatial env
 
 ### Step 3: Connect to Claude Desktop
 
@@ -137,14 +178,19 @@ chatspatial --help
 # Make sure you're in the right environment
 conda activate chatspatial
 
-# Find your Python path
+# Verify you're in the correct environment
 which python
 # On Windows, use: where python
 ```
 
-**Copy the full path!** It should look like:
-- **Mac/Linux**: `/Users/yourname/miniconda3/envs/chatspatial/bin/python`
-- **Windows**: `C:\Users\yourname\miniconda3\envs\chatspatial\python.exe`
+**Copy the COMPLETE path!** Real examples:
+- **Mac/Linux**: `/Users/john/miniconda3/envs/chatspatial/bin/python`
+- **Windows**: `C:\Users\john\miniconda3\envs\chatspatial\python.exe`
+
+**⚠️ Important**:
+- Copy the **entire path** including `/bin/python` or `\python.exe`
+- Replace `john` with your actual username
+- The path must point to the chatspatial environment, not base conda
 
 #### Step 3.2: Locate Claude Desktop Config File
 
@@ -224,40 +270,60 @@ Open the file in any text editor and add this configuration:
 
 #### Troubleshooting MCP Connection
 
-**Common Issues:**
+**Common Issues Based on Real Testing:**
 
 1. **"No MCP servers found"**
-   - Check the config file path is correct
-   - Verify JSON syntax (use a JSON validator online)
-   - Make sure Python path is correct
+   ```bash
+   # Test your Python path first
+   /your/python/path -c 'import chatspatial; print("Works")'
+   /your/python/path -m chatspatial --help
+   ```
+   - Verify JSON syntax (use jsonlint.com)
+   - Check config file location is correct
+   - Ensure Python path is complete (includes `/bin/python`)
 
 2. **"Server failed to start"**
-   - Test Python path in terminal: `/your/python/path -m chatspatial --help`
-   - Check environment is activated
-   - Verify ChatSpatial is installed
-   - **Important**: First run takes 1-2 minutes - be patient!
+   ```bash
+   # Debug step by step
+   /your/python/path -c 'import chatspatial'  # Should work in 10-30s
+   /your/python/path -m chatspatial --help    # Should be fast
+   /your/python/path -m chatspatial server --transport stdio  # Should start
+   ```
+   - **First import**: Takes 10-30 seconds (normal!)
+   - **Command help**: Should be fast (< 5 seconds)
+   - **Server start**: Should show "Starting ChatSpatial server..."
 
-3. **"Permission denied"**
-   - Make sure Python path is executable
-   - Don't use spaces in paths (use quotes if needed)
+3. **"JSON syntax errors"**
+   - Use single quotes in test commands: `'import chatspatial'`
+   - Validate JSON at jsonlint.com
+   - No trailing commas in JSON
+   - Match all brackets and quotes
 
-4. **JSON syntax errors**
-   - Use a JSON validator to check syntax
-   - Make sure all brackets and quotes match
-   - No trailing commas
+4. **"Path issues"**
+   - Use complete path: `/Users/john/miniconda3/envs/chatspatial/bin/python`
+   - Not just: `/Users/john/miniconda3/envs/chatspatial/`
+   - Test path works: `which python` when environment is active
 
 ### Step 4: Verify Everything Works
 
 **Let's make sure everything is set up correctly!**
 
-#### Test 1: Check ChatSpatial Installation
+#### Test 1: Verify ChatSpatial Installation
+
 ```bash
 # Activate environment
 conda activate chatspatial
 
-# Test ChatSpatial
+# Test 1a: Basic import (may take 10-30 seconds)
+python -c 'import chatspatial; print("Import successful")'
+
+# Test 1b: Command line interface (should be fast)
 python -m chatspatial --help
-# Should show help information without errors
+
+# Test 1c: Server startup test
+python -m chatspatial server --transport stdio &
+# You should see: "Starting ChatSpatial server with stdio transport..."
+# Press Ctrl+C to stop
 ```
 
 #### Test 2: Check MCP Connection
