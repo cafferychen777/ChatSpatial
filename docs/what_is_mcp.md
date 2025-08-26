@@ -2,18 +2,18 @@
 
 **Model Context Protocol (MCP)** is an open standard that connects LLM applications to the systems where your data and tools live. Think of it as a universal adapter, like USB-C, but for agentic systems. Just as USB-C provides a standard way to connect devices to peripherals, MCP offers a standardized, secure, and simple way to connect LLM agents like Claude to real-world applications, databases, and services.
 
-This enables AI to move beyond its training data, giving it the context it needs to read files from your computer, search through internal knowledge bases, or update tasks in project management tools.
+This enables LLM agents to move beyond their training data, giving them the context they need to read files from your computer, search through internal knowledge bases, or update tasks in project management tools.
 
 ## The Problem MCP Solves
 
-Before MCP, AI assistants were powerful but limited to information you manually provided. They couldn't:
+Before MCP, LLM agents were powerful but limited to information you manually provided. They couldn't:
 
 - Access real-time information
 - Interact with external tools and services (APIs, databases)
 - Perform actions beyond text generation
 - Connect to specialized software securely
 
-Every integration required bespoke, custom development, making it difficult and time-consuming to scale AI capabilities. MCP solves this with a single, open protocol, creating a growing ecosystem of interoperable AI applications and tools.
+Every integration required bespoke, custom development, making it difficult and time-consuming to scale agentic capabilities. MCP solves this with a single, open protocol, creating a growing ecosystem of interoperable LLM applications and tools.
 
 ## How MCP Works
 
@@ -31,7 +31,7 @@ graph LR
 
 ### Key Architectural Layers
 
-1. **MCP Host**: The AI application (like Claude or VS Code) that manages one or more MCP clients. It handles the user interface, security policies, and AI model integration.
+1. **MCP Host**: The LLM application (like Claude or VS Code) that manages one or more MCP clients. It handles the user interface, security policies, and LLM integration.
 2. **MCP Client**: A component within the host that connects to a single MCP server, handling protocol negotiation and routing messages.
 3. **MCP Server**: A program that provides context and capabilities by exposing tools, resources, and prompts. Servers can run locally (stdio transport) or remotely (Streamable HTTP transport).
 4. **Transport Layer**: Defines the communication channel:
@@ -45,12 +45,12 @@ Servers provide functionality through three core primitives, each with different
 
 | Primitive | Who Controls It | Purpose | Real-World Example |
 | :--- | :--- | :--- | :--- |
-| **Tools** | **Model**-controlled | Enables AI to perform actions | Search flights, send messages, create files |
+| **Tools** | **Model**-controlled | Enables agents to perform actions | Search flights, send messages, create files |
 | **Resources** | **Application**-controlled | Provides data for context | Documents, calendars, database schemas |
 | **Prompts** | **User**-controlled | Reusable interaction templates | `/plan-vacation`, `/summarize-meetings` |
 
-### 1. Tools (AI Actions)
-Functions that AI assistants can call to perform actions. Each tool has a schema-defined interface. The model requests tool execution, but users must provide explicit approval.
+### 1. Tools (Agent Actions)
+Functions that LLM agents can call to perform actions. Each tool has a schema-defined interface. The model requests tool execution, but users must provide explicit approval.
 
 ```json
 {
@@ -69,7 +69,7 @@ Functions that AI assistants can call to perform actions. Each tool has a schema
 ```
 
 ### 2. Resources (Context Data)
-Data sources that AI assistants can read to gain context. Resources are identified by URI and can be anything from local files to API endpoints. The application decides how to retrieve and use this data.
+Data sources that LLM agents can read to gain context. Resources are identified by URI and can be anything from local files to API endpoints. The application decides how to retrieve and use this data.
 
 ```json
 {
@@ -119,15 +119,15 @@ During initialization, both sides declare supported features:
 
 ### For Users
 - **Natural Language Interface**: Interact with complex tools conversationally
-- **Access to Your Context**: AI can securely access your documents, data, and tools
+- **Access to Your Context**: Agents can securely access your documents, data, and tools
 - **Real-time Results**: Live data and immediate analysis
 - **Secure by Design**: Full control with explicit permission for every action
 
 ### For Developers
-- **Standardized API**: Build once, work with all MCP-compatible AI clients
+- **Standardized API**: Build once, work with all MCP-compatible LLM clients
 - **Reduced Complexity**: Focus on features instead of custom connectors
 - **Growing Ecosystem**: Leverage open-source servers from Anthropic and community
-- **Future-proof**: Open standard ensures compatibility as AI evolves
+- **Future-proof**: Open standard ensures compatibility as LLM technology evolves
 
 ## MCP vs. Traditional Approaches
 
@@ -136,7 +136,7 @@ During initialization, both sides declare supported features:
 | **Interface** | Command line, GUI | Natural language |
 | **Learning Curve** | Steep, tool-specific | Minimal, conversational |
 | **Integration** | Manual scripting | Automatic discovery |
-| **Error Handling** | Manual debugging | AI-assisted troubleshooting |
+| **Error Handling** | Manual debugging | Agent-assisted troubleshooting |
 | **Workflow** | Linear, rigid | Flexible, composable |
 
 ## Real-World Example: Spatial Transcriptomics
@@ -167,13 +167,13 @@ sq.gr.spatial_autocorr(adata)
 ```
 👤 User: "Load my Visium data and identify spatial domains"
 
-🤖 AI: I'll analyze your spatial transcriptomics data:
+🤖 Agent: I'll analyze your spatial transcriptomics data:
 1. Loading your Visium dataset
 2. Performing preprocessing 
 3. Identifying spatial domains using SpaGCN
 4. Creating visualizations
 
-[AI automatically executes using ChatSpatial MCP server]
+[Agent automatically executes using ChatSpatial MCP server]
 ```
 
 ## MCP Ecosystem
@@ -184,11 +184,11 @@ sq.gr.spatial_autocorr(adata)
   <strong>9</strong> Official SDKs
 </div>
 
-### Compatible AI Clients
+### Compatible LLM Clients
 - **Claude Desktop & Claude.ai**: Native MCP support
 - **VS Code**: Integration via GitHub Copilot
 - **LM Studio**: Connect local models to tools
-- **Cursor, Warp, Zed**: AI-native editors with MCP support
+- **Cursor, Warp, Zed**: Agent-native editors with MCP support
 
 ### Popular MCP Servers
 - **File Systems**: Secure access to local and cloud files
@@ -230,14 +230,14 @@ Example configuration for ChatSpatial:
 ```
 
 ### 3. Start Using Tools
-Restart your client. You'll see an indicator that MCP tools are available. Start asking your AI assistant to perform tasks naturally.
+Restart your client. You'll see an indicator that MCP tools are available. Start asking your LLM agent to perform tasks naturally.
 
 ## Security and Authorization
 
 Security is a core principle of MCP:
 
 - **Explicit User Consent**: No tool execution without approval
-- **Granular Permissions**: Configure which tools AI can use
+- **Granular Permissions**: Configure which tools agents can use
 - **Sandboxing**: Isolated server connections
 - **Secure Authorization**: OAuth 2.1 for remote servers
 - **Local-First Option**: Keep sensitive data on your machine with stdio transport
@@ -300,4 +300,4 @@ MCP is rapidly evolving with focus on:
 
 ---
 
-Ready to unlock the full potential of your AI assistant? Try ChatSpatial with Claude Desktop and experience how natural language transforms spatial transcriptomics workflows!
+Ready to unlock the full potential of your LLM agent? Try ChatSpatial with Claude Desktop and experience how natural language transforms spatial transcriptomics workflows!

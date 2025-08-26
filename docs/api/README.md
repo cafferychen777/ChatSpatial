@@ -311,7 +311,7 @@ visualize_data(
 | `trajectory` | Trajectory plots | Developmental analysis |
 
 **MCP Integration:**
-All visualizations return MCP Image objects for direct display in AI assistants like Claude Desktop.
+All visualizations return MCP Image objects for direct display in LLM agents like Claude Desktop.
 
 ## Error Handling
 
