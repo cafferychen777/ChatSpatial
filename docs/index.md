@@ -18,6 +18,15 @@
 
 **� [Learn more about MCP →](what_is_mcp.md)**
 
+### 🎥 New to MCP? Watch This!
+
+<div align="center">
+
+[![MCP Demo Video](https://img.shields.io/badge/▶️_Watch-MCP_Demo_Video-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/watch?v=sfCBCyNyw7U)
+
+*Simple 5-minute explanation of what MCP is and why it matters*
+
+</div>
 ### Why MCP + ChatSpatial?
 
 Instead of learning complex bioinformatics tools, simply ask:
