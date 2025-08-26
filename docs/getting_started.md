@@ -59,10 +59,27 @@ conda create -n chatspatial python=3.11
 # Say 'y' when prompted
 ```
 
-**Step 2.3: Activate Environment**
+**Step 2.3: Initialize Conda (First Time Only)**
+```bash
+# Initialize conda for your shell (only needed once)
+conda init bash  # For bash users
+conda init zsh   # For zsh users (Mac default)
+
+# Restart your terminal or run:
+source ~/.bashrc  # Linux
+source ~/.zshrc   # Mac
+```
+
+**Step 2.4: Activate Environment**
 ```bash
 conda activate chatspatial
 # You should see (chatspatial) in your prompt
+```
+
+**⚠️ If conda activate doesn't work:**
+```bash
+# Alternative method - use full path
+/path/to/miniconda3/envs/chatspatial/bin/python --version
 ```
 
 **Step 2.4: Install Git (if needed)**
@@ -83,7 +100,13 @@ pip install -e .
 ```bash
 chatspatial --help
 # Should show help information
+# ⏳ Note: First run may take 30-60 seconds to load scientific libraries
 ```
+
+**⚠️ If the command seems to hang:**
+- This is normal! ChatSpatial loads many scientific computing libraries
+- Wait 1-2 minutes for the first run
+- Subsequent runs will be faster
 
 #### Troubleshooting Installation
 
@@ -212,6 +235,7 @@ Open the file in any text editor and add this configuration:
    - Test Python path in terminal: `/your/python/path -m chatspatial --help`
    - Check environment is activated
    - Verify ChatSpatial is installed
+   - **Important**: First run takes 1-2 minutes - be patient!
 
 3. **"Permission denied"**
    - Make sure Python path is executable
