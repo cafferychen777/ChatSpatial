@@ -39,7 +39,7 @@ ChatSpatial is a production-ready **MCP server** that provides LLM agents with c
 - **🔬 16+ Analysis Tools**: Complete spatial transcriptomics workflow from preprocessing to visualization
 - **🤖 Agent-Native**: Designed for seamless integration with Claude, GPT, and other LLM agents
 - **📊 Multiple Technologies**: Support for Visium, MERFISH, Slide-seq, and other spatial platforms
-- **🎨 Rich Visualizations**: 15+ plot types with MCP image objects for direct agent display
+- **🎨 Rich Visualizations**: 20 plot types with MCP image objects for direct agent display
 - **🔧 Production Ready**: Robust error handling, validation, and comprehensive testing
 
 ## 🚀 Quick Start
@@ -114,7 +114,7 @@ visualize_data(data_id="my_data", plot_type="spatial_domains")
 | **Cell Communication** | `analyze_cell_communication` | LIANA+, CellPhoneDB, CellChat |
 | **Deconvolution** | `deconvolve_data` | Cell2location, NNLS methods |
 | **Gene Analysis** | `identify_spatial_genes`, `find_markers` | Spatial variable genes and markers |
-| **Visualization** | `visualize_data` | 15+ plot types with agent-friendly outputs |
+| **Visualization** | `visualize_data` | 20 plot types with agent-friendly outputs |
 
 ## 🏗️ MCP Architecture
 
