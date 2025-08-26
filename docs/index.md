@@ -71,16 +71,16 @@ Add to your Claude Desktop configuration:
 ### 3. First Analysis
 ```python
 # Load spatial data
-load_data(file_path="data.h5ad", data_id="my_data")
+result = load_data(data_path="data.h5ad", name="my_data")
 
 # Preprocess
-preprocess_data(data_id="my_data")
+preprocess_data(data_id=result.id)
 
 # Identify spatial domains
-identify_spatial_domains(data_id="my_data", method="spagcn")
+identify_spatial_domains(data_id=result.id, method="spagcn")
 
 # Visualize results
-visualize_data(data_id="my_data", plot_type="spatial_domains")
+visualize_data(data_id=result.id, plot_type="spatial_domains")
 ```
 
 ## 📚 Documentation Structure

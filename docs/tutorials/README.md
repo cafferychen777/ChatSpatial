@@ -35,6 +35,17 @@ Uncover how different cells talk to each other in your tissue.
 - Exploring spatial communication patterns
 - Understanding biological significance
 
+### [Advanced Spatial Statistics](spatial_statistics.md)
+Unlock hidden spatial patterns using sophisticated statistical methods through natural conversation.
+
+**What you'll learn:**
+- "Are these genes spatially correlated?" - Bivariate Moran's I analysis
+- "Where are the hotspots in my tissue?" - Local Indicators of Spatial Association (LISA)
+- "How do cell types organize spatially?" - Neighborhood enrichment analysis
+- "Are cells randomly distributed?" - Ripley's K function analysis
+- "Which regions are network hubs?" - Spatial centrality analysis
+- "Do similar states cluster together?" - Join count analysis
+
 ### [Spatial Gene Set Enrichment Analysis](spatial_enrichment.md)
 Discover biological pathways and processes that are spatially organized in your tissue using EnrichMap.
 
@@ -54,11 +65,11 @@ Uncover cellular dynamics, developmental trajectories, and temporal processes in
 - Inferring developmental trajectories and cell fate transitions
 - Exploring spatial-temporal patterns and biological significance
 
-### [GASTON: AI-Powered Spatial Gene Discovery](gaston_analysis.md)
-**Revolutionary neural network approach!** Discover complex spatial patterns using AI-powered analysis that goes beyond traditional statistical methods.
+### [GASTON: ML-Powered Spatial Gene Discovery](gaston_analysis.md)
+**Revolutionary neural network approach!** Discover complex spatial patterns using ML-powered analysis that goes beyond traditional statistical methods.
 
 **What you'll learn:**
-- "Can you use GASTON to find AI-powered spatial patterns?"
+- "Can you use GASTON to find ML-powered spatial patterns?"
 - Understanding neural network pattern recognition
 - Isodepth learning and topographic expression mapping
 - Gradient classification (continuous vs discontinuous patterns)
@@ -95,11 +106,13 @@ These tutorials are designed around **natural conversation**, not code. You'll l
 ## 🔄 Tutorial Progression
 
 ```
-Basic Analysis → Cell Types → Communication → GASTON ML → Trajectories → Visualization
+Basic Analysis → Cell Types → Communication → Statistics → Trajectories → Visualization
      ↓              ↓            ↓             ↓             ↓             ↓
-  Load data    Identify cells  Find signals   Neural nets   Track dynamics Make figures
-  Find domains  Validate types  Explore space  Isodepth maps RNA velocity   Create plots
-  Preprocess   Spatial maps    Pathways       ML patterns   Pseudotime     Customize
+  Load data    Identify cells  Find signals   Spatial stats Track dynamics Make figures
+  Find domains  Validate types  Explore space  LISA/Moran's RNA velocity   Create plots  
+  Preprocess   Spatial maps    Pathways       Hotspots      Pseudotime     Customize
+                                              Networks
+                                              Centrality
 ```
 
 ## 📚 Additional Resources

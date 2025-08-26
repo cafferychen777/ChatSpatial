@@ -504,9 +504,9 @@ Your spatial transcriptomics data should include:
 
 ```python
 # Load a Visium dataset
-load_data(
-    file_path="data/demo_datasets/mouse_brain_visium.h5ad",
-    data_id="mouse_brain"
+result = load_data(
+    data_path="data/demo_datasets/mouse_brain_visium.h5ad",
+    name="mouse_brain"
 )
 ```
 
