@@ -7,14 +7,16 @@ All functions return Image objects that can be directly used in MCP tools.
 
 import io
 import base64
-import matplotlib.pyplot as plt
-import numpy as np
-from typing import Optional, Union, Tuple
+from typing import Optional, Union, Tuple, TYPE_CHECKING
 from mcp.server.fastmcp.utilities.types import Image
+
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
+    import numpy as np
 
 
 def fig_to_image(
-    fig: plt.Figure,
+    fig: 'plt.Figure',
     dpi: int = 100,
     format: str = 'png',
     max_size_kb: int = 900,
@@ -32,6 +34,8 @@ def fig_to_image(
     Returns:
         Image object
     """
+    import matplotlib.pyplot as plt
+    
     # Try different compression settings until we get a small enough image
     current_dpi = dpi
     min_dpi = 40  # Lower minimum DPI to allow smaller files
@@ -153,6 +157,8 @@ def create_placeholder_image(
     Returns:
         Image object
     """
+    import matplotlib.pyplot as plt
+    
     fig, ax = plt.subplots(figsize=figsize)
     ax.text(0.5, 0.5, message, ha='center', va='center', fontsize=12)
     ax.set_xlim(0, 1)
@@ -164,7 +170,7 @@ def create_placeholder_image(
 
 
 def fig_to_base64(
-    fig: plt.Figure,
+    fig: 'plt.Figure',
     dpi: int = 100,
     format: str = 'png',
     max_size_mb: float = 5,
