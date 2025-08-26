@@ -29,9 +29,6 @@ nav:
 
 theme:
   name: material
-  custom_dir: docs/overrides
-  logo: assets/logo.png
-  favicon: assets/favicon.ico
   features:
     - navigation.tabs
     - navigation.tabs.sticky
@@ -124,19 +121,8 @@ markdown_extensions:
 plugins:
   - search:
       separator: '[\s\u200b\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
-  - minify:
-      minify_html: true
-  - git-revision-date-localized:
-      enable_creation_date: true
-      type: timeago
-  - git-committers:
-      repository: cafferychen777/ChatSpatial
-      branch: main
 
 extra:
-  analytics:
-    provider: google
-    property: !ENV GOOGLE_ANALYTICS_KEY
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/cafferychen777/ChatSpatial
@@ -144,17 +130,6 @@ extra:
       link: https://pypi.org/project/chatspatial/
     - icon: fontawesome/brands/twitter
       link: https://twitter.com/cafferychen777
-  version:
-    provider: mike
-    default: latest
-
-extra_css:
-  - stylesheets/extra.css
-
-extra_javascript:
-  - javascripts/mathjax.js
-  - https://polyfill.io/v3/polyfill.min.js?features=es6
-  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 
 copyright: |
   &copy; 2024 <a href="https://github.com/cafferychen777" target="_blank" rel="noopener">Caffery Yang</a>
