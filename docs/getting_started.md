@@ -22,7 +22,9 @@ By the end of this guide, you'll be able to:
 
 ### Step 2: Install ChatSpatial
 
-**Don't worry - this is easier than it looks!**
+**This is the technical part, but we'll walk through it step by step!**
+
+#### Option 1: Quick Install (Recommended)
 
 Open your terminal/command prompt and run these commands:
 
@@ -34,43 +36,229 @@ conda activate chatspatial
 # Get ChatSpatial
 git clone https://github.com/cafferychen777/ChatSpatial.git
 cd ChatSpatial
+
+# Install ChatSpatial
+pip install -e .
+
+# Verify installation
+chatspatial --help
+```
+
+#### Option 2: Step-by-Step Install (If you're new to conda)
+
+**Step 2.1: Install Miniconda (if you don't have it)**
+
+- **Windows**: Download from [miniconda.io](https://docs.conda.io/en/latest/miniconda.html)
+- **Mac**: `brew install miniconda` or download from website
+- **Linux**: `wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh && bash Miniconda3-latest-Linux-x86_64.sh`
+
+**Step 2.2: Create Environment**
+```bash
+# Open terminal/command prompt
+conda create -n chatspatial python=3.11
+# Say 'y' when prompted
+```
+
+**Step 2.3: Activate Environment**
+```bash
+conda activate chatspatial
+# You should see (chatspatial) in your prompt
+```
+
+**Step 2.4: Install Git (if needed)**
+```bash
+# Windows: Download from git-scm.com
+# Mac: brew install git
+# Linux: sudo apt install git (Ubuntu) or sudo yum install git (CentOS)
+```
+
+**Step 2.5: Clone and Install ChatSpatial**
+```bash
+git clone https://github.com/cafferychen777/ChatSpatial.git
+cd ChatSpatial
 pip install -e .
 ```
 
+**Step 2.6: Test Installation**
+```bash
+chatspatial --help
+# Should show help information
+```
+
+#### Troubleshooting Installation
+
+**Common Issues:**
+
+1. **"conda not found"**
+   - Solution: Install Miniconda first, restart terminal
+
+2. **"git not found"**
+   - Solution: Install Git for your operating system
+
+3. **Permission errors**
+   - Solution: Don't use `sudo` with conda/pip
+
+4. **Network issues**
+   - Solution: Check internet connection, try again
+
+5. **Python version errors**
+   - Solution: Make sure you're using Python 3.10 or 3.11
+
 ### Step 3: Connect to Claude Desktop
 
-**This is where the magic happens!**
+**This is the most important step - connecting ChatSpatial to Claude Desktop!**
 
-1. **Find your Python path**:
-   ```bash
-   conda activate chatspatial
-   which python
-   ```
-   Copy this path (something like `/Users/yourname/miniconda3/envs/chatspatial/bin/python`)
+#### Step 3.1: Find Your Python Path
 
-2. **Configure Claude Desktop**:
-   - **Mac**: Open `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - **Windows**: Open `%APPDATA%\Claude\claude_desktop_config.json`
-   - **Linux**: Open `~/.config/Claude/claude_desktop_config.json`
+```bash
+# Make sure you're in the right environment
+conda activate chatspatial
 
-3. **Add this configuration** (replace the Python path with yours):
-   ```json
-   {
-     "mcpServers": {
-       "chatspatial": {
-         "command": "/your/python/path/here",
-         "args": ["-m", "chatspatial"],
-         "env": {}
-       }
-     }
-   }
-   ```
+# Find your Python path
+which python
+# On Windows, use: where python
+```
 
-4. **Restart Claude Desktop**
+**Copy the full path!** It should look like:
+- **Mac/Linux**: `/Users/yourname/miniconda3/envs/chatspatial/bin/python`
+- **Windows**: `C:\Users\yourname\miniconda3\envs\chatspatial\python.exe`
 
-### 🎉 You're Ready!
+#### Step 3.2: Locate Claude Desktop Config File
 
-Look for the 🔬 ChatSpatial tools in Claude Desktop. You should see spatial analysis tools available!
+**Find the configuration file for your operating system:**
+
+**Mac:**
+```bash
+# Open Finder, press Cmd+Shift+G, paste this path:
+~/Library/Application Support/Claude/claude_desktop_config.json
+```
+
+**Windows:**
+```bash
+# Open File Explorer, paste this in the address bar:
+%APPDATA%\Claude\claude_desktop_config.json
+```
+
+**Linux:**
+```bash
+# Use your file manager or terminal:
+~/.config/Claude/claude_desktop_config.json
+```
+
+#### Step 3.3: Edit Configuration File
+
+**If the file doesn't exist, create it!**
+
+Open the file in any text editor and add this configuration:
+
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/your/python/path/here",
+      "args": ["-m", "chatspatial"],
+      "env": {}
+    }
+  }
+}
+```
+
+**⚠️ Important:** Replace `/your/python/path/here` with the actual path you copied in Step 3.1!
+
+**Example configurations:**
+
+**Mac example:**
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/Users/john/miniconda3/envs/chatspatial/bin/python",
+      "args": ["-m", "chatspatial"],
+      "env": {}
+    }
+  }
+}
+```
+
+**Windows example:**
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "C:\\Users\\john\\miniconda3\\envs\\chatspatial\\python.exe",
+      "args": ["-m", "chatspatial"],
+      "env": {}
+    }
+  }
+}
+```
+
+#### Step 3.4: Restart Claude Desktop
+
+1. **Close Claude Desktop completely**
+2. **Reopen Claude Desktop**
+3. **Look for the 🔬 icon** - this means ChatSpatial is connected!
+
+#### Troubleshooting MCP Connection
+
+**Common Issues:**
+
+1. **"No MCP servers found"**
+   - Check the config file path is correct
+   - Verify JSON syntax (use a JSON validator online)
+   - Make sure Python path is correct
+
+2. **"Server failed to start"**
+   - Test Python path in terminal: `/your/python/path -m chatspatial --help`
+   - Check environment is activated
+   - Verify ChatSpatial is installed
+
+3. **"Permission denied"**
+   - Make sure Python path is executable
+   - Don't use spaces in paths (use quotes if needed)
+
+4. **JSON syntax errors**
+   - Use a JSON validator to check syntax
+   - Make sure all brackets and quotes match
+   - No trailing commas
+
+### Step 4: Verify Everything Works
+
+**Let's make sure everything is set up correctly!**
+
+#### Test 1: Check ChatSpatial Installation
+```bash
+# Activate environment
+conda activate chatspatial
+
+# Test ChatSpatial
+python -m chatspatial --help
+# Should show help information without errors
+```
+
+#### Test 2: Check MCP Connection
+1. **Open Claude Desktop**
+2. **Look for the 🔬 icon** in the tool panel
+3. **Start a new conversation**
+4. **Type**: "Do you have access to ChatSpatial tools?"
+
+**If successful, Claude should respond with something like:**
+> "Yes! I have access to ChatSpatial's spatial transcriptomics analysis tools. I can help you load data, identify spatial domains, annotate cell types, and much more!"
+
+#### Test 3: Quick Function Test
+**Ask Claude**: "Can you list the available ChatSpatial tools?"
+
+**You should see tools like:**
+- load_data
+- preprocess_data
+- identify_spatial_domains
+- annotate_cells
+- visualize_data
+- And more!
+
+### 🎉 Success! You're Ready to Analyze!
+
+If all tests pass, you're ready to start analyzing spatial transcriptomics data through natural conversation!
 
 ## 🎥 New to MCP? Watch This First!
 
