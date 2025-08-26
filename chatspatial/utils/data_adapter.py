@@ -566,7 +566,7 @@ def print_standardization_summary(adata: 'ad.AnnData') -> None:
     print(f"\nData dimensions: {adata.n_obs} observations × {adata.n_vars} variables")
 
 
-def compatibility_report(adata: ad.AnnData, target_tool: Optional[str] = None) -> str:
+def compatibility_report(adata: 'ad.AnnData', target_tool: Optional[str] = None) -> str:
     """
     Generate a compatibility report for the data.
     
