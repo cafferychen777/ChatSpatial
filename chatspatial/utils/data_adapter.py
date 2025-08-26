@@ -231,7 +231,7 @@ class DataAdapter:
     
     def _validate_and_fix_coordinates(self, 
                                      coords: 'np.ndarray', 
-                                     adata: self.ad.AnnData, 
+                                     adata: 'ad.AnnData', 
                                      target_key: str) -> None:
         """Validate and fix coordinate array issues."""
         
