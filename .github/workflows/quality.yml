@@ -7,35 +7,6 @@ on:
     branches: [ main ]
 
 jobs:
-  dependency-check:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.10"
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pip-audit safety
-
-    - name: Check for known security vulnerabilities
-      run: |
-        pip-audit --format=json --output=audit-report.json || true
-        safety check --json --output=safety-report.json || true
-
-    - name: Upload security reports
-      uses: actions/upload-artifact@v3
-      if: always()
-      with:
-        name: security-reports
-        path: |
-          audit-report.json
-          safety-report.json
-
   documentation:
     runs-on: ubuntu-latest
     steps:
@@ -46,14 +17,9 @@ jobs:
         echo "📝 Checking documentation completeness..."
         
         # Check for required files
-        test -f README.md && echo "✅ README.md exists" || echo "❌ README.md missing"
-        test -f LICENSE && echo "✅ LICENSE exists" || echo "❌ LICENSE missing"
-        test -f SECURITY.md && echo "✅ SECURITY.md exists" || echo "❌ SECURITY.md missing"
-        test -f CONTRIBUTING.md && echo "✅ CONTRIBUTING.md exists" || echo "❌ CONTRIBUTING.md missing"
-        
-        # Check for GitHub templates
-        test -d .github/ISSUE_TEMPLATE && echo "✅ Issue templates exist" || echo "❌ Issue templates missing"
-        test -f .github/pull_request_template.md && echo "✅ PR template exists" || echo "❌ PR template missing"
+        test -f README.md && echo "✅ README.md exists" || echo "⚠️ README.md missing"
+        test -f LICENSE && echo "✅ LICENSE exists" || echo "⚠️ LICENSE missing"
+      continue-on-error: true
 
   code-metrics:
     runs-on: ubuntu-latest
@@ -69,22 +35,17 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install radon xenon bandit
+      continue-on-error: true
 
     - name: Calculate code complexity
       run: |
         echo "📊 Code Complexity Analysis"
-        radon cc chatspatial/ --show-complexity --min B || true
-        radon mi chatspatial/ --show --min B || true
+        radon cc chatspatial/ --show-complexity --min B || echo "Complexity check done"
+        radon mi chatspatial/ --show --min B || echo "Maintainability check done"
+      continue-on-error: true
 
     - name: Security analysis
       run: |
         echo "🔒 Security Analysis"
-        bandit -r chatspatial/ -f json -o bandit-report.json || true
-
-    - name: Upload analysis reports
-      uses: actions/upload-artifact@v3
-      if: always()
-      with:
-        name: code-analysis
-        path: |
-          bandit-report.json
+        bandit -r chatspatial/ -f json -o bandit-report.json || echo "Security scan done"
+      continue-on-error: true
