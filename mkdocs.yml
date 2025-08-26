@@ -11,11 +11,10 @@ nav:
   - Getting Started: getting_started.md
   - Tutorials:
       - Overview: tutorials/README.md
-      - Basic Workflow: tutorials/basic_spatial_analysis.md
-      - Cell Annotation: tutorials/cell_annotation.md
-      - Spatial Domains: tutorials/spatial_domains.md
-      - Cell Communication: tutorials/cell_communication.md
-      - Visualization Gallery: tutorials/visualization_gallery.md
+      - Your First Analysis: tutorials/basic_spatial_analysis.md
+      - Cell Type Annotation: tutorials/cell_type_annotation.md
+      - Cell Communication: tutorials/cell_communication_analysis.md
+      - Visualization Guide: tutorials/visualization_tutorial.md
   - API Reference:
       - Overview: api/README.md
       - Data Models: api/data_models.md
@@ -108,7 +107,7 @@ markdown_extensions:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+          format: !!python/name:pymdownx.superfences.fence_div_format
   - pymdownx.tabbed:
       alternate_style: true
       combine_header_slug: true
@@ -131,6 +130,10 @@ extra:
       link: https://pypi.org/project/chatspatial/
     - icon: fontawesome/brands/twitter
       link: https://twitter.com/cafferychen777
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10.6.1/dist/mermaid.min.js
+  - javascripts/mermaid.js
 
 copyright: |
   &copy; 2024 <a href="https://github.com/cafferychen777" target="_blank" rel="noopener">Caffery Yang</a>
