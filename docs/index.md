@@ -12,9 +12,25 @@
 
 </div>
 
+## 🤖 What is Model Context Protocol (MCP)?
+
+**Model Context Protocol (MCP)** is an open standard that enables AI assistants to securely connect with external tools and data sources. Think of it as a universal "plugin system" for AI that allows natural language interaction with specialized software.
+
+**� [Learn more about MCP →](what_is_mcp.md)**
+
+### Why MCP + ChatSpatial?
+
+Instead of learning complex bioinformatics tools, simply ask:
+
+> *"Load my Visium data and identify spatial domains"*
+> *"Which genes show spatial patterns in my dataset?"*
+> *"Visualize cell communication networks"*
+
+ChatSpatial handles the technical complexity while you focus on biological insights.
+
 ## 🎯 What is ChatSpatial?
 
-ChatSpatial is a production-ready **Model Context Protocol (MCP) server** that provides AI assistants with comprehensive spatial transcriptomics analysis capabilities. It enables natural language interaction with complex spatial data analysis through **16 standardized MCP tools**.
+ChatSpatial is a production-ready **MCP server** that provides AI assistants with comprehensive spatial transcriptomics analysis capabilities. It enables natural language interaction with complex spatial data analysis through **16 standardized MCP tools**.
 
 ### Key Features
 
