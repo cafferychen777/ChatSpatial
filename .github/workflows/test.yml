@@ -45,27 +45,27 @@ jobs:
     
     - name: Install Python dependencies
       run: |
-        python -m pip install --upgrade pip
+        python3 -m pip install --upgrade pip
         # Use --no-deps first to avoid dependency resolution issues
-        pip install --no-deps -e .
+        python3 -m pip install --no-deps -e .
         # Then install core dependencies manually
-        pip install mcp numpy pandas scipy scikit-learn matplotlib seaborn
-        pip install scanpy anndata jinja2 squidpy
-        pip install umap-learn igraph leidenalg
-        pip install fastapi uvicorn pydantic click aiohttp Pillow rich
-        pip install pytest pytest-asyncio pytest-cov
+        python3 -m pip install mcp numpy pandas scipy scikit-learn matplotlib seaborn
+        python3 -m pip install scanpy anndata jinja2 squidpy
+        python3 -m pip install umap-learn igraph leidenalg
+        python3 -m pip install fastapi uvicorn pydantic click aiohttp Pillow rich
+        python3 -m pip install pytest pytest-asyncio pytest-cov
       continue-on-error: true
     
     - name: Run basic import test
       run: |
-        python -c "import chatspatial; print('✅ ChatSpatial imported successfully')"
-    
+        python3 -c "import chatspatial; print('✅ ChatSpatial imported successfully')"
+
     - name: Run tests with pytest
       run: |
-        pytest tests/ -v --tb=short || echo "⚠️ Tests not found or failed"
+        python3 -m pytest tests/ -v --tb=short || echo "⚠️ Tests not found or failed"
       continue-on-error: true
-    
+
     - name: Test MCP server start
       run: |
-        timeout 5s python -m chatspatial.server || echo "✅ Server starts correctly"
+        timeout 5s python3 -m chatspatial || echo "✅ Server starts correctly"
       continue-on-error: true
