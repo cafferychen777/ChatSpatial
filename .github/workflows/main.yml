@@ -1,0 +1,49 @@
+name: Main CI
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Only run on main repo, not on forks
+    if: github.repository == 'cafferychen777/ChatSpatial'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install and test
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e . || pip install -e . --no-deps
+        python -c "import chatspatial; print('✅ Import test passed')"
+    
+    - name: Quick quality check
+      run: |
+        pip install flake8
+        flake8 chatspatial/ --max-line-length=88 --select=E9,F63,F7,F82 --show-source
+      continue-on-error: true
