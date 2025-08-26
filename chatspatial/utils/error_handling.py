@@ -2,16 +2,18 @@
 Enhanced error handling for MCP server
 """
 
-from typing import Any, Callable, Dict, Optional, Union, List
+from typing import Any, Callable, Dict, Optional, Union, List, TYPE_CHECKING
 from functools import wraps
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 import traceback
-import scanpy as sc
-import numpy as np
 import io
 import logging
 import warnings
 from ..mcp.errors import ErrorType, format_mcp_error
+
+if TYPE_CHECKING:
+    import scanpy as sc
+    import numpy as np
 
 
 # Custom exception classes
@@ -41,7 +43,7 @@ class DataCompatibilityError(SpatialMCPError):
 
 
 def validate_adata(
-    adata: sc.AnnData, 
+    adata: 'sc.AnnData', 
     required_keys: Dict[str, Union[str, List[str]]], 
     context: Optional[Any] = None,
     # New parameters for enhanced validation (backward compatible)
@@ -98,8 +100,10 @@ def validate_adata(
         raise DataNotFoundError(f"Validation failed: {', '.join(missing)}")
 
 
-def _validate_spatial_data_internal(adata: sc.AnnData, spatial_key: str, issues: List[str]) -> None:
+def _validate_spatial_data_internal(adata: 'sc.AnnData', spatial_key: str, issues: List[str]) -> None:
     """Internal helper for spatial data validation"""
+    import numpy as np
+    
     if spatial_key not in adata.obsm:
         issues.append(f"Missing '{spatial_key}' coordinates in adata.obsm")
         return
@@ -119,8 +123,10 @@ def _validate_spatial_data_internal(adata: sc.AnnData, spatial_key: str, issues:
         issues.append("All spatial coordinates are identical")
 
 
-def _validate_velocity_data_internal(adata: sc.AnnData, issues: List[str]) -> None:
+def _validate_velocity_data_internal(adata: 'sc.AnnData', issues: List[str]) -> None:
     """Internal helper for velocity data validation"""
+    import numpy as np
+    
     if 'spliced' not in adata.layers:
         issues.append("Missing 'spliced' layer required for RNA velocity")
     if 'unspliced' not in adata.layers:
@@ -145,7 +151,7 @@ def _validate_velocity_data_internal(adata: sc.AnnData, issues: List[str]) -> No
                     issues.append(f"'{layer_name}' layer contains NaN values")
             else:  # Dense matrix
                 if np.any(np.isnan(layer_data)):
-                    issues.append(f"'{layer_name}' layer contains NaN values")
+                    issues.append(f"'{layer_name}' layer contains NaN values"
 
 
 def handle_error(error: Exception, context: Optional[Any] = None) -> None:
