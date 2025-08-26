@@ -151,7 +151,7 @@ def _validate_velocity_data_internal(adata: 'sc.AnnData', issues: List[str]) -> 
                     issues.append(f"'{layer_name}' layer contains NaN values")
             else:  # Dense matrix
                 if np.any(np.isnan(layer_data)):
-                    issues.append(f"'{layer_name}' layer contains NaN values"
+                    issues.append(f"'{layer_name}' layer contains NaN values")
 
 
 def handle_error(error: Exception, context: Optional[Any] = None) -> None:
