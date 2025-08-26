@@ -114,7 +114,7 @@ visualize_data(data_id="my_data", plot_type="spatial_domains")
 | **Cell Communication** | `analyze_cell_communication` | LIANA+, CellPhoneDB, CellChat |
 | **Deconvolution** | `deconvolve_data` | Cell2location, NNLS methods |
 | **Gene Analysis** | `identify_spatial_genes`, `find_markers` | Spatial variable genes and markers |
-| **Visualization** | `visualize_data` | 15+ plot types with AI-friendly outputs |
+| **Visualization** | `visualize_data` | 15+ plot types with agent-friendly outputs |
 
 ## 🏗️ MCP Architecture
 
