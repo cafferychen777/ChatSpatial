@@ -254,7 +254,174 @@ Ready for submission!"
 
 ---
 
-## Step 5: Interactive and Dynamic Visualizations
+## Step 5: Specialized Analysis Visualizations
+
+### 💬 Exploring Advanced Plot Types
+
+---
+
+**👤 You:** "I've heard about GASTON analysis and spatial statistics. Can you show me what these advanced analyses look like?"
+
+**🤖 ChatSpatial:** "Absolutely! GASTON and spatial statistics provide unique insights into spatial gene patterns. Let me create several specialized visualizations."
+
+*[GASTON analysis plots appear]*
+
+**🤖 ChatSpatial:** "Here are your GASTON analysis results! 🧬📊
+
+**GASTON Visualization Suite:**
+
+**1. Isodepth Contours (`gaston_isodepth`):**
+- Shows expression gradients as topographic-style contours
+- Each line represents equal expression levels
+- Reveals smooth spatial transitions and boundaries
+- Perfect for identifying expression watersheds
+
+**2. GASTON Domains (`gaston_domains`):**
+- Displays computationally identified spatial domains
+- Based on expression similarity and spatial proximity
+- More refined than standard clustering methods
+- Shows natural tissue architecture
+
+**3. Spatially Variable Genes (`gaston_genes`):**
+- Highlights genes with significant spatial patterns
+- Statistical significance color-coded
+- Shows spatial correlation coefficients
+- Identifies genes driving spatial organization
+
+**Biological Insights:**
+- Your tissue has 7 distinct GASTON domains
+- 234 genes show significant spatial variability
+- Expression gradients follow anatomical boundaries
+- Domain transitions are sharp, not gradual
+
+These patterns suggest well-preserved tissue architecture!"
+
+**👤 You:** "That's fascinating! What about spatial statistics? I want to understand if my cell types are randomly distributed or if there are specific patterns."
+
+**🤖 ChatSpatial:** "Great question! Spatial statistics can reveal whether cell distributions are random, clustered, or dispersed. Let me run several spatial analysis types."
+
+*[Spatial statistics plots appear]*
+
+**🤖 ChatSpatial:** "Here are your spatial statistics results! 📐🔍
+
+**Spatial Analysis Suite (6 types available):**
+
+**1. Neighborhood Enrichment (`spatial_analysis: neighborhood`):**
+- Z-scores showing cell type co-occurrence
+- Red = enriched interactions (avoid each other)
+- Blue = depleted interactions (cluster together)
+- Network-style visualization available
+
+**2. Moran's I Autocorrelation (`spatial_analysis: moran`):**
+- Measures spatial clustering of gene expression
+- Values near +1 = strong clustering
+- Values near -1 = checkerboard pattern  
+- Values near 0 = random distribution
+
+**3. Ripley's K Function (`spatial_analysis: ripley`):**
+- Tests for clustering vs. dispersion
+- K(r) above expected = clustering at distance r
+- K(r) below expected = regular spacing
+- Multiple distance scales analyzed
+
+**4. Getis-Ord Statistics (`spatial_analysis: getis_ord`):**
+- Identifies local hotspots and coldspots
+- Red areas = significant hotspots (high-high clusters)
+- Blue areas = coldspots (low-low clusters)
+- Shows local spatial anomalies
+
+**Key Statistical Findings:**
+- **Neurons and astrocytes are co-enriched** (positive Z-score: +3.2)
+- **Oligodendrocytes avoid other cell types** (isolation pattern)
+- **Strong spatial autocorrelation** for most genes (Moran's I > 0.6)
+- **Hotspots concentrated at tissue boundaries** (Getis-Ord)
+- **Regular spacing** detected for certain cell types (Ripley's K)
+
+Your tissue shows highly organized, non-random spatial patterns!"
+
+---
+
+## Step 6: Integration and Quality Control Visualizations
+
+### 💬 Ensuring Data Quality
+
+---
+
+**👤 You:** "These analyses look great, but I want to make sure my data integration worked properly. Can you show me quality control visualizations?"
+
+**🤖 ChatSpatial:** "Excellent practice! Quality control is crucial for reliable results. Let me create comprehensive QC visualizations."
+
+*[Integration QC plots appear]*
+
+**🤖 ChatSpatial:** "Here's your integration quality assessment! ✅🔍
+
+**Integration Check (`integration_check`):**
+- **UMAP by batch**: Shows how well batches mix
+- **Gene expression consistency**: Batch-specific artifacts detected
+- **Integration metrics**: Quantitative mixing scores
+- **Before/after comparison**: Shows integration improvement
+
+**Deconvolution Results (`deconvolution`):**
+- **Cell type proportions**: Spatial maps of estimated cell types
+- **Confidence scores**: Reliability of predictions
+- **Mixed regions**: Areas with multiple cell types
+- **Validation metrics**: Agreement with known markers
+
+**Quality Assessment Results:**
+- ✅ **Excellent batch mixing**: No obvious batch effects
+- ✅ **Consistent gene expression**: No artificial gradients
+- ✅ **High deconvolution confidence**: 87% of spots confidently assigned
+- ✅ **Biological consistency**: Results match known anatomy
+- ⚠️ **Minor edge effects**: Some boundary artifacts detected
+
+**Quality Score: 9.2/10** - Excellent data quality for analysis!"
+
+**👤 You:** "Perfect! Now I want to explore cell communication. Can you show me the different ways to visualize cell-cell interactions?"
+
+**🤖 ChatSpatial:** "Absolutely! Cell communication analysis has several visualization approaches. Let me show you the full suite."
+
+*[Cell communication visualization panel appears]*
+
+**🤖 ChatSpatial:** "Here's your comprehensive cell communication analysis! 🤝💬
+
+**Communication Visualization Types:**
+
+**1. Cell Communication Networks (`cell_communication`):**
+- Node size = cell type abundance
+- Edge thickness = interaction strength  
+- Colors = communication pathways
+- Layout optimized for clarity
+
+**2. Ligand-Receptor Pairs (`lr_pairs`):**
+- Heatmap of LR interaction strengths
+- Sender cell types (rows) × Receiver cell types (columns)
+- Color intensity = statistical significance
+- Top interacting pairs highlighted
+
+**3. Spatial Interactions (`spatial_interaction`):**
+- Distance-dependent communication strength
+- Spatial maps showing interaction hotspots
+- Decay curves for interaction vs. distance
+- Local vs. long-range communication patterns
+
+**4. Pathway Enrichment (`pathway_enrichment`):**
+- Active signaling pathways in each region
+- GSEA-style enrichment plots
+- Pathway activity spatial maps
+- Functional annotation of communications
+
+**Communication Insights:**
+- **Strongest interactions**: Neuron ↔ Astrocyte (neurotropic signaling)
+- **Spatial hotspots**: Communication peaks at domain boundaries  
+- **Active pathways**: Wnt signaling, Neurotrophin signaling, ECM interactions
+- **Long-range communication**: Minimal beyond 100μm distance
+- **Functional relevance**: Networks match known brain connectivity
+
+Your tissue shows biologically relevant communication patterns that align with known neuroscience!"
+
+---
+
+## Step 7: Interactive and Dynamic Visualizations
 
 ### 💬 Exploring Interactively
 
@@ -284,53 +451,85 @@ Ready for submission!"
 
 This lets you explore your data dynamically and discover patterns that might not be obvious in static plots!"
 
-**👤 You:** "This is amazing for exploration! Can you also create an animated visualization showing how gene expression changes across the tissue?"
+**👤 You:** "This is amazing for exploration! Can you show me some of the specialized analysis plots? I'm particularly interested in spatial statistics and GASTON analysis."
 
-**🤖 ChatSpatial:** "Fantastic idea! Let me create an animated tour of your tissue."
+**🤖 ChatSpatial:** "Excellent choice! Let me demonstrate some of our advanced spatial analysis capabilities."
 
-*[Animated visualization plays]*
+*[Multiple specialized plots appear]*
 
-**🤖 ChatSpatial:** "Here's your animated tissue tour! 🎬
+**🤖 ChatSpatial:** "Here are several advanced spatial analysis visualizations! 📊🔬
 
-**Animation Features:**
-- **Gene expression waves**: Shows how different genes are expressed
-- **Smooth transitions**: Beautiful morphing between patterns
-- **Automatic tour**: Highlights key regions and genes
-- **Pause controls**: Stop at interesting patterns
-- **Speed adjustment**: Control animation pace
+**1. GASTON Analysis Suite:**
+- **Isodepth contours**: Shows spatial gene expression gradients
+- **Domain visualization**: GASTON-identified spatial domains
+- **Gene analysis**: Spatially variable genes with statistical significance
 
-**Tour Highlights:**
-1. **Overall tissue structure** (total UMI)
-2. **Neuronal patterns** (MAP2, RBFOX3)
-3. **Glial organization** (GFAP, MBP)
-4. **Vascular networks** (PECAM1, VWF)
-5. **Spatial domains** (integrated view)
+**2. Spatial Statistics (6 sub-types available):**
+- **Neighborhood enrichment**: Cell type co-occurrence patterns
+- **Moran's I autocorrelation**: Spatial clustering of gene expression
+- **Ripley's K function**: Point pattern analysis for cell distributions
+- **Getis-Ord statistics**: Local hotspot detection
+- **Centrality measures**: Network importance in spatial context
+- **Co-occurrence analysis**: Spatial interaction patterns
 
-This animation is perfect for presentations - it tells the story of your tissue in a dynamic, engaging way!"
+**3. Communication Networks:**
+- **Ligand-receptor pairs**: Interaction strength between cell types
+- **Spatial interactions**: Distance-dependent communication
+- **Network visualization**: Cell type interaction graphs
+
+**4. Quality Control Plots:**
+- **Integration assessment**: Batch effect visualization
+- **Deconvolution results**: Cell type proportion maps
+
+**Key Insights from These Plots:**
+- Your tissue shows strong spatial organization (high Moran's I)
+- GASTON identified 5 distinct expression domains
+- Cell communication is highest at domain boundaries
+- Integration successfully removed batch effects
+- Neuronal markers show expected spatial patterns
+
+These specialized plots reveal patterns that basic visualizations might miss!"
 
 ---
 
 ## Common Visualization Requests
 
-### 💬 Popular Plot Types
+### 💬 Popular Plot Types (All 20 Available)
 
-**"Can you create a heatmap of the top genes in each region?"**
-→ ChatSpatial creates clustered heatmaps with hierarchical organization
+**Basic Visualization:**
+- **"Can you create a heatmap of the top genes in each region?"** → Clustered heatmaps with hierarchical organization
+- **"Show me a violin plot comparing gene expression between domains"** → Beautiful violin plots with statistical comparisons
+- **"Create a spatial map of my tissue"** → Spatial gene expression plots with tissue architecture
+- **"Make a UMAP plot colored by cell types"** → UMAP embeddings with annotations
 
-**"Show me a violin plot comparing gene expression between domains"**
-→ Beautiful violin plots with statistical comparisons
+**Advanced Gene Analysis:**
+- **"I want to see correlations between different genes"** → Gene correlation matrices and scatter plots
+- **"Create a multi-gene panel showing key markers"** → Multi-panel spatial plots for gene comparison
+- **"Show me GASTON analysis results"** → Isodepth contours, domains, and spatially variable genes
 
-**"I want to see correlations between different genes"**
-→ Correlation matrices and scatter plots with trend lines
+**Cell Communication & Interactions:**
+- **"Visualize ligand-receptor interactions"** → LR pair analysis and interaction networks
+- **"Show me spatial cell-cell interactions"** → Spatial interaction maps and communication networks
+- **"Create a cell communication network"** → Network diagrams showing intercellular signaling
 
-**"Can you make a 3D visualization of my tissue?"**
-→ 3D spatial plots with interactive rotation and zooming
+**Trajectory & Development:**
+- **"Show me RNA velocity patterns"** → Velocity field overlays and developmental arrows
+- **"Create trajectory plots for pseudotime"** → Developmental pathways and differentiation routes
 
-**"Create a network showing relationships between cell types"**
-→ Network diagrams with nodes and edges representing interactions
+**Spatial Analysis (6 Sub-types):**
+- **"Perform neighborhood enrichment analysis"** → Co-occurrence and spatial clustering patterns
+- **"Show me Moran's I spatial autocorrelation"** → Spatial statistics and pattern detection
+- **"Create Ripley's K function plots"** → Point pattern analysis
+- **"Analyze centrality measures"** → Network centrality in spatial context
+- **"Show Getis-Ord local statistics"** → Hotspot detection and clustering
 
-**"Show me how gene expression varies along a spatial trajectory"**
-→ Line plots showing expression gradients across tissue paths
+**Quality Control & Integration:**
+- **"Check my integration quality"** → Batch effect assessment and integration QC
+- **"Show deconvolution results"** → Cell type proportion maps
+
+**Enrichment Analysis:**
+- **"Visualize pathway enrichment"** → GSEA results and pathway activity
+- **"Create spatial enrichment maps"** → Functional enrichment in spatial context
 
 ### 💬 Customization Options
 
@@ -385,6 +584,61 @@ This animation is perfect for presentations - it tells the story of your tissue 
 
 - [Basic Spatial Analysis](basic_spatial_analysis.md) - Generate data to visualize
 - [Cell Type Annotation](cell_type_annotation.md) - Create cell type plots
-- [Cell Communication](cell_communication_analysis.md) - Visualize interactions
+- [Cell Communication Analysis](cell_communication_analysis.md) - Visualize interactions
+- [Advanced Analysis](advanced_analysis.md) - Explore GASTON and spatial statistics
+- [API Reference](../api/README.md) - Complete visualization parameters
+
+## The Complete Visualization Arsenal
+
+### 🎯 All 20 Plot Types at Your Fingertips
+
+ChatSpatial provides comprehensive visualization capabilities:
+
+**Core Spatial Plots (4 types):**
+1. `spatial` - Gene expression in tissue context
+2. `spatial_domains` - Tissue architecture and regions
+3. `umap` - Dimensionality reduction with annotations
+4. `heatmap` - Multi-gene expression matrices
+
+**Statistical Analysis (7 types):**
+5. `violin` - Distribution comparisons
+6. `gene_correlation` - Co-expression analysis
+7. `spatial_analysis` - 6 statistical sub-types (neighborhood, Moran's I, Ripley's K, etc.)
+8. `gaston_isodepth` - Spatial expression gradients
+9. `gaston_domains` - GASTON domain identification
+10. `gaston_genes` - Spatially variable genes
+11. `spatial_enrichment` - Functional enrichment mapping
+
+**Cell Communication (4 types):**
+12. `cell_communication` - Interaction networks
+13. `lr_pairs` - Ligand-receptor analysis
+14. `spatial_interaction` - Distance-dependent communication
+15. `multi_gene` - Multi-panel gene comparisons
+
+**Trajectory & Dynamics (2 types):**
+16. `rna_velocity` - Velocity field visualization
+17. `trajectory` - Developmental pathways
+
+**Quality Control (3 types):**
+18. `deconvolution` - Cell type proportions
+19. `pathway_enrichment` - GSEA and pathway activity
+20. `integration_check` - Batch correction assessment
+
+### 🚀 Pro Tips for Maximum Impact
+
+**For Presentations:**
+- Use `multi_gene` plots to compare key markers
+- Combine `spatial_domains` with `cell_communication` for complete story
+- Include `integration_check` to show data quality
+
+**For Publications:**
+- Start with `spatial` overview, then zoom into specific analyses
+- Use `gaston_*` plots for novel spatial gene discovery
+- Include statistical plots (`spatial_analysis`) for rigor
+
+**For Exploration:**
+- Try `gene_correlation` to find co-expressed modules
+- Use `spatial_interaction` to discover communication hotspots
+- Experiment with different `spatial_analysis` sub-types
 
 **Remember**: Great visualizations don't just show data - they reveal insights and tell compelling stories about your tissue's biology!

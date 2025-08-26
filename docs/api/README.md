@@ -4,7 +4,7 @@ Complete reference for all ChatSpatial MCP tools, parameters, and data models.
 
 ## Overview
 
-ChatSpatial provides **16 standardized MCP tools** for spatial transcriptomics analysis. Each tool follows the Model Context Protocol specification with:
+ChatSpatial provides **19 standardized MCP tools** for spatial transcriptomics analysis. Each tool follows the Model Context Protocol specification with:
 
 - **JSON Schema validation** for all inputs and outputs
 - **Structured error handling** with detailed error messages
@@ -17,13 +17,13 @@ ChatSpatial provides **16 standardized MCP tools** for spatial transcriptomics a
 |----------|-------|-------------|
 | **[Data Management](#data-management)** | `load_data`, `preprocess_data` | Data loading, QC, and preprocessing |
 | **[Cell Annotation](#cell-annotation)** | `annotate_cells` | 7 annotation methods with reference data support |
-| **[Spatial Analysis](#spatial-analysis)** | `analyze_spatial_data`, `identify_spatial_domains` | Pattern analysis and domain identification |
-| **[Gene Analysis](#gene-analysis)** | `identify_spatial_genes`, `find_markers` | Spatial variable genes and differential expression |
+| **[Spatial Analysis](#spatial-analysis)** | `analyze_spatial_data`, `identify_spatial_domains`, `register_spatial_data`, `calculate_spatial_statistics` | Pattern analysis, domain identification, registration, and advanced statistics |
+| **[Gene Analysis](#gene-analysis)** | `identify_spatial_genes`, `find_markers`, `analyze_enrichment` | Spatial variable genes, differential expression, and enrichment |
 | **[Cell Communication](#cell-communication)** | `analyze_cell_communication` | Ligand-receptor interaction analysis |
 | **[Deconvolution](#deconvolution)** | `deconvolve_data` | Cell type proportion estimation |
 | **[Integration](#integration)** | `integrate_data` | Multi-modal and batch integration |
 | **[Trajectory](#trajectory)** | `analyze_rna_velocity` | RNA velocity and trajectory inference |
-| **[Visualization](#visualization)** | `visualize_data` | 15+ plot types with MCP image outputs |
+| **[Visualization](#visualization)** | `visualize_data` | 20 plot types with MCP image outputs |
 
 ## Quick Reference
 
@@ -31,7 +31,7 @@ ChatSpatial provides **16 standardized MCP tools** for spatial transcriptomics a
 
 ```python
 # Data loading and preprocessing
-load_data(file_path="data.h5ad", data_id="dataset")
+load_data(data_path="data.h5ad", name="dataset")
 preprocess_data(data_id="dataset", normalize_total=True, log1p=True)
 
 # Core analysis
@@ -47,7 +47,9 @@ visualize_data(data_id="dataset", plot_type="spatial_domains")
 
 All tools follow consistent parameter patterns:
 
-- **`data_id`**: Required string identifier for the dataset
+- **`data_path`**: Path to data file (load_data only)
+- **`data_type`**: Data format specification (load_data only)  
+- **`data_id`**: Required string identifier for loaded datasets
 - **`method`**: Analysis method selection with fallbacks
 - **`*_key`**: Keys for accessing data layers (e.g., `spatial_key`, `batch_key`)
 - **`use_*`**: Boolean flags for optional features
@@ -63,13 +65,11 @@ Load spatial transcriptomics data from various formats.
 **Signature:**
 ```python
 load_data(
-    file_path: str,
-    data_id: str,
-    format: str = "auto",
-    spatial_key: str = "spatial",
-    delimiter: str = ",",
-    first_column_names: bool = True
-) -> DataLoadResult
+    data_path: str,
+    data_type: str = "auto", 
+    name: Optional[str] = None,
+    context: Context = None
+) -> SpatialDataset
 ```
 
 **Supported Formats:**
@@ -79,14 +79,20 @@ load_data(
 - **10x Visium**: Space Ranger outputs
 - **Zarr**: Cloud-optimized arrays
 
+**Parameters:**
+- **`data_path`**: Path to the data file or directory
+- **`data_type`**: Type of spatial data (auto, 10x_visium, slide_seq, merfish, seqfish, other, h5ad). If 'auto', will try to determine the type from the file extension or directory structure.
+- **`name`**: Optional name for the dataset
+- **`context`**: Optional MCP context for logging
+
 **Example:**
 ```python
 result = load_data(
-    file_path="data/mouse_brain_visium.h5ad",
-    data_id="mouse_brain",
-    format="h5ad"
+    data_path="data/mouse_brain_visium.h5ad",
+    data_type="h5ad",
+    name="mouse_brain"
 )
-print(f"Loaded {result.n_obs} spots, {result.n_vars} genes")
+print(f"Loaded dataset: {result.id}")
 ```
 
 ### preprocess_data
@@ -250,6 +256,60 @@ find_markers(
 ) -> DifferentialExpressionResult
 ```
 
+### analyze_enrichment
+
+Perform gene set enrichment analysis on spatial transcriptomics data.
+
+**Signature:**
+```python
+analyze_enrichment(
+    data_id: str,
+    method: str = "spatial_enrichmap",
+    gene_sets: Optional[Union[List[str], Dict[str, List[str]]]] = None,
+    gene_set_database: str = "GO_Biological_Process",
+    spatial_key: str = "spatial",
+    n_neighbors: int = 6,
+    smoothing: bool = True,
+    min_genes: int = 10
+) -> EnrichmentResult
+```
+
+**Available Methods:**
+
+| Method | Description | Best For |
+|--------|-------------|----------|
+| `spatial_enrichmap` | Spatially-aware enrichment mapping | Spatial pathway analysis |
+| `pathway_gsea` | Gene Set Enrichment Analysis | Ranked gene lists |
+| `pathway_ora` | Over-representation analysis | Discrete gene sets |
+| `pathway_enrichr` | Enrichr web service integration | Online databases |
+| `pathway_ssgsea` | Single-sample GSEA | Sample-level enrichment |
+
+**Key Features:**
+- Spatial awareness for tissue-specific pathways
+- Multiple database support (GO, KEGG, Reactome)
+- Custom gene set analysis
+- Spatial smoothing and covariate correction
+- Statistical significance testing with FDR correction
+
+**Example:**
+```python
+# Custom gene set enrichment
+custom_pathways = {
+    "Neuronal_Signaling": ["SNAP25", "SYN1", "GRIN1", "GRIA1"],
+    "Glial_Function": ["GFAP", "AQP4", "S100B", "ALDH1L1"]
+}
+
+result = analyze_enrichment(
+    data_id="brain_dataset",
+    method="spatial_enrichmap",
+    gene_sets=custom_pathways,
+    smoothing=True,
+    n_neighbors=8
+)
+
+print(f"Found {result.n_significant} significant pathways")
+```
+
 ## Cell Communication
 
 ### analyze_cell_communication
@@ -298,7 +358,7 @@ visualize_data(
 ) -> VisualizationResult
 ```
 
-**Plot Types:**
+**Plot Types (20 Total):**
 
 | Type | Description | Use Case |
 |------|-------------|----------|
@@ -307,8 +367,21 @@ visualize_data(
 | `umap` | UMAP embedding | Dimensionality reduction |
 | `heatmap` | Expression heatmap | Multi-gene comparison |
 | `violin` | Distribution plots | Expression distributions |
+| `deconvolution` | Cell type proportion maps | Deconvolution results |
 | `cell_communication` | Communication networks | Interaction visualization |
-| `trajectory` | Trajectory plots | Developmental analysis |
+| `multi_gene` | Multi-gene spatial panels | Gene comparison |
+| `lr_pairs` | Ligand-receptor pairs | LR interaction analysis |
+| `gene_correlation` | Gene correlation analysis | Co-expression patterns |
+| `rna_velocity` | RNA velocity plots | Trajectory inference |
+| `trajectory` | Developmental trajectories | Pseudotime analysis |
+| `spatial_analysis` | Spatial statistics (6 subtypes) | Pattern analysis |
+| `gaston_isodepth` | GASTON isodepth contours | Spatial gene patterns |
+| `gaston_domains` | GASTON domain visualization | Spatial domains |
+| `gaston_genes` | GASTON gene analysis | Spatially variable genes |
+| `spatial_enrichment` | Spatial enrichment maps | Functional enrichment |
+| `pathway_enrichment` | Pathway enrichment plots | GSEA visualization |
+| `spatial_interaction` | Cell-cell interactions | Spatial communication |
+| `integration_check` | Integration quality plots | Batch correction QC |
 
 **MCP Integration:**
 All visualizations return MCP Image objects for direct display in LLM agents like Claude Desktop.
@@ -344,13 +417,13 @@ ChatSpatial implements comprehensive error handling:
 ### Chaining Analysis
 
 ```python
-# Complete workflow
-load_data(file_path="data.h5ad", data_id="sample")
-preprocess_data(data_id="sample")
-identify_spatial_domains(data_id="sample", method="spagcn")
-annotate_cells(data_id="sample", method="tangram", reference_data_id="ref")
-analyze_cell_communication(data_id="sample", method="liana")
-visualize_data(data_id="sample", plot_type="spatial_domains")
+# Complete workflow  
+result = load_data(data_path="data.h5ad", name="sample")
+preprocess_data(data_id=result.id)
+identify_spatial_domains(data_id=result.id, method="spagcn")
+annotate_cells(data_id=result.id, method="tangram", reference_data_id="ref")
+analyze_cell_communication(data_id=result.id, method="liana")
+visualize_data(data_id=result.id, plot_type="spatial_domains")
 ```
 
 ### Parameter Optimization
@@ -369,11 +442,11 @@ for res in [0.5, 1.0, 1.5, 2.0]:
 
 ```python
 # Process multiple samples
-samples = ["sample1", "sample2", "sample3"]
-for sample in samples:
-    load_data(file_path=f"data/{sample}.h5ad", data_id=sample)
-    preprocess_data(data_id=sample)
-    identify_spatial_domains(data_id=sample)
+sample_files = ["sample1.h5ad", "sample2.h5ad", "sample3.h5ad"]
+for sample_file in sample_files:
+    result = load_data(data_path=f"data/{sample_file}", name=sample_file.replace(".h5ad", ""))
+    preprocess_data(data_id=result.id)
+    identify_spatial_domains(data_id=result.id)
 ```
 
 ## See Also
