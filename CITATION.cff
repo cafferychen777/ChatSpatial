@@ -1,0 +1,47 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "ChatSpatial: Interactive AI Assistant for Spatial Transcriptomics Analysis"
+version: "0.2.0"
+date-released: "2025-08-26"
+url: "https://github.com/cafferychen777/ChatSpatial"
+repository-code: "https://github.com/cafferychen777/ChatSpatial"
+license: MIT
+authors:
+  - family-names: "Chen"
+    given-names: "Caffery"
+    orcid: "https://orcid.org/0000-0000-0000-0000"  # Replace with actual ORCID
+    affiliation: "Texas A&M University"
+    email: "cafferychen777@tamu.edu"
+abstract: >-
+  ChatSpatial is an interactive AI assistant for spatial transcriptomics analysis 
+  built on the Model Context Protocol (MCP). It provides a natural language interface 
+  for comprehensive spatial data analysis, including visualization, cell communication 
+  analysis, deconvolution, and spatial domain identification. The tool integrates 
+  state-of-the-art methods like GASTON, SpaGCN, LIANA, and Cell2location through 
+  an intuitive conversational interface.
+keywords:
+  - spatial transcriptomics
+  - bioinformatics
+  - single-cell analysis
+  - artificial intelligence
+  - model context protocol
+  - computational biology
+  - spatial analysis
+  - cell communication
+  - deconvolution
+  - machine learning
+preferred-citation:
+  type: software
+  title: "ChatSpatial: Interactive AI Assistant for Spatial Transcriptomics Analysis"
+  authors:
+    - family-names: "Chen"
+      given-names: "Caffery"
+      orcid: "https://orcid.org/0000-0000-0000-0000"
+      affiliation: "Texas A&M University"
+      email: "cafferychen777@tamu.edu"
+  version: "0.2.0"
+  date-released: "2025-08-26"
+  url: "https://github.com/cafferychen777/ChatSpatial"
+  repository-code: "https://github.com/cafferychen777/ChatSpatial"
+  license: MIT
