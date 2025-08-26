@@ -367,7 +367,7 @@ class DataValidator:
                 result.add_error("Spatial analysis requires cluster annotations")
                 result.add_suggestion(f"Run clustering and add results to adata.obs['{self.standards.cluster_key}']")
     
-    def _validate_categorical_field(self, series: self.pd.Series, field_name: str, result: DataValidationResult) -> None:
+    def _validate_categorical_field(self, series: 'pd.Series', field_name: str, result: DataValidationResult) -> None:
         """Validate a categorical metadata field."""
         
         if not self.pd.api.types.is_categorical_dtype(series):
