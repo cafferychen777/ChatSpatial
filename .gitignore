@@ -254,9 +254,8 @@ docs/_build/
 docs/build/
 site/
 
-# Exclude paper and docs folders
+# Exclude paper folder
 paper/
-docs/
 
 # Development artifacts
 experiments/
@@ -282,3 +281,49 @@ profile_*.txt
 !assets/*.png
 !assets/*.jpg
 !assets/*.svg
+
+# Exclude internal development documentation
+CLAUDE.md
+GEMINI.md
+claude.md
+*_test_report.md
+*_REPORT.md
+*_PLAN.md
+*_GUIDE.md
+*_ANALYSIS.md
+*_MIGRATION_GUIDE.md
+*_REFACTOR_PLAN*.md
+*_DEPENDENCY_*.md
+ChatSpatial_Claude_Desktop_Testing_Guide.md
+DATASET_DOWNLOAD_REPORT.md
+DATASET_SURVEY_REPORT.md
+FINAL_MCP_DATASETS_REPORT.md
+LLM_Parameter_Mismatch_Analysis.md
+Spatial_Analysis_Parameter_Dependency_Fix_Plan.md
+direct_tools_test_report.md
+enrichment_analysis_test_report.md
+tools_test_report.md
+
+# Exclude temporary development files
+=3.6
+dataset_survey_code.py
+deep_organize_data.py
+download_reliable_datasets.py
+download_standard_datasets.py
+
+# Exclude large data directories that shouldn't be in git
+data/V1_*/
+data/large_datasets/
+data/merfish_large/
+data/slideseq_large/
+data/modern_spatial/
+data/real_datasets/visium_*/
+
+# Exclude data verification scripts
+data/verify_large_datasets.py
+data/test_chatspatial_large_data.py
+
+# Exclude internal data reports
+data/BIG_DATASETS_FINAL_REPORT.md
+data/QUICK_START_DEMO.py
+data/STANDARD_DATASETS_GUIDE.md
