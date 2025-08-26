@@ -1,6 +1,6 @@
 # What is Model Context Protocol (MCP)?
 
-**Model Context Protocol (MCP)** is an open standard that connects AI applications to the systems where your data and tools live. Think of it as a universal adapter, like USB-C, but for AI. Just as USB-C provides a standard way to connect devices to peripherals, MCP offers a standardized, secure, and simple way to connect AI assistants like Claude to real-world applications, databases, and services.
+**Model Context Protocol (MCP)** is an open standard that connects LLM applications to the systems where your data and tools live. Think of it as a universal adapter, like USB-C, but for agentic systems. Just as USB-C provides a standard way to connect devices to peripherals, MCP offers a standardized, secure, and simple way to connect LLM agents like Claude to real-world applications, databases, and services.
 
 This enables AI to move beyond its training data, giving it the context it needs to read files from your computer, search through internal knowledge bases, or update tasks in project management tools.
 
@@ -17,11 +17,11 @@ Every integration required bespoke, custom development, making it difficult and 
 
 ## How MCP Works
 
-MCP creates a standardized bridge between an **AI application (Host)** and external **Servers**. The Host (e.g., Claude Desktop, VS Code) runs **Clients**, with each client maintaining a dedicated, one-to-one connection to a server.
+MCP creates a standardized bridge between an **LLM application (Host)** and external **Servers**. The Host (e.g., Claude Desktop, VS Code) runs **Clients**, with each client maintaining a dedicated, one-to-one connection to a server.
 
 ```mermaid
 graph LR
-    H[AI Host] --> C1[Client 1]
+    H[LLM Host] --> C1[Client 1]
     H --> C2[Client 2]
     C1 --> S1[Local Server]
     C2 --> S2[Remote Server]
