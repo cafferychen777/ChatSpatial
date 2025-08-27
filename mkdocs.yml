@@ -7,25 +7,40 @@ edit_uri: edit/main/docs/
 
 nav:
   - Home: index.md
-  - What is MCP?: what_is_mcp.md
-  - Getting Started: getting_started.md
+  - What is MCP?: resources/what_is_mcp.md
+  - Getting Started:
+      - Overview: getting-started/README.md
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quick-start.md
   - Tutorials:
       - Overview: tutorials/README.md
-      - Your First Analysis: tutorials/basic_spatial_analysis.md
-      - Cell Type Annotation: tutorials/cell_type_annotation.md
-      - Cell Communication: tutorials/cell_communication_analysis.md
-      - Visualization Guide: tutorials/visualization_tutorial.md
-  - API Reference:
-      - Overview: api/README.md
-      - Data Models: api/data_models.md
-      - Error Handling: api/error_handling.md
-      - Parameters: api/parameters.md
-  - User Guides:
-      - Installation: installation.md
-      - Configuration: configuration.md
-      - Data Formats: data_formats.md
-      - Performance Tips: performance.md
-  - Benchmarks: benchmarks.md
+      - Core Tutorials:
+          - Basic Analysis: tutorials/core/basic_spatial_analysis.md
+          - Spatial Statistics: tutorials/core/spatial_statistics.md
+          - Visualization: tutorials/core/visualization_tutorial.md
+      - Analysis Tutorials:
+          - Cell Type Annotation: tutorials/analysis/cell_type_annotation.md
+          - Cell Communication: tutorials/analysis/cell_communication_analysis.md
+          - Spatial Enrichment: tutorials/analysis/spatial_enrichment.md
+      - Advanced Tutorials:
+          - GASTON Analysis: tutorials/advanced/gaston_analysis.md
+          - Batch Integration: tutorials/advanced/batch_integration.md
+          - Spatial Registration: tutorials/advanced/spatial_registration.md
+          - Trajectory Analysis: tutorials/advanced/trajectory_analysis.md
+      - Learning Paths:
+          - Beginner: tutorials/learning-paths/beginner.md
+          - Intermediate: tutorials/learning-paths/intermediate.md
+          - Advanced: tutorials/learning-paths/advanced.md
+  - Reference:
+      - API Reference: reference/api/README.md
+      - Configuration: reference/configuration.md
+      - Data Formats: reference/data_formats.md
+      - Performance: reference/performance.md
+      - Benchmarks: reference/benchmarks.md
+      - Troubleshooting: reference/troubleshooting/common_issues.md
+  - Examples:
+      - Overview: examples/README.md
+      - Datasets: examples/datasets/README.md
 
 theme:
   name: material

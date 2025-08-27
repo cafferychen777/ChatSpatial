@@ -1,3 +1,25 @@
+---
+title: "Creating Beautiful Visualizations with ChatSpatial"
+difficulty: beginner
+duration: "35-50 minutes"
+prerequisites: 
+  - "basic_spatial_analysis"
+  - "Some analysis completed"
+dataset: "mouse_brain_visium_standard"
+tools_used: 
+  - spatial_plots
+  - gene_visualization
+  - multi_panel_figures
+  - publication_export
+  - customization
+learning_objectives:
+  - "Create basic spatial and gene expression visualizations"
+  - "Customize plot colors, styles, and layouts through conversation"
+  - "Generate publication-ready multi-panel figures"
+  - "Export high-quality images for presentations and papers"
+  - "Master the complete ChatSpatial visualization toolkit"
+---
+
 # Creating Beautiful Visualizations with ChatSpatial
 
 Learn how to create stunning, publication-ready visualizations of your spatial transcriptomics data through simple conversation with ChatSpatial.
@@ -583,10 +605,10 @@ These specialized plots reveal patterns that basic visualizations might miss!"
 ### 📚 Learn More
 
 - [Basic Spatial Analysis](basic_spatial_analysis.md) - Generate data to visualize
-- [Cell Type Annotation](cell_type_annotation.md) - Create cell type plots
-- [Cell Communication Analysis](cell_communication_analysis.md) - Visualize interactions
-- [Advanced Analysis](advanced_analysis.md) - Explore GASTON and spatial statistics
-- [API Reference](../api/README.md) - Complete visualization parameters
+- [Cell Type Annotation](../analysis/cell_type_annotation.md) - Create cell type plots
+- [Cell Communication Analysis](../analysis/cell_communication_analysis.md) - Visualize interactions
+- [Advanced Analysis](../advanced_analysis.md) - Explore GASTON and spatial statistics
+- [API Reference](../../reference/api/README.md) - Complete visualization parameters
 
 ## The Complete Visualization Arsenal
 

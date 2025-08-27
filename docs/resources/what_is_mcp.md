@@ -6,7 +6,7 @@ This enables LLM agents to move beyond their training data, giving them the cont
 
 ## The Problem MCP Solves
 
-Before MCP, LLM agents were powerful but limited to information you manually provided. They couldn't:
+Before MCP, LLM agents were capable but limited to information you manually provided. They couldn't:
 
 - Access real-time information
 - Interact with external tools and services (APIs, databases)
