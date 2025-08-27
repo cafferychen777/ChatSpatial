@@ -13,7 +13,7 @@
 
 **Model Context Protocol (MCP)** is an open standard that enables LLM agents to securely connect with external tools and data sources. MCP functions as a universal plugin system for agentic systems that enables natural language interaction with specialized software.
 
-**📚 [Learn more about MCP →](what_is_mcp.md)**
+**📚 [Learn more about MCP →](resources/what_is_mcp.md)**
 
 ### 🎥 New to MCP? Watch This!
 
@@ -92,26 +92,47 @@ visualize_data(data_id=result.id, plot_type="spatial_domains")
 
 ### 🏁 Getting Started
 
-- **[Installation Guide](getting_started.md)** - Complete setup instructions
-- **[Quick Tutorial](tutorials/basic_spatial_analysis.md)** - Your first spatial analysis
-
-### 🔧 API Reference
-
-- **[Tool Reference](api/README.md)** - Complete MCP tool documentation
-- **[Data Models](api/data_models.md)** - Parameter and result schemas
-- **[Error Handling](api/error_handling.md)** - Error codes and troubleshooting
+- **[Getting Started Guide](getting-started/)** - Complete setup and installation
+- **[Installation](getting-started/installation.md)** - Detailed installation instructions
+- **[Quick Start](getting-started/quick-start.md)** - Get up and running quickly
 
 ### 📖 Tutorials
 
-- **[Basic Workflow](tutorials/basic_spatial_analysis.md)** - Standard analysis pipeline
-- **[Advanced Features](tutorials/advanced_analysis.md)** - Complex multi-modal analysis
-- **[Visualization Gallery](tutorials/visualization_gallery.md)** - All plot types with examples
+Structured learning paths from beginner to advanced:
 
-### 🎯 Use Cases
+- **[Core Tutorials](tutorials/core/)** - Essential concepts and basic workflows
+  - [Basic Spatial Analysis](tutorials/core/basic_spatial_analysis.md)
+  - [Spatial Statistics](tutorials/core/spatial_statistics.md)
+  - [Visualization Tutorial](tutorials/core/visualization_tutorial.md)
+- **[Analysis Tutorials](tutorials/analysis/)** - Specialized analysis methods
+  - [Cell Type Annotation](tutorials/analysis/cell_type_annotation.md)
+  - [Cell Communication Analysis](tutorials/analysis/cell_communication_analysis.md)
+  - [Spatial Enrichment](tutorials/analysis/spatial_enrichment.md)
+- **[Advanced Tutorials](tutorials/advanced/)** - Complex multi-modal analysis
+  - [Batch Integration](tutorials/advanced/batch_integration.md)
+  - [Spatial Registration](tutorials/advanced/spatial_registration.md)
+  - [Trajectory Analysis](tutorials/advanced/trajectory_analysis.md)
+- **[Learning Paths](tutorials/learning-paths/)** - Guided skill development tracks
 
-- **[Cell Type Annotation](tutorials/cell_type_annotation.md)** - Multiple annotation methods
-- **[Spatial Domain Discovery](tutorials/basic_spatial_analysis.md)** - Tissue architecture analysis
-- **[Cell Communication](tutorials/cell_communication_analysis.md)** - Intercellular signaling analysis
+### 🔧 Reference
+
+Complete reference materials:
+
+- **[API Reference](reference/api/)** - Complete MCP tool documentation
+- **[Quick Reference](reference/quick-reference/)** - Cheat sheets and quick guides
+- **[Configuration](reference/configuration.md)** - Settings and configuration options
+- **[Data Formats](reference/data_formats.md)** - Supported formats and schemas
+- **[Troubleshooting](reference/troubleshooting/)** - Common issues and solutions
+- **[Performance](reference/performance.md)** - Optimization guidelines
+- **[Benchmarks](reference/benchmarks.md)** - Performance comparisons
+
+### 🎯 Examples & Use Cases
+
+Real-world examples and workflows:
+
+- **[Example Workflows](examples/workflows/)** - Complete analysis examples
+- **[Datasets](examples/datasets/)** - Sample datasets and usage patterns
+- **[Integration Guides](examples/guides/)** - Setup and integration examples
 
 ## 🛠️ Core Analysis Tools
 

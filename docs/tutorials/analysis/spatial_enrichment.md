@@ -1,15 +1,39 @@
+---
+title: "Spatial Gene Set Enrichment Analysis with ChatSpatial"
+difficulty: intermediate
+duration: "50-70 minutes"
+prerequisites: 
+  - "basic_spatial_analysis"
+  - "spatial_domains"
+  - "Understanding of gene sets and pathways"
+dataset: "mouse_brain_visium_standard"
+tools_used: 
+  - enrichmap_analysis
+  - msigdb_integration
+  - pathway_visualization
+  - spatial_validation
+  - custom_gene_sets
+learning_objectives:
+  - "Perform spatial gene set enrichment using simple conversational queries"
+  - "Load and utilize gene sets from MSigDB and other databases"
+  - "Identify spatially coherent biological processes and pathways"
+  - "Create enrichment visualizations and pathway territory maps"
+  - "Interpret and validate spatial enrichment patterns biologically"
+  - "Compare enrichment patterns across different tissue regions"
+---
+
 # Spatial Gene Set Enrichment Analysis with ChatSpatial
 
-Discover biological pathways and processes that are spatially organized in your tissue using natural conversation with ChatSpatial. This tutorial shows you how to perform spatially-aware gene set enrichment analysis using EnrichMap integration.
+Find biological pathways and processes that are spatially organized in your tissue using ChatSpatial. This tutorial shows how to perform spatial gene set enrichment analysis using EnrichMap integration.
 
-## What You'll Learn
+## What You Will Learn
 
-By the end of this tutorial, you'll know how to:
+By the end of this tutorial, you will know how to:
 
 1. **Ask ChatSpatial to perform spatial enrichment** using simple questions
 2. **Load gene sets from MSigDB and other databases** conversationally
 3. **Identify spatially coherent biological processes** in your tissue
-4. **Create beautiful enrichment visualizations** automatically
+4. **Create enrichment visualizations** automatically
 5. **Interpret spatial enrichment results** biologically
 6. **Compare enrichment patterns across regions** interactively
 
@@ -17,10 +41,10 @@ By the end of this tutorial, you'll know how to:
 
 ### What You Need
 - ✅ **Claude Desktop** installed and running
-- ✅ **ChatSpatial configured** (see [Getting Started](../getting_started.md))
+- ✅ **ChatSpatial configured** (see [Getting Started](../../getting-started/))
 - ✅ **Your spatial data** already loaded and preprocessed
 - ✅ **Basic knowledge of gene sets** (pathways, GO terms, etc.)
-- ✅ **Curiosity about biological processes** in your tissue!
+- ✅ **Knowledge of biological processes** in your tissue
 
 ### Understanding Spatial Enrichment
 
@@ -28,7 +52,7 @@ By the end of this tutorial, you'll know how to:
 
 **Spatial enrichment analysis** asks: "Are these biological processes organized spatially in my tissue?"
 
-This approach reveals:
+This approach identifies:
 - 🗺️ **Pathway territories** - where specific processes are active
 - 🔗 **Functional neighborhoods** - regions sharing biological functions  
 - 📈 **Spatial gradients** - how pathway activity changes across space
@@ -42,26 +66,26 @@ Before enrichment analysis, make sure your data is properly processed:
 
 ---
 
-**👤 You:** "I have a mouse brain dataset that's already preprocessed. Can you tell me what spatial domains we found and prepare it for enrichment analysis?"
+> **👤 You:** "I have a mouse brain dataset that is already preprocessed. Can you tell me what spatial domains we found and prepare it for enrichment analysis?"
 
-**🤖 Claude:** "Let me examine your preprocessed mouse brain data and check what spatial information we have available."
+> **🤖 Claude:** "Let me examine your preprocessed mouse brain data and check what spatial information we have available."
 
-*[ChatSpatial analyzes the spatial organization]*
+> *[ChatSpatial analyzes the spatial organization]*
 
-**🤖 Claude:** "Perfect! Your mouse brain data is ready for spatial enrichment analysis:
+> **🤖 Claude:** "Your mouse brain data is ready for spatial enrichment analysis:
 
-**Spatial Organization Summary:**
-- **2,651 spots** with high-quality spatial coordinates
-- **7 distinct spatial domains** already identified:
-  - Cortical layers (outer and deep)
-  - Hippocampal formation
-  - White matter regions
-  - Ventricular zones
-  - Boundary regions
-- **18,078 genes** available for enrichment analysis
-- **Spatial neighborhoods** already computed (6-nearest neighbors)
-
-Your data has excellent spatial structure, which means we can perform meaningful spatial enrichment analysis. What biological processes are you most interested in exploring?"
+> **Spatial Organization Summary:**
+> - **2,651 spots** with high-quality spatial coordinates
+> - **7 distinct spatial domains** already identified:
+>   - Cortical layers (outer and deep)
+>   - Hippocampal formation
+>   - White matter regions
+>   - Ventricular zones
+>   - Boundary regions
+> - **18,078 genes** available for enrichment analysis
+> - **Spatial neighborhoods** already computed (6-nearest neighbors)
+>
+> Your data has good spatial structure, so we can perform spatial enrichment analysis. What biological processes are you interested in exploring?"
 
 ---
 
@@ -77,43 +101,43 @@ Your data has excellent spatial structure, which means we can perform meaningful
 
 ### 💬 Choosing Your Gene Sets
 
-The power of enrichment analysis depends on choosing relevant gene sets:
+Enrichment analysis depends on choosing relevant gene sets:
 
 ---
 
-**👤 You:** "I want to understand what brain-related biological processes are active in different regions. Can you load some relevant gene sets for brain analysis?"
+> **👤 You:** "I want to understand what brain-related biological processes are active in different regions. Can you load some relevant gene sets for brain analysis?"
 
-**🤖 Claude:** "Excellent question! For brain tissue analysis, I'll load several complementary gene set collections that will give us different biological perspectives. Let me get those for you."
+> **🤖 Claude:** "For brain tissue analysis, I will load several gene set collections that provide different biological perspectives. Let me get those for you."
 
-*[ChatSpatial loads relevant gene sets]*
+> *[ChatSpatial loads relevant gene sets]*
 
-**🤖 Claude:** "I've loaded comprehensive gene sets perfect for brain analysis:
+> **🤖 Claude:** "I've loaded gene sets for brain analysis:
 
-**Gene Set Collections Loaded:**
+> **Gene Set Collections Loaded:**
+>
+> 🧠 **MSigDB Hallmark Pathways** (50 sets)
+> - Core biological processes (e.g., neurogenesis, synaptic signaling)
+> - Validated, high-confidence pathways
+> - Useful for understanding major biological themes
+>
+> 🔬 **GO Biological Processes** (2,891 brain-relevant sets)
+> - Detailed molecular processes
+> - Hierarchical organization from general to specific
+> - Includes neuron development, synapse formation, etc.
+>
+> 🛤️ **KEGG Pathways** (186 mouse pathways)
+> - Well-characterized metabolic and signaling pathways
+> - Dopaminergic synapse, axon guidance, neurodegeneration pathways
+> - Good for understanding pathway crosstalk
+>
+> 🧬 **Reactome Pathways** (674 sets)
+> - Detailed biochemical reactions
+> - Neurotransmitter signaling, neural development
+> - Detailed pathway maps
+>
+> Which type would you like to start with, or should I analyze all of them for a complete view?"
 
-🧠 **MSigDB Hallmark Pathways** (50 sets)
-- Core biological processes (e.g., neurogenesis, synaptic signaling)
-- Well-validated, high-confidence pathways
-- Great for understanding major biological themes
-
-🔬 **GO Biological Processes** (2,891 brain-relevant sets)
-- Detailed molecular processes
-- Hierarchical organization from general to specific
-- Includes neuron development, synapse formation, etc.
-
-🛤️ **KEGG Pathways** (186 mouse pathways)  
-- Well-characterized metabolic and signaling pathways
-- Dopaminergic synapse, axon guidance, neurodegeneration pathways
-- Excellent for understanding pathway crosstalk
-
-🧬 **Reactome Pathways** (674 sets)
-- Detailed biochemical reactions
-- Neurotransmitter signaling, neural development
-- High-resolution pathway maps
-
-Which type would you like to start with, or should I analyze all of them to give you a comprehensive view?"
-
-**👤 You:** "Let's start with hallmark pathways to get the big picture, then we can dive deeper."
+> **👤 You:** "Let's start with hallmark pathways to get the big picture, then we can dive deeper."
 
 ---
 
@@ -135,42 +159,46 @@ Which type would you like to start with, or should I analyze all of them to give
 
 ### 💬 Running the Analysis
 
-Now for the exciting part - let's discover spatial patterns:
+Now for the analysis - let's discover spatial patterns:
 
 ---
 
-**👤 You:** "Great! Now can you perform spatial enrichment analysis using those hallmark pathways? I want to see which biological processes are spatially organized in my brain tissue."
+> **👤 You:** "Great! Now can you perform spatial enrichment analysis using those hallmark pathways? I want to see which biological processes are spatially organized in my brain tissue."
 
-**🤖 Claude:** "Absolutely! I'll perform spatially-aware enrichment analysis using EnrichMap. This will identify not just which pathways are active, but WHERE they're active in your brain tissue."
+> **🤖 Claude:** "I will perform spatial enrichment analysis using EnrichMap. This will identify which pathways are active and where they are active in your brain tissue."
 
-*[ChatSpatial runs spatial enrichment analysis]*
+> *[ChatSpatial runs spatial enrichment analysis]*
 
-**🤖 Claude:** "Fantastic results! The spatial enrichment analysis revealed remarkable biological organization:
+> **🤖 Claude:** "The spatial enrichment analysis shows clear biological organization:
 
 **🗺️ Spatial Enrichment Results:**
 
 **Neuronal Signaling Territories:**
+
 - **OXIDATIVE_PHOSPHORYLATION** - Strongest in white matter regions (NES: 2.4)
-- **MITOCHONDRIAL_BIOGENESIS** - Co-localized with metabolically active areas (NES: 2.1)  
+- **MITOCHONDRIAL_BIOGENESIS** - Co-localized with metabolically active areas (NES: 2.1)
 - **SYNAPTIC_TRANSMISSION** - Enriched in cortical layers and hippocampus (NES: 1.9)
 
 **Development & Plasticity Zones:**
+
 - **NEUROGENESIS** - Concentrated in ventricular zones (NES: 2.3)
 - **AXON_GUIDANCE** - Strong gradient from cortex to deep structures (NES: 1.8)
 - **SYNAPTIC_PLASTICITY** - Hippocampal formation hotspot (NES: 2.0)
 
 **Homeostasis & Support Regions:**
+
 - **IMMUNE_RESPONSE** - Boundary regions and blood-brain barrier (NES: 1.7)
 - **LIPID_METABOLISM** - White matter territories (NES: 1.6)
 
 **📊 Analysis Quality:**
+
 - **42 pathways** spatially enriched (FDR < 0.05)
-- **Spatial coherence score**: 0.78 (excellent)
+- **Spatial coherence score**: 0.78 (good)
 - **Cross-validation**: 89% consistency
 
-Would you like me to create visualizations showing these spatial patterns?"
+> Would you like me to create visualizations showing these spatial patterns?"
 
-**👤 You:** "Yes! Can you show me the spatial maps for the top pathways?"
+> **👤 You:** "Yes! Can you show me the spatial maps for the top pathways?"
 
 ---
 
@@ -198,66 +226,73 @@ Let's see these patterns visually:
 
 ---
 
-**🤖 Claude:** "Here are beautiful spatial visualizations of your top enriched pathways! 🧠✨"
+> **🤖 Claude:** "Here are spatial visualizations of your top enriched pathways:"
 
-*[Creates multi-panel spatial enrichment maps]*
+> *[Creates multi-panel spatial enrichment maps]*
 
-**🤖 Claude:** "These spatial enrichment maps reveal the biological geography of your brain tissue:
+> **🤖 Claude:** "These spatial enrichment maps show the biological organization of your brain tissue:
 
 **🗺️ Spatial Pattern Insights:**
 
 **Panel A - OXIDATIVE_PHOSPHORYLATION:**
+
 - Bright hotspots in white matter regions
-- Follows myelinated fiber tracts perfectly
+- Follows myelinated fiber tracts closely
 - Supports high-energy axonal transport
 
-**Panel B - NEUROGENESIS:**  
+**Panel B - NEUROGENESIS:**
+
 - Concentrated in ventricular zones (red regions)
 - Sharp boundaries with differentiated areas
 - Matches known stem cell niches
 
 **Panel C - SYNAPTIC_TRANSMISSION:**
+
 - Layered pattern in cortex
 - Strong signal in hippocampal CA fields
 - Reflects synaptic density gradients
 
 **Panel D - IMMUNE_RESPONSE:**
+
 - Concentrated at tissue boundaries
 - Blood vessel associated regions
 - Protective barrier functions
 
-The color scale shows spatial enrichment scores - warmer colors indicate stronger pathway activity in those tissue regions."
+> The color scale shows spatial enrichment scores - warmer colors indicate stronger pathway activity in those tissue regions."
 
-**👤 You:** "This is amazing! Can you also show me how these pathways relate to the spatial domains we found earlier?"
+> **👤 You:** "This is interesting! Can you also show me how these pathways relate to the spatial domains we found earlier?"
 
 ---
 
 ### 💬 Domain-Specific Enrichment Analysis
 
-**🤖 Claude:** "Great idea! Let me create a domain-by-pathway heatmap to show which biological processes define each spatial region."
+> **🤖 Claude:** "I will create a domain-by-pathway heatmap to show which biological processes define each spatial region."
 
-*[Creates enrichment heatmap by spatial domain]*
+> *[Creates enrichment heatmap by spatial domain]*
 
-**🤖 Claude:** "Here's your spatial domain enrichment heatmap:
+> **🤖 Claude:** "Here's your spatial domain enrichment heatmap:
 
 **🔥 Domain-Pathway Associations:**
 
 **Cortical Layer Domain:**
+
 - 🟥 SYNAPTIC_TRANSMISSION (3.2) - Primary function
-- 🟧 NEUROPLASTICITY (2.1) - Learning processes  
+- 🟧 NEUROPLASTICITY (2.1) - Learning processes
 - 🟨 CALCIUM_SIGNALING (1.8) - Neural communication
 
 **White Matter Domain:**
+
 - 🟥 OXIDATIVE_PHOSPHORYLATION (3.5) - Energy for axons
 - 🟧 LIPID_METABOLISM (2.4) - Myelination processes
 - 🟨 MITOCHONDRIAL_BIOGENESIS (2.0) - Metabolic support
 
 **Hippocampal Domain:**
+
 - 🟥 MEMORY_CONSOLIDATION (2.9) - Core function
 - 🟧 SYNAPTIC_PLASTICITY (2.3) - Learning mechanisms
 - 🟨 NEUROGENESIS (1.9) - Adult stem cells
 
-Each spatial domain has a unique biological 'signature' - this is the power of spatial enrichment analysis!"
+> Each spatial domain has a unique biological signature - this shows the value of spatial enrichment analysis."
 
 ---
 
@@ -286,67 +321,73 @@ Let's explore more sophisticated analyses:
 
 ---
 
-**👤 You:** "This is really insightful! Can we go deeper and look at local enrichment patterns? I'm curious about pathway interactions in specific regions."
+> **👤 You:** "This is really insightful! Can we go deeper and look at local enrichment patterns? I'm curious about pathway interactions in specific regions."
 
-**🤖 Claude:** "Excellent question! Local enrichment analysis will reveal pathway interactions and co-regulation patterns within specific tissue regions. Let me compute local enrichment maps for you."
+> **🤖 Claude:** "Local enrichment analysis will show pathway interactions and co-regulation patterns within specific tissue regions. Let me compute local enrichment maps for you."
 
-*[ChatSpatial performs local enrichment analysis]*
+> *[ChatSpatial performs local enrichment analysis]*
 
-**🤖 Claude:** "Fascinating local enrichment patterns discovered!
+> **🤖 Claude:** "Local enrichment analysis results:
 
 **🔍 Local Enrichment Analysis Results:**
 
 **Cortical Layer Hotspots:**
+
 - **Synaptic hub** (Layer 2/3): SYNAPTIC_TRANSMISSION + CALCIUM_SIGNALING
 - **Metabolic center** (Layer 5): OXIDATIVE_PHOSPHORYLATION + MITOCHONDRIAL_BIOGENESIS
 - **Plasticity zone** (Layer 6): NEUROPLASTICITY + AXON_GUIDANCE
 
 **Hippocampal Subregions:**
+
 - **CA1 field**: MEMORY_CONSOLIDATION + SYNAPTIC_PLASTICITY (r=0.73)
-- **CA3 field**: NEUROGENESIS + STEM_CELL_MAINTENANCE (r=0.65)  
+- **CA3 field**: NEUROGENESIS + STEM_CELL_MAINTENANCE (r=0.65)
 - **Dentate gyrus**: ADULT_NEUROGENESIS + WNT_SIGNALING (r=0.71)
 
 **White Matter Territories:**
+
 - **Corpus callosum**: MYELINATION + LIPID_METABOLISM (r=0.82)
 - **Internal capsule**: AXONAL_TRANSPORT + OXIDATIVE_PHOSPHORYLATION (r=0.78)
 
-**🎯 Key Discovery:** Pathways don't act alone - they form functional modules that are spatially co-organized!"
+> **🎯 Key Finding:** Pathways form functional modules that are spatially co-organized."
 
 ---
 
 ### 💬 Pathway Network Analysis
 
-**👤 You:** "Can you show me how these pathways are connected? Like a network of biological processes?"
+> **👤 You:** "Can you show me how these pathways are connected? Like a network of biological processes?"
 
-**🤖 Claude:** "Absolutely! I'll create a spatial pathway network showing how biological processes are connected both functionally and spatially."
+> **🤖 Claude:** "I will create a spatial pathway network showing how biological processes are connected functionally and spatially."
 
-*[Creates pathway interaction network]*
+> *[Creates pathway interaction network]*
 
-**🤖 Claude:** "Here's your spatial pathway network! 🕸️
+> **🤖 Claude:** "Here's your spatial pathway network:
 
 **🔗 Network Insights:**
 
 **Central Hub Pathways:**
+
 - **OXIDATIVE_PHOSPHORYLATION** - connects 8 other pathways
 - **CALCIUM_SIGNALING** - bridges neurotransmission and plasticity
 - **MITOCHONDRIAL_BIOGENESIS** - supports multiple energy-dependent processes
 
 **Functional Modules:**
+
 1. **Neurotransmission Module** (Green cluster):
    - SYNAPTIC_TRANSMISSION ↔ CALCIUM_SIGNALING ↔ MEMBRANE_DEPOLARIZATION
 
-2. **Development Module** (Blue cluster):  
+2. **Development Module** (Blue cluster):
    - NEUROGENESIS ↔ AXON_GUIDANCE ↔ WNT_SIGNALING
 
 3. **Metabolism Module** (Red cluster):
    - OXIDATIVE_PHOSPHORYLATION ↔ LIPID_METABOLISM ↔ MITOCHONDRIAL_BIOGENESIS
 
 **Spatial Connections:**
+
 - Thick edges = strong spatial correlation (>0.6)
 - Node size = spatial enrichment strength
 - Colors = functional pathway categories
 
-This network reveals the biological 'wiring diagram' of your brain tissue!"
+> This network shows the biological organization of your brain tissue."
 
 ---
 
@@ -358,37 +399,39 @@ You can also analyze your own custom gene sets:
 
 ---
 
-**👤 You:** "I have a list of genes from my previous experiment that I think are important for memory formation. Can I test if they're spatially organized in specific brain regions?"
+> **👤 You:** "I have a list of genes from my previous experiment that I think are important for memory formation. Can I test if they're spatially organized in specific brain regions?"
 
-**🤖 Claude:** "Absolutely! Custom gene sets are perfect for testing specific hypotheses. Please provide your gene list, and I'll analyze its spatial organization."
+> **🤖 Claude:** "Custom gene sets are good for testing specific hypotheses. Please provide your gene list, and I will analyze its spatial organization."
 
-**👤 You:** "Here are my memory-related genes: CREB1, BDNF, ARC, FOS, JUN, NPAS4, NR4A1, EGR1, ATF3, HOMER1, CAMK2A, GRIN1, GRIN2B, DLG4, SYN1"
+> **👤 You:** "Here are my memory-related genes: CREB1, BDNF, ARC, FOS, JUN, NPAS4, NR4A1, EGR1, ATF3, HOMER1, CAMK2A, GRIN1, GRIN2B, DLG4, SYN1"
 
-**🤖 Claude:** "Excellent memory-related gene set! Let me analyze the spatial organization of your custom 'Memory Formation' signature."
+> **🤖 Claude:** "Let me analyze the spatial organization of your custom 'Memory Formation' signature."
 
-*[ChatSpatial analyzes custom gene set]*
+> *[ChatSpatial analyzes custom gene set]*
 
-**🤖 Claude:** "Outstanding results for your memory genes! 🧠💭
+> **🤖 Claude:** "Results for your memory genes:
 
 **🎯 Custom 'Memory Formation' Signature Analysis:**
 
 **Spatial Enrichment:**
 - **Overall NES**: 2.7 (highly significant, p < 0.001)
-- **Spatial coherence**: 0.81 (excellent clustering)
+- **Spatial coherence**: 0.81 (good clustering)
 - **Top regions**: Hippocampal formation, cortical layers 2-3
 
 **Gene Contributions:**
+
 - **CREB1** (0.34) - Strongest contributor, concentrated in CA1
 - **BDNF** (0.31) - High in dentate gyrus and cortical layers
 - **ARC** (0.29) - Activity-dependent, follows synaptic density
 - **FOS & JUN** (0.25 each) - Immediate early gene hotspots
 
 **Spatial Pattern:**
+
 - Sharp enrichment in hippocampal CA fields
 - Gradient from high (hippocampus) to moderate (cortex) to low (white matter)
-- Matches known memory circuit anatomy perfectly!
+- Matches known memory circuit anatomy well
 
-Your gene signature shows remarkable spatial organization - these memory genes are indeed concentrated in brain regions critical for learning and memory! 🎉"
+> Your gene signature shows clear spatial organization - these memory genes are concentrated in brain regions important for learning and memory."
 
 ---
 
@@ -414,17 +457,17 @@ Understanding what your results mean biologically:
 
 ---
 
-**👤 You:** "These results look great, but how do I know if they're biologically meaningful? And how should I interpret the spatial patterns I'm seeing?"
+> **👤 You:** "These results look good, but how do I know if they are biologically meaningful? And how should I interpret the spatial patterns I'm seeing?"
 
-**🤖 Claude:** "Excellent question! Let me help you interpret these results and validate their biological significance.
+> **🤖 Claude:** "Let me help you interpret these results and validate their biological significance.
 
 **🔍 Biological Interpretation Framework:**
 
 **1. Anatomical Consistency Check:**
-✅ **OXIDATIVE_PHOSPHORYLATION in white matter** - Expected! Myelinated axons need high energy
-✅ **NEUROGENESIS in ventricular zones** - Perfect! Known adult stem cell niches
-✅ **SYNAPTIC_TRANSMISSION in cortical layers** - Correct! High synapse density regions
-✅ **MEMORY genes in hippocampus** - Ideal! Core memory formation circuit
+✅ **OXIDATIVE_PHOSPHORYLATION in white matter** - Expected. Myelinated axons need high energy
+✅ **NEUROGENESIS in ventricular zones** - Expected. Known adult stem cell niches
+✅ **SYNAPTIC_TRANSMISSION in cortical layers** - Expected. High synapse density regions
+✅ **MEMORY genes in hippocampus** - Expected. Core memory formation circuit
 
 **2. Literature Validation:**
 - 📚 Your OXIDATIVE_PHOSPHORYLATION pattern matches Magistretti & Allaman (Nature, 2015)
@@ -441,15 +484,15 @@ Understanding what your results mean biologically:
 - 🧬 Energy pathways co-locate with high-demand processes
 - 🧬 Development signatures match known anatomical gradients
 
-Your results pass all validation checks - they're biologically meaningful! 🎉"
+> Your results pass validation checks - they are biologically meaningful."
 
 ---
 
 ### 💬 Result Validation Strategies
 
-**👤 You:** "How can I further validate these findings and use them for my research?"
+> **👤 You:** "How can I further validate these findings and use them for my research?"
 
-**🤖 Claude:** "Great thinking! Here are multiple validation approaches:
+> **🤖 Claude:** "Here are multiple validation approaches:
 
 **🔬 Experimental Validation:**
 1. **In situ hybridization** - validate key genes in predicted regions
@@ -470,12 +513,12 @@ Your results pass all validation checks - they're biologically meaningful! 🎉"
 4. **Functional enrichment** - GO term analysis of spatially enriched genes
 
 **📝 Publication Strategies:**
-1. **Figure panels** - spatial maps make excellent main figures
+1. **Figure panels** - spatial maps make good main figures
 2. **Methods validation** - compare with other spatial analysis tools
 3. **Biological insights** - focus on novel pathway localizations
 4. **Clinical relevance** - connect to disease or development
 
-Would you like me to help with any of these validation approaches?"
+> Would you like me to help with any of these validation approaches?"
 
 ---
 
@@ -487,63 +530,69 @@ Compare enrichment between conditions or timepoints:
 
 ---
 
-**👤 You:** "I actually have control and disease samples. Can I compare spatial enrichment patterns between them to see what changes in disease?"
+> **👤 You:** "I actually have control and disease samples. Can I compare spatial enrichment patterns between them to see what changes in disease?"
 
-**🤖 Claude:** "Excellent comparative analysis question! Let me show you how to compare spatial enrichment patterns between control and disease conditions."
+> **🤖 Claude:** "Let me show you how to compare spatial enrichment patterns between control and disease conditions."
 
-*[ChatSpatial performs comparative enrichment analysis]*
+> *[ChatSpatial performs comparative enrichment analysis]*
 
-**🤖 Claude:** "Revealing disease-associated spatial changes! 🔬
+> **🤖 Claude:** "Disease-associated spatial changes:
 
 **🔄 Comparative Spatial Enrichment Results:**
 
 **Pathways Lost in Disease:**
+
 - **SYNAPTIC_TRANSMISSION**: Control NES=2.4 → Disease NES=0.8 (⬇️ 67% decrease)
 - **MEMORY_CONSOLIDATION**: Control NES=2.1 → Disease NES=0.6 (⬇️ 71% decrease)
 - **NEUROPLASTICITY**: Control NES=1.9 → Disease NES=0.4 (⬇️ 79% decrease)
 
 **Pathways Gained in Disease:**
+
 - **INFLAMMATORY_RESPONSE**: Control NES=0.3 → Disease NES=2.2 (⬆️ 633% increase)
 - **APOPTOSIS**: Control NES=0.1 → Disease NES=1.8 (⬆️ 1700% increase)
 - **OXIDATIVE_STRESS**: Control NES=0.2 → Disease NES=1.6 (⬆️ 700% increase)
 
 **Spatial Pattern Changes:**
+
 - **Control**: Sharp functional domains, clear boundaries
 - **Disease**: Blurred boundaries, expanded inflammatory zones
 - **Novel hotspots**: Disease creates new apoptosis clusters in hippocampus
 
-**🎯 Key Discovery:** Disease doesn't just change gene expression - it fundamentally reorganizes the spatial architecture of biological processes!"
+> **🎯 Key Finding:** Disease changes gene expression and reorganizes the spatial architecture of biological processes."
 
 ---
 
 ### 💬 Trajectory and Gradient Analysis
 
-**👤 You:** "Can we analyze how pathways change along spatial trajectories? Like from the edge of tissue to the center?"
+> **👤 You:** "Can we analyze how pathways change along spatial trajectories? Like from the edge of tissue to the center?"
 
-**🤖 Claude:** "Absolutely! Spatial trajectory analysis will reveal how biological processes are organized along tissue axes. Let me compute pathway gradients."
+> **🤖 Claude:** "Spatial trajectory analysis will show how biological processes are organized along tissue axes. Let me compute pathway gradients."
 
-*[ChatSpatial analyzes spatial trajectories]*
+> *[ChatSpatial analyzes spatial trajectories]*
 
-**🤖 Claude:** "Beautiful spatial gradients discovered! 📈
+> **🤖 Claude:** "Spatial gradient analysis results:
 
 **🗺️ Tissue Axis Analysis:**
 
 **Dorsal-Ventral Gradient:**
+
 - **NEUROGENESIS**: High dorsal → Low ventral (slope = -0.23/mm)
 - **METABOLISM**: Steady high throughout (slope ≈ 0)
 - **IMMUNE_RESPONSE**: Low dorsal → High ventral (slope = +0.18/mm)
 
 **Anterior-Posterior Gradient:**
-- **MEMORY_FORMATION**: High anterior → Low posterior (slope = -0.31/mm)  
+
+- **MEMORY_FORMATION**: High anterior → Low posterior (slope = -0.31/mm)
 - **MOTOR_FUNCTION**: Low anterior → High posterior (slope = +0.24/mm)
 - **SENSORY_PROCESSING**: Complex U-shaped pattern
 
 **Surface-Deep Gradient:**
+
 - **SYNAPTIC_TRANSMISSION**: High surface, moderate deep
 - **WHITE_MATTER_MAINT**: Low surface, high deep
 - **VASCULAR_SUPPORT**: Oscillating pattern (blood vessel related)
 
-These gradients reflect fundamental organizing principles of brain development and function! 🧠"
+> These gradients reflect organizing principles of brain development and function."
 
 ---
 
@@ -551,37 +600,41 @@ These gradients reflect fundamental organizing principles of brain development a
 
 ### 💬 Combining with Cell Type Analysis
 
-**👤 You:** "I also have cell type annotations for my data. Can we see which cell types drive the spatial enrichment patterns we found?"
+> **👤 You:** "I also have cell type annotations for my data. Can we see which cell types drive the spatial enrichment patterns we found?"
 
-**🤖 Claude:** "Perfect integration question! Let me analyze how cell type distributions relate to your spatial enrichment patterns."
+> **🤖 Claude:** "Let me analyze how cell type distributions relate to your spatial enrichment patterns."
 
-*[ChatSpatial performs integrated analysis]*
+> *[ChatSpatial performs integrated analysis]*
 
-**🤖 Claude:** "Fascinating cell type - pathway relationships! 🔬🧬
+> **🤖 Claude:** "Cell type - pathway relationships:
 
 **🎯 Cell Type Drivers of Spatial Enrichment:**
 
 **SYNAPTIC_TRANSMISSION Enrichment:**
+
 - **Primary drivers**: Excitatory neurons (67% contribution)
 - **Supporting roles**: Inhibitory neurons (23%), Astrocytes (10%)
-- **Spatial logic**: Follows neuron density gradients perfectly
+- **Spatial logic**: Follows neuron density gradients closely
 
 **OXIDATIVE_PHOSPHORYLATION Enrichment:**
+
 - **Primary drivers**: Oligodendrocytes (54% contribution)
-- **Supporting roles**: Astrocytes (31%), Neurons (15%)  
+- **Supporting roles**: Astrocytes (31%), Neurons (15%)
 - **Spatial logic**: White matter oligodendrocyte territories
 
 **NEUROGENESIS Enrichment:**
+
 - **Primary drivers**: Neural stem cells (78% contribution)
 - **Supporting roles**: Astrocytes (16%), Microglia (6%)
 - **Spatial logic**: Ventricular zone stem cell niches
 
 **INFLAMMATORY_RESPONSE Enrichment:**
+
 - **Primary drivers**: Microglia (65% contribution)
 - **Supporting roles**: Astrocytes (25%), Endothelial cells (10%)
 - **Spatial logic**: Boundary regions and vascular zones
 
-**🔑 Key Insight:** Spatial enrichment patterns are driven by the spatial organization of specific cell types - the pathway maps reflect cellular architecture!"
+> **🔑 Key Finding:** Spatial enrichment patterns are driven by the spatial organization of specific cell types - the pathway maps reflect cellular architecture."
 
 ---
 
@@ -629,7 +682,7 @@ These gradients reflect fundamental organizing principles of brain development a
 - Reduce stringency (increase p-value threshold)
 - Verify spatial preprocessing quality
 
-**"Results don't make biological sense":**
+**"Results do not make biological sense":**
 - Check for batch effects or technical artifacts
 - Validate with known positive controls
 - Compare with literature and atlases
@@ -643,14 +696,14 @@ These gradients reflect fundamental organizing principles of brain development a
 
 ## Summary: Your Spatial Enrichment Journey
 
-Congratulations! You now know how to:
+You now know how to:
 
-🎯 **Perform spatial enrichment analysis** through natural conversation
-🗺️ **Load and use gene sets** from major databases (MSigDB, GO, KEGG)
-📊 **Create beautiful visualizations** of spatial pathway patterns
-🧬 **Interpret results biologically** with proper validation
-🔬 **Integrate with other analyses** (cell types, trajectories, comparisons)
-⭐ **Follow best practices** for robust, reproducible results
+- 🎯 **Perform spatial enrichment analysis** through natural conversation
+- 🗺️ **Load and use gene sets** from major databases (MSigDB, GO, KEGG)
+- 📊 **Create visualizations** of spatial pathway patterns
+- 🧬 **Interpret results biologically** with proper validation
+- 🔬 **Integrate with other analyses** (cell types, trajectories, comparisons)
+- ⭐ **Follow best practices** for robust, reproducible results
 
 ### 🚀 Next Steps
 
@@ -668,4 +721,4 @@ Ready to explore more? Try these advanced tutorials:
 
 ---
 
-**Ready to discover the biological geography of your tissue?** Start asking ChatSpatial about the pathways and processes that make your tissue unique! 🧬✨
+**Ready to analyze the biological organization of your tissue?** Start asking ChatSpatial about the pathways and processes in your tissue.

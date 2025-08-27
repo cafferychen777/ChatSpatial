@@ -1,3 +1,24 @@
+---
+title: "Identifying Cell Types with ChatSpatial"
+difficulty: intermediate
+duration: "30-45 minutes"
+prerequisites: 
+  - "basic_spatial_analysis"
+  - "Claude Desktop configured"
+dataset: "mouse_brain_visium_standard"
+tools_used: 
+  - marker_gene_analysis
+  - sctype_annotation
+  - spatial_validation
+  - cell_type_visualization
+learning_objectives:
+  - "Identify cell types using marker gene expression analysis"
+  - "Apply automated annotation methods like scType"
+  - "Validate cell type assignments spatially and biologically"
+  - "Visualize cell type distributions across tissue"
+  - "Interpret biological significance of cell type patterns"
+---
+
 # Identifying Cell Types with ChatSpatial
 
 Discover what types of cells are in your spatial transcriptomics data through natural conversation with ChatSpatial.
@@ -16,7 +37,7 @@ By the end of this tutorial, you'll know how to:
 
 ### What You Need
 - ✅ **Spatial data loaded** in ChatSpatial
-- ✅ **Basic preprocessing completed** (see [Getting Started](../getting_started.md))
+- ✅ **Basic preprocessing completed** (see [Getting Started](../../getting-started/))
 - ✅ **Curiosity about** what cell types are in your tissue!
 
 ### No Cell Biology PhD Required!
@@ -331,8 +352,8 @@ Just load multiple datasets and ask me to compare them!"
 
 ### 📚 Learn More
 
-- [Basic Spatial Analysis](basic_spatial_analysis.md) - Start here if you're new
+- [Basic Spatial Analysis](../core/basic_spatial_analysis.md) - Start here if you're new
 - [Cell Communication Analysis](cell_communication_analysis.md) - Next logical step
-- [Visualization Tutorial](visualization_tutorial.md) - Make beautiful plots
+- [Visualization Tutorial](../core/visualization_tutorial.md) - Make beautiful plots
 
 **Remember**: Cell type identification is the foundation for understanding tissue organization and function. Every cell type has a story to tell about your tissue's biology!

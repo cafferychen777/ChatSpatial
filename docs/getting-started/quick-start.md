@@ -373,7 +373,7 @@ If all tests pass, you are ready to start analyzing spatial transcriptomics data
 [![MCP Introduction](https://img.shields.io/badge/▶️_Watch-What_is_MCP?-blue?style=flat-square&logo=youtube)](https://www.youtube.com/watch?v=sfCBCyNyw7U)
 
 **Learn more:**
-- 📚 [What is MCP?](resources/what_is_mcp.md) - Detailed explanation
+- 📚 [What is MCP?](what_is_mcp.md) - Detailed explanation
 - 📰 [Anthropic's MCP Announcement](https://www.anthropic.com/news/model-context-protocol)
 - 💻 [MCP GitHub Repository](https://github.com/modelcontextprotocol)
 
@@ -436,29 +436,63 @@ Here is a spatial map showing each region in different colors."
 - **Get instant insights** about your tissue
 - **Visualizations** automatically generated
 
-## Next Steps
+## MCP Configuration
 
-### Explore Our Learning Paths
+### Claude Desktop Setup
 
-🚀 **[START HERE: Choose Your Learning Path](tutorials/learning-paths/README.md)**
+1. **Locate Configuration File**:
+   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+   - **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-- **[Beginner Path](tutorials/learning-paths/beginner.md)** - New to spatial transcriptomics
-- **[Intermediate Path](tutorials/learning-paths/intermediate.md)** - Some analysis experience
-- **[Advanced Path](tutorials/learning-paths/advanced.md)** - Research-level workflows
+2. **Add ChatSpatial Server**:
 
-### Core Tutorials
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/path/to/your/conda/envs/chatspatial/bin/python",
+      "args": ["-m", "chatspatial"],
+      "env": {
+        "PYTHONPATH": "/path/to/ChatSpatial"
+      }
+    }
+  }
+}
+```
 
-- **[Basic Spatial Analysis](tutorials/core/basic_spatial_analysis.md)**: Complete workflow
-- **[Cell Type Annotation](tutorials/analysis/cell_type_annotation.md)**: Multiple annotation methods
-- **[Creating Visualizations](tutorials/core/visualization_tutorial.md)**: Publication-ready figures
+3. **Find Your Python Path**:
 
-### Quick Reference
+```bash
+# Activate your environment
+conda activate chatspatial
 
-- **[All Tools](reference/quick-reference/all-tools.md)**: Complete MCP tool reference
-- **[Common Workflows](reference/quick-reference/common-workflows.md)**: Standard analysis patterns
-- **[Troubleshooting](reference/quick-reference/troubleshooting-index.md)**: Quick problem solving
+# Get the Python path
+which python
+# Example output: /Users/username/miniconda3/envs/chatspatial/bin/python
+```
+
+### Alternative MCP Clients
+
+ChatSpatial works with any MCP-compatible client:
+
+- **MCP Inspector**: For development and testing
+- **Custom Applications**: Using the MCP SDK
+- **Other LLM Agents**: With MCP support
 
 ## Data Preparation
+
+### Download Sample Data
+
+ChatSpatial includes scripts to download standard datasets:
+
+```bash
+# Download demo datasets
+python data/scripts/download_standard_datasets.py
+
+# Verify data
+ls data/demo_datasets/
+```
 
 ### Supported Data Formats
 
@@ -476,17 +510,145 @@ Your spatial transcriptomics data should include:
 2. **Spatial Coordinates**: X, Y positions for each spot/cell
 3. **Metadata** (optional): Cell types, batch information, etc.
 
-## Getting Help
+## First Analysis Walkthrough
 
-### Documentation
-- **[API Reference](reference/api/README.md)**: Complete technical documentation
-- **[Data Models](reference/api/data_models.md)**: Parameter schemas and formats
-- **[Performance Tips](reference/performance.md)**: Optimization strategies
+### Step 1: Start Claude Desktop
 
-### Community Support
+1. Open Claude Desktop
+2. Verify ChatSpatial appears in the MCP servers list
+3. Look for the 🔬 icon indicating spatial analysis tools
+
+### Step 2: Load Your Data
+
+```python
+# Load a Visium dataset
+result = load_data(
+    data_path="data/demo_datasets/mouse_brain_visium.h5ad",
+    name="mouse_brain"
+)
+```
+
+### Step 3: Explore Data Structure
+
+```python
+# Get basic information about your dataset
+analyze_spatial_data(
+    data_id="mouse_brain",
+    analysis_type="basic_stats"
+)
+```
+
+### Step 4: Preprocessing
+
+```python
+# Standard preprocessing pipeline
+preprocess_data(
+    data_id="mouse_brain",
+    normalize_total=True,
+    log1p=True,
+    highly_variable_genes=True,
+    n_top_genes=2000
+)
+```
+
+### Step 5: Spatial Domain Identification
+
+```python
+# Identify spatial domains using SpaGCN
+identify_spatial_domains(
+    data_id="mouse_brain",
+    method="spagcn",
+    n_clusters=7,
+    resolution=1.0
+)
+```
+
+### Step 6: Visualization
+
+```python
+# Create spatial domain visualization
+visualize_data(
+    data_id="mouse_brain",
+    plot_type="spatial_domains",
+    color_by="spatial_domains",
+    title="Mouse Brain Spatial Domains"
+)
+```
+
+## Understanding the Results
+
+### Data Structure
+
+After loading, your data contains:
+
+- **`.X`**: Gene expression matrix
+- **`.obs`**: Cell/spot metadata (including spatial domains)
+- **`.var`**: Gene metadata
+- **`.obsm['spatial']`**: Spatial coordinates
+- **`.uns`**: Analysis results and parameters
+
+### Spatial Domains
+
+The `identify_spatial_domains` tool adds:
+
+- **`spatial_domains`**: Cluster assignments in `.obs`
+- **`spatial_domain_stats`**: Cluster statistics in `.uns`
+- **`spatial_embeddings`**: Low-dimensional representations
+
+### Visualization Outputs
+
+ChatSpatial returns MCP Image objects that display directly in Claude Desktop:
+
+- **High-resolution plots**: 300 DPI for publication quality
+- **Interactive elements**: Hover information and zoom
+- **Multiple formats**: PNG, SVG, PDF support
+- **Customizable styling**: Colors, themes, annotations
+
+## Next Steps
+
+### Advanced Analysis
+
+1. **Cell Type Annotation**:
+   ```python
+   annotate_cells(data_id="mouse_brain", method="tangram")
+   ```
+
+2. **Cell Communication Analysis**:
+   ```python
+   analyze_cell_communication(data_id="mouse_brain", method="liana")
+   ```
+
+3. **Spatial Variable Genes**:
+   ```python
+   identify_spatial_genes(data_id="mouse_brain", method="gaston")
+   ```
+
+### Explore Tutorials
+
+- **[Basic Spatial Analysis](../tutorials/core/basic_spatial_analysis.md)**: Complete workflow
+- **[Cell Annotation Guide](../tutorials/cell_type_annotation.md)**: Multiple annotation methods
+- **[Visualization Gallery](../tutorials/visualization_gallery.md)**: All plot types
+
+### API Reference
+
+- **[Tool Reference](../reference/api/README.md)**: Complete MCP tool documentation
+- **[Data Models](../reference/api/data_models.md)**: Parameter schemas and data structures
+- **[Error Handling](../reference/api/error_handling.md)**: Troubleshooting guide
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Import Errors**: Ensure all dependencies are installed in the correct environment
+2. **Memory Issues**: Use data subsampling for large datasets
+3. **MCP Connection**: Verify Python path and environment variables
+4. **R Dependencies**: Install R packages for scType functionality
+
+### Getting Help
+
+- **Documentation**: Browse this site for detailed guides
 - **GitHub Issues**: Report bugs and request features
 - **Discussions**: Ask questions and share experiences
-- **Documentation**: Browse comprehensive guides
 
 ### Performance Tips
 
@@ -494,3 +656,4 @@ Your spatial transcriptomics data should include:
 - **Increase memory** for large datasets (>50K cells)
 - **Enable GPU** for deep learning methods
 - **Subsample data** for initial exploration
+

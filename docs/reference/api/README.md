@@ -4,12 +4,12 @@ Complete reference for all ChatSpatial MCP tools, parameters, and data models.
 
 ## Overview
 
-ChatSpatial provides **19 standardized MCP tools** for spatial transcriptomics analysis. Each tool follows the Model Context Protocol specification with:
+ChatSpatial provides 16 MCP tools for spatial transcriptomics analysis. Each tool follows the Model Context Protocol specification with:
 
-- **JSON Schema validation** for all inputs and outputs
-- **Structured error handling** with detailed error messages
-- **Type-safe parameters** with automatic validation
-- **Rich return types** including images, data, and metadata
+- JSON Schema validation for all inputs and outputs
+- Structured error handling with detailed error messages
+- Type-safe parameters with automatic validation
+- Return types include images, data, and metadata
 
 ## Tool Categories
 
@@ -17,12 +17,12 @@ ChatSpatial provides **19 standardized MCP tools** for spatial transcriptomics a
 |----------|-------|-------------|
 | **[Data Management](#data-management)** | `load_data`, `preprocess_data` | Data loading, QC, and preprocessing |
 | **[Cell Annotation](#cell-annotation)** | `annotate_cells` | 7 annotation methods with reference data support |
-| **[Spatial Analysis](#spatial-analysis)** | `analyze_spatial_data`, `identify_spatial_domains`, `register_spatial_data`, `calculate_spatial_statistics` | Pattern analysis, domain identification, registration, and advanced statistics |
-| **[Gene Analysis](#gene-analysis)** | `identify_spatial_genes`, `find_markers`, `analyze_enrichment` | Spatial variable genes, differential expression, and enrichment |
+| **[Spatial Analysis](#spatial-analysis)** | `analyze_spatial_data`, `identify_spatial_domains`, `register_spatial_data`, `calculate_spatial_statistics` | Pattern analysis, domain identification, registration, and spatial statistics |
+| **[Gene Analysis](#gene-analysis)** | `find_spatial_genes`, `find_markers`, `analyze_enrichment` | Spatial variable genes, differential expression, and enrichment |
 | **[Cell Communication](#cell-communication)** | `analyze_cell_communication` | Ligand-receptor interaction analysis |
 | **[Deconvolution](#deconvolution)** | `deconvolve_data` | Cell type proportion estimation |
-| **[Integration](#integration)** | `integrate_data` | Multi-modal and batch integration |
-| **[Trajectory](#trajectory)** | `analyze_rna_velocity` | RNA velocity and trajectory inference |
+| **[Integration](#integration)** | `integrate_samples` | Multi-modal and batch integration |
+| **[Trajectory](#trajectory)** | `analyze_velocity_data`, `analyze_trajectory_data` | RNA velocity analysis and trajectory inference |
 | **[Visualization](#visualization)** | `visualize_data` | 20 plot types with MCP image outputs |
 
 ## Quick Reference
@@ -68,6 +68,7 @@ All tools follow consistent parameter patterns:
 Load spatial transcriptomics data from various formats.
 
 **Signature:**
+
 ```python
 load_data(
     data_path: str,
@@ -85,10 +86,13 @@ load_data(
 - **Zarr**: Cloud-optimized arrays
 
 **Parameters:**
-- **`data_path`**: Path to the data file or directory
-- **`data_type`**: Type of spatial data (auto, 10x_visium, slide_seq, merfish, seqfish, other, h5ad). If 'auto', will try to determine the type from the file extension or directory structure.
-- **`name`**: Optional name for the dataset
-- **`context`**: Optional MCP context for logging
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `data_path` | `str` | - | Path to the data file or directory |
+| `data_type` | `str` | `"auto"` | Type of spatial data (auto, 10x_visium, slide_seq, merfish, seqfish, other, h5ad). If 'auto', will try to determine the type from the file extension or directory structure |
+| `name` | `Optional[str]` | `None` | Optional name for the dataset |
+| `context` | `Context` | `None` | Optional MCP context for logging |
 
 **Example:**
 ```python
@@ -102,9 +106,10 @@ print(f"Loaded dataset: {result.id}")
 
 ### preprocess_data
 
-Comprehensive preprocessing pipeline for spatial transcriptomics data.
+Preprocessing pipeline for spatial transcriptomics data.
 
 **Signature:**
+
 ```python
 preprocess_data(
     data_id: str,
@@ -121,7 +126,8 @@ preprocess_data(
 ) -> PreprocessingResult
 ```
 
-**Key Features:**
+**Features:**
+
 - Quality control filtering
 - Normalization and scaling
 - Highly variable gene selection
@@ -133,9 +139,10 @@ preprocess_data(
 
 ### annotate_cells
 
-Comprehensive cell type annotation with multiple methods.
+Cell type annotation with multiple methods.
 
 **Signature:**
+
 ```python
 annotate_cells(
     data_id: str,
@@ -181,6 +188,7 @@ result = annotate_cells(
 Identify spatial domains and tissue architecture.
 
 **Signature:**
+
 ```python
 identify_spatial_domains(
     data_id: str,
@@ -193,7 +201,7 @@ identify_spatial_domains(
 
 **Available Methods:**
 
-| Method | Description | Best For |
+| Method | Description | Use Case |
 |--------|-------------|----------|
 | `spagcn` | Graph convolutional networks | General spatial domains |
 | `stagate` | Spatial-temporal attention | Complex tissue architecture |
@@ -203,9 +211,10 @@ identify_spatial_domains(
 
 ### analyze_spatial_data
 
-Comprehensive spatial pattern analysis.
+Spatial pattern analysis.
 
 **Signature:**
+
 ```python
 analyze_spatial_data(
     data_id: str,
@@ -216,6 +225,7 @@ analyze_spatial_data(
 ```
 
 **Analysis Types:**
+
 - **`autocorrelation`**: Spatial autocorrelation (Moran's I, Geary's C)
 - **`hotspots`**: Hotspot detection (Getis-Ord Gi*)
 - **`patterns`**: Spatial expression patterns
@@ -226,6 +236,7 @@ analyze_spatial_data(
 Register and align spatial transcriptomics data across multiple tissue sections.
 
 **Signature:**
+
 ```python
 register_spatial_data(
     source_id: str,
@@ -237,12 +248,12 @@ register_spatial_data(
 
 **Available Methods:**
 
-| Method | Description | Best For |
+| Method | Description | Use Case |
 |--------|-------------|----------|
 | `paste` | PASTE algorithm for spatial alignment | Multi-slice integration |
-| `stalign` | STAlign deep learning registration | Complex tissue deformation |
 
-**Key Features:**
+**Features:**
+
 - Cross-section spatial alignment
 - Transformation matrix computation
 - Landmark-guided registration
@@ -264,9 +275,10 @@ print(f"Alignment quality score: {result['alignment_score']:.3f}")
 
 ### calculate_spatial_statistics
 
-Calculate advanced spatial statistics for gene expression features.
+Calculate spatial statistics for gene expression features.
 
 **Signature:**
+
 ```python
 calculate_spatial_statistics(
     data_id: str,
@@ -283,9 +295,10 @@ calculate_spatial_statistics(
 | `gearys_c` | Geary's C spatial autocorrelation | Similar to Moran's I but emphasizes local differences |
 | `local_morans` | Local Moran's I statistic | Identifies spatial clusters and outliers |
 
-**Key Features:**
+**Features:**
+
 - Complementary to `analyze_spatial_data` 
-- Focus on specific advanced statistics
+- Focus on specific statistics
 - Local spatial pattern detection
 - Statistical significance testing
 - Spatial neighborhood graph construction
@@ -314,13 +327,14 @@ result = calculate_spatial_statistics(
 
 ## Gene Analysis
 
-### identify_spatial_genes
+### find_spatial_genes
 
 Identify spatially variable genes using multiple methods.
 
 **Signature:**
+
 ```python
-identify_spatial_genes(
+find_spatial_genes(
     data_id: str,
     method: str = "gaston",
     n_genes: int = 1000,
@@ -332,8 +346,8 @@ identify_spatial_genes(
 
 | Method | Description | Strengths |
 |--------|-------------|-----------|
-| `gaston` | Poisson regression with spatial binning | Fast, robust |
-| `spatialde` | Gaussian process models | Flexible patterns |
+| `gaston` | Poisson regression with spatial binning | Fast, reliable |
+| `spatialde` | Gaussian process models | Variable patterns |
 | `spark` | Generalized linear mixed models | Statistical rigor |
 | `trendsceek` | Marked point processes | Spatial trends |
 
@@ -342,6 +356,7 @@ identify_spatial_genes(
 Find marker genes for cell types or spatial domains.
 
 **Signature:**
+
 ```python
 find_markers(
     data_id: str,
@@ -357,6 +372,7 @@ find_markers(
 Perform gene set enrichment analysis on spatial transcriptomics data.
 
 **Signature:**
+
 ```python
 analyze_enrichment(
     data_id: str,
@@ -372,7 +388,7 @@ analyze_enrichment(
 
 **Available Methods:**
 
-| Method | Description | Best For |
+| Method | Description | Use Case |
 |--------|-------------|----------|
 | `spatial_enrichmap` | Spatially-aware enrichment mapping | Spatial pathway analysis |
 | `pathway_gsea` | Gene Set Enrichment Analysis | Ranked gene lists |
@@ -380,7 +396,8 @@ analyze_enrichment(
 | `pathway_enrichr` | Enrichr web service integration | Online databases |
 | `pathway_ssgsea` | Single-sample GSEA | Sample-level enrichment |
 
-**Key Features:**
+**Features:**
+
 - Spatial awareness for tissue-specific pathways
 - Multiple database support (GO, KEGG, Reactome)
 - Custom gene set analysis
@@ -413,6 +430,7 @@ print(f"Found {result.n_significant} significant pathways")
 Analyze cell-cell communication using ligand-receptor interactions.
 
 **Signature:**
+
 ```python
 analyze_cell_communication(
     data_id: str,
@@ -432,17 +450,126 @@ analyze_cell_communication(
 | `cellchat_liana` | CellChat via LIANA | Pathway analysis |
 
 **Spatial Modes:**
+
 - **`global`**: Cell type-level interactions
 - **`local`**: Spatially-aware interactions
 - **`bivariate`**: Pairwise spatial analysis
+
+## Deconvolution
+
+### deconvolve_data
+
+Estimate cell type proportions in spatial transcriptomics data.
+
+**Signature:**
+
+```python
+deconvolve_data(
+    data_id: str,
+    method: str = "cell2location",
+    reference_data_id: Optional[str] = None,
+    n_factors: int = 50
+) -> DeconvolutionResult
+```
+
+**Available Methods:**
+
+| Method | Description | Requirements |
+|--------|-------------|--------------|
+| `cell2location` | Bayesian deconvolution | Reference single-cell data |
+| `stereoscope` | Probabilistic deconvolution | Reference signatures |
+| `rctd` | Robust cell type decomposition | Reference profiles |
+
+*Full documentation will be added in future versions*
+
+## Integration
+
+### integrate_samples
+
+Integrate multiple spatial transcriptomics datasets.
+
+**Signature:**
+
+```python
+integrate_samples(
+    data_ids: List[str],
+    method: str = "harmony",
+    batch_key: str = "batch"
+) -> IntegrationResult
+```
+
+**Available Methods:**
+
+| Method | Description | Use Case |
+|--------|-------------|----------|
+| `harmony` | Harmony batch correction | Simple batch effects |
+| `scvi` | Variational integration | Complex batch effects |
+| `combat` | ComBat batch correction | Gene expression normalization |
+
+**Note:** Harmony parameters are hardcoded in the implementation for optimal performance:
+- `sigma=0.1` (diversity clustering penalty parameter)
+- `max_iter_harmony=10` (maximum iterations for convergence)
+- `nclust=None` (automatic cluster number detection)
+- `verbose=True` (progress display enabled)
+
+*Full documentation will be added in future versions*
+
+## Trajectory
+
+### analyze_velocity_data
+
+Analyze RNA velocity to understand cellular dynamics.
+
+**Signature:**
+
+```python
+analyze_velocity_data(
+    data_id: str,
+    method: str = "scvelo",
+    mode: str = "dynamical"
+) -> VelocityResult
+```
+
+**Available Methods:**
+
+| Method | Description | Features |
+|--------|-------------|----------|
+| `scvelo` | RNA velocity analysis | Dynamical and stochastic models |
+| `velocyto` | Original RNA velocity | Splicing dynamics |
+| `velovi` | RNA velocity estimation | Deep learning velocity model (requires scvi-tools) |
+
+### analyze_trajectory_data
+
+Infer cellular trajectories and pseudotime from spatial data.
+
+**Signature:**
+
+```python
+analyze_trajectory_data(
+    data_id: str,
+    method: str = "cellrank",
+    spatial_weight: float = 0.5
+) -> TrajectoryResult
+```
+
+**Available Methods:**
+
+| Method | Description | Features |
+|--------|-------------|----------|
+| `dpt` | Diffusion pseudotime | Classic pseudotime inference |
+| `palantir` | Probabilistic trajectory inference | Branch probability analysis |
+| `cellrank` | RNA velocity-based trajectory inference | Fate mapping and terminal states |
+
+*Full documentation will be added in future versions*
 
 ## Visualization
 
 ### visualize_data
 
-Create comprehensive visualizations with MCP image outputs.
+Create visualizations with MCP image outputs.
 
 **Signature:**
+
 ```python
 visualize_data(
     data_id: str,
@@ -480,19 +607,22 @@ visualize_data(
 | `integration_check` | Integration quality plots | Batch correction QC |
 
 **MCP Integration:**
+
 All visualizations return MCP Image objects for direct display in LLM agents like Claude Desktop.
 
 ## Error Handling
 
 ### Error Types
 
-ChatSpatial implements comprehensive error handling:
+ChatSpatial implements error handling:
 
-1. **ValidationError**: Invalid parameters or data format
-2. **DataError**: Missing data or incompatible datasets
-3. **MethodError**: Algorithm-specific failures
-4. **ResourceError**: Memory or computation limits
-5. **SystemError**: File I/O or environment issues
+| Error Type | Description | Common Causes |
+|------------|-------------|---------------|
+| **ValidationError** | Invalid parameters or data format | Wrong parameter types, out-of-range values |
+| **DataError** | Missing data or incompatible datasets | Missing required columns, incompatible data structures |
+| **MethodError** | Algorithm-specific failures | Method not applicable to data type |
+| **ResourceError** | Memory or computation limits | Insufficient memory, timeout exceeded |
+| **SystemError** | File I/O or environment issues | File not found, permission denied |
 
 ### Error Response Format
 
@@ -508,7 +638,7 @@ ChatSpatial implements comprehensive error handling:
 }
 ```
 
-## Advanced Usage
+## Usage Examples
 
 ### Chaining Analysis
 
@@ -557,7 +687,7 @@ for i in range(len(sections)-1):
 
 ## See Also
 
-- **[Getting Started](../getting_started.md)**: Installation and setup
+- **[Getting Started](../../getting-started/)**: Installation and setup
 - **[Tutorials](../tutorials/README.md)**: Step-by-step guides
 - **[GitHub Repository](https://github.com/cafferychen777/ChatSpatial)**: Source code and issues
 

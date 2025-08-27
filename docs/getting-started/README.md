@@ -1,0 +1,12 @@
+# Getting Started with ChatSpatial
+
+This section contains essential information for new users to get started with ChatSpatial.
+
+## Contents
+
+- [Installation Guide](installation.md) - Complete installation instructions for all platforms
+- [Quick Start](quick-start.md) - Get up and running in minutes with the essential setup
+
+## Next Steps
+
+After completing the getting started guide, explore our [Core Tutorials](../tutorials/core/) to learn the fundamentals of spatial analysis with ChatSpatial.

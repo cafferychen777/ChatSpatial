@@ -298,11 +298,18 @@ claude.md
 *_test_report.md
 *_REPORT.md
 *_PLAN.md
-*_GUIDE.md
-*_ANALYSIS.md
 *_MIGRATION_GUIDE.md
 *_REFACTOR_PLAN*.md
 *_DEPENDENCY_*.md
+docs/*_REPORT.md
+docs/*_PLAN.md
+docs/DOCUMENTATION_IMPROVEMENT_PLAN.md
+docs/IMPROVEMENT_COMPLETION_REPORT.md
+docs/WEBSITE_STRUCTURE_IMPROVEMENT_PLAN.md
+# Exclude specific internal guides
+ChatSpatial_Claude_Desktop_Testing_Guide.md
+docs/examples/guides/ChatSpatial_Claude_Desktop_Testing_Guide.md
+docs/examples/guides/GITHUB_ACTIONS_OPTIMIZATION.md
 ChatSpatial_Claude_Desktop_Testing_Guide.md
 DATASET_DOWNLOAD_REPORT.md
 DATASET_SURVEY_REPORT.md

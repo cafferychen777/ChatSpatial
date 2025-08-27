@@ -18,8 +18,9 @@ Welcome to the ChatSpatial troubleshooting guide! This comprehensive resource wi
 ### Python Environment Problems
 
 #### Problem: ImportError or ModuleNotFoundError
+
 **Common error messages:**
-```
+```bash
 ImportError: No module named 'chatspatial'
 ModuleNotFoundError: No module named 'scanpy'
 ImportError: cannot import name 'X' from 'Y'
@@ -52,10 +53,10 @@ ImportError: cannot import name 'X' from 'Y'
    pip install -e ".[advanced]"  # For full features
    ```
 
-**Prevention tips:**
-- Always use conda environments: `conda create -n chatspatial python=3.10`
-- Install with dependency groups: `pip install -e ".[advanced]"` for most users
-- Regularly update: `pip install --upgrade -e ".[advanced]"`
+> **💡 Prevention Tips:**
+> - Always use conda environments: `conda create -n chatspatial python=3.10`
+> - Install with dependency groups: `pip install -e ".[advanced]"` for most users
+> - Regularly update: `pip install --upgrade -e ".[advanced]"`
 
 #### Problem: Conda vs Pip Conflicts
 **Common symptoms:**
@@ -81,13 +82,14 @@ ImportError: cannot import name 'X' from 'Y'
    pip install -e ".[advanced]"
    ```
 
-**Prevention tip:** Stick to one package manager per environment when possible.
+> **💡 Prevention Tip:** Stick to one package manager per environment when possible.
 
 ### R Dependencies (for Advanced Features)
 
 #### Problem: rpy2 Installation Fails
+
 **Error messages:**
-```
+```bash
 ERROR: Failed building wheel for rpy2
 fatal error: 'R.h' file not found
 ```
@@ -115,13 +117,14 @@ fatal error: 'R.h' file not found
    pip install rpy2>=3.4.0
    ```
 
-**Prevention tip:** Only install R dependencies if you need RCTD deconvolution.
+> **💡 Prevention Tip:** Only install R dependencies if you need RCTD deconvolution.
 
 ### MCP Connection Issues
 
 #### Problem: MCP Server Won't Start
+
 **Error messages:**
-```
+```bash
 Failed to start MCP server
 Connection refused
 Server process exited with code 1
@@ -158,15 +161,16 @@ Server process exited with code 1
    npx @modelcontextprotocol/inspector python -m chatspatial
    ```
 
-**When to seek help:** If MCP Inspector also fails, report the exact error message.
+> **⚠️ When to Seek Help:** If MCP Inspector also fails, report the exact error message.
 
 ## Memory and Performance Problems
 
 ### Large Dataset Handling
 
 #### Problem: Out of Memory Errors
+
 **Error messages:**
-```
+```bash
 MemoryError: Unable to allocate X GB
 RuntimeError: CUDA out of memory
 Process killed (signal 9)
@@ -204,10 +208,10 @@ Process killed (signal 9)
    "Run analysis on spatial domains separately"
    ```
 
-**Long-term strategies:**
-- **Increase swap space** (Linux/macOS): Add virtual memory
-- **Use high-memory nodes** on computing clusters
-- **Consider cloud computing** with more RAM (32GB+ for large datasets)
+> **🔧 Long-term Strategies:**
+> - **Increase swap space** (Linux/macOS): Add virtual memory
+> - **Use high-memory nodes** on computing clusters
+> - **Consider cloud computing** with more RAM (32GB+ for large datasets)
 
 #### Problem: Slow Performance
 **Symptoms:**
@@ -235,16 +239,17 @@ Process killed (signal 9)
    "Use basic visualization instead of interactive plots"
    ```
 
-**Prevention tips:**
-- Start with small subsets for method testing
-- Use progress monitoring: "Show progress updates every 100 cells"
-- Monitor system resources during analysis
+> **💡 Prevention Tips:**
+> - Start with small subsets for method testing
+> - Use progress monitoring: "Show progress updates every 100 cells"
+> - Monitor system resources during analysis
 
 ### GPU-Related Issues
 
 #### Problem: CUDA/GPU Not Available
+
 **Error messages:**
-```
+```bash
 RuntimeError: No CUDA GPUs are available
 torch.cuda.is_available() returns False
 ```
@@ -267,7 +272,7 @@ torch.cuda.is_available() returns False
    "Disable GPU acceleration for this analysis"
    ```
 
-**When GPU isn't needed:** Most ChatSpatial analyses work fine on CPU. Only deep learning methods (Cell2location, scVI) benefit significantly from GPU.
+> **ℹ️ When GPU Isn't Needed:** Most ChatSpatial analyses work fine on CPU. Only deep learning methods (Cell2location, scVI) benefit significantly from GPU.
 
 ## Analysis-Specific Issues
 
@@ -308,8 +313,9 @@ torch.cuda.is_available() returns False
    ```
 
 #### Problem: Cell Type Annotation Fails
+
 **Error messages:**
-```
+```bash
 No significant markers found
 Reference dataset incompatible
 Annotation method failed
@@ -339,8 +345,9 @@ Annotation method failed
 ### Visualization Problems
 
 #### Problem: Plots Not Showing or Corrupted
+
 **Error messages:**
-```
+```bash
 Image could not be displayed
 Visualization failed
 Empty plot generated
@@ -368,13 +375,14 @@ Empty plot generated
    "Generate summary statistics table"
    ```
 
-**Prevention tip:** Always start with simple plots before creating complex visualizations.
+> **💡 Prevention Tip:** Always start with simple plots before creating complex visualizations.
 
 ### RNA Velocity and Trajectory Analysis
 
 #### Problem: Velocity Analysis Fails
+
 **Error messages:**
-```
+```bash
 Missing spliced/unspliced layers
 Velocity vectors could not be computed
 Insufficient velocity genes
@@ -400,8 +408,9 @@ Insufficient velocity genes
 ### File Format Issues
 
 #### Problem: Data Won't Load
+
 **Error messages:**
-```
+```bash
 File not found
 Unsupported file format
 Corrupted data file
@@ -416,14 +425,13 @@ KeyError: spatial coordinates not found
    ```
 
 2. **Check file format support:**
-   ```text
-   Supported formats:
-   - .h5ad (recommended)
-   - .h5 (10X format)
-   - .mtx + .tsv (Matrix Market)
-   - .csv/.tsv (text files)
-   - .xlsx (Excel, limited)
-   ```
+   
+   **Supported formats:**
+   - `.h5ad` (recommended)
+   - `.h5` (10X format) 
+   - `.mtx + .tsv` (Matrix Market)
+   - `.csv/.tsv` (text files)
+   - `.xlsx` (Excel, limited)
 
 3. **Test with ChatSpatial:**
    ```text
@@ -433,8 +441,9 @@ KeyError: spatial coordinates not found
    ```
 
 #### Problem: Missing Spatial Information
+
 **Error messages:**
-```
+```bash
 No spatial coordinates found
 KeyError: 'spatial'
 Spatial analysis requires coordinates
@@ -464,8 +473,9 @@ Spatial analysis requires coordinates
 ### 10X Visium Specific Issues
 
 #### Problem: Spatial Folder Structure Missing
+
 **Expected structure:**
-```
+```bash
 project/
 ├── filtered_feature_bc_matrix.h5
 └── spatial/
@@ -491,6 +501,7 @@ project/
 ## Common Error Messages with Solutions
 
 ### "Dataset not found in data store"
+
 **Meaning:** ChatSpatial can't find your loaded dataset.
 
 **Solutions:**
@@ -499,14 +510,25 @@ project/
 3. `"List available datasets in memory"`
 
 ### "Missing required dependencies"
+
 **Meaning:** Optional package needed for specific analysis is not installed.
 
 **Solutions:**
-1. Check what's needed: `python -c "from chatspatial.utils.dependency_manager import dependency_manager; dependency_manager.print_dependency_report()"`
-2. Install missing package: `pip install package_name`
-3. Use alternative method: `"Try different method that doesn't require X"`
+1. **Check what's needed:**
+   ```bash
+   python -c "from chatspatial.utils.dependency_manager import dependency_manager; dependency_manager.print_dependency_report()"
+   ```
+2. **Install missing package:**
+   ```bash
+   pip install package_name
+   ```
+3. **Use alternative method:**
+   ```text
+   "Try different method that doesn't require X"
+   ```
 
 ### "Memory allocation failed"
+
 **Meaning:** Not enough RAM for the analysis.
 
 **Quick fixes:**
@@ -514,7 +536,8 @@ project/
 2. `"Use sparse matrices"`
 3. `"Process data in smaller chunks"`
 
-### "CUDA out of memory" 
+### "CUDA out of memory"
+
 **Meaning:** GPU doesn't have enough memory.
 
 **Solutions:**
@@ -523,6 +546,7 @@ project/
 3. `"Free GPU memory before analysis"`
 
 ### "No significant results found"
+
 **Meaning:** Statistical analysis didn't find meaningful patterns.
 
 **Troubleshooting:**
@@ -531,6 +555,7 @@ project/
 3. `"Use different statistical method"`
 
 ### "Visualization failed to render"
+
 **Meaning:** Plot generation encountered an error.
 
 **Solutions:**
@@ -675,13 +700,14 @@ Before seeking help, collect this information:
 ### Emergency Workarounds
 
 When you need results quickly:
+
 1. **Use minimal installation:** `pip install -e .` for basic features
 2. **Process small subsets:** Test with 1000 cells first
 3. **Use simple methods:** Basic clustering and visualization
 4. **Try different LLM client:** Cherry Studio vs Claude Desktop
 5. **Run analysis step-by-step:** Break complex workflows into pieces
 
-Remember: ChatSpatial is designed to be robust and provide helpful error messages. Most issues can be resolved by following the specific guidance above or trying alternative approaches suggested by the LLM agent.
+> **📝 Remember:** ChatSpatial is designed to be robust and provide helpful error messages. Most issues can be resolved by following the specific guidance above or trying alternative approaches suggested by the LLM agent.
 
 ## Quick Reference Card
 
