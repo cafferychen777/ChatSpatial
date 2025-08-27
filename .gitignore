@@ -291,10 +291,17 @@ profile_*.txt
 !assets/*.jpg
 !assets/*.svg
 
-# Exclude internal development documentation
+# Exclude internal development documentation and personal files
 CLAUDE.md
 GEMINI.md
 claude.md
+OVERLEAF_CLAUDE_SETUP.md
+overleaf-setup.sh
+claude-latex-helper.sh
+latex-workflow.sh
+*-latex-*.sh
+*overleaf*.md
+*overleaf*.sh
 *_test_report.md
 *_REPORT.md
 *_PLAN.md
