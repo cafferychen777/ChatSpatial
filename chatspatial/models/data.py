@@ -206,7 +206,7 @@ class AnnotationParameters(BaseModel):
     mllm_species: Literal["human", "mouse"] = "human"  # Species
     mllm_tissue: Optional[str] = None  # Tissue type (e.g., "brain", "liver")
     mllm_provider: Literal["openai", "anthropic", "deepseek", "kimi", "glm", "qianfan", "ollama"] = "openai"  # LLM provider
-    mllm_model: Optional[str] = None  # Model name (e.g., "gpt-4", "claude-3-opus-20240229")
+    mllm_model: Optional[str] = None  # Model name (e.g., "gpt-5", "claude-sonnet-4-20250514")
     mllm_api_key: Optional[str] = None  # API key for the LLM provider
     
     # ScType parameters
@@ -364,7 +364,7 @@ class SpatialVariableGenesParameters(BaseModel):
     """Spatial variable genes identification parameters model"""
 
     # Method selection
-    method: Literal["gaston", "spatialde", "spark"] = "gaston"
+    method: Literal["gaston", "spatialde", "sparkx"] = "sparkx"  # Default to SPARK-X (fastest, no installation needed)
 
     # Common parameters for all methods
     n_top_genes: Optional[Annotated[int, Field(gt=0, le=5000)]] = None  # Number of top spatial variable genes to return (None = all significant)
@@ -413,10 +413,12 @@ class SpatialVariableGenesParameters(BaseModel):
     spatialde_normalized: bool = True  # Whether data is already normalized
     spatialde_kernel: str = "SE"  # Kernel function type for SpatialDE
 
-    # SPARK-specific parameters
-    spark_percentage: Annotated[float, Field(gt=0.0, le=1.0)] = 0.1  # Percentage of total expression for filtering
-    spark_min_total_counts: Annotated[int, Field(gt=0)] = 10  # Minimum total counts per gene
-    spark_num_core: Annotated[int, Field(gt=0, le=16)] = 1  # Number of cores for parallel processing
+    # SPARK-X specific parameters
+    sparkx_percentage: Annotated[float, Field(gt=0.0, le=1.0)] = 0.1  # Percentage of total expression for filtering
+    sparkx_min_total_counts: Annotated[int, Field(gt=0)] = 10  # Minimum total counts per gene
+    sparkx_num_core: Annotated[int, Field(gt=0, le=16)] = 1  # Number of cores for parallel processing
+    sparkx_option: Literal["single", "mixture"] = "mixture"  # Kernel testing: "single" (faster) or "mixture" (11 kernels)
+    sparkx_verbose: bool = False  # Whether to print detailed R output
 
 
 

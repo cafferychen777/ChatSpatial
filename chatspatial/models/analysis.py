@@ -137,7 +137,7 @@ class SpatialVariableGenesResult(BaseModel):
     # Method-specific results (optional, only populated for respective methods)
     gaston_results: Optional[Dict[str, Any]] = None  # GASTON-specific results
     spatialde_results: Optional[Dict[str, Any]] = None  # SpatialDE-specific results
-    spark_results: Optional[Dict[str, Any]] = None  # SPARK-specific results
+    sparkx_results: Optional[Dict[str, Any]] = None  # SPARK-X specific results
     somde_results: Optional[Dict[str, Any]] = None  # SOMDE-specific results
 
     # Visualization hints (optional)
