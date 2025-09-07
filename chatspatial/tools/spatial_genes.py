@@ -79,10 +79,10 @@ async def identify_spatial_genes(
         return await _identify_spatial_genes_gaston(data_id, data_store, params, context)
     elif params.method == "spatialde":
         return await _identify_spatial_genes_spatialde(data_id, data_store, params, context)
-    elif params.method == "spark":
-        return await _identify_spatial_genes_spark(data_id, data_store, params, context)
+    elif params.method == "sparkx":
+        return await _identify_spatial_genes_sparkx(data_id, data_store, params, context)
     else:
-        raise ValueError(f"Unsupported method: {params.method}. Available methods: gaston, spatialde, spark")
+        raise ValueError(f"Unsupported method: {params.method}. Available methods: gaston, spatialde, sparkx")
 
 
 async def _identify_spatial_genes_gaston(
@@ -179,8 +179,8 @@ async def _identify_spatial_genes_gaston(
         await _store_results_in_adata(adata, spatial_analysis, results_key, context)
 
         # Create standardized result
-        continuous_genes = list(spatial_analysis['continuous_genes'].keys())
-        discontinuous_genes = list(spatial_analysis['discontinuous_genes'].keys())
+        continuous_genes = spatial_analysis['continuous_genes']  # Already a list now
+        discontinuous_genes = spatial_analysis['discontinuous_genes']  # Already a list now
         all_spatial_genes = list(set(continuous_genes + discontinuous_genes))
 
         # Create gene statistics (using isodepth correlation as primary statistic)
@@ -436,6 +436,7 @@ async def _train_gaston_model(
     import numpy as np
     import torch
     import torch.nn as nn
+    from gaston import neural_net
     
     # Load data
     S = np.load(coords_file)
@@ -477,6 +478,7 @@ async def _analyze_spatial_patterns(
     import numpy as np
     import pandas as pd
     import torch
+    from gaston import dp_related, binning_and_plotting, segmented_fit, spatial_gene_classification
     
     if context:
         await context.info("Processing neural network output following GASTON tutorial")
@@ -627,16 +629,27 @@ async def _analyze_spatial_patterns(
         'geary_c': 0.0   # Could compute Geary's C for isodepth
     }
 
+    # Convert complex structures to simple lists for MCP output
+    continuous_genes_list = []
+    discontinuous_genes_list = []
+    
+    if continuous_genes:
+        continuous_genes_list = list(continuous_genes.keys()) if hasattr(continuous_genes, 'keys') else []
+    
+    if discontinuous_genes:
+        discontinuous_genes_list = list(discontinuous_genes.keys()) if hasattr(discontinuous_genes, 'keys') else []
+
     return {
         'isodepth': gaston_isodepth,
         'spatial_domains': gaston_labels,
         'n_domains': params.n_domains,
-        'predictions': predictions,
-        'continuous_genes': continuous_genes,
-        'discontinuous_genes': discontinuous_genes,
+        'continuous_genes': continuous_genes_list,
+        'discontinuous_genes': discontinuous_genes_list,
         'performance_metrics': performance_metrics,
         'autocorrelation_metrics': autocorrelation_metrics,
-        'binning_output': binning_output  # Store for potential future use
+        # Removed large data structures to prevent MCP output overflow:
+        # - 'predictions': predictions (2651x5 matrix)
+        # - 'binning_output': binning_output (750KB raw data)
     }
 
 
@@ -655,8 +668,8 @@ async def _store_results_in_adata(
     # Store spatial domains
     adata.obs[f"{results_key}_spatial_domains"] = spatial_analysis['spatial_domains'].astype(str)
 
-    # Store predictions
-    adata.obsm[f"{results_key}_predictions"] = spatial_analysis['predictions']
+    # Store predictions (if available - removed from spatial_analysis to reduce MCP output size)
+    # adata.obsm[f"{results_key}_predictions"] = spatial_analysis.get('predictions', None)
 
     # Store spatial embedding (isodepth as 1D embedding)
     adata.obsm[f"{results_key}_embedding"] = spatial_analysis['isodepth'].reshape(-1, 1)
@@ -673,13 +686,13 @@ async def _store_results_in_adata(
         await context.info(f"Results stored in adata with key prefix: {results_key}")
 
 
-async def _identify_spatial_genes_spark(
+async def _identify_spatial_genes_sparkx(
     data_id: str,
     data_store: Dict[str, Any],
     params: SpatialVariableGenesParameters,
     context=None
 ) -> SpatialVariableGenesResult:
-    """Identify spatial variable genes using SPARK method."""
+    """Identify spatial variable genes using SPARK-X non-parametric method."""
     # Import dependencies at runtime
     import numpy as np
     import pandas as pd
@@ -691,7 +704,7 @@ async def _identify_spatial_genes_spark(
         raise ImportError("rpy2 not installed. Install with: pip install rpy2")
 
     if context:
-        await context.info("Running SPARK analysis with sparkx")
+        await context.info("Running SPARK-X non-parametric analysis")
 
     # Check if SPARK is installed in R
     try:
@@ -727,11 +740,56 @@ async def _identify_spatial_genes_spark(
         gene_names = [str(name) for name in adata.var_names]
         n_genes = len(gene_names)
     
+    # Ensure gene names are unique (required for SPARK-X R rownames)
+    if len(gene_names) != len(set(gene_names)):
+        from collections import Counter
+        gene_counts = Counter(gene_names)
+        unique_names = []
+        seen_counts = {}
+        for gene in gene_names:
+            if gene_counts[gene] > 1:
+                # Add suffix for duplicates
+                if gene not in seen_counts:
+                    seen_counts[gene] = 0
+                    unique_names.append(gene)
+                else:
+                    seen_counts[gene] += 1
+                    unique_names.append(f"{gene}_{seen_counts[gene]}")
+            else:
+                unique_names.append(gene)
+        gene_names = unique_names
+        if context:
+            await context.info(f"Made duplicate gene names unique (found {sum(1 for c in gene_counts.values() if c > 1)} duplicates)")
+    
     # Ensure counts are non-negative integers
     counts_matrix = np.maximum(counts_matrix, 0).astype(int)
     
     if context:
         await context.info(f"Using {'raw' if adata.raw is not None else 'current'} count matrix")
+    
+    # Apply gene filtering based on SPARK-X parameters (like CreateSPARKObject in R)
+    percentage = params.sparkx_percentage
+    min_total_counts = params.sparkx_min_total_counts
+    
+    # Calculate total counts per gene
+    gene_totals = counts_matrix.sum(axis=0)
+    n_expressed = (counts_matrix > 0).sum(axis=0)
+    
+    # Filter genes: must be expressed in at least percentage of cells AND have min total counts
+    min_cells = int(np.ceil(n_spots * percentage))
+    keep_genes = (n_expressed >= min_cells) & (gene_totals >= min_total_counts)
+    
+    if keep_genes.sum() < len(gene_names):
+        # Apply filtering
+        counts_matrix = counts_matrix[:, keep_genes]
+        gene_names = [gene for gene, keep in zip(gene_names, keep_genes) if keep]
+        n_filtered = keep_genes.sum()
+        
+        if context:
+            await context.info(f"Filtered to {n_filtered}/{len(keep_genes)} genes (>{percentage*100:.0f}% cells, >{min_total_counts} counts)")
+    
+    # Update gene count after filtering
+    n_genes = len(gene_names)
     
     # Transpose for SPARK format (genes × spots)
     counts_transposed = counts_matrix.T
@@ -763,21 +821,21 @@ async def _identify_spatial_genes_spark(
         )
 
     if context:
-        await context.info("Running SPARK analysis using sparkx function")
+        await context.info("Running SPARK-X analysis using sparkx function")
     
     try:
         # Use sparkx for direct analysis (based on our successful tests)
         results = spark.sparkx(
             count_in=r_counts,
             locus_in=r_coords,
-            X_in=ro.NULL,  # No additional covariates
-            numCores=params.spark_num_core,
-            option="mixture",
-            verbose=False  # Reduce R output
+            X_in=ro.NULL,  # No additional covariates (could be extended in future)
+            numCores=params.sparkx_num_core,
+            option=params.sparkx_option,
+            verbose=params.sparkx_verbose
         )
         
         if context:
-            await context.info("SPARK analysis completed successfully")
+            await context.info("SPARK-X analysis completed successfully")
             
         # Extract p-values from results
         try:
@@ -822,8 +880,8 @@ async def _identify_spatial_genes_spark(
 
     except Exception as e:
         if context:
-            await context.info(f"SPARK analysis failed: {e}")
-        raise RuntimeError(f"SPARK analysis failed: {e}")
+            await context.info(f"SPARK-X analysis failed: {e}")
+        raise RuntimeError(f"SPARK-X analysis failed: {e}")
 
     # Sort by adjusted p-value
     results_df = results_df.sort_values('adjusted_pvalue')
@@ -837,15 +895,15 @@ async def _identify_spatial_genes_spark(
         significant_genes = results_df['gene'].tolist()
 
     # Store results in adata
-    results_key = f"spark_results_{data_id}"
-    adata.var['spark_pval'] = pd.Series(
+    results_key = f"sparkx_results_{data_id}"
+    adata.var['sparkx_pval'] = pd.Series(
         dict(zip(results_df['gene'], results_df['pvalue'])),
-        name='spark_pval'
+        name='sparkx_pval'
     ).reindex(adata.var_names, fill_value=1.0)
     
-    adata.var['spark_qval'] = pd.Series(
+    adata.var['sparkx_qval'] = pd.Series(
         dict(zip(results_df['gene'], results_df['adjusted_pvalue'])),
-        name='spark_qval'
+        name='sparkx_qval'
     ).reindex(adata.var_names, fill_value=1.0)
 
     # Create gene statistics dictionaries
@@ -853,19 +911,19 @@ async def _identify_spatial_genes_spark(
     p_values = dict(zip(results_df['gene'], results_df['pvalue']))
     q_values = dict(zip(results_df['gene'], results_df['adjusted_pvalue']))
 
-    # Create SPARK-specific results
-    spark_results = {
+    # Create SPARK-X specific results
+    sparkx_results = {
         'results_dataframe': results_df.to_dict(),
         'method': 'sparkx',
-        'num_core': params.spark_num_core,
-        'option': 'mixture',
+        'num_core': params.sparkx_num_core,
+        'option': params.sparkx_option,
         'n_significant_genes': len(significant_genes),
         'data_format': 'genes_x_spots'
     }
 
     result = SpatialVariableGenesResult(
         data_id=data_id,
-        method="spark",
+        method="sparkx",
         n_genes_analyzed=len(results_df),
         n_significant_genes=len(significant_genes),
         spatial_genes=significant_genes,
@@ -873,11 +931,11 @@ async def _identify_spatial_genes_spark(
         p_values=p_values,
         q_values=q_values,
         results_key=results_key,
-        spark_results=spark_results
+        sparkx_results=sparkx_results
     )
 
     if context:
-        await context.info(f"SPARK analysis completed successfully")
+        await context.info(f"SPARK-X analysis completed successfully")
         await context.info(f"Analyzed {len(results_df)} genes")
         await context.info(f"Found {len(significant_genes)} significant spatial genes (q < 0.05)")
 
