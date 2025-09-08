@@ -134,7 +134,7 @@ class DependencyManager:
         ),
         'STAGATE': DependencyInfo(
             'STAGATE', 'STAGATE', '>=1.0.0,<2.0',
-            'pip install STAGATE>=1.0.0',
+            'pip install git+https://github.com/QIFEIDKN/STAGATE.git',
             'Spatial domain identification using attention mechanisms',
             alternatives=['SpaGCN', 'BayesSpace']
         ),

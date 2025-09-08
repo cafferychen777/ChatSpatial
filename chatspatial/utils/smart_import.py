@@ -135,10 +135,10 @@ class SmartImporter:
                           install_cmd="pip install SpaGCN"),
             DependencySpec("STAGATE", "STAGATE", DependencyLevel.ADVANCED,
                           "Spatial domain identification with STAGATE",
-                          install_cmd="pip install STAGATE"),
-            DependencySpec("banksy", "banksy-python", DependencyLevel.ADVANCED,
+                          install_cmd="pip install git+https://github.com/QIFEIDKN/STAGATE.git"),
+            DependencySpec("banksy", "banksy", DependencyLevel.ADVANCED,
                           "Neighborhood aggregation for spatial domains",
-                          install_cmd="pip install banksy-python"),
+                          install_cmd="pip install git+https://github.com/prabhakarlab/Banksy_py.git"),
             
             # Spatial gene detection
             DependencySpec("spatialde", "spatialde", DependencyLevel.ADVANCED,
