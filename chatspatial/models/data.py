@@ -219,15 +219,39 @@ class AnnotationParameters(BaseModel):
 
 class SpatialAnalysisParameters(BaseModel):
     """Spatial analysis parameters model"""
-    analysis_type: Literal["neighborhood", "co_occurrence", "ripley", "moran", "centrality", "getis_ord"] = "neighborhood"
+    analysis_type: Literal[
+        "neighborhood", "co_occurrence", "ripley", "moran", "geary",
+        "centrality", "getis_ord", "bivariate_moran", "join_count",
+        "network_properties", "spatial_centrality"
+        # "scviva"  # TODO: Under development - produces NaN values, needs fixing
+    ] = "neighborhood"
     cluster_key: str = "leiden"
     n_neighbors: Annotated[int, Field(gt=0)] = 15
+    
+    # Parallel processing parameters
+    n_jobs: Optional[int] = Field(1, description="Number of parallel jobs. 1 = no parallelization (recommended for small datasets), None = auto-detect, -1 = all cores")
+    backend: Literal["loky", "threading", "multiprocessing"] = Field("threading", description="Parallelization backend (threading is safer than loky)")
+    
+    # Moran's I specific parameters
+    moran_genes: Optional[List[str]] = Field(None, description="Specific genes for Moran's I (None = use HVG)")
+    moran_n_genes: Annotated[int, Field(gt=0, le=100)] = Field(10, description="Number of HVG for Moran's I (default 10 for speed)")
+    moran_n_perms: Annotated[int, Field(gt=0, le=10000)] = Field(10, description="Number of permutations (default 10 for speed, use 100+ for publication)")
+    moran_two_tailed: bool = Field(False, description="Use two-tailed test")
 
     # Getis-Ord Gi* specific parameters
     getis_ord_genes: Optional[List[str]] = None  # Specific genes to analyze (if None, use highly variable genes)
     getis_ord_n_genes: Annotated[int, Field(gt=0, le=100)] = 20  # Number of top highly variable genes to analyze
     getis_ord_correction: Literal["bonferroni", "fdr_bh", "none"] = "fdr_bh"  # Multiple testing correction
     getis_ord_alpha: Annotated[float, Field(gt=0.0, le=1.0)] = 0.05  # Significance threshold
+    
+    # Bivariate Moran's I specific parameters
+    gene_pairs: Optional[List[Tuple[str, str]]] = Field(None, description="Gene pairs for bivariate analysis")
+    
+    # SCVIVA deep learning parameters
+    scviva_n_epochs: int = Field(1000, description="Number of training epochs for SCVIVA")
+    scviva_n_hidden: int = Field(128, description="Number of hidden units in SCVIVA")
+    scviva_n_latent: int = Field(10, description="Number of latent dimensions in SCVIVA")
+    scviva_use_gpu: bool = Field(False, description="Use GPU for SCVIVA training")
 
 
 class RNAVelocityParameters(BaseModel):
