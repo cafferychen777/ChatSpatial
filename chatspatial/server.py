@@ -1134,7 +1134,7 @@ async def calculate_spatial_statistics(
         Spatial statistics result
     """
     # Import spatial statistics function
-    from .tools.spatial_statistics import calculate_spatial_stats
+    from .tools.spatial_analysis import calculate_spatial_stats
 
     # Validate dataset
     validate_dataset(data_id)
