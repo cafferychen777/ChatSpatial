@@ -181,7 +181,7 @@ class UserGuidanceSystem:
             package_name="STAGATE",
             description="Spatial domain identification with STAGATE",
             methods={
-                InstallationMethod.PIP: "pip install git+https://github.com/QIFEIDKN/STAGATE.git"
+                InstallationMethod.PIP: "git clone https://github.com/QIFEIDKN/STAGATE.git && cd STAGATE && python setup.py install"
             },
             prerequisites=["tensorflow>=1.15.0,<2.0", "scanpy"],
             platform_notes={
