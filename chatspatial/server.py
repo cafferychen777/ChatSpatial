@@ -924,7 +924,12 @@ async def analyze_enrichment(
                 else:
                     # Use top variable genes
                     import numpy as np
-                    var_scores = np.array(adata.X.var(axis=0)).flatten()
+                    from scipy import sparse
+                    if sparse.issparse(adata.X):
+                        # Handle sparse matrix
+                        var_scores = np.array(adata.X.toarray().var(axis=0)).flatten()
+                    else:
+                        var_scores = np.array(adata.X.var(axis=0)).flatten()
                     top_indices = np.argsort(var_scores)[-500:]
                     gene_list = adata.var_names[top_indices].tolist()
             

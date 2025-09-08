@@ -570,8 +570,8 @@ async def perform_enrichr(
             cutoff=0.05
         )
         
-        # Combine results from all libraries
-        all_results = pd.concat(enr.results, ignore_index=True)
+        # Get results - enr.results is already a DataFrame
+        all_results = enr.results
         
         # Prepare output
         enrichment_scores = {}
