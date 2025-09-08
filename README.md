@@ -18,7 +18,7 @@ ChatSpatial is a production-ready **Model Context Protocol (MCP) server** that p
 
 ## 🎯 Why ChatSpatial?
 
-- **🔗 Universal Agent Integration**: Works seamlessly with Claude Desktop, Cherry Studio, Continue, and any MCP-compatible LLM tool
+- **🔗 Universal Agent Integration**: Works seamlessly with Claude Desktop, Cherry Studio, Continue, and any MCP-compatible LLM agent
 - **🧬 Spatial-First Design**: Purpose-built for spatial transcriptomics (10x Visium, Slide-seq, MERFISH, seqFISH)
 - **⚡ Production Ready**: All core methods tested and validated with real-world datasets
 - **🎛️ Comprehensive**: 16 tools covering the entire spatial analysis workflow
@@ -29,7 +29,7 @@ ChatSpatial is a production-ready **Model Context Protocol (MCP) server** that p
 ### Prerequisites
 
 - Python 3.8+ (Python 3.10-3.11 recommended for best compatibility)
-- An MCP-compatible LLM agent (Claude Desktop, Cherry Studio, etc.)
+- An MCP-compatible LLM agent client (Claude Desktop, Cherry Studio, etc.)
 
 ### Installation
 
@@ -97,7 +97,7 @@ For detailed installation instructions, see **[INSTALLATION.md](INSTALLATION.md)
 
 ### 🧬 **Spatial Analysis**
 
-- **Spatial Variable Genes**: GASTON (deep learning), SpatialDE, SPARK methods
+- **Spatial Variable Genes**: GASTON (deep learning), SpatialDE, SPARK-X (non-parametric) methods
 - **Spatial Domains**: SpaGCN, STAGATE, BANKSY, Leiden/Louvain clustering
 - **Spatial Statistics**: Moran's I, Geary's C, Getis-Ord Gi*, spatial autocorrelation
 
@@ -117,7 +117,7 @@ For detailed installation instructions, see **[INSTALLATION.md](INSTALLATION.md)
 ### 📈 **Visualization**
 
 - **20 Plot Types**: Spatial, UMAP, violin, heatmap, trajectory, communication plots
-- **MCP Image Objects**: Seamless display in LLM agents
+- **MCP Image Objects**: Seamless display in LLM agent clients
 - **Interactive Support**: Plotly and Bokeh integration
 
 ## 🏗️ Architecture
@@ -125,9 +125,9 @@ For detailed installation instructions, see **[INSTALLATION.md](INSTALLATION.md)
 ChatSpatial implements a clean **Model Context Protocol** architecture:
 
 ```text
-LLM Agent → MCP Client → ChatSpatial Server → Analysis Tools → Results
-             ↓
-     MCP ToolResult ← Visualization ← Data Processing
+LLM Agent Client → MCP Protocol → ChatSpatial Server → Analysis Tools → Results
+                     ↓
+           MCP ToolResult ← Visualization ← Data Processing
 ```
 
 **Key Features:**
@@ -203,8 +203,8 @@ ChatSpatial uses a modular dependency system. Install specific modules as needed
 pip install -e .[all]
 
 # Or install specific feature sets
-pip install -e .[advanced]         # Core spatial analysis methods
-pip install -e .[enrichmap]        # EnrichMap spatial enrichment
+pip install -e .[advanced]         # Core spatial analysis methods (includes enrichmap)
+pip install enrichmap               # For spatial enrichment analysis (if not using [advanced])
 pip install -e .[experimental]     # Experimental features (use with caution)
 pip install -e .[dev]              # Development tools (testing, linting)
 ```
@@ -225,7 +225,7 @@ ChatSpatial is production-ready with comprehensive testing:
 - ✅ **16 MCP Tools**: All core tools tested and validated
 - ✅ **Error Handling**: Robust two-layer error management
 - ✅ **Visualization**: All plot types verified with MCP Image objects
-- ✅ **Compatibility**: Tested with Claude Desktop, Cherry Studio
+- ✅ **Compatibility**: Tested with Claude Desktop, Cherry Studio LLM agent clients
 - ✅ **Real Data**: Validated with 10x Visium, Slide-seq, MERFISH datasets
 
 ## 🔍 Troubleshooting
@@ -286,4 +286,4 @@ If you use ChatSpatial in your research, please cite:
 
 ---
 
-**Ready to analyze spatial data with LLM agents?** Install ChatSpatial and start exploring! 🚀
+**Ready to analyze spatial data with LLM agent clients?** Install ChatSpatial and start exploring! 🚀
