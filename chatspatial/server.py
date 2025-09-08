@@ -775,7 +775,7 @@ async def analyze_enrichment(
         - Custom gene sets via gene_sets parameter
     """
     # Import enrichment analysis function
-    from .tools.spatial_enrichment import perform_enrichment_analysis
+    from .tools.enrichment import perform_spatial_enrichment as perform_enrichment_analysis
     import time
 
     # Validate dataset
@@ -801,7 +801,7 @@ async def analyze_enrichment(
         
         # Load gene sets based on database name
         try:
-            from .tools.gene_set_loader import load_gene_sets
+            from .tools.enrichment import load_gene_sets
         except ImportError:
             raise ProcessingError("gseapy package is required for gene set loading. Install with: pip install gseapy")
         try:
@@ -878,7 +878,7 @@ async def analyze_enrichment(
             await context.info("Spatial enrichment analysis complete. Use create_visualization tool with plot_type='spatial_enrichment' to visualize results")
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.pathway_enrichment import perform_gsea, perform_ora, perform_ssgsea, perform_enrichr
+        from .tools.enrichment import perform_gsea, perform_ora, perform_ssgsea, perform_enrichr
         
         if params.method == "pathway_gsea":
             result_dict = await perform_gsea(
@@ -923,6 +923,7 @@ async def analyze_enrichment(
                     gene_list = adata.var_names[adata.var['highly_variable']].tolist()[:500]
                 else:
                     # Use top variable genes
+                    import numpy as np
                     var_scores = np.array(adata.X.var(axis=0)).flatten()
                     top_indices = np.argsort(var_scores)[-500:]
                     gene_list = adata.var_names[top_indices].tolist()
