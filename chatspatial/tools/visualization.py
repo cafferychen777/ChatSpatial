@@ -3218,19 +3218,12 @@ async def create_enrichment_visualization(
     
     # Import EnrichMap for specialized visualizations
     try:
-        # Add EnrichMap to Python path
-        from pathlib import Path
-        import sys
-        current_dir = Path(__file__).parent
-        project_root = current_dir.parent.parent
-        enrichmap_path = str(project_root / "third_party" / "EnrichMap")
-        if enrichmap_path not in sys.path:
-            sys.path.insert(0, enrichmap_path)
+        # Import EnrichMap directly (should be installed via pip)
         import enrichmap as em
     except ImportError:
         # Fallback to basic visualization
         if context:
-            await context.info("EnrichMap not available, using basic visualization")
+            await context.info("EnrichMap not available. Install with: pip install enrichmap")
         em = None
     
     # Find enrichment score columns
