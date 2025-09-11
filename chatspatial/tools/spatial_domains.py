@@ -29,7 +29,7 @@ except ImportError:
     SPAGCN_AVAILABLE = False
 
 try:
-    import STAGATE
+    import STAGATE_pyG
     STAGATE_AVAILABLE = True
 except ImportError:
     STAGATE_AVAILABLE = False
@@ -685,46 +685,46 @@ async def _identify_domains_stagate(
     params: SpatialDomainParameters,
     context: Optional[Context] = None
 ) -> tuple:
-    """Identify spatial domains using STAGATE"""
+    """Identify spatial domains using STAGATE_pyG"""
     if not STAGATE_AVAILABLE:
-        raise ImportError("STAGATE is not installed. Please install it with: pip install STAGATE")
+        raise ImportError("STAGATE_pyG is not installed. Please install it from: https://github.com/QIFEIDKN/STAGATE_pyG")
     
     if context:
-        await context.info("Running STAGATE for spatial domain identification...")
+        await context.info("Running STAGATE_pyG for spatial domain identification...")
     
     try:
         import torch
-        import STAGATE
+        import STAGATE_pyG
         
-        # STAGATE requires specific preprocessing
+        # STAGATE_pyG works with preprocessed data
         adata_stagate = adata.copy()
         
         # Calculate spatial graph
         if context:
-            await context.info("Calculating spatial neighbor graph...")
+            await context.info("Calculating STAGATE spatial network...")
         
-        # STAGATE uses its own graph construction
-        STAGATE.Cal_Spatial_Net(adata_stagate, rad_cutoff=params.stagate_rad_cutoff or 150)
+        # STAGATE_pyG uses smaller default radius (50 instead of 150)
+        rad_cutoff = params.stagate_rad_cutoff or 50
+        STAGATE_pyG.Cal_Spatial_Net(adata_stagate, rad_cutoff=rad_cutoff)
         
-        # Run STAGATE
+        # Optional: Display network statistics
         if context:
-            await context.info("Training STAGATE model...")
+            try:
+                STAGATE_pyG.Stats_Spatial_Net(adata_stagate)
+            except:
+                pass  # Stats display is optional
+        
+        # Run STAGATE_pyG
+        if context:
+            await context.info("Training STAGATE_pyG model...")
         
         # Set device
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         if context:
             await context.info(f"Using device: {device}")
         
-        # Train STAGATE
-        adata_stagate = STAGATE.train_STAGATE(
-            adata_stagate,
-            lr=params.stagate_learning_rate or 0.001,
-            weight_decay=params.stagate_weight_decay or 0.0001,
-            n_epochs=params.stagate_epochs or 1000,
-            hidden_dims=[512, params.stagate_dim_output or 30],
-            random_seed=params.stagate_random_seed or 42,
-            verbose=True
-        )
+        # Train STAGATE using simple API
+        adata_stagate = STAGATE_pyG.train_STAGATE(adata_stagate, device=device)
         
         # Get embeddings
         embeddings_key = 'STAGATE'
@@ -736,42 +736,21 @@ async def _identify_domains_stagate(
         # STAGATE-specific neighbors computation (algorithm requirement)
         sc.pp.neighbors(adata_stagate, use_rep='STAGATE', n_neighbors=params.cluster_n_neighbors or 15)
         
-        if params.method == "stagate":
-            # Use mclust for clustering as recommended by STAGATE
-            try:
-                import rpy2.robjects as ro
-                from rpy2.robjects import pandas2ri
-                pandas2ri.activate()
-                
-                # Use R's mclust
-                ro.r('''
-                    library(mclust)
-                    mclust_clustering <- function(embedding, n_clusters) {
-                        fit <- Mclust(embedding, G=n_clusters)
-                        return(fit$classification)
-                    }
-                ''')
-                
-                mclust_func = ro.r['mclust_clustering']
-                embedding_df = pd.DataFrame(adata_stagate.obsm['STAGATE'])
-                clusters = mclust_func(embedding_df, params.n_domains)
-                domain_labels = pd.Series(clusters, index=adata.obs.index).astype(str)
-                
-            except ImportError:
-                if context:
-                    await context.warning("mclust not available, using leiden clustering instead")
-                sc.tl.leiden(adata_stagate, resolution=params.cluster_resolution or 1.0)
-                domain_labels = adata_stagate.obs['leiden'].astype(str)
+        # Use leiden clustering (mclust is optional and has compatibility issues)
+        if context:
+            await context.info("Performing Leiden clustering on STAGATE embeddings...")
+        sc.tl.leiden(adata_stagate, resolution=params.cluster_resolution or 1.0)
+        domain_labels = adata_stagate.obs['leiden'].astype(str)
         
         # Copy embeddings to original adata
         adata.obsm[embeddings_key] = adata_stagate.obsm['STAGATE']
         
         statistics = {
-            "method": "stagate",
+            "method": "stagate_pyg",
             "n_clusters": len(domain_labels.unique()),
-            "rad_cutoff": params.stagate_rad_cutoff or 150,
-            "epochs": params.stagate_epochs or 1000,
-            "device": str(device)
+            "rad_cutoff": rad_cutoff,
+            "device": str(device),
+            "framework": "PyTorch Geometric"
         }
         
         return domain_labels, embeddings_key, statistics
