@@ -2,6 +2,7 @@
 Data models for spatial transcriptomics analysis.
 """
 
+from __future__ import annotations
 from typing import Annotated, Dict, List, Literal, Optional, Tuple, Union
 from typing_extensions import Self
 from pydantic import BaseModel, Field, model_validator
@@ -49,7 +50,15 @@ class AnalysisParameters(BaseModel):
     
     # Advanced preprocessing options
     enable_rna_velocity: bool = False  # Whether to include RNA velocity preprocessing
-    velocity_mode: Literal["stochastic", "deterministic", "dynamical"] = "stochastic"  # RNA velocity computation mode
+    velocity_params: Optional['RNAVelocityParameters'] = None  # Embedded velocity parameters (if None, uses defaults)
+    
+    # Deprecated: Individual velocity fields (kept for backward compatibility)
+    velocity_mode: Optional[Literal["stochastic", "deterministic", "dynamical"]] = None  # Deprecated: use velocity_params.mode
+    velocity_min_shared_counts: Optional[int] = None  # Deprecated: use velocity_params.min_shared_counts
+    velocity_n_top_genes: Optional[int] = None  # Deprecated: use velocity_params.n_top_genes
+    velocity_n_pcs: Optional[int] = None  # Deprecated: use velocity_params.n_pcs
+    velocity_n_neighbors: Optional[int] = None  # Deprecated: use velocity_params.n_neighbors
+    
     enable_trajectory_analysis: bool = False  # Whether to include trajectory analysis preprocessing
     dpt_root_cell: Optional[str] = None  # Root cell for diffusion pseudotime (cell barcode)
     enable_spatial_domains: bool = False  # Whether to include spatial domain-specific preprocessing
@@ -215,6 +224,11 @@ class AnnotationParameters(BaseModel):
     sctype_scaled: bool = True  # Whether input data is scaled
     sctype_custom_markers: Optional[Dict[str, Dict[str, List[str]]]] = None  # Custom markers: {"CellType": {"positive": [...], "negative": [...]}}
     sctype_use_cache: bool = True  # Whether to cache results to avoid repeated R calls
+    
+    # SingleR parameters (for enhanced marker_genes method)
+    singler_reference: Optional[str] = None  # Reference name from celldex (e.g., "blueprint_encode", "dice", "hpca")
+    singler_integrated: bool = False  # Whether to use integrated annotation with multiple references
+    num_threads: int = 4  # Number of threads for parallel processing
 
 
 class SpatialAnalysisParameters(BaseModel):
@@ -262,6 +276,11 @@ class RNAVelocityParameters(BaseModel):
     color: Optional[str] = None
     reference_data_id: Optional[str] = None  # For SIRV method
     labels: Optional[List[str]] = None  # For SIRV method
+    
+    # Preprocessing parameters for velocity computation
+    min_shared_counts: Annotated[int, Field(gt=0)] = 30  # Minimum shared counts for filtering
+    n_top_genes: Annotated[int, Field(gt=0)] = 2000  # Number of top genes to retain
+    n_neighbors: Annotated[int, Field(gt=0)] = 30  # Number of neighbors for moments computation
 
 
 class TrajectoryParameters(BaseModel):
@@ -273,6 +292,10 @@ class TrajectoryParameters(BaseModel):
     # CellRank specific parameters
     cellrank_kernel_weights: Tuple[float, float] = (0.8, 0.2)  # (velocity_weight, connectivity_weight)
     cellrank_n_states: Annotated[int, Field(gt=0, le=20)] = 5  # Number of macrostates for CellRank
+    
+    # Palantir specific parameters
+    palantir_n_diffusion_components: Annotated[int, Field(gt=0, le=50)] = 10  # Number of diffusion components
+    palantir_num_waypoints: Annotated[int, Field(gt=0)] = 500  # Number of waypoints for Palantir
     
     # VeloVI parameters
     velovi_n_hidden: int = 128

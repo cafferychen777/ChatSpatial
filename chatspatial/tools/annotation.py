@@ -328,27 +328,63 @@ async def _annotate_with_marker_genes_scanpy(adata, marker_genes: Dict[str, List
         raise ValueError(error_msg)
 
 
-async def _annotate_with_marker_genes(adata, params: AnnotationParameters, context: Optional[Context] = None):
-    """Annotate cell types using scanpy's official marker gene overlap method"""
+async def _annotate_with_marker_genes(adata, params: AnnotationParameters, data_store: Dict[str, Any] = None, context: Optional[Context] = None):
+    """Annotate cell types using SingleR method (replacing old marker_genes)"""
     try:
-        if context:
-            await context.info("Using scanpy's official marker gene overlap method")
-        
-        # Use provided marker genes or default ones
-        marker_genes = params.marker_genes if params.marker_genes else DEFAULT_MARKER_GENES
-        
-        # Validate marker genes exist in dataset
-        valid_marker_genes = await _validate_marker_genes(adata, marker_genes, context)
-        
-        # Use scanpy's official method
-        cell_types, counts, confidence_scores = await _annotate_with_marker_genes_scanpy(
-            adata, valid_marker_genes, context
-        )
-        
-        # Note: Visualizations should be created using the separate visualize_data tool
-        # This maintains clean separation between analysis and visualization
-        
-        return cell_types, counts, confidence_scores, None
+        # Try to use SingleR first
+        try:
+            from .annotation_singler import annotate_with_singler, SINGLER_AVAILABLE
+            
+            if SINGLER_AVAILABLE:
+                if context:
+                    await context.info("Using SingleR method for cell type annotation")
+                
+                # Use SingleR
+                return await annotate_with_singler(
+                    adata=adata,
+                    params=params,
+                    data_store=data_store,
+                    context=context
+                )
+            else:
+                raise ImportError("SingleR not available")
+                
+        except ImportError as e:
+            # Fallback to old scanpy method if SingleR not installed
+            if context:
+                await context.info(f"SingleR not installed: {str(e)[:100]}, falling back to scanpy marker gene overlap")
+            
+            # Use provided marker genes or default ones
+            marker_genes = params.marker_genes if params.marker_genes else DEFAULT_MARKER_GENES
+            
+            # Validate marker genes exist in dataset
+            valid_marker_genes = await _validate_marker_genes(adata, marker_genes, context)
+            
+            # Use scanpy's official method
+            cell_types, counts, confidence_scores = await _annotate_with_marker_genes_scanpy(
+                adata, valid_marker_genes, context
+            )
+            
+            return cell_types, counts, confidence_scores, None
+            
+        except Exception as e:
+            # Log the actual error from SingleR
+            if context:
+                await context.error(f"SingleR annotation failed: {str(e)}")
+                await context.info("Falling back to scanpy marker gene overlap")
+            
+            # Use provided marker genes or default ones
+            marker_genes = params.marker_genes if params.marker_genes else DEFAULT_MARKER_GENES
+            
+            # Validate marker genes exist in dataset
+            valid_marker_genes = await _validate_marker_genes(adata, marker_genes, context)
+            
+            # Use scanpy's official method
+            cell_types, counts, confidence_scores = await _annotate_with_marker_genes_scanpy(
+                adata, valid_marker_genes, context
+            )
+            
+            return cell_types, counts, confidence_scores, None
         
     except Exception as e:
         await _handle_annotation_error(e, "marker_genes", context)
@@ -927,7 +963,7 @@ async def annotate_cell_types(
             )
         elif params.method == "marker_genes":
             cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_marker_genes(
-                adata, params, context
+                adata, params, data_store, context
             )
         elif params.method == "mllmcelltype":
             cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_mllmcelltype(
@@ -1000,6 +1036,9 @@ async def _load_sctype_functions(context: Optional[Context] = None) -> None:
         await context.info("📚 Loading sc-type R functions...")
     
     try:
+        # Get robjects from validation
+        robjects, _, _, _, _ = _validate_rpy2_and_r(context)
+        
         # Auto-install required R packages
         robjects.r('''
             # Install packages automatically if not present
@@ -1043,6 +1082,9 @@ async def _prepare_sctype_genesets(params: AnnotationParameters, context: Option
         await context.info("🧬 Preparing sc-type gene sets...")
     
     try:
+        # Get robjects from validation
+        robjects, _, _, _, _ = _validate_rpy2_and_r(context)
+        
         if params.sctype_custom_markers:
             # Use custom markers
             if context:
@@ -1109,6 +1151,9 @@ def _convert_custom_markers_to_gs(custom_markers: Dict[str, Dict[str, List[str]]
     if valid_celltypes == 0:
         raise ValueError("No valid cell types found in custom markers - all cell types need at least one positive marker")
     
+    # Get robjects and converters from validation
+    robjects, pandas2ri, _, _, localconverter = _validate_rpy2_and_r(context)
+    
     # Convert to R lists using proper nested conversion
     with localconverter(robjects.default_converter + pandas2ri.converter):
         # Convert Python dictionaries to R named lists, handle empty lists properly
@@ -1138,6 +1183,8 @@ async def _run_sctype_scoring(adata, gs_list, params: AnnotationParameters, cont
         await context.info("🔬 Running sc-type scoring...")
     
     try:
+        # Get robjects and converters from validation
+        robjects, pandas2ri, _, _, localconverter = _validate_rpy2_and_r(context)
         
         # Prepare expression data
         if params.sctype_scaled and 'scaled' in adata.layers:
@@ -1231,12 +1278,34 @@ async def _run_sctype_scoring(adata, gs_list, params: AnnotationParameters, cont
             }
         ''')
         
-        # Get results back to Python
+        # Get results back to Python with row and column names preserved
+        # Extract row names (cell type names) and column names from R
+        row_names = list(robjects.r('rownames(es_max)'))
+        col_names = list(robjects.r('colnames(es_max)'))
+        
         with localconverter(robjects.default_converter + pandas2ri.converter):
-            scores_df = robjects.r['es_max']
+            scores_matrix = robjects.r['es_max']
+        
+        # Convert to DataFrame with proper index and columns
+        if isinstance(scores_matrix, pd.DataFrame):
+            scores_df = scores_matrix
+            if row_names:
+                scores_df.index = row_names
+            if col_names:
+                scores_df.columns = col_names
+        else:
+            scores_df = pd.DataFrame(
+                scores_matrix,
+                index=row_names if row_names else None,
+                columns=col_names if col_names else None
+            )
         
         if context:
             await context.info(f"✅ Scoring completed for {scores_df.shape[0]} cell types and {scores_df.shape[1]} cells")
+            if scores_df.index is not None and len(scores_df.index) > 0:
+                cell_type_names = list(scores_df.index)[:5]
+                await context.info(f"📋 Cell types detected: {', '.join(str(ct) for ct in cell_type_names)}" + 
+                                 ("..." if len(scores_df.index) > 5 else ""))
         
         return scores_df
         
@@ -1515,7 +1584,9 @@ async def _annotate_with_sctype(
         adata.obs['sctype_celltype'] = cell_types
         adata.obs['sctype_confidence'] = confidence_scores
         
-        results = (cell_types, counts, confidence_by_celltype, None)
+        # Return unique cell types, not the full list
+        unique_cell_types = list(set(cell_types))
+        results = (unique_cell_types, counts, confidence_by_celltype, None)
         
         # Cache results if enabled
         if params.sctype_use_cache and cache_key:
