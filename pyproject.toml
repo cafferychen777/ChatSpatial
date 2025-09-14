@@ -64,6 +64,10 @@ advanced = [
     "scvelo>=0.2.5,<1.0",
     "cellrank>=2.0.0,<3.0",
     
+    # Sparse matrix solvers for CellRank (significantly speeds up computation)
+    "petsc4py>=3.18.0,<4.0",
+    "slepc4py>=3.18.0,<4.0",
+    
     # Batch integration
     "harmonypy>=0.0.9,<1.0",
     "bbknn>=1.5.0,<2.0",
@@ -75,6 +79,11 @@ advanced = [
     # Cell communication
     "liana>=0.1.13,<1.0",
     "cellphonedb>=5.0.0,<6.0",
+    
+    # SingleR for improved cell type annotation
+    "singler>=0.4.0,<1.0",  # SingleR Python implementation
+    "singlecellexperiment>=0.4.0,<1.0",  # Required for SingleR
+    "celldex>=0.3.0,<1.0",  # Reference datasets for SingleR
     
     # Performance optimization
     "numba>=0.57.0,<1.0",
