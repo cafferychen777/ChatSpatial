@@ -194,7 +194,7 @@ class AnnotationParameters(BaseModel):
     reference_data: Optional[str] = None
     reference_data_id: Optional[str] = None  # For Tangram method - ID of reference single-cell dataset
     training_genes: Optional[List[str]] = None  # For Tangram method - genes to use for mapping
-    num_epochs: int = 500  # For Tangram method - number of training epochs
+    num_epochs: int = 100  # For Tangram/ScanVI methods - number of training epochs (reduced for faster training)
     mode: Literal["cells", "clusters"] = "cells"  # For Tangram method - mapping mode
     cluster_label: Optional[str] = None  # For Tangram method - cluster label in reference data
     

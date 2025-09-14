@@ -189,7 +189,7 @@ DEFAULT_MARKER_GENES = {
 
 # Constants for annotation
 DEFAULT_HVG_COUNT = 2000
-DEFAULT_SCANVI_EPOCHS = 200
+DEFAULT_SCANVI_EPOCHS = 50  # Reduced for faster training while maintaining reasonable accuracy
 CONFIDENCE_MIN = 0.5
 CONFIDENCE_MAX = 0.99
 
@@ -610,7 +610,7 @@ async def _annotate_with_scanvi(adata, params: AnnotationParameters, data_store:
             dropout_rate=params.scanvi_dropout_rate
         )
         
-        model.train(max_epochs=params.num_epochs)
+        model.train(max_epochs=params.num_epochs, early_stopping=True)
         
         # Prepare spatial data - add dummy cell_type column for setup
         cell_type_key = getattr(params, 'cell_type_key', "cell_type")
@@ -622,7 +622,7 @@ async def _annotate_with_scanvi(adata, params: AnnotationParameters, data_store:
         
         # Transfer model to spatial data
         spatial_model = scvi.model.SCANVI.load_query_data(adata, model)
-        spatial_model.train(max_epochs=DEFAULT_SCANVI_EPOCHS)
+        spatial_model.train(max_epochs=DEFAULT_SCANVI_EPOCHS, early_stopping=True)
         
         # Get predictions
         predictions = spatial_model.predict()
