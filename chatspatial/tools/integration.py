@@ -130,19 +130,25 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
     # Check if data has highly variable genes marked (should be done in preprocessing)
     if 'highly_variable' not in combined.var.columns:
         logging.warning(
-            "No highly variable genes marked. Using all genes for integration. "
-            "For better results, run HVG selection in preprocessing step."
+            "No highly variable genes marked after merge. Recalculating HVGs with batch correction."
         )
-        combined.var['highly_variable'] = True
-        n_hvg = combined.n_vars
+        # Recalculate HVGs with batch correction
+        sc.pp.highly_variable_genes(combined, min_mean=0.0125, max_mean=3, min_disp=0.5, 
+                                   batch_key=batch_key, n_top_genes=2000)
+        n_hvg = combined.var['highly_variable'].sum()
     else:
         n_hvg = combined.var['highly_variable'].sum()
         if n_hvg == 0:
-            logging.warning("No genes marked as highly variable, using all genes")
-            combined.var['highly_variable'] = True
-            n_hvg = combined.n_vars
+            logging.warning("No genes marked as highly variable after merge, recalculating")
+            # Recalculate HVGs with batch correction
+            sc.pp.highly_variable_genes(combined, min_mean=0.0125, max_mean=3, min_disp=0.5,
+                                       batch_key=batch_key, n_top_genes=2000)
+            n_hvg = combined.var['highly_variable'].sum()
         elif n_hvg < 50:
-            logging.warning(f"Very few HVGs ({n_hvg}), consider using more in preprocessing")
+            logging.warning(f"Very few HVGs ({n_hvg}), recalculating with batch correction")
+            sc.pp.highly_variable_genes(combined, min_mean=0.0125, max_mean=3, min_disp=0.5,
+                                       batch_key=batch_key, n_top_genes=2000)
+            n_hvg = combined.var['highly_variable'].sum()
     
     logging.info(f"Using {n_hvg} highly variable genes for integration")
 
@@ -155,8 +161,22 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
         n_hvg = combined.var['highly_variable'].sum()
         if n_hvg == 0:
             raise ValueError("No highly variable genes found. Check HVG selection parameters.")
-        combined = combined[:, combined.var['highly_variable']]
+        combined = combined[:, combined.var['highly_variable']].copy()
         logging.info(f"Filtered to {n_hvg} highly variable genes")
+    
+    # Remove genes with zero variance to avoid NaN in scaling
+    import numpy as np
+    if hasattr(combined.X, 'todense'):
+        X_check = np.asarray(combined.X.todense())
+    else:
+        X_check = np.asarray(combined.X)
+    
+    gene_var = np.var(X_check, axis=0)
+    nonzero_var_genes = gene_var > 0
+    if not np.all(nonzero_var_genes):
+        n_removed = np.sum(~nonzero_var_genes)
+        logging.warning(f"Removing {n_removed} genes with zero variance before scaling")
+        combined = combined[:, nonzero_var_genes].copy()
     
     # Scale data with proper error handling
     try:
@@ -185,13 +205,32 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
             f"Minimum 2 components required for downstream analysis."
         )
     
+    # Check data matrix before PCA
+    import numpy as np
+    if hasattr(combined.X, 'todense'):
+        X_check = np.asarray(combined.X.todense())
+    else:
+        X_check = np.asarray(combined.X)
+    
+    # Check for NaN or Inf
+    if np.isnan(X_check).any():
+        raise ValueError("Data contains NaN values after scaling")
+    if np.isinf(X_check).any():
+        raise ValueError("Data contains infinite values after scaling")
+        
+    # Check variance
+    var_per_gene = np.var(X_check, axis=0)
+    zero_var_genes = np.sum(var_per_gene == 0)
+    if zero_var_genes > 0:
+        logging.warning(f"Found {zero_var_genes} genes with zero variance after scaling")
+    
     # Try PCA with different solvers, but fail properly if none work
     pca_success = False
-    for solver, max_comps in [('arpack', max_possible_components), 
+    for solver, max_comps in [('arpack', min(max_possible_components, 50)), 
                              ('randomized', min(max_possible_components, 50)), 
                              ('full', min(max_possible_components, 20))]:
         try:
-            sc.tl.pca(combined, n_comps=max_comps, svd_solver=solver)
+            sc.tl.pca(combined, n_comps=max_comps, svd_solver=solver, zero_center=False)
             logging.info(f"PCA successful with {solver} solver, {max_comps} components")
             pca_success = True
             break
@@ -277,22 +316,47 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
             import numpy as np
 
             # Separate data by batch
-            batches = []
-            batch_names = []
+            datasets = []
+            genes_list = []
+            batch_order = []
+            
             for batch in combined.obs[batch_key].unique():
-                batches.append(combined[combined.obs[batch_key] == batch].X)
-                batch_names.append(batch)
+                batch_mask = combined.obs[batch_key] == batch
+                batch_data = combined[batch_mask]
+                
+                # Convert to dense array if sparse
+                if hasattr(batch_data.X, 'toarray'):
+                    X_batch = batch_data.X.toarray()
+                else:
+                    X_batch = batch_data.X
+                    
+                datasets.append(X_batch)
+                genes_list.append(batch_data.var_names.tolist())
+                batch_order.append(batch)
+                
+                logging.info(f"Prepared batch '{batch}': {X_batch.shape}")
 
-            # Run Scanorama
-            corrected, _ = scanorama.correct(batches, batch_names, return_dimred=True)
+            # Run Scanorama integration (returns low-dimensional embeddings)
+            logging.info("Running Scanorama integration...")
+            integrated, corrected_genes = scanorama.integrate(datasets, genes_list, dimred=100)
+            
+            # Stack integrated results back together
+            integrated_X = np.vstack(integrated)
+            logging.info(f"Scanorama integration completed: {integrated_X.shape}")
 
-            # Save corrected data back to AnnData
-            combined.obsm['X_scanorama'] = np.vstack(corrected)
+            # Store integrated representation in obsm
+            combined.obsm['X_scanorama'] = integrated_X
 
-            # Use corrected result to calculate neighbor graph
+            # Use integrated representation for neighbor graph
             sc.pp.neighbors(combined, use_rep='X_scanorama')
+            
         except ImportError:
             raise ImportError("scanorama package is required for Scanorama integration. Install with 'pip install scanorama'")
+        except Exception as e:
+            logging.error(f"Scanorama integration failed: {e}")
+            # Fallback to PCA-based neighbors if Scanorama fails
+            logging.warning("Falling back to PCA-based neighbor computation")
+            sc.pp.neighbors(combined)
 
     elif method == 'mnn':
         # Use MNN for batch correction
