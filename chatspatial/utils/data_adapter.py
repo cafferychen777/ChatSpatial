@@ -21,13 +21,21 @@ if TYPE_CHECKING:
     import anndata as ad
     from scipy import sparse
 
-from ..models.data_standards import (
-    CHATSPATIAL_STANDARDS,
+from .data_validator import (
+    DataValidator, 
     DataValidationResult,
-    get_field_mapping,
-    describe_standards
+    validate_spatial_data,
+    # Import the hardcoded standard keys
+    SPATIAL_KEY,
+    CELL_TYPE_KEY,
+    CLUSTER_KEY,
+    BATCH_KEY,
+    # Import the alternative key sets
+    ALTERNATIVE_SPATIAL_KEYS,
+    ALTERNATIVE_CELL_TYPE_KEYS,
+    ALTERNATIVE_CLUSTER_KEYS,
+    ALTERNATIVE_BATCH_KEYS
 )
-from .data_validator import DataValidator, validate_spatial_data
 
 
 class DataStandardizationError(Exception):
@@ -95,8 +103,6 @@ class DataAdapter:
         
         self.strict_mode = strict_mode
         self.preserve_original = preserve_original
-        self.standards = CHATSPATIAL_STANDARDS
-        self.field_mapping = get_field_mapping()
         self.validator = DataValidator(strict_mode=strict_mode)
     
     def standardize(self, adata: 'ad.AnnData', copy: bool = True) -> 'ad.AnnData':
@@ -148,7 +154,7 @@ class DataAdapter:
         This replaces the scattered coordinate detection logic in visualization.py:405-415
         and other modules. One function handles all cases.
         """
-        target_key = self.standards.spatial_key
+        target_key = SPATIAL_KEY
         
         # Case 1: Already in standard location
         if target_key in adata.obsm:
@@ -157,7 +163,7 @@ class DataAdapter:
             return
         
         # Case 2: In alternative obsm location
-        for alt_key in self.standards.spatial_alternatives:
+        for alt_key in ALTERNATIVE_SPATIAL_KEYS:
             if alt_key in adata.obsm and alt_key != target_key:
                 coords = adata.obsm[alt_key]
                 self._validate_and_fix_coordinates(coords, adata, target_key)
@@ -182,7 +188,7 @@ class DataAdapter:
                 if x_coords.isna().any() or y_coords.isna().any():
                     raise ValueError("Cannot convert x, y coordinates to numeric")
                 
-                coords = self.np.column_stack([x_coords, y_coords]).astype(self.standards.spatial_dtype)
+                coords = self.np.column_stack([x_coords, y_coords]).astype('float64')
                 adata.obsm[target_key] = coords
                 
                 # Clean up obs
@@ -207,7 +213,7 @@ class DataAdapter:
                     if isinstance(value, dict) and 'tissue_positions_list' in value:
                         positions = value['tissue_positions_list']
                         if isinstance(positions, self.np.ndarray) and positions.shape[1] >= 2:
-                            coords = positions[:, -2:].astype(self.standards.spatial_dtype)
+                            coords = positions[:, -2:].astype('float64')
                             adata.obsm[target_key] = coords
                             return
                 
@@ -251,9 +257,9 @@ class DataAdapter:
             coords = coords[:, :2]
             warnings.warn("Using only first 2 dimensions of spatial coordinates")
         
-        # Fix dtype
-        if coords.dtype != self.standards.spatial_dtype:
-            coords = coords.astype(self.standards.spatial_dtype)
+        # Fix dtype - should be float64
+        if coords.dtype != 'float64':
+            coords = coords.astype('float64')
         
         # Handle NaN/inf values
         if self.np.any(self.np.isnan(coords)) or self.np.any(self.np.isinf(coords)):
@@ -273,11 +279,14 @@ class DataAdapter:
         
         This handles the mess of cell_type vs celltype vs leiden etc.
         """
-        # Get reverse mapping (alternative -> standard)
+        # Create mapping from alternative keys to standard keys
         reverse_mapping = {}
-        for alt, std in self.field_mapping.items():
-            if std in [self.standards.cell_type_key, self.standards.cluster_key, self.standards.batch_key]:
-                reverse_mapping[alt] = std
+        for alt_key in ALTERNATIVE_CELL_TYPE_KEYS:
+            reverse_mapping[alt_key] = CELL_TYPE_KEY
+        for alt_key in ALTERNATIVE_CLUSTER_KEYS:
+            reverse_mapping[alt_key] = CLUSTER_KEY
+        for alt_key in ALTERNATIVE_BATCH_KEYS:
+            reverse_mapping[alt_key] = BATCH_KEY
         
         # Process each field in obs
         for obs_key in list(adata.obs.columns):
@@ -298,7 +307,7 @@ class DataAdapter:
                     del adata.obs[obs_key]
                 
                 # Ensure categorical type for metadata fields
-                if standard_key in [self.standards.cell_type_key, self.standards.cluster_key, self.standards.batch_key]:
+                if standard_key in [CELL_TYPE_KEY, CLUSTER_KEY, BATCH_KEY]:
                     if not self.pd.api.types.is_categorical_dtype(adata.obs[standard_key]):
                         adata.obs[standard_key] = adata.obs[standard_key].astype('category')
     
@@ -355,16 +364,16 @@ class DataAdapter:
         """Add missing standard fields with sensible defaults."""
         
         # Add default batch information if missing
-        if self.standards.batch_key not in adata.obs:
-            adata.obs[self.standards.batch_key] = self.pd.Categorical(['batch1'] * adata.n_obs)
+        if BATCH_KEY not in adata.obs:
+            adata.obs[BATCH_KEY] = self.pd.Categorical(['batch1'] * adata.n_obs)
         
         # Add placeholder clustering if none exists
-        if not any(key in adata.obs for key in self.standards.cluster_alternatives):
+        if not any(key in adata.obs for key in ALTERNATIVE_CLUSTER_KEYS):
             # Don't add default clustering - let tools handle this
             pass
         
         # Add placeholder cell types if none exist  
-        if not any(key in adata.obs for key in self.standards.cell_type_alternatives):
+        if not any(key in adata.obs for key in ALTERNATIVE_CELL_TYPE_KEYS):
             # Don't add default cell types - let annotation tools handle this
             pass
     
@@ -372,9 +381,9 @@ class DataAdapter:
         """Compute commonly needed derived fields."""
         
         # Compute spatial neighbors if missing
-        if 'spatial_connectivities' not in adata.obsp and self.standards.spatial_key in adata.obsm:
+        if 'spatial_connectivities' not in adata.obsp and SPATIAL_KEY in adata.obsm:
             try:
-                self.sq.gr.spatial_neighbors(adata, coord_type="generic", spatial_key=self.standards.spatial_key)
+                self.sq.gr.spatial_neighbors(adata, coord_type="generic", spatial_key=SPATIAL_KEY)
             except Exception as e:
                 warnings.warn(f"Could not compute spatial neighbors: {e}")
         
@@ -447,10 +456,10 @@ def get_spatial_coordinates(adata: 'ad.AnnData') -> Tuple['np.ndarray', 'np.ndar
         Tuple of (x_coordinates, y_coordinates)
     """
     # Standardize if needed
-    if CHATSPATIAL_STANDARDS.spatial_key not in adata.obsm:
+    if SPATIAL_KEY not in adata.obsm:
         adata = standardize_adata(adata, copy=True)
     
-    coords = adata.obsm[CHATSPATIAL_STANDARDS.spatial_key]
+    coords = adata.obsm[SPATIAL_KEY]
     return coords[:, 0], coords[:, 1]
 
 
@@ -466,17 +475,17 @@ def get_cell_types(adata: 'ad.AnnData', default: str = "Unknown") -> 'pd.Series'
         Series of cell type annotations
     """
     # Try standard key first
-    if CHATSPATIAL_STANDARDS.cell_type_key in adata.obs:
-        return adata.obs[CHATSPATIAL_STANDARDS.cell_type_key]
+    if CELL_TYPE_KEY in adata.obs:
+        return adata.obs[CELL_TYPE_KEY]
     
     # Try alternatives
-    for alt_key in CHATSPATIAL_STANDARDS.cell_type_alternatives:
+    for alt_key in ALTERNATIVE_CELL_TYPE_KEYS:
         if alt_key in adata.obs:
             return adata.obs[alt_key]
     
     # Return default
     import pandas as pd
-    return pd.Series([default] * adata.n_obs, index=adata.obs_names, name=CHATSPATIAL_STANDARDS.cell_type_key)
+    return pd.Series([default] * adata.n_obs, index=adata.obs_names, name=CELL_TYPE_KEY)
 
 
 def get_clusters(adata: 'ad.AnnData', default: str = "cluster_0") -> 'pd.Series':
@@ -491,17 +500,17 @@ def get_clusters(adata: 'ad.AnnData', default: str = "cluster_0") -> 'pd.Series'
         Series of cluster annotations
     """
     # Try standard key first
-    if CHATSPATIAL_STANDARDS.cluster_key in adata.obs:
-        return adata.obs[CHATSPATIAL_STANDARDS.cluster_key]
+    if CLUSTER_KEY in adata.obs:
+        return adata.obs[CLUSTER_KEY]
     
     # Try alternatives
-    for alt_key in CHATSPATIAL_STANDARDS.cluster_alternatives:
+    for alt_key in ALTERNATIVE_CLUSTER_KEYS:
         if alt_key in adata.obs:
             return adata.obs[alt_key]
     
     # Return default
     import pandas as pd
-    return pd.Series([default] * adata.n_obs, index=adata.obs_names, name=CHATSPATIAL_STANDARDS.cluster_key)
+    return pd.Series([default] * adata.n_obs, index=adata.obs_names, name=CLUSTER_KEY)
 
 
 def ensure_spatial_neighbors(adata: 'ad.AnnData') -> None:
@@ -513,12 +522,12 @@ def ensure_spatial_neighbors(adata: 'ad.AnnData') -> None:
     """
     if 'spatial_connectivities' not in adata.obsp:
         # Ensure we have standard spatial coordinates
-        if CHATSPATIAL_STANDARDS.spatial_key not in adata.obsm:
+        if SPATIAL_KEY not in adata.obsm:
             adata = standardize_adata(adata, copy=False)
         
         try:
             import squidpy as sq
-            sq.gr.spatial_neighbors(adata, coord_type="generic", spatial_key=CHATSPATIAL_STANDARDS.spatial_key)
+            sq.gr.spatial_neighbors(adata, coord_type="generic", spatial_key=SPATIAL_KEY)
         except Exception as e:
             warnings.warn(f"Could not compute spatial neighbors: {e}")
 
@@ -533,17 +542,17 @@ def print_standardization_summary(adata: 'ad.AnnData') -> None:
     print("=" * 40)
     
     # Check spatial coordinates
-    if CHATSPATIAL_STANDARDS.spatial_key in adata.obsm:
-        coords = adata.obsm[CHATSPATIAL_STANDARDS.spatial_key]
+    if SPATIAL_KEY in adata.obsm:
+        coords = adata.obsm[SPATIAL_KEY]
         print(f"✓ Spatial coordinates: {coords.shape} {coords.dtype}")
     else:
         print("✗ No spatial coordinates found")
     
     # Check standard obs fields
     for field_name, key in [
-        ("Cell types", CHATSPATIAL_STANDARDS.cell_type_key),
-        ("Clusters", CHATSPATIAL_STANDARDS.cluster_key), 
-        ("Batches", CHATSPATIAL_STANDARDS.batch_key)
+        ("Cell types", CELL_TYPE_KEY),
+        ("Clusters", CLUSTER_KEY), 
+        ("Batches", BATCH_KEY)
     ]:
         if key in adata.obs:
             unique_count = len(adata.obs[key].unique())
@@ -618,9 +627,11 @@ def compatibility_report(adata: 'ad.AnnData', target_tool: Optional[str] = None)
         "To fix issues automatically:",
         "  standard_adata = standardize_adata(your_adata)",
         "",
-        "For more info:",
-        "  from chatspatial.models.data_standards import describe_standards",
-        "  print(describe_standards())"
+        "Industry standard field names:",
+        "  Spatial coordinates: adata.obsm['spatial']",
+        "  Cell types: adata.obs['cell_type']",
+        "  Clusters: adata.obs['leiden']",
+        "  Batch info: adata.obs['batch']"
     ])
     
     return "\n".join(report_lines)
