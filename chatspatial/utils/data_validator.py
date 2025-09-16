@@ -17,18 +17,51 @@ if TYPE_CHECKING:
     from scipy import sparse
     import anndata as ad
 
-from ..models.data_standards import (
-    CHATSPATIAL_STANDARDS, 
-    DataValidationResult,
-    REQUIRED_FIELDS,
-    get_field_mapping,
-    get_data_format_schema
-)
+# Industry standard field names - these are fixed conventions
+SPATIAL_KEY = 'spatial'  # Standard key for spatial coordinates in obsm
+CELL_TYPE_KEY = 'cell_type'  # Standard key for cell type annotations in obs
+CLUSTER_KEY = 'leiden'  # Standard key for cluster assignments in obs
+BATCH_KEY = 'batch'  # Standard key for batch information in obs
+
+# Alternative names that might be found in input data
+# We support these for compatibility but standardize to the above keys
+ALTERNATIVE_SPATIAL_KEYS = {'spatial', 'X_spatial', 'coordinates', 'coords', 
+                            'spatial_coords', 'positions'}
+ALTERNATIVE_CELL_TYPE_KEYS = {'cell_type', 'celltype', 'cell_types', 'annotation',
+                              'cell_annotation', 'predicted_celltype'}
+ALTERNATIVE_CLUSTER_KEYS = {'leiden', 'louvain', 'clusters', 'cluster',
+                           'clustering', 'cluster_labels', 'spatial_domains'}
+ALTERNATIVE_BATCH_KEYS = {'batch', 'sample', 'dataset', 'experiment', 
+                         'replicate', 'batch_id', 'sample_id'}
 
 
 class DataValidationError(Exception):
     """Raised when data validation fails critically."""
     pass
+
+
+class DataValidationResult:
+    """Result of data structure validation."""
+    
+    def __init__(self, passed=True, errors=None, warnings=None, suggestions=None, standardized_fields=None):
+        self.passed = passed
+        self.errors = errors if errors is not None else []
+        self.warnings = warnings if warnings is not None else []
+        self.suggestions = suggestions if suggestions is not None else []
+        self.standardized_fields = standardized_fields if standardized_fields is not None else {}
+    
+    def add_error(self, message):
+        """Add an error message and mark validation as failed."""
+        self.errors.append(message)
+        self.passed = False
+    
+    def add_warning(self, message):
+        """Add a warning message."""
+        self.warnings.append(message)
+    
+    def add_suggestion(self, message):
+        """Add a suggestion for fixing issues."""
+        self.suggestions.append(message)
 
 
 class DataValidator:
@@ -60,9 +93,6 @@ class DataValidator:
         self.ad = ad
         
         self.strict_mode = strict_mode
-        self.standards = CHATSPATIAL_STANDARDS
-        self.field_mapping = get_field_mapping()
-        self.schema = get_data_format_schema()
     
     def validate_adata(self, 
                       adata: 'ad.AnnData', 
@@ -152,9 +182,9 @@ class DataValidator:
         
         # Look for spatial coordinates in obsm
         for key in adata.obsm.keys():
-            if key in self.standards.spatial_alternatives:
+            if key in ALTERNATIVE_SPATIAL_KEYS:
                 found_alternatives.append(key)
-                if key == self.standards.spatial_key:
+                if key == SPATIAL_KEY:
                     spatial_key = key
                     break
         
@@ -162,20 +192,20 @@ class DataValidator:
         if spatial_key is None and found_alternatives:
             spatial_key = found_alternatives[0]
             result.add_warning(f"Using non-standard spatial key '{spatial_key}', "
-                             f"should be '{self.standards.spatial_key}'")
-            result.standardized_fields[spatial_key] = self.standards.spatial_key
+                             f"should be '{SPATIAL_KEY}'")
+            result.standardized_fields[spatial_key] = SPATIAL_KEY
         
         # Check for coordinates in obs (fallback)
         if spatial_key is None:
             if 'x' in adata.obs and 'y' in adata.obs:
                 result.add_warning("Found spatial coordinates in adata.obs['x'], adata.obs['y']. "
-                                 f"Should be in adata.obsm['{self.standards.spatial_key}']")
-                result.add_suggestion(f"Move coordinates to adata.obsm['{self.standards.spatial_key}']")
+                                 f"Should be in adata.obsm['{SPATIAL_KEY}']")
+                result.add_suggestion(f"Move coordinates to adata.obsm['{SPATIAL_KEY}']")
                 return
         
         if spatial_key is None:
             result.add_error("No spatial coordinates found")
-            result.add_suggestion(f"Add spatial coordinates to adata.obsm['{self.standards.spatial_key}']")
+            result.add_suggestion(f"Add spatial coordinates to adata.obsm['{SPATIAL_KEY}']")
             return
         
         # Validate spatial coordinate properties
@@ -193,9 +223,9 @@ class DataValidator:
             result.add_error(f"Spatial coordinates must have at least 2 dimensions (x, y), "
                            f"found {coords.shape[1]}")
         
-        # Check data type
-        if coords.dtype != self.standards.spatial_dtype:
-            result.add_warning(f"Spatial coordinates should be {self.standards.spatial_dtype}, "
+        # Check data type - float64 is the expected type
+        if coords.dtype != 'float64':
+            result.add_warning(f"Spatial coordinates should be float64, "
                              f"found {coords.dtype}")
         
         # Check for invalid values
@@ -270,8 +300,7 @@ class DataValidator:
         ensembl_pattern = any(name.startswith(('ENSG', 'ENSMUSG')) for name in gene_names[:100])
         if ensembl_pattern:
             result.add_warning("Gene names appear to be Ensembl IDs")
-            if self.standards.gene_name_format == "symbol":
-                result.add_suggestion("Consider converting to gene symbols for better compatibility")
+            result.add_suggestion("Consider converting to gene symbols for better compatibility")
         
         # Check for whitespace issues
         whitespace_issues = [name for name in gene_names[:100] 
@@ -284,7 +313,7 @@ class DataValidator:
         """Validate optional metadata fields."""
         
         # Check for cell type annotations
-        cell_type_found = self._find_field_in_obs(adata, self.standards.cell_type_alternatives)
+        cell_type_found = self._find_field_in_obs(adata, ALTERNATIVE_CELL_TYPE_KEYS)
         if cell_type_found:
             key, standard_key = cell_type_found
             if key != standard_key:
@@ -294,7 +323,7 @@ class DataValidator:
             self._validate_categorical_field(adata.obs[key], f"Cell types ({key})", result)
         
         # Check for cluster annotations  
-        cluster_found = self._find_field_in_obs(adata, self.standards.cluster_alternatives)
+        cluster_found = self._find_field_in_obs(adata, ALTERNATIVE_CLUSTER_KEYS)
         if cluster_found:
             key, standard_key = cluster_found
             if key != standard_key:
@@ -304,7 +333,7 @@ class DataValidator:
             self._validate_categorical_field(adata.obs[key], f"Clusters ({key})", result)
         
         # Check for batch information
-        batch_found = self._find_field_in_obs(adata, self.standards.batch_alternatives)
+        batch_found = self._find_field_in_obs(adata, ALTERNATIVE_BATCH_KEYS)
         if batch_found:
             key, standard_key = batch_found
             if key != standard_key:
@@ -316,10 +345,10 @@ class DataValidator:
     def _validate_cell_types(self, adata: 'ad.AnnData', result: DataValidationResult) -> None:
         """Validate cell type annotations (when required)."""
         
-        cell_type_found = self._find_field_in_obs(adata, self.standards.cell_type_alternatives)
+        cell_type_found = self._find_field_in_obs(adata, ALTERNATIVE_CELL_TYPE_KEYS)
         if not cell_type_found:
             result.add_error("Cell type annotations required but not found")
-            result.add_suggestion(f"Add cell type annotations to adata.obs['{self.standards.cell_type_key}']")
+            result.add_suggestion(f"Add cell type annotations to adata.obs['{CELL_TYPE_KEY}']")
             return
         
         key, _ = cell_type_found
@@ -342,15 +371,13 @@ class DataValidator:
                                       result: DataValidationResult) -> None:
         """Validate requirements for specific analysis types."""
         
-        requirements = getattr(REQUIRED_FIELDS, analysis_type.upper(), None)
-        if not requirements:
-            result.add_warning(f"Unknown analysis type: {analysis_type}")
-            return
+        # Analysis-specific requirements are hardcoded based on actual needs
+        # No need for abstraction here since these are fixed requirements
         
         # Check analysis-specific requirements
         if analysis_type.lower() == "cell_communication":
             # Cell communication requires cell type annotations and spatial neighbors
-            if not self._find_field_in_obs(adata, self.standards.cell_type_alternatives):
+            if not self._find_field_in_obs(adata, ALTERNATIVE_CELL_TYPE_KEYS):
                 result.add_error("Cell communication analysis requires cell type annotations")
             
             if 'spatial_connectivities' not in adata.obsp:
@@ -363,9 +390,9 @@ class DataValidator:
         
         elif analysis_type.lower() == "spatial_analysis":
             # Spatial analysis requires cluster labels
-            if not self._find_field_in_obs(adata, self.standards.cluster_alternatives):
+            if not self._find_field_in_obs(adata, ALTERNATIVE_CLUSTER_KEYS):
                 result.add_error("Spatial analysis requires cluster annotations")
-                result.add_suggestion(f"Run clustering and add results to adata.obs['{self.standards.cluster_key}']")
+                result.add_suggestion(f"Run clustering and add results to adata.obs['{CLUSTER_KEY}']")
     
     def _validate_categorical_field(self, series: 'pd.Series', field_name: str, result: DataValidationResult) -> None:
         """Validate a categorical metadata field."""
@@ -389,8 +416,17 @@ class DataValidator:
         """
         for key in adata.obs.columns:
             if key in alternatives:
-                # Find the standard key name
-                standard_key = self.field_mapping.get(key, key)
+                # Determine the standard key name based on which set it belongs to
+                if key in ALTERNATIVE_SPATIAL_KEYS:
+                    standard_key = SPATIAL_KEY
+                elif key in ALTERNATIVE_CELL_TYPE_KEYS:
+                    standard_key = CELL_TYPE_KEY
+                elif key in ALTERNATIVE_CLUSTER_KEYS:
+                    standard_key = CLUSTER_KEY
+                elif key in ALTERNATIVE_BATCH_KEYS:
+                    standard_key = BATCH_KEY
+                else:
+                    standard_key = key
                 return key, standard_key
         return None
     
@@ -405,7 +441,7 @@ class DataValidator:
         
         # Check if spatial neighbors are computed
         if 'spatial_connectivities' not in adata.obsp and any(
-            key in adata.obsm for key in self.standards.spatial_alternatives
+            key in adata.obsm for key in ALTERNATIVE_SPATIAL_KEYS
         ):
             result.add_suggestion("Compute spatial neighbors: sq.gr.spatial_neighbors(adata)")
         

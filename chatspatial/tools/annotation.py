@@ -63,6 +63,18 @@ def _get_installation_guide(package_name: str) -> str:
             "conda": "conda install -c conda-forge rpy2",
             "docs": "https://rpy2.github.io/doc/latest/html/overview.html",
             "note": "Requires R installation (https://www.r-project.org/)"
+        },
+        "singler": {
+            "pip": "pip install singler singlecellexperiment",
+            "conda": "Not available via conda",
+            "docs": "https://github.com/LTLA/singler-py",
+            "note": "Python port of SingleR for reference-based annotation"
+        },
+        "celldex": {
+            "pip": "pip install celldex",
+            "conda": "Not available via conda",
+            "docs": "https://github.com/LTLA/celldex-py",
+            "note": "Pre-built reference datasets for SingleR"
         }
     }
     
@@ -174,6 +186,30 @@ Common solutions:
 """
         raise DependencyError("R environment", "sc-type", error_msg) from e
 
+def _validate_singler(context: Optional[Context] = None):
+    """Validate SingleR and its dependencies"""
+    try:
+        import singler
+        import singlecellexperiment as sce
+        
+        # Optional: check for celldex
+        celldex = None
+        try:
+            import celldex
+            if context:
+                context.info("celldex available for pre-built references")
+        except ImportError:
+            if context:
+                context.info("celldex not available - will use custom references")
+        
+        if context and hasattr(singler, '__version__'):
+            context.info(f"Using SingleR version {singler.__version__}")
+        
+        return singler, sce, celldex
+    except ImportError as e:
+        install_guide = _get_installation_guide("singler")
+        raise DependencyError("singler", "SingleR", install_guide) from e
+
 # Default marker genes for common cell types
 DEFAULT_MARKER_GENES = {
     "T cells": ["CD3D", "CD3E", "CD3G", "CD8A", "CD4", "IL7R", "CCR7", "LCK", "PTPRC"],
@@ -196,7 +232,7 @@ CONFIDENCE_MAX = 0.99
 # Supported annotation methods
 SUPPORTED_METHODS = {
     "tangram", "scanvi", "cellassign", "marker_genes", 
-    "mllmcelltype", "sctype"
+    "mllmcelltype", "sctype", "singler"
 }
 
 async def _handle_annotation_error(error: Exception, method: str, context: Optional[Context] = None) -> None:
@@ -329,65 +365,186 @@ async def _annotate_with_marker_genes_scanpy(adata, marker_genes: Dict[str, List
 
 
 async def _annotate_with_marker_genes(adata, params: AnnotationParameters, data_store: Dict[str, Any] = None, context: Optional[Context] = None):
-    """Annotate cell types using SingleR method (replacing old marker_genes)"""
+    """Annotate cell types using marker gene overlap method"""
     try:
-        # Try to use SingleR first
-        try:
-            from .annotation_singler import annotate_with_singler, SINGLER_AVAILABLE
-            
-            if SINGLER_AVAILABLE:
-                if context:
-                    await context.info("Using SingleR method for cell type annotation")
-                
-                # Use SingleR
-                return await annotate_with_singler(
-                    adata=adata,
-                    params=params,
-                    data_store=data_store,
-                    context=context
-                )
-            else:
-                raise ImportError("SingleR not available")
-                
-        except ImportError as e:
-            # Fallback to old scanpy method if SingleR not installed
-            if context:
-                await context.info(f"SingleR not installed: {str(e)[:100]}, falling back to scanpy marker gene overlap")
-            
-            # Use provided marker genes or default ones
-            marker_genes = params.marker_genes if params.marker_genes else DEFAULT_MARKER_GENES
-            
-            # Validate marker genes exist in dataset
-            valid_marker_genes = await _validate_marker_genes(adata, marker_genes, context)
-            
-            # Use scanpy's official method
-            cell_types, counts, confidence_scores = await _annotate_with_marker_genes_scanpy(
-                adata, valid_marker_genes, context
-            )
-            
-            return cell_types, counts, confidence_scores, None
-            
-        except Exception as e:
-            # Log the actual error from SingleR
-            if context:
-                await context.error(f"SingleR annotation failed: {str(e)}")
-                await context.info("Falling back to scanpy marker gene overlap")
-            
-            # Use provided marker genes or default ones
-            marker_genes = params.marker_genes if params.marker_genes else DEFAULT_MARKER_GENES
-            
-            # Validate marker genes exist in dataset
-            valid_marker_genes = await _validate_marker_genes(adata, marker_genes, context)
-            
-            # Use scanpy's official method
-            cell_types, counts, confidence_scores = await _annotate_with_marker_genes_scanpy(
-                adata, valid_marker_genes, context
-            )
-            
-            return cell_types, counts, confidence_scores, None
+        # Use provided marker genes or default ones
+        marker_genes = params.marker_genes if params.marker_genes else DEFAULT_MARKER_GENES
+        
+        # Validate marker genes exist in dataset
+        valid_marker_genes = await _validate_marker_genes(adata, marker_genes, context)
+        
+        # Use scanpy's official method
+        cell_types, counts, confidence_scores = await _annotate_with_marker_genes_scanpy(
+            adata, valid_marker_genes, context
+        )
+        
+        return cell_types, counts, confidence_scores, None
         
     except Exception as e:
         await _handle_annotation_error(e, "marker_genes", context)
+
+
+async def _annotate_with_singler(adata, params: AnnotationParameters, data_store: Dict[str, Any] = None, context: Optional[Context] = None):
+    """Annotate cell types using SingleR reference-based method"""
+    try:
+        singler, sce, celldex = _validate_singler(context)
+        
+        if context:
+            await context.info("🔬 Starting SingleR annotation...")
+            await context.info(f"   Cells: {adata.n_obs}, Genes: {adata.n_vars}")
+        
+        # Convert AnnData to SingleCellExperiment
+        test_sce = sce.SingleCellExperiment.from_anndata(adata)
+        
+        # Get expression matrix
+        if "X_normalized" in adata.layers:
+            test_mat = adata.layers["X_normalized"]
+        elif adata.X is not None:
+            test_mat = adata.X
+        else:
+            test_mat = adata.raw.X if adata.raw else adata.X
+        
+        # Convert sparse to dense if needed
+        if hasattr(test_mat, 'toarray'):
+            test_mat = test_mat.toarray()
+        
+        # Transpose for SingleR (genes x cells)
+        test_mat = test_mat.T
+        test_features = list(adata.var_names)
+        
+        # Prepare reference
+        reference_name = getattr(params, 'singler_reference', None)
+        reference_data_id = getattr(params, 'reference_data_id', None)
+        
+        ref_data = None
+        ref_labels = None
+        
+        # Priority: reference_name > reference_data_id > default
+        if reference_name and celldex:
+            if context:
+                await context.info(f"Loading reference: {reference_name}")
+            ref = celldex.fetch_reference(
+                reference_name, 
+                "2024-02-26", 
+                realize_assays=True
+            )
+            # Get labels
+            for label_col in ["label.main", "label.fine", "cell_type"]:
+                try:
+                    ref_labels = ref.get_column_data().column(label_col)
+                    break
+                except:
+                    continue
+            if ref_labels is None:
+                raise ValueError(f"Could not find labels in reference {reference_name}")
+            ref_data = ref
+            
+        elif reference_data_id and data_store and reference_data_id in data_store:
+            # Use provided reference data
+            if context:
+                await context.info("Using provided reference data")
+            reference_adata = data_store[reference_data_id]["adata"]
+            ref_sce = sce.SingleCellExperiment.from_anndata(reference_adata)
+            
+            # Get labels from reference
+            for col in ['cell_type', 'celltype', 'CellType', 'leiden']:
+                if col in reference_adata.obs.columns:
+                    ref_labels = list(reference_adata.obs[col])
+                    break
+            if ref_labels is None:
+                raise ValueError("No cell type labels found in reference data")
+            ref_data = ref_sce
+            
+        elif celldex:
+            # Use default reference
+            if context:
+                await context.info("Using default BlueprintEncode reference")
+            ref = celldex.fetch_reference(
+                "blueprint_encode", 
+                "2024-02-26", 
+                realize_assays=True
+            )
+            ref_labels = ref.get_column_data().column("label.main")
+            ref_data = ref
+        else:
+            raise ValueError(
+                "No reference data available. Please either:\n"
+                "1. Provide reference_data_id\n"
+                "2. Provide singler_reference name\n"
+                "3. Install celldex for pre-built references"
+            )
+        
+        # Run SingleR annotation
+        if context:
+            await context.info("Running SingleR classification...")
+        
+        use_integrated = getattr(params, 'singler_integrated', False)
+        num_threads = getattr(params, 'num_threads', 4)
+        
+        if use_integrated and isinstance(ref_data, list):
+            single_results, integrated = singler.annotate_integrated(
+                test_mat,
+                ref_data=ref_data,
+                ref_labels=ref_labels,
+                test_features=test_features,
+                num_threads=num_threads
+            )
+            best_labels = integrated.column("best_label")
+            scores = integrated.column("scores")
+        else:
+            results = singler.annotate_single(
+                test_data=test_mat,
+                test_features=test_features,
+                ref_data=ref_data,
+                ref_labels=ref_labels,
+                num_threads=num_threads
+            )
+            best_labels = results.column("best")
+            scores = results.column("scores")
+        
+        # Process results
+        cell_types = list(best_labels)
+        unique_types = list(set(cell_types))
+        counts = pd.Series(cell_types).value_counts().to_dict()
+        
+        # Calculate confidence scores
+        confidence_scores = {}
+        if scores is not None:
+            try:
+                scores_df = pd.DataFrame(scores.to_dict())
+            except AttributeError:
+                scores_df = pd.DataFrame(scores.to_numpy() if hasattr(scores, 'to_numpy') else scores)
+            
+            for cell_type in unique_types:
+                mask = [ct == cell_type for ct in cell_types]
+                if cell_type in scores_df.columns and any(mask):
+                    type_scores = scores_df.loc[mask, cell_type]
+                    avg_score = type_scores.mean()
+                    confidence = (avg_score + 1) / 2  # Convert correlation to 0-1
+                    confidence_scores[cell_type] = float(confidence)
+                else:
+                    confidence_scores[cell_type] = 0.5
+        else:
+            for cell_type in unique_types:
+                confidence_scores[cell_type] = 0.8
+        
+        # Add to AnnData
+        adata.obs['singler_celltype'] = cell_types
+        adata.obs['singler_celltype'] = adata.obs['singler_celltype'].astype('category')
+        
+        confidence_array = [confidence_scores.get(ct, 0.5) for ct in cell_types]
+        adata.obs['singler_confidence'] = confidence_array
+        
+        if context:
+            await context.info(f"✅ SingleR annotation completed!")
+            await context.info(f"   Found {len(unique_types)} cell types")
+            top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
+            await context.info(f"   Top types: {', '.join([f'{t}({c})' for t, c in top_types])}")
+        
+        return unique_types, counts, confidence_scores, None
+        
+    except Exception as e:
+        await _handle_annotation_error(e, "singler", context)
 
 
 async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store: Dict[str, Any], context: Optional[Context] = None):
@@ -968,6 +1125,10 @@ async def annotate_cell_types(
         elif params.method == "mllmcelltype":
             cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_mllmcelltype(
                 adata, params, context
+            )
+        elif params.method == "singler":
+            cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_singler(
+                adata, params, data_store, context
             )
         else:  # sctype
             cell_types, counts, confidence_scores, tangram_mapping_score = await _annotate_with_sctype(
