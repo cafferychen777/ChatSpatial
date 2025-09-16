@@ -75,53 +75,63 @@ async def load_spatial_data(
             # Check if it's a directory or an h5ad file
             if os.path.isdir(data_path):
                 # Check if the directory has the expected structure
-                if os.path.exists(os.path.join(data_path, 'filtered_feature_bc_matrix')):
-                    # Standard 10x Visium directory structure
-                    adata = sc.read_visium(data_path)
-                elif os.path.exists(os.path.join(data_path, 'filtered_feature_bc_matrix.h5')):
+                if os.path.exists(os.path.join(data_path, 'filtered_feature_bc_matrix.h5')):
                     # H5 file based 10x Visium directory structure
                     adata = sc.read_visium(data_path)
-                elif os.path.exists(os.path.join(data_path, 'filtered_feature_bc_matrix', 'matrix.mtx.gz')):
-                    # Matrix files based 10x Visium directory structure
-                    # Use scanpy's read_10x_mtx function
-                    adata = sc.read_10x_mtx(
-                        os.path.join(data_path, 'filtered_feature_bc_matrix'),
-                        var_names='gene_symbols',
-                        cache=True
-                    )
-                    # Try to load spatial coordinates if available
-                    spatial_dir = os.path.join(data_path, 'spatial')
-                    if os.path.exists(spatial_dir):
-                        try:
-                            # Add spatial information manually
-                            import json
-                            import pandas as pd
+                elif os.path.exists(os.path.join(data_path, 'filtered_feature_bc_matrix')):
+                    # Check if it contains MTX files (compressed or uncompressed)
+                    mtx_dir = os.path.join(data_path, 'filtered_feature_bc_matrix')
+                    if os.path.exists(os.path.join(mtx_dir, 'matrix.mtx.gz')) or os.path.exists(os.path.join(mtx_dir, 'matrix.mtx')):
+                        # Matrix files based 10x Visium directory structure
+                        # Use scanpy's read_10x_mtx function
+                        adata = sc.read_10x_mtx(
+                            os.path.join(data_path, 'filtered_feature_bc_matrix'),
+                            var_names='gene_symbols',
+                            cache=False
+                        )
+                        # Try to load spatial coordinates if available
+                        spatial_dir = os.path.join(data_path, 'spatial')
+                        if os.path.exists(spatial_dir):
+                            try:
+                                # Add spatial information manually
+                                import json
+                                import pandas as pd
 
-                            # Load tissue positions
-                            positions_path = os.path.join(spatial_dir, 'tissue_positions_list.csv')
-                            if os.path.exists(positions_path):
-                                positions = pd.read_csv(positions_path, header=None)
-                                positions.columns = ['barcode', 'in_tissue', 'array_row', 'array_col', 'pxl_row_in_fullres', 'pxl_col_in_fullres']
-                                positions.set_index('barcode', inplace=True)
+                                # Load tissue positions
+                                positions_path = os.path.join(spatial_dir, 'tissue_positions_list.csv')
+                                if os.path.exists(positions_path):
+                                    # Try to detect if file has header
+                                    with open(positions_path, 'r') as f:
+                                        first_line = f.readline().strip()
+                                    
+                                    if first_line.startswith('barcode'):
+                                        # File has header
+                                        positions = pd.read_csv(positions_path)
+                                    else:
+                                        # File has no header
+                                        positions = pd.read_csv(positions_path, header=None)
+                                        positions.columns = ['barcode', 'in_tissue', 'array_row', 'array_col', 'pxl_row_in_fullres', 'pxl_col_in_fullres']
+                                    
+                                    positions.set_index('barcode', inplace=True)
 
-                                # Filter for spots in tissue
-                                positions = positions[positions['in_tissue'] == 1]
+                                    # Filter for spots in tissue
+                                    positions = positions[positions['in_tissue'] == 1]
 
-                                # Add spatial coordinates to adata
-                                adata.obsm['spatial'] = positions.loc[adata.obs_names, ['pxl_col_in_fullres', 'pxl_row_in_fullres']].values
+                                    # Add spatial coordinates to adata
+                                    adata.obsm['spatial'] = positions.loc[adata.obs_names, ['pxl_col_in_fullres', 'pxl_row_in_fullres']].values
 
-                                # Load scalefactors
-                                scalefactors_path = os.path.join(spatial_dir, 'scalefactors_json.json')
-                                if os.path.exists(scalefactors_path):
-                                    with open(scalefactors_path, 'r') as f:
-                                        scalefactors = json.load(f)
+                                    # Load scalefactors
+                                    scalefactors_path = os.path.join(spatial_dir, 'scalefactors_json.json')
+                                    if os.path.exists(scalefactors_path):
+                                        with open(scalefactors_path, 'r') as f:
+                                            scalefactors = json.load(f)
 
-                                    # Add scalefactors to adata
-                                    adata.uns['spatial'] = {
-                                        'scalefactors': scalefactors
-                                    }
-                        except Exception as e:
-                            print(f"Warning: Could not load spatial information: {str(e)}")
+                                        # Add scalefactors to adata
+                                        adata.uns['spatial'] = {
+                                            'scalefactors': scalefactors
+                                        }
+                            except Exception as e:
+                                print(f"Warning: Could not load spatial information: {str(e)}")
                 else:
                     raise ValueError(f"Directory {data_path} does not have the expected 10x Visium structure")
             elif os.path.isfile(data_path) and data_path.endswith('.h5'):
@@ -278,19 +288,29 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
     try:
         # Load tissue positions
         positions_file = os.path.join(spatial_path, 'tissue_positions_list.csv')
-        positions = pd.read_csv(positions_file, header=None)
         
-        # Handle different formats of tissue positions file
-        if len(positions.columns) == 6:
-            positions.columns = ['barcode', 'in_tissue', 'array_row', 'array_col', 
-                               'pxl_row_in_fullres', 'pxl_col_in_fullres']
-        elif len(positions.columns) == 5:
-            # Some datasets don't have the 'in_tissue' column
-            positions.columns = ['barcode', 'array_row', 'array_col',
-                               'pxl_row_in_fullres', 'pxl_col_in_fullres']
-            positions['in_tissue'] = 1  # Assume all spots are in tissue
+        # Try to detect if file has header
+        with open(positions_file, 'r') as f:
+            first_line = f.readline().strip()
+        
+        if first_line.startswith('barcode'):
+            # File has header
+            positions = pd.read_csv(positions_file)
         else:
-            raise ValueError(f"Unexpected tissue positions format with {len(positions.columns)} columns")
+            # File has no header
+            positions = pd.read_csv(positions_file, header=None)
+            
+            # Handle different formats of tissue positions file
+            if len(positions.columns) == 6:
+                positions.columns = ['barcode', 'in_tissue', 'array_row', 'array_col', 
+                                   'pxl_row_in_fullres', 'pxl_col_in_fullres']
+            elif len(positions.columns) == 5:
+                # Some datasets don't have the 'in_tissue' column
+                positions.columns = ['barcode', 'array_row', 'array_col',
+                                   'pxl_row_in_fullres', 'pxl_col_in_fullres']
+                positions['in_tissue'] = 1  # Assume all spots are in tissue
+            else:
+                raise ValueError(f"Unexpected tissue positions format with {len(positions.columns)} columns")
         
         positions.set_index('barcode', inplace=True)
         
