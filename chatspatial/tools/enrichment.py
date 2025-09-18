@@ -462,12 +462,14 @@ async def perform_ssgsea(
             
             scores_df = scores_matrix.fillna(0)  # Fill missing values with 0
         else:
-            # Fallback: try to extract from res2d
-            scores_df = pd.DataFrame()
-            if hasattr(res, 'res2d') and isinstance(res.res2d, pd.DataFrame):
-                # res2d contains top results per sample, not full matrix
-                # We'll return empty scores for now
-                logger.warning("ssGSEA results format not as expected, returning summary only")
+            # ssGSEA results format not recognized - fail honestly instead of returning empty results
+            error_msg = (
+                "ssGSEA results format not recognized. Expected 'res' attribute with enrichment scores matrix. "
+                "This may indicate an issue with the gseapy installation, gene set database, or input data format. "
+                "Please check your gene sets and ensure gseapy is properly configured."
+            )
+            logger.error(error_msg)
+            raise ProcessingError(error_msg)
         
         # Calculate statistics across samples
         enrichment_scores = {}
@@ -811,11 +813,11 @@ async def perform_spatial_enrichment(
         # Use the max score as enrichment score (normalized)
         enrichment_scores[sig_name] = stats["max"] / (stats["max"] - stats["min"]) if (stats["max"] - stats["min"]) > 0 else 0
         
-        # Create pseudo p-values based on the score distribution
-        # Higher variance suggests more spatial pattern
-        pseudo_pval = 1.0 / (1.0 + stats["std"]) if stats["std"] > 0 else 1.0
-        pvalues[sig_name] = pseudo_pval
-        adjusted_pvalues[sig_name] = pseudo_pval  # No multiple testing correction for spatial scores
+        # Spatial enrichment analysis does not provide statistical p-values
+        # Real p-values require proper null hypothesis testing with background distributions
+        # Users requiring statistical significance should use dedicated enrichment tools
+        pvalues[sig_name] = None  # Explicitly set to None to indicate no statistical testing
+        adjusted_pvalues[sig_name] = None  # No p-values available for multiple testing correction
         
         gene_set_statistics[sig_name] = {
             'mean_score': stats["mean"],
