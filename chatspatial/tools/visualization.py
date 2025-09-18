@@ -17,6 +17,7 @@ from scipy.cluster.hierarchy import linkage, dendrogram
 from scipy.spatial.distance import squareform
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.utilities.types import Image
+from ..utils.error_handling import ProcessingError
 
 from ..models.data import VisualizationParameters
 
@@ -770,9 +771,11 @@ async def visualize_data(
                             adata.obsm['X_pca'] = X_pca
                         except Exception as pca_e:
                             if context:
-                                await context.warning(f"PCA fallback also failed: {str(pca_e)}. Using random coordinates.")
-                            # Ultimate fallback: random coordinates
-                            adata.obsm['X_pca'] = np.random.normal(0, 1, (adata.n_obs, 2))
+                                await context.error(f"PCA fallback also failed: {str(pca_e)}.")
+                            raise ProcessingError(
+                                f"All dimensionality reduction methods failed. UMAP error: {str(e)}. PCA error: {str(pca_e)}. "
+                                "Cannot generate reliable 2D visualization. Please check data quality or preprocessing."
+                            )
 
                     # Use PCA as UMAP for visualization
                     adata.obsm['X_umap'] = adata.obsm['X_pca'][:, :2]
