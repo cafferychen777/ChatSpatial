@@ -1,248 +1,246 @@
+---
+layout: default
+title: Installation
+parent: Getting Started
+nav_order: 1
+---
+
 # Installation Guide
+{: .no_toc }
 
-Complete installation guide for ChatSpatial MCP server.
+## Table of contents
+{: .no_toc .text-delta }
 
-## System Requirements
+1. TOC
+{:toc}
 
-### Minimum Requirements
-- **Operating System**: macOS, Linux, or Windows 10+
-- **Python**: 3.10 or higher (3.11 recommended)
-- **Memory**: 8GB RAM minimum, 16GB recommended
-- **Storage**: 5GB free space for installation and data
-- **Internet**: Required for package downloads and MCP communication
+---
 
-### Recommended Setup
-- **Python**: 3.11 (best compatibility)
-- **Memory**: 16GB+ RAM for large datasets
-- **Storage**: SSD with 20GB+ free space
-- **GPU**: Optional, for accelerated deep learning methods
+ChatSpatial uses a tiered dependency system designed for maximum compatibility and user control. This guide explains how to install ChatSpatial with the right level of dependencies for your needs.
 
-## Installation Methods
-
-### Method 1: Quick Install (Recommended)
+## Quick Start
 
 ```bash
-# Create conda environment
-conda create -n chatspatial python=3.11
-conda activate chatspatial
-
-# Clone repository
-git clone https://github.com/cafferychen777/ChatSpatial.git
-cd ChatSpatial
-
-# Install ChatSpatial
+# Minimal installation (recommended for most users)
 pip install -e .
 
-# Verify installation
-chatspatial --help
+# Advanced features (deep learning, deconvolution)  
+pip install -e ".[advanced]"
+
+# All features (experimental, requires R)
+pip install -e ".[experimental]"
 ```
 
-### Method 2: Development Install
+## Installation Tiers
+
+### Tier 1: Minimal (Core Features)
+
+{: .highlight }
+**Compatible with Python 3.8-3.12**
+
+This provides essential spatial transcriptomics analysis capabilities:
+- Data loading and preprocessing
+- Basic visualization (matplotlib, seaborn)
+- Clustering (Leiden, k-means)
+- Dimensionality reduction (PCA, UMAP)
+- Spatial analysis (Squidpy integration)
+- MCP server functionality
 
 ```bash
-# Clone with development dependencies
-git clone https://github.com/cafferychen777/ChatSpatial.git
-cd ChatSpatial
-
-# Create environment with dev dependencies
-conda env create -f environment.yml
-conda activate chatspatial
-
-# Install in development mode
-pip install -e ".[dev]"
-
-# Run tests to verify
-pytest tests/
-```
-
-### Method 3: Docker Install
-
-```bash
-# Pull Docker image
-docker pull cafferychen777/chatspatial:latest
-
-# Run container
-docker run -it --rm \
-  -v $(pwd)/data:/app/data \
-  -p 8000:8000 \
-  cafferychen777/chatspatial:latest
-```
-
-## Dependencies
-
-### Core Dependencies
-- **scanpy**: Single-cell analysis
-- **squidpy**: Spatial transcriptomics
-- **anndata**: Data structures
-- **pandas**: Data manipulation
-- **numpy**: Numerical computing
-- **scipy**: Scientific computing
-
-### Optional Dependencies
-- **torch**: Deep learning methods
-- **tensorflow**: Alternative deep learning
-- **R**: For scType and other R-based methods
-- **CUDA**: GPU acceleration
-
-### Install Optional Dependencies
-
-```bash
-# Deep learning support
-pip install torch torchvision torchaudio
-
-# R integration
-conda install -c conda-forge r-base r-essentials
-
-# GPU support (NVIDIA)
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-```
-
-## Platform-Specific Instructions
-
-### macOS
-
-```bash
-# Install Homebrew (if not installed)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# Install conda
-brew install miniconda
-
-# Follow standard installation
-conda create -n chatspatial python=3.11
-conda activate chatspatial
 pip install -e .
+# OR 
+pip install -r requirements-minimal.txt
 ```
 
-### Linux (Ubuntu/Debian)
+**What you get:**
+- ✅ Load spatial data (10X Visium, Slide-seq, etc.)
+- ✅ Quality control and filtering
+- ✅ Clustering and UMAP embedding
+- ✅ Basic spatial statistics
+- ✅ Standard visualizations
+- ✅ MCP server for AI integration
+
+### Tier 2: Advanced Features
+
+{: .highlight }
+**Compatible with Python 3.8-3.11** (deep learning limitations)
+
+Adds cutting-edge spatial analysis methods:
+- Deep learning deconvolution (Cell2location)
+- Advanced integration methods
+- RNA velocity analysis
+- Enhanced visualizations
 
 ```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
+pip install -e ".[advanced]"
+# OR
+pip install -r requirements-advanced.txt
+```
+
+**Additional features:**
+- ✅ Cell2location spatial deconvolution
+- ✅ scvi-tools ecosystem (scANVI, DestVI)
+- ✅ RNA velocity with scVelo
+- ✅ Advanced trajectory analysis (CellRank)
+- ✅ Batch integration (Harmony, BBKNN, Scanorama)
+- ✅ Spatial variable gene detection
+- ✅ Interactive visualizations (Plotly)
+
+### Tier 3: Experimental
+
+{: .warning }
+**Compatible with Python 3.8-3.11** (R interface limitations)
+
+Cutting-edge and experimental features:
+- R-based methods (RCTD deconvolution)
+- High-performance computing
+- Emerging spatial methods
+
+```bash
+pip install -e ".[experimental]"
+# OR  
+pip install -r requirements-experimental.txt
+```
+
+**Experimental features:**
+- ✅ RCTD deconvolution (requires R)
+- ✅ High-performance linear algebra (PETSc/SLEPc)
+- ✅ Emerging spatial frameworks
+- ⚠️ May have compatibility issues
+
+## Python Version Compatibility
+
+| Feature | Python 3.8 | Python 3.9 | Python 3.10 | Python 3.11 | Python 3.12 |
+|---------|-------------|-------------|--------------|--------------|--------------|
+| **Minimal** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Advanced** | ✅ | ✅ | ✅ | ✅ | ⚠️¹ |
+| **Experimental** | ✅ | ✅ | ✅ | ⚠️² | ❌³ |
+
+¹ Some deep learning dependencies may lag Python 3.12 support  
+² R interface (rpy2) has limited Python 3.11 support  
+³ Most experimental features not yet compatible with Python 3.12
+
+## Common Installation Issues
+
+### Issue: TensorFlow 1.x Conflicts
+
+{: .note }
+**Problem:** Some legacy tools require TensorFlow 1.x, which is incompatible with modern Python.
+
+**Solution:** ChatSpatial no longer supports TensorFlow 1.x. Use PyTorch-based alternatives:
+- Instead of STAGATE → Use SpaGCN
+- Instead of old scVI → Use scvi-tools 1.0+
+
+### Issue: PyTorch Version Conflicts
+
+{: .note }
+**Problem:** Different tools require different PyTorch versions.
+
+**Solution:** ChatSpatial standardizes on PyTorch 2.x:
+
+```bash
+pip install torch>=2.0.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+```
+
+For GPU support:
+```bash
+pip install torch>=2.0.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
+
+### Issue: R Dependencies
+
+{: .note }
+**Problem:** RCTD requires R installation and rpy2.
+
+**Solution:** Install R first, then Python interface:
+
+```bash
+# macOS
+brew install r
+
+# Ubuntu/Debian  
+sudo apt install r-base r-base-dev
+
+# Then install Python interface
+pip install rpy2>=3.4.0
+```
+
+## Testing Your Installation
+
+```bash
+# Test dependency detection
+python test_dependencies.py
+
+# Test specific installation tier
+python test_dependencies.py --level minimal
+python test_dependencies.py --level advanced  
+python test_dependencies.py --level experimental
+
+# Verbose output for debugging
+python test_dependencies.py --verbose
+```
+
+## Docker Installation
+
+For reproducible environments:
+
+```dockerfile
+FROM python:3.11-slim
 
 # Install system dependencies
-sudo apt install -y python3-dev python3-pip git build-essential
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install miniconda
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh
+# Install ChatSpatial
+COPY . /app/chatspatial
+WORKDIR /app/chatspatial
+RUN pip install -e ".[advanced]"
 
-# Follow standard installation
-conda create -n chatspatial python=3.11
-conda activate chatspatial
-pip install -e .
-```
-
-### Windows
-
-```powershell
-# Install Miniconda from https://docs.conda.io/en/latest/miniconda.html
-# Open Anaconda Prompt and run:
-
-conda create -n chatspatial python=3.11
-conda activate chatspatial
-
-# Clone repository
-git clone https://github.com/cafferychen777/ChatSpatial.git
-cd ChatSpatial
-
-# Install
-pip install -e .
-```
-
-## Verification
-
-### Test Installation
-
-```bash
-# Activate environment
-conda activate chatspatial
-
-# Test CLI
-chatspatial --version
-chatspatial --help
-
-# Test Python import
-python -c "import chatspatial; print('Installation successful!')"
-
-# Test MCP server
-python -m chatspatial --test
-```
-
-### Run Example Analysis
-
-```bash
-# Download test data
-python -c "
-import chatspatial
-from chatspatial.data import download_example_data
-download_example_data()
-"
-
-# Run basic test
-python -c "
-from chatspatial.tools.data_management import load_data
-result = load_data('data/example_visium.h5ad', 'test')
-print(f'Loaded {result.n_obs} spots, {result.n_vars} genes')
-"
+# Test installation
+RUN python test_dependencies.py --level advanced
 ```
 
 ## Troubleshooting
 
-### Common Issues
+### Get Dependency Report
 
-#### 1. Import Errors
-```bash
-# Solution: Reinstall with dependencies
-pip uninstall chatspatial
-pip install -e ".[all]"
+```python
+from chatspatial.utils.dependency_manager import dependency_manager
+dependency_manager.print_dependency_report()
 ```
 
-#### 2. Memory Errors
-```bash
-# Solution: Increase swap space or use smaller datasets
-# For large datasets, consider subsampling:
-python -c "
-import scanpy as sc
-adata = sc.read_h5ad('large_data.h5ad')
-adata = adata[::10, :].copy()  # Subsample every 10th spot
-adata.write('smaller_data.h5ad')
-"
+### Check Available Methods
+
+```python  
+from chatspatial.utils.dependency_manager import get_available_methods
+
+# What deconvolution methods can I use?
+deconv_deps = {
+    "cell2location": ["cell2location", "torch"],
+    "rctd": ["rpy2"], 
+    "destvi": ["scvi-tools", "torch"]
+}
+print("Available:", get_available_methods(deconv_deps))
 ```
 
-#### 3. R Integration Issues
+### Force Reinstall Dependencies
+
 ```bash
-# Install R packages
-conda install -c conda-forge r-base r-essentials
-R -e "install.packages(c('Seurat', 'dplyr', 'HGNChelper'))"
+pip install --force-reinstall --no-cache-dir -e ".[advanced]"
 ```
 
-#### 4. GPU Issues
-```bash
-# Check CUDA availability
-python -c "
-import torch
-print(f'CUDA available: {torch.cuda.is_available()}')
-print(f'CUDA version: {torch.version.cuda}')
-"
-```
+## Getting Help
 
-### Getting Help
+1. **Check installation:** `python test_dependencies.py --verbose`
+2. **View dependency report:** Run the dependency manager as shown above
+3. **Open an issue:** Include the output of the dependency test
+4. **Join discussions:** ChatSpatial community forums
 
-If you encounter issues:
+{: .highlight }
+The tiered installation system ensures you get maximum functionality while maintaining compatibility with your specific environment and Python version.
 
-1. **Check logs**: Look for error messages in terminal output
-2. **Update packages**: Ensure all dependencies are up-to-date
-3. **GitHub Issues**: Report bugs at [GitHub Issues](https://github.com/cafferychen777/ChatSpatial/issues)
-4. **Discussions**: Ask questions at [GitHub Discussions](https://github.com/cafferychen777/ChatSpatial/discussions)
+---
 
-## Next Steps
-
-After successful installation:
-
-1. **Configure MCP**: Set up Claude Desktop integration
-2. **Download Data**: Get example datasets for testing
-3. **Run Tutorial**: Follow the basic spatial analysis tutorial
-4. **Explore API**: Check out the complete API reference
-
-See [Quick Start](./quick-start.md) for the next steps!
+**Next:** [Quick Start Guide](quick-start.html) to run your first analysis
