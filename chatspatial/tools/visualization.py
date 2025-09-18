@@ -2603,29 +2603,16 @@ async def create_ripley_visualization(
         ax.set_title(title)
         
     except Exception as e:
+        # Ripley's L function plotting failed - fail honestly instead of generating fake data
+        error_msg = (
+            f"Ripley's L function visualization failed: {e}. "
+            f"This requires squidpy for proper spatial statistics calculation. "
+            f"Please install squidpy (pip install squidpy) and ensure Ripley analysis "
+            f"has been performed first using analyze_spatial_data with analysis_type='ripley'."
+        )
         if context:
-            await context.warning(f"Error using squidpy plotting: {e}. Creating fallback visualization...")
-        
-        # Fallback visualization
-        figsize = params.figure_size or (10, 8)
-        fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
-        
-        categories = adata.obs[cluster_key].cat.categories
-        distances = np.linspace(0, 5000, 50)
-        
-        for i, cluster in enumerate(categories):
-            l_values = np.random.normal(0, 1, size=len(distances)) * np.sqrt(distances/1000) + distances/1000
-            ax.plot(distances, l_values, label=f'Cluster {cluster}')
-        
-        ax.axhline(y=0, color='black', linestyle='--', alpha=0.5, label='CSR')
-        ax.set_xlabel('Distance')
-        ax.set_ylabel('L(r) - r')
-        
-        title = params.title or f"Ripley's L Function ({cluster_key}) - Fallback"
-        ax.set_title(title)
-        
-        if len(categories) <= 10:
-            ax.legend(loc='best')
+            await context.error(error_msg)
+        raise RuntimeError(error_msg)
     
     plt.tight_layout()
     return fig
