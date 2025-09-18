@@ -353,10 +353,15 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
         except ImportError:
             raise ImportError("scanorama package is required for Scanorama integration. Install with 'pip install scanorama'")
         except Exception as e:
-            logging.error(f"Scanorama integration failed: {e}")
-            # Fallback to PCA-based neighbors if Scanorama fails
-            logging.warning("Falling back to PCA-based neighbor computation")
-            sc.pp.neighbors(combined)
+            # Scanorama failed - do not fallback to inferior methods
+            error_msg = (
+                f"Scanorama integration failed: {e}. "
+                f"Scanorama requires compatible data and proper preprocessing. "
+                f"Please check: 1) Data quality and batch structure, 2) Gene overlap between batches, "
+                f"or 3) Consider using method='harmony' or 'mnn' for more robust integration."
+            )
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
 
     elif method == 'mnn':
         # Use MNN for batch correction
@@ -661,9 +666,16 @@ async def integrate_with_contrastive_vi(
                 salient_silhouette = silhouette_score(salient_latent, adata.obs[condition_key])
             else:
                 salient_silhouette = background_silhouette
-        except:
-            background_silhouette = 0.0
-            salient_silhouette = 0.0
+        except (ValueError, KeyError) as e:
+            # Handle expected data-related errors (e.g., insufficient unique labels, missing keys)
+            logger.warning(f"Could not calculate silhouette scores due to data issue: {e}")
+            background_silhouette = None  # Explicitly indicate unavailable metric
+            salient_silhouette = None
+        except Exception as e:
+            # Handle unexpected errors but don't mask them
+            error_msg = f"Integration quality metrics calculation failed: {e}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         
         # Calculate summary statistics
         results = {
@@ -673,8 +685,8 @@ async def integrate_with_contrastive_vi(
             'n_epochs': n_epochs,
             'n_batches': len(adata.obs[batch_key].unique()),
             'n_conditions': len(adata.obs[condition_key].unique()),
-            'background_mixing_score': float(background_silhouette),
-            'salient_separation_score': float(salient_silhouette),
+            'background_mixing_score': float(background_silhouette) if background_silhouette is not None else None,
+            'salient_separation_score': float(salient_silhouette) if salient_silhouette is not None else None,
             'background_latent_shape': background_latent.shape,
             'salient_latent_shape': salient_latent.shape,
             'integration_completed': True,
