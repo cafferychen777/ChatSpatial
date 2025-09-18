@@ -71,6 +71,7 @@ class TrajectoryResult(BaseModel):
     pseudotime_key: str
     method: str  # Trajectory analysis method used
     spatial_weight: float  # Spatial information weight
+    method_fallback_used: Optional[bool] = False  # Whether fallback to simpler method was used
 
     class Config:
         arbitrary_types_allowed = True
