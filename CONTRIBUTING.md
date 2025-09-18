@@ -71,7 +71,7 @@ chatspatial/
 ├── tools/                       # Analysis tool implementations
 │   ├── annotation.py            # Cell type annotation methods
 │   ├── cell_communication.py    # LIANA+, CellPhoneDB, CellChat
-│   ├── spatial_genes.py         # GASTON, SpatialDE, SPARK
+│   ├── spatial_genes.py         # GASTON, SpatialDE, SPARK-X
 │   ├── spatial_domains.py       # SpaGCN, STAGATE, BANKSY
 │   ├── visualization.py         # All plot types and image generation
 │   └── ...
@@ -629,7 +629,7 @@ Add your plot type to the main `visualize_data` function's plot type mapping.
 
 For new spatial analysis methods (like adding support for a new spatial variable genes method):
 
-1. **Study Existing Patterns**: Look at `spatial_genes.py` for GASTON, SpatialDE, SPARK implementations
+1. **Study Existing Patterns**: Look at `spatial_genes.py` for GASTON, SpatialDE, SPARK-X implementations
 2. **Follow Error Handling**: Use both data validation and MCP error handling layers
 3. **Parameter Validation**: Create comprehensive Pydantic models
 4. **Result Standardization**: Follow existing result model patterns

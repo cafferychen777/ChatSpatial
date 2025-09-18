@@ -245,4 +245,4 @@ After successful installation:
 3. **Run Tutorial**: Follow the basic spatial analysis tutorial
 4. **Explore API**: Check out the complete API reference
 
-See [Getting Started](getting_started.md) for the next steps!
+See [Quick Start](./quick-start.md) for the next steps!

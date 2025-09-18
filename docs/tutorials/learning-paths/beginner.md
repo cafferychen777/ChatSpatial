@@ -122,15 +122,23 @@ By completing this beginner path, you will:
 **Difficulty:** ⭐⭐⭐☆☆
 
 **What you'll do:**
+
 - Apply all learned skills to a new dataset
+
 - Practice asking follow-up questions based on results
+
 - Combine different analysis types in one conversation
+
 - Troubleshoot common issues independently
 
 **Practice Exercises:**
+
 1. **Complete Analysis Flow:** Load → Preprocess → Find cell types → Explore communication → Visualize
+
 2. **Question Chain Practice:** Ask follow-up questions based on each result
+
 3. **Comparison Analysis:** "How does this region differ from that one?"
+
 4. **Biological Interpretation:** "What does this tell us about the biology?"
 
 **Success Indicator:** You can conduct a complete spatial analysis independently through conversation.
@@ -215,21 +223,33 @@ By completing this beginner path, you will:
 Once you complete this beginner path, consider:
 
 **[Intermediate Learning Path](intermediate.md):** 
+
 - Spatial statistics and pattern analysis
+
 - Advanced communication analysis
+
 - Multi-sample comparisons
+
 - Method selection guidance
 
 **[Advanced Learning Path](advanced.md):**
+
 - Machine learning approaches (GASTON)
+
 - Trajectory analysis and RNA velocity  
+
 - Multi-modal integration
+
 - Research-level workflows
 
 ### Stay Engaged
+
 - **Practice regularly** with different datasets
+
 - **Ask "what if" questions** to explore edge cases
+
 - **Join the community** discussions and share results
+
 - **Read spatial biology papers** to build domain knowledge
 
 ---
