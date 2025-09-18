@@ -150,11 +150,11 @@ def _get_device(use_gpu: bool, method: str) -> str:
         return "cpu"
 
     if not use_gpu:
-        print(f"Using CPU for {method} (GPU acceleration disabled)")
+        # Using CPU for deconvolution (GPU acceleration disabled)
         return "cpu"
     
     if torch.cuda.is_available():
-        print(f"Using CUDA GPU acceleration for {method}")
+        # Using CUDA GPU acceleration
         return "cuda"
     
     # MPS support - handle differently for different methods
@@ -165,11 +165,11 @@ def _get_device(use_gpu: bool, method: str) -> str:
             f"with cell2location 0.1.4. Using CPU instead. Consider upgrading cell2location "
             f"or PyTorch for better MPS support in the future."
         )
-        print(f"Using CPU for {method} (MPS disabled due to compatibility issues)")
+        # Using CPU (MPS disabled due to compatibility issues)
         return "cpu"
     
     warnings.warn(f"GPU requested for {method} but neither CUDA nor MPS is available. Using CPU instead.")
-    print(f"Using CPU for {method}")
+    # Using CPU for deconvolution
     return "cpu"
 
 
@@ -306,8 +306,7 @@ def deconvolve_cell2location(
             sp.X = sp.X.astype(np.float32)
 
         # Log progress
-        print(f"Training cell2location model with {len(common_genes)} common genes and {len(ref.obs[cell_type_key].unique())} cell types")
-        print(f"Reference data shape: {ref.shape}, Spatial data shape: {sp.shape}")
+        # Training cell2location model
 
         # Check if cell type key has valid values
         if ref.obs[cell_type_key].isna().any():
@@ -408,7 +407,7 @@ def deconvolve_cell2location(
         for key in possible_keys:
             if key in sp.obsm:
                 cell_abundance = sp.obsm[key]
-                print(f"Using cell abundance from key: {key}")
+                # Using cell abundance from stored key
                 break
 
         if cell_abundance is None:
@@ -467,7 +466,7 @@ def deconvolve_cell2location(
         if not isinstance(e, (ValueError, ImportError, RuntimeError)):
             error_msg = str(e)
             tb = traceback.format_exc()
-            print(f"Cell2location deconvolution failed: {error_msg}")
+            # Cell2location deconvolution failed
 
             # Re-raise the error since we don't have fallback
             raise
@@ -565,8 +564,7 @@ def deconvolve_rctd(
             rpackages.importr('spacexr')
             rpackages.importr('base')
         
-        print(f"Running RCTD deconvolution with {len(common_genes)} common genes and mode '{mode}'")
-        print(f"Spatial data shape: {spatial_adata.shape}, Reference data shape: {reference_adata.shape}")
+        # Running RCTD deconvolution
         
         # Prepare data - subset to common genes
         spatial_data = spatial_adata[:, common_genes].copy()
@@ -630,7 +628,7 @@ def deconvolve_rctd(
             name='nUMI'
         )
         
-        print("Converting data to R format...")
+        # Converting data to R format
         
         # All R operations need to be within the converter context
         with localconverter(ro.default_converter + pandas2ri.converter):
@@ -645,7 +643,7 @@ def deconvolve_rctd(
             r_reference_numi = ro.conversion.py2rpy(reference_numi)
             
             # Create SpatialRNA object
-            print("Creating SpatialRNA object...")
+            # Creating SpatialRNA object
             ro.globalenv['spatial_counts'] = r_spatial_counts
             ro.globalenv['coords'] = r_coords
             ro.globalenv['numi_spatial'] = r_spatial_numi
@@ -655,7 +653,7 @@ def deconvolve_rctd(
             ''')
             
             # Create Reference object
-            print("Creating Reference object...")
+            # Creating Reference object
             ro.globalenv['reference_counts'] = r_reference_counts
             ro.globalenv['cell_types_vec'] = r_cell_types
             ro.globalenv['numi_ref'] = r_reference_numi
@@ -668,7 +666,7 @@ def deconvolve_rctd(
             ''')
             
             # Create RCTD object
-            print("Creating RCTD object...")
+            # Creating RCTD object
             ro.globalenv['puck'] = puck
             ro.globalenv['reference'] = reference
             ro.globalenv['max_cores_val'] = max_cores
@@ -689,14 +687,14 @@ def deconvolve_rctd(
             ''')
             
             # Run RCTD using the unified run.RCTD function
-            print(f"Running RCTD in {mode} mode...")
+            # Running RCTD deconvolution
             myRCTD = ro.r('''
             myRCTD <- run.RCTD(myRCTD, doublet_mode = rctd_mode)
             myRCTD
             ''')
         
             # Extract results
-            print("Extracting results...")
+            # Extracting RCTD results
             if mode == 'full':
                 # For full mode, get weights matrix and cell type names
                 ro.r('''
@@ -812,8 +810,7 @@ def deconvolve_rctd(
                     )
                         
                 except Exception as e:
-                    print(f"❌ CRITICAL: Failed to extract detailed results for {mode} mode: {str(e)}")
-                    print("📍 Exception details:")
+                    # Failed to extract detailed RCTD results
                     import traceback
                     traceback.print_exc()
                     # Re-raise the exception instead of using misleading fallback
@@ -835,7 +832,7 @@ def deconvolve_rctd(
             doublet_threshold=doublet_threshold
         )
         
-        print(f"RCTD completed successfully. Found {len(proportions.columns)} cell types.")
+        # RCTD completed successfully
         
         return proportions, stats
         
@@ -1211,17 +1208,20 @@ async def deconvolve_destvi(
     use_gpu: bool = False,
     context: Optional[Context] = None
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """Deconvolve spatial data using DestVI from scvi-tools
+    """Deconvolve spatial data using DestVI from scvi-tools (Official API)
     
     DestVI performs multi-resolution deconvolution by first training a CondSCVI 
     model on reference data, then using it to initialize a DestVI model for 
     spatial deconvolution.
     
+    This implementation follows the official scvi-tools tutorial and best practices:
+    https://docs.scvi-tools.org/en/stable/user_guide/models/destvi.html
+    
     Args:
         spatial_adata: Spatial transcriptomics AnnData object
         reference_adata: Reference single-cell RNA-seq AnnData object
         cell_type_key: Key in reference_adata.obs for cell type information
-        n_epochs: Number of epochs for training
+        n_epochs: Number of epochs for training (split between CondSCVI and DestVI)
         n_hidden: Number of hidden units in neural networks
         n_latent: Dimensionality of latent space
         n_layers: Number of layers in neural networks
@@ -1237,34 +1237,55 @@ async def deconvolve_destvi(
         # Validate inputs
         common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, 100)
         
-        # Prepare data
+        # Prepare data with proper count preprocessing
         ref_data = reference_adata[:, common_genes].copy()
         spatial_data = spatial_adata[:, common_genes].copy()
         
+        # Critical: Prepare count data (DestVI requires integer counts)
+        ref_data = _prepare_anndata_for_counts(ref_data, "reference")
+        spatial_data = _prepare_anndata_for_counts(spatial_data, "spatial")
+        
+        # Validate cell type information
+        cell_types = ref_data.obs[cell_type_key].unique()
+        if len(cell_types) < 2:
+            raise ValueError(f"Reference data must contain at least 2 cell types, found {len(cell_types)}")
+        
         if context:
-            await context.info(f"Training DestVI with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types")
+            await context.info(f"Training DestVI with {len(common_genes)} genes and {len(cell_types)} cell types: {list(cell_types)}")
+        
+        # Calculate optimal epoch distribution (following official tutorials)
+        condscvi_epochs = max(400, n_epochs // 5)  # CondSCVI needs sufficient training
+        destvi_epochs = max(200, n_epochs // 10)   # DestVI typically needs fewer epochs
         
         # Step 1: Setup and train CondSCVI model on reference data
         if context:
-            await context.info("Step 1: Training CondSCVI model on reference data...")
+            await context.info(f"Step 1: Training CondSCVI model ({condscvi_epochs} epochs)...")
         
-        # Setup reference data for CondSCVI (not regular SCVI)
-        scvi.model.CondSCVI.setup_anndata(ref_data, labels_key=cell_type_key)
+        # Setup reference data for CondSCVI with proper configuration
+        scvi.model.CondSCVI.setup_anndata(
+            ref_data, 
+            labels_key=cell_type_key,
+            batch_key=None  # Explicitly set to None for single-batch data
+        )
         
-        # Create CondSCVI model
+        # Create CondSCVI model with official parameters
         condscvi_model = scvi.model.CondSCVI(
             ref_data,
             n_hidden=n_hidden,
             n_latent=n_latent,
             n_layers=n_layers,
-            dropout_rate=dropout_rate
+            dropout_rate=dropout_rate,
+            use_layer_norm="both",  # Official recommendation
+            use_batch_norm="none"   # Recommended when using layer norm
         )
         
-        # Train CondSCVI model
-        if use_gpu:
-            condscvi_model.train(max_epochs=n_epochs//3, accelerator='gpu')
-        else:
-            condscvi_model.train(max_epochs=n_epochs//3)
+        # Train CondSCVI model (fixed GPU syntax)
+        condscvi_model.train(
+            max_epochs=condscvi_epochs,
+            use_gpu=use_gpu,  # Correct parameter name
+            check_val_every_n_epoch=20,
+            train_size=0.9
+        )
         
         if context:
             await context.info("CondSCVI model training completed")
@@ -1273,57 +1294,68 @@ async def deconvolve_destvi(
         if context:
             await context.info("Step 2: Setting up DestVI model...")
         
+        # Setup spatial data (no labels needed for spatial data)
         scvi.model.DestVI.setup_anndata(spatial_data)
         
-        # Step 3: Create DestVI model using from_rna_model
+        # Step 3: Create DestVI model using from_rna_model (official pattern)
         destvi_model = scvi.model.DestVI.from_rna_model(
             spatial_data,
-            condscvi_model,  # Pass the trained CondSCVI model
-            vamp_prior_p=15,  # VampPrior components
-            l1_reg=10.0       # L1 regularization for sparsity
+            condscvi_model,
+            vamp_prior_p=15,   # Number of VampPrior components (official default)
+            l1_reg=10.0        # L1 regularization for sparsity (official default)
         )
         
         if context:
             await context.info("DestVI model created successfully")
         
-        # Step 4: Train DestVI model
+        # Step 4: Train DestVI model (official training settings)
         if context:
-            await context.info("Step 3: Training DestVI model on spatial data...")
+            await context.info(f"Step 3: Training DestVI model ({destvi_epochs} epochs)...")
         
-        if use_gpu:
-            destvi_model.train(max_epochs=n_epochs//2, accelerator='gpu')
-        else:
-            destvi_model.train(max_epochs=n_epochs//2)
+        destvi_model.train(
+            max_epochs=destvi_epochs,
+            use_gpu=use_gpu,  # Correct parameter name
+            check_val_every_n_epoch=10,
+            train_size=0.9
+        )
         
         if context:
             await context.info("DestVI training completed")
         
-        # Step 5: Get results
+        # Step 5: Get results (official API)
         if context:
             await context.info("Extracting cell type proportions...")
         
-        # Get cell type proportions
+        # Get cell type proportions using official method
         proportions_df = destvi_model.get_proportions()
+        proportions_df.index = spatial_data.obs_names  # Ensure proper indexing
         
-        # Get cell types from the mapping
-        cell_types = list(proportions_df.columns)
+        # Validate proportions
+        if proportions_df.empty or proportions_df.shape[0] != spatial_data.n_obs:
+            raise RuntimeError("Failed to extract valid proportions from DestVI model")
+        
+        cell_types_result = list(proportions_df.columns)
         
         if context:
-            await context.info(f"Generated proportions for {len(cell_types)} cell types: {cell_types}")
+            await context.info(f"Generated proportions for {len(cell_types_result)} cell types: {cell_types_result}")
         
-        # Create statistics
+        # Create enhanced statistics
         stats = _create_deconvolution_stats(
             proportions_df,
             common_genes,
             "DestVI",
             "gpu" if use_gpu else "cpu",
             n_epochs=n_epochs,
+            condscvi_epochs=condscvi_epochs,
+            destvi_epochs=destvi_epochs,
             n_hidden=n_hidden,
             n_latent=n_latent,
             n_layers=n_layers,
             dropout_rate=dropout_rate,
             vamp_prior_p=15,
-            l1_reg=10.0
+            l1_reg=10.0,
+            use_layer_norm="both",
+            use_batch_norm="none"
         )
         
         return proportions_df, stats
@@ -1571,7 +1603,7 @@ def deconvolve_spotlight(
         from rpy2.robjects.conversion import localconverter
         from rpy2.robjects.packages import importr
         
-        print(f"Running SPOTlight deconvolution with {n_top_genes} top genes...")
+        # Running SPOTlight deconvolution
         
         # Validate inputs
         common_genes = _validate_deconvolution_inputs(
@@ -1609,10 +1641,7 @@ def deconvolve_spotlight(
         # Cell type labels
         cell_types = reference_subset.obs[cell_type_key].astype(str)
         
-        print(f"Using {len(common_genes)} common genes for deconvolution")
-        print(f"Spatial data: {spatial_subset.shape}")
-        print(f"Reference data: {reference_subset.shape}")
-        print(f"Cell types: {cell_types.unique()}")
+        # Preparing data for SPOTlight deconvolution
         
         # Execute SPOTlight using the official API in converter context
         with localconverter(ro.default_converter + pandas2ri.converter + numpy2ri.converter):
@@ -1634,7 +1663,7 @@ def deconvolve_spotlight(
             
             # Create SingleCellExperiment and SpatialExperiment objects
             ro.r('''
-            print("Creating SingleCellExperiment object...")
+            # Creating SingleCellExperiment object
             
             # Create SCE object for reference data
             sce <- SingleCellExperiment(
@@ -1649,7 +1678,7 @@ def deconvolve_spotlight(
             # Add logcounts
             sce <- logNormCounts(sce)
             
-            print("Creating SpatialExperiment object...")
+            # Creating SpatialExperiment object
             
             # Create SPE object for spatial data
             spe <- SpatialExperiment(
@@ -1660,7 +1689,7 @@ def deconvolve_spotlight(
             rownames(spe) <- gene_names
             colnames(spe) <- spatial_names
             
-            print("Detecting marker genes...")
+            # Detecting marker genes
             
             # Find marker genes using scran
             markers <- findMarkers(sce, groups = sce$cell_type, test.type = "wilcox")
@@ -1686,8 +1715,7 @@ def deconvolve_spotlight(
             # Combine all marker genes
             mgs <- do.call(rbind, mgs_list)
             
-            print(paste("Found", nrow(mgs), "marker genes"))
-            print("Running official SPOTlight deconvolution...")
+            # Running SPOTlight marker detection and deconvolution
             
             # Run official SPOTlight function
             spotlight_result <- SPOTlight(
@@ -1701,18 +1729,14 @@ def deconvolve_spotlight(
                 verbose = TRUE              # Verbose output
             )
             
-            print("SPOTlight deconvolution completed!")
+            # SPOTlight deconvolution completed
             
             # Check the structure of the result
-            print("Checking result structure...")
-            print(str(spotlight_result))
-            print(paste("Result class:", class(spotlight_result)))
+            # Checking SPOTlight result structure
             if (is.matrix(spotlight_result)) {
-                print("Result is a matrix")
-                print(paste("Dimensions:", paste(dim(spotlight_result), collapse=" x ")))
+                # Result is a matrix
             } else {
-                print("Result is not a matrix - examining structure...")
-                print(names(spotlight_result))
+                # Result is not a matrix - examining structure
             }
             ''')
             
@@ -1721,23 +1745,23 @@ def deconvolve_spotlight(
                 # First check if it's directly a matrix
                 result_matrix = ro.r('spotlight_result')
                 if ro.r('is.matrix(spotlight_result)')[0]:
-                    print("SPOTlight returned a matrix directly")
+                    # SPOTlight returned a matrix directly
                     proportions_np = np.array(result_matrix)
                     spot_names = list(ro.r('rownames(spotlight_result)'))
                     cell_type_names = list(ro.r('colnames(spotlight_result)'))
                 else:
                     # Check if it's a list with different elements
                     result_names = ro.r('names(spotlight_result)')
-                    print(f"SPOTlight returned a list with elements: {result_names}")
+                    # SPOTlight returned a list with multiple elements
                     
                     # Try different common result structures
                     if 'mat' in result_names:
-                        print("Extracting from 'mat' element")
+                        # Extracting from 'mat' element
                         proportions_np = np.array(ro.r('spotlight_result$mat'))
                         spot_names = list(ro.r('rownames(spotlight_result$mat)'))
                         cell_type_names = list(ro.r('colnames(spotlight_result$mat)'))
                     elif 'decon_mtrx' in result_names:
-                        print("Extracting from 'decon_mtrx' element")
+                        # Extracting from 'decon_mtrx' element
                         proportions_np = np.array(ro.r('spotlight_result$decon_mtrx'))
                         spot_names = list(ro.r('rownames(spotlight_result$decon_mtrx)'))
                         cell_type_names = list(ro.r('colnames(spotlight_result$decon_mtrx)'))
@@ -1748,7 +1772,7 @@ def deconvolve_spotlight(
                         spot_names = list(ro.r('rownames(spotlight_result[[1]])'))
                         cell_type_names = list(ro.r('colnames(spotlight_result[[1]])'))
             except Exception as extract_error:
-                print(f"Error extracting results: {extract_error}")
+                # Error extracting results from SPOTlight output
                 raise
             
         # Create proportions DataFrame
@@ -1767,12 +1791,7 @@ def deconvolve_spotlight(
             col_name = f"SPOTlight_{cell_type}"
             spatial_adata.obs[col_name] = proportions[cell_type].values
         
-        print(f"✅ SPOTlight completed successfully!")
-        print(f"   - Proportions shape: {proportions.shape}")
-        print(f"   - Cell types: {list(proportions.columns)}")
-        print(f"   - Mean proportions per cell type:")
-        for ct in proportions.columns:
-            print(f"     {ct}: {proportions[ct].mean():.3f}")
+        # SPOTlight completed successfully
         
         # Create statistics
         stats = _create_deconvolution_stats(
@@ -1788,7 +1807,7 @@ def deconvolve_spotlight(
     except Exception as e:
         tb = traceback.format_exc()
         error_msg = f"SPOTlight deconvolution failed: {str(e)}"
-        print(f"Error details:\n{tb}")
+        # SPOTlight error occurred
         raise RuntimeError(error_msg) from e
 
 
@@ -1937,7 +1956,7 @@ async def deconvolve_tangram(
     except Exception as e:
         tb = traceback.format_exc()
         error_msg = f"Tangram deconvolution failed: {str(e)}"
-        print(f"Error details:\n{tb}")
+        # SPOTlight error occurred
         raise RuntimeError(error_msg) from e
 
 
@@ -2102,5 +2121,5 @@ async def deconvolve_mrvi(
     except Exception as e:
         tb = traceback.format_exc()
         error_msg = f"MRVI deconvolution failed: {str(e)}"
-        print(f"Error details:\n{tb}")
+        # SPOTlight error occurred
         raise RuntimeError(error_msg) from e
