@@ -586,10 +586,17 @@ async def _identify_domains_clustering(
                     adata.obsp['connectivities'] = combined_conn
                     
             except Exception as spatial_error:
-                # Fallback: if spatial graph construction fails, use expression graph only
+                # Spatial graph construction failed - fail honestly instead of degrading to expression-only
+                error_msg = (
+                    f"Spatial graph construction failed: {spatial_error}. "
+                    f"Spatial domain identification requires spatial neighbor relationships. "
+                    f"This may indicate issues with spatial coordinates, missing dependencies (squidpy), "
+                    f"or insufficient spatial data quality. "
+                    f"Please check spatial coordinates in adata.obsm['spatial'] or try a different method."
+                )
                 if context:
-                    await context.warning(f"Spatial graph construction failed: {spatial_error}. Using expression graph only.")
-                spatial_weight = 0.0
+                    await context.error(error_msg)
+                raise RuntimeError(error_msg)
         
         # Perform clustering
         if context:
