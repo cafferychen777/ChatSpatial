@@ -3512,19 +3512,21 @@ def _create_gsea_enrichment_plot(adata, gsea_results, params, context):
         result = gsea_results
         pathway = pathway or "Gene Set"
     
-    # Extract enrichment data
-    if isinstance(result, dict):
-        es = result.get('es', np.random.randn(1000).cumsum())
-        nes = result.get('nes', result.get('NES', 2.0))
-        pval = result.get('pval', result.get('pvalue', 0.001))
-        positions = result.get('positions', np.random.choice(1000, 50, replace=False))
-    else:
-        # Generate demo data if structure is unknown
-        es = np.random.randn(1000).cumsum()
-        es = es / np.abs(es).max()
-        nes = 2.0 if es[-1] > 0 else -2.0
-        pval = 0.001
-        positions = np.random.choice(1000, 50, replace=False)
+    # Extract enrichment data - fail if data is missing
+    if not isinstance(result, dict):
+        raise ValueError("Enrichment result is not a valid dictionary structure")
+    
+    # Require actual enrichment data - no fake generation
+    if 'es' not in result:
+        raise ValueError("Enrichment score (es) not found in result. Cannot visualize without real enrichment data.")
+    
+    es = result['es']
+    nes = result.get('nes', result.get('NES'))
+    pval = result.get('pval', result.get('pvalue'))
+    positions = result.get('positions')
+    
+    if nes is None or pval is None:
+        raise ValueError("Missing required enrichment statistics (NES or p-value) for visualization.")
     
     # Normalize ES if needed
     if isinstance(es, (list, np.ndarray)):
@@ -3749,10 +3751,12 @@ def _create_gsea_spatial_plot(adata, gsea_results, params, context):
     elif pathway_score_cols:
         score_col = pathway_score_cols[0]
     else:
-        # Generate example scores based on gene expression if available
-        scores = np.random.randn(len(adata))
-        score_col = "Example_Pathway"
-        adata.obs[score_col] = scores
+        # No pathway scores available - fail honestly
+        raise ValueError(
+            "No pathway scores found in the dataset. "
+            "Available columns: " + ", ".join(adata.obs.columns) + ". "
+            "Cannot visualize pathway scores without real enrichment analysis results."
+        )
     
     scores = adata.obs[score_col].values
     

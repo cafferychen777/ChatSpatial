@@ -502,17 +502,12 @@ async def _analyze_getis_ord(
             }
     
     except ImportError:
-        if context:
-            await context.warning("PySAL not installed, using fallback")
-        # Fallback implementation
-        for gene in genes[:5]:  # Limit to 5 genes for fallback
-            z_scores = np.random.normal(0, 1, adata.n_obs)
-            adata.obs[f"{gene}_getis_ord_z"] = z_scores
-            getis_ord_results[gene] = {
-                'mean_z': 0.0,
-                'n_hot_spots': int(np.sum(z_scores > 1.96)),
-                'n_cold_spots': int(np.sum(z_scores < -1.96))
-            }
+        # PySAL dependency missing - fail honestly
+        raise ImportError(
+            "PySAL (Python Spatial Analysis Library) is required for Getis-Ord analysis but is not installed. "
+            "Please install it with: pip install 'libpysal' 'esda'. "
+            "Cannot perform spatial autocorrelation analysis without proper statistical methods."
+        )
     
     return {
         "n_genes_analyzed": len(getis_ord_results),

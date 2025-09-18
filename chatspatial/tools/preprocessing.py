@@ -97,7 +97,7 @@ def _safe_matrix_operation(adata, operation: str):
             elif operation == 'count_nonzero_axis1':
                 return np.sum(adata.X > 0, axis=1)
     except Exception as e:
-        print(f"Warning: Matrix operation {operation} failed: {e}")
+        # Matrix operation failed - returning None
         return None
 
 
@@ -377,11 +377,11 @@ async def preprocess_data(
                 sc.tl.pca(adata, n_comps=n_pcs_fallback)
                 n_pcs = n_pcs_fallback  # Update n_pcs for downstream use
             except Exception as e2:
-                if context:
-                    await context.warning(f"PCA fallback also failed: {e2}. Creating dummy PCA.")
-                # Create dummy PCA for compatibility
-                adata.obsm['X_pca'] = np.random.normal(0, 1, (adata.n_obs, min(5, adata.n_vars)))
-                n_pcs = min(5, adata.n_vars)
+                # Both PCA methods failed - this is a critical failure
+                raise RuntimeError(
+                    f"All PCA methods failed. Original error: {str(e)}. Fallback error: {str(e2)}. "
+                    "Cannot perform dimensionality reduction. Please check data quality or try different preprocessing parameters."
+                )
 
         # 8. Compute neighbors graph
         if context:

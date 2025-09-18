@@ -480,7 +480,7 @@ def compute_dpt_fallback(adata, root_cells=None):
             adata.uns['iroot'] = np.where(adata.obs_names == root_cells[0])[0][0]
         else:
             # If provided root cell not found, use first cell and warn
-            print(f"Warning: Root cell '{root_cells[0]}' not found in data. Using first cell instead.")
+            # Root cell not found - using first cell as fallback
             adata.uns['iroot'] = 0
     else:
         # If no root cell specified, set the first cell as root
