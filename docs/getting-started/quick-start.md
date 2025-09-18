@@ -1,670 +1,278 @@
-# Getting Started with ChatSpatial
-
-This guide demonstrates how to set up ChatSpatial and analyze spatial transcriptomics data through natural language queries in Claude Desktop, eliminating the need for complex coding.
-
-## What You Will Achieve
-
-By the end of this guide, you will be able to:
-- **Ask questions** about your spatial data in plain English
-- **Analyze tissue architecture** without writing code
-- **Generate visualizations** automatically
-- **Discover biological insights** through conversation
-
-## 🚀 Quick Start (5 Minutes)
-
-### Step 1: Get Claude Desktop
-
-**New to Claude?** The following steps will guide you through the setup process.
-
-1. 🌐 **Visit**: [claude.ai](https://claude.ai)
-2. 📱 **Download**: Claude Desktop for your computer
-3. 👤 **Sign up**: Create your free Anthropic account
-
-### Step 2: Install ChatSpatial
-
-**This section covers the technical installation steps, presented in detail.**
-
-#### Option 1: Quick Install (Recommended)
-
-Open your terminal/command prompt and run these commands:
-
-```bash
-# Create a new environment (like a clean workspace)
-conda create -n chatspatial python=3.11
-conda activate chatspatial
-
-# Get ChatSpatial
-git clone https://github.com/cafferychen777/ChatSpatial.git
-cd ChatSpatial
-
-# Install ChatSpatial
-pip install -e .
-
-# Verify installation
-chatspatial --help
-```
-
-#### Option 2: Step-by-Step Install (If you are new to conda)
-
-**Step 2.1: Install Miniconda (if you do not have it)**
-
-- **Windows**: Download from [miniconda.io](https://docs.conda.io/en/latest/miniconda.html)
-- **Mac**: `brew install miniconda` or download from website
-- **Linux**: `wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh && bash Miniconda3-latest-Linux-x86_64.sh`
-
-**Step 2.2: Create Environment**
-
-```bash
-# Open terminal/command prompt
-conda create -n chatspatial python=3.11
-# Say 'y' when prompted
-```
-
-**Step 2.3: Initialize Conda (First Time Only)**
-
-```bash
-# Initialize conda for your shell (only needed once)
-conda init bash  # For bash users
-conda init zsh   # For zsh users (Mac default)
-
-# Restart your terminal or run:
-source ~/.bashrc  # Linux
-source ~/.zshrc   # Mac
-```
-
-**Step 2.4: Activate Environment**
-
-```bash
-conda activate chatspatial
-# You should see (chatspatial) in your prompt
-```
-
-**Step 2.5: Verify Environment Activation**
-
-```bash
-# Test that you are in the right environment
-which python
-# Should show: /path/to/miniconda3/envs/chatspatial/bin/python
-
-python --version
-# Should show: Python 3.11.x
-```
-
-**⚠️ If conda activate does not work:**
-
-```bash
-# Alternative method - use full path directly
-/Users/yourname/miniconda3/envs/chatspatial/bin/python --version
-# Replace 'yourname' with your actual username
-```
-
-**Step 2.4: Install Git (if needed)**
-
-```bash
-# Windows: Download from git-scm.com
-# Mac: brew install git
-# Linux: sudo apt install git (Ubuntu) or sudo yum install git (CentOS)
-```
-
-**Step 2.5: Clone and Install ChatSpatial**
-
-```bash
-git clone https://github.com/cafferychen777/ChatSpatial.git
-cd ChatSpatial
-pip install -e .
-```
-
-**Step 2.6: Test ChatSpatial Installation**
-
-**Test 1: Basic Import (may take 10-30 seconds)**
-
-```bash
-# Test ChatSpatial import - this loads scientific libraries
-python -c 'import chatspatial; print("ChatSpatial import successful")'
-# Note: Use single quotes to avoid bash issues with special characters
-```
-
-**Test 2: Command Line Interface**
-
-```bash
-# Test the command line interface
-python -m chatspatial --help
-# Should show help information immediately
-```
-
-**Expected Output:**
-
-```text
-Usage: python -m chatspatial server [OPTIONS]
-
-  Start the ChatSpatial server.
-  ...
-```
-
-**⚠️ Important Notes:**
-
-- **Import time**: First `import chatspatial` may take 10-30 seconds (loading numpy, scipy, etc.)
-- **Command help**: `python -m chatspatial --help` should be fast (< 5 seconds)
-- **Use single quotes**: Avoid bash interpretation issues with `'` instead of `"`
-
-#### Troubleshooting Installation
-
-**Common Issues Based on Real Testing:**
-
-1. **"conda activate doesn't work"**
-
-   ```bash
-   # Solution: Initialize conda first
-   conda init bash  # or zsh
-   source ~/.bashrc  # or ~/.zshrc
-   # Or use full path: /path/to/miniconda3/envs/chatspatial/bin/python
-   ```
-
-2. **"bash: !': event not found"**
-
-   ```bash
-   # Problem: Using double quotes with ! character
-   # Wrong: python -c "print('Hello!')"
-   # Right: python -c 'print("Hello!")'
-   ```
-
-3. **"Import takes forever"**
-   - **Normal**: First `import chatspatial` takes 10-30 seconds
-   - **Wait patiently**: Scientific libraries (numpy, scipy) are loading
-   - **Subsequent imports**: Will be faster
-
-4. **"conda not found"**
-   - Install Miniconda first, restart terminal
-   - Make sure conda is in your PATH
-
-5. **"Python version errors"**
-   - Verify: `python --version` shows Python 3.11.x
-   - Check environment: `which python` points to chatspatial env
-
-### Step 3: Connect to Claude Desktop
-
-**This is the most important step - connecting ChatSpatial to Claude Desktop!**
-
-#### Step 3.1: Find Your Python Path
-
-```bash
-# Make sure you are in the right environment
-conda activate chatspatial
-
-# Verify you are in the correct environment
-which python
-# On Windows, use: where python
-```
-
-**Copy the COMPLETE path!** Real examples:
-
-- **Mac/Linux**: `/Users/john/miniconda3/envs/chatspatial/bin/python`
-- **Windows**: `C:\Users\john\miniconda3\envs\chatspatial\python.exe`
-
-**⚠️ Important**:
-
-- Copy the **entire path** including `/bin/python` or `\python.exe`
-- Replace `john` with your actual username
-- The path must point to the chatspatial environment, not base conda
-
-#### Step 3.2: Locate Claude Desktop Config File
-
-**Find the configuration file for your operating system:**
-
-**Mac:**
-
-```bash
-# Open Finder, press Cmd+Shift+G, paste this path:
-~/Library/Application Support/Claude/claude_desktop_config.json
-```
-
-**Windows:**
-
-```bash
-# Open File Explorer, paste this in the address bar:
-%APPDATA%\Claude\claude_desktop_config.json
-```
-
-**Linux:**
-
-```bash
-# Use your file manager or terminal:
-~/.config/Claude/claude_desktop_config.json
-```
-
-#### Step 3.3: Edit Configuration File
-
-**If the file does not exist, create it.**
-
-Open the file in any text editor and add this configuration:
-
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/your/python/path/here",
-      "args": ["-m", "chatspatial"],
-      "env": {}
-    }
-  }
-}
-```
-
-**⚠️ Important:** Replace `/your/python/path/here` with the actual path you copied in Step 3.1!
-
-**Example configurations:**
-
-**Mac example:**
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/Users/john/miniconda3/envs/chatspatial/bin/python",
-      "args": ["-m", "chatspatial"],
-      "env": {}
-    }
-  }
-}
-```
-
-**Windows example:**
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "C:\\Users\\john\\miniconda3\\envs\\chatspatial\\python.exe",
-      "args": ["-m", "chatspatial"],
-      "env": {}
-    }
-  }
-}
-```
-
-#### Step 3.4: Restart Claude Desktop
-
-1. **Close Claude Desktop completely**
-2. **Reopen Claude Desktop**
-3. **Look for the 🔬 icon** - this means ChatSpatial is connected!
-
-#### Troubleshooting MCP Connection
-
-**Common Issues Based on Real Testing:**
-
-1. **"No MCP servers found"**
-   ```bash
-   # Test your Python path first
-   /your/python/path -c 'import chatspatial; print("Works")'
-   /your/python/path -m chatspatial --help
-   ```
-   - Verify JSON syntax (use jsonlint.com)
-   - Check config file location is correct
-   - Ensure Python path is complete (includes `/bin/python`)
-
-2. **"Server failed to start"**
-   ```bash
-   # Debug step by step
-   /your/python/path -c 'import chatspatial'  # Should work in 10-30s
-   /your/python/path -m chatspatial --help    # Should be fast
-   /your/python/path -m chatspatial server --transport stdio  # Should start
-   ```
-   - **First import**: Takes 10-30 seconds (normal!)
-   - **Command help**: Should be fast (< 5 seconds)
-   - **Server start**: Should show "Starting ChatSpatial server..."
-
-3. **"JSON syntax errors"**
-   - Use single quotes in test commands: `'import chatspatial'`
-   - Validate JSON at jsonlint.com
-   - No trailing commas in JSON
-   - Match all brackets and quotes
-
-4. **"Path issues"**
-   - Use complete path: `/Users/john/miniconda3/envs/chatspatial/bin/python`
-   - Not just: `/Users/john/miniconda3/envs/chatspatial/`
-   - Test path works: `which python` when environment is active
-
-### Step 4: Verify Everything Works
-
-**The following tests verify that everything is set up correctly.**
-
-#### Test 1: Verify ChatSpatial Installation
-
-```bash
-# Activate environment
-conda activate chatspatial
-
-# Test 1a: Basic import (may take 10-30 seconds)
-python -c 'import chatspatial; print("Import successful")'
-
-# Test 1b: Command line interface (should be fast)
-python -m chatspatial --help
-
-# Test 1c: Server startup test
-python -m chatspatial server --transport stdio &
-# You should see: "Starting ChatSpatial server with stdio transport..."
-# Press Ctrl+C to stop
-```
-
-#### Test 2: Check MCP Connection
-1. **Open Claude Desktop**
-2. **Look for the 🔬 icon** in the tool panel
-3. **Start a new conversation**
-4. **Type**: "Do you have access to ChatSpatial tools?"
-
-**If successful, Claude should respond with something like:**
-> "Yes! I have access to ChatSpatial's spatial transcriptomics analysis tools. I can help you load data, identify spatial domains, annotate cell types, and much more!"
-
-#### Test 3: Quick Function Test
-**Ask Claude**: "Can you list the available ChatSpatial tools?"
-
-**You should see tools like:**
-- load_data
-- preprocess_data
-- identify_spatial_domains
-- annotate_cells
-- visualize_data
-- And more!
-
-### Success! You Are Ready to Analyze
-
-If all tests pass, you are ready to start analyzing spatial transcriptomics data through natural conversation.
-
-## 🎥 New to MCP? Watch This First!
-
-[![MCP Introduction](https://img.shields.io/badge/▶️_Watch-What_is_MCP?-blue?style=flat-square&logo=youtube)](https://www.youtube.com/watch?v=sfCBCyNyw7U)
-
-**Learn more:**
-- 📚 [What is MCP?](../resources/what_is_mcp.md) - Detailed explanation
-- 📰 [Anthropic's MCP Announcement](https://www.anthropic.com/news/model-context-protocol)
-- 💻 [MCP GitHub Repository](https://github.com/modelcontextprotocol)
-
-## 💬 Your First Conversation
-
-Once ChatSpatial is connected, here's how easy it is to analyze your data:
+---
+layout: default
+title: Quick Start
+parent: Getting Started
+nav_order: 2
+---
+
+# Quick Start Guide
+{: .no_toc }
+
+Get ChatSpatial running in minutes and perform your first spatial analysis.
+{: .fs-6 .fw-300 }
+
+## Table of contents
+{: .no_toc .text-delta }
+
+1. TOC
+{:toc}
 
 ---
 
-**👤 You:** "Hi! I am new to spatial transcriptomics. Can you help me analyze my Visium data?"
+## Prerequisites
 
-**🤖 Claude:** "I can help you explore your spatial transcriptomics data. ChatSpatial makes it easy - no coding required. Just tell me what you would like to discover about your tissue.
+Before starting, ensure you have:
+- Python 3.8+ installed
+- Claude Desktop or compatible MCP client
+- Git for cloning the repository
 
-What kind of sample do you have, and where is your data file located?"
+## Step 1: Installation
 
-**👤 You:** "I have a mouse brain sample. The file is at `/Users/myname/data/brain_sample.h5ad`"
+Choose your installation level based on your needs:
 
-**🤖 Claude:** "Perfect! Let me load your mouse brain data and take a look at what we are working with."
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/chatspatial.git
+cd chatspatial
 
-*[ChatSpatial loads and analyzes the data]*
+# Install ChatSpatial (choose one)
+pip install -e .                    # Minimal features
+pip install -e ".[advanced]"        # Recommended
+pip install -e ".[experimental]"    # All features
+```
 
-**🤖 Claude:** "Excellent! Your mouse brain sample looks great:
-- 2,845 spots across the tissue
-- 28,691 genes measured
-- High-quality spatial coordinates included
+## Step 2: Configure MCP Client
 
-What would you like to explore? I can help you:
+### For Claude Desktop
 
-- 🧠 Identify different brain regions
+Add ChatSpatial to your Claude Desktop MCP configuration:
 
-- 🔬 Find cell types in each area
-
-- 📊 Discover spatially variable genes
-
-- 🎨 Create beautiful visualizations
-
-- 💬 Analyze cell-cell communication
-
-What interests you most?"
-
-**👤 You:** "I would like to see the different brain regions!"
-
-**🤖 Claude:** "Great choice! Let me identify the spatial domains in your brain tissue..."
-
-*[Analysis happens automatically]*
-
-**🤖 Claude:** "Good! I found 6 distinct brain regions:
-
-- Cortical layers (outer brain)
-
-- Hippocampus (memory center)
-
-- White matter (connecting fibers)
-
-- Ventricular zone (stem cells)
-
-- Corpus callosum (brain bridge)
-
-- Boundary regions
-
-Here is a spatial map showing each region in different colors."
-
----
-
-### See How Natural It Is
-
-- **No complex commands** to remember
-- **No parameter tuning** required
-- **No coding experience** needed
-- **Ask questions** in plain English
-- **Get instant insights** about your tissue
-- **Visualizations** automatically generated
-
-## MCP Configuration
-
-### Claude Desktop Setup
-
-1. **Locate Configuration File**:
-   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-   - **Linux**: `~/.config/Claude/claude_desktop_config.json`
-
-2. **Add ChatSpatial Server**:
+1. Open Claude Desktop settings
+2. Navigate to MCP configuration
+3. Add the following configuration:
 
 ```json
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "/path/to/your/conda/envs/chatspatial/bin/python",
+      "command": "python",
       "args": ["-m", "chatspatial"],
-      "env": {
-        "PYTHONPATH": "/path/to/ChatSpatial"
-      }
+      "cwd": "/path/to/your/chatspatial"
     }
   }
 }
 ```
 
-3. **Find Your Python Path**:
+### For Other MCP Clients
+
+ChatSpatial supports the standard MCP protocol. Refer to your client's documentation for specific configuration steps.
+
+## Step 3: Start the Server
+
+### Option A: Automatic (with Claude Desktop)
+The server starts automatically when you interact with ChatSpatial in Claude Desktop.
+
+### Option B: Manual Start
+```bash
+# Start the MCP server manually
+python -m chatspatial
+
+# Or start with HTTP transport
+python -m chatspatial server --transport sse --port 8000
+```
+
+## Step 4: Your First Analysis
+
+Once ChatSpatial is configured, try these example analyses:
+
+### Load and Explore Data
+
+```
+Load the mouse brain Visium dataset and show me basic information about it
+```
+
+Expected response: ChatSpatial will load the dataset and provide summary statistics.
+
+### Spatial Visualization
+
+```
+Create a spatial plot showing the tissue structure and gene expression patterns
+```
+
+This will generate spatial plots of your data.
+
+### Identify Spatial Domains
+
+```
+Identify spatial domains using SpaGCN and visualize the results
+```
+
+ChatSpatial will perform spatial domain identification and create visualization plots.
+
+### Cell Type Annotation
+
+```
+Annotate cell types using marker genes and show the spatial distribution
+```
+
+This performs automated cell type annotation and spatial mapping.
+
+## Example Workflows
+
+### Basic Spatial Analysis Workflow
+
+```
+# 1. Load data
+Load the demo Visium dataset
+
+# 2. Quality control  
+Show me quality control metrics and filter low-quality spots
+
+# 3. Dimensionality reduction
+Perform PCA and UMAP embedding on the data
+
+# 4. Clustering
+Cluster the spots using Leiden clustering
+
+# 5. Spatial visualization
+Create spatial plots colored by clusters
+
+# 6. Find marker genes
+Find marker genes for each cluster
+
+# 7. Spatial domains
+Identify spatial domains using SpaGCN
+```
+
+### Advanced Analysis Workflow
+
+```
+# 1. Load and preprocess
+Load the mouse brain data and perform quality control
+
+# 2. Cell type annotation
+Annotate cell types using the marker gene approach
+
+# 3. Spatial domains
+Identify spatial domains and visualize them
+
+# 4. Cell communication
+Analyze cell-cell communication patterns using LIANA
+
+# 5. Spatial variable genes
+Find spatially variable genes using SPARK
+
+# 6. Trajectory analysis
+Perform RNA velocity analysis for developmental trajectories
+```
+
+## Understanding Results
+
+ChatSpatial returns results in several formats:
+
+### Visualizations
+- **Spatial plots**: Show gene expression or annotations overlaid on tissue coordinates
+- **UMAP plots**: Display dimensionality reduction results
+- **Heatmaps**: Show expression patterns across cell types or spatial regions
+
+### Data Tables
+- **Gene lists**: Differentially expressed or spatially variable genes
+- **Statistics**: Spatial analysis results and significance tests
+- **Annotations**: Cell type predictions and confidence scores
+
+### Analysis Reports
+- **Summary statistics**: Dataset characteristics and analysis parameters
+- **Method details**: Algorithms used and parameter settings
+- **Quality metrics**: Assessment of analysis quality and reliability
+
+## Common Issues and Solutions
+
+### Server Won't Start
+
+{: .note }
+**Problem:** MCP server fails to start
+
+**Solutions:**
+1. Check Python environment: `python --version`
+2. Verify installation: `pip list | grep chatspatial`
+3. Check dependencies: `python -c "import chatspatial; print('OK')"`
+
+### Data Loading Errors
+
+{: .note }
+**Problem:** Cannot load spatial data
+
+**Solutions:**
+1. Verify file paths are correct
+2. Check supported formats (H5AD, H5, MTX, Visium)
+3. Ensure data contains spatial coordinates
+
+### Memory Issues
+
+{: .note }
+**Problem:** Analysis fails with memory errors
+
+**Solutions:**
+1. Use smaller datasets for testing
+2. Increase system memory
+3. Use chunked processing for large datasets
+
+### Missing Dependencies
+
+{: .note }
+**Problem:** Method not available errors
+
+**Solutions:**
+1. Check installation tier: `python test_dependencies.py`
+2. Install missing dependencies: `pip install -e ".[advanced]"`
+3. Use alternative methods when dependencies are missing
+
+## Validation and Testing
+
+### Test Your Setup
 
 ```bash
-# Activate your environment
-conda activate chatspatial
+# Run dependency tests
+python test_dependencies.py --verbose
 
-# Get the Python path
-which python
-# Example output: /Users/username/miniconda3/envs/chatspatial/bin/python
+# Test with demo data
+python -c "
+from chatspatial.utils.data_loader import load_demo_data
+data = load_demo_data('visium_demo')
+print(f'Loaded data with {data.n_obs} spots and {data.n_vars} genes')
+"
 ```
 
-### Alternative MCP Clients
+### Performance Benchmarks
 
-ChatSpatial works with any MCP-compatible client:
-
-- **MCP Inspector**: For development and testing
-- **Custom Applications**: Using the MCP SDK
-- **Other LLM Agents**: With MCP support
-
-## Data Preparation
-
-### Download Sample Data
-
-ChatSpatial includes scripts to download standard datasets:
+Run benchmark tests to ensure optimal performance:
 
 ```bash
-# Download demo datasets
-python data/scripts/download_standard_datasets.py
+# Quick performance test
+python scripts/benchmark_basic.py
 
-# Verify data
-ls data/demo_datasets/
+# Comprehensive benchmark
+python scripts/benchmark_full.py
 ```
-
-### Supported Data Formats
-
-- **AnnData (H5AD)**: Primary format, includes spatial coordinates
-- **10x Visium**: Space Ranger outputs
-- **CSV + Coordinates**: Expression matrix with spatial coordinates
-- **H5/HDF5**: Hierarchical data format
-- **Zarr**: Cloud-optimized format
-
-### Data Requirements
-
-Your spatial transcriptomics data should include:
-
-1. **Gene Expression Matrix**: Genes × Spots/Cells
-2. **Spatial Coordinates**: X, Y positions for each spot/cell
-3. **Metadata** (optional): Cell types, batch information, etc.
-
-## First Analysis Walkthrough
-
-### Step 1: Start Claude Desktop
-
-1. Open Claude Desktop
-2. Verify ChatSpatial appears in the MCP servers list
-3. Look for the 🔬 icon indicating spatial analysis tools
-
-### Step 2: Load Your Data
-
-```python
-# Load a Visium dataset
-result = load_data(
-    data_path="data/demo_datasets/mouse_brain_visium.h5ad",
-    name="mouse_brain"
-)
-```
-
-### Step 3: Explore Data Structure
-
-```python
-# Get basic information about your dataset
-analyze_spatial_data(
-    data_id="mouse_brain",
-    analysis_type="basic_stats"
-)
-```
-
-### Step 4: Preprocessing
-
-```python
-# Standard preprocessing pipeline
-preprocess_data(
-    data_id="mouse_brain",
-    normalize_total=True,
-    log1p=True,
-    highly_variable_genes=True,
-    n_top_genes=2000
-)
-```
-
-### Step 5: Spatial Domain Identification
-
-```python
-# Identify spatial domains using SpaGCN
-identify_spatial_domains(
-    data_id="mouse_brain",
-    method="spagcn",
-    n_clusters=7,
-    resolution=1.0
-)
-```
-
-### Step 6: Visualization
-
-```python
-# Create spatial domain visualization
-visualize_data(
-    data_id="mouse_brain",
-    plot_type="spatial_domains",
-    color_by="spatial_domains",
-    title="Mouse Brain Spatial Domains"
-)
-```
-
-## Understanding the Results
-
-### Data Structure
-
-After loading, your data contains:
-
-- **`.X`**: Gene expression matrix
-- **`.obs`**: Cell/spot metadata (including spatial domains)
-- **`.var`**: Gene metadata
-- **`.obsm['spatial']`**: Spatial coordinates
-- **`.uns`**: Analysis results and parameters
-
-### Spatial Domains
-
-The `identify_spatial_domains` tool adds:
-
-- **`spatial_domains`**: Cluster assignments in `.obs`
-- **`spatial_domain_stats`**: Cluster statistics in `.uns`
-- **`spatial_embeddings`**: Low-dimensional representations
-
-### Visualization Outputs
-
-ChatSpatial returns MCP Image objects that display directly in Claude Desktop:
-
-- **High-resolution plots**: 300 DPI for publication quality
-- **Interactive elements**: Hover information and zoom
-- **Multiple formats**: PNG, SVG, PDF support
-- **Customizable styling**: Colors, themes, annotations
 
 ## Next Steps
 
-### Advanced Analysis
+Now that you have ChatSpatial running:
 
-1. **Cell Type Annotation**:
-   ```python
-   annotate_cells(data_id="mouse_brain", method="tangram")
-   ```
+1. **Explore Tutorials**: Check out the [tutorials section](../tutorials/) for detailed workflows
+2. **Learn Analysis Methods**: Dive into specific analysis types in the [reference guide](../reference/)
+3. **Try Advanced Features**: Experiment with [advanced analysis methods](../tutorials/advanced/)
+4. **Join the Community**: Participate in [discussions](https://github.com/yourusername/chatspatial/discussions)
 
-2. **Cell Communication Analysis**:
-   ```python
-   analyze_cell_communication(data_id="mouse_brain", method="liana")
-   ```
+## Getting Help
 
-3. **Spatial Variable Genes**:
-   ```python
-   identify_spatial_genes(data_id="mouse_brain", method="gaston")
-   ```
+If you encounter issues:
 
-### Explore Tutorials
+1. **Check the logs**: Look for error messages in the console output
+2. **Review documentation**: Browse the [troubleshooting guide](../reference/troubleshooting/)
+3. **Search issues**: Check [existing GitHub issues](https://github.com/yourusername/chatspatial/issues)
+4. **Ask for help**: Create a new issue with detailed error information
 
-- **[Basic Spatial Analysis](../tutorials/core/basic_spatial_analysis.md)**: Complete workflow
-- **[Cell Annotation Guide](../tutorials/analysis/cell_type_annotation.md)**: Multiple annotation methods
-- **[Visualization Gallery](../tutorials/visualization_gallery.md)**: All plot types
+---
 
-### API Reference
-
-- **[Tool Reference](../reference/api/README.md)**: Complete MCP tool documentation
-- **[Data Models](../reference/api/data_models.md)**: Parameter schemas and data structures
-- **[Error Handling](../reference/api/error_handling.md)**: Troubleshooting guide
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Import Errors**: Ensure all dependencies are installed in the correct environment
-2. **Memory Issues**: Use data subsampling for large datasets
-3. **MCP Connection**: Verify Python path and environment variables
-4. **R Dependencies**: Install R packages for scType functionality
-
-### Getting Help
-
-- **Documentation**: Browse this site for detailed guides
-- **GitHub Issues**: Report bugs and request features
-- **Discussions**: Ask questions and share experiences
-
-### Performance Tips
-
-- **Use SSD storage** for faster data loading
-- **Increase memory** for large datasets (>50K cells)
-- **Enable GPU** for deep learning methods
-- **Subsample data** for initial exploration
-
+**Next:** [Configuration Guide](configuration.html) to customize your setup
