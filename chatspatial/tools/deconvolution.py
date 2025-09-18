@@ -1182,17 +1182,22 @@ async def deconvolve_spatial_data(
 
         return result
 
+    except (ValueError, ImportError, RuntimeError, KeyError, AttributeError, TypeError) as e:
+        # Handle expected business logic errors
+        if context:
+            await context.warning(f"Deconvolution failed: {str(e)}")
+        raise
     except Exception as e:
-        if not isinstance(e, (ValueError, ImportError, RuntimeError)):
-            error_msg = str(e)
-            tb = traceback.format_exc()
-            if context:
-                await context.warning(f"Deconvolution failed with unexpected error: {error_msg}")
-            raise RuntimeError(f"Deconvolution failed with unexpected error: {error_msg}\n{tb}")
-        else:
-            if context:
-                await context.warning(f"Deconvolution failed: {str(e)}")
+        # Handle truly unexpected errors while preserving system exceptions
+        if isinstance(e, (KeyboardInterrupt, SystemExit, MemoryError)):
+            # Don't catch system-level exceptions
             raise
+        
+        error_msg = str(e)
+        tb = traceback.format_exc()
+        if context:
+            await context.warning(f"Deconvolution failed with unexpected error: {error_msg}")
+        raise RuntimeError(f"Deconvolution failed with unexpected error: {error_msg}\n{tb}")
 
 
 async def deconvolve_destvi(
