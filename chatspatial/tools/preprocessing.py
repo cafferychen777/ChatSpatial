@@ -474,10 +474,12 @@ async def preprocess_data(
                 n_clusters = n_clusters_kmeans
             except Exception as e_kmeans:
                 if context:
-                    await context.warning(f"KMeans clustering failed: {e_kmeans}. Using simple clustering.")
-                # Final fallback: random clustering
-                adata.obs[params.cluster_key] = np.random.randint(0, MIN_KMEANS_CLUSTERS, adata.n_obs).astype(str)
-                n_clusters = MIN_KMEANS_CLUSTERS
+                    await context.error(f"KMeans clustering failed: {e_kmeans}")
+                raise RuntimeError(
+                    f"All clustering methods failed. Original error: {str(e)}. "
+                    f"KMeans fallback error: {str(e_kmeans)}. "
+                    "Please check data quality or try different preprocessing parameters."
+                )
 
             # Create a simple UMAP embedding if possible
             try:
@@ -497,12 +499,12 @@ async def preprocess_data(
                 adata.obsm['X_umap'] = X_tsne
             except Exception as e2:
                 if context:
-                    await context.warning(f"Could not create fallback embedding: {str(e2)}. Using random coordinates.")
-                # Final fallback: random coordinates
-                adata.obsm['X_umap'] = np.random.normal(0, 1, (adata.n_obs, 2))
+                    await context.warning(f"Could not create embedding: {str(e2)}. Skipping visualization coordinates.")
+                # Do not create random coordinates - leave X_umap undefined
+                # Downstream visualization tools will handle missing coordinates appropriately
 
         # 11. Add RNA velocity preprocessing if requested
-        if getattr(params, 'enable_rna_velocity', False) and scv is not None:
+        if getattr(params, 'enable_rna_velocity', False):
             if context:
                 await context.info("Adding RNA velocity preprocessing...")
             try:
@@ -510,22 +512,29 @@ async def preprocess_data(
                 has_velocity_data = ('spliced' in adata.layers and 'unspliced' in adata.layers)
                 
                 if has_velocity_data:
-                    # Apply scVelo preprocessing
-                    scv.pp.filter_and_normalize(adata, min_shared_counts=20, n_top_genes=2000)
-                    scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
+                    # Use unified velocity computation from trajectory module
+                    from .trajectory import compute_rna_velocity
+                    from ..models.data import RNAVelocityParameters
                     
-                    # Compute velocity (different modes available)
-                    velocity_mode = getattr(params, 'velocity_mode', 'stochastic')
-                    if velocity_mode == 'dynamical':
-                        scv.tl.recover_dynamics(adata)
-                        scv.tl.velocity(adata, mode='dynamical')
+                    # Create RNAVelocityParameters from AnalysisParameters
+                    # Use embedded velocity_params if available, otherwise create from individual fields
+                    if hasattr(params, 'velocity_params') and params.velocity_params is not None:
+                        velocity_params = params.velocity_params
                     else:
-                        scv.tl.velocity(adata, mode=velocity_mode)
+                        # Build from individual fields for backward compatibility
+                        velocity_params = RNAVelocityParameters(
+                            mode=getattr(params, 'velocity_mode', 'stochastic'),
+                            min_shared_counts=getattr(params, 'velocity_min_shared_counts', 30),
+                            n_top_genes=getattr(params, 'velocity_n_top_genes', 2000),
+                            n_pcs=getattr(params, 'velocity_n_pcs', 30),
+                            n_neighbors=getattr(params, 'velocity_n_neighbors', 30)
+                        )
                     
-                    scv.tl.velocity_graph(adata)
+                    # Compute velocity with unified function
+                    adata = compute_rna_velocity(adata, params=velocity_params)
                     
                     if context:
-                        await context.info(f"RNA velocity preprocessing completed using {velocity_mode} mode")
+                        await context.info(f"RNA velocity preprocessing completed using {velocity_params.mode} mode")
                 else:
                     if context:
                         await context.warning("RNA velocity requested but no spliced/unspliced layers found")
