@@ -350,3 +350,19 @@ data/test_chatspatial_large_data.py
 data/BIG_DATASETS_FINAL_REPORT.md
 data/QUICK_START_DEMO.py
 data/STANDARD_DATASETS_GUIDE.md
+
+# Personal development files (should never be committed)
+Group*_Fixes_Summary.md
+fallback_analysis_*.md
+GEMINI.md
+*_test_report.md
+chatspatial.egg-info/
+
+# Prevent site/ from being committed again
+site/
+
+# Development archives and personal files
+archived_docs/
+scripts/fixes/
+scripts/tests/
+tests/comprehensive_tools_testing/
