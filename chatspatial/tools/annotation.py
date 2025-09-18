@@ -769,10 +769,12 @@ async def _annotate_with_scanvi(adata, params: AnnotationParameters, data_store:
         
         model.train(max_epochs=params.num_epochs, early_stopping=True)
         
-        # Prepare spatial data - add dummy cell_type column for setup
+        # Prepare spatial data - add cell_type column for scANVI setup if needed
         cell_type_key = getattr(params, 'cell_type_key', "cell_type")
         if cell_type_key not in adata.obs.columns:
-            # Add dummy cell type column filled with unlabeled category
+            # Add temporary cell type column for scANVI technical requirements
+            if context:
+                await context.info(f"Adding temporary '{cell_type_key}' column filled with '{params.scanvi_unlabeled_category}' for scANVI setup")
             adata.obs[cell_type_key] = params.scanvi_unlabeled_category
         
         scvi.model.SCANVI.setup_anndata(adata, labels_key=cell_type_key, unlabeled_category=params.scanvi_unlabeled_category)
@@ -987,18 +989,17 @@ async def _annotate_with_cellassign(adata, params: AnnotationParameters, context
             adata_subset.X = X_array
 
         # Additional data cleaning for CellAssign compatibility
-        # Check for genes with zero variance (which can cause issues in CellAssign)
+        # Check for genes with zero variance (which cause numerical issues in CellAssign)
         gene_vars = np.var(X_array, axis=0)
         zero_var_genes = gene_vars == 0
         if np.any(zero_var_genes):
-            if context:
-                await context.warning(f"Found {np.sum(zero_var_genes)} genes with zero variance, adding small noise")
-            # Add small random noise to zero-variance genes to avoid numerical issues
-            np.random.seed(42)  # For reproducibility
-            noise_scale = 1e-6
-            for i in np.where(zero_var_genes)[0]:
-                X_array[:, i] += np.random.normal(0, noise_scale, X_array.shape[0])
-            adata_subset.X = X_array
+            zero_var_gene_names = adata_subset.var_names[zero_var_genes].tolist()
+            raise ValueError(
+                f"Found {np.sum(zero_var_genes)} genes with zero variance: {zero_var_gene_names[:10]}... "
+                f"CellAssign requires all genes to have non-zero variance. "
+                f"Please filter these genes in preprocessing: adata = adata[:, adata.var['std'] > 0] "
+                f"or use sc.pp.highly_variable_genes() to select informative genes."
+            )
 
         # Ensure data is non-negative (CellAssign expects count-like data)
         if np.any(X_array < 0):
@@ -1406,37 +1407,31 @@ async def _run_sctype_scoring(adata, gs_list, params: AnnotationParameters, cont
             
             # Check if we have any valid cell types after filtering
             if (length(filtered_gs_positive) == 0) {
-                # Create a dummy result with "Unknown" for all cells
-                n_cells <- ncol(scdata)
-                es_max <- matrix(0, nrow = 1, ncol = n_cells)
-                rownames(es_max) <- c("Unknown")
-                colnames(es_max) <- colnames(scdata)
-            } else {
-                # Run sc-type scoring with filtered gene sets
-                tryCatch({
-                    es_max <- sctype_score(
-                        scRNAseqData = as.matrix(scdata),
-                        scaled = TRUE,
-                        gs = filtered_gs_positive,
-                        gs2 = filtered_gs_negative
-                    )
-                    
-                    # Handle edge case where sc-type returns empty or invalid results
-                    if (is.null(es_max) || nrow(es_max) == 0 || ncol(es_max) == 0) {
-                        # Create a dummy result
-                        n_cells <- ncol(scdata)
-                        es_max <- matrix(0, nrow = 1, ncol = n_cells)
-                        rownames(es_max) <- c("Unknown")
-                        colnames(es_max) <- colnames(scdata)
-                    }
-                }, error = function(e) {
-                    # If sc-type scoring fails, create a dummy result
-                    n_cells <- ncol(scdata)
-                    es_max <- matrix(0, nrow = 1, ncol = n_cells)
-                    rownames(es_max) <- c("Unknown")
-                    colnames(es_max) <- colnames(scdata)
-                })
+                # Fail explicitly when no valid gene sets are available
+                stop("No valid cell type gene sets found after filtering. Available tissues: ", 
+                     paste(unique(tissue_df$tissueType), collapse=", "), 
+                     ". Please check your tissue parameter or provide custom markers.")
             }
+            
+            # Run sc-type scoring with filtered gene sets
+            tryCatch({
+                es_max <- sctype_score(
+                    scRNAseqData = as.matrix(scdata),
+                    scaled = TRUE,
+                    gs = filtered_gs_positive,
+                    gs2 = filtered_gs_negative
+                )
+                
+                # Check for valid results
+                if (is.null(es_max) || nrow(es_max) == 0 || ncol(es_max) == 0) {
+                    stop("SC-Type analysis failed to generate valid results. This may be due to: ",
+                         "1) Insufficient gene overlap between data and markers, ",
+                         "2) Poor data quality, or 3) Inappropriate tissue selection.")
+                }
+            }, error = function(e) {
+                # Propagate the actual error instead of masking it
+                stop("SC-Type scoring failed: ", e$message)
+            })
         ''')
         
         # Get results back to Python with row and column names preserved
