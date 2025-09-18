@@ -189,9 +189,11 @@ async def _identify_spatial_genes_gaston(
         q_values = {}
 
         for gene in all_spatial_genes:
-            gene_statistics[gene] = 1.0  # Placeholder - GASTON doesn't provide traditional statistics
-            p_values[gene] = 0.05  # Placeholder
-            q_values[gene] = 0.05  # Placeholder
+            # GASTON provides spatial classifications but not traditional statistical metrics
+            # Be honest about unavailable statistics rather than using misleading placeholders
+            gene_statistics[gene] = None  # GASTON doesn't provide traditional statistics
+            p_values[gene] = None  # GASTON doesn't perform statistical testing
+            q_values[gene] = None  # GASTON doesn't provide adjusted p-values
 
         # Create GASTON-specific results
         gaston_results = {
@@ -855,24 +857,26 @@ async def _identify_spatial_genes_sparkx(
                 if context:
                     await context.info(f"Extracted results for {len(results_df)} genes")
             else:
-                # Fallback: create basic results structure
-                results_df = pd.DataFrame({
-                    'gene': gene_names,
-                    'pvalue': [0.5] * len(gene_names),
-                    'adjusted_pvalue': [0.5] * len(gene_names)
-                })
+                # SPARK-X results format not recognized - fail honestly instead of fake results
+                error_msg = (
+                    "SPARK-X results format not recognized. Expected 'res_mtest' component with p-values. "
+                    "This may indicate an issue with the SPARK-X R package, rpy2 integration, or input data. "
+                    "Please check the R environment and SPARK-X installation."
+                )
                 if context:
-                    await context.info("Using fallback results structure")
+                    await context.error(error_msg)
+                raise RuntimeError(error_msg)
                     
         except Exception as e:
+            # P-value extraction failed - fail honestly instead of creating fake results
+            error_msg = (
+                f"SPARK-X p-value extraction failed: {e}. "
+                f"This indicates an issue with R-Python communication or SPARK-X result format. "
+                f"Please check rpy2 installation and R package versions."
+            )
             if context:
-                await context.info(f"P-value extraction failed: {e}, using fallback")
-            # Fallback results
-            results_df = pd.DataFrame({
-                'gene': gene_names,
-                'pvalue': [0.5] * len(gene_names),
-                'adjusted_pvalue': [0.5] * len(gene_names)
-            })
+                await context.error(error_msg)
+            raise RuntimeError(error_msg)
 
     except Exception as e:
         if context:
