@@ -401,10 +401,15 @@ What kind of sample do you have, and where is your data file located?"
 - High-quality spatial coordinates included
 
 What would you like to explore? I can help you:
+
 - 🧠 Identify different brain regions
+
 - 🔬 Find cell types in each area
+
 - 📊 Discover spatially variable genes
+
 - 🎨 Create beautiful visualizations
+
 - 💬 Analyze cell-cell communication
 
 What interests you most?"
@@ -416,11 +421,17 @@ What interests you most?"
 *[Analysis happens automatically]*
 
 **🤖 Claude:** "Good! I found 6 distinct brain regions:
+
 - Cortical layers (outer brain)
+
 - Hippocampus (memory center)
+
 - White matter (connecting fibers)
+
 - Ventricular zone (stem cells)
+
 - Corpus callosum (brain bridge)
+
 - Boundary regions
 
 Here is a spatial map showing each region in different colors."

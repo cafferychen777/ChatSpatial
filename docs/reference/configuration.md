@@ -409,4 +409,4 @@ After configuration:
 3. **Monitor Performance**: Check logs and resource usage
 4. **Customize Settings**: Adjust based on your needs
 
-See [Getting Started](getting_started.md) for usage examples!
+See [Getting Started](../getting-started/README.md) for usage examples!

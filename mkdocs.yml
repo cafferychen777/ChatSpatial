@@ -12,6 +12,9 @@ nav:
       - Overview: getting-started/README.md
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quick-start.md
+  - Deployment:
+      - Overview: deployment/README.md
+      - Server Deployment: deployment/server-deployment.md
   - Tutorials:
       - Overview: tutorials/README.md
       - Core Tutorials:

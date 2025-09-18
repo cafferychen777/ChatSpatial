@@ -373,7 +373,7 @@ If all tests pass, you are ready to start analyzing spatial transcriptomics data
 [![MCP Introduction](https://img.shields.io/badge/▶️_Watch-What_is_MCP?-blue?style=flat-square&logo=youtube)](https://www.youtube.com/watch?v=sfCBCyNyw7U)
 
 **Learn more:**
-- 📚 [What is MCP?](what_is_mcp.md) - Detailed explanation
+- 📚 [What is MCP?](../resources/what_is_mcp.md) - Detailed explanation
 - 📰 [Anthropic's MCP Announcement](https://www.anthropic.com/news/model-context-protocol)
 - 💻 [MCP GitHub Repository](https://github.com/modelcontextprotocol)
 
@@ -401,10 +401,15 @@ What kind of sample do you have, and where is your data file located?"
 - High-quality spatial coordinates included
 
 What would you like to explore? I can help you:
+
 - 🧠 Identify different brain regions
+
 - 🔬 Find cell types in each area
+
 - 📊 Discover spatially variable genes
+
 - 🎨 Create beautiful visualizations
+
 - 💬 Analyze cell-cell communication
 
 What interests you most?"
@@ -416,11 +421,17 @@ What interests you most?"
 *[Analysis happens automatically]*
 
 **🤖 Claude:** "Good! I found 6 distinct brain regions:
+
 - Cortical layers (outer brain)
+
 - Hippocampus (memory center)
+
 - White matter (connecting fibers)
+
 - Ventricular zone (stem cells)
+
 - Corpus callosum (brain bridge)
+
 - Boundary regions
 
 Here is a spatial map showing each region in different colors."
@@ -626,7 +637,7 @@ ChatSpatial returns MCP Image objects that display directly in Claude Desktop:
 ### Explore Tutorials
 
 - **[Basic Spatial Analysis](../tutorials/core/basic_spatial_analysis.md)**: Complete workflow
-- **[Cell Annotation Guide](../tutorials/cell_type_annotation.md)**: Multiple annotation methods
+- **[Cell Annotation Guide](../tutorials/analysis/cell_type_annotation.md)**: Multiple annotation methods
 - **[Visualization Gallery](../tutorials/visualization_gallery.md)**: All plot types
 
 ### API Reference

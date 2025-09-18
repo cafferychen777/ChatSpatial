@@ -373,4 +373,4 @@ After preparing your data:
 3. **Start Analysis**: Follow the basic tutorial
 4. **Explore Tools**: Try different analysis methods
 
-See [Getting Started](getting_started.md) for analysis workflows!
+See [Getting Started](../getting-started/README.md) for analysis workflows!
