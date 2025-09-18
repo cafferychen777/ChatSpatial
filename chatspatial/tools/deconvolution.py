@@ -1234,6 +1234,10 @@ async def deconvolve_destvi(
         Tuple of (proportions DataFrame, statistics dictionary)
     """
     try:
+        # Check if scvi-tools is available
+        if scvi is None:
+            raise ImportError("scvi-tools package is not installed. Please install it with 'pip install scvi-tools'")
+        
         # Validate inputs
         common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, 100)
         
@@ -1268,22 +1272,19 @@ async def deconvolve_destvi(
             batch_key=None  # Explicitly set to None for single-batch data
         )
         
-        # Create CondSCVI model with official parameters
+        # Create CondSCVI model (compatible with scvi-tools 1.3.0)
         condscvi_model = scvi.model.CondSCVI(
             ref_data,
             n_hidden=n_hidden,
             n_latent=n_latent,
             n_layers=n_layers,
-            dropout_rate=dropout_rate,
-            use_layer_norm="both",  # Official recommendation
-            use_batch_norm="none"   # Recommended when using layer norm
+            dropout_rate=dropout_rate
         )
         
-        # Train CondSCVI model (fixed GPU syntax)
+        # Train CondSCVI model (scvi-tools 1.3.x compatible syntax)
         condscvi_model.train(
             max_epochs=condscvi_epochs,
-            use_gpu=use_gpu,  # Correct parameter name
-            check_val_every_n_epoch=20,
+            accelerator='gpu' if use_gpu else 'cpu',  # Correct parameter name for 1.3.x
             train_size=0.9
         )
         
@@ -1314,8 +1315,7 @@ async def deconvolve_destvi(
         
         destvi_model.train(
             max_epochs=destvi_epochs,
-            use_gpu=use_gpu,  # Correct parameter name
-            check_val_every_n_epoch=10,
+            accelerator='gpu' if use_gpu else 'cpu',  # Correct parameter name for 1.3.x
             train_size=0.9
         )
         
@@ -1354,8 +1354,7 @@ async def deconvolve_destvi(
             dropout_rate=dropout_rate,
             vamp_prior_p=15,
             l1_reg=10.0,
-            use_layer_norm="both",
-            use_batch_norm="none"
+            scvi_version="1.3.x_compatible"
         )
         
         return proportions_df, stats
