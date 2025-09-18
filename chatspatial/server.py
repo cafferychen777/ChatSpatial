@@ -443,6 +443,63 @@ async def find_markers(
 
 @mcp.tool()
 @mcp_tool_error_handler()
+async def preprocess_velocity_data(
+    data_id: str,
+    min_shared_counts: int = 30,
+    n_top_genes: int = 2000,
+    n_pcs: int = 30,
+    n_neighbors: int = 30,
+    context: Context = None
+) -> PreprocessingResult:
+    """Preprocess data for RNA velocity analysis
+    
+    Args:
+        data_id: Dataset ID
+        min_shared_counts: Minimum shared counts for filtering
+        n_top_genes: Number of top genes to retain
+        n_pcs: Number of principal components
+        n_neighbors: Number of neighbors for moments computation
+        context: MCP context
+        
+    Returns:
+        Processing result
+    """
+    from .tools.trajectory import preprocess_for_velocity
+    from .models.data import RNAVelocityParameters
+    
+    # Validate dataset
+    validate_dataset(data_id)
+    
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    
+    if context:
+        await context.info(f"Preprocessing velocity data with min_shared_counts={min_shared_counts}, n_top_genes={n_top_genes}")
+    
+    # Create parameters object
+    params = RNAVelocityParameters(
+        min_shared_counts=min_shared_counts,
+        n_top_genes=n_top_genes,
+        n_pcs=n_pcs,
+        n_neighbors=n_neighbors
+    )
+    
+    # Preprocess the data using unified function
+    adata = dataset_info["adata"]
+    adata = preprocess_for_velocity(adata, params=params)
+    
+    # Update dataset
+    dataset_info["adata"] = adata
+    data_manager.data_store[data_id] = dataset_info
+    
+    return ProcessingResult(
+        status="success",
+        message=f"Velocity data preprocessed successfully with {n_top_genes} genes",
+        data_id=data_id
+    )
+
+@mcp.tool()
+@mcp_tool_error_handler()
 async def analyze_velocity_data(
     data_id: str,
     params: RNAVelocityParameters = RNAVelocityParameters(),
