@@ -495,35 +495,31 @@ async def _analyze_spatial_patterns(
         )
     except KeyError as e:
         if context:
-            await context.info(f"GASTON DP KeyError {e}, using fallback approach...")
+            await context.error(f"GASTON spatial domain detection failed: {e}")
         
-        # Fallback: reduce num_domains and try again
+        # Try once with reduced domains
         fallback_domains = max(2, min(params.n_domains, 3))
         try:
             gaston_isodepth, gaston_labels = dp_related.get_isodepth_labels(
                 model, A_torch, S_torch, fallback_domains, num_buckets=20
             )
             if context:
-                await context.info(f"Successfully used fallback with {fallback_domains} domains")
+                await context.info(f"GASTON succeeded with reduced {fallback_domains} domains")
         except Exception as e2:
             if context:
-                await context.info(f"GASTON DP fallback also failed: {e2}, using simple labeling")
+                await context.error(f"GASTON domain detection completely failed: {e2}")
             
-            # Final fallback: simple isodepth-based labeling
-            gaston_isodepth = model.spatial_embedding(S_torch).detach().numpy().flatten()
-            N = len(gaston_isodepth)
-            sorted_indices = np.argsort(gaston_isodepth)
-            labels_per_domain = N // fallback_domains
-            gaston_labels = np.zeros(N)
-            
-            for domain in range(fallback_domains):
-                start_idx = domain * labels_per_domain
-                end_idx = (domain + 1) * labels_per_domain if domain < fallback_domains - 1 else N
-                indices_in_domain = sorted_indices[start_idx:end_idx]
-                gaston_labels[indices_in_domain] = domain
+            # Import the ProcessingError 
+            from ..utils.error_handling import ProcessingError
+            raise ProcessingError(
+                f"GASTON spatial domain detection failed. Original error: {str(e)}. "
+                f"Reduced domain attempt error: {str(e2)}. "
+                "Cannot identify reliable spatial domains. Please check data quality or try different parameters."
+            )
 
     if context:
-        await context.info(f"Identified {params.n_domains} spatial domains using GASTON's dp_related.get_isodepth_labels")
+        actual_domains = len(np.unique(gaston_labels))
+        await context.info(f"GASTON identified {actual_domains} spatial domains")
         await context.info(f"Isodepth range: [{gaston_isodepth.min():.3f}, {gaston_isodepth.max():.3f}]")
 
     # Step 2: Get model predictions for performance metrics
