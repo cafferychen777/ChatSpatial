@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/Users/apple/Research/SpatialTrans_MCP/st_mcp_env_py310/bin/python",
-      "args": ["-m", "chatspatial"],
-      "env": {}
-    }
-  }
-}
