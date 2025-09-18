@@ -428,32 +428,29 @@ class SpatialRegistration:
                         raise ValueError("STalign did not return valid transformation components")
                         
                 except Exception as stalign_error:
-                    logger.warning(f"STalign LDDMM failed: {stalign_error}")
-                    logger.info("Falling back to centroid alignment")
-                    
-                    # Fallback: centroid alignment  
-                    source_centroid = source_coords.mean(axis=0)
-                    target_centroid = target_coords.mean(axis=0)
-                    translation = target_centroid - source_centroid
-                    transformed_coords = source_coords + translation
-                
-                # Store registered coordinates
-                registered_list[0].obsm['spatial_stalign'] = transformed_coords
-                registered_list[1].obsm['spatial_stalign'] = target_coords.copy()
-                
-                logger.info("STalign registration completed")
+                    # STalign failed - do not fallback to inferior methods
+                    error_msg = (
+                        f"STalign LDDMM registration failed: {stalign_error}. "
+                        f"STalign requires high-quality spatial data and proper preprocessing. "
+                        f"Please check: 1) Data quality and preprocessing, 2) Spatial coordinate format, "
+                        f"or 3) Consider using PASTE method instead for more robust registration."
+                    )
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
                 
             except Exception as e:
-                logger.error(f"STalign registration failed: {e}")
-                # Fallback to original coordinates
-                for i, adata in enumerate(registered_list):
-                    adata.obsm['spatial_stalign'] = adata.obsm['spatial'].copy()
+                # Re-raise the error instead of masking it with fake success
+                error_msg = f"STalign registration failed: {e}. Please check your data or try PASTE method."
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
                 
         else:
-            logger.warning("STalign currently supports pairwise registration only")
-            # For multiple slices, use identity transformation
-            for adata in registered_list:
-                adata.obsm['spatial_stalign'] = adata.obsm['spatial'].copy()
+            # Explicitly reject multi-slice registration instead of faking it
+            raise NotImplementedError(
+                f"STalign does not support multi-slice registration ({len(registered_list)} slices provided). "
+                f"STalign only supports pairwise registration (2 slices). "
+                f"Please use pairwise registration or switch to PASTE method for multi-slice registration."
+            )
         
         return registered_list
     
