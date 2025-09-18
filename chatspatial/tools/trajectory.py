@@ -83,19 +83,87 @@ def validate_spatial_data(adata, spatial_key: str = 'spatial') -> Tuple[bool, Li
         return False, issues
 
 
-def preprocess_for_velocity(adata):
-    """Prepare data for RNA velocity analysis"""
+def preprocess_for_velocity(adata, min_shared_counts=30, n_top_genes=2000, n_pcs=30, n_neighbors=30, params=None):
+    """Prepare data for RNA velocity analysis
+    
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix
+    min_shared_counts : int, default 30
+        Minimum shared counts for filtering
+    n_top_genes : int, default 2000
+        Number of top genes to retain
+    n_pcs : int, default 30
+        Number of principal components
+    n_neighbors : int, default 30
+        Number of neighbors for moments computation
+    params : RNAVelocityParameters, optional
+        If provided, overrides individual parameters
+    """
     import scvelo as scv
+    
+    # If params object is provided, use its values
+    if params is not None:
+        from ..models.data import RNAVelocityParameters
+        if isinstance(params, RNAVelocityParameters):
+            min_shared_counts = params.min_shared_counts
+            n_top_genes = params.n_top_genes
+            n_pcs = params.n_pcs
+            n_neighbors = params.n_neighbors
 
     # Validate velocity data
     is_valid, issues = validate_velocity_data(adata)
     if not is_valid:
         raise ValueError(f"Invalid velocity data: {'; '.join(issues)}")
 
-    # Standard preprocessing
-    scv.pp.filter_and_normalize(adata)
-    scv.pp.moments(adata)
+    # Standard preprocessing with configurable parameters
+    scv.pp.filter_and_normalize(adata, min_shared_counts=min_shared_counts, n_top_genes=n_top_genes)
+    scv.pp.moments(adata, n_pcs=n_pcs, n_neighbors=n_neighbors)
 
+    return adata
+
+
+def compute_rna_velocity(adata, mode='stochastic', params=None):
+    """Compute RNA velocity including preprocessing
+    
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix with spliced/unspliced layers
+    mode : str, default 'stochastic'
+        Velocity computation mode: 'stochastic', 'deterministic', or 'dynamical'
+    params : RNAVelocityParameters, optional
+        Parameters for preprocessing and velocity computation
+        
+    Returns
+    -------
+    AnnData
+        Data with computed velocity
+    """
+    import scvelo as scv
+    
+    # Use params for mode if provided
+    if params is not None:
+        from ..models.data import RNAVelocityParameters
+        if isinstance(params, RNAVelocityParameters):
+            mode = params.mode
+    
+    # Check if preprocessing is needed
+    if 'Ms' not in adata.layers or 'Mu' not in adata.layers:
+        # Run preprocessing
+        adata = preprocess_for_velocity(adata, params=params)
+    
+    # Compute velocity based on mode
+    if mode == 'dynamical':
+        scv.tl.recover_dynamics(adata)
+        scv.tl.velocity(adata, mode='dynamical')
+    else:
+        scv.tl.velocity(adata, mode=mode)
+    
+    # Compute velocity graph
+    scv.tl.velocity_graph(adata)
+    
     return adata
 
 
@@ -323,8 +391,19 @@ def spatial_aware_embedding(adata, spatial_weight=0.3):
     return adata
 
 
-def infer_pseudotime_palantir(adata, root_cells=None):
+def infer_pseudotime_palantir(adata, root_cells=None, n_diffusion_components=10, num_waypoints=500):
     """Infer pseudotime based on spatial pattern using Palantir.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix
+    root_cells : list of str, optional
+        List of root cell IDs for trajectory
+    n_diffusion_components : int, default 10
+        Number of diffusion components
+    num_waypoints : int, default 500
+        Number of waypoints for Palantir
     
     Raises exceptions directly if Palantir fails - no fallback logic.
     """
@@ -342,8 +421,8 @@ def infer_pseudotime_palantir(adata, root_cells=None):
     # Convert PCA projections to DataFrame for Palantir
     pca_df = pd.DataFrame(adata.obsm['X_pca'], index=adata.obs_names)
 
-    # Run diffusion maps
-    dm_res = palantir.utils.run_diffusion_maps(pca_df, n_components=10)
+    # Run diffusion maps with configurable components
+    dm_res = palantir.utils.run_diffusion_maps(pca_df, n_components=n_diffusion_components)
 
     # Determine multiscale space
     ms_data = pd.DataFrame(
@@ -360,8 +439,8 @@ def infer_pseudotime_palantir(adata, root_cells=None):
         # Use the cell at the extreme of the first diffusion component
         start_cell = ms_data.iloc[:, 0].idxmax()
 
-    # Run Palantir
-    pr_res = palantir.core.run_palantir(ms_data, start_cell)
+    # Run Palantir with configurable waypoints
+    pr_res = palantir.core.run_palantir(ms_data, start_cell, num_waypoints=num_waypoints)
 
     # Store pseudotime and branch probabilities
     adata.obs['palantir_pseudotime'] = pr_res.pseudotime
@@ -414,15 +493,12 @@ def compute_dpt_fallback(adata, root_cells=None):
             import scanpy as sc
             sc.tl.dpt(adata)
         except Exception as e:
-            # If DPT fails, create a simple pseudotime based on diffusion components
-            if 'X_diffmap' in adata.obsm:
-                # Use first diffusion component as pseudotime
-                pseudotime = adata.obsm['X_diffmap'][:, 0]
-                # Normalize to [0, 1]
-                pseudotime = (pseudotime - pseudotime.min()) / (pseudotime.max() - pseudotime.min())
-                adata.obs['dpt_pseudotime'] = pseudotime
-            else:
-                raise RuntimeError(f"Failed to compute DPT and no diffusion map available: {e}")
+            # DPT computation failed - do not create fake pseudotime
+            raise RuntimeError(
+                f"Standard DPT computation failed: {e}. "
+                "This indicates a problem with the data preprocessing or diffusion map computation. "
+                "Please check that PCA, neighbors, and diffusion map were computed correctly."
+            )
     
     # Check if dpt_pseudotime was created
     if 'dpt_pseudotime' not in adata.obs.columns:
@@ -485,10 +561,10 @@ async def analyze_rna_velocity(
                 if context:
                     await context.info("Found spliced/unspliced layers. Computing velocity directly.")
                 
-                # Validate preprocessing and velocity computation
-                # Note: validate_velocity_preprocessing function was renamed, 
-                # this validation is now integrated into validate_rna_velocity_computation
-                adata = validate_rna_velocity_computation(adata, mode=params.mode)
+                # Use unified velocity computation
+                if context:
+                    await context.info("Computing RNA velocity...")
+                adata = compute_rna_velocity(adata, params=params)
                 velocity_computed = True
                 
             elif params.reference_data_id:
@@ -588,7 +664,7 @@ async def analyze_trajectory(
         except Exception as cellrank_error:
             if context:
                 await context.warning(f"CellRank analysis failed: {cellrank_error}")
-                await context.info("Falling back to Palantir method...")
+                await context.info("🔄 Falling back to Palantir method (still advanced, but different algorithm)")
             # Log the full traceback for debugging (if logger available)
             import traceback
             try:
@@ -608,8 +684,13 @@ async def analyze_trajectory(
                 # Run spatially-aware embedding
                 adata = spatial_aware_embedding(adata, spatial_weight=params.spatial_weight)
                 
-                # Run Palantir
-                adata = infer_pseudotime_palantir(adata, root_cells=params.root_cells)
+                # Run Palantir with configurable parameters
+                adata = infer_pseudotime_palantir(
+                    adata, 
+                    root_cells=params.root_cells,
+                    n_diffusion_components=params.palantir_n_diffusion_components,
+                    num_waypoints=params.palantir_num_waypoints
+                )
                 
             pseudotime_key = 'palantir_pseudotime'
             method_used = "palantir"
@@ -622,9 +703,12 @@ async def analyze_trajectory(
             
             if context:
                 await context.warning(f"Palantir analysis failed: {palantir_error}")
-                await context.info("Falling back to Diffusion Pseudotime (DPT)...")
+                await context.warning("⚠️  IMPORTANT: Falling back to Diffusion Pseudotime (DPT)")
+                await context.warning("   DPT (Haghverdi et al. 2016) is a valid but older method with known limitations")
+                await context.warning("   DPT may show bias toward certain cell populations and mask biological variation")
+                await context.warning("   Results will be less sophisticated than modern Palantir/CellRank methods")
             
-            # Final fallback: DPT
+            # Final fallback: DPT with clear warnings
             try:
                 with suppress_output():
                     adata = compute_dpt_fallback(adata, root_cells=params.root_cells)
@@ -632,7 +716,8 @@ async def analyze_trajectory(
                 pseudotime_key = 'dpt_pseudotime'
                 method_used = "dpt"
                 if context:
-                    await context.info("DPT fallback analysis completed successfully.")
+                    await context.info("✅ DPT fallback analysis completed")
+                    await context.warning("⚠️  Remember: Results are from basic DPT, not advanced trajectory methods")
                     
             except Exception as dpt_error:
                 raise ProcessingError(f"All trajectory inference methods failed. Last error (DPT): {dpt_error}") from dpt_error
@@ -644,6 +729,11 @@ async def analyze_trajectory(
     # Update data store
     data_store[data_id]["adata"] = adata
 
+    # Determine if fallback was used
+    requested_method = params.method if hasattr(params, 'method') else "cellrank"
+    fallback_used = (method_used == "dpt" and requested_method != "dpt") or \
+                   (method_used == "palantir" and requested_method == "cellrank")
+    
     # Return result with metadata only (no visualization)
     return TrajectoryResult(
         data_id=data_id,
@@ -651,7 +741,8 @@ async def analyze_trajectory(
         velocity_computed=has_velocity,
         pseudotime_key=pseudotime_key,
         method=method_used,
-        spatial_weight=params.spatial_weight
+        spatial_weight=params.spatial_weight,
+        method_fallback_used=fallback_used
     )
 
 
