@@ -50,6 +50,41 @@ from ..models.analysis import DeconvolutionResult
 # No longer need local context manager utilities - using centralized version
 
 
+def _apply_cell2location_compatibility_fix():
+    """
+    Apply compatibility fix for cell2location + scvi-tools version mismatch.
+    
+    Fixes the issue where cell2location 0.1.4 tries to import 'one_hot' from scvi.nn
+    but scvi-tools >= 1.1.0 moved it to torch.nn.functional.
+    
+    This is a non-invasive monkey patch that enables old cell2location to work
+    with new scvi-tools versions.
+    """
+    try:
+        # Check if torch is available
+        import torch.nn.functional as F
+        if not hasattr(F, 'one_hot'):
+            return False
+            
+        # Import scvi modules
+        import scvi
+        import scvi.nn
+        import scvi.nn._utils
+        
+        # Apply patches if needed
+        if not hasattr(scvi.nn, 'one_hot'):
+            scvi.nn.one_hot = F.one_hot
+            
+        if not hasattr(scvi.nn._utils, 'one_hot'):
+            scvi.nn._utils.one_hot = F.one_hot
+            
+        return True
+        
+    except Exception:
+        # Silent fallback - don't break if this fails
+        return False
+
+
 # Helper functions to eliminate redundancy
 
 
@@ -239,6 +274,9 @@ def deconvolve_cell2location(
     # Import cell2location using dependency manager
     from ..utils.dependency_manager import require
     try:
+        # Apply compatibility fix for cell2location + scvi-tools version mismatch
+        _apply_cell2location_compatibility_fix()
+        
         cell2location_mod = require('cell2location', 'cell2location deconvolution')
         from cell2location.models import RegressionModel, Cell2location
     except ImportError as e:
@@ -260,6 +298,12 @@ def deconvolve_cell2location(
         # Subset to common genes
         ref = ref[:, common_genes]
         sp = sp[:, common_genes]
+        
+        # Ensure data is float32 for cell2location compatibility
+        if ref.X.dtype != np.float32:
+            ref.X = ref.X.astype(np.float32)
+        if sp.X.dtype != np.float32:
+            sp.X = sp.X.astype(np.float32)
 
         # Log progress
         print(f"Training cell2location model with {len(common_genes)} common genes and {len(ref.obs[cell_type_key].unique())} cell types")
@@ -450,16 +494,18 @@ def is_rctd_available() -> Tuple[bool, str]:
         from rpy2.robjects import pandas2ri
         from rpy2.robjects.conversion import localconverter
         
-        # Test R connection
+        # Test R connection with proper converter context
         try:
-            ro.r('R.version.string')
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                ro.r('R.version.string')
         except Exception as e:
             return False, f"R is not accessible: {str(e)}"
             
         # Try to install/load spacexr package
         try:
-            # Check if spacexr is installed
-            ro.r('library(spacexr)')
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                # Check if spacexr is installed
+                ro.r('library(spacexr)')
         except Exception as e:
             return False, f"spacexr R package is not installed or failed to load: {str(e)}. Install with: install.packages('devtools'); devtools::install_github('dmcable/spacexr', build_vignettes = FALSE)"
             
@@ -514,13 +560,10 @@ def deconvolve_rctd(
     import rpy2.robjects.packages as rpackages
     
     try:
-        # Activate converters
-        pandas2ri.activate()
-        numpy2ri.activate()
-        
-        # Load required R packages
-        rpackages.importr('spacexr')
-        rpackages.importr('base')
+        # Load required R packages with proper converter context
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            rpackages.importr('spacexr')
+            rpackages.importr('base')
         
         print(f"Running RCTD deconvolution with {len(common_genes)} common genes and mode '{mode}'")
         print(f"Spatial data shape: {spatial_adata.shape}, Reference data shape: {reference_adata.shape}")
@@ -589,7 +632,7 @@ def deconvolve_rctd(
         
         print("Converting data to R format...")
         
-        # Convert data to R format using localconverter
+        # All R operations need to be within the converter context
         with localconverter(ro.default_converter + pandas2ri.converter):
             # Convert spatial data
             r_spatial_counts = ro.conversion.py2rpy(spatial_counts)
@@ -600,135 +643,76 @@ def deconvolve_rctd(
             r_reference_counts = ro.conversion.py2rpy(reference_counts)
             r_cell_types = ro.conversion.py2rpy(cell_types_series)
             r_reference_numi = ro.conversion.py2rpy(reference_numi)
-        
-        # Create SpatialRNA object
-        print("Creating SpatialRNA object...")
-        ro.globalenv['spatial_counts'] = r_spatial_counts
-        ro.globalenv['coords'] = r_coords
-        ro.globalenv['numi_spatial'] = r_spatial_numi
-        
-        puck = ro.r('''
-        SpatialRNA(coords, spatial_counts, numi_spatial)
-        ''')
-        
-        # Create Reference object
-        print("Creating Reference object...")
-        ro.globalenv['reference_counts'] = r_reference_counts
-        ro.globalenv['cell_types_vec'] = r_cell_types
-        ro.globalenv['numi_ref'] = r_reference_numi
-        
-        # Convert cell_types to factor as required by RCTD, and set min_UMI lower for testing
-        reference = ro.r('''
-        cell_types_factor <- as.factor(cell_types_vec)
-        names(cell_types_factor) <- names(cell_types_vec)
-        Reference(reference_counts, cell_types_factor, numi_ref, min_UMI = 5)
-        ''')
-        
-        # Create RCTD object
-        print("Creating RCTD object...")
-        ro.globalenv['puck'] = puck
-        ro.globalenv['reference'] = reference
-        ro.globalenv['max_cores_val'] = max_cores
-        
-        myRCTD = ro.r('''
-        create.RCTD(puck, reference, max_cores = 1, UMI_min_sigma = 10)
-        ''')
-        
-        # Set RCTD parameters
-        ro.globalenv['myRCTD'] = myRCTD
-        ro.globalenv['rctd_mode'] = mode
-        ro.globalenv['conf_thresh'] = confidence_threshold
-        ro.globalenv['doub_thresh'] = doublet_threshold
-        
-        ro.r('''
-        myRCTD@config$CONFIDENCE_THRESHOLD <- conf_thresh
-        myRCTD@config$DOUBLET_THRESHOLD <- doub_thresh
-        ''')
-        
-        # Run RCTD using the unified run.RCTD function
-        print(f"Running RCTD in {mode} mode...")
-        myRCTD = ro.r('''
-        myRCTD <- run.RCTD(myRCTD, doublet_mode = rctd_mode)
-        myRCTD
-        ''')
-        
-        # Extract results
-        print("Extracting results...")
-        if mode == 'full':
-            # For full mode, get weights matrix and cell type names
-            ro.r('''
-            weights_matrix <- myRCTD@results$weights
-            cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
-            spot_names <- rownames(weights_matrix)
+            
+            # Create SpatialRNA object
+            print("Creating SpatialRNA object...")
+            ro.globalenv['spatial_counts'] = r_spatial_counts
+            ro.globalenv['coords'] = r_coords
+            ro.globalenv['numi_spatial'] = r_spatial_numi
+            
+            puck = ro.r('''
+            SpatialRNA(coords, spatial_counts, numi_spatial)
             ''')
             
-            weights_r = ro.r('as.matrix(weights_matrix)')
-            cell_type_names_r = ro.r('cell_type_names')
-            spot_names_r = ro.r('spot_names')
+            # Create Reference object
+            print("Creating Reference object...")
+            ro.globalenv['reference_counts'] = r_reference_counts
+            ro.globalenv['cell_types_vec'] = r_cell_types
+            ro.globalenv['numi_ref'] = r_reference_numi
             
-            # Convert back to pandas
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                weights_array = ro.conversion.rpy2py(weights_r)
-                cell_type_names = ro.conversion.rpy2py(cell_type_names_r)
-                spot_names = ro.conversion.rpy2py(spot_names_r)
+            # Convert cell_types to factor as required by RCTD, and set min_UMI lower for testing
+            reference = ro.r('''
+            cell_types_factor <- as.factor(cell_types_vec)
+            names(cell_types_factor) <- names(cell_types_vec)
+            Reference(reference_counts, cell_types_factor, numi_ref, min_UMI = 5)
+            ''')
             
-            # Create DataFrame with proper index and column names
-            proportions = pd.DataFrame(
-                weights_array,
-                index=spot_names,
-                columns=cell_type_names
-            )
+            # Create RCTD object
+            print("Creating RCTD object...")
+            ro.globalenv['puck'] = puck
+            ro.globalenv['reference'] = reference
+            ro.globalenv['max_cores_val'] = max_cores
             
-        else:
-            # For doublet/multi mode, extract cell type assignments and weights
-            try:
+            myRCTD = ro.r('''
+            create.RCTD(puck, reference, max_cores = 1, UMI_min_sigma = 10)
+            ''')
+            
+            # Set RCTD parameters
+            ro.globalenv['myRCTD'] = myRCTD
+            ro.globalenv['rctd_mode'] = mode
+            ro.globalenv['conf_thresh'] = confidence_threshold
+            ro.globalenv['doub_thresh'] = doublet_threshold
+            
+            ro.r('''
+            myRCTD@config$CONFIDENCE_THRESHOLD <- conf_thresh
+            myRCTD@config$DOUBLET_THRESHOLD <- doub_thresh
+            ''')
+            
+            # Run RCTD using the unified run.RCTD function
+            print(f"Running RCTD in {mode} mode...")
+            myRCTD = ro.r('''
+            myRCTD <- run.RCTD(myRCTD, doublet_mode = rctd_mode)
+            myRCTD
+            ''')
+        
+            # Extract results
+            print("Extracting results...")
+            if mode == 'full':
+                # For full mode, get weights matrix and cell type names
                 ro.r('''
-                # Extract results for doublet/multi mode
-                results_list <- myRCTD@results
-                spot_names <- names(results_list)
+                weights_matrix <- myRCTD@results$weights
                 cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
-                n_spots <- length(spot_names)
-                n_cell_types <- length(cell_type_names)
-                
-                # Initialize weights matrix
-                weights_matrix <- matrix(0, nrow = n_spots, ncol = n_cell_types)
-                rownames(weights_matrix) <- spot_names
-                colnames(weights_matrix) <- cell_type_names
-                
-                # Fill in weights for each spot with better error handling
-                for(i in 1:n_spots) {
-                    spot_result <- results_list[[i]]
-                    if(!is.null(spot_result)) {
-                        # Check if weights_doublet exists for doublet mode results
-                        if(!is.null(myRCTD@results$weights_doublet)) {
-                            doublet_weights <- myRCTD@results$weights_doublet
-                            if(spot_names[i] %in% rownames(doublet_weights)) {
-                                weights_matrix[i, ] <- doublet_weights[spot_names[i], ]
-                            }
-                        } else {
-                            # For other cases, try to use available weight info
-                            if(is.list(spot_result)) {
-                                # Try to extract weights based on available slots
-                                if("all_weights" %in% names(spot_result) && !is.null(spot_result$all_weights)) {
-                                    if(length(spot_result$all_weights) == n_cell_types) {
-                                        weights_matrix[i, ] <- spot_result$all_weights
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                spot_names <- rownames(weights_matrix)
                 ''')
                 
-                weights_r = ro.r('weights_matrix')
+                weights_r = ro.r('as.matrix(weights_matrix)')
                 cell_type_names_r = ro.r('cell_type_names')
                 spot_names_r = ro.r('spot_names')
                 
                 # Convert back to pandas
-                with localconverter(ro.default_converter + pandas2ri.converter):
-                    weights_array = ro.conversion.rpy2py(weights_r)
-                    cell_type_names = ro.conversion.rpy2py(cell_type_names_r)
-                    spot_names = ro.conversion.rpy2py(spot_names_r)
+                weights_array = ro.conversion.rpy2py(weights_r)
+                cell_type_names = ro.conversion.rpy2py(cell_type_names_r)
+                spot_names = ro.conversion.rpy2py(spot_names_r)
                 
                 # Create DataFrame with proper index and column names
                 proportions = pd.DataFrame(
@@ -736,24 +720,104 @@ def deconvolve_rctd(
                     index=spot_names,
                     columns=cell_type_names
                 )
-                
-            except Exception as e:
-                print(f"Warning: Failed to extract detailed results for {mode} mode: {str(e)}")
-                print("Using simplified extraction...")
-                
-                # Fallback: create minimal proportions matrix
-                n_spots = spatial_data.n_obs
-                n_cell_types = len(reference_data.obs[cell_type_key].unique())
-                cell_type_names = reference_data.obs[cell_type_key].unique()
-                
-                # Initialize with equal proportions as fallback
-                weights_array = np.ones((n_spots, n_cell_types)) / n_cell_types
-                
-                proportions = pd.DataFrame(
-                    weights_array,
-                    index=spatial_data.obs_names,
-                    columns=cell_type_names
-                )
+            
+            else:
+                # For doublet/multi mode, use official structure
+                try:
+                    if mode == 'doublet':
+                        # For doublet mode, use weights_doublet and results_df (official structure)
+                        ro.r('''
+                        # Extract official doublet mode results
+                        if("weights_doublet" %in% names(myRCTD@results) && "results_df" %in% names(myRCTD@results)) {
+                            # Get official doublet weights matrix and results dataframe
+                            weights_doublet <- myRCTD@results$weights_doublet
+                            results_df <- myRCTD@results$results_df
+                            
+                            # Get all cell type names
+                            cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
+                            spot_names <- rownames(results_df)
+                            n_spots <- length(spot_names)
+                            n_cell_types <- length(cell_type_names)
+                            
+                            # Initialize full weights matrix
+                            weights_matrix <- matrix(0, nrow = n_spots, ncol = n_cell_types)
+                            rownames(weights_matrix) <- spot_names
+                            colnames(weights_matrix) <- cell_type_names
+                            
+                            # Fill weights based on doublet results
+                            for(i in 1:n_spots) {
+                                spot_class <- results_df$spot_class[i]
+                                
+                                if(spot_class %in% c("doublet_certain", "doublet_uncertain")) {
+                                    # For doublet spots, use first_type and second_type with doublet weights
+                                    first_type <- as.character(results_df$first_type[i])
+                                    second_type <- as.character(results_df$second_type[i])
+                                    
+                                    if(first_type %in% cell_type_names) {
+                                        first_idx <- which(cell_type_names == first_type)
+                                        weights_matrix[i, first_idx] <- weights_doublet[i, "first_type"]
+                                    }
+                                    if(second_type %in% cell_type_names && second_type != first_type) {
+                                        second_idx <- which(cell_type_names == second_type)
+                                        weights_matrix[i, second_idx] <- weights_doublet[i, "second_type"]
+                                    }
+                                } else if(spot_class == "singlet") {
+                                    # For singlet spots, assign 100% to first_type
+                                    first_type <- as.character(results_df$first_type[i])
+                                    if(first_type %in% cell_type_names) {
+                                        first_idx <- which(cell_type_names == first_type)
+                                        weights_matrix[i, first_idx] <- 1.0
+                                    }
+                                }
+                                # For "reject" spots, leave as zeros
+                            }
+                        } else {
+                            stop("Official doublet mode structures (weights_doublet, results_df) not found")
+                        }
+                        ''')
+                    else:
+                        # For multi mode, use the old logic (or implement proper multi mode later)
+                        ro.r('''
+                        # Extract results for multi mode (fallback to old logic)
+                        results_list <- myRCTD@results
+                        spot_names <- names(results_list)
+                        cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
+                        n_spots <- length(spot_names)
+                        n_cell_types <- length(cell_type_names)
+                        
+                        # Initialize weights matrix
+                        weights_matrix <- matrix(0, nrow = n_spots, ncol = n_cell_types)
+                        rownames(weights_matrix) <- spot_names
+                        colnames(weights_matrix) <- cell_type_names
+                        
+                        # Fill in weights for multi mode (implement later if needed)
+                        # For now, this will fail gracefully
+                        stop("Multi mode not yet properly implemented")
+                        ''')
+                    
+                    weights_r = ro.r('weights_matrix')
+                    cell_type_names_r = ro.r('cell_type_names')
+                    spot_names_r = ro.r('spot_names')
+                    
+                    # Convert back to pandas (already in converter context)
+                    weights_array = ro.conversion.rpy2py(weights_r)
+                    cell_type_names = ro.conversion.rpy2py(cell_type_names_r)
+                    spot_names = ro.conversion.rpy2py(spot_names_r)
+                    
+                    # Create DataFrame with proper index and column names
+                    proportions = pd.DataFrame(
+                        weights_array,
+                        index=spot_names,
+                        columns=cell_type_names
+                    )
+                        
+                except Exception as e:
+                    print(f"❌ CRITICAL: Failed to extract detailed results for {mode} mode: {str(e)}")
+                    print("📍 Exception details:")
+                    import traceback
+                    traceback.print_exc()
+                    # Re-raise the exception instead of using misleading fallback
+                    raise RuntimeError(f"RCTD {mode} mode result extraction failed: {str(e)}") from e
         
         # Normalize proportions to sum to 1 if needed
         row_sums = proportions.sum(axis=1)
@@ -779,13 +843,7 @@ def deconvolve_rctd(
         error_msg = str(e)
         tb = traceback.format_exc()
         raise RuntimeError(f"RCTD deconvolution failed: {error_msg}\n{tb}")
-    finally:
-        # Deactivate converters
-        try:
-            pandas2ri.deactivate()
-            numpy2ri.deactivate()
-        except Exception:  # nosec B110 - Specific exception handling for R interface cleanup
-            pass
+    # Note: No finally block needed with localconverter context managers
 
 
 
@@ -1456,10 +1514,10 @@ def deconvolve_spotlight(
     try:
         import rpy2.robjects as ro
         from rpy2.robjects import pandas2ri
+        from rpy2.robjects.conversion import localconverter
         from rpy2.robjects.packages import importr
-        pandas2ri.activate()
         
-        # Import R packages
+        # Import R packages (no need for global activation in modern rpy2)
         spotlight = importr('SPOTlight')
         base = importr('base')
         
@@ -1592,19 +1650,21 @@ def deconvolve_spotlight(
         print(paste("Deconvolution completed with", n_types, "cell types"))
         ''')
         
-        # Get the result
-        result = ro.r('spotlight_result')
-        
-        # Extract proportions - we know it's in the 'mat' element
-        proportions_r = ro.r('spotlight_result$mat')
-        
-        # Convert to pandas DataFrame
-        # Get the matrix as numpy array first
-        proportions_np = np.array(proportions_r)
-        
-        # Get row and column names
-        row_names = list(ro.r('rownames(spotlight_result$mat)'))
-        col_names = list(ro.r('colnames(spotlight_result$mat)'))
+        # Extract results using localconverter for safety
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            # Get the result
+            result = ro.r('spotlight_result')
+            
+            # Extract proportions - we know it's in the 'mat' element
+            proportions_r = ro.r('spotlight_result$mat')
+            
+            # Convert to pandas DataFrame
+            # Get the matrix as numpy array first
+            proportions_np = np.array(proportions_r)
+            
+            # Get row and column names
+            row_names = list(ro.r('rownames(spotlight_result$mat)'))
+            col_names = list(ro.r('colnames(spotlight_result$mat)'))
         
         # Create DataFrame
         proportions = pd.DataFrame(
