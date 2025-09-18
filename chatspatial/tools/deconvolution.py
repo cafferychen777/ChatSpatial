@@ -901,7 +901,7 @@ async def deconvolve_spatial_data(
 
         # Load and validate reference data ONCE for methods that need it
         reference_adata = None
-        if params.method in ["cell2location", "rctd", "destvi", "stereoscope", "tangram", "mrvi"]:
+        if params.method in ["cell2location", "rctd", "destvi", "stereoscope", "tangram", "mrvi", "spotlight"]:
             if not params.reference_data_id:
                 raise ValueError(f"Reference data is required for method '{params.method}'. Please provide reference_data_id.")
             
@@ -943,7 +943,8 @@ async def deconvolve_spatial_data(
             "stereoscope": ["scvi-tools", "torch"],
             "tangram": ["scvi-tools", "torch"],
             "mrvi": ["scvi-tools", "torch"],
-            "rctd": ["rpy2"]  # R-based method
+            "rctd": ["rpy2"],  # R-based method
+            "spotlight": ["rpy2"]  # R-based method
         }
         
         # Get available methods
@@ -1499,7 +1500,10 @@ def deconvolve_spotlight(
     n_top_genes: int = 2000,
     min_common_genes: int = 100
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """Deconvolve spatial data using SPOTlight (R package via rpy2)
+    """Deconvolve spatial data using official SPOTlight R package
+    
+    This function implements the official SPOTlight workflow using proper
+    SingleCellExperiment and SpatialExperiment objects as required by the API.
     
     Args:
         spatial_adata: Spatial transcriptomics AnnData object
@@ -1513,13 +1517,11 @@ def deconvolve_spotlight(
     """
     try:
         import rpy2.robjects as ro
-        from rpy2.robjects import pandas2ri
+        from rpy2.robjects import pandas2ri, numpy2ri
         from rpy2.robjects.conversion import localconverter
         from rpy2.robjects.packages import importr
         
-        # Import R packages (no need for global activation in modern rpy2)
-        spotlight = importr('SPOTlight')
-        base = importr('base')
+        print(f"Running SPOTlight deconvolution with {n_top_genes} top genes...")
         
         # Validate inputs
         common_genes = _validate_deconvolution_inputs(
@@ -1530,156 +1532,197 @@ def deconvolve_spotlight(
         spatial_subset = spatial_adata[:, common_genes].copy()
         reference_subset = reference_adata[:, common_genes].copy()
         
-        # Prepare data for R
-        # Convert to raw counts if needed
-        if 'counts' in spatial_subset.layers:
-            spatial_counts = spatial_subset.layers['counts']
-        else:
-            spatial_counts = spatial_subset.X
-            
-        if 'counts' in reference_subset.layers:
-            ref_counts = reference_subset.layers['counts']
-        else:
-            ref_counts = reference_subset.X
+        # Check for spatial coordinates
+        if 'spatial' not in spatial_subset.obsm:
+            raise ValueError(
+                "No spatial coordinates found in spatial_adata.obsm['spatial']. "
+                "SPOTlight requires spatial coordinates for proper analysis."
+            )
+        
+        # Prepare data for R using proper counts
+        spatial_counts = _prepare_anndata_for_counts(spatial_subset, "Spatial").X
+        reference_counts = _prepare_anndata_for_counts(reference_subset, "Reference").X
         
         # Convert to dense if sparse
         if hasattr(spatial_counts, 'toarray'):
             spatial_counts = spatial_counts.toarray()
-        if hasattr(ref_counts, 'toarray'):
-            ref_counts = ref_counts.toarray()
+        if hasattr(reference_counts, 'toarray'):
+            reference_counts = reference_counts.toarray()
         
-        # Create DataFrames
-        spatial_df = pd.DataFrame(
-            spatial_counts.T,
-            index=common_genes,
-            columns=spatial_subset.obs_names
-        )
+        # Ensure integer counts
+        spatial_counts = spatial_counts.astype(int)
+        reference_counts = reference_counts.astype(int)
         
-        ref_df = pd.DataFrame(
-            ref_counts.T,
-            index=common_genes,
-            columns=reference_subset.obs_names
-        )
+        # Get spatial coordinates
+        spatial_coords = spatial_subset.obsm['spatial']
         
         # Cell type labels
         cell_types = reference_subset.obs[cell_type_key].astype(str)
         
-        # Convert to R objects
-        r_spatial = ro.r.matrix(spatial_counts.T, nrow=spatial_counts.shape[1], ncol=spatial_counts.shape[0])
-        r_ref = ro.r.matrix(ref_counts.T, nrow=ref_counts.shape[1], ncol=ref_counts.shape[0])
+        print(f"Using {len(common_genes)} common genes for deconvolution")
+        print(f"Spatial data: {spatial_subset.shape}")
+        print(f"Reference data: {reference_subset.shape}")
+        print(f"Cell types: {cell_types.unique()}")
         
-        # Set row and column names
-        ro.r.assign('spatial_mat', r_spatial)
-        ro.r.assign('ref_mat', r_ref)
-        ro.r.assign('gene_names', ro.StrVector(list(common_genes)))
-        ro.r.assign('spatial_names', ro.StrVector(list(spatial_subset.obs_names)))
-        ro.r.assign('ref_names', ro.StrVector(list(reference_subset.obs_names)))
-        
-        ro.r('rownames(spatial_mat) <- gene_names')
-        ro.r('colnames(spatial_mat) <- spatial_names')
-        ro.r('rownames(ref_mat) <- gene_names')
-        ro.r('colnames(ref_mat) <- ref_names')
-        
-        # Cell types vector
-        ro.r.assign('cell_types_vec', ro.StrVector(cell_types.tolist()))
-        ro.r('names(cell_types_vec) <- ref_names')
-        
-        # Run SPOTlight using the actual package functions
-        print(f"Running SPOTlight deconvolution with {len(common_genes)} common genes...")
-        
-        # Execute SPOTlight workflow with a simpler approach
-        # Based on the fact that SPOTlight essentially does NMF-based deconvolution
-        ro.r('''
-        library(SPOTlight)
-        library(Matrix)
-        library(NMF)
-        
-        # Simple NMF-based deconvolution similar to SPOTlight's core
-        # This avoids the complex API issues
-        
-        # Calculate cell type signatures
-        cell_types_unique <- unique(cell_types_vec)
-        n_types <- length(cell_types_unique)
-        
-        # Create signature matrix (genes x cell types)
-        sig_mat <- matrix(0, nrow = nrow(ref_mat), ncol = n_types)
-        rownames(sig_mat) <- rownames(ref_mat)
-        colnames(sig_mat) <- cell_types_unique
-        
-        # Calculate mean expression for each cell type
-        for (i in 1:n_types) {
-            ct <- cell_types_unique[i]
-            cells_idx <- which(cell_types_vec == ct)
-            if (length(cells_idx) > 0) {
-                sig_mat[, i] <- rowMeans(ref_mat[, cells_idx, drop = FALSE])
+        # Execute SPOTlight using the official API in converter context
+        with localconverter(ro.default_converter + pandas2ri.converter + numpy2ri.converter):
+            # Import required R packages
+            ro.r('library(SPOTlight)')
+            ro.r('library(SingleCellExperiment)')
+            ro.r('library(SpatialExperiment)')
+            ro.r('library(scran)')
+            ro.r('library(scuttle)')
+            
+            # Convert data to R
+            ro.globalenv['spatial_counts'] = spatial_counts.T  # genes x spots
+            ro.globalenv['reference_counts'] = reference_counts.T  # genes x cells
+            ro.globalenv['spatial_coords'] = spatial_coords
+            ro.globalenv['gene_names'] = ro.StrVector(common_genes)
+            ro.globalenv['spatial_names'] = ro.StrVector(list(spatial_subset.obs_names))
+            ro.globalenv['reference_names'] = ro.StrVector(list(reference_subset.obs_names))
+            ro.globalenv['cell_types'] = ro.StrVector(cell_types.tolist())
+            
+            # Create SingleCellExperiment and SpatialExperiment objects
+            ro.r('''
+            print("Creating SingleCellExperiment object...")
+            
+            # Create SCE object for reference data
+            sce <- SingleCellExperiment(
+                assays = list(counts = as.matrix(reference_counts)),
+                colData = data.frame(
+                    cell_type = factor(cell_types),
+                    row.names = reference_names
+                )
+            )
+            rownames(sce) <- gene_names
+            
+            # Add logcounts
+            sce <- logNormCounts(sce)
+            
+            print("Creating SpatialExperiment object...")
+            
+            # Create SPE object for spatial data
+            spe <- SpatialExperiment(
+                assays = list(counts = as.matrix(spatial_counts)),
+                spatialCoords = spatial_coords,
+                colData = data.frame(row.names = spatial_names)
+            )
+            rownames(spe) <- gene_names
+            colnames(spe) <- spatial_names
+            
+            print("Detecting marker genes...")
+            
+            # Find marker genes using scran
+            markers <- findMarkers(sce, groups = sce$cell_type, test.type = "wilcox")
+            
+            # Format marker genes for SPOTlight
+            cell_type_names <- names(markers)
+            mgs_list <- list()
+            
+            for (ct in cell_type_names) {
+                ct_markers <- markers[[ct]]
+                # Get top markers for each cell type
+                n_markers <- min(50, nrow(ct_markers))
+                top_markers <- head(ct_markers[order(ct_markers$p.value), ], n_markers)
+                
+                mgs_df <- data.frame(
+                    gene = rownames(top_markers),
+                    cluster = ct,
+                    mean.AUC = -log10(top_markers$p.value + 1e-10)  # Use -log10 p-value as weight
+                )
+                mgs_list[[ct]] <- mgs_df
             }
-        }
-        
-        # Add small pseudocount to avoid zeros
-        sig_mat <- sig_mat + 0.01
-        spatial_mat_pseudo <- spatial_mat + 0.01
-        
-        # Use NNLS (Non-negative Least Squares) for deconvolution
-        # This is similar to what SPOTlight does internally
-        library(nnls)
-        
-        # Initialize result matrix
-        decon_mat <- matrix(0, nrow = ncol(spatial_mat), ncol = n_types)
-        rownames(decon_mat) <- colnames(spatial_mat)
-        colnames(decon_mat) <- cell_types_unique
-        
-        # For each spot, find the best combination of cell types
-        for (j in 1:ncol(spatial_mat)) {
-            spot_expr <- spatial_mat_pseudo[, j]
-            # Solve: sig_mat %*% proportions = spot_expr
-            fit <- nnls(sig_mat, spot_expr)
-            decon_mat[j, ] <- fit$x
-        }
-        
-        # Normalize rows to sum to 1
-        row_sums <- rowSums(decon_mat)
-        row_sums[row_sums == 0] <- 1  # Avoid division by zero
-        decon_mat <- decon_mat / row_sums
-        
-        # Create a list similar to SPOTlight output
-        spotlight_result <- list(
-            mat = decon_mat,
-            cell_types = cell_types_unique
-        )
-        
-        print(paste("Deconvolution completed with", n_types, "cell types"))
-        ''')
-        
-        # Extract results using localconverter for safety
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            # Get the result
-            result = ro.r('spotlight_result')
             
-            # Extract proportions - we know it's in the 'mat' element
-            proportions_r = ro.r('spotlight_result$mat')
+            # Combine all marker genes
+            mgs <- do.call(rbind, mgs_list)
             
-            # Convert to pandas DataFrame
-            # Get the matrix as numpy array first
-            proportions_np = np.array(proportions_r)
+            print(paste("Found", nrow(mgs), "marker genes"))
+            print("Running official SPOTlight deconvolution...")
             
-            # Get row and column names
-            row_names = list(ro.r('rownames(spotlight_result$mat)'))
-            col_names = list(ro.r('colnames(spotlight_result$mat)'))
-        
-        # Create DataFrame
+            # Run official SPOTlight function
+            spotlight_result <- SPOTlight(
+                x = sce,                    # SingleCellExperiment object
+                y = spe,                    # SpatialExperiment object
+                groups = sce$cell_type,     # Cell type labels
+                mgs = mgs,                  # Marker genes data frame
+                weight_id = "mean.AUC",     # Weight column name
+                group_id = "cluster",       # Group column name
+                gene_id = "gene",           # Gene column name
+                verbose = TRUE              # Verbose output
+            )
+            
+            print("SPOTlight deconvolution completed!")
+            
+            # Check the structure of the result
+            print("Checking result structure...")
+            print(str(spotlight_result))
+            print(paste("Result class:", class(spotlight_result)))
+            if (is.matrix(spotlight_result)) {
+                print("Result is a matrix")
+                print(paste("Dimensions:", paste(dim(spotlight_result), collapse=" x ")))
+            } else {
+                print("Result is not a matrix - examining structure...")
+                print(names(spotlight_result))
+            }
+            ''')
+            
+            # Extract results - check different possible structures
+            try:
+                # First check if it's directly a matrix
+                result_matrix = ro.r('spotlight_result')
+                if ro.r('is.matrix(spotlight_result)')[0]:
+                    print("SPOTlight returned a matrix directly")
+                    proportions_np = np.array(result_matrix)
+                    spot_names = list(ro.r('rownames(spotlight_result)'))
+                    cell_type_names = list(ro.r('colnames(spotlight_result)'))
+                else:
+                    # Check if it's a list with different elements
+                    result_names = ro.r('names(spotlight_result)')
+                    print(f"SPOTlight returned a list with elements: {result_names}")
+                    
+                    # Try different common result structures
+                    if 'mat' in result_names:
+                        print("Extracting from 'mat' element")
+                        proportions_np = np.array(ro.r('spotlight_result$mat'))
+                        spot_names = list(ro.r('rownames(spotlight_result$mat)'))
+                        cell_type_names = list(ro.r('colnames(spotlight_result$mat)'))
+                    elif 'decon_mtrx' in result_names:
+                        print("Extracting from 'decon_mtrx' element")
+                        proportions_np = np.array(ro.r('spotlight_result$decon_mtrx'))
+                        spot_names = list(ro.r('rownames(spotlight_result$decon_mtrx)'))
+                        cell_type_names = list(ro.r('colnames(spotlight_result$decon_mtrx)'))
+                    else:
+                        # Use the first element if it's a matrix
+                        first_element = ro.r('spotlight_result[[1]]')
+                        proportions_np = np.array(first_element)
+                        spot_names = list(ro.r('rownames(spotlight_result[[1]])'))
+                        cell_type_names = list(ro.r('colnames(spotlight_result[[1]])'))
+            except Exception as extract_error:
+                print(f"Error extracting results: {extract_error}")
+                raise
+            
+        # Create proportions DataFrame
         proportions = pd.DataFrame(
             proportions_np,
-            index=row_names,
-            columns=col_names
+            index=spot_names,
+            columns=cell_type_names
         )
         
-        # Normalize to sum to 1
-        proportions = proportions.div(proportions.sum(axis=1), axis=0)
+        # Ensure proportions sum to 1 (official SPOTlight should already do this)
+        row_sums = proportions.sum(axis=1)
+        proportions = proportions.div(row_sums, axis=0)
         
-        # Add to spatial adata
+        # Add results to spatial adata
         for cell_type in proportions.columns:
             col_name = f"SPOTlight_{cell_type}"
             spatial_adata.obs[col_name] = proportions[cell_type].values
+        
+        print(f"✅ SPOTlight completed successfully!")
+        print(f"   - Proportions shape: {proportions.shape}")
+        print(f"   - Cell types: {list(proportions.columns)}")
+        print(f"   - Mean proportions per cell type:")
+        for ct in proportions.columns:
+            print(f"     {ct}: {proportions[ct].mean():.3f}")
         
         # Create statistics
         stats = _create_deconvolution_stats(
