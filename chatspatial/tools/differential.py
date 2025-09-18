@@ -148,14 +148,13 @@ async def differential_expression(
                 # If group1 is not in the names, use the first column
                 top_genes = list(gene_names[gene_names.dtype.names[0]][:n_top_genes])
 
-    # If no genes were found, use some of the actual gene names from the dataset
-    if not top_genes and adata.var_names.size > 0:
-        if context:
-            await context.warning("No genes found in rank_genes_groups results, using random genes from the dataset")
-        # Use some random genes from the dataset
-        np.random.seed(42)  # For reproducibility
-        gene_indices = np.random.choice(adata.var_names.size, size=min(n_top_genes, adata.var_names.size), replace=False)
-        top_genes = list(adata.var_names[gene_indices])
+    # If no genes were found, fail honestly
+    if not top_genes:
+        raise RuntimeError(
+            f"Failed to identify differentially expressed genes for comparison between {group1} and {group2}. "
+            f"This could be due to: 1) Insufficient statistical power, 2) No meaningful expression differences, "
+            f"or 3) Issues with the analysis method. Please check data quality, sample sizes, or try different parameters."
+        )
 
     # Get statistics
     n_cells_group1 = np.sum(adata.obs[group_key] == group1)
