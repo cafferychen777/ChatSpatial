@@ -1345,13 +1345,17 @@ async def deconvolve_stereoscope(
     use_gpu: bool = False,
     context: Optional[Context] = None
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """Deconvolve spatial data using Stereoscope from scvi-tools
+    """Deconvolve spatial data using official Stereoscope API from scvi-tools
+    
+    This implementation follows the official two-stage Stereoscope workflow:
+    1. Train RNAStereoscope model on single-cell reference data
+    2. Train SpatialStereoscope model on spatial data using the RNA model
     
     Args:
         spatial_adata: Spatial transcriptomics AnnData object
         reference_adata: Reference single-cell RNA-seq AnnData object
         cell_type_key: Key in reference_adata.obs for cell type information
-        n_epochs: Number of epochs for training
+        n_epochs: Number of epochs for training (split between RNA and spatial models)
         learning_rate: Learning rate for optimization
         batch_size: Batch size for training
         use_gpu: Whether to use GPU for training
@@ -1364,88 +1368,124 @@ async def deconvolve_stereoscope(
         # Validate inputs
         common_genes = _validate_deconvolution_inputs(spatial_adata, reference_adata, cell_type_key, 100)
         
-        # Prepare data
+        # Prepare data - subset to common genes and ensure raw count data
         ref_data = reference_adata[:, common_genes].copy()
         spatial_data = spatial_adata[:, common_genes].copy()
         
-        if context:
-            await context.info(f"Training Stereoscope with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types")
-        
-        # Setup data for Stereoscope - fix API call
-        try:
-            # Try new API first
-            Stereoscope.setup_anndata(ref_data, labels_key=cell_type_key)
-        except Exception:
-            # Fallback to older API if new one fails
-            Stereoscope.setup_anndata(ref_data)
-        Stereoscope.setup_anndata(spatial_data)
-        
-        # Create Stereoscope model with proper parameters
-        try:
-            # Ensure cell_type_key is categorical and get cell types  
-            if not ref_data.obs[cell_type_key].dtype.name == 'category':
-                ref_data.obs[cell_type_key] = ref_data.obs[cell_type_key].astype('category')
-                
-            cell_types = list(ref_data.obs[cell_type_key].cat.categories)
-            n_cell_types = len(cell_types)
-            n_genes = len(common_genes)
+        # Stereoscope requires raw count data - check for appropriate data layer
+        async def _prepare_count_data(adata, data_type):
+            """Prepare count data for Stereoscope"""
+            import numpy as np
             
-            # Create cell type mapping (identity matrix)
-            cell_type_mapping = np.eye(n_cell_types)
-            
-            # Use RNAStereoscope workflow for proper Stereoscope setup
-            # Import RNAStereoscope for the two-step workflow
-            from scvi.external import RNAStereoscope
-            
-            # Step 1: Train RNAStereoscope model on reference data
-            if context:
-                await context.info("Step 1: Training RNAStereoscope model on reference data...")
-            
-            # Setup reference data (no labels_key parameter needed)
-            RNAStereoscope.setup_anndata(ref_data)
-            
-            # Create and train RNA model
-            rna_model = RNAStereoscope(ref_data)
-            if use_gpu:
-                rna_model.train(max_epochs=n_epochs//2, accelerator='gpu')
+            # Check if we have a counts layer (preferred)
+            if 'counts' in adata.layers:
+                if context:
+                    await context.info(f"Using counts layer for {data_type} data")
+                # Move counts to X for scvi-tools
+                adata.X = adata.layers['counts'].copy()
+            elif adata.raw is not None:
+                if context:
+                    await context.info(f"Using raw layer for {data_type} data")
+                # Use raw data
+                adata.X = adata.raw.X.copy()
             else:
-                rna_model.train(max_epochs=n_epochs//2)
+                if context:
+                    await context.info(f"Using current X matrix for {data_type} data (assuming it contains counts)")
+            
+            # Convert to dense array if sparse
+            if hasattr(adata.X, 'toarray'):
+                X_array = adata.X.toarray()
+            else:
+                X_array = adata.X.copy()
+            
+            # Ensure data is non-negative
+            if np.any(X_array < 0):
+                if context:
+                    await context.warning(f"{data_type} data contains negative values - setting to zero")
+                X_array[X_array < 0] = 0
+            
+            # Convert to integers (Stereoscope requires integer counts)
+            if not np.issubdtype(X_array.dtype, np.integer):
+                if np.allclose(X_array, np.round(X_array), atol=1e-6):
+                    if context:
+                        await context.info(f"Converting {data_type} data to integers")
+                    X_array = np.round(X_array).astype(np.int32)
+                else:
+                    if context:
+                        await context.warning(f"{data_type} data contains non-integer values - rounding to nearest integers")
+                    X_array = np.round(X_array).astype(np.int32)
+            
+            # Update adata.X with processed data
+            adata.X = X_array
             
             if context:
-                await context.info("RNAStereoscope training completed")
+                await context.info(f"{data_type} data shape: {adata.X.shape}, dtype: {adata.X.dtype}, range: {adata.X.min()}-{adata.X.max()}")
             
-            # Step 2: Create SpatialStereoscope using from_rna_model
-            if context:
-                await context.info("Step 2: Creating SpatialStereoscope model...")
-            
-            # Setup spatial data
-            Stereoscope.setup_anndata(spatial_data)
-            
-            # Create spatial model from RNA model
-            model = Stereoscope.from_rna_model(spatial_data, rna_model)
-            
-            if context:
-                await context.info("SpatialStereoscope model created successfully")
-            
-        except Exception as e:
-            if context:
-                await context.warning(f"Stereoscope creation failed: {e}")
-            raise ValueError(f"Stereoscope model creation failed: {str(e)}")
+            return adata
         
-        # Train SpatialStereoscope model
-        if context:
-            await context.info("Training SpatialStereoscope model...")
+        # Prepare count data for both datasets
+        ref_data = await _prepare_count_data(ref_data, "reference")
+        spatial_data = await _prepare_count_data(spatial_data, "spatial")
         
-        if use_gpu:
-            model.train(max_epochs=n_epochs//2, accelerator='gpu')
-        else:
-            model.train(max_epochs=n_epochs//2)
+        # Ensure cell type key is categorical
+        if not ref_data.obs[cell_type_key].dtype.name == 'category':
+            ref_data.obs[cell_type_key] = ref_data.obs[cell_type_key].astype('category')
         
-        # Get cell type proportions
-        proportions_array = model.get_proportions()
         cell_types = list(ref_data.obs[cell_type_key].cat.categories)
         
-        # Create proportions DataFrame
+        if context:
+            await context.info(f"Training Stereoscope with {len(common_genes)} genes and {len(cell_types)} cell types")
+        
+        # Import official Stereoscope classes
+        from scvi.external import RNAStereoscope, SpatialStereoscope
+        
+        # Stage 1: Train RNAStereoscope model on reference data
+        if context:
+            await context.info("Stage 1: Training RNAStereoscope model on reference data...")
+        
+        # Setup reference data with cell type labels (no layer specified since X contains counts)
+        RNAStereoscope.setup_anndata(ref_data, labels_key=cell_type_key)
+        
+        # Create and train RNA model
+        rna_model = RNAStereoscope(ref_data)
+        rna_epochs = n_epochs // 2  # Split epochs between RNA and spatial training
+        
+        if use_gpu:
+            rna_model.train(max_epochs=rna_epochs, accelerator='gpu')
+        else:
+            rna_model.train(max_epochs=rna_epochs)
+        
+        if context:
+            await context.info(f"RNAStereoscope training completed ({rna_epochs} epochs)")
+        
+        # Stage 2: Train SpatialStereoscope model using the RNA model
+        if context:
+            await context.info("Stage 2: Training SpatialStereoscope model on spatial data...")
+        
+        # Setup spatial data
+        SpatialStereoscope.setup_anndata(spatial_data)
+        
+        # Create spatial model from the trained RNA model
+        spatial_model = SpatialStereoscope.from_rna_model(spatial_data, rna_model)
+        
+        # Train spatial model
+        spatial_epochs = n_epochs - rna_epochs
+        
+        if use_gpu:
+            spatial_model.train(max_epochs=spatial_epochs, accelerator='gpu')
+        else:
+            spatial_model.train(max_epochs=spatial_epochs)
+        
+        if context:
+            await context.info(f"SpatialStereoscope training completed ({spatial_epochs} epochs)")
+        
+        # Extract cell type proportions
+        if context:
+            await context.info("Extracting cell type proportions...")
+        
+        proportions_array = spatial_model.get_proportions()
+        
+        # Create proportions DataFrame with proper indexing
         proportions = pd.DataFrame(
             proportions_array,
             index=spatial_data.obs_names,
@@ -1463,13 +1503,23 @@ async def deconvolve_stereoscope(
             batch_size=batch_size
         )
         
+        # Add Stereoscope-specific statistics
+        stats.update({
+            "rna_epochs": rna_epochs,
+            "spatial_epochs": spatial_epochs,
+            "workflow": "RNAStereoscope -> SpatialStereoscope"
+        })
+        
+        if context:
+            await context.info("Stereoscope deconvolution completed successfully")
+        
         return proportions, stats
         
     except Exception as e:
         error_msg = f"Stereoscope deconvolution failed: {str(e)}"
         if context:
             await context.error(error_msg)
-        raise RuntimeError(error_msg)
+        raise RuntimeError(error_msg) from e
 
 
 def is_spotlight_available() -> Tuple[bool, str]:
