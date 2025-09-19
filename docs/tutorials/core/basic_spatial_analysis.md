@@ -1,13 +1,11 @@
 ---
-title: "Your First Spatial Analysis with ChatSpatial"
-difficulty: beginner
-duration: "45-60 minutes"
-prerequisites: 
-  - "Claude Desktop installed"
-  - "ChatSpatial MCP configured"
-dataset: "mouse_brain_visium_standard"
-tools_used: 
-  - data_loading
+layout: default
+title: Basic Spatial Analysis
+parent: Core Tutorials
+grand_parent: Tutorials
+nav_order: 1
+description: "Your first spatial transcriptomics analysis with ChatSpatial"
+---
   - preprocessing
   - spatial_domains
   - basic_visualization

@@ -1,4 +1,13 @@
+---
+layout: default
+title: Reference
+nav_order: 6
+has_children: true
+description: "Complete reference materials and API documentation"
+---
+
 # Reference Documentation
+{: .fs-8 }
 
 Complete reference materials for ChatSpatial features and configuration.
 

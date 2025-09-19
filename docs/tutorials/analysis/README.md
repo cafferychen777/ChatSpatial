@@ -1,4 +1,14 @@
+---
+layout: default
+title: Analysis Tutorials
+parent: Tutorials
+nav_order: 2
+has_children: true
+description: "Specialized analysis methods for spatial transcriptomics"
+---
+
 # Analysis Tutorials
+{: .fs-7 }
 
 Specialized analysis methods and techniques for spatial transcriptomics data.
 

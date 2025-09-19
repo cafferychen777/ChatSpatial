@@ -1,4 +1,13 @@
+---
+layout: default
+title: Examples
+nav_order: 7
+has_children: true
+description: "Real-world examples and use cases for ChatSpatial"
+---
+
 # Examples
+{: .fs-8 }
 
 Real-world examples and use cases demonstrating ChatSpatial capabilities.
 

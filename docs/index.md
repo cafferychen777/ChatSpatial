@@ -9,11 +9,17 @@ permalink: /
 # ChatSpatial Documentation
 {: .fs-9 }
 
-Spatial transcriptomics analysis through natural language interaction
+AI-Powered Spatial Transcriptomics Analysis via Model Context Protocol
 {: .fs-6 .fw-300 }
 
 [Get started now](#getting-started){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[View it on GitHub](https://github.com/cafferychen777/ChatSpatial){: .btn .fs-5 .mb-4 .mb-md-0 }
+[View it on GitHub](https://github.com/cafferychen777/ChatSpatial){: .btn .btn-outline .fs-5 .mb-4 .mb-md-0 }
+
+## Key Features
+
+- **Natural Language Interface**: Analyze spatial data using conversational commands with Claude and other LLMs
+- **Comprehensive Analysis Tools**: Cell type annotation, spatial domains, trajectory analysis, and advanced spatial statistics  
+- **Multiple Data Formats**: Support for H5AD, 10X Visium, Slide-seq, MERFISH, and other spatial transcriptomics formats
 
 ---
 
@@ -24,11 +30,8 @@ Spatial transcriptomics analysis through natural language interaction
 
 ChatSpatial is a Model Context Protocol (MCP) server that enables spatial transcriptomics analysis through natural language interaction. It integrates with Claude and other LLMs to perform complex spatial genomics analysis through simple conversational commands.
 
-### Key Features
+### Advanced Capabilities
 
-- **Natural Language Interface**: Analyze spatial data using conversational commands
-- **Comprehensive Analysis Tools**: Cell type annotation, spatial domains, trajectory analysis, and more
-- **Multiple Data Formats**: Support for H5AD, 10X Visium, Slide-seq, and other spatial formats
 - **Advanced Algorithms**: Integration with state-of-the-art spatial analysis methods
 - **Visualization**: Built-in plotting and visualization capabilities
 

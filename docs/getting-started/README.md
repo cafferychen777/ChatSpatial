@@ -1,4 +1,13 @@
+---
+layout: default
+title: Getting Started
+nav_order: 3
+has_children: true
+description: "Essential setup and installation guide for ChatSpatial"
+---
+
 # Getting Started with ChatSpatial
+{: .fs-8 }
 
 This section contains essential information for new users to get started with ChatSpatial.
 

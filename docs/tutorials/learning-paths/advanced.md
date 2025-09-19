@@ -1,4 +1,14 @@
+---
+layout: default
+title: Advanced Path
+parent: Learning Paths
+grand_parent: Tutorials
+nav_order: 3
+description: "Cutting-edge spatial analysis and research-level techniques"
+---
+
 # Advanced Learning Path: Cutting-Edge Spatial Analysis
+{: .fs-6 }
 
 **Perfect for:** Experienced users ready to explore machine learning approaches, temporal dynamics, and research-level multi-modal integration
 

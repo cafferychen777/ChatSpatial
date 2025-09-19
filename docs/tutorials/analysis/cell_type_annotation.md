@@ -1,13 +1,11 @@
 ---
-title: "Identifying Cell Types with ChatSpatial"
-difficulty: intermediate
-duration: "30-45 minutes"
-prerequisites: 
-  - "basic_spatial_analysis"
-  - "Claude Desktop configured"
-dataset: "mouse_brain_visium_standard"
-tools_used: 
-  - marker_gene_analysis
+layout: default
+title: Cell Type Annotation
+parent: Analysis Tutorials
+grand_parent: Tutorials
+nav_order: 1
+description: "Identifying cell types in spatial transcriptomics data"
+---
   - sctype_annotation
   - spatial_validation
   - cell_type_visualization

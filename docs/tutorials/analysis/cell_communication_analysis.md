@@ -1,13 +1,11 @@
 ---
-title: "Discovering Cell Communication with ChatSpatial"
-difficulty: intermediate
-duration: "40-55 minutes"
-prerequisites: 
-  - "basic_spatial_analysis"
-  - "cell_type_annotation"
-dataset: "mouse_brain_visium_standard"
-tools_used: 
-  - liana_analysis
+layout: default
+title: Cell Communication Analysis
+parent: Analysis Tutorials
+grand_parent: Tutorials
+nav_order: 2
+description: "Discovering cell-cell communication patterns in spatial data"
+---
   - ligand_receptor_pairs
   - communication_networks
   - spatial_interaction

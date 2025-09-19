@@ -1,13 +1,11 @@
 ---
-title: "Spatial Statistics Methods with ChatSpatial"
-difficulty: advanced
-duration: "60-90 minutes"
-prerequisites: 
-  - "basic_spatial_analysis"
-  - "Understanding of spatial patterns"
-dataset: "mouse_brain_visium_standard"
-tools_used: 
-  - bivariate_moran
+layout: default
+title: Spatial Statistics
+parent: Core Tutorials
+grand_parent: Tutorials
+nav_order: 2
+description: "Statistical analysis of spatial patterns and autocorrelation"
+---
   - lisa_analysis
   - neighborhood_enrichment
   - ripleys_k_function

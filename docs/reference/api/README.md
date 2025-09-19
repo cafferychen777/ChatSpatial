@@ -1,4 +1,14 @@
+---
+layout: default
+title: API Reference
+parent: Reference
+nav_order: 1
+has_children: true
+description: "Complete API documentation for all ChatSpatial tools"
+---
+
 # ChatSpatial API Reference
+{: .fs-7 }
 
 Complete reference for all ChatSpatial MCP tools, parameters, and data models.
 

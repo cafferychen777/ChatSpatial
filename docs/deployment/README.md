@@ -1,4 +1,13 @@
+---
+layout: default
+title: Deployment
+nav_order: 4
+has_children: true
+description: "Production deployment strategies for ChatSpatial MCP server"
+---
+
 # Deployment Guide
+{: .fs-8 }
 
 This section helps you choose and implement the right deployment strategy for ChatSpatial based on your specific needs and resources.
 
