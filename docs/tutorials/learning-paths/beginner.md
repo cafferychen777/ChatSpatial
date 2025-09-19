@@ -1,4 +1,14 @@
+---
+layout: default
+title: Beginner Path
+parent: Learning Paths
+grand_parent: Tutorials
+nav_order: 1
+description: "Complete beginner guide to spatial transcriptomics analysis"
+---
+
 # Beginner Learning Path: Your Journey into Spatial Transcriptomics
+{: .fs-6 }
 
 **Perfect for:** New users with no coding experience who want to explore spatial biology through conversation
 

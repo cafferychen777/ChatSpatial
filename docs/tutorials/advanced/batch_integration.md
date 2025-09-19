@@ -1,13 +1,11 @@
 ---
-title: "Batch Effect Correction and Data Integration with ChatSpatial"
-difficulty: advanced
-duration: "70-90 minutes"
-prerequisites: 
-  - "basic_spatial_analysis"
-  - "Multiple spatial datasets"
-  - "Understanding of batch effects"
-dataset: "multi_sample_datasets"
-tools_used: 
+layout: default
+title: Batch Integration
+parent: Advanced Tutorials
+grand_parent: Tutorials
+nav_order: 2
+description: "Batch effect correction and multi-sample integration"
+--- 
   - harmony_integration
   - batch_assessment
   - multi_modal_integration

@@ -1,4 +1,13 @@
+---
+layout: default
+title: Server Deployment
+parent: Deployment
+nav_order: 1
+description: "Deploy ChatSpatial as a production server for team access"
+---
+
 # Server Deployment Guide
+{: .fs-7 }
 
 !!! success "Updated Deployment Options (2025-08-28)"
     **Based on extensive testing, we recommend the following deployment approaches:**

@@ -1,13 +1,11 @@
 ---
-title: "Spatial Registration and Multi-Slice Alignment with ChatSpatial"
-difficulty: advanced
-duration: "90-120 minutes"
-prerequisites: 
-  - "basic_spatial_analysis"
-  - "Multiple spatial datasets or time series"
-  - "Understanding of spatial coordinates"
-dataset: "multi_slice_brain_series"
-tools_used: 
+layout: default
+title: Spatial Registration
+parent: Advanced Tutorials
+grand_parent: Tutorials
+nav_order: 3
+description: "Spatial registration and multi-slice alignment"
+--- 
   - paste_algorithm
   - stalign_method
   - quality_assessment

@@ -1,13 +1,10 @@
 ---
-title: "ChatSpatial Tutorial Overview"
-difficulty: beginner
-duration: "5-10 minutes"
-prerequisites: 
-  - "Claude Desktop installed"
-dataset: "mouse_brain_visium_standard"
-tools_used: 
-  - overview
-learning_objectives:
+layout: default
+title: Tutorials
+nav_order: 5
+has_children: true
+description: "Comprehensive tutorials for spatial transcriptomics analysis"
+---
   - "Understand the ChatSpatial tutorial structure"
   - "Choose the right tutorial for your experience level"
   - "Navigate the natural language analysis workflow"

@@ -1,13 +1,11 @@
 ---
-title: "RNA Velocity and Trajectory Analysis with ChatSpatial"
-difficulty: advanced
-duration: "100-140 minutes"
-prerequisites: 
-  - "basic_spatial_analysis"
-  - "cell_type_annotation"
-  - "Understanding of developmental biology"
-dataset: "developmental_brain_visium"
-tools_used: 
+layout: default
+title: Trajectory Analysis
+parent: Advanced Tutorials
+grand_parent: Tutorials
+nav_order: 4
+description: "RNA velocity and trajectory analysis in spatial data"
+--- 
   - scvelo_velocity
   - velovi_deep_learning
   - cellrank_trajectories

@@ -1,4 +1,12 @@
+---
+layout: default
+title: What is MCP?
+nav_order: 2
+description: "Learn about Model Context Protocol and how it enables agentic spatial transcriptomics analysis"
+---
+
 # What is Model Context Protocol (MCP)?
+{: .fs-8 }
 
 **Model Context Protocol (MCP)** is an open standard that connects LLM applications to the systems where your data and tools live. Think of it as a universal adapter, like USB-C, but for agentic systems. Just as USB-C provides a standard way to connect devices to peripherals, MCP offers a standardized, secure, and simple way to connect LLM agents like Claude to real-world applications, databases, and services.
 

@@ -1,0 +1,63 @@
+// ChatSpatial custom color scheme
+// Based on spatial transcriptomics and AI themes
+
+// Primary colors - inspired by scientific data visualization (force override)
+$blue-000: #f8f9fa;
+$blue-100: #e3f2fd;
+$blue-200: #bbdefb;
+$blue-300: #64b5f6;
+
+$green-000: #f1f8e9;
+$green-100: #c8e6c9;
+$green-200: #81c784;
+$green-300: #4caf50;
+
+$purple-000: #f3e5f5;
+$purple-100: #e1bee7;
+$purple-200: #ba68c8;
+$purple-300: #9c27b0;
+
+$red-000: #ffebee !default;
+$red-100: #ffcdd2 !default;
+$red-200: #ef5350 !default;
+$red-300: #f44336 !default;
+
+$yellow-000: #fffde7 !default;
+$yellow-100: #fff9c4 !default;
+$yellow-200: #ffeb3b !default;
+$yellow-300: #ffc107 !default;
+
+// Base colors
+$white: #ffffff !default;
+$grey-dk-000: #2c3e50 !default;
+$grey-dk-100: #34495e !default;
+$grey-dk-200: #515761 !default;
+$grey-dk-300: #6c7b7f !default;
+$grey-lt-000: #ecf0f1 !default;
+$grey-lt-100: #d5dbdb !default;
+$grey-lt-200: #bdc3c7 !default;
+$grey-lt-300: #95a5a6 !default;
+
+// Theme colors - Override defaults (no !default)
+$link-color: $blue-300;
+$link-color-visited: $purple-200;
+
+$text-color: $grey-dk-100;
+$body-text-color: $grey-dk-200;
+$body-heading-color: $grey-dk-000;
+
+$border-color: $grey-lt-100;
+
+$sidebar-color: $grey-lt-000;
+$search-background-color: $white;
+$table-background-color: $white;
+$code-background-color: $grey-lt-000;
+
+// Brand colors for ChatSpatial
+$brand-primary: $blue-300;
+$brand-secondary: $green-300;
+$brand-accent: $purple-200;
+
+// Button colors
+$btn-primary-color: $brand-primary;
+$base-button-color: $white;

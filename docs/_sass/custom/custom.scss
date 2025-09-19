@@ -1,0 +1,153 @@
+// Custom styles for ChatSpatial Documentation
+// This file is loaded after the theme styles
+
+// Enhanced typography
+.site-title {
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+// Custom code highlighting enhancements
+.highlight {
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+// Enhanced callouts styling
+.highlight,
+.important,
+.new,
+.note,
+.warning {
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-left-width: 4px;
+}
+
+// Mermaid diagram styling
+.mermaid {
+  text-align: center;
+  margin: 2rem 0;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+// Enhanced button styling
+.btn {
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
+}
+
+// Navigation enhancements
+.side-bar {
+  border-right: 1px solid #e5e7eb;
+  
+  .nav-list-item {
+    .nav-list-link {
+      border-radius: 4px;
+      transition: all 0.2s ease;
+      
+      &:hover {
+        background-color: rgba(59, 130, 246, 0.05);
+        transform: translateX(2px);
+      }
+    }
+  }
+}
+
+// Search enhancements
+.search {
+  .search-input {
+    border-radius: 8px;
+    border: 2px solid #e5e7eb;
+    transition: border-color 0.2s ease;
+    
+    &:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+  }
+}
+
+// Table enhancements
+table {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  
+  th {
+    background-color: #f8fafc;
+    font-weight: 600;
+  }
+  
+  tbody tr {
+    transition: background-color 0.2s ease;
+    
+    &:hover {
+      background-color: rgba(59, 130, 246, 0.02);
+    }
+  }
+}
+
+// Code blocks enhancement
+pre {
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+// Link styling improvements
+a {
+  transition: color 0.2s ease;
+  
+  &:hover {
+    text-decoration-color: currentColor;
+  }
+}
+
+// Footer styling
+.site-footer {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 3rem;
+  padding-top: 2rem;
+  
+  .footer-content {
+    color: #6b7280;
+    font-size: 0.875rem;
+  }
+}
+
+// Responsive adjustments
+@media (max-width: 768px) {
+  .mermaid {
+    margin: 1rem 0;
+    padding: 0.5rem;
+  }
+  
+  .btn {
+    &:hover {
+      transform: none;
+    }
+  }
+}
+
+// Print styles
+@media print {
+  .mermaid {
+    border: 1px solid #ccc;
+    background: white;
+  }
+  
+  .side-bar,
+  .search,
+  .btn {
+    display: none !important;
+  }
+}

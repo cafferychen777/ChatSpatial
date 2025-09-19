@@ -1,4 +1,13 @@
+---
+layout: default
+title: Configuration
+parent: Reference
+nav_order: 2
+description: "Complete configuration guide for ChatSpatial and MCP clients"
+---
+
 # Configuration Guide
+{: .fs-7 }
 
 Complete guide for configuring ChatSpatial with various MCP clients and customizing settings.
 

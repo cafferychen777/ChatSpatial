@@ -1,13 +1,11 @@
 ---
-title: "Creating Beautiful Visualizations with ChatSpatial"
-difficulty: beginner
-duration: "35-50 minutes"
-prerequisites: 
-  - "basic_spatial_analysis"
-  - "Some analysis completed"
-dataset: "mouse_brain_visium_standard"
-tools_used: 
-  - spatial_plots
+layout: default
+title: Visualization Tutorial
+parent: Core Tutorials
+grand_parent: Tutorials
+nav_order: 3
+description: "Creating beautiful visualizations with ChatSpatial"
+---
   - gene_visualization
   - multi_panel_figures
   - publication_export

@@ -1,4 +1,13 @@
+---
+layout: default
+title: Datasets
+parent: Examples
+nav_order: 1
+description: "Example datasets for tutorials and testing"
+---
+
 # Example Datasets
+{: .fs-7 }
 
 Information about example datasets available for ChatSpatial tutorials and testing.
 

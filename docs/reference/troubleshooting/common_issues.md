@@ -1,4 +1,13 @@
+---
+layout: default
+title: Troubleshooting
+parent: Reference
+nav_order: 3
+description: "Common issues and solutions for ChatSpatial"
+---
+
 # ChatSpatial Troubleshooting Guide
+{: .fs-7 }
 
 Welcome to the ChatSpatial troubleshooting guide! This comprehensive resource will help you resolve common issues and get back to analyzing spatial transcriptomics data quickly.
 

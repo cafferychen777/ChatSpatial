@@ -1,13 +1,11 @@
 ---
-title: "Spatial Gene Set Enrichment Analysis with ChatSpatial"
-difficulty: intermediate
-duration: "50-70 minutes"
-prerequisites: 
-  - "basic_spatial_analysis"
-  - "spatial_domains"
-  - "Understanding of gene sets and pathways"
-dataset: "mouse_brain_visium_standard"
-tools_used: 
+layout: default
+title: Spatial Enrichment
+parent: Analysis Tutorials
+grand_parent: Tutorials
+nav_order: 3
+description: "Spatial gene set enrichment analysis and pathway mapping"
+--- 
   - enrichmap_analysis
   - msigdb_integration
   - pathway_visualization

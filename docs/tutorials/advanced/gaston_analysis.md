@@ -1,13 +1,11 @@
 ---
-title: "GASTON: ML-Powered Spatial Gene Discovery"
-difficulty: advanced
-duration: "80-120 minutes"
-prerequisites: 
-  - "basic_spatial_analysis"
-  - "spatial_statistics"
-  - "Understanding of machine learning concepts"
-dataset: "mouse_brain_visium_standard"
-tools_used: 
+layout: default
+title: GASTON Analysis
+parent: Advanced Tutorials
+grand_parent: Tutorials
+nav_order: 1
+description: "Machine learning-powered spatial gene discovery with GASTON"
+--- 
   - gaston_neural_network
   - isodepth_visualization
   - gradient_classification

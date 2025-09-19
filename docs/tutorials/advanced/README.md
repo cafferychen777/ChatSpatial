@@ -1,4 +1,14 @@
+---
+layout: default
+title: Advanced Tutorials
+parent: Tutorials
+nav_order: 3
+has_children: true
+description: "Advanced techniques for complex spatial data analysis workflows"
+---
+
 # Advanced Tutorials
+{: .fs-7 }
 
 Advanced techniques for complex spatial data analysis workflows.
 

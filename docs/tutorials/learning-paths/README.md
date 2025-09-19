@@ -1,4 +1,14 @@
+---
+layout: default
+title: Learning Paths
+parent: Tutorials
+nav_order: 4
+has_children: true
+description: "Structured learning paths from beginner to expert"
+---
+
 # Learning Paths: Your Guided Journey Through Spatial Analysis
+{: .fs-7 }
 
 Structured learning paths to guide you through ChatSpatial from beginner to expert. Each path provides a complete curriculum with time estimates, practice exercises, and clear progression milestones.
 
