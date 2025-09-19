@@ -1,63 +1,88 @@
-// ChatSpatial custom color scheme
-// Based on spatial transcriptomics and AI themes
+// ChatSpatial 科学主题颜色方案
+// 基于空间转录组学和AI科学研究的专业配色
 
-// Primary colors - inspired by scientific data visualization (force override)
-$blue-000: #f8f9fa;
-$blue-100: #e3f2fd;
-$blue-200: #bbdefb;
-$blue-300: #64b5f6;
+// 主要品牌色彩
+$primary-teal: #0891B2;      // 主要青色 - 链接、按钮
+$primary-teal-light: #06B6D4; // 浅青色 - 悬停状态
+$primary-teal-dark: #0E7490;  // 深青色 - 活跃状态
 
-$green-000: #f1f8e9;
-$green-100: #c8e6c9;
-$green-200: #81c784;
-$green-300: #4caf50;
+// 辅助科学色彩
+$secondary-purple: #7C3AED;   // 科学紫 - 次要元素
+$secondary-purple-light: #8B5CF6; // 浅紫色
+$secondary-purple-dark: #6D28D9;  // 深紫色
 
-$purple-000: #f3e5f5;
-$purple-100: #e1bee7;
-$purple-200: #ba68c8;
-$purple-300: #9c27b0;
+// 强调和功能色彩
+$accent-orange: #F59E0B;      // 强调橙 - 重要提示
+$success-green: #10B981;      // 成功绿
+$warning-amber: #F59E0B;      // 警告琥珀
+$error-red: #EF4444;          // 错误红
 
-$red-000: #ffebee !default;
-$red-100: #ffcdd2 !default;
-$red-200: #ef5350 !default;
-$red-300: #f44336 !default;
+// 中性色彩
+$background-primary: #FFFFFF;  // 主背景
+$background-secondary: #F8FAFC; // 次背景
+$background-code: #F1F5F9;    // 代码背景
+$text-primary: #1F2937;       // 主文本
+$text-secondary: #374151;     // 次文本
+$text-muted: #6B7280;         // 弱化文本
+$border-color: #E5E7EB;       // 边框色
 
-$yellow-000: #fffde7 !default;
-$yellow-100: #fff9c4 !default;
-$yellow-200: #ffeb3b !default;
-$yellow-300: #ffc107 !default;
+// 映射到 Just the Docs 颜色变量
+$blue-000: #F0F9FF;          // 极浅青色背景
+$blue-100: #E0F2FE;          // 浅青色背景
+$blue-200: $primary-teal-light; // 中青色
+$blue-300: $primary-teal;     // 主青色
 
-// Base colors
-$white: #ffffff !default;
-$grey-dk-000: #2c3e50 !default;
-$grey-dk-100: #34495e !default;
-$grey-dk-200: #515761 !default;
-$grey-dk-300: #6c7b7f !default;
-$grey-lt-000: #ecf0f1 !default;
-$grey-lt-100: #d5dbdb !default;
-$grey-lt-200: #bdc3c7 !default;
-$grey-lt-300: #95a5a6 !default;
+$purple-000: #FAF5FF;         // 极浅紫色背景
+$purple-100: #F3E8FF;         // 浅紫色背景
+$purple-200: $secondary-purple-light; // 中紫色
+$purple-300: $secondary-purple; // 主紫色
 
-// Theme colors - Override defaults (no !default)
-$link-color: $blue-300;
-$link-color-visited: $purple-200;
+$green-000: #F0FDF4;          // 浅绿色背景
+$green-100: #DCFCE7;          // 绿色背景
+$green-200: #86EFAC;          // 中绿色
+$green-300: $success-green;   // 成功绿
 
-$text-color: $grey-dk-100;
-$body-text-color: $grey-dk-200;
-$body-heading-color: $grey-dk-000;
+$red-000: #FEF2F2;            // 浅红色背景
+$red-100: #FEE2E2;            // 红色背景
+$red-200: #FCA5A5;            // 中红色
+$red-300: $error-red;         // 错误红
 
-$border-color: $grey-lt-100;
+$yellow-000: #FFFBEB;         // 浅黄色背景
+$yellow-100: #FEF3C7;         // 黄色背景
+$yellow-200: #FCD34D;         // 中黄色
+$yellow-300: $accent-orange;  // 强调橙
 
-$sidebar-color: $grey-lt-000;
-$search-background-color: $white;
-$table-background-color: $white;
-$code-background-color: $grey-lt-000;
+// 基础色彩
+$white: $background-primary;
+$grey-dk-000: $text-primary;   // 最深文本
+$grey-dk-100: $text-secondary; // 次深文本
+$grey-dk-200: $text-muted;     // 弱化文本
+$grey-dk-300: #9CA3AF;         // 更弱文本
+$grey-lt-000: $background-secondary; // 最浅背景
+$grey-lt-100: $border-color;   // 边框
+$grey-lt-200: #D1D5DB;         // 中等边框
+$grey-lt-300: #9CA3AF;         // 深色边框
 
-// Brand colors for ChatSpatial
-$brand-primary: $blue-300;
-$brand-secondary: $green-300;
-$brand-accent: $purple-200;
+// 主题色彩应用 - 强制覆盖默认值
+$link-color: $primary-teal;
+$link-color-visited: $secondary-purple;
 
-// Button colors
-$btn-primary-color: $brand-primary;
-$base-button-color: $white;
+$text-color: $text-secondary;
+$body-text-color: $text-muted;
+$body-heading-color: $text-primary;
+
+$border-color: $border-color;
+
+$sidebar-color: $background-secondary;
+$search-background-color: $background-primary;
+$table-background-color: $background-primary;
+$code-background-color: $background-code;
+
+// ChatSpatial 品牌色彩
+$brand-primary: $primary-teal;
+$brand-secondary: $secondary-purple;
+$brand-accent: $accent-orange;
+
+// 按钮颜色
+$btn-primary-color: $primary-teal;
+$base-button-color: $background-primary;
