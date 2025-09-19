@@ -225,9 +225,31 @@ DEFAULT_MARKER_GENES = {
 
 # Constants for annotation
 DEFAULT_HVG_COUNT = 2000
-DEFAULT_SCANVI_EPOCHS = 50  # Reduced for faster training while maintaining reasonable accuracy
-CONFIDENCE_MIN = 0.5
+# DEFAULT_SCANVI_EPOCHS is now replaced by scanvi_query_epochs parameter (default: 100)
+# DEPRECATED: This arbitrary value is scientifically misleading
+# Methods should either provide real confidence scores or return empty dict/None
+# This constant is retained only for legacy compatibility and will be removed
+# IMPORTANT: NEW CODE MUST NOT USE THIS CONSTANT
+CONFIDENCE_MIN = 0.5  # DEPRECATED - DO NOT USE IN NEW CODE
 CONFIDENCE_MAX = 0.99
+
+# Documentation of which methods provide real confidence scores
+# IMPORTANT: Methods should only return confidence scores when they represent
+# real statistical measures (e.g., probabilities, correlations, overlap ratios).
+# Empty confidence_scores dict indicates no confidence data available.
+METHODS_WITH_REAL_CONFIDENCE = {
+    'marker_genes',  # Overlap ratio between marker genes and cluster DEGs
+    'singler',       # Correlation scores from reference matching
+    'tangram',       # Mapping probabilities from spatial alignment
+    'sctype'         # Scoring based on marker gene expression levels
+}
+METHODS_WITHOUT_CONFIDENCE = {
+    'mllmcelltype'   # LLM-based annotations don't provide numeric confidence
+}
+METHODS_WITH_PARTIAL_CONFIDENCE = {
+    'scanvi',        # Provides probabilities when soft=True prediction works
+    'cellassign'     # Provides probabilities when prediction returns DataFrame
+}
 
 # Supported annotation methods
 SUPPORTED_METHODS = {
@@ -318,8 +340,10 @@ async def _annotate_with_marker_genes_scanpy(adata, marker_genes: Dict[str, List
             
             # Calculate confidence based on overlap ratio
             total_possible_overlap = len(reference_markers[best_celltype])
-            confidence = min(max_overlap / total_possible_overlap, 0.95) if total_possible_overlap > 0 else 0.1
-            confidence_scores_per_cluster[cluster_str] = round(max(confidence, CONFIDENCE_MIN), 2)
+            if total_possible_overlap > 0:
+                confidence = min(max_overlap / total_possible_overlap, 0.95)
+                confidence_scores_per_cluster[cluster_str] = round(confidence, 2)
+            # else: No confidence available for this cluster
         
         # Step 5: Map cluster assignments to individual cells
         adata.obs['cell_type'] = adata.obs['leiden'].astype(str).map(cluster_to_celltype)
@@ -330,7 +354,7 @@ async def _annotate_with_marker_genes_scanpy(adata, marker_genes: Dict[str, List
             if context:
                 await context.warning(f"Found {unmapped_mask.sum()} cells in unmapped clusters, assigning as 'Unknown'")
             adata.obs.loc[unmapped_mask, 'cell_type'] = 'Unknown'
-            confidence_scores_per_cluster['Unknown'] = CONFIDENCE_MIN
+            # Unknown cells have no real confidence score - don't assign arbitrary value
         
         adata.obs['cell_type'] = adata.obs['cell_type'].astype('category')
         
@@ -344,11 +368,14 @@ async def _annotate_with_marker_genes_scanpy(adata, marker_genes: Dict[str, List
             # Find all clusters assigned to this cell type
             assigned_clusters = [k for k, v in cluster_to_celltype.items() if v == cell_type]
             if assigned_clusters:
-                # Average confidence across clusters for this cell type
-                avg_confidence = np.mean([confidence_scores_per_cluster.get(c, CONFIDENCE_MIN) for c in assigned_clusters])
-                confidence_scores[cell_type] = round(avg_confidence, 2)
-            else:
-                confidence_scores[cell_type] = CONFIDENCE_MIN
+                # Only average real confidence values, skip missing ones
+                real_confidences = [confidence_scores_per_cluster[c] for c in assigned_clusters 
+                                   if c in confidence_scores_per_cluster]
+                if real_confidences:
+                    avg_confidence = np.mean(real_confidences)
+                    confidence_scores[cell_type] = round(avg_confidence, 2)
+                # else: skip this cell type if no real confidence available
+            # else: no clusters assigned - don't report fake confidence
         
         if context:
             await context.info(f"✅ Marker gene annotation completed: {len(cell_types)} cell types identified")
@@ -396,7 +423,7 @@ async def _annotate_with_singler(adata, params: AnnotationParameters, data_store
         # Convert AnnData to SingleCellExperiment
         test_sce = sce.SingleCellExperiment.from_anndata(adata)
         
-        # Get expression matrix
+        # Get expression matrix - prefer normalized data
         if "X_normalized" in adata.layers:
             test_mat = adata.layers["X_normalized"]
         elif adata.X is not None:
@@ -408,9 +435,17 @@ async def _annotate_with_singler(adata, params: AnnotationParameters, data_store
         if hasattr(test_mat, 'toarray'):
             test_mat = test_mat.toarray()
         
+        # Ensure log-normalization (SingleR expects log-normalized data)
+        if "log1p" not in adata.uns:
+            if context:
+                await context.warning("Data may not be log-normalized. Applying log1p for SingleR...")
+            test_mat = np.log1p(test_mat)
+        
         # Transpose for SingleR (genes x cells)
         test_mat = test_mat.T
-        test_features = list(adata.var_names)
+        
+        # Ensure gene names are strings
+        test_features = [str(x) for x in adata.var_names]
         
         # Prepare reference
         reference_name = getattr(params, 'singler_reference', None)
@@ -444,16 +479,68 @@ async def _annotate_with_singler(adata, params: AnnotationParameters, data_store
             if context:
                 await context.info("Using provided reference data")
             reference_adata = data_store[reference_data_id]["adata"]
-            ref_sce = sce.SingleCellExperiment.from_anndata(reference_adata)
             
-            # Get labels from reference
-            for col in ['cell_type', 'celltype', 'CellType', 'leiden']:
+            # Get reference expression matrix
+            if "X_normalized" in reference_adata.layers:
+                ref_mat = reference_adata.layers["X_normalized"]
+            else:
+                ref_mat = reference_adata.X
+            
+            # Convert sparse to dense if needed
+            if hasattr(ref_mat, 'toarray'):
+                ref_mat = ref_mat.toarray()
+            
+            # Ensure log-normalization for reference
+            if "log1p" not in reference_adata.uns:
+                if context:
+                    await context.warning("Reference data may not be log-normalized. Applying log1p...")
+                ref_mat = np.log1p(ref_mat)
+            
+            # Transpose for SingleR (genes x cells)
+            ref_mat = ref_mat.T
+            ref_features = [str(x) for x in reference_adata.var_names]
+            
+            # Check gene overlap
+            common_genes = set(test_features) & set(ref_features)
+            if context:
+                await context.info(f"Gene overlap: {len(common_genes)}/{len(test_features)} test genes match reference")
+            
+            if len(common_genes) < min(50, len(test_features) * 0.1):
+                # Too few common genes
+                if context:
+                    await context.error(
+                        f"Insufficient gene overlap: Only {len(common_genes)} common genes. "
+                        f"Test has {len(test_features)}, Reference has {len(ref_features)}"
+                    )
+                    # Show sample of gene names for debugging
+                    test_sample = list(test_features)[:5]
+                    ref_sample = list(ref_features)[:5]
+                    await context.info(f"Test gene sample: {test_sample}")
+                    await context.info(f"Reference gene sample: {ref_sample}")
+                raise ValueError(f"Insufficient gene overlap for SingleR: only {len(common_genes)} common genes")
+            
+            # Get labels from reference - check various common column names
+            cell_type_key = getattr(params, 'cell_type_key', 'cell_type')
+            possible_columns = [cell_type_key, 'cell_types', 'cell_type', 'celltype', 'CellType', 'leiden']
+            
+            for col in possible_columns:
                 if col in reference_adata.obs.columns:
                     ref_labels = list(reference_adata.obs[col])
+                    if context:
+                        await context.info(f"Using '{col}' column for reference labels")
                     break
             if ref_labels is None:
-                raise ValueError("No cell type labels found in reference data")
-            ref_data = ref_sce
+                available_cols = list(reference_adata.obs.columns)[:10]
+                raise ValueError(
+                    f"No cell type labels found in reference data. "
+                    f"Looked for: {possible_columns}. "
+                    f"Available columns: {available_cols}"
+                )
+            
+            # For SingleR, pass the actual expression matrix directly (not SCE)
+            # This has been shown to work better in testing
+            ref_data = ref_mat
+            ref_features_to_use = ref_features  # Keep reference features for gene matching
             
         elif celldex:
             # Use default reference
@@ -477,6 +564,8 @@ async def _annotate_with_singler(adata, params: AnnotationParameters, data_store
         # Run SingleR annotation
         if context:
             await context.info("Running SingleR classification...")
+            await context.info(f"Test features: {len(test_features)} genes")
+            await context.info(f"Reference labels: {len(set(ref_labels))} unique types")
         
         use_integrated = getattr(params, 'singler_integrated', False)
         num_threads = getattr(params, 'num_threads', 4)
@@ -492,24 +581,63 @@ async def _annotate_with_singler(adata, params: AnnotationParameters, data_store
             best_labels = integrated.column("best_label")
             scores = integrated.column("scores")
         else:
-            results = singler.annotate_single(
-                test_data=test_mat,
-                test_features=test_features,
-                ref_data=ref_data,
-                ref_labels=ref_labels,
-                num_threads=num_threads
-            )
+            # Build kwargs for annotate_single
+            annotate_kwargs = {
+                "test_data": test_mat,
+                "test_features": test_features,
+                "ref_data": ref_data,
+                "ref_labels": ref_labels,
+                "num_threads": num_threads
+            }
+            
+            # Add ref_features if we're using custom reference data (not celldex)
+            if 'ref_features_to_use' in locals() and ref_features_to_use is not None:
+                annotate_kwargs["ref_features"] = ref_features_to_use
+                if context:
+                    await context.info(f"Using reference features: {len(ref_features_to_use)} genes")
+            
+            results = singler.annotate_single(**annotate_kwargs)
             best_labels = results.column("best")
             scores = results.column("scores")
+            
+            # Try to get delta scores for confidence (higher delta = higher confidence)
+            try:
+                delta_scores = results.column("delta")
+                if delta_scores and context:
+                    low_delta = sum(1 for d in delta_scores if d and d < 0.05)
+                    if low_delta > len(delta_scores) * 0.3:
+                        await context.warning(
+                            f"⚠️ {low_delta}/{len(delta_scores)} cells have low confidence scores (delta < 0.05)"
+                        )
+            except:
+                delta_scores = None
         
         # Process results
         cell_types = list(best_labels)
         unique_types = list(set(cell_types))
         counts = pd.Series(cell_types).value_counts().to_dict()
         
-        # Calculate confidence scores
+        # Calculate confidence scores - prefer delta scores if available
         confidence_scores = {}
-        if scores is not None:
+        
+        # First try to use delta scores (more meaningful confidence measure)
+        if 'delta_scores' in locals() and delta_scores is not None:
+            try:
+                for cell_type in unique_types:
+                    type_indices = [i for i, ct in enumerate(cell_types) if ct == cell_type]
+                    if type_indices:
+                        type_deltas = [delta_scores[i] for i in type_indices if i < len(delta_scores)]
+                        if type_deltas:
+                            # Higher delta = higher confidence
+                            avg_delta = np.mean([d for d in type_deltas if d is not None])
+                            confidence_scores[cell_type] = round(float(avg_delta), 3)
+                if context and confidence_scores:
+                    await context.info(f"Using delta scores for confidence (avg: {np.mean(list(confidence_scores.values())):.3f})")
+            except:
+                pass  # Fall back to regular scores
+        
+        # Fall back to regular scores if delta not available
+        if not confidence_scores and scores is not None:
             try:
                 scores_df = pd.DataFrame(scores.to_dict())
             except AttributeError:
@@ -523,17 +651,22 @@ async def _annotate_with_singler(adata, params: AnnotationParameters, data_store
                     confidence = (avg_score + 1) / 2  # Convert correlation to 0-1
                     confidence_scores[cell_type] = float(confidence)
                 else:
-                    confidence_scores[cell_type] = 0.5
+                    # No confidence data available - don't assign arbitrary value
+                    pass  # Cell type won't have confidence score
         else:
-            for cell_type in unique_types:
-                confidence_scores[cell_type] = 0.8
+            # No confidence information available from this method
+            # Don't assign misleading confidence values
+            pass
         
         # Add to AnnData
         adata.obs['singler_celltype'] = cell_types
         adata.obs['singler_celltype'] = adata.obs['singler_celltype'].astype('category')
         
-        confidence_array = [confidence_scores.get(ct, 0.5) for ct in cell_types]
-        adata.obs['singler_confidence'] = confidence_array
+        # Only add confidence column if we have real confidence values
+        if confidence_scores:
+            # Use 0.0 for cells without confidence (more honest than arbitrary 0.5)
+            confidence_array = [confidence_scores.get(ct, 0.0) for ct in cell_types]
+            adata.obs['singler_confidence'] = confidence_array
         
         if context:
             await context.info(f"✅ SingleR annotation completed!")
@@ -621,65 +754,139 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
             if context:
                 await context.info(f"Using '{cluster_label}' as cluster label for Tangram mapping")
 
-        # Run Tangram mapping
+        # Check GPU availability for device selection
+        import torch
+        device = params.tangram_device
+        if device != "cpu" and torch.cuda.is_available():
+            if context:
+                await context.info(f"GPU detected - using device: {device}")
+        elif device != "cpu":
+            if context:
+                await context.warning(f"GPU requested but not available - falling back to CPU")
+            device = "cpu"
+
+        # Run Tangram mapping with enhanced parameters
         if context:
-            await context.info(f"Running Tangram mapping in '{mode}' mode for {params.num_epochs} epochs")
+            await context.info(f"Running Tangram mapping in '{mode}' mode for {params.num_epochs} epochs on {device}")
 
         mapping_args = {
             "mode": mode,
             "num_epochs": params.num_epochs,
-            "device": "cpu"  # Use CPU for compatibility
+            "device": device,
+            "density_prior": params.tangram_density_prior,  # Add density prior
+            "learning_rate": params.tangram_learning_rate   # Add learning rate
         }
+
+        # Add optional regularization parameters
+        if params.tangram_lambda_r is not None:
+            mapping_args["lambda_r"] = params.tangram_lambda_r
+        
+        if params.tangram_lambda_neighborhood is not None:
+            mapping_args["lambda_neighborhood"] = params.tangram_lambda_neighborhood
 
         if mode == "clusters":
             mapping_args["cluster_label"] = cluster_label
 
         ad_map = tg.map_cells_to_space(adata_sc, adata_sp, **mapping_args)
 
-        # Get mapping score
+        # Get mapping score from training history
         tangram_mapping_score = 0.0  # Default score
         try:
-            if 'training_history' in ad_map.uns and len(ad_map.uns['training_history']) > 0:
-                # Try to get the last score from training history
-                last_entry = ad_map.uns['training_history'][-1]
-                if isinstance(last_entry, (list, tuple)) and len(last_entry) > 0:
-                    tangram_mapping_score = float(last_entry[0])
-                elif isinstance(last_entry, (int, float)):
-                    tangram_mapping_score = float(last_entry)
-            elif hasattr(ad_map, 'X') and ad_map.X is not None:
-                # If no training history, use a default score based on mapping success
-                tangram_mapping_score = 0.5  # Indicate successful mapping
+            if 'training_history' in ad_map.uns:
+                history = ad_map.uns['training_history']
+                
+                # Extract score from main_loss (which is actually a similarity score, higher is better)
+                if isinstance(history, dict) and 'main_loss' in history and len(history['main_loss']) > 0:
+                    import re
+                    last_value = history['main_loss'][-1]
+                    
+                    # Extract value from tensor string if needed
+                    if isinstance(last_value, str):
+                        # Handle tensor string format: 'tensor(0.9050, grad_fn=...)'
+                        match = re.search(r'tensor\(([-\d.]+)', last_value)
+                        if match:
+                            tangram_mapping_score = float(match.group(1))
+                        else:
+                            # Try direct conversion
+                            try:
+                                tangram_mapping_score = float(last_value)
+                            except:
+                                tangram_mapping_score = 0.0
+                    else:
+                        tangram_mapping_score = float(last_value)
+                    
+                    if context:
+                        await context.info(f"Extracted Tangram mapping score: {tangram_mapping_score:.4f}")
+                        
+                # Fallback to old format if dict method fails
+                elif isinstance(history, (list, tuple)) and len(history) > 0:
+                    last_entry = history[-1]
+                    if isinstance(last_entry, (list, tuple)) and len(last_entry) > 0:
+                        tangram_mapping_score = float(last_entry[0])
+                    elif isinstance(last_entry, (int, float)):
+                        tangram_mapping_score = float(last_entry)
+                else:
+                    if context:
+                        await context.warning("No valid training history found, using default score")
         except Exception as score_error:
             if context:
-                await context.warning(f"Could not extract mapping score: {score_error}")
-            tangram_mapping_score = 0.5  # Default score for successful mapping
+                await context.error(f"Failed to extract Tangram mapping score: {score_error}")
+            # Don't return a misleading score - fail gracefully
+            raise RuntimeError(f"Tangram mapping completed but score extraction failed: {score_error}")
+
+        # Compute validation metrics if requested
+        if params.tangram_compute_validation:
+            try:
+                if context:
+                    await context.info("Computing validation metrics for spatial gene expression")
+                # Compare predicted vs actual spatial gene expression
+                scores = tg.compare_spatial_geneexp(ad_map, adata_sp)
+                # Store validation scores in adata
+                adata_sp.uns['tangram_validation_scores'] = scores
+                if context:
+                    await context.info(f"Validation completed - scores stored in adata.uns['tangram_validation_scores']")
+            except Exception as val_error:
+                if context:
+                    await context.warning(f"Could not compute validation metrics: {val_error}")
+
+        # Project genes if requested
+        if params.tangram_project_genes:
+            try:
+                if context:
+                    await context.info("Projecting gene expression to spatial data")
+                ad_ge = tg.project_genes(ad_map, adata_sc)
+                adata_sp.obsm['tangram_gene_predictions'] = ad_ge.X
+                if context:
+                    await context.info("Gene expression projections stored in adata.obsm['tangram_gene_predictions']")
+            except Exception as gene_error:
+                if context:
+                    await context.warning(f"Could not project genes: {gene_error}")
 
         if context:
             await context.info(f"Tangram mapping completed with score: {tangram_mapping_score}")
 
-        # Project cell annotations to space
+        # Project cell annotations to space using proper API function
         try:
+            # Determine annotation column
+            annotation_col = None
             if mode == "clusters" and cluster_label:
-                if context:
-                    await context.info(f"Projecting cluster annotations using '{cluster_label}' column")
-                tg.plot_cell_annotation(ad_map, adata_sp, annotation=cluster_label)
+                annotation_col = cluster_label
             else:
                 # For cells mode, try multiple annotation columns
-                annotation_col = None
                 potential_cols = ['cell_type', 'celltype', 'cell_types', 'subclass_label']
-                
                 for col in potential_cols:
                     if col in adata_sc.obs:
                         annotation_col = col
                         break
-                
-                if annotation_col:
-                    if context:
-                        await context.info(f"Projecting cell annotations using '{annotation_col}' column")
-                    tg.plot_cell_annotation(ad_map, adata_sp, annotation=annotation_col)
-                else:
-                    if context:
-                        await context.warning("No suitable annotation column found for cells mode projection")
+            
+            if annotation_col:
+                if context:
+                    await context.info(f"Projecting cell annotations using '{annotation_col}' column")
+                # Use project_cell_annotations instead of plot_cell_annotation
+                tg.project_cell_annotations(ad_map, adata_sp, annotation=annotation_col)
+            else:
+                if context:
+                    await context.warning("No suitable annotation column found for projection")
         except Exception as proj_error:
             if context:
                 await context.warning(f"Could not project cell annotations: {proj_error}")
@@ -711,8 +918,8 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
                     # Use mean probability as confidence
                     mean_prob = cell_type_df.loc[cells_of_type, cell_type].mean()
                     confidence_scores[cell_type] = round(float(mean_prob), 2)
-                else:
-                    confidence_scores[cell_type] = CONFIDENCE_MIN
+                # Note: If no cells assigned to this type, we don't report a confidence
+                # This is more scientifically honest than assigning an arbitrary value
 
             # Note: Visualizations should be created using the separate visualize_data tool
             # This maintains clean separation between analysis and visualization
@@ -723,13 +930,21 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
             if context:
                 await context.warning("No cell type predictions found in Tangram results")
 
+        # Validate results before returning
+        if not cell_types:
+            raise RuntimeError("Tangram mapping failed - no cell type predictions generated")
+        
+        if tangram_mapping_score <= 0:
+            if context:
+                await context.warning(f"Tangram mapping score is suspiciously low: {tangram_mapping_score}")
+        
         return cell_types, counts, confidence_scores, tangram_mapping_score
         
     except Exception as e:
         await _handle_annotation_error(e, "tangram", context)
 
 async def _annotate_with_scanvi(adata, params: AnnotationParameters, data_store: Dict[str, Any], context: Optional[Context] = None):
-    """Annotate cell types using scANVI method"""
+    """Annotate cell types using scANVI method with official best practices"""
     try:
         if context:
             await context.info("Using scANVI method for annotation")
@@ -747,72 +962,186 @@ async def _annotate_with_scanvi(adata, params: AnnotationParameters, data_store:
         # Get reference single-cell data
         adata_ref = data_store[params.reference_data_id]["adata"]
         
-        # Setup AnnData for scANVI
-        scvi.model.SCANVI.setup_anndata(
-            adata_ref,
-            labels_key=getattr(params, 'cell_type_key', "cell_type"),
-            unlabeled_category=params.scanvi_unlabeled_category
-        )
-        
-        # Train scANVI model
+        # ===== Gene Alignment (NEW) =====
         if context:
-            await context.info("Training scANVI model...")
+            await context.info("Aligning genes between reference and query data...")
         
-        # Create scANVI model with correct parameter positioning
-        model = scvi.model.SCANVI(
-            adata_ref,
-            n_hidden=params.scanvi_n_hidden,
-            n_latent=params.scanvi_n_latent,
-            n_layers=params.scanvi_n_layers,
-            dropout_rate=params.scanvi_dropout_rate
+        common_genes = adata_ref.var_names.intersection(adata.var_names)
+        
+        if len(common_genes) < min(100, adata_ref.n_vars * 0.5):
+            raise ValueError(
+                f"Insufficient gene overlap: Only {len(common_genes)} common genes found. "
+                f"Reference has {adata_ref.n_vars}, query has {adata.n_vars} genes."
+            )
+        
+        if len(common_genes) < adata_ref.n_vars:
+            if context:
+                await context.warning(
+                    f"Subsetting to {len(common_genes)} common genes "
+                    f"(reference: {adata_ref.n_vars}, query: {adata.n_vars})"
+                )
+            adata_ref = adata_ref[:, common_genes].copy()
+            adata = adata[:, common_genes].copy()
+        
+        # ===== Data Validation (NEW) =====
+        if context:
+            await context.info("Validating data preprocessing...")
+        
+        # Check if reference data is normalized
+        if 'log1p' not in adata_ref.uns:
+            if context:
+                await context.warning("Reference data may not be log-normalized")
+        
+        # Check for HVGs
+        if 'highly_variable' not in adata_ref.var:
+            if context:
+                await context.warning("No highly variable genes detected in reference")
+        
+        # Get parameters
+        cell_type_key = getattr(params, 'cell_type_key', "cell_type")
+        batch_key = getattr(params, 'batch_key', None)
+        
+        # ===== Optional SCVI Pretraining (NEW) =====
+        if params.scanvi_use_scvi_pretrain:
+            if context:
+                await context.info(f"Step 1/3: Pretraining SCVI model for {params.scanvi_scvi_epochs} epochs...")
+            
+            # Setup for SCVI with labels (required for SCANVI conversion)
+            # First ensure the reference has the cell type labels
+            if cell_type_key not in adata_ref.obs.columns:
+                raise ValueError(f"Reference data missing '{cell_type_key}' column")
+            
+            # SCVI needs to know about labels for later SCANVI conversion
+            scvi.model.SCVI.setup_anndata(
+                adata_ref,
+                labels_key=cell_type_key,  # Important: include labels_key
+                batch_key=batch_key,
+                layer=params.layer if hasattr(params, 'layer') else None
+            )
+            
+            # Train SCVI
+            scvi_model = scvi.model.SCVI(
+                adata_ref,
+                n_latent=params.scanvi_n_latent,
+                n_hidden=params.scanvi_n_hidden,
+                n_layers=params.scanvi_n_layers,
+                dropout_rate=params.scanvi_dropout_rate
+            )
+            
+            scvi_model.train(
+                max_epochs=params.scanvi_scvi_epochs,
+                early_stopping=True,
+                check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch
+            )
+            
+            if context:
+                await context.info("Step 2/3: Converting SCVI to SCANVI model...")
+            
+            # Convert to SCANVI (no need for setup_anndata, it uses SCVI's setup)
+            model = scvi.model.SCANVI.from_scvi_model(
+                scvi_model,
+                params.scanvi_unlabeled_category
+            )
+            
+            # Train SCANVI (fewer epochs needed after pretraining)
+            model.train(
+                max_epochs=20,
+                n_samples_per_label=params.scanvi_n_samples_per_label,
+                early_stopping=True
+            )
+            
+        else:
+            # Direct SCANVI training (existing approach)
+            if context:
+                await context.info("Training SCANVI model directly...")
+            
+            # Setup AnnData for scANVI
+            scvi.model.SCANVI.setup_anndata(
+                adata_ref,
+                labels_key=cell_type_key,
+                unlabeled_category=params.scanvi_unlabeled_category,
+                batch_key=batch_key
+            )
+            
+            # Create scANVI model
+            model = scvi.model.SCANVI(
+                adata_ref,
+                n_hidden=params.scanvi_n_hidden,
+                n_latent=params.scanvi_n_latent,
+                n_layers=params.scanvi_n_layers,
+                dropout_rate=params.scanvi_dropout_rate
+            )
+            
+            model.train(
+                max_epochs=params.num_epochs,
+                n_samples_per_label=params.scanvi_n_samples_per_label,
+                early_stopping=True,
+                check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch
+            )
+        
+        # ===== Query Data Preparation (IMPROVED) =====
+        if context:
+            await context.info("Step 3/3: Preparing and training on query data...")
+        
+        # Add unlabeled category for all cells
+        adata.obs[cell_type_key] = params.scanvi_unlabeled_category
+        
+        # Setup query data (batch handling)
+        if batch_key and batch_key not in adata.obs:
+            # Add a default batch for query if reference has batches
+            adata.obs[batch_key] = "query_batch"
+            if context:
+                await context.info(f"Added '{batch_key}' column with 'query_batch' for query data")
+        
+        scvi.model.SCANVI.setup_anndata(
+            adata, 
+            labels_key=cell_type_key,
+            unlabeled_category=params.scanvi_unlabeled_category,
+            batch_key=batch_key
         )
         
-        model.train(max_epochs=params.num_epochs, early_stopping=True)
-        
-        # Prepare spatial data - add cell_type column for scANVI setup if needed
-        cell_type_key = getattr(params, 'cell_type_key', "cell_type")
-        if cell_type_key not in adata.obs.columns:
-            # Add temporary cell type column for scANVI technical requirements
-            if context:
-                await context.info(f"Adding temporary '{cell_type_key}' column filled with '{params.scanvi_unlabeled_category}' for scANVI setup")
-            adata.obs[cell_type_key] = params.scanvi_unlabeled_category
-        
-        scvi.model.SCANVI.setup_anndata(adata, labels_key=cell_type_key, unlabeled_category=params.scanvi_unlabeled_category)
-        
-        # Transfer model to spatial data
+        # Transfer model to spatial data with proper parameters
         spatial_model = scvi.model.SCANVI.load_query_data(adata, model)
-        spatial_model.train(max_epochs=DEFAULT_SCANVI_EPOCHS, early_stopping=True)
+        
+        # ===== Improved Query Training (NEW) =====
+        spatial_model.train(
+            max_epochs=params.scanvi_query_epochs,  # Default: 100 (was 50)
+            early_stopping=True,
+            plan_kwargs=dict(weight_decay=0.0),  # Critical: preserve reference space
+            check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch
+        )
         
         # Get predictions
         predictions = spatial_model.predict()
-        adata.obs["cell_type"] = predictions
-        adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
+        adata.obs[cell_type_key] = predictions
+        adata.obs[cell_type_key] = adata.obs[cell_type_key].astype("category")
         
         # Get cell types and counts
-        cell_types = list(adata.obs["cell_type"].cat.categories)
-        counts = adata.obs["cell_type"].value_counts().to_dict()
+        cell_types = list(adata.obs[cell_type_key].cat.categories)
+        counts = adata.obs[cell_type_key].value_counts().to_dict()
         
         # Get prediction probabilities as confidence scores
         try:
             probs = spatial_model.predict(soft=True)
             confidence_scores = {}
             for i, cell_type in enumerate(cell_types):
-                cells_of_type = adata.obs["cell_type"] == cell_type
+                cells_of_type = adata.obs[cell_type_key] == cell_type
                 if np.sum(cells_of_type) > 0 and isinstance(probs, pd.DataFrame):
                     if cell_type in probs.columns:
                         mean_prob = probs.loc[cells_of_type, cell_type].mean()
                         confidence_scores[cell_type] = round(float(mean_prob), 2)
                     else:
-                        confidence_scores[cell_type] = CONFIDENCE_MIN
+                        # No probability column for this cell type - skip confidence
+                        pass
                 elif np.sum(cells_of_type) > 0 and hasattr(probs, 'shape') and probs.shape[1] > i:
                     mean_prob = probs[cells_of_type, i].mean()
                     confidence_scores[cell_type] = round(float(mean_prob), 2)
-                else:
-                    confidence_scores[cell_type] = CONFIDENCE_MIN
+                # else: No cells of this type or no probability data - skip confidence
         except Exception as e:
             if context:
                 await context.warning(f"Could not get confidence scores: {e}")
-            confidence_scores = {cell_type: CONFIDENCE_MIN for cell_type in cell_types}
+            # Could not extract probabilities - return empty confidence dict
+            confidence_scores = {}  # Empty dict clearly indicates no confidence data available
 
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
@@ -914,10 +1243,12 @@ async def _annotate_with_mllmcelltype(adata, params: AnnotationParameters, conte
         confidence_scores = {}
         for cell_type in cell_types:
             if cell_type != "Unknown":
-                # High confidence for LLM-based annotations
-                confidence_scores[cell_type] = 0.85
+                # LLM-based annotations don't provide numeric confidence scores
+                # Don't assign arbitrary values that could be misleading
+                pass  # No numeric confidence available
             else:
-                confidence_scores[cell_type] = CONFIDENCE_MIN
+                # Unknown cells have no confidence
+                pass
 
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
@@ -1054,12 +1385,12 @@ async def _annotate_with_cellassign(adata, params: AnnotationParameters, context
                     cell_indices = np.where(cells_of_type)[0]
                     mean_prob = predictions.iloc[cell_indices, i].mean()
                     confidence_scores[cell_type] = round(float(mean_prob), 2)
-                else:
-                    confidence_scores[cell_type] = CONFIDENCE_MIN
+                # else: No cells of this type - skip confidence
         else:
             # Other models return indices directly
             adata.obs["cell_type"] = [valid_cell_types[i] for i in predictions]
-            confidence_scores = {cell_type: CONFIDENCE_MIN for cell_type in valid_cell_types}
+            # CellAssign returned indices, not probabilities - no confidence available
+            confidence_scores = {}  # Empty dict indicates no confidence data
         
         adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
         

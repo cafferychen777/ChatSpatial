@@ -310,7 +310,7 @@ async def annotate_cells(
     data_store = {data_id: dataset_info}
 
     # Validate reference data for methods that require it
-    if params.method in ["tangram", "scanvi"] and params.reference_data_id:
+    if params.method in ["tangram", "scanvi", "singler"] and params.reference_data_id:
         if params.reference_data_id not in data_manager.data_store:
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
         ref_info = await data_manager.get_dataset(params.reference_data_id)

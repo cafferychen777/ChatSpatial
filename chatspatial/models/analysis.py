@@ -32,7 +32,18 @@ class DifferentialExpressionResult(BaseModel):
 
 
 class AnnotationResult(BaseModel):
-    """Result of cell type annotation"""
+    """Result of cell type annotation
+    
+    Attributes:
+        data_id: Dataset identifier
+        method: Annotation method used
+        cell_types: List of unique cell types identified
+        counts: Number of cells per cell type
+        confidence_scores: Confidence scores per cell type (when available).
+                          Empty dict or None indicates no confidence data available.
+                          Only contains real statistical measures, never arbitrary values.
+        tangram_mapping_score: For Tangram method - overall mapping quality score
+    """
     data_id: str
     method: str
     cell_types: List[str]
