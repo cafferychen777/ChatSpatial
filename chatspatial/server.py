@@ -492,10 +492,19 @@ async def preprocess_velocity_data(
     dataset_info["adata"] = adata
     data_manager.data_store[data_id] = dataset_info
     
-    return ProcessingResult(
-        status="success",
-        message=f"Velocity data preprocessed successfully with {n_top_genes} genes",
-        data_id=data_id
+    # Count clusters if they exist
+    n_clusters = 0
+    if 'leiden' in adata.obs:
+        n_clusters = adata.obs['leiden'].nunique()
+    elif 'louvain' in adata.obs:
+        n_clusters = adata.obs['louvain'].nunique()
+    
+    return PreprocessingResult(
+        data_id=data_id,
+        n_cells=adata.n_obs,
+        n_genes=adata.n_vars,
+        n_hvgs=n_top_genes,
+        clusters=n_clusters
     )
 
 @mcp.tool()

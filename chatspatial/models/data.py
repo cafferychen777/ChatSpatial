@@ -274,8 +274,6 @@ class RNAVelocityParameters(BaseModel):
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
     basis: str = "spatial"
     color: Optional[str] = None
-    reference_data_id: Optional[str] = None  # For SIRV method
-    labels: Optional[List[str]] = None  # For SIRV method
     
     # Preprocessing parameters for velocity computation
     min_shared_counts: Annotated[int, Field(gt=0)] = 30  # Minimum shared counts for filtering
