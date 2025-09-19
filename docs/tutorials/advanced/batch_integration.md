@@ -5,19 +5,6 @@ parent: Advanced Tutorials
 grand_parent: Tutorials
 nav_order: 2
 description: "Batch effect correction and multi-sample integration"
---- 
-  - harmony_integration
-  - batch_assessment
-  - multi_modal_integration
-  - quality_validation
-  - parameter_optimization
-learning_objectives:
-  - "Identify and assess batch effects in multi-sample datasets"
-  - "Apply Harmony integration using conversational commands"
-  - "Handle multi-modal data integration across platforms"
-  - "Validate integration quality with quantitative metrics"
-  - "Troubleshoot common integration issues"
-  - "Create publication-ready integration results"
 ---
 
 # Batch Effect Correction and Data Integration with ChatSpatial

@@ -5,20 +5,6 @@ parent: Advanced Tutorials
 grand_parent: Tutorials
 nav_order: 4
 description: "RNA velocity and trajectory analysis in spatial data"
---- 
-  - scvelo_velocity
-  - velovi_deep_learning
-  - cellrank_trajectories
-  - palantir_inference
-  - pseudotime_analysis
-  - sirv_integration
-learning_objectives:
-  - "Compute RNA velocity to reveal directional changes in gene expression"
-  - "Infer developmental trajectories and cell fate transitions"
-  - "Explore spatial-temporal patterns across tissue regions"
-  - "Compare different velocity and trajectory methods"
-  - "Interpret biological significance of velocity and trajectory results"
-  - "Design validation experiments based on computational predictions"
 ---
 
 # RNA Velocity and Trajectory Analysis with ChatSpatial

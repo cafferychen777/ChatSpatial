@@ -5,19 +5,6 @@ parent: Analysis Tutorials
 grand_parent: Tutorials
 nav_order: 3
 description: "Spatial gene set enrichment analysis and pathway mapping"
---- 
-  - enrichmap_analysis
-  - msigdb_integration
-  - pathway_visualization
-  - spatial_validation
-  - custom_gene_sets
-learning_objectives:
-  - "Perform spatial gene set enrichment using simple conversational queries"
-  - "Load and utilize gene sets from MSigDB and other databases"
-  - "Identify spatially coherent biological processes and pathways"
-  - "Create enrichment visualizations and pathway territory maps"
-  - "Interpret and validate spatial enrichment patterns biologically"
-  - "Compare enrichment patterns across different tissue regions"
 ---
 
 # Spatial Gene Set Enrichment Analysis with ChatSpatial

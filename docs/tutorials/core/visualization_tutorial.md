@@ -6,17 +6,6 @@ grand_parent: Tutorials
 nav_order: 3
 description: "Creating beautiful visualizations with ChatSpatial"
 ---
-  - gene_visualization
-  - multi_panel_figures
-  - publication_export
-  - customization
-learning_objectives:
-  - "Create basic spatial and gene expression visualizations"
-  - "Customize plot colors, styles, and layouts through conversation"
-  - "Generate publication-ready multi-panel figures"
-  - "Export high-quality images for presentations and papers"
-  - "Master the complete ChatSpatial visualization toolkit"
----
 
 # Creating Beautiful Visualizations with ChatSpatial
 

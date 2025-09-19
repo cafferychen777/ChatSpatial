@@ -5,19 +5,6 @@ parent: Advanced Tutorials
 grand_parent: Tutorials
 nav_order: 3
 description: "Spatial registration and multi-slice alignment"
---- 
-  - paste_algorithm
-  - stalign_method
-  - quality_assessment
-  - 2d_visualization
-  - parameter_optimization
-learning_objectives:
-  - "Register and align multiple tissue slices for comparative analysis"
-  - "Align time-series spatial data to track changes over time"
-  - "Use PASTE and STalign algorithms through conversational interfaces"
-  - "Optimize registration parameters for different tissue types"
-  - "Assess alignment quality with quantitative metrics"
-  - "Create publication-ready 2D visualizations of registered data"
 ---
 
 # Spatial Registration and Multi-Slice Alignment with ChatSpatial
