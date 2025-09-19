@@ -6,16 +6,6 @@ grand_parent: Tutorials
 nav_order: 1
 description: "Your first spatial transcriptomics analysis with ChatSpatial"
 ---
-  - preprocessing
-  - spatial_domains
-  - basic_visualization
-learning_objectives:
-  - "Load and explore spatial transcriptomics data through conversation"
-  - "Perform quality control and preprocessing using natural language"
-  - "Discover spatial domains and tissue organization"
-  - "Create basic visualizations of spatial patterns"
-  - "Understand the conversational analysis workflow"
----
 
 # Your First Spatial Analysis with ChatSpatial
 

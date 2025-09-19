@@ -6,17 +6,6 @@ grand_parent: Tutorials
 nav_order: 2
 description: "Discovering cell-cell communication patterns in spatial data"
 ---
-  - ligand_receptor_pairs
-  - communication_networks
-  - spatial_interaction
-  - pathway_analysis
-learning_objectives:
-  - "Identify ligand-receptor interactions between cell types"
-  - "Explore spatial patterns of cell-cell communication"
-  - "Visualize communication networks and signaling pathways"
-  - "Interpret biological significance of communication patterns"
-  - "Validate communication predictions with spatial context"
----
 
 # Discovering Cell Communication with ChatSpatial
 

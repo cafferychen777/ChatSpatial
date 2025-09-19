@@ -5,19 +5,6 @@ parent: Advanced Tutorials
 grand_parent: Tutorials
 nav_order: 1
 description: "Machine learning-powered spatial gene discovery with GASTON"
---- 
-  - gaston_neural_network
-  - isodepth_visualization
-  - gradient_classification
-  - glm_pca_preprocessing
-  - adversarial_domain_discovery
-learning_objectives:
-  - "Understand machine learning approaches to spatial gene analysis"
-  - "Use GASTON neural networks for complex pattern recognition"
-  - "Create isodepth visualizations and topographic expression maps"
-  - "Classify genes into continuous vs discontinuous spatial patterns"
-  - "Apply advanced GLM-PCA feature engineering"
-  - "Compare ML methods with traditional statistical approaches"
 ---
 
 # GASTON: ML-Powered Spatial Gene Discovery

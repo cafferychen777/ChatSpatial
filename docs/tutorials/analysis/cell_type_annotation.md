@@ -6,16 +6,6 @@ grand_parent: Tutorials
 nav_order: 1
 description: "Identifying cell types in spatial transcriptomics data"
 ---
-  - sctype_annotation
-  - spatial_validation
-  - cell_type_visualization
-learning_objectives:
-  - "Identify cell types using marker gene expression analysis"
-  - "Apply automated annotation methods like scType"
-  - "Validate cell type assignments spatially and biologically"
-  - "Visualize cell type distributions across tissue"
-  - "Interpret biological significance of cell type patterns"
----
 
 # Identifying Cell Types with ChatSpatial
 

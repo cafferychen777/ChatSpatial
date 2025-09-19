@@ -6,19 +6,6 @@ grand_parent: Tutorials
 nav_order: 2
 description: "Statistical analysis of spatial patterns and autocorrelation"
 ---
-  - lisa_analysis
-  - neighborhood_enrichment
-  - ripleys_k_function
-  - spatial_centrality
-  - join_count_analysis
-learning_objectives:
-  - "Perform bivariate Moran's I analysis for spatial gene correlations"
-  - "Use LISA to identify local spatial hotspots and coldspots"
-  - "Analyze neighborhood enrichment for cell type co-occurrence"
-  - "Apply Ripley's K function for point pattern analysis"
-  - "Calculate spatial centrality metrics for network analysis"
-  - "Conduct join count analysis for categorical spatial patterns"
----
 
 # Spatial Statistics Methods with ChatSpatial
 

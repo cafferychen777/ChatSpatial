@@ -2,6 +2,7 @@
 layout: default
 title: Style Guide
 nav_order: 99
+nav_exclude: true
 description: "ChatSpatial design system and component showcase"
 ---
 
