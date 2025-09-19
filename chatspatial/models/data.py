@@ -417,12 +417,12 @@ class SpatialVariableGenesParameters(BaseModel):
 
     # GASTON-specific parameters
     # Preprocessing parameters
-    preprocessing_method: Literal["glmpca", "pearson_residuals"] = "glmpca"
+    preprocessing_method: Literal["glmpca", "pearson_residuals"] = "glmpca"  # Official default: GLM-PCA
     n_components: Annotated[int, Field(gt=0, le=50)] = 10  # Number of components for dimensionality reduction
 
     # Neural network architecture parameters
-    spatial_hidden_layers: List[Annotated[int, Field(gt=0, le=1000)]] = [50]  # Architecture for spatial embedding f_S
-    expression_hidden_layers: List[Annotated[int, Field(gt=0, le=1000)]] = [10]  # Architecture for expression function f_A
+    spatial_hidden_layers: List[Annotated[int, Field(gt=0, le=1000)]] = [20, 20]  # Architecture for spatial embedding f_S
+    expression_hidden_layers: List[Annotated[int, Field(gt=0, le=1000)]] = [20, 20]  # Architecture for expression function f_A
 
     # Training parameters
     epochs: Annotated[int, Field(gt=0, le=50000)] = 10000  # Number of training epochs
@@ -436,7 +436,7 @@ class SpatialVariableGenesParameters(BaseModel):
     sigma: Annotated[float, Field(gt=0.0, le=1.0)] = 0.2  # Positional encoding sigma parameter
 
     # Model saving parameters
-    checkpoint_interval: Annotated[int, Field(gt=0, le=5000)] = 500  # Save model every N epochs
+    checkpoint_interval: Annotated[int, Field(gt=0, le=5000)] = 500  # Save model every N epochs (official tutorial: 500)
     random_seed: Annotated[int, Field(ge=0, le=1000)] = 0  # Random seed for reproducibility
 
     # Analysis parameters
