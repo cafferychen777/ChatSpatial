@@ -447,66 +447,12 @@ async def preprocess_data(
             sc.tl.diffmap(adata)
         except Exception as e:
             if context:
-                await context.warning(f"Error in neighbors/clustering: {str(e)}")
-                await context.info("Creating fallback clustering...")
-
-            # Create a fallback clustering based on gene expression using safe operations
-            if 'highly_variable' in adata.var and adata.var['highly_variable'].any():
-                # Use highly variable genes
-                hvg_indices = np.where(adata.var['highly_variable'])[0]
-                if hasattr(adata.X, 'toarray'):
-                    X_hvg = adata.X[:, hvg_indices].toarray()
-                else:
-                    X_hvg = adata.X[:, hvg_indices]
-            else:
-                # Use all genes
-                if hasattr(adata.X, 'toarray'):
-                    X_hvg = adata.X.toarray()
-                else:
-                    X_hvg = adata.X
-
-            # Simple clustering based on expression
-            from sklearn.cluster import KMeans
-            n_clusters_kmeans = min(10, int(adata.n_obs * MAX_NEIGHBORS_RATIO))  # At most 10% of cells
-            n_clusters_kmeans = max(n_clusters_kmeans, MIN_KMEANS_CLUSTERS)  # At least MIN_KMEANS_CLUSTERS clusters
-
-            if context:
-                await context.info(f"Using KMeans with {n_clusters_kmeans} clusters as fallback...")
-
-            try:
-                kmeans = KMeans(n_clusters=n_clusters_kmeans, random_state=42, n_init=10)
-                adata.obs[params.cluster_key] = kmeans.fit_predict(X_hvg).astype(str)
-                n_clusters = n_clusters_kmeans
-            except Exception as e_kmeans:
-                if context:
-                    await context.error(f"KMeans clustering failed: {e_kmeans}")
-                raise RuntimeError(
-                    f"All clustering methods failed. Original error: {str(e)}. "
-                    f"KMeans fallback error: {str(e_kmeans)}. "
-                    "Please check data quality or try different preprocessing parameters."
-                )
-
-            # Create a simple UMAP embedding if possible
-            try:
-                from sklearn.decomposition import PCA
-                from sklearn.manifold import TSNE
-
-                # Use PCA for dimensionality reduction
-                n_pca_components = min(MAX_TSNE_PCA_COMPONENTS, X_hvg.shape[1], X_hvg.shape[0] - 1)
-                pca = PCA(n_components=n_pca_components, random_state=42)
-                X_pca = pca.fit_transform(X_hvg)
-
-                # Use t-SNE for visualization (faster than UMAP)
-                tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, adata.n_obs // 4))
-                X_tsne = tsne.fit_transform(X_pca)
-
-                # Store as UMAP coordinates for compatibility
-                adata.obsm['X_umap'] = X_tsne
-            except Exception as e2:
-                if context:
-                    await context.warning(f"Could not create embedding: {str(e2)}. Skipping visualization coordinates.")
-                # Do not create random coordinates - leave X_umap undefined
-                # Downstream visualization tools will handle missing coordinates appropriately
+                await context.error(f"Clustering failed: {str(e)}")
+            # Don't silently create fallback clustering - let the LLM handle the failure
+            raise RuntimeError(
+                f"Clustering failed: {str(e)}. "
+                "Please check data quality or try different preprocessing parameters."
+            )
 
         # 11. Add RNA velocity preprocessing if requested
         if getattr(params, 'enable_rna_velocity', False):
