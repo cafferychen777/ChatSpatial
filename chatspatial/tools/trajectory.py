@@ -103,22 +103,32 @@ def validate_spatial_data(adata, spatial_key: str = 'spatial') -> Tuple[bool, Li
 
 
 def preprocess_for_velocity(adata, min_shared_counts=30, n_top_genes=2000, n_pcs=30, n_neighbors=30, params=None):
-    """Prepare data for RNA velocity analysis
-    
+    """
+    Prepares an AnnData object for RNA velocity analysis using the scVelo pipeline.
+
+    This function performs the standard scVelo preprocessing workflow, which is a
+    prerequisite for computing RNA velocity. The steps include:
+    1. Filtering genes based on minimum shared counts between spliced and
+       unspliced layers.
+    2. Normalizing the data.
+    3. Selecting a subset of highly variable genes.
+    4. Computing first and second-order moments (mean and uncentered variance)
+       across nearest neighbors in PCA space.
+
     Parameters
     ----------
     adata : AnnData
-        Annotated data matrix
+        The annotated data matrix, which must contain 'spliced' and 'unspliced' layers.
     min_shared_counts : int, default 30
-        Minimum shared counts for filtering
+        Minimum number of counts shared between spliced and unspliced layers.
     n_top_genes : int, default 2000
-        Number of top genes to retain
+        Number of highly variable genes to use for analysis.
     n_pcs : int, default 30
-        Number of principal components
+        Number of principal components to compute.
     n_neighbors : int, default 30
-        Number of neighbors for moments computation
+        Number of nearest neighbors for moment computation.
     params : RNAVelocityParameters, optional
-        If provided, overrides individual parameters
+        If provided, this object's attributes will override the individual parameters.
     """
     import scvelo as scv
     
@@ -144,21 +154,32 @@ def preprocess_for_velocity(adata, min_shared_counts=30, n_top_genes=2000, n_pcs
 
 
 def compute_rna_velocity(adata, mode='stochastic', params=None):
-    """Compute RNA velocity including preprocessing
-    
+    """
+    Computes RNA velocity to infer the direction of cellular differentiation.
+
+    This function executes the core RNA velocity workflow. It first ensures that
+    the necessary preprocessing steps (e.g., moment computation) have been performed.
+    It then estimates RNA velocity, which represents the rate of change of gene
+    expression, by modeling the balance of spliced and unspliced mRNA counts.
+    Finally, it constructs a velocity graph to represent the inferred cell-to-cell
+    transitions.
+
     Parameters
     ----------
     adata : AnnData
-        Annotated data matrix with spliced/unspliced layers
+        The annotated data matrix with 'spliced' and 'unspliced' layers.
     mode : str, default 'stochastic'
-        Velocity computation mode: 'stochastic', 'deterministic', or 'dynamical'
+        The model for velocity estimation.
+        - 'stochastic': A likelihood-based model that accounts for noise.
+        - 'deterministic': A simpler model based on steady-state assumptions.
+        - 'dynamical': A model that solves the full transcriptional dynamics.
     params : RNAVelocityParameters, optional
-        Parameters for preprocessing and velocity computation
-        
+        An object containing parameters for both preprocessing and velocity computation.
+
     Returns
     -------
     AnnData
-        Data with computed velocity
+        The AnnData object updated with the computed velocity vectors and graph.
     """
     import scvelo as scv
     
@@ -212,7 +233,18 @@ def validate_rna_velocity_computation(adata, mode="stochastic"):
 
 
 def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=(0.8, 0.2), n_states=5):
-    """Integrate RNA velocity and spatial information for trajectory inference using CellRank.
+    """
+    Infers cellular trajectories by combining RNA velocity and spatial data with CellRank.
+
+    This function uses CellRank to model cell-state transitions by constructing
+    a transition matrix from multiple kernels. It combines:
+    1. A velocity kernel, derived from RNA velocity.
+    2. A connectivity kernel, based on transcriptomic similarity.
+    3. A custom spatial kernel, based on physical proximity.
+
+    By analyzing the eigenvectors of the combined transition matrix, CellRank
+    identifies macrostates (representative cell states), terminal states, and computes
+    fate probabilities to map the paths of cellular development.
     
     Raises exceptions directly if CellRank fails - no fallback logic.
     """
@@ -353,18 +385,26 @@ def spatial_aware_embedding(adata, spatial_weight=0.3):
 
 
 def infer_pseudotime_palantir(adata, root_cells=None, n_diffusion_components=10, num_waypoints=500):
-    """Infer pseudotime based on spatial pattern using Palantir.
-    
+    """
+    Infers cellular trajectories and pseudotime using the Palantir algorithm.
+
+    Palantir models cellular differentiation as a stochastic process on a graph.
+    It uses diffusion maps to capture the geometry of the data and then determines
+    cell fate probabilities and differentiation potential by simulating random walks
+    from a specified root cell. This produces a continuous pseudotime ordering of
+    cells along developmental trajectories.
+
     Parameters
     ----------
     adata : AnnData
-        Annotated data matrix
+        The annotated data matrix, which must contain PCA results in `adata.obsm['X_pca']`.
     root_cells : list of str, optional
-        List of root cell IDs for trajectory
+        A list of cell identifiers to be used as the starting point(s) of the trajectory.
+        If not provided, Palantir will select a root cell automatically.
     n_diffusion_components : int, default 10
-        Number of diffusion components
+        The number of diffusion components to compute.
     num_waypoints : int, default 500
-        Number of waypoints for Palantir
+        The number of waypoints to use for modeling the trajectory, affecting granularity.
     
     Raises exceptions directly if Palantir fails - no fallback logic.
     """
@@ -608,16 +648,9 @@ async def analyze_trajectory(
                 await context.info("CellRank analysis completed successfully.")
         except Exception as cellrank_error:
             if context:
-                await context.warning(f"CellRank analysis failed: {cellrank_error}")
-                await context.info("🔄 Falling back to Palantir method (still advanced, but different algorithm)")
-            # Log the full traceback for debugging (if logger available)
-            import traceback
-            try:
-                logger.error(f"CellRank traceback: {traceback.format_exc()}")
-            except:
-                pass  # Ignore if logger not available
-            # Force switch to Palantir
-            method_used = "palantir"
+                await context.error(f"CellRank analysis failed: {cellrank_error}")
+            # Don't silently fallback - let the LLM decide what to do
+            raise ProcessingError(f"CellRank trajectory inference failed: {cellrank_error}") from cellrank_error
 
     # Strategy 2: Try DPT if explicitly requested
     if params.method == "dpt":
@@ -657,29 +690,11 @@ async def analyze_trajectory(
                 await context.info("Palantir analysis completed successfully.")
                 
         except Exception as palantir_error:
-            if not params.allow_fallback_to_dpt:
-                raise ProcessingError(f"Palantir analysis failed: {palantir_error}") from palantir_error
-            
             if context:
-                await context.warning(f"Palantir analysis failed: {palantir_error}")
-                await context.warning("⚠️  IMPORTANT: Falling back to Diffusion Pseudotime (DPT)")
-                await context.warning("   DPT (Haghverdi et al. 2016) is a valid but older method with known limitations")
-                await context.warning("   DPT may show bias toward certain cell populations and mask biological variation")
-                await context.warning("   Results will be less sophisticated than modern Palantir/CellRank methods")
-            
-            # Final fallback: DPT with clear warnings
-            try:
-                with suppress_output():
-                    adata = compute_dpt_fallback(adata, root_cells=params.root_cells)
-                    
-                pseudotime_key = 'dpt_pseudotime'
-                method_used = "dpt"
-                if context:
-                    await context.info("✅ DPT fallback analysis completed")
-                    await context.warning("⚠️  Remember: Results are from basic DPT, not advanced trajectory methods")
-                    
-            except Exception as dpt_error:
-                raise ProcessingError(f"All trajectory inference methods failed. Last error (DPT): {dpt_error}") from dpt_error
+                await context.error(f"Palantir analysis failed: {palantir_error}")
+            # Don't silently fallback - let the LLM decide what to do
+            # The LLM can explicitly request DPT method if it wants to try that
+            raise ProcessingError(f"Palantir trajectory inference failed: {palantir_error}") from palantir_error
 
     # Ensure pseudotime key exists
     if pseudotime_key is None or pseudotime_key not in adata.obs.columns:
@@ -713,26 +728,30 @@ async def analyze_velocity_with_velovi(
     use_gpu: bool = False,
     context: Optional[Context] = None
 ) -> Dict[str, Any]:
-    """Analyze RNA velocity using VELOVI from scvi-tools
-    
-    VELOVI (Velocity Variational Inference) is a deep generative model for 
-    transcriptional dynamics that estimates velocities in a probabilistic framework.
-    
+    """
+    Analyzes RNA velocity using the deep learning model VELOVI.
+
+    VELOVI (Velocity Variational Inference) is a probabilistic deep generative model
+    that estimates transcriptional dynamics from spliced and unspliced mRNA counts.
+    It provides a more detailed view of cellular dynamics by not only estimating
+    velocity vectors but also quantifying the uncertainty associated with these
+    estimates. This method is part of the scvi-tools ecosystem.
+
     Args:
-        adata: AnnData object with spliced and unspliced counts
-        n_epochs: Number of epochs for training
-        n_hidden: Number of hidden units in neural networks  
-        n_latent: Dimensionality of latent space
-        use_gpu: Whether to use GPU for training
-        context: MCP context for logging
-        
+        adata: The AnnData object, which must contain 'spliced' and 'unspliced' layers.
+        n_epochs: The number of training epochs for the model.
+        n_hidden: The number of hidden units in the neural network layers.
+        n_latent: The dimensionality of the latent space.
+        use_gpu: If True, training will be performed on a GPU if available.
+        context: The MCP context for logging.
+
     Returns:
-        Dictionary containing VELOVI analysis results
-        
+        A dictionary containing the results and metadata from the VELOVI analysis.
+
     Raises:
-        ImportError: If scvi-tools package is not available
-        ValueError: If input data is invalid or missing required layers
-        RuntimeError: If VELOVI computation fails
+        ImportError: If the `scvi-tools` package is not installed.
+        ValueError: If the input data is missing the required 'spliced' or 'unspliced' layers.
+        RuntimeError: If an error occurs during model training or result extraction.
     """
     try:
         if scvi is None or VELOVI is None:
