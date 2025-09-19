@@ -440,6 +440,11 @@ async def preprocess_data(
 
             # Count clusters
             n_clusters = len(adata.obs[params.cluster_key].unique())
+            
+            # Compute diffusion map for trajectory analysis
+            if context:
+                await context.info("Computing diffusion map for trajectory analysis...")
+            sc.tl.diffmap(adata)
         except Exception as e:
             if context:
                 await context.warning(f"Error in neighbors/clustering: {str(e)}")

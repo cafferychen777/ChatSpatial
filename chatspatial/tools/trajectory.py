@@ -1,16 +1,35 @@
 """
-Tools for RNA velocity and trajectory analysis in spatial transcriptomics data.
+A module for RNA velocity and trajectory inference in spatial transcriptomics.
+
+This module provides a suite of tools for analyzing cellular dynamics by
+integrating single-cell RNA velocity with spatial information. It includes
+functions for preprocessing data with spliced and unspliced counts, computing
+RNA velocity using various models (e.g., stochastic, dynamical), and inferring
+cellular trajectories.
+
+Key functionalities are organized into two main analysis pipelines:
+1. `analyze_rna_velocity`: Computes RNA velocity directly from spatial data
+   that contains both spliced and unspliced count layers.
+2. `analyze_trajectory`: Infers developmental trajectories and pseudotime by
+   combining velocity information with spatial context. It provides access to
+   advanced methods like CellRank and Palantir, with a fallback to Diffusion
+   Pseudotime (DPT) for robustness.
 """
 
 from typing import Dict, Any, Optional, List, Tuple
 import numpy as np
 import pandas as pd
+import logging
 
 from mcp.server.fastmcp import Context
 
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
-from ..utils.error_handling import suppress_output, ProcessingError, validate_adata, DataNotFoundError
+from ..utils.error_handling import (
+    suppress_output, ProcessingError, validate_adata, DataNotFoundError
+)
+
+logger = logging.getLogger(__name__)
 
 # Import scvi-tools for advanced trajectory analysis
 try:
@@ -190,64 +209,6 @@ def validate_rna_velocity_computation(adata, mode="stochastic"):
     return adata
 
 
-def validate_sirv_data_requirements(spatial_adata, scrna_adata):
-    """Validate SIRV data requirements (no preprocessing performed)"""
-    import scvelo as scv
-
-    # Validate scRNA-seq velocity data
-    is_valid, issues = validate_velocity_data(scrna_adata)
-    if not is_valid:
-        raise ValueError(f"Invalid scRNA-seq velocity data: {'; '.join(issues)}")
-
-    # Validate spatial data
-    is_valid, issues = validate_spatial_data(spatial_adata)
-    if not is_valid:
-        raise ValueError(f"Invalid spatial data: {'; '.join(issues)}")
-
-    # Check if scRNA-seq data has been preprocessed and velocity computed
-    data_max = scrna_adata.X.max() if hasattr(scrna_adata.X, 'max') else np.max(scrna_adata.X)
-    if data_max > 100:
-        raise ValueError(
-            "SIRV analysis requires preprocessed scRNA-seq data but raw counts detected. "
-            "Please run preprocessing in preprocessing.py: "
-            "1) scv.pp.filter_and_normalize(scrna_adata) "
-            "2) scv.pp.moments(scrna_adata) "
-            "3) scv.tl.velocity(scrna_adata) "
-            "4) scv.tl.velocity_graph(scrna_adata)"
-        )
-    
-    # Check velocity computation
-    if 'velocity' not in scrna_adata.layers:
-        raise ValueError(
-            "SIRV analysis requires velocity computation in scRNA-seq data. "
-            "Please run in preprocessing.py: scv.tl.velocity(scrna_adata)"
-        )
-    
-    if 'velocity_graph' not in scrna_adata.uns:
-        raise ValueError(
-            "SIRV analysis requires velocity graph in scRNA-seq data. "
-            "Please run in preprocessing.py: scv.tl.velocity_graph(scrna_adata)"
-        )
-
-    return spatial_adata, scrna_adata
-
-
-def run_sirv(spatial_adata, scrna_adata, n_pcs=30, labels=None):
-    """Run SIRV analysis"""
-    try:
-        from SIRV.main import SIRV
-
-        # Run SIRV
-        spatial_adata_with_velocity = SIRV(
-            spatial_data=spatial_adata,
-            scrna_data=scrna_adata,
-            n_pcs=n_pcs,
-            labels=labels
-        )
-
-        return spatial_adata_with_velocity
-    except ImportError:
-        raise ProcessingError("SIRV package not found. Install it with: pip install git+https://github.com/tabdelaal/SIRV.git")
 
 
 def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=(0.8, 0.2), n_states=5):
@@ -516,16 +477,25 @@ async def analyze_rna_velocity(
     params: RNAVelocityParameters = RNAVelocityParameters(),
     context: Optional[Context] = None
 ) -> RNAVelocityResult:
-    """Analyze RNA velocity in spatial transcriptomics data
+    """
+    Computes RNA velocity for spatial transcriptomics data.
+
+    This function requires the input dataset to contain 'spliced' and 'unspliced'
+    count layers. It uses the scVelo library to preprocess the data and compute
+    velocity vectors, which indicate the predicted future state of individual cells.
 
     Args:
-        data_id: Dataset ID
-        data_store: Dictionary storing datasets
-        params: RNA velocity analysis parameters
-        context: MCP context
+        data_id: The identifier for the dataset.
+        data_store: A dictionary that stores the loaded datasets.
+        params: An object containing parameters for the RNA velocity analysis.
+        context: The MCP context for logging and communication.
 
     Returns:
-        RNA velocity analysis result (computation metadata only, no visualization)
+        An RNAVelocityResult object containing metadata about the computation.
+
+    Raises:
+        ProcessingError: If scVelo is not installed or if the velocity computation fails.
+        DataNotFoundError: If the input data lacks the required 'spliced'/'unspliced' layers.
     """
     try:
         import scvelo as scv
@@ -537,68 +507,43 @@ async def analyze_rna_velocity(
 
     # Get AnnData object
     if data_id not in data_store:
-        raise ValueError(f"Dataset {data_id} not found in data store")
+        raise DataNotFoundError(f"Dataset {data_id} not found in data store")
 
     # Copy AnnData to avoid modifying original data
     adata = data_store[data_id]["adata"].copy()
 
     # Validate data for velocity analysis
-    velocity_valid, velocity_issues = validate_velocity_data(adata)
-    has_velocity_data = velocity_valid
-    
-    if not velocity_valid and not params.reference_data_id:
+    is_valid, issues = validate_velocity_data(adata)
+    if not is_valid:
+        error_message = (
+            "The dataset is missing required data for RNA velocity analysis. "
+            f"Specific issues: {'; '.join(issues)}. Please ensure the data "
+            "contains both 'spliced' and 'unspliced' count layers."
+        )
         if context:
-            await context.warning("Data validation issues found:")
-            for issue in velocity_issues:
-                await context.warning(f"  - {issue}")
-            await context.info("Tip: Provide reference_data_id with spliced/unspliced layers for SIRV analysis")
+            await context.error(error_message)
+        raise DataNotFoundError(error_message)
 
     velocity_computed = False
-
     with suppress_output():
         try:
-            if has_velocity_data:
-                if context:
-                    await context.info("Found spliced/unspliced layers. Computing velocity directly.")
-                
-                # Use unified velocity computation
-                if context:
-                    await context.info("Computing RNA velocity...")
-                adata = compute_rna_velocity(adata, params=params)
-                velocity_computed = True
-                
-            elif params.reference_data_id:
-                if context:
-                    await context.info(f"No layers found. Using reference data '{params.reference_data_id}' for SIRV.")
-                
-                if params.reference_data_id not in data_store:
-                    raise ValueError(f"Reference dataset {params.reference_data_id} not found in data store")
-                
-                ref_adata = data_store[params.reference_data_id]["adata"]
-                
-                # Validate data requirements for SIRV
-                spatial_adata, scrna_adata = validate_sirv_data_requirements(adata, ref_adata)
-                
-                # Run SIRV
-                adata = run_sirv(
-                    spatial_adata=spatial_adata,
-                    scrna_adata=scrna_adata,
-                    n_pcs=params.n_pcs,
-                    labels=params.labels
-                )
-                velocity_computed = True
-                
-            else:
-                if context:
-                    await context.warning("Data lacks spliced/unspliced counts and no reference data was provided. Cannot compute RNA velocity.")
-
+            if context:
+                await context.info("Found spliced/unspliced layers. Computing velocity directly.")
+            
+            # Use unified velocity computation
+            adata = compute_rna_velocity(adata, params=params)
+            velocity_computed = True
+            
         except Exception as e:
-            raise ProcessingError(f"RNA velocity analysis failed: {str(e)}") from e
+            error_msg = f"RNA velocity analysis failed: {str(e)}"
+            if context:
+                await context.error(error_msg)
+            raise ProcessingError(error_msg) from e
 
     # Update data store
     data_store[data_id]["adata"] = adata
 
-    # Return result with metadata only (no visualization)
+    # Return result with metadata only
     return RNAVelocityResult(
         data_id=data_id,
         velocity_computed=velocity_computed,
@@ -674,8 +619,22 @@ async def analyze_trajectory(
             # Force switch to Palantir
             method_used = "palantir"
 
-    # Strategy 2: Try Palantir (either as primary method or fallback)
-    if method_used == "palantir" or not has_velocity:
+    # Strategy 2: Try DPT if explicitly requested
+    if params.method == "dpt":
+        if context:
+            await context.info("Attempting trajectory inference with DPT...")
+        try:
+            with suppress_output():
+                adata = compute_dpt_fallback(adata, root_cells=params.root_cells)
+            pseudotime_key = 'dpt_pseudotime'
+            method_used = "dpt"
+            if context:
+                await context.info("DPT analysis completed successfully.")
+        except Exception as dpt_error:
+            raise ProcessingError(f"DPT analysis failed: {dpt_error}") from dpt_error
+    
+    # Strategy 3: Try Palantir (either as primary method or fallback)
+    elif method_used == "palantir" or not has_velocity:
         if context:
             await context.info("Attempting trajectory inference with Palantir...")
         
