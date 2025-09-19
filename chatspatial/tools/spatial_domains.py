@@ -1,5 +1,12 @@
 """
-Spatial domain identification tools for spatial transcriptomics data.
+A module for identifying spatial domains in spatial transcriptomics data.
+
+This module provides an interface to several algorithms designed to partition
+spatial data into distinct domains based on gene expression and spatial proximity.
+It includes graph-based clustering methods (SpaGCN, STAGATE), a neighborhood
+aggregation method (BANKSY), and standard clustering algorithms (Leiden, Louvain)
+adapted for spatial data. The primary entry point is the `identify_spatial_domains`
+function, which handles data preparation and dispatches to the selected method.
 """
 
 from typing import Dict, Any, Optional, List
@@ -47,7 +54,9 @@ def _check_environment_compatibility():
     
     # Check squidpy availability
     if not SQUIDPY_AVAILABLE:
-        issues.append("squidpy not available - spatial graph functionality will be limited")
+        issues.append(
+            "squidpy not available - spatial graph functionality will be limited"
+        )
     
     # Check SpaGCN availability  
     if not SPAGCN_AVAILABLE:
@@ -59,7 +68,9 @@ def _check_environment_compatibility():
     
     # Check BANKSY availability  
     if not BANKSY_AVAILABLE:
-        issues.append("BANKSY not available - neighborhood aggregation method unavailable")
+        issues.append(
+            "BANKSY not available - neighborhood aggregation method unavailable"
+        )
     
     # Check version compatibility
     try:
@@ -79,16 +90,26 @@ async def identify_spatial_domains(
     params: SpatialDomainParameters = SpatialDomainParameters(),
     context: Optional[Context] = None
 ) -> SpatialDomainResult:
-    """Identify spatial domains in spatial transcriptomics data
-    
+    """
+    Identifies spatial domains by clustering spots based on gene expression and location.
+
+    This function serves as the main entry point for various spatial domain
+    identification methods. It performs initial data validation and preparation,
+    including checks for required preprocessing steps like normalization and
+    highly variable gene selection. It then calls the specific algorithm
+    requested by the user. The resulting domain labels are stored back in the
+    AnnData object.
+
     Args:
-        data_id: Dataset ID
-        data_store: Dictionary storing loaded datasets
-        params: Spatial domain identification parameters
-        context: MCP context
-        
+        data_id: The identifier for the dataset.
+        data_store: A dictionary that stores the loaded datasets.
+        params: An object containing parameters for the analysis, including the
+                method to use and its specific settings.
+        context: The MCP context for logging and communication.
+
     Returns:
-        Spatial domain identification result
+        A SpatialDomainResult object containing the identified domains and
+        associated metadata.
     """
     # Check environment compatibility
     env_issues = _check_environment_compatibility()
@@ -313,7 +334,15 @@ async def _identify_domains_spagcn(
     params: SpatialDomainParameters,
     context: Optional[Context] = None
 ) -> tuple:
-    """Identify spatial domains using SpaGCN"""
+    """
+    Identifies spatial domains using the SpaGCN algorithm.
+
+    SpaGCN (Spatial Graph Convolutional Network) constructs a spatial graph where
+    each spot is a node. It then uses a graph convolutional network to learn a
+    low-dimensional embedding that integrates gene expression, spatial relationships,
+    and optionally histology image features. The final domains are obtained by
+    clustering these learned embeddings. This method requires the `SpaGCN` package.
+    """
     if not SPAGCN_AVAILABLE:
         raise ImportError("SpaGCN is not installed. Please install it with: pip install SpaGCN")
 
@@ -510,7 +539,16 @@ async def _identify_domains_clustering(
     params: SpatialDomainParameters,
     context: Optional[Context] = None
 ) -> tuple:
-    """Identify spatial domains using standard clustering methods"""
+    """
+    Identifies spatial domains using Leiden or Louvain clustering on a composite graph.
+
+    This function adapts standard graph-based clustering algorithms for spatial data.
+    It first constructs a k-nearest neighbor graph based on gene expression (typically
+    from PCA embeddings) and another based on spatial coordinates. These two graphs are
+    then combined into a single weighted graph. Applying Leiden or Louvain clustering
+    to this composite graph partitions the data into domains that are cohesive in both
+    expression and physical space.
+    """
     if context:
         await context.info(f"Running {params.method} clustering for spatial domain identification...")
     
@@ -632,7 +670,14 @@ async def _identify_domains_clustering(
 
 
 def _refine_spatial_domains(adata: Any, domain_key: str, refined_key: str) -> pd.Series:
-    """Refine spatial domains using spatial smoothing"""
+    """
+    Refines spatial domain assignments using a spatial smoothing algorithm.
+
+    This post-processing step aims to create more spatially coherent domains by
+    reducing noise. It iterates through each spot and re-assigns its domain label
+    to the majority label of its k-nearest spatial neighbors. This process helps
+    to remove small, isolated spots and smooth the boundaries between domains.
+    """
     try:
         # Get spatial coordinates
         if 'spatial' in adata.obsm:
@@ -692,7 +737,16 @@ async def _identify_domains_stagate(
     params: SpatialDomainParameters,
     context: Optional[Context] = None
 ) -> tuple:
-    """Identify spatial domains using STAGATE_pyG"""
+    """
+    Identifies spatial domains using the STAGATE algorithm.
+
+    STAGATE (Spatially-aware graph attention network) learns low-dimensional
+    embeddings for spots by integrating gene expression with spatial information
+    through a graph attention mechanism. This allows the model to weigh the
+    importance of neighboring spots adaptively. The resulting embeddings are then
+    clustered to define spatial domains. This method requires the `STAGATE_pyG`
+    package.
+    """
     if not STAGATE_AVAILABLE:
         raise ImportError("STAGATE_pyG is not installed. Please install it from: https://github.com/QIFEIDKN/STAGATE_pyG")
     
@@ -774,7 +828,16 @@ async def _identify_domains_banksy(
     params: SpatialDomainParameters,
     context: Optional[Context] = None
 ) -> tuple:
-    """Identify spatial domains using BANKSY"""
+    """
+    Identifies spatial domains using the BANKSY algorithm.
+
+    BANKSY (Boundary-Aware Neighborhood-informed Klustering of Spatially-resolved transcriptomics)
+    identifies domains by directly incorporating neighborhood information into the
+    feature matrix. It augments the original gene expression matrix with features
+    representing the aggregated expression of spatial neighbors. Clustering is then
+    performed on this augmented feature space, enabling the identification of domains
+    with distinct local cellular environments. This method requires the `banksy` package.
+    """
     if not BANKSY_AVAILABLE:
         raise ImportError("BANKSY is not installed. Please install it from: https://github.com/prabhakarlab/Banksy_py")
     
