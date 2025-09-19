@@ -1,3 +1,9 @@
+---
+layout: default
+title: Getting Started Legacy
+nav_exclude: true
+---
+
 # Getting Started with ChatSpatial
 
 This guide demonstrates how to set up ChatSpatial and analyze spatial transcriptomics data through natural language queries in Claude Desktop, eliminating the need for complex coding.
@@ -37,8 +43,10 @@ conda activate chatspatial
 git clone https://github.com/cafferychen777/ChatSpatial.git
 cd ChatSpatial
 
-# Install ChatSpatial
-pip install -e .
+# Install ChatSpatial (choose one)
+pip install -e .                    # Minimal features
+pip install -e ".[advanced]"        # Recommended (includes enrichmap)
+pip install -e ".[all]"            # All features
 
 # Verify installation
 chatspatial --help

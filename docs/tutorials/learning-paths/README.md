@@ -14,7 +14,7 @@ Structured learning paths to guide you through ChatSpatial from beginner to expe
 
 ## Choose Your Path
 
-### [🌱 Beginner Path](beginner.md)
+### [🌱 Beginner Path](beginner.html)
 **For:** New users with no coding experience  
 **Time:** 4-6 hours over 1-2 weeks  
 **Focus:** Conversation-based learning, basic analysis, visualization
@@ -29,7 +29,7 @@ Structured learning paths to guide you through ChatSpatial from beginner to expe
 
 ---
 
-### [🔬 Intermediate Path](intermediate.md)  
+### [🔬 Intermediate Path](intermediate.html)  
 **For:** Users comfortable with basics wanting advanced methods  
 **Time:** 6-8 hours over 2-3 weeks  
 **Focus:** Method selection, statistical analysis, integration
@@ -44,7 +44,7 @@ Structured learning paths to guide you through ChatSpatial from beginner to expe
 
 ---
 
-### [🚀 Advanced Path](advanced.md)
+### [🚀 Advanced Path](advanced.html)
 **For:** Experienced users ready for cutting-edge research  
 **Time:** 8-12 hours over 3-4 weeks  
 **Focus:** Machine learning, temporal analysis, multi-modal integration

@@ -1,3 +1,11 @@
+---
+layout: default
+title: Data Formats
+parent: Reference
+nav_order: 2
+description: "Supported data formats and preparation guide"
+---
+
 # Data Formats Guide
 
 Comprehensive guide to supported data formats and how to prepare your spatial transcriptomics data for ChatSpatial.

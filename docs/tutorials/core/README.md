@@ -14,9 +14,9 @@ Essential tutorials covering the fundamental concepts and operations in ChatSpat
 
 ## Contents
 
-- [Basic Spatial Analysis](basic_spatial_analysis.md) - Introduction to spatial data analysis workflows
-- [Spatial Statistics](spatial_statistics.md) - Statistical analysis of spatial data
-- [Visualization Tutorial](visualization_tutorial.md) - Creating plots and visualizations
+- [Basic Spatial Analysis](basic_spatial_analysis.html) - Introduction to spatial data analysis workflows
+- [Spatial Statistics](spatial_statistics.html) - Statistical analysis of spatial data
+- [Visualization Tutorial](visualization_tutorial.html) - Creating plots and visualizations
 
 ## Prerequisites
 

@@ -1,3 +1,12 @@
+---
+layout: default
+title: Data Models
+parent: API Reference
+grand_parent: Reference
+nav_order: 1
+description: "Data models and schemas used throughout ChatSpatial"
+---
+
 # Data Models
 
 This document describes the data models, schemas, and parameter structures used throughout ChatSpatial MCP tools.

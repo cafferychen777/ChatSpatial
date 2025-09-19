@@ -4,7 +4,7 @@ Quick reference guides and cheat sheets for common ChatSpatial operations.
 
 ## Available References
 
-### 🔧 [All Tools Reference](all-tools.md)
+### 🔧 [All Tools Reference](all-tools.html)
 Complete reference for all 15 MCP tools with:
 - Parameter quick reference for each tool
 - Natural language query examples
@@ -12,7 +12,7 @@ Complete reference for all 15 MCP tools with:
 - Method compatibility guide
 - Performance guidelines
 
-### 🔄 [Common Workflows](common-workflows.md)  
+### 🔄 [Common Workflows](common-workflows.html)  
 Standard workflow patterns including:
 - Basic → Intermediate → Advanced workflows
 - Multi-step analysis sequences
@@ -20,7 +20,7 @@ Standard workflow patterns including:
 - Advanced decision trees
 - Optimization tips and success metrics
 
-### 🚨 [Troubleshooting Index](troubleshooting-index.md)
+### 🚨 [Troubleshooting Index](troubleshooting-index.html)
 Quick problem resolution with:
 - Emergency one-line fixes
 - Problem category index

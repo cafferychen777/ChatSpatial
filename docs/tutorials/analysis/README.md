@@ -14,9 +14,9 @@ Specialized analysis methods and techniques for spatial transcriptomics data.
 
 ## Contents
 
-- [Cell Type Annotation](cell_type_annotation.md) - Annotating cell types in spatial data
-- [Cell Communication Analysis](cell_communication_analysis.md) - Analyzing cell-cell communication patterns
-- [Spatial Enrichment](spatial_enrichment.md) - Performing spatial enrichment analysis
+- [Cell Type Annotation](cell_type_annotation.html) - Annotating cell types in spatial data
+- [Cell Communication Analysis](cell_communication_analysis.html) - Analyzing cell-cell communication patterns
+- [Spatial Enrichment](spatial_enrichment.html) - Performing spatial enrichment analysis
 
 ## Prerequisites
 

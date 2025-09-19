@@ -17,4 +17,4 @@ Information about example datasets available for ChatSpatial tutorials and testi
 
 ## Usage
 
-For dataset usage examples, see the [Workflows](../workflows/) section or the main [Tutorials](../../tutorials/).
+For dataset usage examples, see the [Workflows](../workflows/README.html) section or the main [Tutorials](../../tutorials/README.html).

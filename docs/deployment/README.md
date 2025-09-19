@@ -28,7 +28,7 @@ ChatSpatial supports two distinct deployment scenarios because different users h
 
 **How it works:** ChatSpatial runs as an MCP server on your machine, directly communicating with your AI assistant through the MCP protocol.
 
-**Get Started:** [Installation Guide](../getting-started/installation.md)
+**Get Started:** [Installation Guide](../getting-started/installation.html)
 
 ### 2. Server Deployment (Team Collaboration)
 
@@ -43,7 +43,7 @@ ChatSpatial supports two distinct deployment scenarios because different users h
 
 **How it works:** ChatSpatial runs on a server, accessed through Open WebUI. Since Open WebUI does not natively support MCP, we use an mcpo proxy to bridge the protocols.
 
-**Get Started:** [Server Deployment Guide](./server-deployment.md)
+**Get Started:** [Server Deployment Guide](./server-deployment.html)
 
 ## Quick Decision Guide
 
@@ -104,6 +104,6 @@ Team Members (Browsers)
 
 ## Next Steps
 
-- **For individual use with Claude Desktop** → [Installation Guide](../getting-started/installation.md)
-- **For team collaboration via web browser** → [Server Deployment Guide](./server-deployment.md)
+- **For individual use with Claude Desktop** → [Installation Guide](../getting-started/installation.html)
+- **For team collaboration via web browser** → [Server Deployment Guide](./server-deployment.html)
 - **Need help deciding?** → [Contact Support](https://github.com/cafferychen777/ChatSpatial/issues)

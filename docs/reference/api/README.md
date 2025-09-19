@@ -698,6 +698,6 @@ for i in range(len(sections)-1):
 ## See Also
 
 - **[Getting Started](../../getting-started/)**: Installation and setup
-- **[Tutorials](../tutorials/README.md)**: Step-by-step guides
+- **[Tutorials](../tutorials/README.html)**: Step-by-step guides
 - **[GitHub Repository](https://github.com/cafferychen777/ChatSpatial)**: Source code and issues
 

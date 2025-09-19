@@ -1,3 +1,11 @@
+---
+layout: default
+title: Advanced Analysis
+parent: Tutorials
+nav_order: 6
+description: "Advanced multi-modal spatial transcriptomics workflows"
+---
+
 # Advanced Analysis
 
 This tutorial covers advanced multi-modal spatial transcriptomics analysis workflows using ChatSpatial. Learn how to combine multiple analysis methods and handle complex datasets.

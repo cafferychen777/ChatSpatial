@@ -1,7 +1,7 @@
 ---
 layout: default
-title: Reference
-nav_order: 6
+title: Reference README
+nav_exclude: true
 has_children: true
 description: "Complete reference materials and API documentation"
 ---
@@ -15,10 +15,10 @@ Complete reference materials for ChatSpatial features and configuration.
 
 - [API Reference](api/) - Detailed API documentation
 - [Quick Reference](quick-reference/) - Quick reference guides and cheat sheets
-- [Configuration](configuration.md) - Configuration options and settings
-- [Data Formats](data_formats.md) - Supported data formats and specifications
-- [Performance](performance.md) - Performance optimization guidelines
-- [Benchmarks](benchmarks.md) - Performance benchmarks and comparisons
+- [Configuration](configuration.html) - Configuration options and settings
+- [Data Formats](data_formats.html) - Supported data formats and specifications
+- [Performance](performance.html) - Performance optimization guidelines
+- [Benchmarks](benchmarks.html) - Performance benchmarks and comparisons
 - [Troubleshooting](troubleshooting/) - Common issues and solutions
 
 ## Quick Access
