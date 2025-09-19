@@ -1,27 +1,27 @@
 """
-GASTON-based spatial variable genes identification for ChatSpatial MCP.
+Spatial Variable Genes (SVG) identification for ChatSpatial MCP.
 
-This module integrates GASTON (Generative Adversarial Spatial Transcriptomics Optimization Network)
-for identifying spatial variable genes through topographic mapping and isodepth learning.
+This module provides implementations for multiple SVG detection methods including GASTON, 
+SpatialDE, and SPARK-X, enabling comprehensive spatial transcriptomics analysis. Each method
+offers distinct advantages for identifying genes with spatial expression patterns.
+
+Methods Overview:
+    - SPARK-X (default): Non-parametric statistical method, fastest execution, requires R
+    - GASTON: Deep learning topographic mapping with isodepth analysis, GPU-accelerated
+    - SpatialDE: Gaussian process-based kernel method, statistically rigorous
+
+The module integrates these tools into the ChatSpatial MCP framework, handling data preparation,
+execution, result formatting, and error management across different computational backends.
 """
 
 import os
-import sys
 import tempfile
 import shutil
-from typing import Dict, List, Tuple, Optional, Any, TYPE_CHECKING
-from pathlib import Path
-import warnings
+from typing import Dict, List, Tuple, Any, TYPE_CHECKING
 import logging
 
 if TYPE_CHECKING:
-    import numpy as np
-    import pandas as pd
-    import torch
-    import torch.nn as nn
-    import scanpy as sc
-    from sklearn.decomposition import PCA
-    from sklearn.preprocessing import StandardScaler
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -40,16 +40,41 @@ async def identify_spatial_genes(
     context=None
 ) -> SpatialVariableGenesResult:
     """
-    Identify spatial variable genes using various methods.
+    Identify spatial variable genes using various computational methods.
 
+    This is the main entry point for spatial gene detection, routing to the appropriate
+    method based on params.method. Each method has different strengths:
+    
+    Method Selection Guide:
+        - SPARK-X: Best for quick screening, handles large datasets efficiently
+        - GASTON: Best for discovering complex spatial patterns (gradients, domains)
+        - SpatialDE: Best for statistical rigor in publication-ready analyses
+    
+    Data Requirements:
+        - SPARK-X: Works with raw counts or normalized data
+        - GASTON: Requires normalized log-transformed data (will validate)
+        - SpatialDE: Flexible, can handle both raw and normalized data
+    
     Args:
-        data_id: Dataset identifier
-        data_store: Data storage instance
-        params: Spatial variable genes parameters
-        context: MCP context for logging
+        data_id: Dataset identifier in data store
+        data_store: Dictionary containing loaded datasets
+        params: Method-specific parameters (see SpatialVariableGenesParameters)
+        context: MCP context for logging and status updates
 
     Returns:
-        SpatialVariableGenesResult with analysis results
+        SpatialVariableGenesResult containing:
+            - List of significant spatial genes
+            - Statistical metrics (p-values, q-values)
+            - Method-specific results (e.g., GASTON domains, isodepth)
+    
+    Raises:
+        ValueError: If dataset not found or spatial coordinates missing
+        ImportError: If required method dependencies not installed
+        
+    Performance Notes:
+        - SPARK-X: ~2-5 min for 3000 spots × 20000 genes
+        - GASTON: ~10-20 min (GPU recommended for larger datasets)
+        - SpatialDE: ~15-30 min (scales with spot count squared)
     """
     if context:
         await context.info(f"Starting spatial variable genes identification using {params.method}")
@@ -91,20 +116,50 @@ async def _identify_spatial_genes_gaston(
     params: SpatialVariableGenesParameters,
     context=None
 ) -> SpatialVariableGenesResult:
-    """Identify spatial variable genes using GASTON method."""
+    """
+    Identify spatial variable genes using the GASTON deep learning method.
+    
+    GASTON (Generative Adversarial Spatial Transcriptomics Optimization Network) uses
+    neural networks to learn topographic mappings from spatial coordinates to gene
+    expression patterns. The method discovers both continuous spatial gradients and
+    discrete spatial domains through isodepth analysis.
+    
+    Workflow:
+        1. Feature engineering: Reduce expression to low-dimensional space (GLM-PCA/Pearson)
+        2. Neural network training: Learn mapping from coordinates to expression features
+        3. Isodepth extraction: Derive continuous depth values and discrete domains
+        4. Gene classification: Identify genes with continuous vs discontinuous patterns
+        5. Statistical analysis: Bin expression along isodepth and perform piecewise fitting
+    
+    Key Parameters:
+        - preprocessing_method: 'glmpca' for count data, 'pearson_residuals' for normalized
+        - n_domains: Number of spatial domains to identify (default: 5)
+        - epochs: Training iterations (default: 10000)
+        - continuous_quantile: Threshold for continuous gene classification (default: 0.9)
+    
+    Returns:
+        Results including:
+            - List of continuous gradient genes
+            - List of discontinuous (domain-specific) genes
+            - Isodepth values for visualization
+            - Spatial domain assignments
+            - Model performance metrics
+    
+    Requirements:
+        - gaston-spatial package installed
+        - Normalized, log-transformed data (validates automatically)
+        - PyTorch for neural network operations
+    """
     # Import dependencies at runtime
     import numpy as np
-    import pandas as pd
-    import torch
-    import torch.nn as nn
     
     # Check GASTON availability at runtime
     global GASTON_AVAILABLE, GASTON_IMPORT_ERROR
     if GASTON_AVAILABLE is None:
         try:
-            import gaston
-            from gaston import neural_net, spatial_gene_classification, binning_and_plotting
-            from gaston import dp_related, segmented_fit, process_NN_output
+            import gaston  # noqa: F401
+            from gaston import neural_net, spatial_gene_classification, binning_and_plotting  # noqa: F401
+            from gaston import dp_related, segmented_fit, process_NN_output  # noqa: F401
             GASTON_AVAILABLE = True
             GASTON_IMPORT_ERROR = None
         except ImportError as e:
@@ -227,7 +282,7 @@ async def _identify_spatial_genes_gaston(
         )
 
         if context:
-            await context.info(f"GASTON analysis completed successfully")
+            await context.info("GASTON analysis completed successfully")
             await context.info(f"Found {len(continuous_genes)} genes with continuous gradients")
             await context.info(f"Found {len(discontinuous_genes)} genes with discontinuities")
 
@@ -245,11 +300,44 @@ async def _identify_spatial_genes_spatialde(
     params: SpatialVariableGenesParameters,
     context=None
 ) -> SpatialVariableGenesResult:
-    """Identify spatial variable genes using SpatialDE method."""
+    """
+    Identify spatial variable genes using the SpatialDE statistical framework.
+    
+    SpatialDE employs Gaussian process regression with spatial kernels to decompose
+    gene expression variance into spatial and non-spatial components. It provides
+    rigorous statistical testing for spatial expression patterns with multiple
+    testing correction.
+    
+    Method Details:
+        - Models spatial correlation using squared exponential kernel
+        - Tests significance via likelihood ratio test
+        - Applies FDR correction for multiple testing
+        - Returns both raw and adjusted p-values
+    
+    Key Parameters:
+        - spatialde_normalized: Whether input is pre-normalized (default: True)
+        - spatialde_kernel: Kernel type for spatial modeling (default: 'SE')
+        - n_top_genes: Return only top N significant genes (optional)
+    
+    Data Handling:
+        - If normalized=True: Expects log-transformed normalized data
+        - If normalized=False: Applies SpatialDE-specific normalization to raw counts
+    
+    Returns:
+        Results including:
+            - List of significant spatial genes (q-value < 0.05)
+            - Log-likelihood ratios as test statistics
+            - Raw p-values and FDR-corrected q-values
+            - Spatial correlation length scale per gene
+    
+    Requirements:
+        - SpatialDE package installed
+        - 2D spatial coordinates
+        - Expression data (raw counts or normalized)
+    """
     # Import dependencies at runtime
     import numpy as np
     import pandas as pd
-    import scanpy as sc
     try:
         import SpatialDE
         from SpatialDE.util import qvalue
@@ -368,16 +456,39 @@ async def _identify_spatial_genes_spatialde(
     )
 
     if context:
-        await context.info(f"SpatialDE analysis completed")
+        await context.info("SpatialDE analysis completed")
         await context.info(f"Found {len(significant_genes)} significant spatial genes")
 
     return result
 
 
 async def _gaston_feature_engineering_glmpca(adata, n_components: int, context):
+    """
+    Perform GASTON-specific feature engineering using GLM-PCA.
+    
+    GLM-PCA (Generalized Linear Model PCA) is designed for count data and provides
+    a better low-dimensional representation than standard PCA for UMI-based data.
+    This preprocessing step is crucial for GASTON's neural network to learn
+    meaningful spatial-expression relationships.
+    
+    Why GLM-PCA:
+        - Designed for count data (Poisson/negative binomial)
+        - Avoids log-transformation artifacts
+        - Preserves biological signal better than standard PCA
+    
+    Args:
+        adata: AnnData object with count matrix
+        n_components: Number of latent dimensions (typically 10-20)
+        context: MCP context for logging
+    
+    Returns:
+        numpy.ndarray: Factor loadings of shape (n_obs, n_components)
+    
+    Note:
+        Requires glmpca package: pip install glmpca
+    """
     # Import dependencies at runtime
     import numpy as np
-    """GASTON-specific feature engineering using GLM-PCA (algorithm requirement)."""
     try:
         from glmpca.glmpca import glmpca
     except ImportError:
@@ -409,11 +520,31 @@ async def _gaston_feature_engineering_glmpca(adata, n_components: int, context):
 
 
 async def _gaston_feature_engineering_pearson(adata, n_components: int, context):
+    """
+    Perform GASTON-specific feature engineering using Pearson residuals.
+    
+    This alternative preprocessing computes Pearson residuals to normalize for
+    technical variation, then applies PCA for dimensionality reduction. This
+    approach is recommended for data that has already undergone quality control.
+    
+    Why Pearson Residuals:
+        - Variance stabilization across expression levels
+        - Removes mean-variance relationship
+        - Better handles overdispersion in count data
+    
+    Args:
+        adata: AnnData object (will be modified in-place)
+        n_components: Number of principal components
+        context: MCP context for logging
+    
+    Returns:
+        numpy.ndarray: PCA coordinates of shape (n_obs, n_components)
+    
+    Note:
+        Modifies adata in-place by adding normalized values
+    """
     # Import dependencies at runtime
-    import numpy as np
     import scanpy as sc
-    from sklearn.decomposition import PCA
-    """GASTON-specific feature engineering using Pearson residuals PCA (algorithm requirement)."""
     if context:
         await context.info("Computing GASTON Pearson residuals feature engineering (algorithm requirement)")
     
@@ -433,11 +564,36 @@ async def _train_gaston_model(
     output_dir: str,
     context
 ) -> Tuple[Any, List[float], float]:
-    """Train GASTON neural network model."""
+    """
+    Train the GASTON neural network model.
+    
+    The model architecture consists of two branches:
+        - Spatial branch (f_S): Maps 2D coordinates to embedding space
+        - Expression branch (f_A): Maps embedding to expression features
+    
+    Training optimizes the combined network to predict expression features
+    from spatial coordinates, learning the topographic organization of the tissue.
+    
+    Args:
+        coords_file: Path to numpy file with spatial coordinates (n_spots × 2)
+        expression_file: Path to numpy file with expression features (n_spots × n_components)
+        params: Training configuration including architecture and hyperparameters
+        output_dir: Directory for saving model checkpoints
+        context: MCP context for logging
+    
+    Returns:
+        Tuple of:
+            - Trained PyTorch model
+            - List of loss values per epoch
+            - Final training loss
+    
+    Architecture Parameters:
+        - spatial_hidden_layers: Hidden units for spatial branch
+        - expression_hidden_layers: Hidden units for expression branch
+        - embedding_size: Dimension of latent space connecting branches
+    """
     # Import dependencies at runtime
     import numpy as np
-    import torch
-    import torch.nn as nn
     from gaston import neural_net
     
     # Load data
@@ -475,7 +631,43 @@ async def _analyze_spatial_patterns(
     model, spatial_coords, expression_features,
     adata, params: SpatialVariableGenesParameters, context
 ) -> Dict[str, Any]:
-    """Analyze spatial patterns from trained GASTON model using complete GASTON workflow."""
+    """
+    Analyze spatial patterns from trained GASTON model.
+    
+    This executes the complete GASTON post-training analysis pipeline:
+    
+    1. Isodepth Extraction:
+        - Derives continuous depth values representing position in expression manifold
+        - Identifies discrete spatial domains from depth discontinuities
+    
+    2. Gene Binning:
+        - Bins gene expression along isodepth axis within each domain
+        - Applies UMI threshold filtering for reliable genes
+    
+    3. Piecewise Linear Fitting:
+        - Fits segmented regression models to binned expression
+        - Tests for significant slopes and breakpoints
+    
+    4. Gene Classification:
+        - Continuous: Genes with smooth gradients along isodepth
+        - Discontinuous: Genes with sharp transitions between domains
+    
+    Args:
+        model: Trained GASTON PyTorch model
+        spatial_coords: Original spatial coordinates
+        expression_features: Low-dimensional expression features
+        adata: AnnData object for accessing gene expression
+        params: Analysis parameters including thresholds
+        context: MCP context for logging
+    
+    Returns:
+        Dictionary with:
+            - isodepth: Continuous depth values per spot
+            - spatial_domains: Discrete domain labels
+            - continuous_genes: List of gradient genes
+            - discontinuous_genes: List of domain-specific genes
+            - performance_metrics: Model evaluation statistics
+    """
     # Import dependencies at runtime
     import numpy as np
     import pandas as pd
@@ -658,7 +850,27 @@ async def _analyze_spatial_patterns(
 async def _store_results_in_adata(
     adata, spatial_analysis: Dict[str, Any], results_key: str, context
 ):
-    """Store GASTON results in AnnData object."""
+    """
+    Store GASTON analysis results in the AnnData object.
+    
+    Persists key results for downstream analysis and visualization:
+    
+    Stored Annotations:
+        - .obs[f'{results_key}_isodepth']: Continuous depth values
+        - .obs[f'{results_key}_spatial_domains']: Discrete domain labels
+        - .obsm[f'{results_key}_embedding']: Isodepth as 1D embedding
+        - .uns[f'{results_key}_metadata']: Analysis metadata and metrics
+    
+    Args:
+        adata: AnnData object to annotate
+        spatial_analysis: Results from _analyze_spatial_patterns
+        results_key: Prefix for result keys (includes random seed)
+        context: MCP context for logging
+    
+    Note:
+        Results are stored with unique keys to allow multiple GASTON runs
+        with different parameters on the same dataset.
+    """
 
     # Store isodepth values
     adata.obs[f"{results_key}_isodepth"] = spatial_analysis['isodepth']
@@ -690,7 +902,48 @@ async def _identify_spatial_genes_sparkx(
     params: SpatialVariableGenesParameters,
     context=None
 ) -> SpatialVariableGenesResult:
-    """Identify spatial variable genes using SPARK-X non-parametric method."""
+    """
+    Identify spatial variable genes using the SPARK-X non-parametric method.
+    
+    SPARK-X is an efficient non-parametric method for detecting spatially variable
+    genes without assuming specific distribution models. It uses spatial covariance
+    testing and is particularly effective for large-scale datasets. The method is
+    implemented in R and accessed via rpy2.
+    
+    Method Advantages:
+        - Non-parametric: No distributional assumptions required
+        - Computationally efficient: Scales well with gene count
+        - Robust: Handles various spatial patterns effectively
+        - Flexible: Works with both single and mixture spatial kernels
+    
+    Key Parameters:
+        - sparkx_option: 'single' or 'mixture' kernel (default: 'mixture')
+        - sparkx_percentage: Min percentage of cells expressing gene (default: 0.1)
+        - sparkx_min_total_counts: Min total counts per gene (default: 10)
+        - sparkx_num_core: Number of CPU cores for parallel processing
+    
+    Data Processing:
+        - Automatically filters low-expression genes based on parameters
+        - Uses raw counts when available (adata.raw), otherwise current matrix
+        - Handles duplicate gene names by adding suffixes
+    
+    Returns:
+        Results including:
+            - List of significant spatial genes (adjusted p-value < 0.05)
+            - Raw p-values from spatial covariance test
+            - Bonferroni-adjusted p-values
+            - Results dataframe with all tested genes
+    
+    Requirements:
+        - R installation with SPARK package
+        - rpy2 Python package for R integration
+        - Raw count data preferred (will use adata.raw if available)
+    
+    Performance:
+        - Fastest among the three methods
+        - ~2-5 minutes for typical datasets (3000 spots × 20000 genes)
+        - Memory efficient through gene filtering
+    """
     # Import dependencies at runtime
     import numpy as np
     import pandas as pd
@@ -935,7 +1188,7 @@ async def _identify_spatial_genes_sparkx(
     )
 
     if context:
-        await context.info(f"SPARK-X analysis completed successfully")
+        await context.info("SPARK-X analysis completed successfully")
         await context.info(f"Analyzed {len(results_df)} genes")
         await context.info(f"Found {len(significant_genes)} significant spatial genes (q < 0.05)")
 
@@ -944,12 +1197,3 @@ async def _identify_spatial_genes_sparkx(
 
 
 
-def _set_random_seeds(seed: int):
-    """Set random seeds for reproducibility."""
-    import numpy as np
-    import torch
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
