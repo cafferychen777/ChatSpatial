@@ -197,6 +197,20 @@ class AnnotationParameters(BaseModel):
     num_epochs: int = 100  # For Tangram/ScanVI methods - number of training epochs (reduced for faster training)
     mode: Literal["cells", "clusters"] = "cells"  # For Tangram method - mapping mode
     cluster_label: Optional[str] = None  # For Tangram method - cluster label in reference data
+    cell_type_key: str = "cell_type"  # Column name for cell type labels in reference data
+    
+    # Tangram-specific parameters (aligned with official API)
+    tangram_density_prior: Literal["rna_count_based", "uniform"] = "rna_count_based"  # Density prior for mapping
+    tangram_device: str = "cpu"  # Device for computation ('cpu' or 'cuda:0')
+    tangram_lambda_r: Optional[float] = None  # Regularization parameter
+    tangram_lambda_neighborhood: Optional[float] = None  # Spatial regularization  
+    tangram_learning_rate: float = 0.1  # Learning rate for optimization
+    tangram_compute_validation: bool = False  # Whether to compute validation metrics
+    tangram_project_genes: bool = False  # Whether to project gene expression
+    
+    # General parameters for batch effect and data handling
+    batch_key: Optional[str] = None  # For batch effect correction
+    layer: Optional[str] = None  # Which layer to use for analysis
     
     # scANVI parameters
     scanvi_n_hidden: int = 128
@@ -204,6 +218,15 @@ class AnnotationParameters(BaseModel):
     scanvi_n_layers: int = 1
     scanvi_dropout_rate: float = 0.1
     scanvi_unlabeled_category: str = "Unknown"
+    
+    # SCVI pretraining parameters (official best practice - enabled by default)
+    scanvi_use_scvi_pretrain: bool = True  # Default: True (official best practice)
+    scanvi_scvi_epochs: int = 200  # SCVI pretraining epochs (reduced for faster training)
+    scanvi_n_samples_per_label: int = 100  # For semi-supervised training
+    
+    # Query training parameters
+    scanvi_query_epochs: int = 100  # Epochs for query data (official recommendation)
+    scanvi_check_val_every_n_epoch: int = 10  # Validation frequency
     
     # CellAssign parameters
     cellassign_n_hidden: int = 100
@@ -303,7 +326,8 @@ class TrajectoryParameters(BaseModel):
     velovi_learning_rate: float = 1e-3
     
     # Fallback control
-    allow_fallback_to_dpt: bool = True  # Whether to fall back to DPT if other methods fail
+    # Removed: allow_fallback_to_dpt - No longer doing automatic fallbacks
+    # LLMs should explicitly choose which method to use
 
 
 class IntegrationParameters(BaseModel):
