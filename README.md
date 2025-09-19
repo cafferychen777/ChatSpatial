@@ -203,8 +203,7 @@ ChatSpatial uses a modular dependency system. Install specific modules as needed
 pip install -e .[all]
 
 # Or install specific feature sets
-pip install -e .[advanced]         # Core spatial analysis methods (includes enrichmap)
-pip install enrichmap               # For spatial enrichment analysis (if not using [advanced])
+pip install -e .[advanced]         # Advanced spatial analysis methods (includes enrichmap dependencies)
 pip install -e .[experimental]     # Experimental features (use with caution)
 pip install -e .[dev]              # Development tools (testing, linting)
 ```

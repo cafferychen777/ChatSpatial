@@ -1,13 +1,9 @@
 ---
 layout: default
-title: Tutorials
-nav_order: 5
+title: Tutorials README
+nav_exclude: true
 has_children: true
 description: "Comprehensive tutorials for spatial transcriptomics analysis"
----
-  - "Understand the ChatSpatial tutorial structure"
-  - "Choose the right tutorial for your experience level"
-  - "Navigate the natural language analysis workflow"
 ---
 
 # ChatSpatial Tutorials
@@ -19,15 +15,15 @@ These tutorials demonstrate how to analyze spatial transcriptomics data through 
 ### Choose Your Learning Path
 
 **New to spatial transcriptomics?** 
-→ [**Beginner Learning Path**](learning-paths/beginner.md) - Complete guided journey (4-6 hours)
+→ [**Beginner Learning Path**](learning-paths/beginner.html) - Complete guided journey (4-6 hours)
 
 **Comfortable with basics, want advanced methods?**
-→ [**Intermediate Learning Path**](learning-paths/intermediate.md) - Method mastery and integration (6-8 hours)
+→ [**Intermediate Learning Path**](learning-paths/intermediate.html) - Method mastery and integration (6-8 hours)
 
 **Ready for cutting-edge research?**
-→ [**Advanced Learning Path**](learning-paths/advanced.md) - ML, trajectory analysis, and multi-modal integration (8-12 hours)
+→ [**Advanced Learning Path**](learning-paths/advanced.html) - ML, trajectory analysis, and multi-modal integration (8-12 hours)
 
-### [Your First Spatial Analysis](core/basic_spatial_analysis.md)
+### [Your First Spatial Analysis](core/basic_spatial_analysis.html)
 **Perfect for beginners.** Learn how to load data, preprocess, identify spatial domains, and create visualizations through natural conversation.
 
 **What you will learn:**
@@ -41,7 +37,7 @@ These tutorials demonstrate how to analyze spatial transcriptomics data through 
 
 ## 🧬 Core Analysis Tutorials
 
-### [Identifying Cell Types](analysis/cell_type_annotation.md)
+### [Identifying Cell Types](analysis/cell_type_annotation.html)
 Discover what types of cells are in your tissue and where they are located.
 
 **What you will learn:**
@@ -51,7 +47,7 @@ Discover what types of cells are in your tissue and where they are located.
 - Validating cell type assignments
 - Visualizing cell type distributions spatially
 
-### [Cell Communication Analysis](analysis/cell_communication_analysis.md)
+### [Cell Communication Analysis](analysis/cell_communication_analysis.html)
 Uncover how different cells talk to each other in your tissue.
 
 **What you will learn:**
@@ -61,7 +57,7 @@ Uncover how different cells talk to each other in your tissue.
 - Exploring spatial communication patterns
 - Understanding biological significance
 
-### [Advanced Spatial Statistics](core/spatial_statistics.md)
+### [Advanced Spatial Statistics](core/spatial_statistics.html)
 Unlock hidden spatial patterns using sophisticated statistical methods through natural conversation.
 
 **What you will learn:**
@@ -73,7 +69,7 @@ Unlock hidden spatial patterns using sophisticated statistical methods through n
 - "Which regions are network hubs?" - Spatial centrality analysis
 - "Do similar states cluster together?" - Join count analysis
 
-### [Spatial Gene Set Enrichment Analysis](analysis/spatial_enrichment.md)
+### [Spatial Gene Set Enrichment Analysis](analysis/spatial_enrichment.html)
 Discover biological pathways and processes that are spatially organized in your tissue using EnrichMap.
 
 **What you will learn:**
@@ -84,7 +80,7 @@ Discover biological pathways and processes that are spatially organized in your 
 - Creating pathway territory maps and interpreting results
 - Validating spatial enrichment patterns biologically
 
-### [RNA Velocity & Trajectory Analysis](advanced/trajectory_analysis.md)
+### [RNA Velocity & Trajectory Analysis](advanced/trajectory_analysis.html)
 Uncover cellular dynamics, developmental trajectories, and temporal processes in your tissue.
 
 **What you will learn:**
@@ -94,7 +90,7 @@ Uncover cellular dynamics, developmental trajectories, and temporal processes in
 - Inferring developmental trajectories and cell fate transitions
 - Exploring spatial-temporal patterns and biological significance
 
-### [GASTON: ML-Powered Spatial Gene Discovery](advanced/gaston_analysis.md)
+### [GASTON: ML-Powered Spatial Gene Discovery](advanced/gaston_analysis.html)
 **Neural network approach for spatial pattern discovery.** Discover complex spatial patterns using machine learning analysis that goes beyond traditional statistical methods.
 
 **What you will learn:**
@@ -106,7 +102,7 @@ Uncover cellular dynamics, developmental trajectories, and temporal processes in
 - Advanced GLM-PCA feature engineering
 - Adversarial spatial domain discovery
 
-### [Creating Beautiful Visualizations](core/visualization_tutorial.md)
+### [Creating Beautiful Visualizations](core/visualization_tutorial.html)
 Make publication-ready figures through simple conversation.
 
 **What you will learn:**
@@ -155,20 +151,20 @@ Basic Analysis → Cell Types → Communication → Statistics → Trajectories 
 
 ## 📚 Learning Paths Detail
 
-### [Beginner Path](learning-paths/beginner.md) - Complete Foundation
+### [Beginner Path](learning-paths/beginner.html) - Complete Foundation
 - **Phase 1:** Load data → Identify cell types → Create visualizations  
 - **Phase 2:** Explore cell communication → Practice integration
 - **Success:** Independent analysis through conversation
 - **Next:** Intermediate methods and statistical approaches
 
-### [Intermediate Path](learning-paths/intermediate.md) - Method Mastery
+### [Intermediate Path](learning-paths/intermediate.html) - Method Mastery
 - **Phase 1:** Spatial statistics → Gene set enrichment
 - **Phase 2:** Advanced communication → Multi-method integration
 - **Phase 3:** Multi-sample analysis → Method comparison
 - **Success:** Choose optimal methods for research questions
 - **Next:** Cutting-edge ML and temporal analysis
 
-### [Advanced Path](learning-paths/advanced.md) - Research Leadership
+### [Advanced Path](learning-paths/advanced.html) - Research Leadership
 - **Phase 1:** GASTON machine learning → Neural network approaches
 - **Phase 2:** RNA velocity → Trajectory analysis → Temporal dynamics
 - **Phase 3:** Multi-modal integration → Publication workflows
@@ -178,10 +174,10 @@ Basic Analysis → Cell Types → Communication → Statistics → Trajectories 
 ## 📚 Additional Resources
 
 - **[Getting Started Guide](../getting-started/)** - Installation and setup
-- **[Data Formats Guide](../reference/data_formats.md)** - Preparing your data
-- **[Performance Tips](../reference/performance.md)** - Optimizing analysis
+- **[Data Formats Guide](../reference/data_formats.html)** - Preparing your data
+- **[Performance Tips](../reference/performance.html)** - Optimizing analysis
 
 ---
 
-**Ready to start?** Begin with [Your First Spatial Analysis](core/basic_spatial_analysis.md) and explore your tissue through conversation.
+**Ready to start?** Begin with [Your First Spatial Analysis](core/basic_spatial_analysis.html) and explore your tissue through conversation.
 

@@ -37,8 +37,9 @@ cd chatspatial
 
 # Install ChatSpatial (choose one)
 pip install -e .                    # Minimal features
-pip install -e ".[advanced]"        # Recommended
-pip install -e ".[experimental]"    # All features
+pip install -e ".[advanced]"        # Recommended (includes enrichmap)
+pip install -e ".[experimental]"    # Experimental features (requires R)
+pip install -e ".[all]"            # All features
 ```
 
 ## Step 2: Configure MCP Client

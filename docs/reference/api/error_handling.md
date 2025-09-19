@@ -1,3 +1,12 @@
+---
+layout: default
+title: Error Handling
+parent: API Reference
+grand_parent: Reference
+nav_order: 2
+description: "Error handling system and troubleshooting guide"
+---
+
 # Error Handling
 
 This document describes the error handling system in ChatSpatial, including error codes, troubleshooting guides, and best practices for robust error recovery.

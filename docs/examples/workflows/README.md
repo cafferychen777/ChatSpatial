@@ -1,3 +1,12 @@
+---
+layout: default
+title: Workflows
+parent: Examples
+nav_order: 2
+has_children: true
+description: "Complete analysis workflows and case studies for ChatSpatial"
+---
+
 # Workflow Examples
 
 This section contains complete analysis workflows demonstrating how to use ChatSpatial for real-world spatial transcriptomics research.
@@ -6,7 +15,7 @@ This section contains complete analysis workflows demonstrating how to use ChatS
 
 ### Case Studies
 
-#### [Mouse Brain Visium Analysis](case_studies/mouse_brain_visium.md)
+#### [Mouse Brain Visium Analysis](case_studies/mouse_brain_visium.html)
 Complete workflow for analyzing mouse brain tissue using 10x Visium technology.
 
 **What this workflow covers:**
@@ -77,9 +86,9 @@ When creating new workflows, please include:
 
 ## Getting Help
 
-- **[Tutorials](../tutorials/README.md)** - Learn individual analysis steps
-- **[API Reference](../reference/api/README.md)** - Technical documentation
-- **[Quick Reference](../reference/quick-reference/README.md)** - Fast lookup guides
-- **[Troubleshooting](../reference/quick-reference/troubleshooting-index.md)** - Problem solving
+- **[Tutorials](../tutorials/README.html)** - Learn individual analysis steps
+- **[API Reference](../reference/api/README.html)** - Technical documentation
+- **[Quick Reference](../reference/quick-reference/README.html)** - Fast lookup guides
+- **[Troubleshooting](../reference/quick-reference/troubleshooting-index.html)** - Problem solving
 
 For questions about specific workflows, please check the individual workflow documentation or open a discussion on GitHub.

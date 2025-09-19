@@ -1,7 +1,7 @@
 ---
 layout: default
-title: Getting Started
-nav_order: 3
+title: Getting Started README
+nav_exclude: true
 has_children: true
 description: "Essential setup and installation guide for ChatSpatial"
 ---
@@ -13,8 +13,8 @@ This section contains essential information for new users to get started with Ch
 
 ## Contents
 
-- [Installation Guide](installation.md) - Complete installation instructions for all platforms
-- [Quick Start](quick-start.md) - Get up and running in minutes with the essential setup
+- [Installation Guide](installation.html) - Complete installation instructions for all platforms
+- [Quick Start](quick-start.html) - Get up and running in minutes with the essential setup
 
 ## Next Steps
 

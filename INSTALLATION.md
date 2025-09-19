@@ -18,7 +18,7 @@ pip install -e ".[experimental]"
 ## Installation Tiers
 
 ### Tier 1: Minimal (Core Features)
-**Compatible with Python 3.8-3.12**
+**Compatible with Python 3.8-3.12** (3.10-3.11 recommended)
 
 This provides essential spatial transcriptomics analysis capabilities:
 - Data loading and preprocessing
@@ -30,8 +30,6 @@ This provides essential spatial transcriptomics analysis capabilities:
 
 ```bash
 pip install -e .
-# OR 
-pip install -r requirements-minimal.txt
 ```
 
 **What you get:**
@@ -43,7 +41,7 @@ pip install -r requirements-minimal.txt
 - ✅ MCP server for AI integration
 
 ### Tier 2: Advanced Features  
-**Compatible with Python 3.8-3.11** (deep learning limitations)
+**Compatible with Python 3.8-3.11** (3.10-3.11 recommended for best compatibility)
 
 Adds cutting-edge spatial analysis methods:
 - Deep learning deconvolution (Cell2location)
@@ -53,8 +51,6 @@ Adds cutting-edge spatial analysis methods:
 
 ```bash
 pip install -e ".[advanced]"
-# OR
-pip install -r requirements-advanced.txt
 ```
 
 **Additional features:**
@@ -67,7 +63,7 @@ pip install -r requirements-advanced.txt
 - ✅ Interactive visualizations (Plotly)
 
 ### Tier 3: Experimental 
-**Compatible with Python 3.8-3.11** (R interface limitations)
+**Compatible with Python 3.8-3.11** (3.10-3.11 recommended, R interface limitations)
 
 Cutting-edge and experimental features:
 - R-based methods (RCTD deconvolution)
@@ -76,8 +72,6 @@ Cutting-edge and experimental features:
 
 ```bash
 pip install -e ".[experimental]"
-# OR  
-pip install -r requirements-experimental.txt
 ```
 
 **Experimental features:**
