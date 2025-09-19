@@ -1,14 +1,22 @@
 """
-Unified spatial analysis module for spatial transcriptomics data.
+A module for quantitative spatial analysis of spatial transcriptomics data.
 
-This module provides comprehensive spatial analysis capabilities including:
-- Spatial autocorrelation (Moran's I, Geary's C)
-- Local spatial statistics (LISA, Getis-Ord)
-- Spatial pattern analysis (Ripley's K, neighborhood enrichment)
-- Advanced analysis (Bivariate Moran's I, Join Count, Network properties)
-- Deep learning analysis (SCVIVA)
+This module provides a collection of functions to compute various spatial
+statistics. It includes methods for assessing global and local spatial
+autocorrelation, analyzing neighborhood compositions, and evaluating spatial
+patterns of cell clusters.
 
-All functions are accessible through the main entry point: analyze_spatial_patterns()
+Key functionalities include:
+- Global spatial autocorrelation (Moran's I, Geary's C).
+- Local spatial statistics for hotspot detection (Getis-Ord Gi*).
+- Cluster-based analysis (Neighborhood Enrichment, Co-occurrence, Ripley's K).
+- Spatial network analysis (Centrality Scores, Network Properties).
+- Bivariate spatial correlation analysis (Bivariate Moran's I).
+
+The primary entry point is the `analyze_spatial_patterns` function, which
+dispatches tasks to the appropriate analysis function based on user parameters.
+An experimental deep learning-based analysis using scvi-tools is included but
+is currently disabled for production use.
 """
 
 from typing import Dict, Optional, Any, Union, List, Tuple
@@ -53,35 +61,39 @@ async def analyze_spatial_patterns(
     context: Optional[Context] = None
 ) -> SpatialAnalysisResult:
     """
-    Unified entry point for all spatial analysis methods.
-    
-    This function performs various spatial statistics and pattern analysis.
-    For visualization, use the visualize_data function with plot_type="spatial_analysis".
-    
+    Serves as the central dispatcher for executing various spatial analysis methods.
+
+    This function validates the input data, computes a spatial neighbor graph if one
+    does not exist, and routes the analysis to the appropriate specialized function
+    based on the `analysis_type` parameter. Results from the analysis are added to
+    the `AnnData` object within the data store. Note that visualization is handled
+    by a separate function.
+
     Parameters
     ----------
     data_id : str
-        Dataset identifier
+        The identifier for the dataset.
     data_store : Dict[str, Any]
-        Dictionary storing loaded datasets
+        A dictionary that stores the loaded datasets.
     params : SpatialAnalysisParameters
-        Analysis parameters including analysis_type
+        An object containing the parameters for the analysis, including the
+        specific `analysis_type` to perform.
     context : Optional[Context]
-        MCP context for logging
-    
+        The MCP context for logging and communication.
+
     Returns
     -------
     SpatialAnalysisResult
-        Analysis result with statistics and metadata
-        
+        An object containing the statistical results and metadata from the analysis.
+
     Raises
     ------
     DataNotFoundError
-        If dataset not found
+        If the specified dataset is not found in the data store.
     InvalidParameterError
-        If parameters are invalid
+        If the provided parameters are not valid for the requested analysis.
     ProcessingError
-        If analysis fails
+        If an error occurs during the execution of the analysis.
     """
     # Validate parameters
     supported_types = [
@@ -186,7 +198,14 @@ async def analyze_spatial_patterns(
 # ============================================================================
 
 def _validate_spatial_data(adata: ad.AnnData) -> None:
-    """Validate AnnData object for spatial analysis."""
+    """
+    Checks if the AnnData object meets minimum requirements for spatial analysis.
+
+    This function performs the following checks:
+    1. Ensures the dataset contains a minimum number of cells (10).
+    2. Verifies the presence of spatial coordinates in `adata.obsm['spatial']`.
+    3. Confirms that spatial coordinates do not contain NaN or infinite values.
+    """
     if adata.n_obs < 10:
         raise DataNotFoundError("Dataset has too few cells (minimum 10 required)")
     
@@ -279,9 +298,16 @@ async def _analyze_morans_i(
     context: Optional[Context] = None
 ) -> Dict[str, Any]:
     """
-    Compute Moran's I spatial autocorrelation using squidpy.
-    
-    Unified implementation using only squidpy for consistency and performance.
+    Calculates Moran's I to measure global spatial autocorrelation for genes.
+
+    Moran's I is a statistic that indicates whether the expression of a gene is
+    spatially clustered, dispersed, or randomly distributed.
+    - A value near +1.0 indicates strong clustering of similar expression values.
+    - A value near -1.0 indicates dispersion (a checkerboard-like pattern).
+    - A value near 0 indicates a random spatial distribution.
+
+    The analysis is performed on highly variable genes by default, but a
+    specific gene list can be provided.
     """
     if context:
         await context.info("Running Moran's I spatial autocorrelation analysis...")
@@ -457,7 +483,15 @@ async def _analyze_getis_ord(
     params: SpatialAnalysisParameters,
     context: Optional[Context] = None
 ) -> Dict[str, Any]:
-    """Compute Getis-Ord Gi* hot spot analysis."""
+    """
+    Performs Getis-Ord Gi* analysis to identify local spatial clusters.
+
+    This method identifies statistically significant hot spots (clusters of high
+    gene expression) and cold spots (clusters of low gene expression). It computes
+    a Z-score for each spot, where high positive Z-scores indicate hot spots and
+    low negative Z-scores indicate cold spots. This analysis requires the `esda`
+    and `libpysal` libraries.
+    """
     if context:
         await context.info("Running Getis-Ord Gi* analysis...")
     
@@ -551,9 +585,13 @@ async def _analyze_bivariate_moran(
     context: Optional[Context] = None
 ) -> Dict[str, Any]:
     """
-    Compute Bivariate Moran's I for gene pairs.
-    
-    Migrated from spatial_statistics.py
+    Calculates Bivariate Moran's I to assess spatial correlation between two genes.
+
+    This statistic measures how the expression of one gene in a specific location
+    relates to the expression of a second gene in neighboring locations. It is useful
+    for identifying pairs of genes that are co-localized or spatially exclusive.
+    A positive value suggests that high expression of gene A is surrounded by high
+    expression of gene B.
     """
     if context:
         await context.info("Running Bivariate Moran's I analysis...")
@@ -824,15 +862,16 @@ async def _analyze_with_scviva(
     context: Optional[Context] = None
 ) -> Dict[str, Any]:
     """
-    Analyze spatial data using SCVIVA deep learning model.
-    
-    ⚠️ TODO: UNDER DEVELOPMENT - DO NOT USE IN PRODUCTION
-    Known Issues:
-    - Produces NaN values during training with preprocessed data
-    - Numerical instability in the initial embedding generation
-    - Needs proper data normalization handling for scVI
-    
-    Status: Disabled for user access until issues are resolved
+    Performs spatial analysis using a deep learning model from scvi-tools.
+
+    This function is intended to use a variational autoencoder to learn a
+    low-dimensional latent representation of the gene expression data that
+    preserves spatial information.
+
+    Warning: This function is experimental and currently disabled for general
+    use. It has known numerical stability issues that can lead to incorrect
+    results. Use other available spatial analysis methods until these issues
+    are resolved.
     """
     # TODO: Temporarily disabled until NaN issue is resolved
     return {
@@ -884,7 +923,9 @@ async def _analyze_with_scviva(
         scvi.model.SCVI.setup_anndata(
             adata_copy,
             batch_key='sample',
-            categorical_covariate_keys=['cell_type'] if 'cell_type' in adata_copy.obs.columns else None
+            categorical_covariate_keys=(
+                ['cell_type'] if 'cell_type' in adata_copy.obs.columns else None
+            )
         )
         
         # Create and train model
@@ -958,31 +999,33 @@ async def calculate_spatial_stats(
     context = None
 ) -> Dict[str, Any]:
     """
-    Calculate specialized spatial statistics for a single feature/gene.
-    
-    This function provides advanced spatial statistics not available in the main
-    spatial analysis tool. For Moran's I analysis, use analyze_spatial_patterns()
-    with analysis_type="moran".
-    
+    Calculates specific spatial statistics for a single gene or feature.
+
+    This function is designed for targeted analysis of individual features and
+    provides access to statistics like Geary's C and Local Moran's I, which are
+    not part of the main `analyze_spatial_patterns` workflow. For global Moran's I
+    analysis of multiple genes, it is recommended to use the main analysis function.
+
     Parameters
     ----------
     data_id : str
-        Dataset identifier
+        The identifier for the dataset.
     data_store : Dict[str, Any]
-        Data storage dictionary
+        The dictionary that stores loaded datasets.
     feature : str
-        Gene or feature to analyze
+        The name of the gene or feature in `adata.var_names` to analyze.
     statistic : str
-        Type of statistic to calculate (gearys_c, local_morans)
+        The type of statistic to calculate. Supported options are 'gearys_c'
+        and 'local_morans'.
     n_neighbors : int
-        Number of neighbors for spatial graph
+        The number of neighbors to use for constructing the spatial graph.
     context : Optional
-        MCP context
-    
+        The MCP context for logging.
+
     Returns
     -------
     Dict[str, Any]
-        Statistics results
+        A dictionary containing the results of the statistical calculation.
     """
     # Get data
     if data_id not in data_store:
@@ -1013,14 +1056,19 @@ async def calculate_spatial_stats(
         # Extract results
         if "gearyC" in adata.uns and feature in adata.uns["gearyC"]:
             geary_c = float(adata.uns["gearyC"][feature])
-            pval = float(adata.uns["gearyC_pval"][feature]) if "gearyC_pval" in adata.uns else None
+            pval = (
+                float(adata.uns["gearyC_pval"][feature]) 
+                if "gearyC_pval" in adata.uns else None
+            )
             
             return {
                 "statistic": "gearys_c",
                 "feature": feature,
                 "value": geary_c,
                 "pvalue": pval,
-                "interpretation": "Values < 1 indicate positive spatial autocorrelation",
+                "interpretation": (
+                    "Values < 1 indicate positive spatial autocorrelation"
+                ),
                 "n_neighbors": n_neighbors
             }
     
