@@ -20,7 +20,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from .smart_import import DependencyLevel, get_smart_importer
+# Simple replacement for DependencyLevel
+class DependencyLevel(Enum):
+    CORE = "core"
+    RECOMMENDED = "recommended" 
+    ADVANCED = "advanced"
+    EXPERIMENTAL = "experimental"
 
 
 class InstallationMethod(Enum):
@@ -347,12 +352,21 @@ For more help, consult the package documentation or file an issue.
     ) -> str:
         """Generate installation script for a dependency level"""
 
-        importer = get_smart_importer()
-        packages_by_level = {
-            dep.name: dep
-            for dep in importer._dependency_registry.values()
-            if dep.level == level
+        # Simple package definitions without smart_import
+        package_defs = {
+            DependencyLevel.CORE: {
+                "numpy": "Core numerical computing",
+                "pandas": "Data manipulation",
+                "scanpy": "Single-cell analysis",
+                "anndata": "Annotated data",
+            },
+            DependencyLevel.ADVANCED: {
+                "scvi-tools": "Deep learning",
+                "liana": "Cell communication",
+            },
         }
+        
+        packages_by_level = package_defs.get(level, {})
 
         script_lines = [
             "#!/bin/bash",
@@ -392,12 +406,18 @@ For more help, consult the package documentation or file an issue.
     ) -> str:
         """Create requirements.txt file for a dependency level"""
 
-        importer = get_smart_importer()
-        packages = [
-            dep.pip_name
-            for dep in importer._dependency_registry.values()
-            if dep.level == level
-        ]
+        # Simple package lists without smart_import
+        package_lists = {
+            DependencyLevel.CORE: [
+                "numpy", "pandas", "scanpy", "anndata",
+                "matplotlib", "scipy", "scikit-learn"
+            ],
+            DependencyLevel.ADVANCED: [
+                "scvi-tools", "liana", "cellphonedb", "cellrank"
+            ],
+        }
+        
+        packages = package_lists.get(level, [])
 
         requirements_content = "\n".join(sorted(packages))
 

@@ -15,7 +15,6 @@ import click
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from .cli.dependency_manager import deps
 from .server import mcp
 
 
@@ -73,15 +72,11 @@ def server(port: int, transport: str, host: str, log_level: str):
         sys.exit(1)
 
 
-# Add dependency management commands
-cli.add_command(deps)
-
-
 def main():
     """Main entry point that preserves backward compatibility"""
     # For backward compatibility, if no command is provided, assume server
     if len(sys.argv) == 1 or (
-        len(sys.argv) > 1 and sys.argv[1] not in ["server", "deps"]
+        len(sys.argv) > 1 and sys.argv[1] not in ["server"]
     ):
         # Insert 'server' as the command
         sys.argv.insert(1, "server")
