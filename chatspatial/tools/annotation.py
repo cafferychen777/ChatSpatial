@@ -31,76 +31,6 @@ from ..models.data import AnnotationParameters
 # ============================================================================
 
 
-class DependencyError(Exception):
-    """Custom exception for missing dependencies with helpful installation info"""
-
-    def __init__(self, package_name: str, method_name: str, install_guide: str):
-        self.package_name = package_name
-        self.method_name = method_name
-        self.install_guide = install_guide
-        super().__init__(
-            f"{package_name} is required for {method_name} method.\n{install_guide}"
-        )
-
-
-def _get_installation_guide(package_name: str) -> str:
-    """Get user-friendly installation instructions for a package"""
-    guides = {
-        "scvi-tools": {
-            "pip": "pip install scvi-tools",
-            "conda": "conda install -c conda-forge scvi-tools",
-            "docs": "https://scvi-tools.org/installation.html",
-            "note": "Requires Python 3.8+ and PyTorch",
-        },
-        "tangram-sc": {
-            "pip": "pip install tangram-sc",
-            "conda": "conda install -c bioconda tangram-sc",
-            "docs": "https://tangram-sc.readthedocs.io/",
-            "note": "Requires PyTorch and scanpy",
-        },
-        "mllmcelltype": {
-            "pip": "pip install mllmcelltype",
-            "conda": "Not available via conda",
-            "docs": "https://github.com/Winnie09/mLLMCellType",
-            "note": "Requires API keys for LLM providers",
-        },
-        "rpy2": {
-            "pip": "pip install rpy2",
-            "conda": "conda install -c conda-forge rpy2",
-            "docs": "https://rpy2.github.io/doc/latest/html/overview.html",
-            "note": "Requires R installation (https://www.r-project.org/)",
-        },
-        "singler": {
-            "pip": "pip install singler singlecellexperiment",
-            "conda": "Not available via conda",
-            "docs": "https://github.com/LTLA/singler-py",
-            "note": "Python port of SingleR for reference-based annotation",
-        },
-        "celldex": {
-            "pip": "pip install celldex",
-            "conda": "Not available via conda",
-            "docs": "https://github.com/LTLA/celldex-py",
-            "note": "Pre-built reference datasets for SingleR",
-        },
-    }
-
-    if package_name not in guides:
-        return f"Please install {package_name}"
-
-    guide = guides[package_name]
-    installation_text = f"""
-Installation Options:
-  • pip: {guide['pip']}
-  • conda: {guide['conda']}
-  • Documentation: {guide['docs']}
-  • Note: {guide['note']}
-
-Troubleshooting:
-  • Ensure you have the latest pip: pip install --upgrade pip
-  • For conda conflicts: conda update --all
-  • Check Python version compatibility
-"""
-    return installation_text.strip()
 
 
 def _validate_scvi_tools(context: Optional[Context] = None):
@@ -111,11 +41,10 @@ def _validate_scvi_tools(context: Optional[Context] = None):
         scvi = None
     
     if scvi is None:
-        install_guide = _get_installation_guide("scvi-tools")
-        warning = "scvi-tools not available for advanced cell type annotation. Install with: pip install scvi-tools"
+        error_msg = "scvi-tools is required for scANVI and CellAssign methods. Install with: pip install scvi-tools"
         if context:
-            context.error(f"scvi-tools not available: {warning}")
-        raise DependencyError("scvi-tools", "scANVI and CellAssign", install_guide)
+            context.error(f"scvi-tools not available: {error_msg}")
+        raise ImportError(error_msg)
 
     try:
         from scvi.external import CellAssign
@@ -149,8 +78,7 @@ def _validate_tangram(context: Optional[Context] = None):
 
         return tg
     except ImportError as e:
-        install_guide = _get_installation_guide("tangram-sc")
-        raise DependencyError("tangram-sc", "Tangram", install_guide) from e
+        raise ImportError("tangram-sc is required for Tangram method. Install with: pip install tangram-sc") from e
 
 
 def _validate_mllmcelltype(context: Optional[Context] = None):
@@ -163,8 +91,7 @@ def _validate_mllmcelltype(context: Optional[Context] = None):
 
         return mllmcelltype
     except ImportError as e:
-        install_guide = _get_installation_guide("mllmcelltype")
-        raise DependencyError("mllmcelltype", "mLLMCellType", install_guide) from e
+        raise ImportError("mllmcelltype is required for mLLMCellType method. Install with: pip install mllmcelltype") from e
 
 
 def _validate_rpy2_and_r(context: Optional[Context] = None):
@@ -185,8 +112,7 @@ def _validate_rpy2_and_r(context: Optional[Context] = None):
 
         return robjects, pandas2ri, numpy2ri, importr, localconverter
     except ImportError as e:
-        install_guide = _get_installation_guide("rpy2")
-        raise DependencyError("rpy2 and R", "sc-type", install_guide) from e
+        raise ImportError("rpy2 is required for sc-type method. Install with: pip install rpy2 (requires R installation)") from e
     except Exception as e:
         error_msg = f"""
 R environment setup failed: {str(e)}
@@ -199,7 +125,7 @@ Common solutions:
   • Ubuntu: sudo apt install r-base
   • Windows: Download from CRAN
 """
-        raise DependencyError("R environment", "sc-type", error_msg) from e
+        raise ImportError(f"R environment setup failed for sc-type method: {str(e)}") from e
 
 
 def _validate_singler(context: Optional[Context] = None):
@@ -224,8 +150,7 @@ def _validate_singler(context: Optional[Context] = None):
 
         return singler, sce, celldex
     except ImportError as e:
-        install_guide = _get_installation_guide("singler")
-        raise DependencyError("singler", "SingleR", install_guide) from e
+        raise ImportError("singler is required for SingleR method. Install with: pip install singler singlecellexperiment") from e
 
 
 # Default marker genes for common cell types
