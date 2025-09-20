@@ -783,17 +783,20 @@ def _refine_spatial_domains(adata: Any, domain_key: str, refined_key: str) -> pd
     to remove small, isolated spots and smooth the boundaries between domains.
     """
     try:
-        # Get spatial coordinates
-        if "spatial" in adata.obsm:
-            coords = adata.obsm["spatial"]
-        else:
-            # Use first two principal components as proxy
-            if "X_pca" in adata.obsm:
-                coords = adata.obsm["X_pca"][:, :2]
-            else:
-                raise ValueError(
-                    "No spatial coordinates or PCA found for domain refinement"
-                )
+        # Get spatial coordinates - REQUIRED for spatial domain refinement
+        if "spatial" not in adata.obsm:
+            raise ValueError(
+                "CRITICAL ERROR: Cannot perform spatial domain refinement without physical spatial coordinates!\n\n"
+                "Spatial domain refinement requires actual physical positions of spots/cells.\n"
+                "The data must contain spatial coordinates in adata.obsm['spatial'].\n\n"
+                "What you can do:\n"
+                "1. Set refine_domains=False to skip refinement\n"
+                "2. Ensure your data has spatial coordinates before refinement\n\n"
+                "Note: PCA coordinates represent gene expression space, NOT physical space,\n"
+                "and cannot be used for spatial smoothing."
+            )
+        
+        coords = adata.obsm["spatial"]
 
         # Validate coordinates
         if coords.shape[0] == 0:
