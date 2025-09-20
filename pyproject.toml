@@ -116,19 +116,13 @@ advanced = [
     "scikit-gstat>=1.0.0,<2.0",
     "adjustText>=0.8.0,<1.0",
     "splot>=1.1.0,<2.0",
+    
+    # Advanced spatial methods and emerging technologies
+    "paste-bio>=1.0.0,<2.0",  # Spatial registration (alternative methods)
+    "spatialdata>=0.2.0,<1.0",  # Emerging spatial data format standard
+    "mllmcelltype>=0.1.0",  # LLM-based cell type annotation
 ]
 
-# Experimental features (may have compatibility issues)
-experimental = [
-    # Spatial registration (alternative methods)
-    "paste-bio>=1.0.0,<2.0",
-    
-    # Emerging spatial methods
-    "spatialdata>=0.2.0,<1.0",
-    
-    # Experimental cell type annotation
-    "mllmcelltype>=0.1.0",  # LLM-based cell type annotation (experimental)
-]
 
 # Development dependencies
 dev = [
@@ -143,7 +137,6 @@ dev = [
 all = [
     # Include all feature sets
     "chatspatial[advanced]",
-    "chatspatial[experimental]",
     "chatspatial[dev]",
 ]
 
