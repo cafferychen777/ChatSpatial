@@ -16,58 +16,59 @@ nav_order: 1
 
 ---
 
-ChatSpatial uses a tiered dependency system designed for maximum compatibility and user control. This guide explains how to install ChatSpatial with the right level of dependencies for your needs.
+ChatSpatial provides AI-powered spatial transcriptomics analysis through a simple, reliable installation process optimized for compatibility and performance.
 
 ## Quick Start
 
 ```bash
-# Minimal installation (recommended for most users)
+# Core installation (recommended for most users)
 pip install -e .
 
-# Advanced features (deep learning, deconvolution)  
+# Advanced features (deep learning, specialized methods)
 pip install -e ".[advanced]"
 
-# All features (experimental, requires R)
-pip install -e ".[experimental]"
+# Development setup
+pip install -e ".[dev]"
 ```
 
-## Installation Tiers
+## Installation Options
 
-### Tier 1: Minimal (Core Features)
+### Core Installation
 
 {: .highlight }
-**Compatible with Python 3.8-3.12** (3.10-3.11 recommended)
+**Compatible with Python 3.8-3.12** (3.10+ recommended)
 
-This provides essential spatial transcriptomics analysis capabilities:
-- Data loading and preprocessing
-- Basic visualization (matplotlib, seaborn)
-- Clustering (Leiden, k-means)
-- Dimensionality reduction (PCA, UMAP)
+Essential spatial transcriptomics analysis capabilities:
+- Data loading and preprocessing (10X Visium, Slide-seq, etc.)
+- Clustering and dimensionality reduction (Leiden, UMAP)
 - Spatial analysis (Squidpy integration)
-- MCP server functionality
+- Visualization (matplotlib, seaborn, scanpy)
+- MCP server functionality for AI integration
 
 ```bash
 pip install -e .
 ```
 
 **What you get:**
-- ✅ Load spatial data (10X Visium, Slide-seq, etc.)
+- ✅ Load spatial data (10X Visium, Slide-seq, MERFISH, seqFISH)
 - ✅ Quality control and filtering
 - ✅ Clustering and UMAP embedding
 - ✅ Basic spatial statistics
 - ✅ Standard visualizations
 - ✅ MCP server for AI integration
 
-### Tier 2: Advanced Features
+### Advanced Installation
 
 {: .highlight }
-**Compatible with Python 3.8-3.11** (3.10-3.11 recommended for best compatibility)
+**Compatible with Python 3.8-3.12** (3.10+ recommended)
 
 Adds cutting-edge spatial analysis methods:
-- Deep learning deconvolution (Cell2location)
-- Advanced integration methods
-- RNA velocity analysis
-- Enhanced visualizations
+- Deep learning deconvolution (Cell2location, scvi-tools)
+- RNA velocity analysis (scVelo, CellRank)
+- Advanced integration methods (Harmony, BBKNN)
+- Spatial domain identification (SpaGCN, STAGATE)
+- Cell communication analysis (LIANA, CellPhoneDB)
+- Spatial variable gene detection (GASTON, SpatialDE)
 
 ```bash
 pip install -e ".[advanced]"
@@ -79,162 +80,173 @@ pip install -e ".[advanced]"
 - ✅ RNA velocity with scVelo
 - ✅ Advanced trajectory analysis (CellRank)
 - ✅ Batch integration (Harmony, BBKNN, Scanorama)
-- ✅ Spatial variable gene detection
-- ✅ Interactive visualizations (Plotly)
-- ✅ Spatial enrichment analysis (EnrichMap and dependencies)
+- ✅ Spatial variable gene detection (GASTON, SpatialDE)
+- ✅ Cell communication analysis (LIANA, CellPhoneDB)
+- ✅ Spatial enrichment analysis
 
-### Tier 3: Experimental
+### Development Installation
 
-{: .warning }
-**Compatible with Python 3.8-3.11** (3.10-3.11 recommended, R interface limitations)
-
-Cutting-edge and experimental features:
-- R-based methods (RCTD deconvolution)
-- High-performance computing
-- Emerging spatial methods
+For contributors and advanced users:
 
 ```bash
-pip install -e ".[experimental]"
+pip install -e ".[dev]"
 ```
 
-**Experimental features:**
-- ✅ RCTD deconvolution (requires R)
-- ✅ High-performance linear algebra (PETSc/SLEPc)
-- ✅ Emerging spatial frameworks
-- ⚠️ May have compatibility issues
+Includes testing and development tools (pytest, black, mypy).
 
 ## Python Version Compatibility
 
-| Feature | Python 3.8 | Python 3.9 | Python 3.10 | Python 3.11 | Python 3.12 |
-|---------|-------------|-------------|--------------|--------------|--------------|
-| **Minimal** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Advanced** | ✅ | ✅ | ✅ | ✅ | ⚠️¹ |
-| **Experimental** | ✅ | ✅ | ✅ | ⚠️² | ❌³ |
+| Version | Core | Advanced | Development |
+|---------|------|----------|-------------|
+| Python 3.8 | ✅ | ✅ | ✅ |
+| Python 3.9 | ✅ | ✅ | ✅ |
+| Python 3.10 | ✅ | ✅ | ✅ |
+| Python 3.11 | ✅ | ✅ | ✅ |
+| Python 3.12 | ✅ | ✅ | ✅ |
 
-¹ Some deep learning dependencies may lag Python 3.12 support  
-² R interface (rpy2) has limited Python 3.11 support  
-³ Most experimental features not yet compatible with Python 3.12
+## Key Dependencies
 
-## Common Installation Issues
+### Core Dependencies
+- **numpy** 2.x (latest stable, significant performance improvements)
+- **pandas** 2.x (latest features and performance)
+- **scanpy** 1.x (single-cell analysis)
+- **squidpy** 1.x (spatial analysis)
+- **fastapi** (MCP server framework)
 
-### Issue: TensorFlow 1.x Conflicts
+### Advanced Dependencies
+- **torch** 2.x (deep learning framework)
+- **scvi-tools** (probabilistic models)
+- **cellrank** (trajectory analysis)
+- **liana** (cell communication)
 
-{: .note }
-**Problem:** Some legacy tools require TensorFlow 1.x, which is incompatible with modern Python.
+## Installation Examples
 
-**Solution:** ChatSpatial no longer supports TensorFlow 1.x. Use PyTorch-based alternatives:
-- Instead of STAGATE → Use SpaGCN
-- Instead of old scVI → Use scvi-tools 1.0+
-
-### Issue: PyTorch Version Conflicts
-
-{: .note }
-**Problem:** Different tools require different PyTorch versions.
-
-**Solution:** ChatSpatial standardizes on PyTorch 2.x:
-
+### Basic Setup
 ```bash
-pip install torch>=2.0.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# Clone repository
+git clone https://github.com/your-org/chatspatial.git
+cd chatspatial
+
+# Install core features
+pip install -e .
+
+# Test installation
+python -c "import chatspatial; print('✅ Installation successful')"
 ```
 
-For GPU support:
+### GPU-Accelerated Setup
 ```bash
-pip install torch>=2.0.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# Install PyTorch with CUDA support first
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+# Install ChatSpatial with advanced features
+pip install -e ".[advanced]"
 ```
 
-### Issue: R Dependencies
+### Virtual Environment Setup
+```bash
+# Create clean environment
+python -m venv chatspatial_env
+source chatspatial_env/bin/activate  # Linux/macOS
+# or: chatspatial_env\Scripts\activate  # Windows
 
-{: .note }
-**Problem:** RCTD requires R installation and rpy2.
+# Install ChatSpatial
+pip install -e ".[advanced]"
+```
 
-**Solution:** Install R first, then Python interface:
+## R Integration (Optional)
+
+For methods requiring R (e.g., RCTD deconvolution):
 
 ```bash
-# macOS
-brew install r
+# Install R (if needed)
+# macOS: brew install r
+# Ubuntu: sudo apt install r-base r-base-dev
 
-# Ubuntu/Debian  
-sudo apt install r-base r-base-dev
-
-# Then install Python interface
+# Install R interface
 pip install rpy2>=3.4.0
 ```
 
-## Testing Your Installation
+## Testing Installation
 
 ```bash
-# Test dependency detection
-python test_dependencies.py
+# Test core functionality
+python -c "import chatspatial; print('Core installation OK')"
 
-# Test specific installation tier
-python test_dependencies.py --level minimal
-python test_dependencies.py --level advanced  
-python test_dependencies.py --level experimental
+# Test MCP server
+python -m chatspatial --help
 
-# Verbose output for debugging
-python test_dependencies.py --verbose
+# Test advanced features (if installed)
+python -c "import scvi; print('Advanced features OK')"
 ```
 
 ## Docker Installation
-
-For reproducible environments:
 
 ```dockerfile
 FROM python:3.11-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+    build-essential git && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install ChatSpatial
 COPY . /app/chatspatial
 WORKDIR /app/chatspatial
 RUN pip install -e ".[advanced]"
 
-# Test installation
-RUN python test_dependencies.py --level advanced
+# Verify installation
+RUN python -c "import chatspatial; print('Docker installation successful')"
+```
+
+## Common Installation Tips
+
+### Clean Installation
+```bash
+pip cache purge
+pip install -e ".[advanced]" --force-reinstall
+```
+
+### Upgrading Dependencies
+```bash
+pip install --upgrade -e ".[advanced]"
+```
+
+### Performance Optimization
+```bash
+# Ensure numpy 2.x for performance
+python -c "import numpy; print(numpy.__version__)"
+
+# For Intel CPUs, consider MKL
+pip install mkl
 ```
 
 ## Troubleshooting
 
-### Get Dependency Report
+### Installation Fails
+1. Update pip: `pip install --upgrade pip`
+2. Check Python version: `python --version`
+3. Try clean installation: `pip cache purge`
 
-```python
-from chatspatial.utils.dependency_manager import dependency_manager
-dependency_manager.print_dependency_report()
-```
+### Import Errors
+1. Verify installation: `pip list | grep chatspatial`
+2. Check Python path: `python -c "import sys; print(sys.path)"`
+3. Reinstall: `pip install --force-reinstall -e .`
 
-### Check Available Methods
-
-```python  
-from chatspatial.utils.dependency_manager import get_available_methods
-
-# What deconvolution methods can I use?
-deconv_deps = {
-    "cell2location": ["cell2location", "torch"],
-    "rctd": ["rpy2"], 
-    "destvi": ["scvi-tools", "torch"]
-}
-print("Available:", get_available_methods(deconv_deps))
-```
-
-### Force Reinstall Dependencies
-
-```bash
-pip install --force-reinstall --no-cache-dir -e ".[advanced]"
-```
+### Performance Issues
+1. Ensure numpy 2.x: `python -c "import numpy; print(numpy.__version__)"`
+2. For GPU: Verify CUDA installation with `nvidia-smi`
+3. For CPU: Consider installing Intel MKL: `pip install mkl`
 
 ## Getting Help
 
-1. **Check installation:** `python test_dependencies.py --verbose`
-2. **View dependency report:** Run the dependency manager as shown above
-3. **Open an issue:** Include the output of the dependency test
-4. **Join discussions:** ChatSpatial community forums
+1. **Check installation**: `python -c "import chatspatial; print('OK')"`
+2. **Verify dependencies**: `pip list`
+3. **GitHub Issues**: Report installation problems with system details
+4. **Documentation**: Check function-specific requirements in docstrings
 
 {: .highlight }
-The tiered installation system ensures you get maximum functionality while maintaining compatibility with your specific environment and Python version.
+The streamlined installation system ensures reliable dependency resolution and optimal performance across different environments and Python versions.
 
 ---
 
