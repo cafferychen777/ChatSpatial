@@ -1143,8 +1143,29 @@ async def _identify_spatial_genes_sparkx(
             pvals = results.rx2("res_mtest")
             if pvals:
                 # Convert R vector to Python list
-                pval_vector = ro.r["as.vector"](pvals)
-                pval_list = list(pval_vector)
+                # The issue is that each element might still be an R object
+                pval_list = []
+                
+                # First, ensure it's numeric in R
+                try:
+                    pvals_numeric = ro.r["as.numeric"](pvals)
+                except:
+                    pvals_numeric = pvals
+                
+                # Extract each value properly
+                for i in range(len(pvals_numeric)):
+                    val = pvals_numeric[i]
+                    # Check if it's a nested R object (FloatVector with one element)
+                    if hasattr(val, '__len__') and hasattr(val, '__getitem__'):
+                        try:
+                            # It's an R vector, get first element
+                            pval_list.append(float(val[0]))
+                        except:
+                            # Try direct conversion
+                            pval_list.append(float(val))
+                    else:
+                        # Direct numeric value
+                        pval_list.append(float(val))
 
                 # Create results dataframe
                 results_df = pd.DataFrame(
@@ -1152,8 +1173,10 @@ async def _identify_spatial_genes_sparkx(
                 )
 
                 # Add adjusted p-values (simple Bonferroni correction)
-                results_df["adjusted_pvalue"] = np.minimum(
-                    results_df["pvalue"] * len(pval_list), 1.0
+                # Use apply to ensure compatibility
+                n_tests = len(pval_list)
+                results_df["adjusted_pvalue"] = results_df["pvalue"].apply(
+                    lambda p: min(p * n_tests, 1.0)
                 )
 
                 if context:

@@ -583,13 +583,16 @@ Create visualizations with MCP image outputs.
 ```python
 visualize_data(
     data_id: str,
-    plot_type: str = "spatial",
-    feature: Optional[str] = None,
-    color_by: Optional[str] = None,
-    size: Tuple[int, int] = (10, 8),
-    dpi: int = 300
-) -> VisualizationResult
+    params: VisualizationParameters
+) -> Image
 ```
+
+**Key Parameters in VisualizationParameters:**
+- `plot_type`: str = "spatial" (visualization type)
+- `feature`: Optional[Union[str, List[str]]] = None (gene/column to visualize)
+- `colormap`: str = "viridis" (color scheme)  
+- `figure_size`: Optional[Tuple[int, int]] = None (width, height)
+- `dpi`: int = 100 (resolution)
 
 **Plot Types (20 Total):**
 
