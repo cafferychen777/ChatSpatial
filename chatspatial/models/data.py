@@ -678,6 +678,9 @@ class SpatialDomainParameters(BaseModel):
         Literal["uniform", "reciprocal", "gaussian", "scaled_gaussian"]
     ] = None  # Decay type (default: "scaled_gaussian")
     banksy_n_pcs: Optional[int] = None  # Number of principal components (default: 20)
+    
+    # Simple timeout configuration
+    timeout: Optional[int] = None  # Timeout in seconds (default: 600)
 
 
 class SpatialVariableGenesParameters(BaseModel):
