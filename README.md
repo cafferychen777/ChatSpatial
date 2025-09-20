@@ -34,17 +34,18 @@ ChatSpatial is a production-ready **Model Context Protocol (MCP) server** that p
 ### Installation
 
 ```bash
-# 1. Create a dedicated environment (highly recommended)
-conda create -n chatspatial python=3.10
-conda activate chatspatial
-
-# 2. Install ChatSpatial
+# 1. Clone repository
 git clone https://github.com/cafferychen777/ChatSpatial.git
 cd ChatSpatial
+
+# 2. Install ChatSpatial (core features)
 pip install -e .
 
-# 3. Verify installation
-chatspatial --help
+# 3. Or install with advanced features
+pip install -e ".[advanced]"
+
+# 4. Verify installation
+python -c "import chatspatial; print('✅ Installation successful')"
 ```
 
 ### MCP Setup
@@ -194,25 +195,26 @@ LLM Agent Client → MCP Protocol → ChatSpatial Server → Analysis Tools → 
 
 See [INSTALLATION.md](INSTALLATION.md) for detailed client setup.
 
-## 📦 Optional Dependencies
+## 📦 Installation Options
 
-ChatSpatial uses a modular dependency system. Install specific modules as needed:
+ChatSpatial offers two installation levels:
 
 ```bash
-# Full installation (recommended)
-pip install -e .[all]
+# Core installation (recommended for most users)
+pip install -e .
 
-# Or install specific feature sets
-pip install -e .[advanced]         # Advanced spatial analysis methods (includes enrichmap dependencies)
-pip install -e .[experimental]     # Experimental features (use with caution)
-pip install -e .[dev]              # Development tools (testing, linting)
+# Advanced installation (deep learning, specialized methods)
+pip install -e ".[advanced]"
+
+# Development installation (for contributors)
+pip install -e ".[dev]"
 ```
 
 ## 📋 System Requirements
 
 | Component | Requirement |
 |-----------|-------------|
-| **Python** | 3.8+ (3.10-3.11 recommended) |
+| **Python** | 3.8+ (3.10+ recommended) |
 | **Memory** | 8GB+ RAM (16GB+ for large datasets) |
 | **Storage** | 5GB+ for dependencies |
 | **OS** | Linux, macOS, Windows (with WSL recommended) |
