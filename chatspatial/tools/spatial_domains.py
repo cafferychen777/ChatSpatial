@@ -170,48 +170,42 @@ async def identify_spatial_domains(
             else adata_subset.X.data.max()
         )
 
-        if data_min < -1:  # Likely scaled data
-            if not (hasattr(adata, "raw") and adata.raw is not None):
-                raise ValueError(
-                    "SpaGCN requires normalized (not scaled) data but detected scaled data without raw backup. "
-                    "Please run preprocessing.py with: "
-                    "1) sc.pp.normalize_total(adata, target_sum=1e4) "
-                    "2) sc.pp.log1p(adata) "
-                    "3) Ensure raw data is preserved before scaling: adata.raw = adata"
-                )
-
-            # Use preserved raw data
-            if context:
-                await context.info(
-                    "Using preserved raw data for SpaGCN (scaled data detected)"
-                )
-            gene_mask = adata.raw.var_names.isin(adata_subset.var_names)
-            adata_subset = adata.raw[:, gene_mask].to_adata()
-
-            # Check if raw data is properly preprocessed
-            raw_max = (
-                adata_subset.X.max()
-                if not issparse(adata_subset.X)
-                else adata_subset.X.data.max()
-            )
-            if raw_max > 100:  # Raw counts detected
-                raise ValueError(
-                    "Raw data appears to be unnormalized counts. SpaGCN requires preprocessed data. "
-                    "Please run in preprocessing.py: "
-                    "1) sc.pp.normalize_total(adata, target_sum=1e4) "
-                    "2) sc.pp.log1p(adata)"
-                )
-        elif data_max > 100:  # Raw counts detected
-            raise ValueError(
-                "SpaGCN requires preprocessed data but raw counts detected. "
-                "Please run in preprocessing.py: "
-                "1) sc.pp.normalize_total(adata, target_sum=1e4) "
-                "2) sc.pp.log1p(adata) "
-                "3) For large datasets: sc.pp.subsample(adata, n_obs=3000)"
-            )
-
+        # Report data statistics for LLM awareness
+        has_negatives = data_min < 0
+        has_large_values = data_max > 100
+        
         if context:
-            await context.info("Data preprocessing validation passed for SpaGCN")
+            await context.info(
+                f"Data statistics: min={data_min:.2f}, max={data_max:.2f}, "
+                f"has_negatives={has_negatives}, has_large_values={has_large_values}"
+            )
+        
+        # Provide informative warnings without enforcing
+        if has_negatives:
+            if context:
+                await context.warning(
+                    f"Data contains negative values (min={data_min:.2f}). "
+                    "This might indicate scaled/z-scored data. "
+                    "SpaGCN typically works best with normalized, log-transformed data."
+                )
+
+            # Check if raw data is available
+            if hasattr(adata, "raw") and adata.raw is not None:
+                if context:
+                    await context.info(
+                        "Raw data is available. Using it may provide better results."
+                    )
+                gene_mask = adata.raw.var_names.isin(adata_subset.var_names)
+                adata_subset = adata.raw[:, gene_mask].to_adata()
+        
+        elif has_large_values:
+            if context:
+                await context.warning(
+                    f"Data contains large values (max={data_max:.2f}). "
+                    "This might indicate raw count data. "
+                    "Consider normalizing and log-transforming for better results."
+                )
+
 
         # Ensure data is float type for SpaGCN compatibility
         if adata_subset.X.dtype != np.float32 and adata_subset.X.dtype != np.float64:
@@ -248,39 +242,32 @@ async def identify_spatial_domains(
                     adata_subset.X, nan=0.0, posinf=0.0, neginf=0.0
                 )
 
-        # Validate dataset size for SpaGCN performance
+        # Report dataset size for LLM awareness
         if adata_subset.n_obs > 3000:
-            await context.warning(
-                f"Large dataset ({adata_subset.n_obs} spots) may cause SpaGCN performance issues. "
-                "For optimal performance, consider subsampling in preprocessing.py: "
-                "sc.pp.subsample(adata, n_obs=3000, random_state=42)"
-            )
-
-        # Validate gene count for SpaGCN memory efficiency
-        max_genes = 2000 if adata_subset.n_obs > 1000 else 3000
-        if adata_subset.n_vars > max_genes:
-            if "highly_variable" not in adata_subset.var.columns:
-                raise ValueError(
-                    f"Large gene set ({adata_subset.n_vars} genes) requires HVG selection for SpaGCN efficiency. "
-                    f"Please run HVG selection in preprocessing.py: "
-                    f"sc.pp.highly_variable_genes(adata, n_top_genes={max_genes})"
+            if context:
+                await context.warning(
+                    f"Large dataset with {adata_subset.n_obs} spots. "
+                    "Processing may take longer. Consider subsampling if needed."
                 )
 
-            # Use pre-selected highly variable genes
-            if "highly_variable" in adata_subset.var.columns:
-                hvg_count = adata_subset.var["highly_variable"].sum()
-                if hvg_count > 0:
-                    adata_subset = adata_subset[
-                        :, adata_subset.var["highly_variable"]
-                    ].copy()
-                    if context:
-                        await context.info(
-                            f"Using {hvg_count} pre-selected highly variable genes for SpaGCN"
-                        )
-                else:
-                    raise ValueError(
-                        "No highly variable genes selected. Please run HVG selection in preprocessing.py: "
-                        f"sc.pp.highly_variable_genes(adata, n_top_genes={max_genes})"
+        # Report gene count
+        if adata_subset.n_vars > 3000:
+            if context:
+                await context.warning(
+                    f"Processing {adata_subset.n_vars} genes. "
+                    "For faster processing, consider selecting highly variable genes."
+                )
+
+        # Use pre-selected highly variable genes if available
+        if "highly_variable" in adata_subset.var.columns:
+            hvg_count = adata_subset.var["highly_variable"].sum()
+            if hvg_count > 0:
+                adata_subset = adata_subset[
+                    :, adata_subset.var["highly_variable"]
+                ].copy()
+                if context:
+                    await context.info(
+                        f"Using {hvg_count} pre-selected highly variable genes"
                     )
 
         # Apply SpaGCN-specific gene filtering (algorithm requirement)
@@ -433,31 +420,37 @@ async def _identify_domains_spagcn(
         n_spots = len(x_array)
         spatial_spread = np.std(x_array) + np.std(y_array)
 
-        # Conservative parameter adjustment to prevent hanging
+        # Report dataset characteristics for LLM awareness
         if n_spots > 2000:
-            # Large dataset: use conservative parameters
-            params.spagcn_s = min(params.spagcn_s, 0.5)
-            params.spagcn_p = min(params.spagcn_p, 0.3)
             if context:
                 await context.info(
-                    f"Large dataset detected, using conservative parameters: s={params.spagcn_s}, p={params.spagcn_p}"
+                    f"Large dataset with {n_spots} spots. "
+                    f"Using parameters: s={params.spagcn_s}, p={params.spagcn_p}. "
+                    "For faster processing, consider s≤0.5, p≤0.3."
                 )
         elif n_spots < 100:
-            # Small dataset: adjust for better sensitivity
-            params.spagcn_p = max(params.spagcn_p, 0.4)
             if context:
                 await context.info(
-                    f"Small dataset detected, adjusting p={params.spagcn_p} for better sensitivity"
+                    f"Small dataset with {n_spots} spots. "
+                    f"Using parameters: s={params.spagcn_s}, p={params.spagcn_p}. "
+                    "For better sensitivity, consider p≥0.4."
                 )
 
-        # Ensure reasonable n_domains relative to data size
-        max_reasonable_domains = max(2, min(params.n_domains, n_spots // 20))
-        if params.n_domains > max_reasonable_domains:
+        # Report domain-to-spot ratio for LLM awareness
+        spots_per_domain = n_spots / params.n_domains
+        if spots_per_domain < 10:
             if context:
                 await context.warning(
-                    f"Requested {params.n_domains} domains for {n_spots} spots, limiting to {max_reasonable_domains}"
+                    f"Requesting {params.n_domains} domains for {n_spots} spots "
+                    f"({spots_per_domain:.1f} spots per domain). "
+                    "This may result in unstable or noisy domain assignments."
                 )
-            params.n_domains = max_reasonable_domains
+        elif spots_per_domain < 20:
+            if context:
+                await context.info(
+                    f"Note: {params.n_domains} domains for {n_spots} spots "
+                    f"({spots_per_domain:.1f} spots per domain)."
+                )
 
         # For SpaGCN, we need pixel coordinates for histology
         # If not available, use array coordinates
@@ -565,13 +558,12 @@ async def _identify_domains_spagcn(
                     ),
                 )
 
-                # Set adaptive timeout based on dataset size
-                timeout_seconds = min(
-                    600, max(180, n_spots * 0.1)
-                )  # 3-10 minutes based on size
+                # Simple, predictable timeout
+                timeout_seconds = params.timeout if params.timeout else 600  # Default 10 minutes
+                
                 if context:
                     await context.info(
-                        f"Running SpaGCN with {timeout_seconds:.0f}s timeout..."
+                        f"Running SpaGCN with {timeout_seconds}s timeout"
                     )
 
                 try:
