@@ -29,7 +29,7 @@ DestVI = None
 
 if scvi:
     try:
-                from scvi.external import SpatialStereoscope as Stereoscope
+        from scvi.external import SpatialStereoscope as Stereoscope
         from scvi.external import Tangram
         from scvi.model import DestVI
     except ImportError as e:
