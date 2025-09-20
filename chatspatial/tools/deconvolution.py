@@ -184,14 +184,13 @@ def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str) -> ad.AnnData
 
     Returns:
         AnnData object with integer counts
+    
+    Raises:
+        ValueError: If data format cannot be determined or is incompatible
     """
     # Check if already in correct format
     if adata.X.dtype == np.int32 or adata.X.dtype == np.int64:
         return adata
-
-    warnings.warn(
-        f"{data_name} data is not in integer format. Attempting conversion to counts."
-    )
 
     # Convert sparse matrix to dense if needed for processing
     if hasattr(adata.X, "toarray"):
@@ -199,14 +198,54 @@ def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str) -> ad.AnnData
     else:
         X_dense = adata.X.copy()
 
-    # If data appears to be log-transformed, try to reverse it
-    if X_dense.max() < 20:  # Likely log-transformed
-        warnings.warn(
-            f"{data_name} data appears to be log-transformed. Converting back to counts."
+    # REMOVED DANGEROUS HEURISTIC!
+    # The old code assumed max < 20 meant log-transformed data, which is wrong:
+    # - Low expression counts naturally have max < 20
+    # - Other normalizations (z-score, TPM) have max < 20
+    # - expm1 transforms small values to huge numbers (10 → 22,025!)
+    
+    # Check if data looks like it might not be raw counts
+    data_max = X_dense.max()
+    data_min = X_dense.min()
+    has_negatives = data_min < 0
+    has_decimals = not np.allclose(X_dense, np.round(X_dense))
+    
+    # Build informative error message
+    issues = []
+    if has_negatives:
+        issues.append(f"contains negative values (min={data_min:.2f})")
+    if has_decimals:
+        issues.append("contains non-integer values")
+    
+    if issues:
+        error_msg = (
+            f"{data_name} data appears to be normalized or transformed:\n"
+            f"  - Data {', '.join(issues)}\n"
+            f"  - Range: [{data_min:.2f}, {data_max:.2f}]\n\n"
+            "Deconvolution methods require raw integer counts.\n\n"
+            "Possible solutions:\n"
+            "1. Use adata.raw.X if it contains raw counts\n"
+            "2. Provide unnormalized data\n"
+            "3. If data is log-transformed, manually reverse with: adata.X = np.expm1(adata.X)\n"
+            "4. If data is scaled, this transformation cannot be reversed\n\n"
+            "IMPORTANT: Do NOT proceed with normalized data as it will produce invalid results."
         )
-        X_dense = np.expm1(X_dense)
-
-    # Round to integers and ensure non-negative
+        raise ValueError(error_msg)
+    
+    # If we reach here, data has no negatives and might be counts
+    # Still warn if suspiciously low or high
+    if data_max < 10:
+        warnings.warn(
+            f"{data_name} data has very low maximum value ({data_max:.1f}). "
+            "Please verify this is raw count data, not normalized data."
+        )
+    elif data_max > 1e6:
+        warnings.warn(
+            f"{data_name} data has very high maximum value ({data_max:.1e}). "
+            "Please verify this is raw count data."
+        )
+    
+    # Round to integers (for small floating point errors) and ensure non-negative
     adata.X = np.round(np.maximum(X_dense, 0)).astype(np.int32)
     return adata
 
