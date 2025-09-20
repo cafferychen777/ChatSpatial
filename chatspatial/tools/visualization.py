@@ -24,6 +24,9 @@ from ..models.data import VisualizationParameters
 # Import standardized image utilities
 from ..utils.image_utils import fig_to_image, create_placeholder_image
 
+# Import color utilities for categorical data
+from ._color_utils import _ensure_categorical_colors
+
 # Import error handling utilities
 from ..utils.error_handling import (
     SpatialMCPError, DataNotFoundError, InvalidParameterError,
@@ -638,7 +641,9 @@ async def visualize_data(
                             fig = sc.pl.spatial(adata, img_key="hires", color=feature, cmap=params.colormap,
                                                 show=False, return_fig=True)
                         elif feature in adata.obs.columns:
-                            # Observation annotation (like clusters)
+                            # Observation annotation (like clusters or cell types)
+                            # Ensure categorical features have proper colors
+                            _ensure_categorical_colors(adata, feature)
                             fig = sc.pl.spatial(adata, img_key="hires", color=feature,
                                                 show=False, return_fig=True)
                     else:
@@ -671,7 +676,9 @@ async def visualize_data(
                             sc.pl.embedding(adata, basis="spatial", color=feature, cmap=params.colormap,
                                             show=False, ax=ax)
                         elif feature in adata.obs.columns:
-                            # Observation annotation
+                            # Observation annotation (like clusters or cell types)
+                            # Ensure categorical features have proper colors
+                            _ensure_categorical_colors(adata, feature)
                             sc.pl.embedding(adata, basis="spatial", color=feature,
                                             show=False, ax=ax)
                     else:
@@ -3196,7 +3203,7 @@ async def create_enrichment_visualization(
         params: Visualization parameters
             - feature: Score column name or signature name
             - feature: Score column name, signature name, or list of scores for multi-panel plot
-            - color_by: For violin plots, the grouping variable (default: leiden)
+            - cluster_key: For violin plots, the grouping variable (default: leiden)
             - show_gene_contributions: Show gene contribution heatmap
         context: MCP context
         
@@ -3259,7 +3266,7 @@ async def create_enrichment_visualization(
     # Check if user wants violin plot by cluster
     if params.plot_type == "violin" or (hasattr(params, 'show_violin') and params.show_violin):
         # Determine grouping variable
-        group_by = params.color_by if hasattr(params, 'color_by') and params.color_by else 'leiden'
+        group_by = params.cluster_key if hasattr(params, 'cluster_key') and params.cluster_key else 'leiden'
         
         if group_by not in adata.obs.columns:
             raise DataNotFoundError(f"Grouping variable '{group_by}' not found in adata.obs")

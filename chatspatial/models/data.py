@@ -197,7 +197,7 @@ class AnnotationParameters(BaseModel):
     num_epochs: int = 100  # For Tangram/ScanVI methods - number of training epochs (reduced for faster training)
     mode: Literal["cells", "clusters"] = "cells"  # For Tangram method - mapping mode
     cluster_label: Optional[str] = None  # For Tangram method - cluster label in reference data
-    cell_type_key: str = "cell_type"  # Column name for cell type labels in reference data
+    cell_type_key: Optional[str] = None  # IMPORTANT: Column name for cell types in REFERENCE data. Common values: 'cell_type', 'cell_types', 'celltype'. Leave as None to auto-detect. Only set if you know the exact column name!
     
     # Tangram-specific parameters (aligned with official API)
     tangram_density_prior: Literal["rna_count_based", "uniform"] = "rna_count_based"  # Density prior for mapping
@@ -293,10 +293,11 @@ class SpatialAnalysisParameters(BaseModel):
 
 class RNAVelocityParameters(BaseModel):
     """RNA velocity analysis parameters model"""
+    model_config = {"extra": "forbid"}  # Strict validation - no extra parameters allowed
+    
     mode: Literal["deterministic", "stochastic", "dynamical"] = "stochastic"
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
     basis: str = "spatial"
-    color: Optional[str] = None
     
     # Preprocessing parameters for velocity computation
     min_shared_counts: Annotated[int, Field(gt=0)] = 30  # Minimum shared counts for filtering

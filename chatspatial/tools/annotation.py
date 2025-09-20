@@ -405,6 +405,10 @@ async def _annotate_with_marker_genes(adata, params: AnnotationParameters, data_
             adata, valid_marker_genes, context
         )
         
+        if context:
+            await context.info("Cell type annotation complete. Cell types stored in 'cell_type' column")
+            await context.info("Use visualize_data tool with feature='cell_type' to visualize results")
+        
         return cell_types, counts, confidence_scores, None
         
     except Exception as e:
@@ -659,20 +663,22 @@ async def _annotate_with_singler(adata, params: AnnotationParameters, data_store
             pass
         
         # Add to AnnData
-        adata.obs['singler_celltype'] = cell_types
-        adata.obs['singler_celltype'] = adata.obs['singler_celltype'].astype('category')
+        adata.obs['cell_type'] = cell_types
+        adata.obs['cell_type'] = adata.obs['cell_type'].astype('category')
         
         # Only add confidence column if we have real confidence values
         if confidence_scores:
             # Use 0.0 for cells without confidence (more honest than arbitrary 0.5)
             confidence_array = [confidence_scores.get(ct, 0.0) for ct in cell_types]
-            adata.obs['singler_confidence'] = confidence_array
+            adata.obs['cell_type_confidence'] = confidence_array
         
         if context:
             await context.info(f"✅ SingleR annotation completed!")
             await context.info(f"   Found {len(unique_types)} cell types")
             top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
             await context.info(f"   Top types: {', '.join([f'{t}({c})' for t, c in top_types])}")
+            await context.info("Cell type annotation complete. Cell types stored in 'cell_type' column")
+            await context.info("Use visualize_data tool with feature='cell_type' to visualize results")
         
         return unique_types, counts, confidence_scores, None
         
@@ -872,12 +878,30 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
             if mode == "clusters" and cluster_label:
                 annotation_col = cluster_label
             else:
-                # For cells mode, try multiple annotation columns
-                potential_cols = ['cell_type', 'celltype', 'cell_types', 'subclass_label']
-                for col in potential_cols:
-                    if col in adata_sc.obs:
-                        annotation_col = col
-                        break
+                # Check if user specified cell_type_key
+                if params.cell_type_key:
+                    # User specified exact column name
+                    if params.cell_type_key in adata_sc.obs:
+                        annotation_col = params.cell_type_key
+                        if context:
+                            await context.info(f"Using user-specified cell type column: '{params.cell_type_key}'")
+                    else:
+                        # User specified column doesn't exist - this is an error
+                        available_cols = list(adata_sc.obs.columns)
+                        raise ValueError(
+                            f"Specified cell_type_key '{params.cell_type_key}' not found in reference data. "
+                            f"Available columns: {', '.join(available_cols[:10])}"
+                            f"{' ...' if len(available_cols) > 10 else ''}"
+                        )
+                else:
+                    # Auto-detect: try multiple common column names
+                    potential_cols = ['cell_type', 'celltype', 'cell_types', 'CellType', 'cellTypes', 'subclass_label']
+                    for col in potential_cols:
+                        if col in adata_sc.obs:
+                            annotation_col = col
+                            if context:
+                                await context.info(f"Auto-detected cell type column: '{col}'")
+                            break
             
             if annotation_col:
                 if context:
@@ -924,7 +948,8 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
             # Note: Visualizations should be created using the separate visualize_data tool
             # This maintains clean separation between analysis and visualization
             if context:
-                await context.info("Cell type mapping complete. Use visualize_data tool to visualize results")
+                await context.info("Cell type mapping complete. Cell types stored in 'cell_type' column")
+                await context.info("Use visualize_data tool with feature='cell_type' to visualize results")
 
         else:
             if context:
@@ -937,6 +962,10 @@ async def _annotate_with_tangram(adata, params: AnnotationParameters, data_store
         if tangram_mapping_score <= 0:
             if context:
                 await context.warning(f"Tangram mapping score is suspiciously low: {tangram_mapping_score}")
+        
+        if context:
+            await context.info("Cell type annotation complete. Cell types stored in 'cell_type' column")
+            await context.info("Use visualize_data tool with feature='cell_type' to visualize results")
         
         return cell_types, counts, confidence_scores, tangram_mapping_score
         
@@ -1146,6 +1175,10 @@ async def _annotate_with_scanvi(adata, params: AnnotationParameters, data_store:
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
         
+        if context:
+            await context.info("Cell type annotation complete. Cell types stored in 'cell_type' column")
+            await context.info("Use visualize_data tool with feature='cell_type' to visualize results")
+        
         return cell_types, counts, confidence_scores, None
                 
     except Exception as e:
@@ -1253,7 +1286,8 @@ async def _annotate_with_mllmcelltype(adata, params: AnnotationParameters, conte
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
         if context:
-            await context.info("Cell type annotation complete. Use visualize_data tool to visualize results")
+            await context.info("Cell type annotation complete. Cell types stored in 'cell_type' column")
+            await context.info("Use visualize_data tool with feature='cell_type' to visualize results")
 
         return cell_types, counts, confidence_scores, None, None
 
@@ -1401,6 +1435,10 @@ async def _annotate_with_cellassign(adata, params: AnnotationParameters, context
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
         
+        if context:
+            await context.info("Cell type annotation complete. Cell types stored in 'cell_type' column")
+            await context.info("Use visualize_data tool with feature='cell_type' to visualize results")
+        
         return cell_types, counts, confidence_scores, None
                 
     except Exception as e:
@@ -1477,7 +1515,8 @@ async def annotate_cell_types(
 
     # Inform user about visualization options
     if context:
-        await context.info("Cell type annotation complete. Use create_visualization tool with plot_type='cell_types' to visualize results")
+        await context.info("Cell type annotation complete. Cell types stored in 'cell_type' column")
+        await context.info("Use visualize_data tool with feature='cell_type' to visualize results")
 
     # Return result
     return AnnotationResult(
@@ -2068,8 +2107,9 @@ async def _annotate_with_sctype(
         
         # Step 7: Add results to adata
         
-        adata.obs['sctype_celltype'] = cell_types
-        adata.obs['sctype_confidence'] = confidence_scores
+        adata.obs['cell_type'] = cell_types
+        adata.obs['cell_type'] = adata.obs['cell_type'].astype('category')
+        adata.obs['cell_type_confidence'] = confidence_scores
         
         # Return unique cell types, not the full list
         unique_cell_types = list(set(cell_types))
@@ -2083,6 +2123,8 @@ async def _annotate_with_sctype(
             await context.info("🎉 sc-type annotation completed successfully!")
             await context.info(f"📈 Found {len(counts)} cell types: {', '.join(list(counts.keys())[:5])}" + 
                              ("..." if len(counts) > 5 else ""))
+            await context.info("Cell type annotation complete. Cell types stored in 'cell_type' column")
+            await context.info("Use visualize_data tool with feature='cell_type' to visualize results")
         
         return results
         
