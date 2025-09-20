@@ -127,26 +127,6 @@ Open Claude Desktop and try:
 
 ---
 
-## 🌟 Real Research Success Stories
-
-### 🧠 **Neuroscience Research**
-> *"ChatSpatial identified novel astrocyte subtypes in our Alzheimer's mouse model in 5 minutes. Previously took our lab 2 weeks of analysis."*  
-> — Dr. Sarah Chen, Stanford Neuroscience
-
-**Impact**: 3 Nature Neuroscience papers published using ChatSpatial
-
-### 🫀 **Cancer Research**  
-> *"The spatial communication analysis revealed tumor-immune interactions we missed in traditional analysis."*  
-> — Prof. Miguel Rodriguez, MD Anderson
-
-**Impact**: Discovered new therapeutic targets in pancreatic cancer
-
-### 🔬 **Developmental Biology**
-> *"Perfect for our lab's spatial atlas project. Students can analyze data without learning Python."*  
-> — Dr. Lisa Park, Harvard Stem Cell Institute
-
----
-
 ## 🎯 Choose Your Path
 
 <table>
