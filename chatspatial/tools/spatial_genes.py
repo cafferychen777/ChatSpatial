@@ -14,11 +14,11 @@ The module integrates these tools into the ChatSpatial MCP framework, handling d
 execution, result formatting, and error management across different computational backends.
 """
 
-import os
-import tempfile
-import shutil
-from typing import Dict, List, Tuple, Any, TYPE_CHECKING
 import logging
+import os
+import shutil
+import tempfile
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
 if TYPE_CHECKING:
     pass
@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 GASTON_AVAILABLE = None
 GASTON_IMPORT_ERROR = None
 
-from ..models.data import SpatialVariableGenesParameters
 from ..models.analysis import SpatialVariableGenesResult
+from ..models.data import SpatialVariableGenesParameters
 
 
 async def identify_spatial_genes(
@@ -172,16 +172,9 @@ async def _identify_spatial_genes_gaston(
     if GASTON_AVAILABLE is None:
         try:
             import gaston  # noqa: F401
-            from gaston import (
-                neural_net,
-                spatial_gene_classification,
-                binning_and_plotting,
-            )  # noqa: F401
-            from gaston import (
-                dp_related,
-                segmented_fit,
-                process_NN_output,
-            )  # noqa: F401
+            from gaston import (binning_and_plotting, dp_related,  # noqa: F401
+                                neural_net, process_NN_output, segmented_fit,
+                                spatial_gene_classification)
 
             GASTON_AVAILABLE = True
             GASTON_IMPORT_ERROR = None
@@ -731,12 +724,8 @@ async def _analyze_spatial_patterns(
     import numpy as np
     import pandas as pd
     import torch
-    from gaston import (
-        dp_related,
-        binning_and_plotting,
-        segmented_fit,
-        spatial_gene_classification,
-    )
+    from gaston import (binning_and_plotting, dp_related, segmented_fit,
+                        spatial_gene_classification)
 
     if context:
         await context.info("Processing neural network output following GASTON tutorial")
@@ -1145,18 +1134,18 @@ async def _identify_spatial_genes_sparkx(
                 # Convert R vector to Python list
                 # The issue is that each element might still be an R object
                 pval_list = []
-                
+
                 # First, ensure it's numeric in R
                 try:
                     pvals_numeric = ro.r["as.numeric"](pvals)
                 except:
                     pvals_numeric = pvals
-                
+
                 # Extract each value properly
                 for i in range(len(pvals_numeric)):
                     val = pvals_numeric[i]
                     # Check if it's a nested R object (FloatVector with one element)
-                    if hasattr(val, '__len__') and hasattr(val, '__getitem__'):
+                    if hasattr(val, "__len__") and hasattr(val, "__getitem__"):
                         try:
                             # It's an R vector, get first element
                             pval_list.append(float(val[0]))

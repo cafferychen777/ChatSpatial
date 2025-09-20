@@ -16,18 +16,17 @@ Key functionalities are organized into two main analysis pipelines:
    Pseudotime (DPT) for robustness.
 """
 
-from typing import Dict, Any, Optional, List, Tuple
+import logging
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-import logging
-
 from mcp.server.fastmcp import Context
 
-from ..models.data import RNAVelocityParameters, TrajectoryParameters
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
-from ..utils.error_handling import (
-    suppress_output, ProcessingError, validate_adata, DataNotFoundError
-)
+from ..models.data import RNAVelocityParameters, TrajectoryParameters
+from ..utils.error_handling import (DataNotFoundError, ProcessingError,
+                                    suppress_output, validate_adata)
 
 logger = logging.getLogger(__name__)
 
@@ -43,15 +42,15 @@ except ImportError:
 def validate_velocity_data(adata) -> Tuple[bool, List[str]]:
     """
     Validate if AnnData object has necessary data for RNA velocity analysis.
-    
+
     This function now uses the unified validation system for consistency,
     but maintains the same interface for backward compatibility.
-    
+
     Parameters
     ----------
     adata : AnnData
         Annotated data matrix to validate
-        
+
     Returns
     -------
     Tuple[bool, List[str]]
@@ -70,20 +69,22 @@ def validate_velocity_data(adata) -> Tuple[bool, List[str]]:
         return False, issues
 
 
-def validate_spatial_data(adata, spatial_key: str = 'spatial') -> Tuple[bool, List[str]]:
+def validate_spatial_data(
+    adata, spatial_key: str = "spatial"
+) -> Tuple[bool, List[str]]:
     """
     Validate if AnnData object has necessary spatial information.
-    
+
     This function now uses the unified validation system for consistency,
     but maintains the same interface for backward compatibility.
-    
+
     Parameters
-    ---------- 
+    ----------
     adata : AnnData
         Annotated data matrix to validate
     spatial_key : str, default 'spatial'
         Key for spatial coordinates in adata.obsm
-        
+
     Returns
     -------
     Tuple[bool, List[str]]
@@ -93,7 +94,7 @@ def validate_spatial_data(adata, spatial_key: str = 'spatial') -> Tuple[bool, Li
         validate_adata(adata, {}, check_spatial=True, spatial_key=spatial_key)
         return True, []
     except DataNotFoundError as e:
-        # Extract individual issues from the error message  
+        # Extract individual issues from the error message
         error_msg = str(e)
         if "Validation failed: " in error_msg:
             issues = error_msg.replace("Validation failed: ", "").split(", ")
@@ -102,7 +103,9 @@ def validate_spatial_data(adata, spatial_key: str = 'spatial') -> Tuple[bool, Li
         return False, issues
 
 
-def preprocess_for_velocity(adata, min_shared_counts=30, n_top_genes=2000, n_pcs=30, n_neighbors=30, params=None):
+def preprocess_for_velocity(
+    adata, min_shared_counts=30, n_top_genes=2000, n_pcs=30, n_neighbors=30, params=None
+):
     """
     Prepares an AnnData object for RNA velocity analysis using the scVelo pipeline.
 
@@ -131,10 +134,11 @@ def preprocess_for_velocity(adata, min_shared_counts=30, n_top_genes=2000, n_pcs
         If provided, this object's attributes will override the individual parameters.
     """
     import scvelo as scv
-    
+
     # If params object is provided, use its values
     if params is not None:
         from ..models.data import RNAVelocityParameters
+
         if isinstance(params, RNAVelocityParameters):
             min_shared_counts = params.min_shared_counts
             n_top_genes = params.n_top_genes
@@ -147,13 +151,15 @@ def preprocess_for_velocity(adata, min_shared_counts=30, n_top_genes=2000, n_pcs
         raise ValueError(f"Invalid velocity data: {'; '.join(issues)}")
 
     # Standard preprocessing with configurable parameters
-    scv.pp.filter_and_normalize(adata, min_shared_counts=min_shared_counts, n_top_genes=n_top_genes)
+    scv.pp.filter_and_normalize(
+        adata, min_shared_counts=min_shared_counts, n_top_genes=n_top_genes
+    )
     scv.pp.moments(adata, n_pcs=n_pcs, n_neighbors=n_neighbors)
 
     return adata
 
 
-def compute_rna_velocity(adata, mode='stochastic', params=None):
+def compute_rna_velocity(adata, mode="stochastic", params=None):
     """
     Computes RNA velocity to infer the direction of cellular differentiation.
 
@@ -182,46 +188,46 @@ def compute_rna_velocity(adata, mode='stochastic', params=None):
         The AnnData object updated with the computed velocity vectors and graph.
     """
     import scvelo as scv
-    
+
     # Use params for mode if provided
     if params is not None:
         from ..models.data import RNAVelocityParameters
+
         if isinstance(params, RNAVelocityParameters):
             mode = params.mode
-    
+
     # Check if preprocessing is needed
-    if 'Ms' not in adata.layers or 'Mu' not in adata.layers:
+    if "Ms" not in adata.layers or "Mu" not in adata.layers:
         # Run preprocessing
         adata = preprocess_for_velocity(adata, params=params)
-    
+
     # Compute velocity based on mode
-    if mode == 'dynamical':
+    if mode == "dynamical":
         scv.tl.recover_dynamics(adata)
-        scv.tl.velocity(adata, mode='dynamical')
+        scv.tl.velocity(adata, mode="dynamical")
     else:
         scv.tl.velocity(adata, mode=mode)
-    
+
     # Compute velocity graph
     scv.tl.velocity_graph(adata)
-    
+
     return adata
 
 
 def validate_rna_velocity_computation(adata, mode="stochastic"):
     """Validate RNA velocity computation requirements (no computation performed)"""
-    import scvelo as scv
 
     # Check if velocity has been computed
-    velocity_key = 'velocity'
+    velocity_key = "velocity"
     if velocity_key not in adata.layers:
         raise ValueError(
             f"RNA velocity ({mode} mode) not found but required for analysis. "
             "Please run velocity computation in preprocessing.py: "
             f"scv.tl.velocity(adata, mode='{mode}')"
         )
-    
-    # Check if velocity graph has been computed  
-    if 'velocity_graph' not in adata.uns:
+
+    # Check if velocity graph has been computed
+    if "velocity_graph" not in adata.uns:
         raise ValueError(
             "Velocity graph not found but required for trajectory analysis. "
             "Please run in preprocessing.py: scv.tl.velocity_graph(adata)"
@@ -230,9 +236,9 @@ def validate_rna_velocity_computation(adata, mode="stochastic"):
     return adata
 
 
-
-
-def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=(0.8, 0.2), n_states=5):
+def infer_spatial_trajectory_cellrank(
+    adata, spatial_weight=0.5, kernel_weights=(0.8, 0.2), n_states=5
+):
     """
     Infers cellular trajectories by combining RNA velocity and spatial data with CellRank.
 
@@ -245,19 +251,19 @@ def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=
     By analyzing the eigenvectors of the combined transition matrix, CellRank
     identifies macrostates (representative cell states), terminal states, and computes
     fate probabilities to map the paths of cellular development.
-    
+
     Raises exceptions directly if CellRank fails - no fallback logic.
     """
     import cellrank as cr
-    from scipy.spatial.distance import pdist, squareform
     from scipy.sparse import csr_matrix
+    from scipy.spatial.distance import pdist, squareform
 
     # Validate spatial data
     is_valid, issues = validate_spatial_data(adata)
     if not is_valid:
         raise ValueError(f"Invalid spatial data: {'; '.join(issues)}")
 
-    spatial_coords = adata.obsm['spatial']
+    spatial_coords = adata.obsm["spatial"]
 
     # Create RNA velocity kernel
     vk = cr.kernels.VelocityKernel(adata)
@@ -278,7 +284,9 @@ def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=
 
     # Combine kernels using configurable weights
     vk_weight, ck_weight = kernel_weights
-    combined_kernel = (1 - spatial_weight) * (vk_weight * vk + ck_weight * ck) + spatial_weight * sk
+    combined_kernel = (1 - spatial_weight) * (
+        vk_weight * vk + ck_weight * ck
+    ) + spatial_weight * sk
 
     # Use GPCCA for analysis
     g = cr.estimators.GPCCA(combined_kernel)
@@ -291,7 +299,7 @@ def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=
         g.compute_macrostates(n_states=n_states)
     except Exception as e:
         # If automatic n_states fails, try with fewer states
-        for alt_n_states in [n_states-1, n_states-2, 3, 2]:
+        for alt_n_states in [n_states - 1, n_states - 2, 3, 2]:
             if alt_n_states < 2:
                 break
             try:
@@ -300,11 +308,13 @@ def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=
             except:
                 continue
         else:
-            raise RuntimeError(f"Failed to compute macrostates with any number of states: {e}")
+            raise RuntimeError(
+                f"Failed to compute macrostates with any number of states: {e}"
+            )
 
     # Predict terminal states
     try:
-        g.predict_terminal_states(method='stability')
+        g.predict_terminal_states(method="stability")
     except ValueError as e:
         if "No macrostates have been selected" in str(e):
             # Skip terminal state prediction if no macrostates
@@ -313,8 +323,10 @@ def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=
             raise
 
     # Check if we have terminal states
-    has_terminal_states = hasattr(g, 'terminal_states') and g.terminal_states is not None
-    
+    has_terminal_states = (
+        hasattr(g, "terminal_states") and g.terminal_states is not None
+    )
+
     if has_terminal_states and len(g.terminal_states.cat.categories) > 0:
         # Compute fate probabilities (renamed from absorption_probabilities in newer versions)
         g.compute_fate_probabilities()
@@ -328,23 +340,25 @@ def infer_spatial_trajectory_cellrank(adata, spatial_weight=0.5, kernel_weights=
         pseudotime = 1 - absorption_probs[root_state].X.flatten()
 
         # Store results
-        adata.obs['pseudotime'] = pseudotime
-        adata.obsm['fate_probabilities'] = absorption_probs
-        adata.obs['terminal_states'] = g.terminal_states
+        adata.obs["pseudotime"] = pseudotime
+        adata.obsm["fate_probabilities"] = absorption_probs
+        adata.obs["terminal_states"] = g.terminal_states
     else:
         # No terminal states, use macrostates for pseudotime
-        if hasattr(g, 'macrostates') and g.macrostates is not None:
+        if hasattr(g, "macrostates") and g.macrostates is not None:
             # Use the macrostate memberships as a proxy for pseudotime
             macrostate_probs = g.macrostates_memberships
             # Use the first macrostate as the "early" state
             pseudotime = 1 - macrostate_probs[:, 0].X.flatten()
-            adata.obs['pseudotime'] = pseudotime
+            adata.obs["pseudotime"] = pseudotime
         else:
-            raise RuntimeError("CellRank could not compute either terminal states or macrostates")
-    
+            raise RuntimeError(
+                "CellRank could not compute either terminal states or macrostates"
+            )
+
     # Always store macrostates if available
-    if hasattr(g, 'macrostates') and g.macrostates is not None:
-        adata.obs['macrostates'] = g.macrostates
+    if hasattr(g, "macrostates") and g.macrostates is not None:
+        adata.obs["macrostates"] = g.macrostates
 
     return adata
 
@@ -359,14 +373,14 @@ def spatial_aware_embedding(adata, spatial_weight=0.3):
     if not is_valid:
         raise ValueError(f"Invalid spatial data: {'; '.join(issues)}")
 
-    spatial_coords = adata.obsm['spatial']
+    spatial_coords = adata.obsm["spatial"]
 
     # Ensure PCA has been computed
-    if 'X_pca' not in adata.obsm:
+    if "X_pca" not in adata.obsm:
         raise ValueError("PCA has not been computed. Run preprocessing first.")
 
     # Calculate expression-based distance matrix
-    expr_dist = euclidean_distances(adata.obsm['X_pca'])
+    expr_dist = euclidean_distances(adata.obsm["X_pca"])
 
     # Calculate spatial distance matrix
     spatial_dist = euclidean_distances(spatial_coords)
@@ -375,16 +389,18 @@ def spatial_aware_embedding(adata, spatial_weight=0.3):
     combined_dist = (1 - spatial_weight) * expr_dist + spatial_weight * spatial_dist
 
     # Use UMAP for dimensionality reduction
-    umap_op = UMAP(metric='precomputed')
+    umap_op = UMAP(metric="precomputed")
     embedding = umap_op.fit_transform(combined_dist)
 
     # Store results
-    adata.obsm['X_spatial_umap'] = embedding
+    adata.obsm["X_spatial_umap"] = embedding
 
     return adata
 
 
-def infer_pseudotime_palantir(adata, root_cells=None, n_diffusion_components=10, num_waypoints=500):
+def infer_pseudotime_palantir(
+    adata, root_cells=None, n_diffusion_components=10, num_waypoints=500
+):
     """
     Infers cellular trajectories and pseudotime using the Palantir algorithm.
 
@@ -405,31 +421,28 @@ def infer_pseudotime_palantir(adata, root_cells=None, n_diffusion_components=10,
         The number of diffusion components to compute.
     num_waypoints : int, default 500
         The number of waypoints to use for modeling the trajectory, affecting granularity.
-    
+
     Raises exceptions directly if Palantir fails - no fallback logic.
     """
     import palantir
-    import pandas as pd
-    import numpy as np
 
     # Validate PCA requirement
-    if 'X_pca' not in adata.obsm:
+    if "X_pca" not in adata.obsm:
         raise ValueError(
             "Palantir trajectory analysis requires PCA but X_pca not found. "
             "Please run PCA in preprocessing.py: sc.tl.pca(adata)"
         )
 
     # Convert PCA projections to DataFrame for Palantir
-    pca_df = pd.DataFrame(adata.obsm['X_pca'], index=adata.obs_names)
+    pca_df = pd.DataFrame(adata.obsm["X_pca"], index=adata.obs_names)
 
     # Run diffusion maps with configurable components
-    dm_res = palantir.utils.run_diffusion_maps(pca_df, n_components=n_diffusion_components)
+    dm_res = palantir.utils.run_diffusion_maps(
+        pca_df, n_components=n_diffusion_components
+    )
 
     # Determine multiscale space
-    ms_data = pd.DataFrame(
-        dm_res['EigenVectors'],
-        index=pca_df.index
-    )
+    ms_data = pd.DataFrame(dm_res["EigenVectors"], index=pca_df.index)
 
     # Determine early cell (start cell)
     if root_cells is not None and len(root_cells) > 0:
@@ -441,35 +454,37 @@ def infer_pseudotime_palantir(adata, root_cells=None, n_diffusion_components=10,
         start_cell = ms_data.iloc[:, 0].idxmax()
 
     # Run Palantir with configurable waypoints
-    pr_res = palantir.core.run_palantir(ms_data, start_cell, num_waypoints=num_waypoints)
+    pr_res = palantir.core.run_palantir(
+        ms_data, start_cell, num_waypoints=num_waypoints
+    )
 
     # Store pseudotime and branch probabilities
-    adata.obs['palantir_pseudotime'] = pr_res.pseudotime
-    adata.obsm['palantir_branch_probs'] = pr_res.branch_probs
+    adata.obs["palantir_pseudotime"] = pr_res.pseudotime
+    adata.obsm["palantir_branch_probs"] = pr_res.branch_probs
 
     return adata
 
 
 def compute_dpt_fallback(adata, root_cells=None):
     """Compute Diffusion Pseudotime as fallback method."""
-    import scanpy as sc
     import numpy as np
+    import scanpy as sc
 
     # Validate trajectory analysis prerequisites
-    if 'X_pca' not in adata.obsm:
+    if "X_pca" not in adata.obsm:
         raise ValueError(
             "Diffusion pseudotime requires PCA but X_pca not found. "
             "Please run PCA in preprocessing.py: sc.tl.pca(adata)"
         )
-    
-    if 'neighbors' not in adata.uns:
+
+    if "neighbors" not in adata.uns:
         raise ValueError(
             "Diffusion pseudotime requires neighborhood graph but neighbors not found. "
             "Please run in preprocessing.py: sc.pp.neighbors(adata, use_rep='X_pca')"
         )
-    
+
     # Check if diffusion map has been computed
-    if 'X_diffmap' not in adata.obsm:
+    if "X_diffmap" not in adata.obsm:
         raise ValueError(
             "Diffusion pseudotime requires diffusion map but X_diffmap not found. "
             "Please run in preprocessing.py: sc.tl.diffmap(adata)"
@@ -478,20 +493,21 @@ def compute_dpt_fallback(adata, root_cells=None):
     # Set root cell if provided
     if root_cells is not None and len(root_cells) > 0:
         if root_cells[0] in adata.obs_names:
-            adata.uns['iroot'] = np.where(adata.obs_names == root_cells[0])[0][0]
+            adata.uns["iroot"] = np.where(adata.obs_names == root_cells[0])[0][0]
         else:
             # If provided root cell not found, use first cell and warn
             # Root cell not found - using first cell as fallback
-            adata.uns['iroot'] = 0
+            adata.uns["iroot"] = 0
     else:
         # If no root cell specified, set the first cell as root
-        adata.uns['iroot'] = 0
+        adata.uns["iroot"] = 0
 
     # Validate or compute diffusion pseudotime
-    if 'dpt_pseudotime' not in adata.obs:
+    if "dpt_pseudotime" not in adata.obs:
         # DPT needs to be computed - this is the core algorithm, not preprocessing
         try:
             import scanpy as sc
+
             sc.tl.dpt(adata)
         except Exception as e:
             # DPT computation failed - do not create fake pseudotime
@@ -500,13 +516,13 @@ def compute_dpt_fallback(adata, root_cells=None):
                 "This indicates a problem with the data preprocessing or diffusion map computation. "
                 "Please check that PCA, neighbors, and diffusion map were computed correctly."
             )
-    
+
     # Check if dpt_pseudotime was created
-    if 'dpt_pseudotime' not in adata.obs.columns:
+    if "dpt_pseudotime" not in adata.obs.columns:
         raise RuntimeError("DPT computation did not create 'dpt_pseudotime' column")
-    
+
     # Handle any NaN values
-    adata.obs['dpt_pseudotime'] = adata.obs['dpt_pseudotime'].fillna(0)
+    adata.obs["dpt_pseudotime"] = adata.obs["dpt_pseudotime"].fillna(0)
 
     return adata
 
@@ -515,7 +531,7 @@ async def analyze_rna_velocity(
     data_id: str,
     data_store: Dict[str, Any],
     params: RNAVelocityParameters = RNAVelocityParameters(),
-    context: Optional[Context] = None
+    context: Optional[Context] = None,
 ) -> RNAVelocityResult:
     """
     Computes RNA velocity for spatial transcriptomics data.
@@ -540,7 +556,9 @@ async def analyze_rna_velocity(
     try:
         import scvelo as scv
     except ImportError:
-        raise ProcessingError("scvelo package not found. Install it with: pip install scvelo>=0.2.5")
+        raise ProcessingError(
+            "scvelo package not found. Install it with: pip install scvelo>=0.2.5"
+        )
 
     if context:
         await context.info(f"Analyzing RNA velocity using {params.mode} mode")
@@ -568,12 +586,14 @@ async def analyze_rna_velocity(
     with suppress_output():
         try:
             if context:
-                await context.info("Found spliced/unspliced layers. Computing velocity directly.")
-            
+                await context.info(
+                    "Found spliced/unspliced layers. Computing velocity directly."
+                )
+
             # Use unified velocity computation
             adata = compute_rna_velocity(adata, params=params)
             velocity_computed = True
-            
+
         except Exception as e:
             error_msg = f"RNA velocity analysis failed: {str(e)}"
             if context:
@@ -587,8 +607,8 @@ async def analyze_rna_velocity(
     return RNAVelocityResult(
         data_id=data_id,
         velocity_computed=velocity_computed,
-        velocity_graph_key='velocity_graph' if velocity_computed else None,
-        mode=params.mode
+        velocity_graph_key="velocity_graph" if velocity_computed else None,
+        mode=params.mode,
     )
 
 
@@ -596,7 +616,7 @@ async def analyze_trajectory(
     data_id: str,
     data_store: Dict[str, Any],
     params: TrajectoryParameters = TrajectoryParameters(),
-    context: Optional[Context] = None
+    context: Optional[Context] = None,
 ) -> TrajectoryResult:
     """Analyze trajectory and cell state transitions in spatial transcriptomics data
 
@@ -620,7 +640,7 @@ async def analyze_trajectory(
     adata = data_store[data_id]["adata"].copy()
 
     # Check if RNA velocity has been computed
-    has_velocity = 'velocity_graph' in adata.uns
+    has_velocity = "velocity_graph" in adata.uns
 
     pseudotime_key = None
     method_used = params.method
@@ -629,11 +649,13 @@ async def analyze_trajectory(
     if params.method == "cellrank" and has_velocity:
         if context:
             await context.info("Attempting trajectory inference with CellRank...")
-        
+
         try:
             import cellrank as cr
         except ImportError:
-            raise ProcessingError("cellrank package not found. Install it with: pip install cellrank>=2.0.0")
+            raise ProcessingError(
+                "cellrank package not found. Install it with: pip install cellrank>=2.0.0"
+            )
 
         try:
             with suppress_output():
@@ -641,16 +663,18 @@ async def analyze_trajectory(
                     adata,
                     spatial_weight=params.spatial_weight,
                     kernel_weights=params.cellrank_kernel_weights,
-                    n_states=params.cellrank_n_states
+                    n_states=params.cellrank_n_states,
                 )
-            pseudotime_key = 'pseudotime'
+            pseudotime_key = "pseudotime"
             if context:
                 await context.info("CellRank analysis completed successfully.")
         except Exception as cellrank_error:
             if context:
                 await context.error(f"CellRank analysis failed: {cellrank_error}")
             # Don't silently fallback - let the LLM decide what to do
-            raise ProcessingError(f"CellRank trajectory inference failed: {cellrank_error}") from cellrank_error
+            raise ProcessingError(
+                f"CellRank trajectory inference failed: {cellrank_error}"
+            ) from cellrank_error
 
     # Strategy 2: Try DPT if explicitly requested
     if params.method == "dpt":
@@ -659,42 +683,46 @@ async def analyze_trajectory(
         try:
             with suppress_output():
                 adata = compute_dpt_fallback(adata, root_cells=params.root_cells)
-            pseudotime_key = 'dpt_pseudotime'
+            pseudotime_key = "dpt_pseudotime"
             method_used = "dpt"
             if context:
                 await context.info("DPT analysis completed successfully.")
         except Exception as dpt_error:
             raise ProcessingError(f"DPT analysis failed: {dpt_error}") from dpt_error
-    
+
     # Strategy 3: Try Palantir (either as primary method or fallback)
     elif method_used == "palantir" or not has_velocity:
         if context:
             await context.info("Attempting trajectory inference with Palantir...")
-        
+
         try:
             with suppress_output():
                 # Run spatially-aware embedding
-                adata = spatial_aware_embedding(adata, spatial_weight=params.spatial_weight)
-                
+                adata = spatial_aware_embedding(
+                    adata, spatial_weight=params.spatial_weight
+                )
+
                 # Run Palantir with configurable parameters
                 adata = infer_pseudotime_palantir(
-                    adata, 
+                    adata,
                     root_cells=params.root_cells,
                     n_diffusion_components=params.palantir_n_diffusion_components,
-                    num_waypoints=params.palantir_num_waypoints
+                    num_waypoints=params.palantir_num_waypoints,
                 )
-                
-            pseudotime_key = 'palantir_pseudotime'
+
+            pseudotime_key = "palantir_pseudotime"
             method_used = "palantir"
             if context:
                 await context.info("Palantir analysis completed successfully.")
-                
+
         except Exception as palantir_error:
             if context:
                 await context.error(f"Palantir analysis failed: {palantir_error}")
             # Don't silently fallback - let the LLM decide what to do
             # The LLM can explicitly request DPT method if it wants to try that
-            raise ProcessingError(f"Palantir trajectory inference failed: {palantir_error}") from palantir_error
+            raise ProcessingError(
+                f"Palantir trajectory inference failed: {palantir_error}"
+            ) from palantir_error
 
     # Ensure pseudotime key exists
     if pseudotime_key is None or pseudotime_key not in adata.obs.columns:
@@ -704,10 +732,11 @@ async def analyze_trajectory(
     data_store[data_id]["adata"] = adata
 
     # Determine if fallback was used
-    requested_method = params.method if hasattr(params, 'method') else "cellrank"
-    fallback_used = (method_used == "dpt" and requested_method != "dpt") or \
-                   (method_used == "palantir" and requested_method == "cellrank")
-    
+    requested_method = params.method if hasattr(params, "method") else "cellrank"
+    fallback_used = (method_used == "dpt" and requested_method != "dpt") or (
+        method_used == "palantir" and requested_method == "cellrank"
+    )
+
     # Return result with metadata only (no visualization)
     return TrajectoryResult(
         data_id=data_id,
@@ -716,7 +745,7 @@ async def analyze_trajectory(
         pseudotime_key=pseudotime_key,
         method=method_used,
         spatial_weight=params.spatial_weight,
-        method_fallback_used=fallback_used
+        method_fallback_used=fallback_used,
     )
 
 
@@ -726,7 +755,7 @@ async def analyze_velocity_with_velovi(
     n_hidden: int = 128,
     n_latent: int = 10,
     use_gpu: bool = False,
-    context: Optional[Context] = None
+    context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
     Analyzes RNA velocity using the deep learning model VELOVI.
@@ -755,72 +784,70 @@ async def analyze_velocity_with_velovi(
     """
     try:
         if scvi is None or VELOVI is None:
-            raise ImportError("scvi-tools package is required for VELOVI analysis. Install with 'pip install scvi-tools'")
-        
+            raise ImportError(
+                "scvi-tools package is required for VELOVI analysis. Install with 'pip install scvi-tools'"
+            )
+
         if context:
             await context.info("Starting VELOVI velocity analysis...")
-            
+
         # Validate required layers
         is_valid, issues = validate_velocity_data(adata)
         if not is_valid:
             raise ValueError(f"Invalid data for velocity analysis: {'; '.join(issues)}")
-        
+
         if context:
-            await context.info(f"Analyzing velocity for {adata.n_obs} cells and {adata.n_vars} genes with VELOVI")
-        
+            await context.info(
+                f"Analyzing velocity for {adata.n_obs} cells and {adata.n_vars} genes with VELOVI"
+            )
+
         # Setup VELOVI
         VELOVI.setup_anndata(
-            adata,
-            spliced_layer="spliced",
-            unspliced_layer="unspliced"
+            adata, spliced_layer="spliced", unspliced_layer="unspliced"
         )
-        
+
         # Create VELOVI model
-        velovi_model = VELOVI(
-            adata,
-            n_hidden=n_hidden,
-            n_latent=n_latent
-        )
-        
+        velovi_model = VELOVI(adata, n_hidden=n_hidden, n_latent=n_latent)
+
         if context:
             await context.info("Training VELOVI model...")
-        
+
         # Train model
         if use_gpu:
-            velovi_model.train(max_epochs=n_epochs, accelerator='gpu')
+            velovi_model.train(max_epochs=n_epochs, accelerator="gpu")
         else:
             velovi_model.train(max_epochs=n_epochs)
-            
+
         if context:
             await context.info("VELOVI training completed")
-        
+
         # Get results
         if context:
             await context.info("Extracting VELOVI velocity results...")
-            
+
         # Get velocity estimates
         velocity = velovi_model.get_velocity()
-        
+
         # Handle different return types from get_velocity
         if isinstance(velocity, tuple):
             # Sometimes get_velocity returns (velocity, something_else)
             velocity = velocity[0]
-        
+
         # Ensure velocity is numpy array
-        if hasattr(velocity, 'detach'):
+        if hasattr(velocity, "detach"):
             # It's a tensor, convert to numpy
             velocity = velocity.detach().cpu().numpy()
-        elif hasattr(velocity, 'toarray'):
+        elif hasattr(velocity, "toarray"):
             # It's a sparse matrix
             velocity = velocity.toarray()
-        
+
         # Ensure velocity is 2D array
         if velocity.ndim == 1:
             velocity = velocity.reshape(-1, 1)
-        
+
         # Get latent representation
         latent = velovi_model.get_latent_representation()
-        
+
         # Get velocity uncertainty (if available)
         try:
             velocity_uncertainty = velovi_model.get_velocity_uncertainty()
@@ -830,53 +857,59 @@ async def analyze_velocity_with_velovi(
                 uncertainty_result = velovi_model.get_directional_uncertainty()
                 # Handle case where method returns a tuple
                 if isinstance(uncertainty_result, tuple):
-                    velocity_uncertainty = uncertainty_result[0]  # Usually the first element is the uncertainty
+                    velocity_uncertainty = uncertainty_result[
+                        0
+                    ]  # Usually the first element is the uncertainty
                 else:
                     velocity_uncertainty = uncertainty_result
                 uncertainty_computed = True
             except (AttributeError, IndexError):
                 velocity_uncertainty = None
                 uncertainty_computed = False
-        
+
         # Store results in adata
-        adata.layers['velocity_velovi'] = velocity
-        adata.obsm['X_velovi_latent'] = latent
+        adata.layers["velocity_velovi"] = velocity
+        adata.obsm["X_velovi_latent"] = latent
         if velocity_uncertainty is not None:
             try:
-                adata.layers['velocity_velovi_uncertainty'] = velocity_uncertainty
+                adata.layers["velocity_velovi_uncertainty"] = velocity_uncertainty
             except Exception:
                 # If uncertainty storage fails, just skip it
                 uncertainty_computed = False
-        
+
         # Calculate velocity statistics
         velocity_norm = np.linalg.norm(velocity, axis=1)
-        
+
         # Store velocity norm in obs
-        adata.obs['velocity_velovi_norm'] = velocity_norm
-        
+        adata.obs["velocity_velovi_norm"] = velocity_norm
+
         # Calculate summary statistics
         results = {
-            'method': 'VELOVI',
-            'n_latent_dims': n_latent,
-            'n_epochs': n_epochs,
-            'velocity_computed': True,
-            'velocity_mean_norm': velocity_norm.mean(),
-            'velocity_std_norm': velocity_norm.std(),
-            'velocity_shape': velocity.shape,
-            'latent_shape': latent.shape,
-            'uncertainty_computed': uncertainty_computed,
-            'training_completed': True,
-            'device': 'GPU' if use_gpu else 'CPU'
+            "method": "VELOVI",
+            "n_latent_dims": n_latent,
+            "n_epochs": n_epochs,
+            "velocity_computed": True,
+            "velocity_mean_norm": velocity_norm.mean(),
+            "velocity_std_norm": velocity_norm.std(),
+            "velocity_shape": velocity.shape,
+            "latent_shape": latent.shape,
+            "uncertainty_computed": uncertainty_computed,
+            "training_completed": True,
+            "device": "GPU" if use_gpu else "CPU",
         }
-        
+
         if context:
-            await context.info(f"VELOVI velocity analysis completed successfully")
-            await context.info(f"Stored velocity in adata.layers['velocity_velovi']")
-            await context.info(f"Stored latent representation in adata.obsm['X_velovi_latent']")
-            await context.info(f"Stored uncertainty in adata.layers['velocity_velovi_uncertainty']")
-        
+            await context.info("VELOVI velocity analysis completed successfully")
+            await context.info("Stored velocity in adata.layers['velocity_velovi']")
+            await context.info(
+                "Stored latent representation in adata.obsm['X_velovi_latent']"
+            )
+            await context.info(
+                "Stored uncertainty in adata.layers['velocity_velovi_uncertainty']"
+            )
+
         return results
-        
+
     except Exception as e:
         error_msg = f"VELOVI velocity analysis failed: {str(e)}"
         if context:

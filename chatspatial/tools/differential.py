@@ -2,7 +2,8 @@
 Differential expression analysis tools for spatial transcriptomics data.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, Optional
+
 import numpy as np
 import scanpy as sc
 from mcp.server.fastmcp import Context
@@ -18,7 +19,7 @@ async def differential_expression(
     group2: Optional[str] = None,
     method: str = "wilcoxon",
     n_top_genes: int = 50,
-    context: Optional[Context] = None
+    context: Optional[Context] = None,
 ) -> DifferentialExpressionResult:
     """Perform differential expression analysis
 
@@ -49,28 +50,31 @@ async def differential_expression(
     if group1 is None:
         if context:
             await context.info(f"Finding marker genes for all groups in '{group_key}'")
-        
+
         # Run rank_genes_groups for all groups
         sc.tl.rank_genes_groups(
             adata,
             groupby=group_key,
             method=method,
             n_genes=n_top_genes,
-            reference='rest'
+            reference="rest",
         )
-        
+
         # Get all groups
         groups = adata.obs[group_key].unique()
-        
+
         # Collect top genes from all groups
         all_top_genes = []
-        if 'rank_genes_groups' in adata.uns and 'names' in adata.uns['rank_genes_groups']:
-            gene_names = adata.uns['rank_genes_groups']['names']
+        if (
+            "rank_genes_groups" in adata.uns
+            and "names" in adata.uns["rank_genes_groups"]
+        ):
+            gene_names = adata.uns["rank_genes_groups"]["names"]
             for group in groups:
                 if str(group) in gene_names.dtype.names:
                     genes = list(gene_names[str(group)][:n_top_genes])
                     all_top_genes.extend(genes)
-        
+
         # Remove duplicates while preserving order
         seen = set()
         top_genes = []
@@ -78,10 +82,10 @@ async def differential_expression(
             if gene not in seen:
                 seen.add(gene)
                 top_genes.append(gene)
-        
+
         # Limit to n_top_genes
         top_genes = top_genes[:n_top_genes]
-        
+
         return DifferentialExpressionResult(
             data_id=data_id,
             comparison=f"All groups in {group_key}",
@@ -90,13 +94,15 @@ async def differential_expression(
             statistics={
                 "method": method,
                 "n_groups": len(groups),
-                "groups": list(map(str, groups))
-            }
+                "groups": list(map(str, groups)),
+            },
         )
-    
+
     # Original logic for specific group comparison
     if context:
-        await context.info(f"Performing differential expression analysis between {group1} and {group2}")
+        await context.info(
+            f"Performing differential expression analysis between {group1} and {group2}"
+        )
 
     # Check if the groups exist in the group_key
     if group1 not in adata.obs[group_key].values:
@@ -104,9 +110,9 @@ async def differential_expression(
 
     # Special case for 'rest' as group2 or if group2 is None
     use_rest_as_reference = False
-    if group2 is None or group2 == 'rest':
+    if group2 is None or group2 == "rest":
         use_rest_as_reference = True
-        group2 = 'rest'  # Set it explicitly for display purposes
+        group2 = "rest"  # Set it explicitly for display purposes
     elif group2 not in adata.obs[group_key].values:
         raise ValueError(f"Group '{group2}' not found in adata.obs['{group_key}']")
 
@@ -127,9 +133,9 @@ async def differential_expression(
         temp_adata,
         groupby=group_key,
         groups=[group1],
-        reference='rest' if use_rest_as_reference else group2,
+        reference="rest" if use_rest_as_reference else group2,
         method=method,
-        n_genes=n_top_genes
+        n_genes=n_top_genes,
     )
 
     # Extract results
@@ -138,10 +144,10 @@ async def differential_expression(
 
     # Get the top genes
     top_genes = []
-    if hasattr(temp_adata, 'uns') and 'rank_genes_groups' in temp_adata.uns:
-        if 'names' in temp_adata.uns['rank_genes_groups']:
+    if hasattr(temp_adata, "uns") and "rank_genes_groups" in temp_adata.uns:
+        if "names" in temp_adata.uns["rank_genes_groups"]:
             # Get the top genes for the first group (should be group1)
-            gene_names = temp_adata.uns['rank_genes_groups']['names']
+            gene_names = temp_adata.uns["rank_genes_groups"]["names"]
             if group1 in gene_names.dtype.names:
                 top_genes = list(gene_names[group1][:n_top_genes])
             else:
@@ -166,12 +172,25 @@ async def differential_expression(
     # Get log fold changes and p-values if available
     log2fc_values = []
     pvals = []
-    if hasattr(temp_adata, 'uns') and 'rank_genes_groups' in temp_adata.uns:
-        if 'logfoldchanges' in temp_adata.uns['rank_genes_groups'] and group1 in temp_adata.uns['rank_genes_groups']['logfoldchanges'].dtype.names:
-            log2fc_values = list(temp_adata.uns['rank_genes_groups']['logfoldchanges'][group1][:n_top_genes])
+    if hasattr(temp_adata, "uns") and "rank_genes_groups" in temp_adata.uns:
+        if (
+            "logfoldchanges" in temp_adata.uns["rank_genes_groups"]
+            and group1
+            in temp_adata.uns["rank_genes_groups"]["logfoldchanges"].dtype.names
+        ):
+            log2fc_values = list(
+                temp_adata.uns["rank_genes_groups"]["logfoldchanges"][group1][
+                    :n_top_genes
+                ]
+            )
 
-        if 'pvals_adj' in temp_adata.uns['rank_genes_groups'] and group1 in temp_adata.uns['rank_genes_groups']['pvals_adj'].dtype.names:
-            pvals = list(temp_adata.uns['rank_genes_groups']['pvals_adj'][group1][:n_top_genes])
+        if (
+            "pvals_adj" in temp_adata.uns["rank_genes_groups"]
+            and group1 in temp_adata.uns["rank_genes_groups"]["pvals_adj"].dtype.names
+        ):
+            pvals = list(
+                temp_adata.uns["rank_genes_groups"]["pvals_adj"][group1][:n_top_genes]
+            )
 
     # Calculate mean log2fc and median p-value
     mean_log2fc = np.mean(log2fc_values) if log2fc_values else None
@@ -183,7 +202,7 @@ async def differential_expression(
         "n_cells_group1": int(n_cells_group1),
         "n_cells_group2": int(n_cells_group2),
         "mean_log2fc": float(mean_log2fc) if mean_log2fc is not None else None,
-        "median_pvalue": float(median_pvalue) if median_pvalue is not None else None
+        "median_pvalue": float(median_pvalue) if median_pvalue is not None else None,
     }
 
     # Create comparison string
@@ -194,5 +213,5 @@ async def differential_expression(
         comparison=comparison,
         n_genes=len(top_genes),
         top_genes=top_genes,
-        statistics=statistics
+        statistics=statistics,
     )

@@ -6,4 +6,4 @@ Provides user-friendly CLI tools for dependency management and system diagnostic
 
 from .dependency_manager import deps
 
-__all__ = ['deps']
+__all__ = ["deps"]
