@@ -1,9 +1,7 @@
 """
 ChatSpatial Command Line Interface module.
 
-Provides user-friendly CLI tools for dependency management and system diagnostics.
+Provides the main CLI entry point for the ChatSpatial server.
 """
 
-from .dependency_manager import deps
-
-__all__ = ["deps"]
+__all__ = []

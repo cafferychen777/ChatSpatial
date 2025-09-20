@@ -42,9 +42,8 @@ dependencies = [
     "click>=8.0.0,<9.0",
     "aiohttp>=3.8.0,<4.0",
     
-    # Basic plotting and CLI interface
+    # Basic plotting
     "Pillow>=8.0.0,<11.0",
-    "rich>=12.0.0,<14.0",  # Rich text and beautiful formatting for CLI
 ]
 
 [project.optional-dependencies]
@@ -53,16 +52,20 @@ advanced = [
     # Deep learning frameworks (PyTorch 2.x only)
     "torch>=2.0.0,<3.0",
     
-    # Advanced spatial analysis
+    # Advanced spatial analysis and domains
     "SpaGCN>=1.2.5,<2.0",
+    "STAGATE>=1.0.0",  # Spatial domain identification with graph attention
+    "banksy-utils>=0.1.0",  # BANKSY spatial domain algorithm
     
     # Deconvolution methods
     "cell2location>=0.1.3,<1.0",
     "scvi-tools>=1.0.0,<2.0",
+    "mudata>=0.2.0",  # Multi-modal data support for deconvolution
     
     # RNA velocity and trajectory
     "scvelo>=0.2.5,<1.0",
     "cellrank>=2.0.0,<3.0",
+    "palantir>=1.0.0",  # Trajectory inference
     
     # Sparse matrix solvers for CellRank (significantly speeds up computation)
     "petsc4py>=3.18.0,<4.0",
@@ -75,23 +78,33 @@ advanced = [
     
     # Spatial variable genes (GASTON is preferred, SpatialDE kept for compatibility)
     "spatialde>=1.1.3,<2.0",
+    "gaston>=0.1.0",  # GASTON neural network for spatial genes
+    "glmpca-py>=0.2.0",  # GLM-PCA for dimensionality reduction
     
     # Cell communication
     "liana>=0.1.13,<1.0",
     "cellphonedb>=5.0.0,<6.0",
     
-    # SingleR for improved cell type annotation
+    # Cell type annotation
+    "tangram-sc>=1.0.0",  # Spatial mapping of cell types
     "singler>=0.4.0,<1.0",  # SingleR Python implementation
     "singlecellexperiment>=0.4.0,<1.0",  # Required for SingleR
     "celldex>=0.3.0,<1.0",  # Reference datasets for SingleR
+    "rpy2>=3.4.0,<4.0",  # R interface for sc-type method
     
-    # Performance optimization
-    "numba>=0.57.0,<1.0",
-    "dask>=2024.1.0,<2025.0",
+    # Spatial statistics and analysis
+    "esda>=2.4.0",  # Exploratory spatial data analysis
+    "libpysal>=4.6.0",  # Core spatial analysis library
+    "pysal>=2.6.0",  # Python spatial analysis library
+    "statsmodels>=0.13.0",  # Statistical modeling
+    "networkx>=2.6.0",  # Network analysis for spatial graphs
     
-    # Visualization
-    "plotly>=5.0.0,<6.0",
-    "opencv-python>=4.5.0,<5.0",
+    # Spatial registration and optimal transport
+    "POT>=0.9.0",  # Python optimal transport
+    "STalign>=1.0.0",  # Spatial alignment tool
+    
+    # Visualization and performance
+    # Note: numba, dask, plotly, opencv-python removed as unused
     
     # Gene set enrichment
     "gseapy>=1.0.0,<2.0",
@@ -107,21 +120,14 @@ advanced = [
 
 # Experimental features (may have compatibility issues)
 experimental = [
-    # R interface (requires separate R installation)
-    "rpy2>=3.4.0,<4.0",
-    
-
-    
-    # Spatial registration
+    # Spatial registration (alternative methods)
     "paste-bio>=1.0.0,<2.0",
-    
-    # High-performance computing
-    "petsc4py>=3.17.0,<4.0",
-    "slepc4py>=3.17.0,<4.0",
-    "mpi4py>=3.1.0,<4.0",
     
     # Emerging spatial methods
     "spatialdata>=0.2.0,<1.0",
+    
+    # Experimental cell type annotation
+    "mllmcelltype>=0.1.0",  # LLM-based cell type annotation (experimental)
 ]
 
 # Development dependencies
@@ -157,8 +163,6 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 # Suppress known upstream dependency version warnings
 filterwarnings = [
-    "ignore::DeprecationWarning:pkg_resources.*",
-    "ignore:pkg_resources is deprecated:DeprecationWarning",
     "ignore:.*jinja2.*:UserWarning",
     "ignore:.*numpy.*version.*:UserWarning",
 ]

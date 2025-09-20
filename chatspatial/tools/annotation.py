@@ -105,11 +105,14 @@ Troubleshooting:
 
 def _validate_scvi_tools(context: Optional[Context] = None):
     """Validate scvi-tools availability and return the module"""
-    from ..utils.dependency_manager import try_import
-
-    scvi, warning = try_import("scvi-tools", "advanced cell type annotation")
+    try:
+        import scvi
+    except ImportError:
+        scvi = None
+    
     if scvi is None:
         install_guide = _get_installation_guide("scvi-tools")
+        warning = "scvi-tools not available for advanced cell type annotation. Install with: pip install scvi-tools"
         if context:
             context.error(f"scvi-tools not available: {warning}")
         raise DependencyError("scvi-tools", "scANVI and CellAssign", install_guide)

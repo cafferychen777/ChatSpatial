@@ -15,12 +15,18 @@ import pandas as pd
 from mcp.server.fastmcp import Context
 
 # Import dependencies using the dependency manager
-from ..utils.dependency_manager import try_import
 from ..utils.error_handling import suppress_output
 
 # Try importing deep learning dependencies
-scvi, scvi_warning = try_import("scvi-tools", "advanced deconvolution methods")
-torch, torch_warning = try_import("torch", "deep learning-based deconvolution")
+try:
+    import scvi
+except ImportError:
+    scvi = None
+
+try:
+    import torch
+except ImportError:
+    torch = None
 
 # Import specific scvi modules if available
 Stereoscope = None
@@ -37,7 +43,10 @@ if scvi:
         warnings.warn(f"scvi-tools import issue: {e}. Some methods may be unavailable.")
 
 # Import cell2location with graceful fallback
-cell2location, c2l_warning = try_import("cell2location", "cell2location deconvolution")
+try:
+    import cell2location
+except ImportError:
+    cell2location = None
 
 from ..models.analysis import DeconvolutionResult
 from ..models.data import DeconvolutionParameters
@@ -316,14 +325,12 @@ def deconvolve_cell2location(
         spatial_adata, reference_adata, cell_type_key, min_common_genes
     )
 
-    # Import cell2location using dependency manager
-    from ..utils.dependency_manager import require
-
+    # Import cell2location
     try:
         # Apply compatibility fix for cell2location + scvi-tools version mismatch
         _apply_cell2location_compatibility_fix()
 
-        cell2location_mod = require("cell2location", "cell2location deconvolution")
+        import cell2location as cell2location_mod
         from cell2location.models import Cell2location, RegressionModel
     except ImportError as e:
         # Provide specific installation guidance
@@ -1039,9 +1046,12 @@ async def deconvolve_spatial_data(
         }
 
         # Get available methods
-        from ..utils.dependency_manager import get_available_methods
-
-        available_methods = get_available_methods(method_deps)
+        import importlib.util
+        
+        available_methods = []
+        for method, deps in method_deps.items():
+            if all(importlib.util.find_spec(d.replace('-', '_')) for d in deps):
+                available_methods.append(method)
 
         if params.method not in available_methods:
             # Suggest alternatives
