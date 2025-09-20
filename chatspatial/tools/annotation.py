@@ -153,63 +153,6 @@ def _validate_singler(context: Optional[Context] = None):
         raise ImportError("singler is required for SingleR method. Install with: pip install singler singlecellexperiment") from e
 
 
-# Default marker genes for common cell types
-DEFAULT_MARKER_GENES = {
-    "T cells": ["CD3D", "CD3E", "CD3G", "CD8A", "CD4", "IL7R", "CCR7", "LCK", "PTPRC"],
-    "B cells": ["CD19", "MS4A1", "CD79A", "CD79B", "BANK1", "CD22", "IGHM", "IGHD"],
-    "Macrophages": [
-        "CD68",
-        "CD14",
-        "CSF1R",
-        "FCGR3A",
-        "FCGR1A",
-        "ITGAM",
-        "MARCO",
-        "MSR1",
-    ],
-    "Fibroblasts": ["COL1A1", "COL1A2", "DCN", "LUM", "PDGFRA", "ACTA2", "FAP", "THY1"],
-    "Epithelial cells": [
-        "EPCAM",
-        "KRT8",
-        "KRT18",
-        "KRT19",
-        "CDH1",
-        "CLDN3",
-        "CLDN4",
-        "MUC1",
-    ],
-    "Neurons": ["RBFOX3", "MAP2", "TUBB3", "SYP", "SNAP25", "GRIN1", "GRIN2A", "GRIA1"],
-    "Oligodendrocytes": [
-        "MBP",
-        "MOG",
-        "MAG",
-        "MOBP",
-        "PLP1",
-        "OLIG1",
-        "OLIG2",
-        "SOX10",
-    ],
-    "Astrocytes": [
-        "GFAP",
-        "AQP4",
-        "SLC1A3",
-        "SLC1A2",
-        "ALDH1L1",
-        "GJA1",
-        "SOX9",
-        "ALDOC",
-    ],
-    "Endothelial cells": [
-        "PECAM1",
-        "CDH5",
-        "VWF",
-        "CLDN5",
-        "FLT1",
-        "KDR",
-        "TEK",
-        "EMCN",
-    ],
-}
 
 # Constants for annotation
 DEFAULT_HVG_COUNT = 2000
@@ -226,7 +169,6 @@ CONFIDENCE_MAX = 0.99
 # real statistical measures (e.g., probabilities, correlations, overlap ratios).
 # Empty confidence_scores dict indicates no confidence data available.
 METHODS_WITH_REAL_CONFIDENCE = {
-    "marker_genes",  # Overlap ratio between marker genes and cluster DEGs
     "singler",  # Correlation scores from reference matching
     "tangram",  # Mapping probabilities from spatial alignment
     "sctype",  # Scoring based on marker gene expression levels
@@ -244,7 +186,6 @@ SUPPORTED_METHODS = {
     "tangram",
     "scanvi",
     "cellassign",
-    "marker_genes",
     "mllmcelltype",
     "sctype",
     "singler",
@@ -261,192 +202,6 @@ async def _handle_annotation_error(
     raise ValueError(error_msg)
 
 
-async def _validate_marker_genes(
-    adata, marker_genes: Dict[str, List[str]], context: Optional[Context] = None
-) -> Dict[str, List[str]]:
-    """Validate and filter marker genes that exist in the dataset"""
-    all_genes = set(adata.var_names)
-    valid_cell_types = []
-    valid_marker_genes = {}
-
-    for cell_type, genes in marker_genes.items():
-        existing_genes = [gene for gene in genes if gene in all_genes]
-        if existing_genes:
-            valid_cell_types.append(cell_type)
-            valid_marker_genes[cell_type] = existing_genes
-            if context:
-                await context.info(
-                    f"Found {len(existing_genes)} marker genes for {cell_type}"
-                )
-        else:
-            if context:
-                await context.warning(f"No marker genes found for {cell_type}")
-
-    if not valid_cell_types:
-        raise ValueError("No valid marker genes found for any cell type")
-
-    return valid_marker_genes
-
-
-async def _annotate_with_marker_genes_scanpy(
-    adata, marker_genes: Dict[str, List[str]], context: Optional[Context] = None
-) -> tuple:
-    """Use scanpy's official marker_gene_overlap method for annotation"""
-    try:
-        if context:
-            await context.info("Using scanpy's official marker_gene_overlap method")
-
-        # Step 1: Validate clustering for differential expression analysis
-        if "leiden" not in adata.obs.columns:
-            raise ValueError(
-                "Leiden clustering not found in adata.obs. "
-                "Marker gene analysis requires clustering information. "
-                "Please run clustering in preprocessing.py or use: sc.tl.leiden(adata)"
-            )
-
-        # Step 2: Calculate differential expression for clusters
-        if context:
-            await context.info("Computing differential expression analysis")
-        sc.tl.rank_genes_groups(adata, groupby="leiden", method="wilcoxon", n_genes=100)
-
-        # Step 3: Use scanpy's official marker gene overlap
-        if context:
-            await context.info(
-                f"Computing marker gene overlap for {len(marker_genes)} cell types"
-            )
-
-        # Convert marker genes to the format expected by scanpy
-        reference_markers = {
-            cell_type: set(genes) for cell_type, genes in marker_genes.items()
-        }
-
-        overlap_scores = sc.tl.marker_gene_overlap(
-            adata,
-            reference_markers=reference_markers,
-            method="overlap_count",  # Count overlapping genes
-            top_n_markers=50,  # Use top 50 DE genes per cluster
-            inplace=False,
-        )
-
-        if context:
-            await context.info(
-                f"Overlap analysis completed for {len(overlap_scores)} clusters"
-            )
-
-        # Step 4: Assign cell types based on highest overlap scores
-        # Note: overlap_scores has cell_types as index and clusters as columns
-        cluster_to_celltype = {}
-        confidence_scores_per_cluster = {}
-
-        # For each cluster (column), find the cell type (index) with highest overlap
-        for cluster_col in overlap_scores.columns:
-            cluster_str = str(cluster_col)
-            # Get scores for this cluster across all cell types
-            cluster_scores = overlap_scores[cluster_col]  # This is a Series
-            best_celltype = cluster_scores.idxmax()  # Cell type with highest overlap
-            max_overlap = cluster_scores[best_celltype]
-
-            cluster_to_celltype[cluster_str] = best_celltype
-
-            # Calculate confidence based on overlap ratio
-            total_possible_overlap = len(reference_markers[best_celltype])
-            if total_possible_overlap > 0:
-                confidence = min(max_overlap / total_possible_overlap, 0.95)
-                confidence_scores_per_cluster[cluster_str] = round(confidence, 2)
-            # else: No confidence available for this cluster
-
-        # Step 5: Map cluster assignments to individual cells
-        adata.obs["cell_type"] = (
-            adata.obs["leiden"].astype(str).map(cluster_to_celltype)
-        )
-
-        # Handle any unmapped clusters (assign as "Unknown")
-        unmapped_mask = adata.obs["cell_type"].isna()
-        if unmapped_mask.any():
-            if context:
-                await context.warning(
-                    f"Found {unmapped_mask.sum()} cells in unmapped clusters, assigning as 'Unknown'"
-                )
-            adata.obs.loc[unmapped_mask, "cell_type"] = "Unknown"
-            # Unknown cells have no real confidence score - don't assign arbitrary value
-
-        adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
-
-        # Step 6: Calculate final statistics
-        cell_types = list(adata.obs["cell_type"].unique())
-        counts = adata.obs["cell_type"].value_counts().to_dict()
-
-        # Map cluster confidence to cell type confidence (average across clusters for each cell type)
-        confidence_scores = {}
-        for cell_type in cell_types:
-            # Find all clusters assigned to this cell type
-            assigned_clusters = [
-                k for k, v in cluster_to_celltype.items() if v == cell_type
-            ]
-            if assigned_clusters:
-                # Only average real confidence values, skip missing ones
-                real_confidences = [
-                    confidence_scores_per_cluster[c]
-                    for c in assigned_clusters
-                    if c in confidence_scores_per_cluster
-                ]
-                if real_confidences:
-                    avg_confidence = np.mean(real_confidences)
-                    confidence_scores[cell_type] = round(avg_confidence, 2)
-                # else: skip this cell type if no real confidence available
-            # else: no clusters assigned - don't report fake confidence
-
-        if context:
-            await context.info(
-                f"✅ Marker gene annotation completed: {len(cell_types)} cell types identified"
-            )
-            top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
-            await context.info(
-                f"Top cell types: {', '.join([f'{t}({c})' for t, c in top_types])}"
-            )
-
-        return cell_types, counts, confidence_scores
-
-    except Exception as e:
-        error_msg = f"Scanpy marker gene overlap annotation failed: {str(e)}"
-        if context:
-            await context.error(error_msg)
-        raise ValueError(error_msg)
-
-
-async def _annotate_with_marker_genes(
-    adata,
-    params: AnnotationParameters,
-    data_store: Dict[str, Any] = None,
-    context: Optional[Context] = None,
-):
-    """Annotate cell types using marker gene overlap method"""
-    try:
-        # Use provided marker genes or default ones
-        marker_genes = (
-            params.marker_genes if params.marker_genes else DEFAULT_MARKER_GENES
-        )
-
-        # Validate marker genes exist in dataset
-        valid_marker_genes = await _validate_marker_genes(adata, marker_genes, context)
-
-        # Use scanpy's official method
-        cell_types, counts, confidence_scores = (
-            await _annotate_with_marker_genes_scanpy(adata, valid_marker_genes, context)
-        )
-
-        if context:
-            await context.info(
-                "Cell type annotation complete. Cell types stored in 'cell_type' column"
-            )
-            await context.info(
-                "Use visualize_data tool with feature='cell_type' to visualize results"
-            )
-
-        return cell_types, counts, confidence_scores, None
-
-    except Exception as e:
-        await _handle_annotation_error(e, "marker_genes", context)
 
 
 async def _annotate_with_singler(
@@ -1494,16 +1249,30 @@ async def _annotate_with_cellassign(
 
         # Check if marker genes are provided
         if params.marker_genes is None:
-            if context:
-                await context.warning(
-                    "No marker genes provided, using default marker genes"
-                )
-            marker_genes = DEFAULT_MARKER_GENES
-        else:
-            marker_genes = params.marker_genes
+            raise ValueError(
+                "CellAssign requires marker genes to be provided. "
+                "Please specify marker_genes parameter with a dictionary of cell types and their marker genes."
+            )
+        
+        marker_genes = params.marker_genes
 
-        # Validate marker genes
-        valid_marker_genes = await _validate_marker_genes(adata, marker_genes, context)
+        # Validate marker genes exist in dataset
+        all_genes = set(adata.var_names)
+        valid_marker_genes = {}
+        
+        for cell_type, genes in marker_genes.items():
+            existing_genes = [gene for gene in genes if gene in all_genes]
+            if existing_genes:
+                valid_marker_genes[cell_type] = existing_genes
+                if context:
+                    await context.info(
+                        f"Found {len(existing_genes)} marker genes for {cell_type}"
+                    )
+            elif context:
+                await context.warning(f"No marker genes found for {cell_type}")
+        
+        if not valid_marker_genes:
+            raise ValueError("No valid marker genes found for any cell type")
         valid_cell_types = list(valid_marker_genes.keys())
 
         # Create marker gene matrix as DataFrame (required by CellAssign API)
@@ -1685,10 +1454,6 @@ async def annotate_cell_types(
         elif params.method == "cellassign":
             cell_types, counts, confidence_scores, tangram_mapping_score = (
                 await _annotate_with_cellassign(adata, params, context)
-            )
-        elif params.method == "marker_genes":
-            cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_marker_genes(adata, params, data_store, context)
             )
         elif params.method == "mllmcelltype":
             cell_types, counts, confidence_scores, tangram_mapping_score = (
