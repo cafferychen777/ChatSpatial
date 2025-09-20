@@ -893,14 +893,7 @@ async def _analyze_spatial_centrality(
 # Import scvi-tools for advanced spatial analysis
 try:
     import scvi
-
-    try:
-        from scvi.external import \
-            MRVI  # Multi-resolution Variational Inference for spatial data
-
-        SCVIVA = MRVI  # Use MRVI as the spatial analysis method
-    except ImportError:
-        SCVIVA = None
+    SCVIVA = None  # Placeholder for future spatial VI implementation
 except ImportError:
     scvi = None
     SCVIVA = None
@@ -933,7 +926,7 @@ async def _analyze_with_scviva(
         return {"error": "scvi-tools package required for SCVIVA analysis"}
 
     if SCVIVA is None:
-        return {"error": "MRVI spatial analysis requires scvi-tools >= 1.3.0"}
+        return {"error": "Spatial VI analysis not yet implemented"}
 
     if context:
         await context.info("Running SCVIVA deep learning analysis...")
@@ -967,10 +960,9 @@ async def _analyze_with_scviva(
             adata_copy.obsm["X_scVI"] = scvi_model.get_latent_representation()
 
         # For now, use standard scVI with spatial-aware setup
-        # MRVI requires specific setup that might differ from SCVIVA
         if context:
             await context.info(
-                "Using scVI for spatial analysis (MRVI/SCVIVA not available)"
+                "Using scVI for spatial analysis"
             )
 
         # Setup scVI with spatial awareness
