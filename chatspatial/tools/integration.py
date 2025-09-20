@@ -2,24 +2,25 @@
 Integration tools for spatial transcriptomics data.
 """
 
-from typing import Dict, List, Optional, Any
+import logging
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 import scanpy as sc
 from mcp.server.fastmcp import Context
 
-from ..models.data import IntegrationParameters
 from ..models.analysis import IntegrationResult
-import logging
+from ..models.data import IntegrationParameters
 
 
 def validate_data_quality(adata, min_cells=10, min_genes=10):
     """Validate data quality before integration
-    
+
     Args:
         adata: AnnData object
         min_cells: Minimum number of cells required
         min_genes: Minimum number of genes required
-    
+
     Raises:
         ValueError: If data quality is insufficient for integration
     """
@@ -28,43 +29,45 @@ def validate_data_quality(adata, min_cells=10, min_genes=10):
             f"Dataset has only {adata.n_obs} cells, minimum {min_cells} required for integration. "
             f"Consider combining with other datasets or use single-sample analysis."
         )
-    
+
     if adata.n_vars < min_genes:
         raise ValueError(
             f"Dataset has only {adata.n_vars} genes, minimum {min_genes} required for integration. "
             f"Check if data was properly loaded and genes were not over-filtered."
         )
-    
+
     # Check for empty cells or genes
-    if hasattr(adata.X, 'toarray'):
+    if hasattr(adata.X, "toarray"):
         X_dense = adata.X.toarray()
     else:
         X_dense = adata.X
-    
+
     cell_counts = np.sum(X_dense > 0, axis=1)
     gene_counts = np.sum(X_dense > 0, axis=0)
-    
+
     empty_cells = np.sum(cell_counts == 0)
     empty_genes = np.sum(gene_counts == 0)
-    
+
     if empty_cells > adata.n_obs * 0.1:
         raise ValueError(
             f"{empty_cells} cells ({empty_cells/adata.n_obs*100:.1f}%) have zero expression. "
             f"Check data quality and consider filtering."
         )
-    
+
     if empty_genes > adata.n_vars * 0.5:
         raise ValueError(
             f"{empty_genes} genes ({empty_genes/adata.n_vars*100:.1f}%) have zero expression across all cells. "
             f"Consider gene filtering before integration."
         )
-    
-    logging.info(f"Data quality validation passed: {adata.n_obs} cells, {adata.n_vars} genes")
+
+    logging.info(
+        f"Data quality validation passed: {adata.n_obs} cells, {adata.n_vars} genes"
+    )
 
 
-def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pcs=30):
+def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pcs=30):
     """Integrate multiple spatial transcriptomics samples
-    
+
     This function expects preprocessed data (normalized, log-transformed, with HVGs marked).
     Use preprocessing.py or preprocess_data() before calling this function.
 
@@ -76,11 +79,10 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
 
     Returns:
         Integrated AnnData object with batch correction applied
-        
+
     Raises:
         ValueError: If data is not properly preprocessed
     """
-    import scanpy as sc
 
     # Merge datasets
     if isinstance(adatas, list):
@@ -93,22 +95,24 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
         combined = adatas[0].concatenate(
             adatas[1:],
             batch_key=batch_key,
-            join='outer'  # Use outer join to keep all genes
+            join="outer",  # Use outer join to keep all genes
         )
     else:
         # If already a merged dataset, ensure it has batch information
         combined = adatas
         if batch_key not in combined.obs:
-            raise ValueError(f"Merged dataset is missing batch information key '{batch_key}'")
+            raise ValueError(
+                f"Merged dataset is missing batch information key '{batch_key}'"
+            )
 
     # Validate input data is preprocessed
     # Check if data appears to be raw (high values without log transformation)
-    max_val = combined.X.max() if hasattr(combined.X, 'max') else np.max(combined.X)
-    min_val = combined.X.min() if hasattr(combined.X, 'min') else np.min(combined.X)
-    
+    max_val = combined.X.max() if hasattr(combined.X, "max") else np.max(combined.X)
+    min_val = combined.X.min() if hasattr(combined.X, "min") else np.min(combined.X)
+
     # Raw count data typically has high integer values and no negative values
     # Properly preprocessed data should be either:
-    # 1. Log-transformed (positive values, typically 0-15 range)  
+    # 1. Log-transformed (positive values, typically 0-15 range)
     # 2. Scaled (centered around 0, can have negative values)
     if min_val >= 0 and max_val > 100:
         raise ValueError(
@@ -116,7 +120,7 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
             "Please normalize and log-transform data before integration. "
             "Use preprocessing.py or run: sc.pp.normalize_total(adata); sc.pp.log1p(adata)"
         )
-    
+
     # Check if data appears to be normalized (reasonable range after preprocessing)
     if max_val > 50:
         logging.warning(
@@ -126,30 +130,52 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
 
     # Validate data quality before processing
     validate_data_quality(combined)
-    
+
     # Check if data has highly variable genes marked (should be done in preprocessing)
-    if 'highly_variable' not in combined.var.columns:
+    if "highly_variable" not in combined.var.columns:
         logging.warning(
             "No highly variable genes marked after merge. Recalculating HVGs with batch correction."
         )
         # Recalculate HVGs with batch correction
-        sc.pp.highly_variable_genes(combined, min_mean=0.0125, max_mean=3, min_disp=0.5, 
-                                   batch_key=batch_key, n_top_genes=2000)
-        n_hvg = combined.var['highly_variable'].sum()
+        sc.pp.highly_variable_genes(
+            combined,
+            min_mean=0.0125,
+            max_mean=3,
+            min_disp=0.5,
+            batch_key=batch_key,
+            n_top_genes=2000,
+        )
+        n_hvg = combined.var["highly_variable"].sum()
     else:
-        n_hvg = combined.var['highly_variable'].sum()
+        n_hvg = combined.var["highly_variable"].sum()
         if n_hvg == 0:
-            logging.warning("No genes marked as highly variable after merge, recalculating")
+            logging.warning(
+                "No genes marked as highly variable after merge, recalculating"
+            )
             # Recalculate HVGs with batch correction
-            sc.pp.highly_variable_genes(combined, min_mean=0.0125, max_mean=3, min_disp=0.5,
-                                       batch_key=batch_key, n_top_genes=2000)
-            n_hvg = combined.var['highly_variable'].sum()
+            sc.pp.highly_variable_genes(
+                combined,
+                min_mean=0.0125,
+                max_mean=3,
+                min_disp=0.5,
+                batch_key=batch_key,
+                n_top_genes=2000,
+            )
+            n_hvg = combined.var["highly_variable"].sum()
         elif n_hvg < 50:
-            logging.warning(f"Very few HVGs ({n_hvg}), recalculating with batch correction")
-            sc.pp.highly_variable_genes(combined, min_mean=0.0125, max_mean=3, min_disp=0.5,
-                                       batch_key=batch_key, n_top_genes=2000)
-            n_hvg = combined.var['highly_variable'].sum()
-    
+            logging.warning(
+                f"Very few HVGs ({n_hvg}), recalculating with batch correction"
+            )
+            sc.pp.highly_variable_genes(
+                combined,
+                min_mean=0.0125,
+                max_mean=3,
+                min_disp=0.5,
+                batch_key=batch_key,
+                n_top_genes=2000,
+            )
+            n_hvg = combined.var["highly_variable"].sum()
+
     logging.info(f"Using {n_hvg} highly variable genes for integration")
 
     # Save raw data if not already saved
@@ -157,27 +183,30 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
         combined.raw = combined
 
     # Filter to highly variable genes
-    if 'highly_variable' in combined.var.columns:
-        n_hvg = combined.var['highly_variable'].sum()
+    if "highly_variable" in combined.var.columns:
+        n_hvg = combined.var["highly_variable"].sum()
         if n_hvg == 0:
-            raise ValueError("No highly variable genes found. Check HVG selection parameters.")
-        combined = combined[:, combined.var['highly_variable']].copy()
+            raise ValueError(
+                "No highly variable genes found. Check HVG selection parameters."
+            )
+        combined = combined[:, combined.var["highly_variable"]].copy()
         logging.info(f"Filtered to {n_hvg} highly variable genes")
-    
+
     # Remove genes with zero variance to avoid NaN in scaling
     import numpy as np
-    if hasattr(combined.X, 'todense'):
+
+    if hasattr(combined.X, "todense"):
         X_check = np.asarray(combined.X.todense())
     else:
         X_check = np.asarray(combined.X)
-    
+
     gene_var = np.var(X_check, axis=0)
     nonzero_var_genes = gene_var > 0
     if not np.all(nonzero_var_genes):
         n_removed = np.sum(~nonzero_var_genes)
         logging.warning(f"Removing {n_removed} genes with zero variance before scaling")
         combined = combined[:, nonzero_var_genes].copy()
-    
+
     # Scale data with proper error handling
     try:
         sc.pp.scale(combined, zero_center=True, max_value=10)
@@ -193,42 +222,47 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
                 f"This usually indicates data contains extreme outliers or invalid values. "
                 f"Consider additional quality control or outlier removal."
             )
-    
+
     # PCA with proper error handling
     # Determine safe number of components
     max_possible_components = min(n_pcs, combined.n_vars, combined.n_obs - 1)
-    
+
     if max_possible_components < 2:
         raise ValueError(
             f"Cannot perform PCA: only {max_possible_components} components possible. "
             f"Dataset has {combined.n_obs} cells and {combined.n_vars} genes. "
             f"Minimum 2 components required for downstream analysis."
         )
-    
+
     # Check data matrix before PCA
     import numpy as np
-    if hasattr(combined.X, 'todense'):
+
+    if hasattr(combined.X, "todense"):
         X_check = np.asarray(combined.X.todense())
     else:
         X_check = np.asarray(combined.X)
-    
+
     # Check for NaN or Inf
     if np.isnan(X_check).any():
         raise ValueError("Data contains NaN values after scaling")
     if np.isinf(X_check).any():
         raise ValueError("Data contains infinite values after scaling")
-        
+
     # Check variance
     var_per_gene = np.var(X_check, axis=0)
     zero_var_genes = np.sum(var_per_gene == 0)
     if zero_var_genes > 0:
-        logging.warning(f"Found {zero_var_genes} genes with zero variance after scaling")
-    
+        logging.warning(
+            f"Found {zero_var_genes} genes with zero variance after scaling"
+        )
+
     # Try PCA with different solvers, but fail properly if none work
     pca_success = False
-    for solver, max_comps in [('arpack', min(max_possible_components, 50)), 
-                             ('randomized', min(max_possible_components, 50)), 
-                             ('full', min(max_possible_components, 20))]:
+    for solver, max_comps in [
+        ("arpack", min(max_possible_components, 50)),
+        ("randomized", min(max_possible_components, 50)),
+        ("full", min(max_possible_components, 20)),
+    ]:
         try:
             sc.tl.pca(combined, n_comps=max_comps, svd_solver=solver, zero_center=False)
             logging.info(f"PCA successful with {solver} solver, {max_comps} components")
@@ -237,7 +271,7 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
         except Exception as e:
             logging.warning(f"PCA with {solver} solver failed: {e}")
             continue
-    
+
     if not pca_success:
         raise RuntimeError(
             f"All PCA methods failed for dataset with {combined.n_obs} cells and {combined.n_vars} genes. "
@@ -250,17 +284,18 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
         )
 
     # Apply batch correction based on selected method
-    if method == 'harmony':
+    if method == "harmony":
         # Use Harmony for batch correction
         try:
             import harmonypy
 
             # Get PCA result
-            X_pca = combined.obsm['X_pca']
+            X_pca = combined.obsm["X_pca"]
 
             # Run Harmony - need to pass the DataFrame with batch info, not just the labels
             # Create a temporary DataFrame with batch information
             import pandas as pd
+
             meta_data = pd.DataFrame({batch_key: combined.obs[batch_key]})
 
             # Run Harmony with proper parameters
@@ -271,25 +306,27 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
                 sigma=0.1,  # Default parameter
                 nclust=None,  # Let harmony determine the number of clusters
                 max_iter_harmony=10,  # Default number of iterations
-                verbose=True  # Show progress
+                verbose=True,  # Show progress
             )
 
             # Save Harmony corrected result
-            combined.obsm['X_harmony'] = harmony_out.Z_corr.T
+            combined.obsm["X_harmony"] = harmony_out.Z_corr.T
 
             # Use corrected result to calculate neighbor graph
-            sc.pp.neighbors(combined, use_rep='X_harmony')
+            sc.pp.neighbors(combined, use_rep="X_harmony")
         except ImportError:
-            raise ImportError("harmonypy package is required for harmony integration. Install with 'pip install harmonypy'")
+            raise ImportError(
+                "harmonypy package is required for harmony integration. Install with 'pip install harmonypy'"
+            )
         except Exception as e:
             # Provide clear error message instead of silent fallback
             logging.error(f"Harmony integration failed: {e}")
-            
+
             # Check if it's an import error (harmonypy not installed)
             if "harmonypy" in str(e).lower():
                 raise ImportError(
-                    f"Harmony integration failed due to missing harmonypy package. "
-                    f"Please install with: pip install harmonypy"
+                    "Harmony integration failed due to missing harmonypy package. "
+                    "Please install with: pip install harmonypy"
                 )
             else:
                 raise RuntimeError(
@@ -301,57 +338,64 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
                     f"Consider using method='mnn' or checking your batch labels."
                 )
 
-    elif method == 'bbknn':
+    elif method == "bbknn":
         # Use BBKNN for batch correction
         try:
             import bbknn
+
             bbknn.bbknn(combined, batch_key=batch_key, neighbors_within_batch=3)
         except ImportError:
-            raise ImportError("bbknn package is required for BBKNN integration. Install with 'pip install bbknn'")
+            raise ImportError(
+                "bbknn package is required for BBKNN integration. Install with 'pip install bbknn'"
+            )
 
-    elif method == 'scanorama':
+    elif method == "scanorama":
         # Use Scanorama for batch correction
         try:
-            import scanorama
             import numpy as np
+            import scanorama
 
             # Separate data by batch
             datasets = []
             genes_list = []
             batch_order = []
-            
+
             for batch in combined.obs[batch_key].unique():
                 batch_mask = combined.obs[batch_key] == batch
                 batch_data = combined[batch_mask]
-                
+
                 # Convert to dense array if sparse
-                if hasattr(batch_data.X, 'toarray'):
+                if hasattr(batch_data.X, "toarray"):
                     X_batch = batch_data.X.toarray()
                 else:
                     X_batch = batch_data.X
-                    
+
                 datasets.append(X_batch)
                 genes_list.append(batch_data.var_names.tolist())
                 batch_order.append(batch)
-                
+
                 logging.info(f"Prepared batch '{batch}': {X_batch.shape}")
 
             # Run Scanorama integration (returns low-dimensional embeddings)
             logging.info("Running Scanorama integration...")
-            integrated, corrected_genes = scanorama.integrate(datasets, genes_list, dimred=100)
-            
+            integrated, corrected_genes = scanorama.integrate(
+                datasets, genes_list, dimred=100
+            )
+
             # Stack integrated results back together
             integrated_X = np.vstack(integrated)
             logging.info(f"Scanorama integration completed: {integrated_X.shape}")
 
             # Store integrated representation in obsm
-            combined.obsm['X_scanorama'] = integrated_X
+            combined.obsm["X_scanorama"] = integrated_X
 
             # Use integrated representation for neighbor graph
-            sc.pp.neighbors(combined, use_rep='X_scanorama')
-            
+            sc.pp.neighbors(combined, use_rep="X_scanorama")
+
         except ImportError:
-            raise ImportError("scanorama package is required for Scanorama integration. Install with 'pip install scanorama'")
+            raise ImportError(
+                "scanorama package is required for Scanorama integration. Install with 'pip install scanorama'"
+            )
         except Exception as e:
             # Scanorama failed - do not fallback to inferior methods
             error_msg = (
@@ -363,7 +407,7 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
             logging.error(error_msg)
             raise RuntimeError(error_msg)
 
-    elif method == 'mnn':
+    elif method == "mnn":
         # Use MNN for batch correction
         sc.pp.combat(combined, key=batch_key)
         sc.pp.neighbors(combined)
@@ -378,7 +422,7 @@ def integrate_multiple_samples(adatas, batch_key='batch', method='harmony', n_pc
     return combined
 
 
-def align_spatial_coordinates(combined_adata, batch_key='batch', reference_batch=None):
+def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch=None):
     """Align spatial coordinates of multiple samples
 
     Args:
@@ -393,7 +437,7 @@ def align_spatial_coordinates(combined_adata, batch_key='batch', reference_batch
     from sklearn.preprocessing import StandardScaler
 
     # Ensure data contains spatial coordinates
-    if 'spatial' not in combined_adata.obsm:
+    if "spatial" not in combined_adata.obsm:
         raise ValueError("Data is missing spatial coordinates")
 
     # Get batch information
@@ -406,7 +450,9 @@ def align_spatial_coordinates(combined_adata, batch_key='batch', reference_batch
         raise ValueError(f"Reference batch '{reference_batch}' not found in data")
 
     # Get reference batch spatial coordinates
-    ref_coords = combined_adata[combined_adata.obs[batch_key] == reference_batch].obsm['spatial']
+    ref_coords = combined_adata[combined_adata.obs[batch_key] == reference_batch].obsm[
+        "spatial"
+    ]
 
     # Standardize reference coordinates
     scaler = StandardScaler()
@@ -424,7 +470,7 @@ def align_spatial_coordinates(combined_adata, batch_key='batch', reference_batch
             aligned_coords.append(ref_coords_scaled)
         else:
             # Get current batch spatial coordinates
-            batch_coords = combined_adata[batch_idx].obsm['spatial']
+            batch_coords = combined_adata[batch_idx].obsm["spatial"]
 
             # Standardize current batch coordinates
             batch_coords_scaled = scaler.transform(batch_coords)
@@ -433,20 +479,22 @@ def align_spatial_coordinates(combined_adata, batch_key='batch', reference_batch
             aligned_coords.append(batch_coords_scaled)
 
     # Merge all aligned coordinates
-    combined_adata.obsm['spatial_aligned'] = np.zeros((combined_adata.n_obs, 2))
+    combined_adata.obsm["spatial_aligned"] = np.zeros((combined_adata.n_obs, 2))
 
     # Fill aligned coordinates back to original data
     start_idx = 0
     for batch, coords in zip(batches, aligned_coords):
         batch_idx = combined_adata.obs[batch_key] == batch
         n_cells = np.sum(batch_idx)
-        combined_adata.obsm['spatial_aligned'][start_idx:start_idx+n_cells] = coords
+        combined_adata.obsm["spatial_aligned"][start_idx : start_idx + n_cells] = coords
         start_idx += n_cells
 
     return combined_adata
 
 
-def analyze_integrated_trajectory(combined_adata, spatial_weight=0.5, use_aligned_coords=True):
+def analyze_integrated_trajectory(
+    combined_adata, spatial_weight=0.5, use_aligned_coords=True
+):
     """Analyze trajectory in integrated multi-sample spatial data
 
     Args:
@@ -458,24 +506,32 @@ def analyze_integrated_trajectory(combined_adata, spatial_weight=0.5, use_aligne
         AnnData object with trajectory analysis results
     """
     import numpy as np
-    from scipy.spatial.distance import pdist, squareform
     from scipy.sparse import csr_matrix
+    from scipy.spatial.distance import pdist, squareform
 
     try:
         import cellrank as cr
     except ImportError:
-        raise ImportError("cellrank package is required for trajectory analysis. Install with 'pip install cellrank'")
+        raise ImportError(
+            "cellrank package is required for trajectory analysis. Install with 'pip install cellrank'"
+        )
 
     # Choose which spatial coordinates to use
-    spatial_key = 'spatial_aligned' if use_aligned_coords and 'spatial_aligned' in combined_adata.obsm else 'spatial'
+    spatial_key = (
+        "spatial_aligned"
+        if use_aligned_coords and "spatial_aligned" in combined_adata.obsm
+        else "spatial"
+    )
 
     # Get spatial coordinates
     spatial_coords = combined_adata.obsm[spatial_key]
 
     # Check if velocity data is available
-    if 'Ms' not in combined_adata.layers or 'velocity' not in combined_adata.layers:
-        raise ValueError("RNA velocity data (layers['Ms'] or layers['velocity']) is required for trajectory analysis. "
-                        "Please run RNA velocity analysis first using scvelo or velocyto.")
+    if "Ms" not in combined_adata.layers or "velocity" not in combined_adata.layers:
+        raise ValueError(
+            "RNA velocity data (layers['Ms'] or layers['velocity']) is required for trajectory analysis. "
+            "Please run RNA velocity analysis first using scvelo or velocyto."
+        )
 
     # Create RNA velocity kernel
     vk = cr.kernels.VelocityKernel(combined_adata)
@@ -497,7 +553,7 @@ def analyze_integrated_trajectory(combined_adata, spatial_weight=0.5, use_aligne
     sk.compute_transition_matrix()
 
     # Combine kernels, integrating RNA velocity, expression similarity, and spatial information
-    combined_kernel = (1-spatial_weight) * (0.8 * vk + 0.2 * ck) + spatial_weight * sk
+    combined_kernel = (1 - spatial_weight) * (0.8 * vk + 0.2 * ck) + spatial_weight * sk
 
     # Use GPCCA for analysis
     g = cr.estimators.GPCCA(combined_kernel)
@@ -509,8 +565,8 @@ def analyze_integrated_trajectory(combined_adata, spatial_weight=0.5, use_aligne
     g.compute_absorption_probabilities()
 
     # Store results
-    combined_adata.obs['pseudotime'] = g.pseudotime
-    combined_adata.obsm['absorption_probabilities'] = g.absorption_probabilities
+    combined_adata.obs["pseudotime"] = g.pseudotime
+    combined_adata.obsm["absorption_probabilities"] = g.absorption_probabilities
 
     return combined_adata
 
@@ -526,21 +582,21 @@ except ImportError:
 
 async def integrate_with_contrastive_vi(
     adata,
-    batch_key: str = 'batch',
+    batch_key: str = "batch",
     condition_key: Optional[str] = None,
     n_epochs: int = 400,
     n_hidden: int = 128,
     n_background_latent: int = 10,
     n_salient_latent: int = 10,
     use_gpu: bool = False,
-    context: Optional[Context] = None
+    context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Integrate data using ContrastiveVI for identifying condition-specific variations
-    
-    ContrastiveVI is particularly useful for identifying variations that are 
-    specific to certain conditions (e.g., disease vs. healthy) while accounting 
+
+    ContrastiveVI is particularly useful for identifying variations that are
+    specific to certain conditions (e.g., disease vs. healthy) while accounting
     for batch effects.
-    
+
     Args:
         adata: AnnData object with batch information
         batch_key: Key in adata.obs for batch information
@@ -551,10 +607,10 @@ async def integrate_with_contrastive_vi(
         n_salient_latent: Dimensionality of salient (condition-specific) latent space
         use_gpu: Whether to use GPU for training
         context: MCP context for logging
-        
+
     Returns:
         Dictionary containing integration results
-        
+
     Raises:
         ImportError: If scvi-tools package is not available
         ValueError: If required keys are missing
@@ -562,113 +618,138 @@ async def integrate_with_contrastive_vi(
     """
     try:
         if scvi is None or ContrastiveVI is None:
-            raise ImportError("scvi-tools package with ContrastiveVI is required. Install with 'pip install scvi-tools'")
-        
+            raise ImportError(
+                "scvi-tools package with ContrastiveVI is required. Install with 'pip install scvi-tools'"
+            )
+
         if context:
             await context.info("Starting ContrastiveVI integration...")
-            
+
         # Validate batch key
         if batch_key not in adata.obs:
             raise ValueError(f"Batch key '{batch_key}' not found in adata.obs")
-        
+
         # If no condition key provided, use batch key as condition
         if condition_key is None:
             condition_key = batch_key
             if context:
-                await context.info(f"No condition key provided, using batch key '{batch_key}' as condition")
+                await context.info(
+                    f"No condition key provided, using batch key '{batch_key}' as condition"
+                )
         elif condition_key not in adata.obs:
             raise ValueError(f"Condition key '{condition_key}' not found in adata.obs")
-        
+
         if context:
-            await context.info(f"Integrating {adata.n_obs} cells with {len(adata.obs[batch_key].unique())} batches")
+            await context.info(
+                f"Integrating {adata.n_obs} cells with {len(adata.obs[batch_key].unique())} batches"
+            )
             if condition_key != batch_key:
-                await context.info(f"Conditions: {len(adata.obs[condition_key].unique())} unique values")
-        
+                await context.info(
+                    f"Conditions: {len(adata.obs[condition_key].unique())} unique values"
+                )
+
         # Setup ContrastiveVI
         ContrastiveVI.setup_anndata(
-            adata,
-            batch_key=batch_key,
-            labels_key=condition_key
+            adata, batch_key=batch_key, labels_key=condition_key
         )
-        
+
         # Create ContrastiveVI model
         model = ContrastiveVI(
             adata,
             n_hidden=n_hidden,
             n_background_latent=n_background_latent,
-            n_salient_latent=n_salient_latent
+            n_salient_latent=n_salient_latent,
         )
-        
+
         if context:
             await context.info("Training ContrastiveVI model...")
-        
+
         # ContrastiveVI requires background and target indices
         # Background indices: cells from a reference condition (e.g., healthy)
         # Target indices: cells from condition of interest (e.g., disease)
-        
+
         # Get unique conditions
         conditions = adata.obs[condition_key].unique()
         if len(conditions) < 2:
-            raise ValueError(f"ContrastiveVI requires at least 2 conditions, found {len(conditions)}")
-        
+            raise ValueError(
+                f"ContrastiveVI requires at least 2 conditions, found {len(conditions)}"
+            )
+
         # Use first condition as background, others as target
         background_condition = conditions[0]
-        background_indices = np.where(adata.obs[condition_key] == background_condition)[0]
+        background_indices = np.where(adata.obs[condition_key] == background_condition)[
+            0
+        ]
         target_indices = np.where(adata.obs[condition_key] != background_condition)[0]
-        
+
         if context:
-            await context.info(f"Using '{background_condition}' as background ({len(background_indices)} cells)")
-            await context.info(f"Using other conditions as target ({len(target_indices)} cells)")
-        
+            await context.info(
+                f"Using '{background_condition}' as background ({len(background_indices)} cells)"
+            )
+            await context.info(
+                f"Using other conditions as target ({len(target_indices)} cells)"
+            )
+
         # Train model
         if use_gpu:
             model.train(
                 background_indices=background_indices,
                 target_indices=target_indices,
                 max_epochs=n_epochs,
-                accelerator='gpu'
+                accelerator="gpu",
             )
         else:
             model.train(
                 background_indices=background_indices,
                 target_indices=target_indices,
-                max_epochs=n_epochs
+                max_epochs=n_epochs,
             )
-            
+
         if context:
             await context.info("ContrastiveVI training completed")
-        
+
         # Get results
         if context:
             await context.info("Extracting integrated representations...")
-            
+
         # Get background (shared) latent representation
-        background_latent = model.get_latent_representation(adata, representation_kind="background")
-        
-        # Get salient (condition-specific) latent representation  
-        salient_latent = model.get_latent_representation(adata, representation_kind="salient")
-        
+        background_latent = model.get_latent_representation(
+            adata, representation_kind="background"
+        )
+
+        # Get salient (condition-specific) latent representation
+        salient_latent = model.get_latent_representation(
+            adata, representation_kind="salient"
+        )
+
         # Store results in adata
-        adata.obsm['X_contrastive_background'] = background_latent
-        adata.obsm['X_contrastive_salient'] = salient_latent
-        
+        adata.obsm["X_contrastive_background"] = background_latent
+        adata.obsm["X_contrastive_salient"] = salient_latent
+
         # Use background representation for standard analyses (UMAP, clustering)
-        adata.obsm['X_integrated'] = background_latent
-        
+        adata.obsm["X_integrated"] = background_latent
+
         # Calculate integration metrics
         # Compute silhouette score for batch mixing in background space
         from sklearn.metrics import silhouette_score
+
         try:
-            background_silhouette = silhouette_score(background_latent, adata.obs[batch_key])
-            
+            background_silhouette = silhouette_score(
+                background_latent, adata.obs[batch_key]
+            )
+
             # For salient space, we expect separation by condition
             if condition_key != batch_key:
-                salient_silhouette = silhouette_score(salient_latent, adata.obs[condition_key])
+                salient_silhouette = silhouette_score(
+                    salient_latent, adata.obs[condition_key]
+                )
             else:
                 salient_silhouette = background_silhouette
         except (ValueError, KeyError) as e:
             # Handle expected data-related errors (e.g., insufficient unique labels, missing keys)
-            logger.warning(f"Could not calculate silhouette scores due to data issue: {e}")
+            logger.warning(
+                f"Could not calculate silhouette scores due to data issue: {e}"
+            )
             background_silhouette = None  # Explicitly indicate unavailable metric
             salient_silhouette = None
         except Exception as e:
@@ -676,31 +757,43 @@ async def integrate_with_contrastive_vi(
             error_msg = f"Integration quality metrics calculation failed: {e}"
             logger.error(error_msg)
             raise RuntimeError(error_msg)
-        
+
         # Calculate summary statistics
         results = {
-            'method': 'ContrastiveVI',
-            'n_background_latent': n_background_latent,
-            'n_salient_latent': n_salient_latent,
-            'n_epochs': n_epochs,
-            'n_batches': len(adata.obs[batch_key].unique()),
-            'n_conditions': len(adata.obs[condition_key].unique()),
-            'background_mixing_score': float(background_silhouette) if background_silhouette is not None else None,
-            'salient_separation_score': float(salient_silhouette) if salient_silhouette is not None else None,
-            'background_latent_shape': background_latent.shape,
-            'salient_latent_shape': salient_latent.shape,
-            'integration_completed': True,
-            'device': 'GPU' if use_gpu else 'CPU'
+            "method": "ContrastiveVI",
+            "n_background_latent": n_background_latent,
+            "n_salient_latent": n_salient_latent,
+            "n_epochs": n_epochs,
+            "n_batches": len(adata.obs[batch_key].unique()),
+            "n_conditions": len(adata.obs[condition_key].unique()),
+            "background_mixing_score": (
+                float(background_silhouette)
+                if background_silhouette is not None
+                else None
+            ),
+            "salient_separation_score": (
+                float(salient_silhouette) if salient_silhouette is not None else None
+            ),
+            "background_latent_shape": background_latent.shape,
+            "salient_latent_shape": salient_latent.shape,
+            "integration_completed": True,
+            "device": "GPU" if use_gpu else "CPU",
         }
-        
+
         if context:
-            await context.info(f"ContrastiveVI integration completed successfully")
-            await context.info(f"Background representation captures batch-corrected shared variation")
-            await context.info(f"Salient representation captures condition-specific variation")
-            await context.info(f"Stored in adata.obsm['X_contrastive_background'] and adata.obsm['X_contrastive_salient']")
-        
+            await context.info("ContrastiveVI integration completed successfully")
+            await context.info(
+                "Background representation captures batch-corrected shared variation"
+            )
+            await context.info(
+                "Salient representation captures condition-specific variation"
+            )
+            await context.info(
+                "Stored in adata.obsm['X_contrastive_background'] and adata.obsm['X_contrastive_salient']"
+            )
+
         return results
-        
+
     except Exception as e:
         error_msg = f"ContrastiveVI integration failed: {str(e)}"
         if context:
@@ -712,7 +805,7 @@ async def integrate_samples(
     data_ids: List[str],
     data_store: Dict[str, Any],
     params: IntegrationParameters = IntegrationParameters(),
-    context: Optional[Context] = None
+    context: Optional[Context] = None,
 ) -> IntegrationResult:
     """Integrate multiple spatial transcriptomics samples and perform batch correction
 
@@ -726,7 +819,9 @@ async def integrate_samples(
         Integration result
     """
     if context:
-        await context.info(f"Integrating {len(data_ids)} samples using {params.method} method")
+        await context.info(
+            f"Integrating {len(data_ids)} samples using {params.method} method"
+        )
 
     # Collect all AnnData objects
     adatas = []
@@ -737,14 +832,13 @@ async def integrate_samples(
 
     # Integrate samples
     combined_adata = integrate_multiple_samples(
-        adatas,
-        batch_key=params.batch_key,
-        method=params.method,
-        n_pcs=params.n_pcs
+        adatas, batch_key=params.batch_key, method=params.method, n_pcs=params.n_pcs
     )
 
     if context:
-        await context.info(f"Integration complete. Combined dataset has {combined_adata.n_obs} cells and {combined_adata.n_vars} genes")
+        await context.info(
+            f"Integration complete. Combined dataset has {combined_adata.n_obs} cells and {combined_adata.n_vars} genes"
+        )
 
     # Align spatial coordinates
     if params.align_spatial:
@@ -753,13 +847,15 @@ async def integrate_samples(
         combined_adata = align_spatial_coordinates(
             combined_adata,
             batch_key=params.batch_key,
-            reference_batch=params.reference_batch
+            reference_batch=params.reference_batch,
         )
 
     # Note: Visualizations should be created using the separate visualize_data tool
     # This maintains clean separation between analysis and visualization
     if context:
-        await context.info("Integration analysis complete. Use visualize_data tool with plot_type='integration_umap' or 'integration_spatial' to visualize results")
+        await context.info(
+            "Integration analysis complete. Use visualize_data tool with plot_type='integration_umap' or 'integration_spatial' to visualize results"
+        )
 
     # Generate new integrated dataset ID
     integrated_id = f"integrated_{'-'.join(data_ids)}"
@@ -776,5 +872,5 @@ async def integrate_samples(
         n_samples=len(data_ids),
         integration_method=params.method,
         umap_visualization=None,  # Use visualize_data tool instead
-        spatial_visualization=None  # Use visualize_data tool instead
+        spatial_visualization=None,  # Use visualize_data tool instead
     )

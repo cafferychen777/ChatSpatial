@@ -5,22 +5,25 @@ This module provides the command-line interface for starting the
 ChatSpatial server using either stdio or SSE transport.
 """
 
-import click
 import sys
 import traceback
 import warnings
+
+import click
 
 # Suppress warnings to speed up startup
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from .server import mcp
 from .cli.dependency_manager import deps
+from .server import mcp
+
 
 @click.group()
 def cli():
     """ChatSpatial - AI-powered spatial transcriptomics analysis"""
     pass
+
 
 @cli.command()
 @click.option("--port", default=8000, help="Port to listen on for SSE transport")
@@ -28,18 +31,18 @@ def cli():
     "--transport",
     type=click.Choice(["stdio", "sse"]),
     default="stdio",
-    help="Transport type (stdio or sse)"
+    help="Transport type (stdio or sse)",
 )
 @click.option(
     "--host",
     default="127.0.0.1",  # nosec B104 - Default to localhost for security
-    help="Host to bind to for SSE transport"
+    help="Host to bind to for SSE transport",
 )
 @click.option(
     "--log-level",
     type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
     default="INFO",
-    help="Logging level"
+    help="Logging level",
 )
 def server(port: int, transport: str, host: str, log_level: str):
     """Start the ChatSpatial server.
@@ -50,7 +53,10 @@ def server(port: int, transport: str, host: str, log_level: str):
     """
     try:
         # Configure server settings
-        print(f"Starting ChatSpatial server with {transport} transport...", file=sys.stderr)
+        print(
+            f"Starting ChatSpatial server with {transport} transport...",
+            file=sys.stderr,
+        )
 
         # Set server settings
         mcp.settings.host = host
@@ -66,17 +72,22 @@ def server(port: int, transport: str, host: str, log_level: str):
         traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 
+
 # Add dependency management commands
 cli.add_command(deps)
+
 
 def main():
     """Main entry point that preserves backward compatibility"""
     # For backward compatibility, if no command is provided, assume server
-    if len(sys.argv) == 1 or (len(sys.argv) > 1 and sys.argv[1] not in ['server', 'deps']):
+    if len(sys.argv) == 1 or (
+        len(sys.argv) > 1 and sys.argv[1] not in ["server", "deps"]
+    ):
         # Insert 'server' as the command
-        sys.argv.insert(1, 'server')
-    
+        sys.argv.insert(1, "server")
+
     cli()
+
 
 if __name__ == "__main__":
     main()
