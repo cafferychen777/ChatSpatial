@@ -25,7 +25,6 @@ torch, torch_warning = try_import("torch", "deep learning-based deconvolution")
 # Import specific scvi modules if available
 Stereoscope = None
 Tangram = None
-MRVI = None
 DestVI = None
 
 if scvi:
@@ -983,7 +982,6 @@ async def deconvolve_spatial_data(
             "destvi",
             "stereoscope",
             "tangram",
-            "mrvi",
             "spotlight",
         ]:
             if not params.reference_data_id:
@@ -1036,7 +1034,6 @@ async def deconvolve_spatial_data(
             "destvi": ["scvi-tools", "torch"],
             "stereoscope": ["scvi-tools", "torch"],
             "tangram": ["scvi-tools", "torch"],
-            "mrvi": ["scvi-tools", "torch"],
             "rctd": ["rpy2"],  # R-based method
             "spotlight": ["rpy2"],  # R-based method
         }
