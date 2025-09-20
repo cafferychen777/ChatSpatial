@@ -19,8 +19,8 @@ class SpatialDataset(BaseModel):
 class AnalysisParameters(BaseModel):
     """Analysis parameters model"""
     # Data filtering and subsampling parameters (user controlled)
-    filter_genes_min_cells: Optional[Annotated[int, Field(gt=0)]] = None  # Filter genes expressed in < N cells (None = auto: 3 for regular data, adaptive for MERFISH)
-    filter_cells_min_genes: Optional[Annotated[int, Field(gt=0)]] = None  # Filter cells expressing < N genes (None = auto: 200 for regular data, adaptive for MERFISH)
+    filter_genes_min_cells: Optional[Annotated[int, Field(gt=0)]] = 3  # Filter genes expressed in < N cells
+    filter_cells_min_genes: Optional[Annotated[int, Field(gt=0)]] = 30  # Filter cells expressing < N genes
     subsample_spots: Optional[Annotated[int, Field(gt=0, le=50000)]] = None  # Subsample to N spots (None = no subsampling)
     subsample_genes: Optional[Annotated[int, Field(gt=0, le=50000)]] = None  # Keep top N variable genes (None = keep all filtered genes)
     subsample_random_seed: int = 42  # Random seed for subsampling
