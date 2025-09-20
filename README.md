@@ -109,7 +109,7 @@ For detailed installation instructions, see **[INSTALLATION.md](INSTALLATION.md)
 
 ### 🧮 **Advanced Methods**
 
-- **Spatial Deconvolution**: Cell2location, DestVI, RCTD, Stereoscope, Tangram, MRVI
+- **Spatial Deconvolution**: Cell2location, DestVI, RCTD, Stereoscope, Tangram, SPOTlight
 - **Trajectory Analysis**: Palantir, CellRank, DPT pseudotime inference
 - **RNA Velocity**: RNA velocity analysis with spatial context
 - **Pathway Enrichment**: GSEA, ORA, Enrichr with spatial smoothing

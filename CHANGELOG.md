@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated `docs/technical_docs/MCP_TOOLS_QUICK_REFERENCE.md` → `PROJECT_STRUCTURE.md`
 - **UPDATED**: Feature descriptions to match actual code implementation
   - Corrected spatial domain methods (SpaGCN, STAGATE, BANKSY, Leiden/Louvain)
-  - Corrected deconvolution methods (Cell2location, DestVI, RCTD, Stereoscope, Tangram, MRVI)
+  - Corrected deconvolution methods (Cell2location, DestVI, RCTD, Stereoscope, Tangram, SPOTlight)
   - Corrected cell communication methods (LIANA, CellPhoneDB, CellChat via LIANA)
 - **ALIGNED**: Optional dependencies in README with pyproject.toml extras
 - **CORRECTED**: Tool count from 32 to 16 (actual implementation)

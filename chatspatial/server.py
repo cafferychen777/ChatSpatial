@@ -689,7 +689,7 @@ async def deconvolve_data(
 
     Notes:
         Deconvolution methods (status):
-        - cell2location, destvi, stereoscope, tangram, mrvi: Implemented when scvi-tools available
+        - cell2location, destvi, stereoscope, tangram: Implemented when scvi-tools available
         - rctd, spotlight: Implemented via rpy2/R when R packages are installed
     """
     # Validate dataset
