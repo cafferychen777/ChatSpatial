@@ -21,7 +21,7 @@
 ### 🧬 Cell Type Analysis  
 | **Goal** | **Workflow** | **Difficulty** | **Time** |
 |----------|-------------|----------------|----------|
-| Basic cell typing | `preprocess_data` → `annotate_cells` (marker genes) | 🟢 | 15 min |
+| Basic cell typing | `preprocess_data` → `annotate_cells` (scType) | 🟢 | 15 min |
 | Reference-based annotation | Add reference → `annotate_cells` (Tangram/scType) | 🟡 | 30 min |
 | Validate cell types | `annotate_cells` → `find_markers` → `visualize_data` | 🟡 | 25 min |
 
@@ -44,7 +44,7 @@ graph TD
     A[load_data] --> B[preprocess_data]
     B --> C[visualize_data: spatial QC]
     C --> D[identify_spatial_domains]
-    D --> E[annotate_cells: marker_genes]
+    D --> E[annotate_cells: scType]
     E --> F[find_markers]
     F --> G[visualize_data: results]
     
@@ -58,7 +58,7 @@ graph TD
 2. "Preprocess the data with standard normalization" 
 3. "Show me a spatial plot to check data quality"
 4. "Find spatial domains using SpaGCN"
-5. "Annotate cell types with marker genes"
+5. "Annotate cell types with scType"
 6. "Find marker genes for each domain/cell type"
 7. "Create visualizations of the results"
 ```
@@ -164,7 +164,7 @@ graph TD
     end
     
     subgraph D [Cell Type Pipeline]  
-        D1[Marker genes] --> D2[Tangram]
+        D1[scType] --> D2[Tangram]
         D2 --> D3[scType validation]
     end
     
@@ -210,7 +210,7 @@ Do you have single-cell reference data?
 │   ├── YES → Use Tangram or Cell2location
 │   └── NO → Use scType + marker gene validation
 ├── NO → Do you have custom marker genes?
-│   ├── YES → Use marker_genes method
+│   ├── YES → Use cellassign method
 │   └── NO → Use scType (automatic) + manual curation
 ```
 
@@ -289,7 +289,7 @@ Choose your primary goal:
 
 #### 🧬 **"...cell types and their locations"** 
 **Recommended Path**:
-1. Basic: `annotate_cells` (marker genes) → `visualize_data` (spatial cell types)
+1. Basic: `annotate_cells` (scType) → `visualize_data` (spatial cell types)
 2. Advanced: Add reference data → `annotate_cells` (Tangram) → `deconvolve_data`
 3. Validation: `find_markers` → cross-reference with literature
 
@@ -380,7 +380,7 @@ graph TD
 1. "Load dataset and preprocess with standard parameters"
 2. "Run spatial domain identification with SpaGCN, STAGATE, and BANKSY"
 3. "Compare domain assignments and calculate agreement metrics"
-4. "Annotate cells using marker genes, scType, and Tangram"
+4. "Annotate cells using scType and Tangram"
 5. "Cross-validate cell type assignments between methods"  
 6. "Perform statistical analysis of method consistency"
 7. "Create comparative visualization panels showing method differences"
