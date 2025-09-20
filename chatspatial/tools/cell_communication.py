@@ -1000,8 +1000,9 @@ async def _analyze_communication_cellphonedb(
                     "Running CellPhoneDB statistical analysis (this may take several minutes)..."
                 )
 
+            # Run the analysis - NO FALLBACK!
+            # If spatial analysis is requested, it must succeed or fail clearly
             try:
-                # Run the analysis
                 deconvoluted, means, pvalues, significant_means = (
                     cpdb_statistical_analysis_method.call(
                         cpdb_file_path=None,  # Use default database
@@ -1018,23 +1019,31 @@ async def _analyze_communication_cellphonedb(
                     )
                 )
             except Exception as api_error:
-                # Fallback to simpler API call if the above fails
-                if context:
-                    await context.warning(
-                        f"CellPhoneDB API call failed, trying alternative approach: {str(api_error)}"
+                # NO FALLBACK! Spatial and non-spatial analyses are fundamentally different
+                if microenvs_file:
+                    error_msg = (
+                        f"CellPhoneDB spatial analysis failed: {str(api_error)}\n\n"
+                        "CRITICAL: Cannot fall back to non-spatial analysis because:\n"
+                        "1. Spatial microenvironments fundamentally change the analysis\n"
+                        "2. Results would be scientifically different and misleading\n"
+                        "3. You requested spatial analysis but would get non-spatial results\n\n"
+                        "Possible solutions:\n"
+                        "- Check if your CellPhoneDB version supports microenvironments\n"
+                        "- Set cellphonedb_use_microenvironments=False for non-spatial analysis\n"
+                        "- Debug the error: Check data format and microenvironment file"
                     )
-
-                deconvoluted, means, pvalues, significant_means = (
-                    cpdb_statistical_analysis_method.call(
-                        cpdb_file_path=None,
-                        meta_file_path=meta_file,
-                        counts_file_path=counts_file,
-                        threshold=params.cellphonedb_threshold,
-                        result_precision=params.cellphonedb_result_precision,
-                        pvalue=params.cellphonedb_pvalue,
-                        iterations=params.cellphonedb_iterations,
+                    raise RuntimeError(error_msg) from api_error
+                else:
+                    # Non-spatial analysis failed - provide helpful error
+                    error_msg = (
+                        f"CellPhoneDB analysis failed: {str(api_error)}\n\n"
+                        "Troubleshooting:\n"
+                        "- Check if CellPhoneDB is properly installed\n"
+                        "- Verify data format (genes as rows, cells as columns)\n"
+                        "- Ensure cell type annotations are present\n"
+                        "- Check memory availability for large datasets"
                     )
-                )
+                    raise RuntimeError(error_msg) from api_error
 
             # Store results in AnnData object
             adata.uns["cellphonedb_deconvoluted"] = deconvoluted
