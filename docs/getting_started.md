@@ -44,9 +44,8 @@ git clone https://github.com/cafferychen777/ChatSpatial.git
 cd ChatSpatial
 
 # Install ChatSpatial (choose one)
-pip install -e .                    # Minimal features
-pip install -e ".[advanced]"        # Recommended (includes enrichmap)
-pip install -e ".[all]"            # All features
+pip install -e .                    # Core features (recommended for most users)
+pip install -e ".[advanced]"        # Advanced features (deep learning, specialized methods)
 
 # Verify installation
 chatspatial --help

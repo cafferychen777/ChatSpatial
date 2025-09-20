@@ -50,9 +50,10 @@ ImportError: cannot import name 'X' from 'Y'
    ```
 
 3. **Check dependency status:**
-   ```python
-   from chatspatial.utils.dependency_manager import dependency_manager
-   dependency_manager.print_dependency_report()
+   ```bash
+   pip list | grep -E "(numpy|pandas|scanpy|squidpy)"
+   # Or check if advanced features are available
+   python -c "import scvi; print('Advanced features OK')" 2>/dev/null || echo "Advanced features not installed"
    ```
 
 4. **Reinstall if needed:**
@@ -525,7 +526,7 @@ project/
 **Solutions:**
 1. **Check what's needed:**
    ```bash
-   python -c "from chatspatial.utils.dependency_manager import dependency_manager; dependency_manager.print_dependency_report()"
+   pip list | grep -E "(chatspatial|numpy|pandas|scanpy|squidpy)"
    ```
 2. **Install missing package:**
    ```bash
@@ -729,7 +730,7 @@ pip install -e .
 pip install -e ".[advanced]"
 
 # Check dependencies
-python -c "from chatspatial.utils.dependency_manager import dependency_manager; dependency_manager.print_dependency_report()"
+pip list | grep -E "(chatspatial|numpy|pandas|scanpy|squidpy)"
 
 # Test MCP server
 python -m chatspatial --help

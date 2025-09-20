@@ -28,8 +28,8 @@ Thank you for your interest in contributing to ChatSpatial! This document provid
 
 3. **Install development dependencies**
    ```bash
-   # Install ChatSpatial with all optional dependencies
-   pip install -e .[all]
+   # Install ChatSpatial with development dependencies
+   pip install -e ".[dev]"
    
    # Install development tools
    pip install pytest pytest-cov black isort mypy flake8
