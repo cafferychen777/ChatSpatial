@@ -304,14 +304,13 @@ class AnnotationParameters(BaseModel):
     """Cell type annotation parameters model"""
 
     method: Literal[
-        "marker_genes",
         "tangram",
         "scanvi",
         "cellassign",
         "mllmcelltype",
         "sctype",
         "singler",
-    ] = "marker_genes"
+    ] = "tangram"
     marker_genes: Optional[Dict[str, List[str]]] = None
     reference_data: Optional[str] = None
     reference_data_id: Optional[str] = (

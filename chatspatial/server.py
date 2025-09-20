@@ -300,13 +300,12 @@ async def annotate_cells(
 
     Notes:
         Annotation methods (status):
-        - marker_genes: Implemented (marker-based)
         - tangram: Implemented (requires reference_data_id and PREPROCESSED reference data with HVGs)
         - scanvi: Implemented (requires scvi-tools and reference_data_id)
-        - cellassign: Implemented (via scvi-tools)
+        - cellassign: Implemented (via scvi-tools, requires marker_genes parameter)
         - mllmcelltype: Implemented (multimodal LLM classifier)
-        - sctype: Implemented (requires R and rpy2) - NEW
-        - supervised / popv / gptcelltype / scrgcl: Not fully implemented yet; currently fallbacks to marker_genes
+        - sctype: Implemented (requires R and rpy2)
+        - singler: Implemented (requires R and rpy2)
 
         For methods requiring reference data (tangram, scanvi):
         - reference_data_id must point to a loaded AND PREPROCESSED single-cell dataset
