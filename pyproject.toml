@@ -10,13 +10,12 @@ requires-python = ">=3.8,<3.13"
 dependencies = [
     # Core dependencies only - minimal installation
     "mcp>=0.1.0",
-    "numpy>=1.21.0,<2.0; python_version<'3.13'",
-    "numpy>=2.1.0,<3.0; python_version>='3.13'",
-    "pandas>=1.3.0,<3.0",
-    "scipy>=1.7.0,<2.0",
-    "scikit-learn>=1.0.0,<2.0",
-    "matplotlib>=3.5.0,<4.0",
-    "seaborn>=0.11.0,<1.0",
+    "numpy>=1.21.0",
+    "pandas>=1.3.0",
+    "scipy>=1.7.0",
+    "scikit-learn>=1.0.0",
+    "matplotlib>=3.5.0",
+    "seaborn>=0.11.0",
     
     # Single-cell analysis core
     "scanpy>=1.9.0,<2.0",
@@ -28,22 +27,22 @@ dependencies = [
     
     # Spatial analysis essentials
     # Allow up to 2.0 for better compatibility, but exclude 2.0+ to avoid major breaking changes
-    "squidpy>=1.2.0,<2.0",
+    "squidpy>=1.2.0",
     
     # Basic clustering and dimensionality reduction
-    "umap-learn>=0.5.0,<1.0",
-    "igraph>=0.9.0,<1.0",
-    "leidenalg>=0.8.0,<1.0",
+    "umap-learn>=0.5.0",
+    "igraph>=0.9.0",
+    "leidenalg>=0.8.0",
     
     # MCP server framework
-    "fastapi>=0.100.0,<1.0",
-    "uvicorn[standard]>=0.23.0,<1.0",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
     "pydantic>=2.0.0,<3.0",
-    "click>=8.0.0,<9.0",
-    "aiohttp>=3.8.0,<4.0",
+    "click>=8.0.0",
+    "aiohttp>=3.8.0",
     
     # Basic plotting
-    "Pillow>=8.0.0,<11.0",
+    "Pillow>=8.0.0",
 ]
 
 [project.optional-dependencies]
@@ -72,12 +71,12 @@ advanced = [
     "slepc4py>=3.18.0,<4.0",
     
     # Batch integration
-    "harmonypy>=0.0.9,<1.0",
-    "bbknn>=1.5.0,<2.0",
-    "scanorama>=1.7.0,<2.0",
+    "harmonypy>=0.0.9",
+    "bbknn>=1.5.0",
+    "scanorama>=1.7.0",
     
     # Spatial variable genes (GASTON is preferred, SpatialDE kept for compatibility)
-    "spatialde>=1.1.3,<2.0",
+    "spatialde>=1.1.3",
     "gaston>=0.1.0",  # GASTON neural network for spatial genes
     "glmpca-py>=0.2.0",  # GLM-PCA for dimensionality reduction
     
@@ -87,9 +86,9 @@ advanced = [
     
     # Cell type annotation
     "tangram-sc>=1.0.0",  # Spatial mapping of cell types
-    "singler>=0.4.0,<1.0",  # SingleR Python implementation
-    "singlecellexperiment>=0.4.0,<1.0",  # Required for SingleR
-    "celldex>=0.3.0,<1.0",  # Reference datasets for SingleR
+    "singler>=0.4.0",  # SingleR Python implementation
+    "singlecellexperiment>=0.4.0",  # Required for SingleR
+    "celldex>=0.3.0",  # Reference datasets for SingleR
     "rpy2>=3.4.0,<4.0",  # R interface for sc-type method
     
     # Spatial statistics and analysis
@@ -107,26 +106,26 @@ advanced = [
     # Note: numba, dask, plotly, opencv-python removed as unused
     
     # Gene set enrichment
-    "gseapy>=1.0.0,<2.0",
+    "gseapy>=1.0.0",
     
     # Spatial enrichment analysis (EnrichMap)
     "enrichmap",
-    "statannotations>=0.2.0,<1.0",
-    "pygam>=0.8.0,<1.0",
-    "scikit-gstat>=1.0.0,<2.0",
-    "adjustText>=0.8.0,<1.0",
-    "splot>=1.1.0,<2.0",
+    "statannotations>=0.2.0",
+    "pygam>=0.8.0",
+    "scikit-gstat>=1.0.0",
+    "adjustText>=0.8.0",
+    "splot>=1.1.0",
     
     # Advanced spatial methods and emerging technologies
-    "paste-bio>=1.0.0,<2.0",  # Spatial registration (alternative methods)
-    "spatialdata>=0.2.0,<1.0",  # Emerging spatial data format standard
+    "paste-bio>=1.0.0",  # Spatial registration (alternative methods)
+    "spatialdata>=0.2.0",  # Emerging spatial data format standard
     "mllmcelltype>=0.1.0",  # LLM-based cell type annotation
 ]
 
 
 # Development dependencies
 dev = [
-    "pytest>=8.0.0,<9.0",
+    "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0,<1.0",
     "black>=22.0.0,<25.0",
     "mypy>=1.0.0,<2.0",
