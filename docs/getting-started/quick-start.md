@@ -36,10 +36,9 @@ git clone https://github.com/yourusername/chatspatial.git
 cd chatspatial
 
 # Install ChatSpatial (choose one)
-pip install -e .                    # Minimal features
-pip install -e ".[advanced]"        # Recommended (includes enrichmap)
-pip install -e ".[experimental]"    # Experimental features (requires R)
-pip install -e ".[all]"            # All features
+pip install -e .                    # Core features (recommended for most users)
+pip install -e ".[advanced]"        # Advanced features (deep learning, specialized methods)
+pip install -e ".[dev]"            # Development tools (for contributors)
 ```
 
 ## Step 2: Configure MCP Client
@@ -224,7 +223,7 @@ ChatSpatial returns results in several formats:
 **Problem:** Method not available errors
 
 **Solutions:**
-1. Check installation tier: `python test_dependencies.py`
+1. Check installed packages: `pip list | grep chatspatial`
 2. Install missing dependencies: `pip install -e ".[advanced]"`
 3. Use alternative methods when dependencies are missing
 
@@ -233,8 +232,8 @@ ChatSpatial returns results in several formats:
 ### Test Your Setup
 
 ```bash
-# Run dependency tests
-python test_dependencies.py --verbose
+# Test basic functionality
+python -c "import chatspatial; print('✅ Installation OK')"
 
 # Test with demo data
 python -c "
