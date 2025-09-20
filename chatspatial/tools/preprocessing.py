@@ -59,20 +59,10 @@ def _detect_data_type(adata) -> str:
     else:
         return 'other'
 
-def _get_adaptive_parameters(adata, data_type: str) -> dict:
-    """Get adaptive parameters based on data type and size"""
-    if data_type == 'merfish':
-        return {
-            'min_cells_per_gene': max(1, adata.n_obs // 100),
-            'min_genes_per_cell': min(50, adata.n_vars // 2),
-            'use_all_genes_for_hvg': True
-        }
-    else:
-        return {
-            'min_cells_per_gene': 3,
-            'min_genes_per_cell': 200,
-            'use_all_genes_for_hvg': False
-        }
+def _should_use_all_genes_for_hvg(adata) -> bool:
+    """Check if we should use all genes for HVG selection (for small gene sets)"""
+    # Only use all genes if we have a very small gene set (like MERFISH)
+    return adata.n_vars < 100
 
 def _safe_matrix_operation(adata, operation: str):
     """Safely perform matrix operations on sparse or dense matrices"""
@@ -147,9 +137,8 @@ async def preprocess_data(
         if adata.n_obs == 0 or adata.n_vars == 0:
             raise ValueError(f"Dataset {data_id} is empty: {adata.n_obs} cells, {adata.n_vars} genes")
         
-        # Detect data type for adaptive processing
+        # Detect data type for informational purposes
         data_type = _detect_data_type(adata)
-        adaptive_params = _get_adaptive_parameters(adata, data_type)
         
         if context:
             await context.info(f"Detected data type: {data_type} ({adata.n_obs} cells, {adata.n_vars} genes)")
@@ -189,29 +178,19 @@ async def preprocess_data(
         if context:
             await context.info("Applying data filtering and subsampling...")
 
-        # Apply gene filtering using adaptive parameters
-        if params.filter_genes_min_cells is not None:
-            min_cells = params.filter_genes_min_cells
+        # Apply gene filtering using LLM-controlled parameters
+        min_cells = params.filter_genes_min_cells
+        if min_cells is not None and min_cells > 0:
             if context:
-                await context.info(f"User-specified gene filtering: min_cells={min_cells}")
-        else:
-            min_cells = adaptive_params['min_cells_per_gene']
-            if context:
-                await context.info(f"Auto-detected {data_type} data, using min_cells={min_cells}")
+                await context.info(f"Filtering genes: min_cells={min_cells}")
+            sc.pp.filter_genes(adata, min_cells=min_cells)
 
-        sc.pp.filter_genes(adata, min_cells=min_cells)
-
-        # Apply cell filtering using adaptive parameters
-        if params.filter_cells_min_genes is not None:
-            min_genes = params.filter_cells_min_genes
+        # Apply cell filtering using LLM-controlled parameters
+        min_genes = params.filter_cells_min_genes
+        if min_genes is not None and min_genes > 0:
             if context:
-                await context.info(f"User-specified cell filtering: min_genes={min_genes}")
-        else:
-            min_genes = adaptive_params['min_genes_per_cell']
-            if context:
-                await context.info(f"Auto-detected {data_type} data, using min_genes={min_genes}")
-
-        sc.pp.filter_cells(adata, min_genes=min_genes)
+                await context.info(f"Filtering cells: min_genes={min_genes}")
+            sc.pp.filter_cells(adata, min_genes=min_genes)
 
         # Apply spot subsampling if requested
         if params.subsample_spots is not None and params.subsample_spots < adata.n_obs:
@@ -285,8 +264,8 @@ async def preprocess_data(
             if context:
                 await context.info(f"Using {n_hvgs} highly variable genes...")
 
-        # Use adaptive HVG selection based on data type
-        if adaptive_params['use_all_genes_for_hvg']:
+        # Check if we should use all genes (for very small gene sets)
+        if _should_use_all_genes_for_hvg(adata):
             if context:
                 await context.info(f"Small gene set detected ({adata.n_vars} genes), using all genes for analysis")
             adata.var['highly_variable'] = True
