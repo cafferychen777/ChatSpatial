@@ -30,8 +30,7 @@ DestVI = None
 
 if scvi:
     try:
-        from scvi.external import MRVI
-        from scvi.external import SpatialStereoscope as Stereoscope
+                from scvi.external import SpatialStereoscope as Stereoscope
         from scvi.external import Tangram
         from scvi.model import DestVI
     except ImportError as e:
@@ -1189,28 +1188,11 @@ async def deconvolve_spatial_data(
                     context=context,
                 )
 
-            elif params.method == "mrvi":
-                if context:
-                    await context.info("Running MRVI deconvolution")
-
-                if scvi is None or MRVI is None:
-                    raise ImportError(
-                        "scvi-tools and MRVI are required for this method. Install with 'pip install scvi-tools'"
-                    )
-
-                proportions, stats = await deconvolve_mrvi(
-                    spatial_adata,
-                    reference_adata,
-                    cell_type_key=params.cell_type_key,
-                    n_epochs=params.n_epochs,
-                    use_gpu=params.use_gpu,
-                    context=context,
-                )
 
             else:
                 raise ValueError(
                     f"Unsupported deconvolution method: {params.method}. "
-                    f"Supported methods are: cell2location, rctd, destvi, stereoscope, spotlight, tangram, mrvi"
+                    f"Supported methods are: cell2location, rctd, destvi, stereoscope, spotlight, tangram"
                 )
 
         except Exception as e:
@@ -2153,167 +2135,3 @@ async def deconvolve_tangram(
         raise RuntimeError(error_msg) from e
 
 
-async def deconvolve_mrvi(
-    spatial_adata: ad.AnnData,
-    reference_adata: ad.AnnData,
-    cell_type_key: str = "cell_type",
-    n_epochs: int = 500,
-    n_latent: int = 10,
-    use_gpu: bool = False,
-    context: Optional[Context] = None,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """Deconvolve spatial data using MRVI from scvi-tools
-
-    MRVI (Multi-resolution Variational Inference) is a deep generative model
-    designed for analysis of large-scale single-cell transcriptomics data with
-    multi-sample, multi-batch experimental designs.
-
-    Args:
-        spatial_adata: Spatial transcriptomics AnnData object
-        reference_adata: Reference single-cell RNA-seq AnnData object
-        cell_type_key: Key in reference_adata.obs for cell type information
-        n_epochs: Number of epochs for training
-        n_latent: Dimensionality of latent space
-        use_gpu: Whether to use GPU for training
-        context: FastMCP context for logging
-
-    Returns:
-        Tuple of (proportions DataFrame, statistics dictionary)
-
-    Raises:
-        ImportError: If scvi-tools package is not available
-        ValueError: If input data is invalid or insufficient common genes
-        RuntimeError: If MRVI computation fails
-    """
-    try:
-        if scvi is None or MRVI is None:
-            raise ImportError(
-                "scvi-tools and MRVI are required for this method. Install with 'pip install scvi-tools'"
-            )
-
-        # Validate inputs
-        common_genes = _validate_deconvolution_inputs(
-            spatial_adata, reference_adata, cell_type_key, 100
-        )
-
-        # Prepare data
-        ref_data = reference_adata[:, common_genes].copy()
-        spatial_data = spatial_adata[:, common_genes].copy()
-
-        # Create combined dataset for MRVI
-        combined_data = ad.concat([ref_data, spatial_data], axis=0)
-        combined_data.obs["batch"] = ["reference"] * ref_data.n_obs + [
-            "spatial"
-        ] * spatial_data.n_obs
-        combined_data.obs["sample"] = combined_data.obs["batch"]
-
-        # Add cell type info for reference cells
-        cell_type_values = ["Unknown"] * combined_data.n_obs
-        cell_type_values[: ref_data.n_obs] = ref_data.obs[cell_type_key].values
-        combined_data.obs[cell_type_key] = cell_type_values
-
-        if context:
-            await context.info(
-                f"Training MRVI with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types"
-            )
-
-        # Setup MRVI
-        if context:
-            await context.info("Setting up MRVI model...")
-
-        MRVI.setup_anndata(combined_data, sample_key="sample", batch_key="batch")
-
-        # Create MRVI model
-        mrvi_model = MRVI(combined_data, n_latent=n_latent)
-
-        if context:
-            await context.info("Training MRVI model...")
-
-        # Train model
-        if use_gpu:
-            mrvi_model.train(max_epochs=n_epochs, accelerator="gpu")
-        else:
-            mrvi_model.train(max_epochs=n_epochs)
-
-        if context:
-            await context.info("MRVI training completed")
-
-        # Get latent representations
-        if context:
-            await context.info("Extracting cell type proportions...")
-
-        # Get latent representation for spatial data
-        spatial_latent = mrvi_model.get_latent_representation(
-            combined_data[combined_data.obs["batch"] == "spatial"]
-        )
-
-        # Get latent representation for reference data
-        ref_latent = mrvi_model.get_latent_representation(
-            combined_data[combined_data.obs["batch"] == "reference"]
-        )
-
-        # Calculate proportions using nearest neighbors in latent space
-        from sklearn.neighbors import NearestNeighbors
-
-        # Fit KNN on reference latent space
-        knn = NearestNeighbors(n_neighbors=min(50, ref_data.n_obs), metric="cosine")
-        knn.fit(ref_latent)
-
-        # Find neighbors for spatial data
-        distances, indices = knn.kneighbors(spatial_latent)
-
-        # Calculate proportions based on neighbor cell types
-        cell_types = ref_data.obs[cell_type_key].unique()
-        proportions_list = []
-
-        for i in range(spatial_data.n_obs):
-            neighbor_indices = indices[i]
-            neighbor_distances = distances[i]
-
-            # Weight by inverse distance
-            weights = 1.0 / (neighbor_distances + 1e-6)
-            weights = weights / weights.sum()
-
-            # Get neighbor cell types
-            neighbor_cell_types = (
-                ref_data.obs[cell_type_key].iloc[neighbor_indices].values
-            )
-
-            # Calculate weighted proportions
-            spot_proportions = []
-            for cell_type in cell_types:
-                cell_type_mask = neighbor_cell_types == cell_type
-                prop = weights[cell_type_mask].sum() if cell_type_mask.any() else 0.0
-                spot_proportions.append(prop)
-
-            proportions_list.append(spot_proportions)
-
-        # Create proportions DataFrame
-        proportions_array = np.array(proportions_list)
-
-        # Normalize to sum to 1
-        row_sums = proportions_array.sum(axis=1, keepdims=True)
-        row_sums[row_sums == 0] = 1
-        proportions_array = proportions_array / row_sums
-
-        proportions = pd.DataFrame(
-            proportions_array, index=spatial_data.obs_names, columns=cell_types
-        )
-
-        # Create statistics dictionary
-        stats = _create_deconvolution_stats(
-            proportions,
-            common_genes,
-            "MRVI",
-            "GPU" if use_gpu else "CPU",
-            n_epochs=n_epochs,
-            use_gpu=use_gpu,
-        )
-
-        return proportions, stats
-
-    except Exception as e:
-        tb = traceback.format_exc()
-        error_msg = f"MRVI deconvolution failed: {str(e)}"
-        # SPOTlight error occurred
-        raise RuntimeError(error_msg) from e

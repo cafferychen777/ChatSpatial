@@ -578,7 +578,7 @@ class DeconvolutionParameters(BaseModel):
     """Spatial deconvolution parameters model"""
 
     method: Literal[
-        "cell2location", "rctd", "destvi", "stereoscope", "spotlight", "tangram", "mrvi"
+        "cell2location", "rctd", "destvi", "stereoscope", "spotlight", "tangram"
     ] = "cell2location"
     reference_data_id: Optional[str] = (
         None  # Reference single-cell data for deconvolution
