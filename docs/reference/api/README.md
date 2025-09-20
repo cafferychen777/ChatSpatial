@@ -156,7 +156,7 @@ Cell type annotation with multiple methods.
 ```python
 annotate_cells(
     data_id: str,
-    method: str = "marker_genes",
+    method: str = "tangram",
     reference_data_id: Optional[str] = None,
     marker_genes: Optional[Dict] = None,
     confidence_threshold: float = 0.5
@@ -167,7 +167,6 @@ annotate_cells(
 
 | Method | Description | Requirements |
 |--------|-------------|--------------|
-| `marker_genes` | Traditional marker-based annotation | Marker gene dictionary |
 | `tangram` | Spatial mapping with reference | Single-cell reference data |
 | `sctype` | Automated cell type identification | Tissue type specification |
 | `cell2location` | Probabilistic deconvolution | Reference signatures |
@@ -177,7 +176,14 @@ annotate_cells(
 
 **Example:**
 ```python
-# Marker-based annotation
+# Reference-based annotation with Tangram
+result = annotate_cells(
+    data_id="spatial_dataset",
+    method="tangram",
+    reference_data_id="reference_scRNA_dataset"
+)
+
+# CellAssign with custom marker genes
 markers = {
     "T_cells": ["CD3D", "CD3E", "CD3G"],
     "B_cells": ["CD19", "CD20", "MS4A1"],
@@ -186,7 +192,7 @@ markers = {
 
 result = annotate_cells(
     data_id="dataset",
-    method="marker_genes",
+    method="cellassign",
     marker_genes=markers
 )
 ```
