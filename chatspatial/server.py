@@ -1152,7 +1152,7 @@ async def analyze_enrichment(
 
     # Get significant gene sets
     significant_sets = (
-        {k for k, v in adjusted_pvals.items() if v < params.pvalue_cutoff}
+        {k for k, v in adjusted_pvals.items() if v is not None and v < params.pvalue_cutoff}
         if adjusted_pvals
         else set()
     )
