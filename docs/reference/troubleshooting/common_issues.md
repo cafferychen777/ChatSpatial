@@ -129,6 +129,66 @@ fatal error: 'R.h' file not found
 
 > **💡 Prevention Tip:** Only install R dependencies if you need RCTD deconvolution.
 
+### macOS Library Loading Issues
+
+#### Problem: llvmlite/numba libc++.1.dylib Not Found (Apple Silicon)
+
+**Error messages:**
+```bash
+OSError: dlopen(libllvmlite.dylib): Library not loaded: @rpath/libc++.1.dylib
+Referenced from: .../llvmlite/binding/libllvmlite.dylib
+Reason: tried: '/opt/homebrew/lib/libc++.1.dylib' (no such file)
+```
+
+**Common symptoms:**
+- Squidpy neighborhood analysis fails with multiprocessing error
+- Numba works in main process but fails in subprocesses
+- Any parallel computation using numba crashes
+
+**Solution 1: Fix Library Links (Recommended for quick fix)**
+```bash
+# Find the exact llvmlite location
+find ~/your_env -name "libllvmlite.dylib"
+
+# Fix the library references (requires sudo)
+sudo install_name_tool -change "@rpath/libc++.1.dylib" "/usr/lib/libc++.1.dylib" /path/to/llvmlite/binding/libllvmlite.dylib
+sudo install_name_tool -change "@rpath/libz.1.dylib" "/usr/lib/libz.1.dylib" /path/to/llvmlite/binding/libllvmlite.dylib
+
+# Verify the fix
+otool -L /path/to/llvmlite/binding/libllvmlite.dylib | head -5
+# Should show /usr/lib/ paths instead of @rpath
+```
+
+**Solution 2: Use Conda/Miniforge (Recommended for long-term)**
+```bash
+# Install Miniforge for Apple Silicon
+wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
+bash Miniforge3-MacOSX-arm64.sh
+
+# Create new environment
+conda create -n spatial python=3.10
+conda activate spatial
+
+# Install from conda-forge
+conda install -c conda-forge numba llvmlite squidpy
+```
+
+**Solution 3: Temporary Workaround**
+```bash
+# Set library path before running
+export DYLD_LIBRARY_PATH=/usr/lib:$DYLD_LIBRARY_PATH
+
+# Or use single-threaded mode in squidpy
+# Pass n_jobs=1 to neighborhood analysis functions
+```
+
+> **💡 Prevention Tips:**
+> - On Apple Silicon Macs, prefer conda/miniforge over pip for scientific packages
+> - Use ARM64-native conda distributions
+> - Avoid mixing x86_64 and ARM64 packages
+> 
+> **⚠️ Impact:** This issue affects all squidpy spatial analysis functions that use parallel processing (neighborhood enrichment, co-occurrence analysis, etc.)
+
 ### MCP Connection Issues
 
 #### Problem: MCP Server Won't Start
