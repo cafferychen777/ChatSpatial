@@ -631,7 +631,6 @@ async def integrate_samples(
         Integration methods (status):
         - harmony, bbknn, scanorama, mnn: Implemented in tools/integration.py
         - scvi / multivi / totalvi / contrastivevi: Implemented when scvi-tools available
-        - PASTE: Mentioned historically in scripts/tests; not part of server integration tool
     """
     # Import integration function
     from .tools.integration import integrate_samples
@@ -866,31 +865,55 @@ async def analyze_cell_communication(
 @mcp_tool_error_handler()
 async def analyze_enrichment(
     data_id: str,
-    params: EnrichmentParameters = EnrichmentParameters(),
+    params: Optional[EnrichmentParameters] = None,
     context: Context = None,
 ) -> EnrichmentResult:
     """Perform gene set enrichment analysis
 
     Args:
         data_id: Dataset ID
-        params: Enrichment analysis parameters
+        params: Enrichment analysis parameters (REQUIRED: species must be specified)
 
     Returns:
         Enrichment analysis result
 
-    Notes:
-        Available methods:
-        - pathway_gsea: Gene Set Enrichment Analysis
-        - pathway_ora: Over-representation analysis
-        - pathway_enrichr: Enrichr web service
-        - pathway_ssgsea: Single-sample GSEA
-        - spatial_enrichmap: EnrichMap spatial enrichment
+    IMPORTANT - Species and Database Selection:
+    You MUST specify 'species' parameter explicitly. No default species is assumed.
+    
+    Recommended database combinations by species:
+    
+    FOR MOUSE DATA (species="mouse"):
+    - "KEGG_Pathways" (recommended, uses KEGG_2019_Mouse internally)
+    - "Reactome_Pathways" (comprehensive pathway database)
+    - "MSigDB_Hallmark" (curated hallmark gene sets)
+    - "GO_Biological_Process" (works but may have fewer matches)
+    
+    FOR HUMAN DATA (species="human"):
+    - "KEGG_Pathways" (recommended, uses KEGG_2021_Human internally)
+    - "Reactome_Pathways" (comprehensive pathway database) 
+    - "MSigDB_Hallmark" (curated hallmark gene sets)
+    - "GO_Biological_Process" (standard GO terms)
+    
+    Available gene_set_database options:
+    - "GO_Biological_Process" (default, auto-adapts to species)
+    - "GO_Molecular_Function" (GO molecular function terms)
+    - "GO_Cellular_Component" (GO cellular component terms)
+    - "KEGG_Pathways" (species-specific: KEGG_2021_Human or KEGG_2019_Mouse)
+    - "Reactome_Pathways" (Reactome_2022 pathway database)
+    - "MSigDB_Hallmark" (MSigDB_Hallmark_2020 curated gene sets)
+    - "Cell_Type_Markers" (cell type marker genes)
+    - Custom gene sets via gene_sets parameter
 
-        Available gene sets:
-        - GO_Molecular_Function, GO_Biological_Process, GO_Cellular_Component
-        - KEGG, Reactome, WikiPathways
-        - MSigDB collections (H, C1-C8)
-        - Custom gene sets via gene_sets parameter
+    Methods available:
+    - "pathway_ora": Over-representation analysis (recommended)
+    - "pathway_enrichr": Enrichr web service  
+    - "pathway_gsea": Gene Set Enrichment Analysis
+    - "pathway_ssgsea": Single-sample GSEA
+    - "spatial_enrichmap": Spatial enrichment mapping
+
+    Example usage:
+    For mouse data:  params={"species": "mouse", "gene_set_database": "KEGG_Pathways"}
+    For human data:  params={"species": "human", "gene_set_database": "KEGG_Pathways"}
     """
     # Import enrichment analysis function
     import time
@@ -907,6 +930,14 @@ async def analyze_enrichment(
 
     # Start timing
     start_time = time.time()
+    
+    # Check if params is None (parameter is required now)
+    if params is None:
+        raise ValueError(
+            "params parameter is required for enrichment analysis.\n"
+            "You must provide EnrichmentParameters with at least 'species' specified.\n"
+            "Example: params={'species': 'mouse', 'method': 'pathway_ora'}"
+        )
 
     # Get adata for gene set handling
     adata = data_store[data_id]["adata"]
@@ -927,8 +958,18 @@ async def analyze_enrichment(
                 "gseapy package is required for gene set loading. Install with: pip install gseapy"
             )
         try:
-            # Determine species from data if available
-            species = adata.uns.get("species", "human")
+            # Use species from explicit parameter (no defaults, no auto-detection)
+            if not hasattr(params, 'species') or params.species is None:
+                raise ValueError(
+                    "species parameter is required for enrichment analysis.\n"
+                    "Please specify:\n"
+                    "  - 'human' for human data (genes like CD5L, PTPRC)\n" 
+                    "  - 'mouse' for mouse data (genes like Cd5l, Ptprc)\n"
+                    "  - 'zebrafish' for zebrafish data\n"
+                    "Example: params={'species': 'mouse', 'method': 'pathway_ora'}"
+                )
+            
+            species = params.species  # Use explicit value from LLM
 
             gene_sets = await load_gene_sets(
                 database=params.gene_set_database,
@@ -1084,7 +1125,7 @@ async def analyze_enrichment(
             result_dict = await perform_enrichr(
                 gene_list=gene_list,
                 gene_sets=params.gene_set_database,
-                organism=adata.uns.get("species", "human"),
+                organism=params.species,  # Use explicit species from params
                 context=context,
             )
             if context:
