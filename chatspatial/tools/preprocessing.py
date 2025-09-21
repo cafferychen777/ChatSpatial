@@ -233,6 +233,8 @@ async def preprocess_data(
         # Save raw data before normalization (required for some analysis methods)
         if context:
             await context.info("Saving raw data for downstream analysis...")
+        # Save counts layer for deconvolution methods that require raw counts
+        adata.layers["counts"] = adata.X.copy()
         adata.raw = adata
 
         # Update QC metrics after filtering
