@@ -983,6 +983,25 @@ async def analyze_enrichment(
                 await context.info(
                     f"Loaded {len(gene_sets)} gene sets from {params.gene_set_database}"
                 )
+            
+            # === CRITICAL TOKEN OPTIMIZATION ===
+            # Limit gene sets to prevent token bloat for insights-based analysis
+            if len(gene_sets) > 50:  # Limit to top 50 pathways for token efficiency
+                if context:
+                    await context.info(
+                        f"Limiting to top 50 pathways from {len(gene_sets)} total for token optimization"
+                    )
+                
+                # Sort pathways by gene count (larger pathways often more important)
+                sorted_pathways = sorted(
+                    gene_sets.items(), 
+                    key=lambda x: len(x[1]), 
+                    reverse=True
+                )
+                gene_sets = dict(sorted_pathways[:50])
+                
+                if context:
+                    await context.info(f"Using {len(gene_sets)} top pathways for analysis")
 
         except Exception as e:
             # Fallback: use highly variable genes as a default gene set
@@ -1038,7 +1057,7 @@ async def analyze_enrichment(
     # Call appropriate enrichment function based on method
     if params.method == "spatial_enrichmap":
         # Spatial enrichment analysis using EnrichMap
-        result_dict = await perform_enrichment_analysis(
+        result_dict = (await perform_enrichment_analysis(
             data_id=data_id,
             data_store=data_store,
             gene_sets=gene_sets,
@@ -1049,8 +1068,9 @@ async def analyze_enrichment(
             correct_spatial_covariates=params.correct_spatial_covariates,
             batch_key=params.batch_key,
             gene_weights=params.gene_weights,
+            species=params.species,
             context=context,
-        )
+        )).to_dict()
         if context:
             await context.info(
                 "Spatial enrichment analysis complete. Use create_visualization tool with plot_type='spatial_enrichment' to visualize results"
@@ -1061,7 +1081,7 @@ async def analyze_enrichment(
                                        perform_ora, perform_ssgsea)
 
         if params.method == "pathway_gsea":
-            result_dict = await perform_gsea(
+            result_dict = (await perform_gsea(
                 adata=adata,
                 gene_sets=gene_sets,
                 ranking_key=params.score_keys,
@@ -1069,32 +1089,32 @@ async def analyze_enrichment(
                 min_size=params.min_genes,
                 max_size=params.max_genes,
                 context=context,
-            )
+            )).to_dict()
             if context:
                 await context.info(
                     "Pathway GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
                 )
         elif params.method == "pathway_ora":
-            result_dict = await perform_ora(
+            result_dict = (await perform_ora(
                 adata=adata,
                 gene_sets=gene_sets,
                 pvalue_threshold=params.pvalue_cutoff,
                 min_size=params.min_genes,
                 max_size=params.max_genes,
                 context=context,
-            )
+            )).to_dict()
             if context:
                 await context.info(
                     "Pathway ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
                 )
         elif params.method == "pathway_ssgsea":
-            result_dict = await perform_ssgsea(
+            result_dict = (await perform_ssgsea(
                 adata=adata,
                 gene_sets=gene_sets,
                 min_size=params.min_genes,
                 max_size=params.max_genes,
                 context=context,
-            )
+            )).to_dict()
             if context:
                 await context.info(
                     "Pathway ssGSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
@@ -1122,12 +1142,12 @@ async def analyze_enrichment(
                     top_indices = np.argsort(var_scores)[-500:]
                     gene_list = adata.var_names[top_indices].tolist()
 
-            result_dict = await perform_enrichr(
+            result_dict = (await perform_enrichr(
                 gene_list=gene_list,
                 gene_sets=params.gene_set_database,
                 organism=params.species,  # Use explicit species from params
                 context=context,
-            )
+            )).to_dict()
             if context:
                 await context.info(
                     "Pathway Enrichr analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
