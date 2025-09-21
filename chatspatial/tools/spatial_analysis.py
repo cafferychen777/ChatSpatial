@@ -266,33 +266,59 @@ async def _ensure_cluster_key(
 async def _ensure_spatial_neighbors(
     adata: ad.AnnData, n_neighbors: int, context: Optional[Context] = None
 ) -> None:
-    """Ensure spatial neighbors are computed."""
+    """
+    Ensure spatial neighbors are computed using squidpy's scientifically validated methods.
+    
+    This function strictly uses squidpy.gr.spatial_neighbors, which is specifically
+    designed for spatial transcriptomics data and supports advanced spatial topologies
+    like Delaunay triangulation, adaptive neighborhood sizes, and biologically-relevant
+    spatial relationships.
+    
+    IMPORTANT: This function will NOT fallback to sklearn.NearestNeighbors as the two
+    methods are scientifically incompatible and could lead to incorrect spatial analysis
+    results. If squidpy fails, the analysis should be terminated with proper error guidance.
+    """
     if "spatial_neighbors" not in adata.uns:
         if context:
             await context.info(
-                f"Computing spatial neighbors with n_neighbors={n_neighbors}..."
+                f"Computing spatial neighbors with squidpy (n_neighbors={n_neighbors})..."
             )
 
         try:
-            sq.gr.spatial_neighbors(adata, n_neighs=n_neighbors)
-        except Exception as e:
+            # Use squidpy's spatial-transcriptomics optimized method
+            sq.gr.spatial_neighbors(
+                adata, 
+                n_neighs=n_neighbors,
+                coord_type="generic",  # Works for all spatial data types
+                set_diag=False,        # Exclude self-neighbors
+                key_added="spatial"    # Standard key for spatial neighbors
+            )
+            
             if context:
-                await context.warning(f"Failed to compute spatial neighbors: {e}")
-                await context.info("Creating fallback spatial neighbors...")
-
-            # Fallback implementation
-            coords = adata.obsm["spatial"]
-            nbrs = NearestNeighbors(n_neighbors=n_neighbors).fit(coords)
-            distances, indices = nbrs.kneighbors(coords)
-
-            n_cells = adata.n_obs
-            connectivities = np.zeros((n_cells, n_cells))
-            for i in range(n_cells):
-                for j in indices[i]:
-                    connectivities[i, j] = 1
-
-            adata.uns["spatial_neighbors"] = {}
-            adata.obsp["spatial_connectivities"] = csr_matrix(connectivities)
+                await context.info("✅ Spatial neighbors computed successfully with squidpy")
+                
+        except Exception as e:
+            error_msg = (
+                f"❌ CRITICAL: Spatial neighbor computation failed: {e}\n\n"
+                "🔬 SCIENTIFIC INTEGRITY NOTICE:\n"
+                "Spatial neighbor graphs are fundamental to all spatial transcriptomics analyses.\n"
+                "Using alternative methods (like sklearn) would compromise result validity.\n\n"
+                "💡 SOLUTIONS:\n"
+                "1. Check squidpy installation: pip install 'squidpy>=1.3.0'\n"
+                "2. Verify spatial coordinates in adata.obsm['spatial']\n"
+                "3. Ensure coordinates don't contain NaN/infinite values\n"
+                "4. For Visium data, try coord_type='grid'\n"
+                "5. Reduce n_neighbors if dataset is very small\n\n"
+                "🚫 Analysis cannot proceed without proper spatial neighbors."
+            )
+            
+            if context:
+                await context.error(error_msg)
+            
+            raise ProcessingError(
+                f"Spatial neighbor computation failed. Cannot proceed with spatial analysis. "
+                f"Original error: {e}"
+            ) from e
 
 
 def _get_optimal_n_jobs(n_obs: int, requested_n_jobs: Optional[int] = None) -> int:
@@ -1077,8 +1103,8 @@ async def calculate_spatial_stats(
 
     adata = data_store[data_id]["adata"]
 
-    # Ensure spatial graph exists
-    _ensure_spatial_graph(adata, n_neighbors)
+    # Ensure spatial neighbors exist (equivalent to spatial graph)
+    await _ensure_spatial_neighbors(adata, n_neighbors, context)
 
     # Calculate statistics based on type
     if statistic == "gearys_c":

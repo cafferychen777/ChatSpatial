@@ -665,50 +665,25 @@ async def _identify_domains_clustering(
                 )
 
             try:
-                if SQUIDPY_AVAILABLE:
-                    sq.gr.spatial_neighbors(adata, coord_type="generic")
+                if not SQUIDPY_AVAILABLE:
+                    # Squidpy is a core dependency for spatial analysis
+                    raise ImportError(
+                        "❌ CRITICAL: squidpy is required for spatial domain analysis but not available.\n\n"
+                        "🔬 SCIENTIFIC INTEGRITY NOTICE:\n"
+                        "Spatial domain identification requires proper spatial neighbor graphs.\n"
+                        "Alternative methods would compromise scientific validity.\n\n" 
+                        "💡 SOLUTION:\n"
+                        "Install squidpy: pip install 'squidpy>=1.2.0'\n\n"
+                        "🚫 Cannot proceed with spatial domain analysis without squidpy."
+                    )
+                
+                # Use squidpy's scientifically validated spatial neighbors
+                sq.gr.spatial_neighbors(adata, coord_type="generic")
 
-                    # Combine expression and spatial graphs
-                    expr_weight = 1 - spatial_weight
+                # Combine expression and spatial graphs
+                expr_weight = 1 - spatial_weight
 
-                    if "spatial_connectivities" in adata.obsp:
-                        combined_conn = (
-                            expr_weight * adata.obsp["connectivities"]
-                            + spatial_weight * adata.obsp["spatial_connectivities"]
-                        )
-                        adata.obsp["connectivities"] = combined_conn
-                else:
-                    # Manual spatial graph construction without squidpy
-                    if context:
-                        await context.info(
-                            "Squidpy not available, creating spatial graph manually..."
-                        )
-
-                    coords = adata.obsm["spatial"]
-                    from sklearn.neighbors import NearestNeighbors
-
-                    # Create spatial connectivity graph
-                    n_spatial_neighbors = min(
-                        6, coords.shape[0] - 1
-                    )  # Typical for spatial data
-                    nbrs = NearestNeighbors(n_neighbors=n_spatial_neighbors).fit(coords)
-                    spatial_distances, spatial_indices = nbrs.kneighbors(coords)
-
-                    # Create sparse connectivity matrix
-                    from scipy.sparse import csr_matrix
-
-                    n_spots = coords.shape[0]
-                    spatial_connectivities = csr_matrix((n_spots, n_spots))
-
-                    for i, neighbors in enumerate(spatial_indices):
-                        for j in neighbors:
-                            if i != j:  # Don't connect to self
-                                spatial_connectivities[i, j] = 1.0
-
-                    adata.obsp["spatial_connectivities"] = spatial_connectivities
-
-                    # Combine expression and spatial graphs
-                    expr_weight = 1 - spatial_weight
+                if "spatial_connectivities" in adata.obsp:
                     combined_conn = (
                         expr_weight * adata.obsp["connectivities"]
                         + spatial_weight * adata.obsp["spatial_connectivities"]
