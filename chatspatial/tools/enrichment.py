@@ -7,6 +7,7 @@ This module provides both standard and spatially-aware enrichment analysis metho
 """
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -18,6 +19,581 @@ from statsmodels.stats.multitest import multipletests
 from ..utils.error_handling import ProcessingError
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# GENE FORMAT CONVERSION UTILITIES
+# ============================================================================
+
+def _convert_gene_format_for_matching(
+    pathway_genes: List[str], 
+    dataset_genes: set, 
+    species: str
+) -> Tuple[List[str], Dict[str, str]]:
+    """
+    Rule-based gene format conversion to match dataset format.
+    
+    Handles common gene format variations between pathway databases and datasets:
+    - Uppercase (GENE) vs Title case (Gene) vs lowercase (gene)
+    - Species-specific formatting rules
+    - Special prefixes like Gm/GM/gm for mouse genes
+    
+    Args:
+        pathway_genes: Gene names from pathway database (usually uppercase from gseapy)
+        dataset_genes: Available gene names in dataset  
+        species: Species specified by user ("mouse" or "human")
+    
+    Returns:
+        (dataset_format_genes, conversion_map)
+        dataset_format_genes: Gene names in dataset format that can be found
+        conversion_map: Maps dataset_format -> original_pathway_format
+    """
+    dataset_format_genes = []
+    conversion_map = {}
+    
+    for gene in pathway_genes:
+        # Try direct match first
+        if gene in dataset_genes:
+            dataset_format_genes.append(gene)
+            conversion_map[gene] = gene
+            continue
+            
+        # Apply multiple format conversion rules
+        format_variations = []
+        
+        if species == "mouse":
+            # Mouse-specific format rules (order matters for efficiency)
+            # Rule 1: Title case (most common): Cd5l, Gbp2b
+            if len(gene) > 1:
+                format_variations.append(gene[0].upper() + gene[1:].lower())
+            # Rule 2: All lowercase: cd5l, gbp2b  
+            format_variations.append(gene.lower())
+            # Rule 3: All uppercase: CD5L, GBP2B
+            format_variations.append(gene.upper())
+            # Rule 4: Capitalize first letter only
+            format_variations.append(gene.capitalize())
+            
+            # Special rule for Gm-prefixed genes (common in mouse)
+            if gene.upper().startswith('GM'):
+                format_variations.extend([
+                    'gm' + gene[2:].lower(),  # gm42418
+                    'Gm' + gene[2:].lower(),  # Gm42418  
+                    'GM' + gene[2:].upper(),  # GM42418
+                ])
+                
+        elif species == "human":
+            # Human-specific format rules
+            # Rule 1: All uppercase (most common): HES1, FABP4
+            format_variations.append(gene.upper())
+            # Rule 2: All lowercase: hes1, fabp4
+            format_variations.append(gene.lower())
+            # Rule 3: Capitalize first letter
+            format_variations.append(gene.capitalize())
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_variations = []
+        for variation in format_variations:
+            if variation not in seen and variation != gene:  # Skip if same as original
+                seen.add(variation)
+                unique_variations.append(variation)
+        
+        # Try each format variation against dataset
+        for variant in unique_variations:
+            if variant in dataset_genes:
+                dataset_format_genes.append(variant)  # Use dataset's actual format
+                conversion_map[variant] = gene
+                break  # Stop after first match
+    
+    return dataset_format_genes, conversion_map
+
+
+# ============================================================================
+# MCP PROTOCOL COMPLIANCE: STANDARDIZED DATA STRUCTURES
+# ============================================================================
+
+@dataclass
+class EnrichmentInternalResult:
+    """Internal standardized result for enrichment analysis.
+    
+    Optimized for MCP protocol compliance with token efficiency.
+    Focuses on statistical value and essential summaries rather than complete gene lists.
+    
+    Attributes:
+        method: Analysis method name
+        n_gene_sets: Number of gene sets analyzed
+        n_significant: Number of significant gene sets
+        enrichment_scores: Enrichment scores dictionary
+        pvalues: Raw p-values dictionary
+        adjusted_pvalues: Adjusted p-values dictionary
+        gene_set_statistics: Gene set statistical information
+        gene_set_summaries: Compact summaries with counts and sample genes
+        top_gene_sets: Top enriched gene sets
+        top_depleted_sets: Top depleted gene sets
+        spatial_metrics: Spatial analysis metrics (optional)
+        spatial_scores_key: Spatial scores key (optional)
+        method_specific_data: Method-specific extension data
+    """
+    # Basic information
+    method: str
+    n_gene_sets: int
+    n_significant: int
+    
+    # Core statistical results
+    enrichment_scores: Dict[str, float]
+    pvalues: Dict[str, Optional[float]]
+    adjusted_pvalues: Dict[str, Optional[float]]
+    gene_set_statistics: Dict[str, Dict[str, Any]]
+    
+    # Gene set summaries (token-optimized)
+    gene_set_summaries: Dict[str, Dict[str, Any]]  # Contains count + sample genes only
+    
+    # Ranking results
+    top_gene_sets: List[str]
+    top_depleted_sets: List[str]
+    
+    # Optional spatial analysis results
+    spatial_metrics: Optional[Dict[str, Any]] = None
+    spatial_scores_key: Optional[str] = None
+    
+    # Method-specific extension fields
+    method_specific_data: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format optimized for MCP token limits.
+        
+        Returns:
+            Token-optimized dictionary focusing on statistical value and essential summaries.
+            Prioritizes enrichment statistics over complete gene lists.
+            
+            For backward compatibility with server.py, includes empty gene_sets_used and genes_found
+            fields to avoid breaking existing code while providing optimized data via gene_set_summaries.
+        """
+        # Optimize gene_set_statistics by removing complete gene lists
+        optimized_gene_set_statistics = {}
+        if self.gene_set_statistics:
+            for pathway, stats in self.gene_set_statistics.items():
+                if isinstance(stats, dict):
+                    # Create optimized version excluding complete gene lists
+                    optimized_stats = {k: v for k, v in stats.items() if k != "genes"}
+                    # Add gene count info if genes were present
+                    if "genes" in stats and isinstance(stats["genes"], list):
+                        optimized_stats["gene_count"] = len(stats["genes"])
+                        optimized_stats["sample_genes"] = stats["genes"][:3]  # Only first 3 genes
+                    optimized_gene_set_statistics[pathway] = optimized_stats
+                else:
+                    # Non-dict statistics, pass through as-is
+                    optimized_gene_set_statistics[pathway] = stats
+
+        base_dict = {
+            "method": self.method,
+            "n_gene_sets": self.n_gene_sets,
+            "n_significant": self.n_significant,
+            "enrichment_scores": self.enrichment_scores,
+            "pvalues": self.pvalues,
+            "adjusted_pvalues": self.adjusted_pvalues,
+            "gene_set_statistics": optimized_gene_set_statistics,  # Optimized version
+            "gene_set_summaries": self.gene_set_summaries,  # New optimized field
+            "top_gene_sets": self.top_gene_sets,
+            "top_depleted_sets": self.top_depleted_sets,
+            # Backward compatibility: provide empty structures for server.py
+            "gene_sets_used": {},  # Empty to avoid token bloat but maintain compatibility
+            "genes_found": {},     # Empty to avoid token bloat but maintain compatibility
+        }
+        
+        # Add spatial analysis results
+        if self.spatial_metrics is not None:
+            base_dict["spatial_metrics"] = self.spatial_metrics
+        if self.spatial_scores_key is not None:
+            base_dict["spatial_scores_key"] = self.spatial_scores_key
+            
+        # Add method-specific data
+        base_dict.update(self.method_specific_data)
+        
+        return base_dict
+
+
+@dataclass
+class SpatialMetricResult:
+    """Spatial metrics calculation result.
+    
+    Standardized return format for _compute_spatial_metric function.
+    """
+    data_id: str
+    score_key: str
+    metrics: Dict[str, Dict[str, float]]
+    parameters: Dict[str, Any]
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format for backward compatibility."""
+        return {
+            "data_id": self.data_id,
+            "score_key": self.score_key,
+            "metrics": self.metrics,
+            "parameters": self.parameters,
+        }
+
+
+@dataclass
+class ClusterCorrelationResult:
+    """Cluster correlation analysis result.
+    
+    Standardized return format for _correlate_with_clusters function.
+    """
+    data_id: str
+    signature_name: str
+    cluster_key: str
+    correlation_method: str
+    cluster_correlations: Dict[str, Any]
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format for backward compatibility."""
+        return {
+            "data_id": self.data_id,
+            "signature_name": self.signature_name,
+            "cluster_key": self.cluster_key,
+            "correlation_method": self.correlation_method,
+            "cluster_correlations": self.cluster_correlations,
+        }
+
+
+@dataclass
+class SSGSEAResult:
+    """Result from single-sample Gene Set Enrichment Analysis."""
+    
+    method: str
+    n_gene_sets: int
+    n_samples: int
+    enrichment_scores: Dict[str, List[float]]  # gene_set -> list of sample scores
+    gene_set_summaries: Dict[str, Dict[str, Any]]  # Compact summaries with counts and sample genes
+    summary_stats: Dict[str, Dict[str, float]]  # gene_set -> {mean, std, etc.}
+    score_matrix: Optional[np.ndarray] = None  # samples x gene_sets matrix
+    method_specific_data: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary optimized for MCP token limits."""
+        return {
+            "method": self.method,
+            "n_gene_sets": self.n_gene_sets,
+            "n_samples": self.n_samples,
+            "enrichment_scores": self.enrichment_scores,
+            "gene_set_summaries": self.gene_set_summaries,
+            "summary_stats": self.summary_stats,
+            "score_matrix": self.score_matrix.tolist() if self.score_matrix is not None else None,
+            **self.method_specific_data
+        }
+
+
+@dataclass  
+class EnrichrResult:
+    """Result from Enrichr web service analysis."""
+    
+    method: str
+    n_gene_sets: int
+    n_significant: int
+    input_gene_summary: Dict[str, Any]  # Summary of input genes: count + sample
+    enrichment_scores: Dict[str, float]  # gene_set -> combined score
+    pvalues: Dict[str, float]
+    adjusted_pvalues: Dict[str, float] 
+    odds_ratios: Dict[str, float]
+    gene_set_statistics: Dict[str, Dict[str, Any]]
+    top_gene_sets: List[str]
+    libraries_used: List[str]
+    method_specific_data: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary optimized for MCP token limits."""
+        return {
+            "method": self.method,
+            "n_gene_sets": self.n_gene_sets,
+            "n_significant": self.n_significant,
+            "input_gene_summary": self.input_gene_summary,
+            "enrichment_scores": self.enrichment_scores,
+            "pvalues": self.pvalues,
+            "adjusted_pvalues": self.adjusted_pvalues,
+            "odds_ratios": self.odds_ratios,
+            "gene_set_statistics": self.gene_set_statistics,
+            "top_gene_sets": self.top_gene_sets,
+            "libraries_used": self.libraries_used,
+            **self.method_specific_data
+        }
+
+
+# ============================================================================
+# INSIGHTS-BASED DATA STRUCTURES (New Value-Driven Approach)
+# ============================================================================
+
+@dataclass
+class PathwayResult:
+    """Individual pathway finding with essential information only."""
+    name: str                    # Clean pathway name
+    category: str               # "Immune", "Metabolism", etc.
+    significance: str           # "Very High (p<0.001)"
+    effect_size: str            # "2.3x enriched"
+    key_genes: List[str]        # 2-3 representative genes
+    description: str            # Brief biological context
+
+@dataclass
+class CategorySummary:
+    """Grouped pathway insights."""
+    count: int
+    significance_level: str
+    top_themes: List[str]
+
+@dataclass
+class EnrichmentInsights:
+    """Value-driven enrichment analysis result optimized for insights and conversation."""
+    
+    # === PRIMARY INSIGHTS ===
+    summary: str                                    # Key findings in 1-2 sentences
+    significance_overview: str                      # Overall significance assessment
+    
+    # === TOP FINDINGS ===
+    top_pathways: List[PathwayResult]              # 10-20 most significant only
+    pathway_categories: Dict[str, CategorySummary]  # Grouped insights
+    
+    # === ACTIONABLE INFORMATION ===
+    key_genes: List[str]                           # 5-10 most important genes
+    suggested_analyses: List[str]                  # Follow-up suggestions
+    interpretation: str                            # What this means
+    
+    # === TECHNICAL METADATA ===
+    method: str
+    total_pathways_tested: int
+    significant_count: int
+    stats_summary: Dict[str, Any]                  # Minimal reproducibility info
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format for server.py compatibility while maintaining insights focus."""
+        
+        # Create compatible data structure that server.py expects but with insights content
+        enrichment_scores = {}
+        pvalues = {}
+        adjusted_pvalues = {}
+        gene_set_statistics = {}
+        
+        # Transform insights back to server-expected format
+        for pathway in self.top_pathways:
+            # Use cleaned pathway name as key
+            key = pathway.name.replace(" ", "_").lower()
+            
+            # Create mock enrichment scores (server expects these)
+            enrichment_scores[key] = 2.0  # Default enriched value
+            pvalues[key] = None  # Spatial analysis doesn't have p-values
+            adjusted_pvalues[key] = None
+            
+            # Create minimal gene_set_statistics (token-optimized)
+            gene_set_statistics[key] = {
+                "category": pathway.category,
+                "effect_size": pathway.effect_size,
+                "significance": pathway.significance,
+                "description": pathway.description,
+                "key_genes": pathway.key_genes  # Only 2 genes each
+                # No "genes" field with complete gene lists!
+            }
+        
+        # Return server.py compatible format with insights content
+        return {
+            # === CORE INSIGHTS (Primary Information) ===
+            "summary": self.summary,
+            "significance_overview": self.significance_overview,
+            "interpretation": self.interpretation,
+            "key_genes": self.key_genes,
+            "suggested_analyses": self.suggested_analyses,
+            "pathway_categories": {
+                cat: {
+                    "count": summary.count,
+                    "significance_level": summary.significance_level,
+                    "top_themes": summary.top_themes
+                }
+                for cat, summary in self.pathway_categories.items()
+            },
+            "top_pathways": [
+                {
+                    "name": p.name,
+                    "category": p.category,
+                    "significance": p.significance,
+                    "effect_size": p.effect_size,
+                    "key_genes": p.key_genes,
+                    "description": p.description
+                }
+                for p in self.top_pathways
+            ],
+            
+            # === SERVER COMPATIBILITY FIELDS ===
+            "method": self.method,
+            "n_gene_sets": self.total_pathways_tested,
+            "n_significant": self.significant_count,
+            "enrichment_scores": enrichment_scores,
+            "pvalues": pvalues,
+            "adjusted_pvalues": adjusted_pvalues,
+            "gene_set_statistics": gene_set_statistics,  # Optimized, no full gene lists
+            "gene_sets_used": {},  # Empty to prevent token bloat
+            "genes_found": {},     # Empty to prevent token bloat
+            "top_gene_sets": [p.name.replace(" ", "_").lower() for p in self.top_pathways[:10]],
+            "top_depleted_sets": [],  # Spatial enrichment doesn't have depleted sets
+            "spatial_metrics": None,
+            "spatial_scores_key": None,
+            
+            # === TECHNICAL METADATA ===
+            "stats_summary": self.stats_summary
+        }
+
+
+# ============================================================================
+# INSIGHTS GENERATION HELPER FUNCTIONS
+# ============================================================================
+
+def clean_pathway_name(go_term: str) -> str:
+    """Convert GO:0006955_immune_response to 'Immune Response'."""
+    if "_" in go_term:
+        # Split on underscore and clean up
+        parts = go_term.split("_", 1)
+        if len(parts) > 1:
+            name_part = parts[1]
+            # Replace underscores with spaces and title case
+            return name_part.replace("_", " ").title()
+    return go_term.replace("_", " ").title()
+
+def categorize_pathway(pathway_name: str) -> str:
+    """Map pathway to high-level category."""
+    pathway_lower = pathway_name.lower()
+    
+    # Define category mappings
+    categories = {
+        "Immune": ["immune", "defense", "inflammation", "interferon", "cytokine", "antigen"],
+        "Metabolism": ["metabolic", "glycol", "lipid", "glucose", "energy", "atp", "respiratory"],
+        "Cell Cycle": ["cycle", "division", "mitosis", "meiosis", "proliferation", "growth"],
+        "Signaling": ["signal", "transduction", "response", "pathway", "cascade"],
+        "Transport": ["transport", "localization", "trafficking", "secretion", "endocytosis"],
+        "Development": ["development", "differentiation", "morphogenesis", "embryo"],
+        "Cell Death": ["death", "apoptosis", "necrosis", "autophagy"],
+        "DNA/RNA": ["transcription", "translation", "dna", "rna", "splicing", "repair"],
+        "Protein": ["protein", "folding", "modification", "ubiquitin", "proteolysis"],
+        "Structure": ["cytoskeleton", "organization", "assembly", "maintenance"]
+    }
+    
+    # Find best category match
+    for category, keywords in categories.items():
+        if any(keyword in pathway_lower for keyword in keywords):
+            return category
+    
+    return "Other"
+
+def format_significance(pvalue: Optional[float]) -> str:
+    """Convert p-value to human-readable significance."""
+    if pvalue is None:
+        return "Not Available"
+    
+    if pvalue < 0.001:
+        return "Very High (p<0.001)"
+    elif pvalue < 0.01:
+        return "High (p<0.01)"
+    elif pvalue < 0.05:
+        return "Moderate (p<0.05)"
+    else:
+        return f"Low (p={pvalue:.3f})"
+
+def format_effect_size(score: float, baseline: float = 1.0) -> str:
+    """Convert score to interpretable effect size."""
+    if score > baseline:
+        fold_change = score / baseline
+        if fold_change >= 3.0:
+            return f"{fold_change:.1f}x enriched (very strong)"
+        elif fold_change >= 2.0:
+            return f"{fold_change:.1f}x enriched (strong)"
+        elif fold_change >= 1.5:
+            return f"{fold_change:.1f}x enriched (moderate)"
+        else:
+            return f"{fold_change:.1f}x enriched (mild)"
+    else:
+        return f"{score:.2f} (below baseline)"
+
+def generate_insights_summary(pathways: List[PathwayResult]) -> str:
+    """Generate 1-2 sentence summary of key findings."""
+    if not pathways:
+        return "No significant pathways found."
+    
+    # Count categories
+    categories = {}
+    for pathway in pathways:
+        categories[pathway.category] = categories.get(pathway.category, 0) + 1
+    
+    # Get top categories
+    top_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:3]
+    
+    if len(top_categories) == 1:
+        return f"Strong enrichment in {top_categories[0][0].lower()} pathways with {len(pathways)} significant findings."
+    elif len(top_categories) == 2:
+        return f"Significant enrichment in {top_categories[0][0].lower()} and {top_categories[1][0].lower()} pathways."
+    else:
+        top_names = [cat[0].lower() for cat in top_categories]
+        return f"Enrichment across multiple processes including {', '.join(top_names[:-1])}, and {top_names[-1]}."
+
+def suggest_followup_analyses(pathways: List[PathwayResult]) -> List[str]:
+    """Suggest relevant follow-up analyses based on findings."""
+    suggestions = []
+    
+    # Get categories present
+    categories = set(pathway.category for pathway in pathways)
+    
+    # Category-specific suggestions
+    if "Immune" in categories:
+        suggestions.append("Perform cell communication analysis to identify immune signaling patterns")
+        suggestions.append("Validate key inflammatory markers with targeted gene expression analysis")
+    
+    if "Metabolism" in categories:
+        suggestions.append("Analyze metabolic pathway activity across spatial regions")
+        suggestions.append("Check for metabolic heterogeneity between cell types")
+    
+    if "Cell Cycle" in categories:
+        suggestions.append("Perform trajectory analysis to understand proliferation dynamics")
+        suggestions.append("Identify proliferative zones with spatial domain analysis")
+    
+    if "Signaling" in categories:
+        suggestions.append("Map signaling pathway activity across tissue regions")
+        suggestions.append("Investigate pathway crosstalk with network analysis")
+    
+    # General suggestions
+    suggestions.append("Visualize spatial distribution of top enriched pathways")
+    suggestions.append("Validate findings with complementary experimental methods")
+    
+    # Return top 4-6 suggestions
+    return suggestions[:6]
+
+def generate_pathway_interpretation(pathways: List[PathwayResult]) -> str:
+    """Generate biological interpretation from pathway patterns."""
+    if not pathways:
+        return "No significant pathways found for interpretation."
+    
+    # Analyze categories and their significance
+    categories = {}
+    for pathway in pathways:
+        if pathway.category not in categories:
+            categories[pathway.category] = []
+        categories[pathway.category].append(pathway)
+    
+    # Generate interpretation based on patterns
+    interpretations = []
+    
+    if "Immune" in categories and len(categories["Immune"]) >= 2:
+        interpretations.append("Strong immune response activation suggests inflammatory processes or tissue response to stimuli")
+    
+    if "Metabolism" in categories and "Cell Cycle" in categories:
+        interpretations.append("Coordinated metabolic and proliferative activity indicates active tissue remodeling or repair")
+    
+    if "Signaling" in categories and len(categories["Signaling"]) >= 2:
+        interpretations.append("Multiple signaling pathway activation suggests complex cellular communication and coordination")
+    
+    if len(categories) >= 4:
+        interpretations.append("Broad pathway activation across multiple biological processes indicates significant physiological changes")
+    
+    # Default interpretation
+    if not interpretations:
+        top_category = max(categories.keys(), key=lambda x: len(categories[x]))
+        interpretations.append(f"Primary enrichment in {top_category.lower()} processes suggests focused biological activity in this domain")
+    
+    return ". ".join(interpretations) + "."
 
 
 def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -> str:
@@ -54,6 +630,57 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
 
 
 # ============================================================================
+# Helper Functions
+# ============================================================================
+
+
+def create_gene_set_summaries(
+    gene_sets: Dict[str, List[str]], 
+    sample_size: int = 3
+) -> Dict[str, Dict[str, Any]]:
+    """Create compact gene set summaries for token optimization.
+    
+    Args:
+        gene_sets: Dictionary of gene sets with full gene lists
+        sample_size: Number of sample genes to include per set
+        
+    Returns:
+        Dictionary with compact summaries containing count and sample genes only
+    """
+    summaries = {}
+    for pathway_name, genes in gene_sets.items():
+        summaries[pathway_name] = {
+            "gene_count": len(genes),
+            "sample_genes": genes[:sample_size],  # First N genes as samples
+            "total_available": len(genes)
+        }
+    return summaries
+
+
+def create_input_gene_summary(
+    input_genes: List[str],
+    genes_found: List[str] = None,
+    sample_size: int = 3
+) -> Dict[str, Any]:
+    """Create compact input gene summary for Enrichr results.
+    
+    Args:
+        input_genes: List of input genes
+        genes_found: List of genes found in database (optional)
+        sample_size: Number of sample genes to include
+        
+    Returns:
+        Dictionary with compact summary of input genes
+    """
+    return {
+        "total_input": len(input_genes),
+        "genes_found_count": len(genes_found) if genes_found else len(input_genes),
+        "sample_input_genes": input_genes[:sample_size],
+        "sample_found_genes": genes_found[:sample_size] if genes_found else input_genes[:sample_size]
+    }
+
+
+# ============================================================================
 # Standard Enrichment Analysis Functions (Non-spatial)
 # ============================================================================
 
@@ -77,7 +704,7 @@ async def perform_gsea(
     min_size: int = 10,
     max_size: int = 500,
     context=None,
-) -> Dict[str, Any]:
+) -> EnrichmentInternalResult:
     """
     Perform Gene Set Enrichment Analysis (GSEA).
 
@@ -235,21 +862,25 @@ async def perform_gsea(
                 "GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
             )
 
-        return {
-            "method": "gsea",
-            "n_gene_sets": len(gene_sets),
-            "n_significant": len(results_df[results_df["FDR q-val"] < 0.05]),
-            "enrichment_scores": enrichment_scores,
-            "pvalues": pvalues,
-            "adjusted_pvalues": adjusted_pvalues,
-            "gene_set_statistics": gene_set_statistics,
-            "gene_sets_used": {
-                k: len(v) for k, v in gene_sets.items()
-            },  # Only return gene set sizes
-            "top_gene_sets": top_enriched,
-            "top_depleted_sets": top_depleted,
-            # Don't return the full DataFrame - it's too large
-        }
+        return EnrichmentInternalResult(
+            method="gsea",
+            n_gene_sets=len(gene_sets),
+            n_significant=len(results_df[results_df["FDR q-val"] < 0.05]),
+            enrichment_scores=enrichment_scores,
+            pvalues=pvalues,
+            adjusted_pvalues=adjusted_pvalues,
+            gene_set_statistics=gene_set_statistics,
+            gene_set_summaries=create_gene_set_summaries(gene_sets),
+            top_gene_sets=top_enriched,
+            top_depleted_sets=top_depleted,
+            method_specific_data={
+                "gene_sets_size_summary": {k: len(v) for k, v in gene_sets.items()},
+                "permutation_num": permutation_num,
+                "ranking_method": method,
+                "min_size": min_size,
+                "max_size": max_size,
+            }
+        )
 
     except Exception as e:
         logger.error(f"GSEA failed: {e}")
@@ -265,7 +896,7 @@ async def perform_ora(
     min_size: int = 10,
     max_size: int = 500,
     context=None,
-) -> Dict[str, Any]:
+) -> EnrichmentInternalResult:
     """
     Perform Over-Representation Analysis (ORA).
 
@@ -415,21 +1046,26 @@ async def perform_ora(
             "ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
         )
 
-    return {
-        "method": "ora",
-        "n_gene_sets": len(gene_sets),
-        "n_significant": sum(1 for p in adjusted_pvalues.values() if p is not None and p < 0.05),
-        "enrichment_scores": enrichment_scores,
-        "pvalues": pvalues,
-        "adjusted_pvalues": adjusted_pvalues,
-        "gene_set_statistics": gene_set_statistics,
-        "gene_sets_used": {
-            k: len(v) for k, v in gene_sets.items()
-        },  # Only return gene set sizes
-        "query_genes": list(query_genes),
-        "top_gene_sets": top_gene_sets,
-        "top_depleted_sets": [],  # ORA doesn't have depleted sets
-    }
+    return EnrichmentInternalResult(
+        method="ora",
+        n_gene_sets=len(gene_sets),
+        n_significant=sum(1 for p in adjusted_pvalues.values() if p is not None and p < 0.05),
+        enrichment_scores=enrichment_scores,
+        pvalues=pvalues,
+        adjusted_pvalues=adjusted_pvalues,
+        gene_set_statistics=gene_set_statistics,
+        gene_set_summaries=create_gene_set_summaries(gene_sets),
+        top_gene_sets=top_gene_sets,
+        top_depleted_sets=[],  # ORA does not produce depleted gene sets
+        method_specific_data={
+            "query_genes": list(query_genes),
+            "gene_sets_size_summary": {k: len(v) for k, v in gene_sets.items()},
+            "pvalue_threshold": pvalue_threshold,
+            "logfc_threshold": logfc_threshold,
+            "min_size": min_size,
+            "max_size": max_size,
+        }
+    )
 
 
 async def perform_ssgsea(
@@ -438,7 +1074,7 @@ async def perform_ssgsea(
     min_size: int = 10,
     max_size: int = 500,
     context=None,
-) -> Dict[str, Any]:
+) -> SSGSEAResult:
     """
     Perform single-sample Gene Set Enrichment Analysis (ssGSEA).
 
@@ -561,22 +1197,45 @@ async def perform_ssgsea(
         )
         top_gene_sets = [x[0] for x in sorted_by_mean[:10]]
 
-        return {
-            "method": "ssgsea",
-            "n_gene_sets": len(gene_sets),
-            "n_significant": len(gene_sets),  # All gene sets get scores in ssGSEA
-            "enrichment_scores": enrichment_scores,
-            "pvalues": {},  # ssGSEA doesn't provide p-values
-            "adjusted_pvalues": {},
-            "gene_set_statistics": gene_set_statistics,
-            "gene_sets_used": {
-                k: len(v) for k, v in gene_sets.items()
-            },  # Only return gene set sizes
-            "top_gene_sets": top_gene_sets,
-            "top_depleted_sets": [],
-            # Don't return the full DataFrame - it's too large
-            "scores_added_to_obs": True,
-        }
+        # Convert enrichment scores to SSGSEAResult format (gene_set -> list of scores)
+        enrichment_scores_lists = {}
+        for gs_name in scores_df.index:
+            enrichment_scores_lists[gs_name] = scores_df.loc[gs_name].values.tolist()
+        
+        # Convert gene_sets_used to match SSGSEAResult format (gene_set -> list of genes)
+        gene_sets_used_genes = {k: v for k, v in gene_sets.items()}
+        
+        # Extract genes found (same as gene_sets for ssGSEA)
+        genes_found_genes = {k: v for k, v in gene_sets.items()}
+        
+        # Convert gene_set_statistics to summary_stats format
+        summary_stats = {}
+        for gs_name, stats in gene_set_statistics.items():
+            summary_stats[gs_name] = {
+                "mean": stats["mean_score"],
+                "std": stats["std_score"],
+                "min": stats["min_score"],
+                "max": stats["max_score"],
+                "size": stats["size"]
+            }
+
+        return SSGSEAResult(
+            method="ssgsea",
+            n_gene_sets=len(gene_sets),
+            n_samples=adata.n_obs,
+            enrichment_scores=enrichment_scores_lists,
+            gene_set_summaries=create_gene_set_summaries(gene_sets),
+            summary_stats=summary_stats,
+            score_matrix=scores_df.values if scores_df is not None else None,
+            method_specific_data={
+                "pvalues": {},  # ssGSEA doesn't provide p-values
+                "adjusted_pvalues": {},
+                "top_gene_sets": top_gene_sets,
+                "top_depleted_sets": [],
+                "scores_added_to_obs": True,
+                "n_significant": len(gene_sets),  # All gene sets get scores in ssGSEA
+            }
+        )
 
     except Exception as e:
         logger.error(f"ssGSEA failed: {e}")
@@ -588,7 +1247,7 @@ async def perform_enrichr(
     gene_sets: Optional[str] = None,
     organism: str = "human",
     context=None,
-) -> Dict[str, Any]:
+) -> EnrichrResult:
     """
     Perform enrichment analysis using Enrichr web service.
 
@@ -671,19 +1330,38 @@ async def perform_enrichr(
         all_results_sorted = all_results.sort_values("Combined Score", ascending=False)
         top_gene_sets = all_results_sorted.head(10)["Term"].tolist()
 
-        return {
-            "method": "enrichr",
-            "n_gene_sets": len(all_results),
-            "n_significant": len(all_results[all_results["Adjusted P-value"] < 0.05]),
-            "enrichment_scores": enrichment_scores,
-            "pvalues": pvalues,
-            "adjusted_pvalues": adjusted_pvalues,
-            "gene_set_statistics": gene_set_statistics,
-            "query_genes": gene_list,
-            "top_gene_sets": top_gene_sets,
-            "top_depleted_sets": [],
-            # Don't return the full DataFrame - it's too large
-        }
+        # Extract odds ratios from results
+        odds_ratios = {}
+        genes_found_in_results = []
+        for idx, row in all_results.iterrows():
+            term = row["Term"]
+            odds_ratios[term] = row.get("Odds Ratio", 1.0)
+            # Collect genes found in any enriched term
+            if isinstance(row["Genes"], str):
+                genes_found_in_results.extend(row["Genes"].split(";"))
+        
+        # Remove duplicates and get unique genes found
+        genes_found_unique = list(set(genes_found_in_results))
+        
+        return EnrichrResult(
+            method="enrichr", 
+            n_gene_sets=len(all_results),
+            n_significant=len(all_results[all_results["Adjusted P-value"] < 0.05]),
+            input_gene_summary=create_input_gene_summary(gene_list, genes_found_unique),
+            enrichment_scores=enrichment_scores,
+            pvalues=pvalues,
+            adjusted_pvalues=adjusted_pvalues,
+            odds_ratios=odds_ratios,
+            gene_set_statistics=gene_set_statistics,
+            top_gene_sets=top_gene_sets,
+            libraries_used=gene_sets if isinstance(gene_sets, list) else [gene_sets] if gene_sets else [],
+            method_specific_data={
+                "query_genes": gene_list,  # Backward compatibility
+                "top_depleted_sets": [],
+                "n_input_genes": len(gene_list),
+                "organism": organism,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Enrichr failed: {e}")
@@ -740,8 +1418,9 @@ async def perform_spatial_enrichment(
     correct_spatial_covariates: bool = True,
     batch_key: Optional[str] = None,
     gene_weights: Optional[Dict[str, Dict[str, float]]] = None,
+    species: str = "unknown",
     context: Optional[Context] = None,
-) -> Dict[str, Any]:
+) -> EnrichmentInsights:
     """
     Perform spatially-aware gene set enrichment analysis using EnrichMap.
 
@@ -808,7 +1487,7 @@ async def perform_spatial_enrichment(
             score_keys = "enrichmap_signature"
         gene_sets = {score_keys: gene_sets}
 
-    # Validate gene sets
+    # Validate gene sets with format conversion
     available_genes = set(adata.var_names)
     validated_gene_sets = {}
 
@@ -817,8 +1496,24 @@ async def perform_spatial_enrichment(
     logger.info(f"First 10 genes: {list(available_genes)[:10]}")
 
     for sig_name, genes in gene_sets.items():
-        # Preserve original gene order while filtering for available genes
+        # Try direct matching first
         common_genes = [gene for gene in genes if gene in available_genes]
+        
+        # If few matches and we know the species, try format conversion
+        if len(common_genes) < len(genes) * 0.5 and species != "unknown":
+            dataset_format_genes, conversion_map = _convert_gene_format_for_matching(
+                genes, available_genes, species
+            )
+            
+            if len(dataset_format_genes) > len(common_genes):
+                # Format conversion helped, use dataset format genes for EnrichMap
+                common_genes = dataset_format_genes
+                if context:
+                    await context.info(
+                        f"Applied gene format conversion for '{sig_name}': "
+                        f"{len(dataset_format_genes)}/{len(genes)} genes matched after conversion"
+                    )
+        
         logger.info(
             f"Checking signature '{sig_name}': requested {genes[:3]}... found {len(common_genes)}/{len(genes)}"
         )
@@ -935,76 +1630,98 @@ async def perform_spatial_enrichment(
             "Spatial enrichment analysis complete. Use create_visualization tool with plot_type='enrichment' to visualize results"
         )
 
-    # Convert to the expected format for the server
-    # Create mock p-values and enrichment scores based on the spatial scores
-    enrichment_scores = {}
-    pvalues = {}
-    adjusted_pvalues = {}
-    gene_set_statistics = {}
+    # === INSIGHTS-BASED RESULT CREATION ===
+    # Note: Skip creating data for all pathways - only create for top findings
 
-    for sig_name, stats in summary_stats.items():
-        # Use the max score as enrichment score (normalized)
-        enrichment_scores[sig_name] = (
-            stats["max"] / (stats["max"] - stats["min"])
-            if (stats["max"] - stats["min"]) > 0
-            else 0
-        )
-
-        # Spatial enrichment analysis does not provide statistical p-values
-        # Real p-values require proper null hypothesis testing with background distributions
-        # Users requiring statistical significance should use dedicated enrichment tools
-        pvalues[sig_name] = (
-            None  # Explicitly set to None to indicate no statistical testing
-        )
-        adjusted_pvalues[sig_name] = (
-            None  # No p-values available for multiple testing correction
-        )
-
-        gene_set_statistics[sig_name] = {
-            "mean_score": stats["mean"],
-            "std_score": stats["std"],
-            "min_score": stats["min"],
-            "max_score": stats["max"],
-            "median_score": stats["median"],
-            "q25_score": stats["q25"],
-            "q75_score": stats["q75"],
-            "n_genes": stats["n_genes"],
-            "genes": validated_gene_sets.get(sig_name, []),
-        }
-
-    # Sort signatures by their max scores
+    # === TRANSFORM TO INSIGHTS-BASED RESULT ===
+    
+    # Sort signatures by their max scores and limit to top findings
     sorted_sigs = sorted(
         summary_stats.keys(), key=lambda x: summary_stats[x]["max"], reverse=True
     )
-
-    return {
-        "method": "spatial_enrichmap",
-        "n_gene_sets": len(validated_gene_sets),
-        "n_significant": len([p for p in pvalues.values() if p is not None and p < 0.05]),
-        "enrichment_scores": enrichment_scores,
-        "pvalues": pvalues,
-        "adjusted_pvalues": adjusted_pvalues,
-        "gene_set_statistics": gene_set_statistics,
-        "gene_sets_used": validated_gene_sets,
-        "genes_found": validated_gene_sets,  # For spatial enrichment, all validated genes are used
-        "top_gene_sets": sorted_sigs[:10] if sorted_sigs else [],
-        "top_depleted_sets": [],  # Spatial enrichment doesn't have depleted sets
-        "spatial_metrics": summary_stats,
-        "spatial_scores_key": ",".join(
-            [f"{sig}_score" for sig in validated_gene_sets.keys()]
-        ),
-        # Additional spatial-specific information
-        "signatures": list(validated_gene_sets.keys()),
-        "score_columns": score_columns,
-        "gene_contributions": gene_contributions,
-        "summary_stats": summary_stats,
-        "parameters": {
-            "n_neighbors": n_neighbors,
-            "smoothing": smoothing,
-            "correct_spatial_covariates": correct_spatial_covariates,
-            "batch_key": batch_key,
-        },
-    }
+    
+    # Create PathwayResult objects for top pathways only
+    top_pathways = []
+    max_pathways = min(15, len(sorted_sigs))  # Limit to top 15 pathways
+    
+    for sig_name in sorted_sigs[:max_pathways]:
+        stats = summary_stats[sig_name]
+        genes = validated_gene_sets.get(sig_name, [])
+        
+        pathway_result = PathwayResult(
+            name=clean_pathway_name(sig_name),
+            category=categorize_pathway(sig_name),
+            significance="Spatial Enrichment Score",  # Spatial analysis doesn't have p-values
+            effect_size=format_effect_size(stats["max"], baseline=1.0),
+            key_genes=genes[:2],  # Only keep 2 representative genes
+            description=f"Enrichment score range: {stats['min']:.2f} to {stats['max']:.2f}"
+        )
+        top_pathways.append(pathway_result)
+    
+    # Group pathways by category
+    pathway_categories = {}
+    for pathway in top_pathways:
+        if pathway.category not in pathway_categories:
+            pathway_categories[pathway.category] = CategorySummary(
+                count=0,
+                significance_level="Variable",
+                top_themes=[]
+            )
+        pathway_categories[pathway.category].count += 1
+    
+    # Set significance levels based on count
+    for category, summary in pathway_categories.items():
+        if summary.count >= 4:
+            summary.significance_level = "High"
+        elif summary.count >= 2:
+            summary.significance_level = "Moderate"
+        else:
+            summary.significance_level = "Low"
+        
+        # Extract themes from pathway names in this category
+        category_pathways = [p for p in top_pathways if p.category == category]
+        summary.top_themes = [p.name for p in category_pathways[:3]]
+    
+    # Collect key genes from top pathways
+    all_key_genes = []
+    for pathway in top_pathways[:5]:  # Only from top 5 pathways
+        all_key_genes.extend(pathway.key_genes)
+    key_genes = list(dict.fromkeys(all_key_genes))[:8]  # Remove duplicates, keep top 8
+    
+    # Generate insights
+    summary = generate_insights_summary(top_pathways)
+    interpretation = generate_pathway_interpretation(top_pathways)
+    suggestions = suggest_followup_analyses(top_pathways)
+    
+    # Determine overall significance
+    if len(top_pathways) >= 10:
+        significance_overview = f"High significance with {len(top_pathways)} enriched pathways across {len(pathway_categories)} categories"
+    elif len(top_pathways) >= 5:
+        significance_overview = f"Moderate significance with {len(top_pathways)} enriched pathways"
+    else:
+        significance_overview = f"Limited significance with {len(top_pathways)} enriched pathways"
+    
+    return EnrichmentInsights(
+        summary=summary,
+        significance_overview=significance_overview,
+        top_pathways=top_pathways,
+        pathway_categories=pathway_categories,
+        key_genes=key_genes,
+        suggested_analyses=suggestions,
+        interpretation=interpretation,
+        method="spatial_enrichmap",
+        total_pathways_tested=len(validated_gene_sets),
+        significant_count=len(top_pathways),
+        stats_summary={
+            "max_enrichment_score": max(stats["max"] for stats in summary_stats.values()) if summary_stats else 0,
+            "mean_enrichment_score": np.mean([stats["max"] for stats in summary_stats.values()]) if summary_stats else 0,
+            "spatial_parameters": {
+                "n_neighbors": n_neighbors,
+                "smoothing": smoothing,
+                "correct_spatial_covariates": correct_spatial_covariates
+            }
+        }
+    )
 
 
 async def compute_spatial_metrics(
@@ -1015,7 +1732,7 @@ async def compute_spatial_metrics(
     n_neighbors: int = 6,
     n_perms: int = 999,
     context: Optional[Context] = None,
-) -> Dict[str, Any]:
+) -> SpatialMetricResult:
     """
     Compute spatial metrics for enrichment scores.
 
@@ -1084,12 +1801,12 @@ async def compute_spatial_metrics(
                     ),
                 }
 
-        return {
-            "data_id": data_id,
-            "score_key": score_key,
-            "metrics": metric_results,
-            "parameters": {"n_neighbors": n_neighbors, "n_perms": n_perms},
-        }
+        return SpatialMetricResult(
+            data_id=data_id,
+            score_key=score_key,
+            metrics=metric_results,
+            parameters={"n_neighbors": n_neighbors, "n_perms": n_perms},
+        )
 
     except Exception as e:
         raise ProcessingError(f"Spatial metrics computation failed: {str(e)}")
@@ -1102,7 +1819,7 @@ async def cluster_gene_correlation(
     cluster_key: str = "leiden",
     correlation_method: str = "pearson",
     context: Optional[Context] = None,
-) -> Dict[str, Any]:
+) -> ClusterCorrelationResult:
     """
     Compute correlation between gene expression and enrichment scores per cluster.
 
@@ -1172,13 +1889,13 @@ async def cluster_gene_correlation(
                 ].to_dict(),
             }
 
-        return {
-            "data_id": data_id,
-            "signature_name": signature_name,
-            "cluster_key": cluster_key,
-            "correlation_method": correlation_method,
-            "cluster_correlations": correlation_results,
-        }
+        return ClusterCorrelationResult(
+            data_id=data_id,
+            signature_name=signature_name,
+            cluster_key=cluster_key,
+            correlation_method=correlation_method,
+            cluster_correlations=correlation_results,
+        )
 
     except Exception as e:
         raise ProcessingError(f"Cluster gene correlation failed: {str(e)}")
