@@ -182,79 +182,166 @@ def _get_device(use_gpu: bool, method: str) -> str:
     return "cpu"
 
 
-def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str) -> ad.AnnData:
+def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str, context=None) -> ad.AnnData:
     """Ensure AnnData object has raw integer counts in .X
-
+    
+    Checks for raw counts in the following order:
+    1. layers["counts"] - explicitly saved raw counts
+    2. .raw.X - data saved before preprocessing
+    3. current .X - only if already integer counts
+    
     Args:
         adata: AnnData object to prepare
         data_name: Name of the data for logging purposes
-
+        context: Optional MCP context for logging
+    
     Returns:
-        AnnData object with integer counts
+        AnnData object with integer counts in .X
     
     Raises:
-        ValueError: If data format cannot be determined or is incompatible
+        ValueError: If no raw integer counts can be found
     """
-    # Check if already in correct format
-    if adata.X.dtype == np.int32 or adata.X.dtype == np.int64:
-        return adata
-
-    # Convert sparse matrix to dense if needed for processing
-    if hasattr(adata.X, "toarray"):
-        X_dense = adata.X.toarray()
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Create a copy to avoid modifying original
+    adata_copy = adata.copy()
+    data_source = None
+    
+    # Step 1: Check layers["counts"]
+    if "counts" in adata_copy.layers:
+        logger.info(f"{data_name}: Found counts layer, using as raw counts")
+        if context:
+            context.info(f"✅ Using counts layer for {data_name} data")
+        adata_copy.X = adata_copy.layers["counts"].copy()
+        data_source = "counts_layer"
+    
+    # Step 2: Check .raw data
+    elif adata_copy.raw is not None:
+        logger.info(f"{data_name}: Found .raw data, checking compatibility")
+        try:
+            raw_adata = adata_copy.raw.to_adata()
+            
+            # Check if genes match
+            if set(adata_copy.var_names).issubset(set(raw_adata.var_names)):
+                # Extract matching genes from raw
+                adata_copy.X = raw_adata[:, adata_copy.var_names].X.copy()
+                data_source = "raw"
+                logger.info(f"{data_name}: Using .raw data")
+                if context:
+                    context.info(f"✅ Using .raw data for {data_name} data")
+            else:
+                logger.warning(f"{data_name}: .raw genes don't match current genes, checking current X")
+                if context:
+                    context.warning(f"⚠️ .raw data genes don't match for {data_name}, checking current X")
+                data_source = "current"
+        except Exception as e:
+            logger.warning(f"{data_name}: Error accessing .raw data: {e}")
+            data_source = "current"
+    
+    # Step 3: Use current X
     else:
-        X_dense = adata.X.copy()
-
-    # REMOVED DANGEROUS HEURISTIC!
-    # The old code assumed max < 20 meant log-transformed data, which is wrong:
-    # - Low expression counts naturally have max < 20
-    # - Other normalizations (z-score, TPM) have max < 20
-    # - expm1 transforms small values to huge numbers (10 → 22,025!)
+        logger.info(f"{data_name}: No counts layer or .raw found, checking current X")
+        data_source = "current"
     
-    # Check if data looks like it might not be raw counts
-    data_max = X_dense.max()
+    # Convert to dense for validation
+    if hasattr(adata_copy.X, "toarray"):
+        X_dense = adata_copy.X.toarray()
+    else:
+        X_dense = adata_copy.X.copy()
+    
+    # Validate data
     data_min = X_dense.min()
+    data_max = X_dense.max()
     has_negatives = data_min < 0
-    has_decimals = not np.allclose(X_dense, np.round(X_dense))
+    has_decimals = not np.allclose(X_dense, np.round(X_dense), atol=1e-6)
     
-    # Build informative error message
-    issues = []
-    if has_negatives:
-        issues.append(f"contains negative values (min={data_min:.2f})")
-    if has_decimals:
-        issues.append("contains non-integer values")
+    logger.info(
+        f"{data_name} data: source={data_source}, "
+        f"range=[{data_min:.2f}, {data_max:.2f}], "
+        f"has_negatives={has_negatives}, has_decimals={has_decimals}"
+    )
     
-    if issues:
+    # Handle float32/64 with integer values (R compatibility fix)
+    if (not has_negatives and not has_decimals and 
+        adata_copy.X.dtype in [np.float32, np.float64]):
+        logger.info(f"{data_name}: Converting float32/64 integers to int32 for R compatibility")
+        if context:
+            context.info(f"🔄 Converting {data_name} from {adata_copy.X.dtype} to int32 for R compatibility")
+        
+        # Convert to int32 for R compatibility
+        X_int32 = np.round(X_dense).astype(np.int32)
+        
+        # Preserve sparsity if original was sparse
+        if hasattr(adata_copy.X, "toarray"):
+            import scipy.sparse as sp
+            adata_copy.X = sp.csr_matrix(X_int32, dtype=np.int32)
+        else:
+            adata_copy.X = X_int32
+        
+        # Update X_dense for subsequent validation
+        X_dense = X_int32
+    
+    # Check if data is valid integer counts
+    if has_negatives or has_decimals:
         error_msg = (
-            f"{data_name} data appears to be normalized or transformed:\n"
-            f"  - Data {', '.join(issues)}\n"
-            f"  - Range: [{data_min:.2f}, {data_max:.2f}]\n\n"
-            "Deconvolution methods require raw integer counts.\n\n"
-            "Possible solutions:\n"
-            "1. Use adata.raw.X if it contains raw counts\n"
-            "2. Provide unnormalized data\n"
-            "3. If data is log-transformed, manually reverse with: adata.X = np.expm1(adata.X)\n"
-            "4. If data is scaled, this transformation cannot be reversed\n\n"
-            "IMPORTANT: Do NOT proceed with normalized data as it will produce invalid results."
+            f"\n❌ {data_name} data is not raw integer counts:\n"
+            f"  • Data source attempted: {data_source}\n"
+            f"  • Range: [{data_min:.2f}, {data_max:.2f}]\n"
+            f"  • Has negative values: {has_negatives}\n"
+            f"  • Has decimal values: {has_decimals}\n\n"
         )
+        
+        if has_negatives:
+            error_msg += "  ⚠️ Data appears to be z-score normalized (contains negative values)\n"
+        elif has_decimals and data_max < 20:
+            error_msg += "  ⚠️ Data appears to be log-transformed\n"
+        elif has_decimals:
+            error_msg += "  ⚠️ Data appears to be normalized (contains decimals)\n"
+        
+        error_msg += (
+            "\n🚫 IMPORTANT: Deconvolution methods (Cell2location, DestVI, RCTD, Stereoscope) "
+            "require raw integer counts and CANNOT work with preprocessed data.\n\n"
+            "DO NOT use these preprocessing steps before deconvolution:\n"
+            "  ❌ normalize_total (sc.pp.normalize_total)\n"
+            "  ❌ log transformation (sc.pp.log1p)\n"
+            "  ❌ scaling/z-score (sc.pp.scale)\n"
+            "  ❌ any transformation that creates decimals or negative values\n\n"
+            "Solutions:\n"
+            "  1. Skip preprocessing before deconvolution:\n"
+            "     • Load data → Directly run deconvolution\n"
+            "     • Preprocessing can be done AFTER deconvolution if needed\n\n"
+            "  2. If you must preprocess first:\n"
+            "     • Save counts before preprocessing: adata.layers['counts'] = adata.X.copy()\n"
+            "     • Then the deconvolution can use the saved counts\n\n"
+            "  3. Use original data files:\n"
+            "     • Load fresh data that hasn't been preprocessed\n"
+            "     • Ensure the data contains only non-negative integers\n"
+        )
+        
+        if context:
+            context.error(error_msg)
         raise ValueError(error_msg)
     
-    # If we reach here, data has no negatives and might be counts
-    # Still warn if suspiciously low or high
-    if data_max < 10:
-        warnings.warn(
-            f"{data_name} data has very low maximum value ({data_max:.1f}). "
-            "Please verify this is raw count data, not normalized data."
-        )
-    elif data_max > 1e6:
-        warnings.warn(
-            f"{data_name} data has very high maximum value ({data_max:.1e}). "
-            "Please verify this is raw count data."
+    # Ensure integer dtype
+    if X_dense.dtype not in [np.int32, np.int64]:
+        X_dense = X_dense.astype(np.int32)
+    
+    adata_copy.X = X_dense
+    
+    # Add processing info to uns for tracking
+    adata_copy.uns[f"{data_name}_data_source"] = {
+        "source": data_source,
+        "range": [int(data_min), int(data_max)]
+    }
+    
+    if context:
+        context.info(
+            f"✅ {data_name} data validated: "
+            f"source={data_source}, range=[{int(data_min)}, {int(data_max)}]"
         )
     
-    # Round to integers (for small floating point errors) and ensure non-negative
-    adata.X = np.round(np.maximum(X_dense, 0)).astype(np.int32)
-    return adata
+    return adata_copy
 
 
 def _create_deconvolution_stats(
@@ -300,6 +387,7 @@ def deconvolve_cell2location(
     n_cells_per_spot: int = 10,
     use_gpu: bool = False,
     min_common_genes: int = 100,
+    context=None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using Cell2location
 
@@ -345,8 +433,8 @@ def deconvolve_cell2location(
         device = _get_device(use_gpu, "Cell2location")
 
         # Prepare data using helper functions - Cell2location expects raw count data
-        ref = _prepare_anndata_for_counts(reference_adata.copy(), "Reference")
-        sp = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial")
+        ref = _prepare_anndata_for_counts(reference_adata.copy(), "Reference", context)
+        sp = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial", context)
 
         # Subset to common genes
         ref = ref[:, common_genes]
@@ -589,6 +677,7 @@ def deconvolve_rctd(
     confidence_threshold: float = 10.0,
     doublet_threshold: float = 25.0,
     min_common_genes: int = 100,
+    context=None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using RCTD (Robust Cell Type Decomposition)
 
@@ -639,8 +728,8 @@ def deconvolve_rctd(
         reference_data = reference_adata[:, common_genes].copy()
 
         # Ensure data is in the right format (raw counts)
-        spatial_data = _prepare_anndata_for_counts(spatial_data, "Spatial")
-        reference_data = _prepare_anndata_for_counts(reference_data, "Reference")
+        spatial_data = _prepare_anndata_for_counts(spatial_data, "Spatial", context)
+        reference_data = _prepare_anndata_for_counts(reference_data, "Reference", context)
 
         # Get spatial coordinates if available
         if "spatial" in spatial_adata.obsm:
@@ -891,8 +980,6 @@ def deconvolve_rctd(
 
                 except Exception as e:
                     # Failed to extract detailed RCTD results
-                    import traceback
-
                     traceback.print_exc()
                     # Re-raise the exception instead of using misleading fallback
                     raise RuntimeError(
@@ -1092,6 +1179,7 @@ async def deconvolve_spatial_data(
                     n_epochs=params.n_epochs,
                     n_cells_per_spot=params.n_cells_per_spot or 10,
                     use_gpu=params.use_gpu,
+                    context=context,
                 )
 
             elif params.method == "rctd":
@@ -1121,6 +1209,7 @@ async def deconvolve_spatial_data(
                     max_cores=max_cores,
                     confidence_threshold=confidence_threshold,
                     doublet_threshold=doublet_threshold,
+                    context=context,
                 )
 
             elif params.method == "destvi":
@@ -1184,6 +1273,7 @@ async def deconvolve_spatial_data(
                     reference_adata,
                     cell_type_key=params.cell_type_key,
                     n_top_genes=params.n_top_genes,
+                    context=context,
                 )
 
             elif params.method == "tangram":
@@ -1397,8 +1487,8 @@ async def deconvolve_destvi(
         spatial_data = spatial_adata[:, common_genes].copy()
 
         # Critical: Prepare count data (DestVI requires integer counts)
-        ref_data = _prepare_anndata_for_counts(ref_data, "reference")
-        spatial_data = _prepare_anndata_for_counts(spatial_data, "spatial")
+        ref_data = _prepare_anndata_for_counts(ref_data, "reference", context)
+        spatial_data = _prepare_anndata_for_counts(spatial_data, "spatial", context)
 
         # Validate cell type information
         cell_types = ref_data.obs[cell_type_key].unique()
@@ -1566,68 +1656,9 @@ async def deconvolve_stereoscope(
         ref_data = reference_adata[:, common_genes].copy()
         spatial_data = spatial_adata[:, common_genes].copy()
 
-        # Stereoscope requires raw count data - check for appropriate data layer
-        async def _prepare_count_data(adata, data_type):
-            """Prepare count data for Stereoscope"""
-            import numpy as np
-
-            # Check if we have a counts layer (preferred)
-            if "counts" in adata.layers:
-                if context:
-                    await context.info(f"Using counts layer for {data_type} data")
-                # Move counts to X for scvi-tools
-                adata.X = adata.layers["counts"].copy()
-            elif adata.raw is not None:
-                if context:
-                    await context.info(f"Using raw layer for {data_type} data")
-                # Use raw data
-                adata.X = adata.raw.X.copy()
-            else:
-                if context:
-                    await context.info(
-                        f"Using current X matrix for {data_type} data (assuming it contains counts)"
-                    )
-
-            # Convert to dense array if sparse
-            if hasattr(adata.X, "toarray"):
-                X_array = adata.X.toarray()
-            else:
-                X_array = adata.X.copy()
-
-            # Ensure data is non-negative
-            if np.any(X_array < 0):
-                if context:
-                    await context.warning(
-                        f"{data_type} data contains negative values - setting to zero"
-                    )
-                X_array[X_array < 0] = 0
-
-            # Convert to integers (Stereoscope requires integer counts)
-            if not np.issubdtype(X_array.dtype, np.integer):
-                if np.allclose(X_array, np.round(X_array), atol=1e-6):
-                    if context:
-                        await context.info(f"Converting {data_type} data to integers")
-                    X_array = np.round(X_array).astype(np.int32)
-                else:
-                    if context:
-                        await context.warning(
-                            f"{data_type} data contains non-integer values - rounding to nearest integers"
-                        )
-                    X_array = np.round(X_array).astype(np.int32)
-
-            # Update adata.X with processed data
-            adata.X = X_array
-
-            if context:
-                await context.info(
-                    f"{data_type} data shape: {adata.X.shape}, dtype: {adata.X.dtype}, range: {adata.X.min()}-{adata.X.max()}"
-                )
-
-            return adata
-
-        # Prepare count data for both datasets
-        ref_data = await _prepare_count_data(ref_data, "reference")
-        spatial_data = await _prepare_count_data(spatial_data, "spatial")
+        # Use unified data preparation function - Stereoscope requires raw counts like other methods
+        ref_data = _prepare_anndata_for_counts(ref_data, "Reference", context)
+        spatial_data = _prepare_anndata_for_counts(spatial_data, "Spatial", context)
 
         # Ensure cell type key is categorical
         if not ref_data.obs[cell_type_key].dtype.name == "category":
@@ -1767,6 +1798,7 @@ def deconvolve_spotlight(
     cell_type_key: str = "cell_type",
     n_top_genes: int = 2000,
     min_common_genes: int = 100,
+    context=None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using official SPOTlight R package
 
@@ -1806,8 +1838,9 @@ def deconvolve_spotlight(
             )
 
         # Prepare data for R using proper counts
-        spatial_counts = _prepare_anndata_for_counts(spatial_subset, "Spatial").X
-        reference_counts = _prepare_anndata_for_counts(reference_subset, "Reference").X
+        # SPOTlight can handle normalized data, but we still try to get raw counts if available
+        spatial_counts = _prepare_anndata_for_counts(spatial_subset, "Spatial", context).X
+        reference_counts = _prepare_anndata_for_counts(reference_subset, "Reference", context).X
 
         # Convert to dense if sparse
         if hasattr(spatial_counts, "toarray"):
@@ -2052,6 +2085,25 @@ async def deconvolve_tangram(
         if context:
             await context.info(
                 f"Training Tangram with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types"
+            )
+
+        # Check data format - Tangram can work with normalized data but prefers raw counts
+        import numpy as np
+        
+        # Check spatial data
+        sp_data = spatial_data.X.toarray() if hasattr(spatial_data.X, "toarray") else spatial_data.X
+        sp_has_negatives = sp_data.min() < 0
+        sp_has_decimals = not np.allclose(sp_data, np.round(sp_data), atol=1e-6)
+        
+        # Check reference data  
+        ref_data_arr = ref_data.X.toarray() if hasattr(ref_data.X, "toarray") else ref_data.X
+        ref_has_negatives = ref_data_arr.min() < 0
+        ref_has_decimals = not np.allclose(ref_data_arr, np.round(ref_data_arr), atol=1e-6)
+        
+        if (sp_has_negatives or sp_has_decimals or ref_has_negatives or ref_has_decimals) and context:
+            await context.warning(
+                "Tangram is using normalized data. While Tangram can handle normalized data, "
+                "it performs optimally with raw counts. Consider using raw count data for best results."
             )
 
         # Create density prior (normalized uniform distribution)
