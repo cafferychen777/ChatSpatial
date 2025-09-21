@@ -243,8 +243,8 @@ class EnrichmentResult(BaseModel):
 
     # Enrichment scores and statistics
     enrichment_scores: Dict[str, float]  # Enrichment scores for each gene set
-    pvalues: Dict[str, float]  # Raw p-values
-    adjusted_pvalues: Dict[str, float]  # Adjusted p-values
+    pvalues: Dict[str, Optional[float]]  # Raw p-values (None for spatial enrichment)
+    adjusted_pvalues: Dict[str, Optional[float]]  # Adjusted p-values (None for spatial enrichment)
     gene_set_statistics: Dict[str, Dict[str, Any]]  # Additional statistics per gene set
 
     # Spatial metrics (for enrichmap)

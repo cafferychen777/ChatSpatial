@@ -385,7 +385,7 @@ async def perform_ora(
     return {
         "method": "ora",
         "n_gene_sets": len(gene_sets),
-        "n_significant": sum(1 for p in adjusted_pvalues.values() if p < 0.05),
+        "n_significant": sum(1 for p in adjusted_pvalues.values() if p is not None and p < 0.05),
         "enrichment_scores": enrichment_scores,
         "pvalues": pvalues,
         "adjusted_pvalues": adjusted_pvalues,
@@ -782,7 +782,8 @@ async def perform_spatial_enrichment(
     logger.info(f"First 10 genes: {list(available_genes)[:10]}")
 
     for sig_name, genes in gene_sets.items():
-        common_genes = list(set(genes).intersection(available_genes))
+        # Preserve original gene order while filtering for available genes
+        common_genes = [gene for gene in genes if gene in available_genes]
         logger.info(
             f"Checking signature '{sig_name}': requested {genes[:3]}... found {len(common_genes)}/{len(genes)}"
         )
@@ -797,23 +798,73 @@ async def perform_spatial_enrichment(
         )
 
     if not validated_gene_sets:
-        raise ProcessingError("No valid gene signatures found with at least 2 genes")
-
-    # Run EnrichMap scoring
-    try:
-        em.tl.score(
-            adata=adata,
-            gene_set=validated_gene_sets,
-            gene_weights=gene_weights,
-            score_key=None,  # Not needed as we pass dict
-            spatial_key=spatial_key,
-            n_neighbors=n_neighbors,
-            smoothing=smoothing,
-            correct_spatial_covariates=correct_spatial_covariates,
-            batch_key=batch_key,
+        # Collect diagnostic information for better error reporting
+        sample_dataset_genes = list(available_genes)[:10]
+        sample_requested_genes = []
+        for sig_name, genes in gene_sets.items():
+            sample_requested_genes.extend(genes[:3])
+        sample_requested_genes = list(set(sample_requested_genes))[:10]
+        
+        error_msg = (
+            f"No valid gene signatures found with at least 2 genes.\n\n"
+            f"Diagnostic information:\n"
+            f"• Dataset contains {len(available_genes)} genes\n"
+            f"• Sample dataset genes: {sample_dataset_genes}\n"
+            f"• Sample requested genes: {sample_requested_genes}\n"
+            f"• Gene signatures provided: {list(gene_sets.keys())}\n\n"
+            f"Common causes and solutions:\n"
+            f"1. Species mismatch (human vs mouse gene naming)\n"
+            f"   - Check if your data species matches the gene set database\n"
+            f"2. Gene name format differences (e.g., 'CD3D' vs 'Cd3d')\n"
+            f"   - Ensure gene names match your dataset's format\n"
+            f"3. Outdated or incompatible gene sets\n"
+            f"   - Try a different gene_set_database option\n"
+            f"4. Custom gene sets with incorrect gene symbols\n"
+            f"   - Verify gene symbols are current and correct"
         )
-    except Exception as e:
-        raise ProcessingError(f"EnrichMap scoring failed: {str(e)}")
+        raise ProcessingError(error_msg)
+
+    # Run EnrichMap scoring - process each gene set individually
+    failed_signatures = []
+    successful_signatures = []
+    
+    for sig_name, genes in validated_gene_sets.items():
+        try:
+            if context:
+                await context.info(f"Processing gene set '{sig_name}' with {len(genes)} genes")
+            
+            em.tl.score(
+                adata=adata,
+                gene_set=genes,  # Fixed: use gene_set (correct API parameter name)
+                score_key=sig_name,  # Fixed: provide explicit score_key
+                spatial_key=spatial_key,
+                n_neighbors=n_neighbors,
+                smoothing=smoothing,
+                correct_spatial_covariates=correct_spatial_covariates,
+                batch_key=batch_key,
+            )
+            successful_signatures.append(sig_name)
+            
+        except Exception as e:
+            logger.error(f"EnrichMap failed for '{sig_name}': {e}")
+            failed_signatures.append((sig_name, str(e)))
+    
+    # Check if any signatures were processed successfully
+    if not successful_signatures:
+        error_details = "; ".join([f"{name}: {error}" for name, error in failed_signatures])
+        raise ProcessingError(
+            f"All EnrichMap scoring failed. This may indicate:\n"
+            f"1. EnrichMap package installation issues\n"
+            f"2. Incompatible gene names or data format\n"
+            f"3. Insufficient spatial information\n"
+            f"Details: {error_details}"
+        )
+    
+    # Update validated_gene_sets to only include successful ones
+    validated_gene_sets = {sig: validated_gene_sets[sig] for sig in successful_signatures}
+    
+    if context and failed_signatures:
+        await context.warning(f"Failed to process {len(failed_signatures)} gene sets: {[name for name, _ in failed_signatures]}")
 
     # Collect results
     score_columns = [f"{sig}_score" for sig in validated_gene_sets.keys()]
@@ -894,7 +945,7 @@ async def perform_spatial_enrichment(
     return {
         "method": "spatial_enrichmap",
         "n_gene_sets": len(validated_gene_sets),
-        "n_significant": len([p for p in pvalues.values() if p < 0.05]),
+        "n_significant": len([p for p in pvalues.values() if p is not None and p < 0.05]),
         "enrichment_scores": enrichment_scores,
         "pvalues": pvalues,
         "adjusted_pvalues": adjusted_pvalues,
