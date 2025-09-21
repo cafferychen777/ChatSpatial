@@ -1038,9 +1038,9 @@ async def deconvolve_spatial_data(
         # Check method-specific dependencies and provide alternatives
         method_deps = {
             "cell2location": ["cell2location", "torch"],
-            "destvi": ["scvi-tools", "torch"],
-            "stereoscope": ["scvi-tools", "torch"],
-            "tangram": ["scvi-tools", "torch"],
+            "destvi": ["scvi", "torch"],  # Fixed: scvi not scvi-tools
+            "stereoscope": ["scvi", "torch"],  # Fixed: scvi not scvi-tools
+            "tangram": ["scvi", "torch", "tangram"],  # Fixed: check for both scvi and tangram
             "rctd": ["rpy2"],  # R-based method
             "spotlight": ["rpy2"],  # R-based method
         }
@@ -1050,7 +1050,16 @@ async def deconvolve_spatial_data(
         
         available_methods = []
         for method, deps in method_deps.items():
-            if all(importlib.util.find_spec(d.replace('-', '_')) for d in deps):
+            # Special handling for package names with different import names
+            dep_specs = []
+            for d in deps:
+                if d == "scvi-tools":
+                    # scvi-tools package imports as 'scvi'
+                    dep_specs.append(importlib.util.find_spec("scvi"))
+                else:
+                    dep_specs.append(importlib.util.find_spec(d.replace('-', '_')))
+            
+            if all(spec is not None for spec in dep_specs):
                 available_methods.append(method)
 
         if params.method not in available_methods:
