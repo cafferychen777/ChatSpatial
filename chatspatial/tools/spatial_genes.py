@@ -31,6 +31,7 @@ GASTON_IMPORT_ERROR = None
 
 from ..models.analysis import SpatialVariableGenesResult
 from ..models.data import SpatialVariableGenesParameters
+from ..utils.error_handling import suppress_output
 
 
 async def identify_spatial_genes(
@@ -979,19 +980,12 @@ async def _identify_spatial_genes_sparkx(
         from rpy2 import robjects as ro
         from rpy2.robjects import conversion, default_converter
         from rpy2.robjects.packages import importr
+        from rpy2.rinterface_lib import openrlib  # For thread safety
     except ImportError:
         raise ImportError("rpy2 not installed. Install with: pip install rpy2")
 
     if context:
         await context.info("Running SPARK-X non-parametric analysis")
-
-    # Check if SPARK is installed in R
-    try:
-        spark = importr("SPARK")
-    except Exception as e:
-        raise ImportError(
-            f"SPARK not installed in R. Install with: install.packages('SPARK'). Error: {e}"
-        )
 
     adata = data_store[data_id]["adata"]
 
@@ -1090,112 +1084,124 @@ async def _identify_spatial_genes_sparkx(
     # Create spot names
     spot_names = [str(name) for name in adata.obs_names]
 
-    # Convert to R format using modern rpy2 API
-    with conversion.localconverter(default_converter):
-        # Count matrix: genes × spots
-        r_counts = ro.r.matrix(
-            ro.IntVector(counts_transposed.flatten()),
-            nrow=n_genes,
-            ncol=n_spots,
-            byrow=True,
-        )
-        r_counts.rownames = ro.StrVector(gene_names)
-        r_counts.colnames = ro.StrVector(spot_names)
-
-        # Coordinates as data.frame (SPARK requirement)
-        coords_df = pd.DataFrame(coords_array, columns=["x", "y"], index=spot_names)
-        r_coords = ro.r["data.frame"](
-            x=ro.FloatVector(coords_df["x"]),
-            y=ro.FloatVector(coords_df["y"]),
-            row_names=ro.StrVector(coords_df.index),
-        )
-
-    if context:
-        await context.info("Running SPARK-X analysis using sparkx function")
-
-    try:
-        # Use sparkx for direct analysis (based on our successful tests)
-        results = spark.sparkx(
-            count_in=r_counts,
-            locus_in=r_coords,
-            X_in=ro.NULL,  # No additional covariates (could be extended in future)
-            numCores=params.sparkx_num_core,
-            option=params.sparkx_option,
-            verbose=params.sparkx_verbose,
-        )
-
-        if context:
-            await context.info("SPARK-X analysis completed successfully")
-
-        # Extract p-values from results
-        try:
-            pvals = results.rx2("res_mtest")
-            if pvals:
-                # Convert R vector to Python list
-                # The issue is that each element might still be an R object
-                pval_list = []
-
-                # First, ensure it's numeric in R
-                try:
-                    pvals_numeric = ro.r["as.numeric"](pvals)
-                except:
-                    pvals_numeric = pvals
-
-                # Extract each value properly
-                for i in range(len(pvals_numeric)):
-                    val = pvals_numeric[i]
-                    # Check if it's a nested R object (FloatVector with one element)
-                    if hasattr(val, "__len__") and hasattr(val, "__getitem__"):
-                        try:
-                            # It's an R vector, get first element
-                            pval_list.append(float(val[0]))
-                        except:
-                            # Try direct conversion
-                            pval_list.append(float(val))
-                    else:
-                        # Direct numeric value
-                        pval_list.append(float(val))
-
-                # Create results dataframe
-                results_df = pd.DataFrame(
-                    {"gene": gene_names[: len(pval_list)], "pvalue": pval_list}
+    # Wrap ALL R operations in thread lock and localconverter for proper contextvars handling
+    # This prevents "Conversion rules missing" errors in multithreaded/async environments
+    with openrlib.rlock:  # Thread safety lock
+        with conversion.localconverter(default_converter):  # Conversion context
+            # Import SPARK package inside context (FIX for contextvars issue)
+            try:
+                spark = importr("SPARK")
+            except Exception as e:
+                raise ImportError(
+                    f"SPARK not installed in R. Install with: install.packages('SPARK'). Error: {e}"
                 )
-
-                # Add adjusted p-values (simple Bonferroni correction)
-                # Use apply to ensure compatibility
-                n_tests = len(pval_list)
-                results_df["adjusted_pvalue"] = results_df["pvalue"].apply(
-                    lambda p: min(p * n_tests, 1.0)
-                )
-
-                if context:
-                    await context.info(f"Extracted results for {len(results_df)} genes")
-            else:
-                # SPARK-X results format not recognized - fail honestly instead of fake results
-                error_msg = (
-                    "SPARK-X results format not recognized. Expected 'res_mtest' component with p-values. "
-                    "This may indicate an issue with the SPARK-X R package, rpy2 integration, or input data. "
-                    "Please check the R environment and SPARK-X installation."
-                )
-                if context:
-                    await context.error(error_msg)
-                raise RuntimeError(error_msg)
-
-        except Exception as e:
-            # P-value extraction failed - fail honestly instead of creating fake results
-            error_msg = (
-                f"SPARK-X p-value extraction failed: {e}. "
-                f"This indicates an issue with R-Python communication or SPARK-X result format. "
-                f"Please check rpy2 installation and R package versions."
+            
+            # Convert to R format (already in context)
+            # Count matrix: genes × spots
+            r_counts = ro.r.matrix(
+                ro.IntVector(counts_transposed.flatten()),
+                nrow=n_genes,
+                ncol=n_spots,
+                byrow=True,
             )
-            if context:
-                await context.error(error_msg)
-            raise RuntimeError(error_msg)
+            r_counts.rownames = ro.StrVector(gene_names)
+            r_counts.colnames = ro.StrVector(spot_names)
 
-    except Exception as e:
-        if context:
-            await context.info(f"SPARK-X analysis failed: {e}")
-        raise RuntimeError(f"SPARK-X analysis failed: {e}")
+            # Coordinates as data.frame (SPARK requirement)
+            coords_df = pd.DataFrame(coords_array, columns=["x", "y"], index=spot_names)
+            r_coords = ro.r["data.frame"](
+                x=ro.FloatVector(coords_df["x"]),
+                y=ro.FloatVector(coords_df["y"]),
+                row_names=ro.StrVector(coords_df.index),
+            )
+
+            if context:
+                await context.info("Running SPARK-X analysis using sparkx function (output suppressed for MCP compatibility)")
+
+            try:
+                # Execute SPARK-X analysis inside context (FIX for contextvars issue)
+                # Keep suppress_output for MCP communication compatibility
+                with suppress_output():
+                    results = spark.sparkx(
+                        count_in=r_counts,
+                        locus_in=r_coords,
+                        X_in=ro.NULL,  # No additional covariates (could be extended in future)
+                        numCores=params.sparkx_num_core,
+                        option=params.sparkx_option,
+                        verbose=False,  # Ensure verbose is off for cleaner MCP communication
+                    )
+
+                if context:
+                    await context.info("SPARK-X analysis completed successfully")
+
+                # Extract p-values from results (inside context for proper conversion)
+                try:
+                    pvals = results.rx2("res_mtest")
+                    if pvals:
+                        # Convert R vector to Python list
+                        pval_list = []
+
+                        # First, ensure it's numeric in R
+                        try:
+                            pvals_numeric = ro.r["as.numeric"](pvals)
+                        except:
+                            pvals_numeric = pvals
+
+                        # Extract each value properly
+                        for i in range(len(pvals_numeric)):
+                            val = pvals_numeric[i]
+                            # Check if it's a nested R object (FloatVector with one element)
+                            if hasattr(val, "__len__") and hasattr(val, "__getitem__"):
+                                try:
+                                    # It's an R vector, get first element
+                                    pval_list.append(float(val[0]))
+                                except:
+                                    # Try direct conversion
+                                    pval_list.append(float(val))
+                            else:
+                                # Direct numeric value
+                                pval_list.append(float(val))
+
+                        # Create results dataframe (can be outside context, it's pure Python)
+                        results_df = pd.DataFrame(
+                            {"gene": gene_names[: len(pval_list)], "pvalue": pval_list}
+                        )
+
+                        # Add adjusted p-values (simple Bonferroni correction)
+                        # Use apply to ensure compatibility
+                        n_tests = len(pval_list)
+                        results_df["adjusted_pvalue"] = results_df["pvalue"].apply(
+                            lambda p: min(p * n_tests, 1.0)
+                        )
+
+                        if context:
+                            await context.info(f"Extracted results for {len(results_df)} genes")
+                    else:
+                        # SPARK-X results format not recognized - fail honestly instead of fake results
+                        error_msg = (
+                            "SPARK-X results format not recognized. Expected 'res_mtest' component with p-values. "
+                            "This may indicate an issue with the SPARK-X R package, rpy2 integration, or input data. "
+                            "Please check the R environment and SPARK-X installation."
+                        )
+                        if context:
+                            await context.error(error_msg)
+                        raise RuntimeError(error_msg)
+
+                except Exception as e:
+                    # P-value extraction failed - fail honestly instead of creating fake results
+                    error_msg = (
+                        f"SPARK-X p-value extraction failed: {e}. "
+                        f"This indicates an issue with R-Python communication or SPARK-X result format. "
+                        f"Please check rpy2 installation and R package versions."
+                    )
+                    if context:
+                        await context.error(error_msg)
+                    raise RuntimeError(error_msg)
+
+            except Exception as e:
+                if context:
+                    await context.info(f"SPARK-X analysis failed: {e}")
+                raise RuntimeError(f"SPARK-X analysis failed: {e}")
 
     # Sort by adjusted p-value
     results_df = results_df.sort_values("adjusted_pvalue")
