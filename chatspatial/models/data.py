@@ -941,6 +941,13 @@ class CellCommunicationParameters(BaseModel):
 
 class EnrichmentParameters(BaseModel):
     """Parameters for gene set enrichment analysis"""
+    
+    # REQUIRED: Species specification (no default value)
+    species: Literal["human", "mouse", "zebrafish"]
+    # Must explicitly specify the species for gene set matching:
+    # - "human": For human data (genes like CD5L, PTPRC - all uppercase)
+    # - "mouse": For mouse data (genes like Cd5l, Ptprc - capitalize format)
+    # - "zebrafish": For zebrafish data
 
     # Method selection
     method: Literal[
@@ -956,9 +963,17 @@ class EnrichmentParameters(BaseModel):
         None  # Gene sets to analyze
     )
     score_keys: Optional[Union[str, List[str]]] = None  # Names for gene signatures
-    gene_set_database: Optional[str] = (
-        "GO_Biological_Process"  # Gene set database for enrichr
-    )
+    
+    # Gene set database - choose species-appropriate option
+    gene_set_database: Optional[Literal[
+        "GO_Biological_Process",          # Default (auto-adapts to species)
+        "GO_Molecular_Function",          # GO molecular function terms
+        "GO_Cellular_Component",          # GO cellular component terms
+        "KEGG_Pathways",                  # KEGG pathways (species-specific: human=2021, mouse=2019)
+        "Reactome_Pathways",              # Reactome pathway database (2022 version)
+        "MSigDB_Hallmark",                # MSigDB hallmark gene sets (2020 version)
+        "Cell_Type_Markers"               # Cell type marker genes
+    ]] = "GO_Biological_Process"
 
     # Spatial parameters (for spatial_enrichmap)
     spatial_key: str = "spatial"  # Key for spatial coordinates
