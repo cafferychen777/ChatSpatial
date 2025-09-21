@@ -20,6 +20,39 @@ from ..utils.error_handling import ProcessingError
 logger = logging.getLogger(__name__)
 
 
+def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -> str:
+    """Map user-friendly database names to actual Enrichr library names.
+    
+    Args:
+        database_name: User-friendly database name from MCP interface
+        species: Species ('human', 'mouse', or 'zebrafish')
+        
+    Returns:
+        Actual Enrichr library name
+        
+    Raises:
+        ValueError: If database_name is not supported
+    """
+    mapping = {
+        "GO_Biological_Process": "GO_Biological_Process_2025",
+        "GO_Molecular_Function": "GO_Molecular_Function_2025", 
+        "GO_Cellular_Component": "GO_Cellular_Component_2025",
+        "KEGG_Pathways": "KEGG_2021_Human" if species.lower() == "human" else "KEGG_2019_Mouse",
+        "Reactome_Pathways": "Reactome_Pathways_2024",
+        "MSigDB_Hallmark": "MSigDB_Hallmark_2020",
+        "Cell_Type_Markers": "CellMarker_Augmented_2021"
+    }
+    
+    if database_name not in mapping:
+        available_options = list(mapping.keys())
+        raise ValueError(
+            f"Unknown gene set database: {database_name}. "
+            f"Available options: {available_options}"
+        )
+    
+    return mapping[database_name]
+
+
 # ============================================================================
 # Standard Enrichment Analysis Functions (Non-spatial)
 # ============================================================================
@@ -594,7 +627,9 @@ async def perform_enrichr(
             "MSigDB_Hallmark_2020",
         ]
     elif isinstance(gene_sets, str):
-        gene_sets = [gene_sets]
+        # Map user-friendly database name to actual Enrichr library name
+        enrichr_library = map_gene_set_database_to_enrichr_library(gene_sets, organism)
+        gene_sets = [enrichr_library]
 
     # Run Enrichr
     try:
