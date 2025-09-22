@@ -18,6 +18,7 @@ Welcome to the ChatSpatial troubleshooting guide! This comprehensive resource wi
 - 🚀 [Installation Problems](#installation-and-dependency-issues)
 - 💾 [Memory and Performance](#memory-and-performance-problems)  
 - 🔬 [Analysis Not Working](#analysis-specific-issues)
+- 🔗 [Cell Communication Errors](#cell-communication-analysis)
 - 📁 [Data Loading Issues](#data-format-and-loading-problems)
 - ⚠️ [Error Messages](#common-error-messages-with-solutions)
 - 💬 [Agent Conversation Issues](#conversation-troubleshooting)
@@ -446,6 +447,71 @@ Empty plot generated
    ```
 
 > **💡 Prevention Tip:** Always start with simple plots before creating complex visualizations.
+
+### Cell Communication Analysis
+
+#### Problem: CellPhoneDB KeyError with Complex Names
+
+**Error messages:**
+```bash
+KeyError: 'ICAM3_integrin_aDb2_complex'
+KeyError: 'GP1BA_integrin_aMb2_complex'
+KeyError: 'BMP8A_ACVR_1A2B_receptor'
+```
+
+**Known Issue:** CellPhoneDB v5.0.1 has database inconsistencies with certain protein complexes.
+
+**Solutions:**
+1. **Use LIANA instead (recommended):**
+   ```text
+   "Use LIANA method for cell communication analysis"
+   "Try LIANA with consensus database"
+   "Use cell_type_handling='create_from_column' if needed"
+   ```
+
+2. **Enable gene filtering (partial fix):**
+   ```text
+   "Enable gene filtering with moderate strategy"
+   "Use cellphonedb_use_microenvironments=true with filtering"
+   ```
+
+3. **Workarounds:**
+   - Remove problematic genes manually (ICAM3, ITGAD, GP1BA, BMP8A)
+   - Use older CellPhoneDB version (v4.x)
+   - Switch to alternative databases
+
+> **⚠️ Note:** This is a known bug in CellPhoneDB v5.0.1, not a ChatSpatial issue. The development team is aware of these database inconsistencies.
+
+#### Problem: CellPhoneDB 'significant_means' KeyError
+
+**Error message:**
+```bash
+KeyError: 'significant_means'
+```
+
+**Causes:**
+- Insufficient ligand-receptor gene coverage
+- Species mismatch (mouse genes vs human database)
+- Dataset too sparse (< 5000 genes)
+
+**Solutions:**
+1. **Check gene coverage:**
+   ```text
+   "Check how many L-R genes are in my dataset"
+   "Use data_source='raw' for more genes"
+   ```
+
+2. **Species issues:**
+   ```text
+   "Ensure species parameter matches your data"
+   "Convert mouse gene names to human format if needed"
+   ```
+
+3. **Use alternatives:**
+   ```text
+   "Try LIANA which handles sparse data better"
+   "Use CellChat via LIANA for mouse data"
+   ```
 
 ### RNA Velocity and Trajectory Analysis
 

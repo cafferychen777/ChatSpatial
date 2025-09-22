@@ -911,6 +911,20 @@ class CellCommunicationParameters(BaseModel):
         None  # Spatial radius for microenvironments
     )
     cellphonedb_debug_seed: Optional[int] = None  # Random seed for reproducible results
+    
+    # ========== Gene Filtering for CellPhoneDB Compatibility (ULTRATHINK) ==========
+    enable_gene_filtering: bool = (
+        True  # Whether to enable automatic gene filtering for CellPhoneDB compatibility
+    )
+    gene_filtering_strategy: Literal[
+        "none", "conservative", "moderate", "aggressive", "adaptive"
+    ] = "conservative"
+    # Gene filtering strategies:
+    # - none: No filtering applied
+    # - conservative: Only remove core problematic genes (ICAM3, ITGAD, CD11D) [DEFAULT]
+    # - moderate: Remove core + ITGB2 for added safety
+    # - aggressive: Remove all potentially related genes
+    # - adaptive: Automatically adjust based on dataset characteristics
 
     # ========== CellChat Specific Parameters ==========
     cellchat_type: Literal["triMean", "truncatedMean", "median"] = (
