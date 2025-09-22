@@ -825,7 +825,7 @@ async def _run_liana_cluster_analysis(
         "n_lr_pairs": n_lr_pairs,
         "n_significant_pairs": n_significant_pairs,
         "top_lr_pairs": top_lr_pairs,
-        "liana_results_key": "liana_res",
+        # "liana_results_key": "liana_res",  # Removed to prevent potential DataFrame serialization overflow
         "analysis_type": "cluster",
         "statistics": statistics,
     }
@@ -1412,7 +1412,7 @@ async def _analyze_communication_cellchat_liana(
             )
 
         # Get appropriate resource name based on species
-        resource_name = _get_liana_resource_name(params.species, "cellchat")
+        resource_name = _get_liana_resource_name(params.species, params.liana_resource)
         if context:
             await context.info(
                 f"Using CellChat resource: {resource_name} for species: {params.species}"
@@ -1478,7 +1478,7 @@ async def _analyze_communication_cellchat_liana(
             "n_lr_pairs": n_lr_pairs,
             "n_significant_pairs": n_significant_pairs,
             "top_lr_pairs": top_lr_pairs,
-            "liana_results_key": "liana_res",
+            # "liana_results_key": "liana_res",  # Removed to prevent DataFrame serialization overflow
             "analysis_type": "cellchat_via_liana",
             "statistics": statistics,
         }
