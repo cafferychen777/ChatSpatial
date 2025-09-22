@@ -143,7 +143,7 @@ Spatial coordinate information.
     },
     "method": {
       "type": "string",
-      "enum": ["spagcn", "stagate", "banksy", "leiden", "louvain"],
+      "enum": ["spagcn", "stagate", "leiden", "louvain"],
       "description": "Spatial domain identification method"
     },
     "n_domains": {
@@ -316,7 +316,7 @@ All input parameters are validated using JSON Schema validation. The server will
       {
         "field": "method",
         "error": "Value 'invalid_method' is not allowed",
-        "allowed_values": ["spagcn", "stagate", "banksy"]
+        "allowed_values": ["spagcn", "stagate", "leiden", "louvain"]
       }
     ]
   }

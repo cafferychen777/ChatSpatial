@@ -304,7 +304,7 @@ Process killed (signal 9)
 
 3. **Optimize specific methods:**
    ```text
-   "Use SpaGCN instead of BANKSY for faster spatial domains"
+   "Use Leiden clustering for fastest spatial domain identification"
    "Skip GASTON for large datasets - use SpatialDE instead"
    "Use basic visualization instead of interactive plots"
    ```
@@ -378,7 +378,7 @@ torch.cuda.is_available() returns False
 
 3. **Try different methods:**
    ```text
-   "Compare SpaGCN vs BANKSY results"
+   "Compare SpaGCN vs STAGATE results"
    "Try Leiden instead of Louvain clustering"
    ```
 

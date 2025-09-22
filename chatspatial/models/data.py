@@ -619,7 +619,7 @@ class DeconvolutionParameters(BaseModel):
 class SpatialDomainParameters(BaseModel):
     """Spatial domain identification parameters model"""
 
-    method: Literal["spagcn", "leiden", "louvain", "stagate", "banksy"] = "spagcn"
+    method: Literal["spagcn", "leiden", "louvain", "stagate"] = "spagcn"
     n_domains: Annotated[int, Field(gt=0, le=50)] = (
         7  # Number of spatial domains to identify
     )
@@ -665,18 +665,6 @@ class SpatialDomainParameters(BaseModel):
     )
     stagate_random_seed: Optional[int] = None  # Random seed (default: 42)
 
-    # BANKSY specific parameters
-    banksy_n_neighbors: Optional[int] = (
-        None  # Number of spatial neighbors (default: 15)
-    )
-    banksy_lambda: Optional[float] = (
-        None  # Lambda parameter for spatial weight (default: 0.2)
-    )
-    banksy_max_m: Optional[int] = None  # Maximum order of neighbors (default: 1)
-    banksy_decay_type: Optional[
-        Literal["uniform", "reciprocal", "gaussian", "scaled_gaussian"]
-    ] = None  # Decay type (default: "scaled_gaussian")
-    banksy_n_pcs: Optional[int] = None  # Number of principal components (default: 20)
     
     # Simple timeout configuration
     timeout: Optional[int] = None  # Timeout in seconds (default: 600)

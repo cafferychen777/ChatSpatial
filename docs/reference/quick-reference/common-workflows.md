@@ -199,8 +199,8 @@ Do you have histology images?
 ├── YES → Use SpaGCN (gold standard with morphology)
 ├── NO → Do you need high resolution?
     ├── YES → Use STAGATE (graph attention networks)
-    ├── NO → Use BANKSY (fast, robust)
-    └── UNSURE → Try Leiden clustering first
+    ├── NO → Use Leiden clustering (fast, robust)
+    └── UNSURE → Try Louvain clustering
 ```
 
 ### 🧬 "Which Cell Type Method?"
@@ -365,7 +365,7 @@ graph TD
     A[load_data] --> B[preprocess_data]
     B --> C1[identify_spatial_domains: SpaGCN]
     B --> C2[identify_spatial_domains: STAGATE] 
-    B --> C3[identify_spatial_domains: BANKSY]
+    B --> C3[identify_spatial_domains: Leiden]
     C1 --> D[Compare domain consistency]
     C2 --> D
     C3 --> D
@@ -378,7 +378,7 @@ graph TD
 **Natural Language Flow**:
 ```
 1. "Load dataset and preprocess with standard parameters"
-2. "Run spatial domain identification with SpaGCN, STAGATE, and BANKSY"
+2. "Run spatial domain identification with SpaGCN, STAGATE, and Leiden"
 3. "Compare domain assignments and calculate agreement metrics"
 4. "Annotate cells using scType and Tangram"
 5. "Cross-validate cell type assignments between methods"  
@@ -536,7 +536,7 @@ What are you comparing?
 
 2. **Method Selection**:
    ```text
-   "Use BANKSY for large datasets (fastest spatial domains)"
+   "Use Leiden clustering for large datasets (fastest spatial domains)"
    "Skip GASTON for >20K cells (very slow)"
    "Use basic visualization for initial exploration"
    ```

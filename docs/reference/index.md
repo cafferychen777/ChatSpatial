@@ -64,7 +64,7 @@ Problem-solving resources:
 
 | Tool | Description | Requirements |
 |------|-------------|--------------|
-| `identify_spatial_domains` | Spatial domain identification | SpaGCN, STAGATE, or BANKSY |
+| `identify_spatial_domains` | Spatial domain identification | SpaGCN, STAGATE, Leiden/Louvain |
 | `analyze_cell_communication` | Cell-cell interaction analysis | LIANA or CellPhoneDB |
 | `analyze_trajectory_data` | RNA velocity and pseudotime | CellRank or Palantir |
 | `deconvolve_data` | Spatial deconvolution | Cell2location or RCTD |

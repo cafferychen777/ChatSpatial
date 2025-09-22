@@ -91,7 +91,7 @@ Compare spatial organization across technologies:
 # High-resolution method for MERFISH
 identify_spatial_domains(
     data_id=merfish_result.id,
-    method="banksy", 
+    method="leiden", 
     n_domains=15,
     resolution=0.5
 )
@@ -237,7 +237,7 @@ for i, path in enumerate(sample_paths):
 
 ```python
 # Validate spatial domains with multiple methods
-methods = ["spagcn", "stagate", "banksy"]
+methods = ["spagcn", "stagate", "leiden"]
 domain_results = {}
 
 for method in methods:

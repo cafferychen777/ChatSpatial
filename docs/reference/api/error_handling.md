@@ -68,7 +68,7 @@ Parameter values outside allowed ranges or types.
   "details": {
     "field": "method",
     "value": "invalid_method",
-    "allowed_values": ["spagcn", "stagate", "banksy"],
+    "allowed_values": ["spagcn", "stagate", "leiden", "louvain"],
     "suggestion": "Use one of the supported methods"
   }
 }
