@@ -1169,8 +1169,8 @@ async def _analyze_communication_cellphonedb(
             )
 
         # Set random seed for reproducibility
-        if params.cellphonedb_debug_seed is not None:
-            np.random.seed(params.cellphonedb_debug_seed)
+        debug_seed = params.cellphonedb_debug_seed if params.cellphonedb_debug_seed is not None else 42
+        np.random.seed(debug_seed)
 
         # Run CellPhoneDB statistical analysis
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1214,7 +1214,7 @@ async def _analyze_communication_cellphonedb(
                     result_precision=params.cellphonedb_result_precision,
                     pvalue=params.cellphonedb_pvalue,
                     iterations=params.cellphonedb_iterations,
-                    debug_seed=params.cellphonedb_debug_seed if params.cellphonedb_debug_seed is not None else -1,
+                    debug_seed=debug_seed,
                     output_path=temp_dir,
                     microenvs_file_path=microenvs_file,
                     score_interactions=True,  # New: Enable interaction scoring (v5 feature)
