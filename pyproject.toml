@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "chatspatial"
 version = "0.2.0"
-description = "ChatSpatial: An interactive AI assistant for spatial transcriptomics analysis"
+description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
 requires-python = ">=3.8,<3.13"
 dependencies = [
     # Core dependencies only - minimal installation
@@ -102,7 +102,7 @@ advanced = [
     "STalign>=1.0.0",  # Spatial alignment tool
     
     # Visualization and performance
-    # Note: numba, dask, plotly, opencv-python removed as unused
+    # Note: numba, dask, plotly, opencv-python are required by other packages
     
     # Gene set enrichment
     "gseapy>=1.0.0",
