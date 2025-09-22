@@ -442,16 +442,17 @@ async def _analyze_gearys_c(
         show_progress_bar=False,
     )
 
-    # Extract results
+    # Extract results (squidpy returns DataFrame, not dict)
     geary_key = "gearyC"
     if geary_key in adata.uns:
+        import pandas as pd
         results_df = adata.uns[geary_key]
-
-        return {
-            "n_genes_analyzed": len(genes),
-            "mean_gearys_c": float(results_df["C"].mean()),
-            "analysis_key": geary_key,
-        }
+        if isinstance(results_df, pd.DataFrame):
+            return {
+                "n_genes_analyzed": len(genes),
+                "mean_gearys_c": float(results_df["C"].mean()),
+                "analysis_key": geary_key,
+            }
 
     return {"error": "Geary's C computation did not produce results"}
 
@@ -1118,25 +1119,29 @@ async def calculate_spatial_stats(
         # Calculate Geary's C
         sq.gr.spatial_autocorr(adata, mode="geary", genes=[feature], n_jobs=1)
 
-        # Extract results
-        if "gearyC" in adata.uns and feature in adata.uns["gearyC"]:
-            geary_c = float(adata.uns["gearyC"][feature])
-            pval = (
-                float(adata.uns["gearyC_pval"][feature])
-                if "gearyC_pval" in adata.uns
-                else None
-            )
+        # Extract results (squidpy returns DataFrame, not dict)
+        if "gearyC" in adata.uns:
+            import pandas as pd
+            df = adata.uns["gearyC"]
+            if isinstance(df, pd.DataFrame) and feature in df.index:
+                geary_c = float(df.loc[feature, 'C'])
+                # Use corrected p-value column name
+                pval = (
+                    float(df.loc[feature, 'pval_norm_fdr_bh'])
+                    if 'pval_norm_fdr_bh' in df.columns
+                    else None
+                )
 
-            return {
-                "statistic": "gearys_c",
-                "feature": feature,
-                "value": geary_c,
-                "pvalue": pval,
-                "interpretation": (
-                    "Values < 1 indicate positive spatial autocorrelation"
-                ),
-                "n_neighbors": n_neighbors,
-            }
+                return {
+                    "statistic": "gearys_c",
+                    "feature": feature,
+                    "value": geary_c,
+                    "pvalue": pval,
+                    "interpretation": (
+                        "Values < 1 indicate positive spatial autocorrelation"
+                    ),
+                    "n_neighbors": n_neighbors,
+                }
 
     elif statistic == "local_morans":
         # Calculate Local Moran's I
