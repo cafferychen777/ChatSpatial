@@ -105,7 +105,7 @@ Open Claude Desktop and try:
 
 ### 🔍 **Spatial Analysis Made Simple**
 ```text
-"Find spatial domains"  →  SpaGCN + STAGATE + BANKSY analysis
+"Find spatial domains"  →  SpaGCN + STAGATE + Leiden/Louvain clustering
 "Detect hotspots"       →  Getis-Ord Gi* spatial statistics  
 "Map cell territories"  →  Spatial neighborhood analysis
 ```
@@ -198,7 +198,7 @@ pip install -e ".[dev]"
 
 | Category | Methods |
 |----------|---------|
-| **Spatial Domains** | SpaGCN, STAGATE, BANKSY, Leiden clustering |
+| **Spatial Domains** | SpaGCN, STAGATE, Leiden/Louvain clustering |
 | **Cell Communication** | LIANA, CellPhoneDB, CellChat |
 | **Deconvolution** | Cell2location, DestVI, RCTD, Tangram |
 | **Variable Genes** | GASTON, SpatialDE, SPARK-X |

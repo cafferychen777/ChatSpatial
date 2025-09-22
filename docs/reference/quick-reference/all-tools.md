@@ -330,7 +330,7 @@
 
 **Key Parameters**:
 - `data_id`: Dataset ID
-- `params.method`: `"spagcn"`, `"leiden"`, `"louvain"`, `"stagate"`, `"banksy"`
+- `params.method`: `"spagcn"`, `"leiden"`, `"louvain"`, `"stagate"`
 - `params.n_domains`: Number of expected domains (default: 7)
 - `params.resolution`: Clustering resolution
 
@@ -477,8 +477,8 @@ These parameters are available across multiple tools:
 **Spatial Domain Methods:**
 - `spagcn`: Best with histology images ⭐
 - `stagate`: High-resolution, GPU recommended  
-- `banksy`: Fast, CPU-friendly
-- `leiden`: Basic clustering fallback
+- `leiden`: Fast, CPU-friendly clustering
+- `louvain`: Alternative clustering method
 
 **Cell Annotation Methods:**
 - `marker_genes`: Fast, requires known markers
@@ -498,7 +498,7 @@ These parameters are available across multiple tools:
 |-------------|------------------|---------|-------|-------|
 | Small (<5K spots) | Any method | 4GB+ | 5-15 min | Explore all options |
 | Medium (5-20K spots) | Avoid GASTON, use SpaGCN | 8GB+ | 15-45 min | Standard workflows |
-| Large (20-50K spots) | BANKSY, basic methods | 16GB+ | 30-90 min | Consider subsampling |
+| Large (20-50K spots) | Leiden/Louvain clustering | 16GB+ | 30-90 min | Consider subsampling |
 | XL (50K+ spots) | Leiden, chunked analysis | 32GB+ | 1-3 hours | Definitely subsample first |
 
 ---

@@ -3,9 +3,8 @@ A module for identifying spatial domains in spatial transcriptomics data.
 
 This module provides an interface to several algorithms designed to partition
 spatial data into distinct domains based on gene expression and spatial proximity.
-It includes graph-based clustering methods (SpaGCN, STAGATE), a neighborhood
-aggregation method (BANKSY), and standard clustering algorithms (Leiden, Louvain)
-adapted for spatial data. The primary entry point is the `identify_spatial_domains`
+It includes graph-based clustering methods (SpaGCN, STAGATE) and standard clustering
+algorithms (Leiden, Louvain) adapted for spatial data. The primary entry point is the `identify_spatial_domains`
 function, which handles data preparation and dispatches to the selected method.
 """
 
@@ -44,12 +43,8 @@ try:
 except ImportError:
     STAGATE_AVAILABLE = False
 
-try:
-    import banksy as bk
-
-    BANKSY_AVAILABLE = True
-except ImportError:
-    BANKSY_AVAILABLE = False
+# BANKSY support has been completely removed
+# Use alternative methods: spagcn, leiden, louvain, or stagate
 
 
 def _check_environment_compatibility():
@@ -70,11 +65,7 @@ def _check_environment_compatibility():
     if not STAGATE_AVAILABLE:
         issues.append("STAGATE not available - graph attention method unavailable")
 
-    # Check BANKSY availability
-    if not BANKSY_AVAILABLE:
-        issues.append(
-            "BANKSY not available - neighborhood aggregation method unavailable"
-        )
+    # BANKSY has been removed - use alternative methods
 
     # Check version compatibility
     try:
@@ -295,13 +286,9 @@ async def identify_spatial_domains(
             domain_labels, embeddings_key, statistics = await _identify_domains_stagate(
                 adata_subset, params, context
             )
-        elif params.method == "banksy":
-            domain_labels, embeddings_key, statistics = await _identify_domains_banksy(
-                adata_subset, params, context
-            )
         else:
             raise ValueError(
-                f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain, stagate, banksy"
+                f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain, stagate"
             )
 
         # Store domain labels in original adata
@@ -905,175 +892,3 @@ async def _identify_domains_stagate(
         raise RuntimeError(error_msg) from e
 
 
-async def _identify_domains_banksy(
-    adata: Any, params: SpatialDomainParameters, context: Optional[Context] = None
-) -> tuple:
-    """
-    Identifies spatial domains using the BANKSY algorithm.
-
-    BANKSY (Boundary-Aware Neighborhood-informed Klustering of Spatially-resolved transcriptomics)
-    identifies domains by directly incorporating neighborhood information into the
-    feature matrix. It augments the original gene expression matrix with features
-    representing the aggregated expression of spatial neighbors. Clustering is then
-    performed on this augmented feature space, enabling the identification of domains
-    with distinct local cellular environments. This method requires the `banksy` package.
-    """
-    if not BANKSY_AVAILABLE:
-        raise ImportError(
-            "BANKSY is not installed. Please install it from: https://github.com/prabhakarlab/Banksy_py"
-        )
-
-    if context:
-        await context.info("Running BANKSY for spatial domain identification...")
-
-    try:
-        # Import the correct BANKSY modules
-        from banksy.embed_banksy import generate_banksy_matrix
-        from banksy.initialize_banksy import initialize_banksy
-        from banksy.run_banksy import run_banksy_multiparam
-
-        # BANKSY requires specific setup
-        adata_banksy = adata.copy()
-
-        # Setup coordinate keys for BANKSY
-        if "spatial" in adata_banksy.obsm:
-            # Add coordinates to obs for BANKSY
-            adata_banksy.obs["x_coord"] = adata_banksy.obsm["spatial"][:, 0]
-            adata_banksy.obs["y_coord"] = adata_banksy.obsm["spatial"][:, 1]
-            coord_keys = ("x_coord", "y_coord", "spatial")
-        else:
-            # Try to find existing coordinate columns
-            if "x" in adata_banksy.obs and "y" in adata_banksy.obs:
-                coord_keys = ("x", "y", "spatial")
-            else:
-                raise ValueError("No spatial coordinates found in adata")
-
-        # Initialize BANKSY
-        if context:
-            await context.info("Initializing BANKSY spatial graph...")
-
-        k_geom = params.banksy_n_neighbors or 15
-        max_m = params.banksy_max_m or 1
-        nbr_weight_decay = params.banksy_decay_type or "scaled_gaussian"
-
-        banksy_dict = initialize_banksy(
-            adata_banksy,
-            coord_keys,
-            k_geom,
-            nbr_weight_decay=nbr_weight_decay,
-            max_m=max_m,
-            plt_edge_hist=False,
-            plt_nbr_weights=False,
-            plt_agf_angles=False,
-        )
-
-        # Set hyperparameters
-        lambda_list = [params.banksy_lambda or 0.2]
-        resolutions = [params.cluster_resolution or 1.0]
-        pca_dims = [params.banksy_n_pcs or 20]
-
-        # Generate BANKSY matrix
-        if context:
-            await context.info("Generating BANKSY matrix...")
-
-        banksy_dict, banksy_matrix = generate_banksy_matrix(
-            adata_banksy, banksy_dict, lambda_list, max_m
-        )
-
-        # Run BANKSY clustering
-        if context:
-            await context.info("Running BANKSY clustering...")
-
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            results_df = run_banksy_multiparam(
-                adata_banksy,
-                banksy_dict,
-                lambda_list,
-                resolutions,
-                color_list=[
-                    "#1f77b4",
-                    "#ff7f0e",
-                    "#2ca02c",
-                    "#d62728",
-                    "#9467bd",
-                    "#8c564b",
-                    "#e377c2",
-                    "#7f7f7f",
-                    "#bcbd22",
-                    "#17becf",
-                    "#aec7e8",
-                    "#ffbb78",
-                    "#98df8a",
-                    "#ff9896",
-                    "#c5b0d5",
-                    "#c49c94",
-                    "#f7b6d2",
-                    "#c7c7c7",
-                    "#dbdb8d",
-                    "#9edae5",
-                ]
-                * 10,  # Extended color list
-                max_m=max_m,
-                filepath=tmpdir,  # Required but we use temp dir
-                key=coord_keys,
-                pca_dims=pca_dims,
-                annotation_key=None,
-                max_labels=None,  # Let it determine automatically
-                cluster_algorithm="leiden",
-                match_labels=False,
-                savefig=False,  # Don't save figures
-                add_nonspatial=True,
-                variance_balance=False,
-            )
-
-        # Get clustering results from results_df
-        # The results_df contains the labels in the 'labels' column
-        if results_df is not None and len(results_df) > 0:
-            # Get the first (and only) row since we use single lambda and resolution
-            first_result = results_df.iloc[0]
-            raw_labels = first_result["labels"]
-
-            # Convert labels to string array
-            if hasattr(raw_labels, "dense"):
-                # It's a Label object
-                domain_labels = pd.Series(
-                    raw_labels.dense, index=adata.obs.index
-                ).astype(str)
-            else:
-                # It's already an array
-                domain_labels = pd.Series(raw_labels, index=adata.obs.index).astype(str)
-
-            # Store in adata.obs for consistency
-            adata.obs["banksy_domains"] = domain_labels
-
-            # Get embeddings from the adata in results
-            adata_result = first_result.get("adata", adata_banksy)
-
-            # Look for BANKSY embedding in obsm
-            for key in adata_result.obsm.keys():
-                if "reduced_pc" in key or "BANKSY" in key:
-                    adata.obsm["BANKSY_embed"] = adata_result.obsm[key]
-                    embeddings_key = "BANKSY_embed"
-                    break
-            else:
-                embeddings_key = None
-        else:
-            raise ValueError("BANKSY clustering failed to produce results")
-
-        statistics = {
-            "method": "banksy",
-            "n_clusters": len(domain_labels.unique()),
-            "lambda": params.banksy_lambda or 0.2,
-            "n_neighbors": k_geom,
-            "decay_type": nbr_weight_decay,
-        }
-
-        return domain_labels, embeddings_key, statistics
-
-    except Exception as e:
-        error_msg = f"BANKSY execution failed: {str(e)}"
-        if context:
-            await context.warning(error_msg)
-        raise RuntimeError(error_msg) from e

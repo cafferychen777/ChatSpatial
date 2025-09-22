@@ -38,7 +38,7 @@ ChatSpatial is a Model Context Protocol (MCP) server that enables spatial transc
 ### Supported Analysis Types
 
 - **Cell Type Annotation**: Marker-based, reference-based (Tangram, scANVI), and ML approaches
-- **Spatial Domain Identification**: SpaGCN, STAGATE, BANKSY, and clustering methods
+- **Spatial Domain Identification**: SpaGCN, STAGATE, Leiden/Louvain clustering
 - **Cell Communication**: LIANA, CellPhoneDB, and spatial interaction analysis
 - **Trajectory Analysis**: RNA velocity, pseudotime, and developmental trajectories
 - **Spatial Statistics**: Moran's I, spatial autocorrelation, and neighborhood analysis

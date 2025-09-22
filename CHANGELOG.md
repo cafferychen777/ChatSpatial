@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated `docs/user_guides/ERROR_HANDLING_GUIDE.md` → `UNIFIED_ERROR_HANDLING_MIGRATION_GUIDE.md`
   - Updated `docs/technical_docs/MCP_TOOLS_QUICK_REFERENCE.md` → `PROJECT_STRUCTURE.md`
 - **UPDATED**: Feature descriptions to match actual code implementation
-  - Corrected spatial domain methods (SpaGCN, STAGATE, BANKSY, Leiden/Louvain)
+  - Corrected spatial domain methods (SpaGCN, STAGATE, Leiden/Louvain)
   - Corrected deconvolution methods (Cell2location, DestVI, RCTD, Stereoscope, Tangram, SPOTlight)
   - Corrected cell communication methods (LIANA, CellPhoneDB, CellChat via LIANA)
 - **ALIGNED**: Optional dependencies in README with pyproject.toml extras
@@ -225,7 +225,6 @@ params = AnalysisParameters(
 ### 🧠 **Spatial Domain Methods**
 - **SpaGCN**: Graph convolutional networks for spatial domains
 - **BayesSpace**: Bayesian clustering for spatial transcriptomics
-- **BANKSY**: Spatial clustering with neighborhood information
 - **STAGATE**: Spatial transcriptomics analysis with graph attention
 
 ### 📊 **Data Integration**

@@ -744,7 +744,6 @@ async def identify_spatial_domains(
         - spagcn: SpaGCN graph convolutional network (implemented; optional dependency SpaGCN)
         - leiden / louvain: clustering-based (implemented; no extra deps)
         - stagate: STAGATE (implemented; optional dependency STAGATE)
-        - banksy: BANKSY (implemented; optional dependency banksy-utils)
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function

@@ -72,7 +72,7 @@ chatspatial/
 │   ├── annotation.py            # Cell type annotation methods
 │   ├── cell_communication.py    # LIANA+, CellPhoneDB, CellChat
 │   ├── spatial_genes.py         # GASTON, SpatialDE, SPARK-X
-│   ├── spatial_domains.py       # SpaGCN, STAGATE, BANKSY
+│   ├── spatial_domains.py       # SpaGCN, STAGATE, Leiden/Louvain
 │   ├── visualization.py         # All plot types and image generation
 │   └── ...
 ├── models/                      # Pydantic data models

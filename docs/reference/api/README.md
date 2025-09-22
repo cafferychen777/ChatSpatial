@@ -221,7 +221,6 @@ identify_spatial_domains(
 |--------|-------------|----------|
 | `spagcn` | Graph convolutional networks | General spatial domains |
 | `stagate` | Spatial-temporal attention | Complex tissue architecture |
-| `banksy` | Spatial clustering | Neighborhood-aware domains |
 | `leiden` | Community detection | Quick clustering |
 | `louvain` | Modularity optimization | Alternative clustering |
 

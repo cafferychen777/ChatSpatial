@@ -231,8 +231,8 @@ Tables with ChatSpatial styling:
 |:-------|:---------|:------|:-------------|
 | SpaGCN | 92.5% | Fast | Low |
 | STAGATE | 89.3% | Medium | Medium |
-| BANKSY | 91.8% | Slow | High |
 | Leiden | 87.2% | Very Fast | Very Low |
+| Louvain | 86.9% | Very Fast | Very Low |
 
 ---
 
