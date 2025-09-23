@@ -277,6 +277,12 @@ def infer_spatial_trajectory_cellrank(
             adata_for_cellrank = adata.uns["velovi_adata"]
             # Transfer spatial coordinates to the velovi adata for CellRank
             adata_for_cellrank.obsm["spatial"] = adata.obsm["spatial"]
+            
+            # VELOVI stores velocity as 'velocity_velovi', but CellRank expects 'velocity'
+            # Create a reference to the standard velocity layer name
+            if "velocity_velovi" in adata_for_cellrank.layers:
+                adata_for_cellrank.layers["velocity"] = adata_for_cellrank.layers["velocity_velovi"]
+            
             # Use VELOVI data for velocity kernel
             vk = cr.kernels.VelocityKernel(adata_for_cellrank)
             vk.compute_transition_matrix()
