@@ -72,6 +72,10 @@ sc.pp.filter_genes(adata, min_cells=3)
 
 ### 1. Create Virtual Environment & Install
 ```bash
+# Clone and enter directory
+git clone https://github.com/cafferychen777/ChatSpatial.git
+cd chatspatial
+
 # Create virtual environment (strongly recommended)
 python3 -m venv chatspatial_env
 source chatspatial_env/bin/activate  # macOS/Linux
@@ -81,9 +85,13 @@ source chatspatial_env/bin/activate  # macOS/Linux
 pip install -e ".[full]"  # Recommended: All features included
 ```
 
-### 2. Set up with Claude Desktop
+### 2. Configure Your Client
+
+<details>
+<summary><strong>Option A: Claude Desktop</strong> (GUI Application)</summary>
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
-// Add to Claude Desktop config (use YOUR virtual environment path)
 {
   "mcpServers": {
     "chatspatial": {
@@ -93,16 +101,32 @@ pip install -e ".[full]"  # Recommended: All features included
   }
 }
 ```
+</details>
+
+<details>
+<summary><strong>Option B: Claude Code</strong> (Terminal/IDE)</summary>
+
+```bash
+# Install Claude Code CLI if not already installed
+npm install -g @anthropic-ai/claude-code
+
+# Add ChatSpatial MCP server (use YOUR virtual environment path)
+claude mcp add chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial
+
+# Verify installation
+claude mcp list
+```
+</details>
 
 ### 3. Start Analyzing
-Open Claude Desktop and try:
+Open your Claude client and try:
 ```text
 "Load the demo mouse brain dataset and show me the tissue structure"
 ```
 
 **🎯 That's it!** No programming, no tutorials, no documentation reading required.
 
-> **📚 Detailed Setup Guide**: [INSTALLATION.md](INSTALLATION.md)
+> **📚 Detailed Setup Guides**: [Claude Desktop](INSTALLATION.md#claude-desktop) | [Claude Code](INSTALLATION.md#claude-code)
 
 ---
 
