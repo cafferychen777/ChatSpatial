@@ -71,18 +71,24 @@ sc.pp.filter_genes(adata, min_cells=3)
 
 ## ⚡ Quick Start (2 Minutes)
 
-### 1. Install ChatSpatial
+### 1. Create Virtual Environment & Install
 ```bash
+# Create virtual environment (strongly recommended)
+python3 -m venv chatspatial_env
+source chatspatial_env/bin/activate  # macOS/Linux
+# chatspatial_env\Scripts\activate  # Windows
+
+# Install ChatSpatial with all features
 pip install -e ".[full]"  # Recommended: All features included
 ```
 
 ### 2. Set up with Claude Desktop
 ```json
-// Add to Claude Desktop config
+// Add to Claude Desktop config (use YOUR virtual environment path)
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "python",
+      "command": "/path/to/chatspatial_env/bin/python",
       "args": ["-m", "chatspatial"]
     }
   }

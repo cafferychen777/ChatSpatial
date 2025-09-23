@@ -28,14 +28,24 @@ Before starting, ensure you have:
 
 ## Step 1: Installation
 
+### Create Virtual Environment First
+
 ```bash
 # Clone the repository
 git clone https://github.com/cafferychen777/ChatSpatial.git
 cd chatspatial
 
-# Recommended: Install with all features
+# Create and activate virtual environment
+python3 -m venv chatspatial_env
+source chatspatial_env/bin/activate  # macOS/Linux
+# chatspatial_env\Scripts\activate   # Windows
+
+# Install ChatSpatial with all features
 pip install -e ".[full]"
 ```
+
+{: .highlight }
+💡 **Virtual environments prevent conflicts:** Always use a virtual environment for Python projects.
 
 {: .highlight }
 💡 For faster installation (80% features): `pip install -e .`
@@ -44,19 +54,35 @@ pip install -e ".[full]"
 
 ### For Claude Desktop
 
-Add ChatSpatial to your Claude Desktop MCP configuration:
+1. **Find your virtual environment Python path:**
+```bash
+# In your activated virtual environment
+which python
+# Copy this path - you'll need it next
+```
 
-1. Open Claude Desktop settings
-2. Navigate to MCP configuration
-3. Add the following configuration:
+2. **Edit Claude Desktop configuration:**
+   - Location: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - Add ChatSpatial with your virtual environment path:
 
 ```json
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "python",
-      "args": ["-m", "chatspatial"],
-      "cwd": "/path/to/your/chatspatial"
+      "command": "/path/to/chatspatial_env/bin/python",
+      "args": ["-m", "chatspatial"]
+    }
+  }
+}
+```
+
+**Example with real path:**
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/Users/apple/Projects/chatspatial_env/bin/python",
+      "args": ["-m", "chatspatial"]
     }
   }
 }
@@ -73,6 +99,9 @@ The server starts automatically when you interact with ChatSpatial in Claude Des
 
 ### Option B: Manual Start
 ```bash
+# Make sure virtual environment is activated
+source chatspatial_env/bin/activate  # macOS/Linux
+
 # Start the MCP server manually
 python -m chatspatial
 
