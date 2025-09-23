@@ -1,4 +1,8 @@
+<div align="center">
+
 # ChatSpatial 🧬
+
+</div>
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/) [![MCP Protocol](https://img.shields.io/badge/MCP-v2024.11.05-green.svg)](https://modelcontextprotocol.io) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Docs](https://img.shields.io/badge/docs-available-blue)](https://cafferychen777.github.io/ChatSpatial/)
 
@@ -122,19 +126,19 @@ claude mcp list
 
 ### 3. Download Sample Data & Start Analyzing
 
-**🎯 Quick Test (30 seconds):**
-```bash
-# Download sample datasets for testing
-curl -L -o reference_data.h5ad https://github.com/cafferychen777/ChatSpatial/releases/download/v0.2.0-data/destvi_reference_small.h5ad
-curl -L -o spatial_data.h5ad https://github.com/cafferychen777/ChatSpatial/releases/download/v0.2.0-data/destvi_spatial_small.h5ad
-```
+**🎯 Quick Test (1 minute):**
+
+1. **Download sample datasets**: Go to [**ChatSpatial Releases**](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.2.0-data)
+2. **Download these files**:
+   - `destvi_reference_small.h5ad` (7.8MB)
+   - `destvi_spatial_small.h5ad` (10MB)
 
 **Now open your Claude client and try:**
 ```text
-"Load /Users/apple/Downloads/reference_data.h5ad and /Users/apple/Downloads/spatial_data.h5ad, then show me the tissue structure"
+"Load /Users/yourname/Downloads/destvi_reference_small.h5ad and /Users/yourname/Downloads/destvi_spatial_small.h5ad, then show me the tissue structure"
 ```
 
-> ⚠️ **IMPORTANT**: Use **absolute paths** when loading data (e.g., `/Users/apple/Downloads/data.h5ad`)
+> ⚠️ **IMPORTANT**: Use **absolute paths** when loading data (e.g., `/Users/yourname/Downloads/destvi_reference_small.h5ad`)
 
 **🎯 That's it!** No programming, no tutorials, no documentation reading required.
 
