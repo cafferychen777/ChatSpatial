@@ -20,7 +20,6 @@ ChatSpatial transforms complex spatial transcriptomics analysis into simple, nat
     ✅ Generated expression heatmap
 ```
 
-> **🎬 [Watch Demo Video](https://your-demo-link.com)** | **📖 [Try Interactive Tutorial](docs/tutorial)**
 
 ---
 
@@ -103,7 +102,7 @@ Open Claude Desktop and try:
 
 **🎯 That's it!** No programming, no tutorials, no documentation reading required.
 
-> **📚 Detailed Setup Guide**: [INSTALLATION.md](INSTALLATION.md) | **🎥 Video Tutorial**: [Setup in 60 Seconds](your-video-link)
+> **📚 Detailed Setup Guide**: [INSTALLATION.md](INSTALLATION.md)
 
 ---
 
@@ -227,39 +226,9 @@ pip install -e ".[dev]"
 
 ## 🤝 Community & Support
 
-### 📞 **Get Help**
-- **💬 Discord**: [Join our community](discord-link) for real-time help
 - **📧 Issues**: [GitHub Issues](https://github.com/cafferychen777/ChatSpatial/issues) for bug reports  
 - **📖 Docs**: [Complete documentation](docs/) with tutorials
-- **🎥 Videos**: [YouTube channel](youtube-link) with walkthroughs
-
-### 🌟 **Stay Updated**
 - **⭐ Star this repo** to follow development
-- **📰 Newsletter**: [Monthly updates](newsletter-link) on new features
-- **🐦 Twitter**: [@ChatSpatial](twitter-link) for announcements
-
----
-
-## 📈 Project Stats
-
-![GitHub stars](https://img.shields.io/github/stars/cafferychen777/ChatSpatial?style=social) ![GitHub forks](https://img.shields.io/github/forks/cafferychen777/ChatSpatial?style=social) ![GitHub issues](https://img.shields.io/github/issues/cafferychen777/ChatSpatial) ![GitHub last commit](https://img.shields.io/github/last-commit/cafferychen777/ChatSpatial)
-
-- **🔥 Active Development**: 50+ commits this month
-- **✅ Production Ready**: Used in 10+ research labs  
-- **🌍 Global Usage**: Researchers from 25+ countries
-- **📊 Analysis Volume**: 1,000+ datasets analyzed
-
----
-
-## 🚀 Ready to Transform Your Research?
-
-<div align="center">
-
-### **Stop coding. Start discovering.**
-
-**[📥 Install ChatSpatial](INSTALLATION.md)** | **[🎬 Watch Demo](demo-link)** | **[📖 Read Docs](docs/)**
-
-</div>
 
 ---
 
