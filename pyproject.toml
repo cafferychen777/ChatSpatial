@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "chatspatial"
 version = "0.2.0"
 description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
-requires-python = ">=3.8,<3.13"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     # ========== Core Foundation (Essential) ==========
     # MCP and data processing

@@ -36,7 +36,7 @@ Open your terminal/command prompt and run these commands:
 
 ```bash
 # Create a new environment (like a clean workspace)
-conda create -n chatspatial python=3.11
+conda create -n chatspatial python=3.10
 conda activate chatspatial
 
 # Get ChatSpatial
@@ -62,7 +62,7 @@ chatspatial --help
 
 ```bash
 # Open terminal/command prompt
-conda create -n chatspatial python=3.11
+conda create -n chatspatial python=3.10
 # Say 'y' when prompted
 ```
 
@@ -93,7 +93,7 @@ which python
 # Should show: /path/to/miniconda3/envs/chatspatial/bin/python
 
 python --version
-# Should show: Python 3.11.x
+# Should show: Python 3.10.x or higher
 ```
 
 **⚠️ If conda activate does not work:**
@@ -184,7 +184,7 @@ Usage: python -m chatspatial server [OPTIONS]
    - Make sure conda is in your PATH
 
 5. **"Python version errors"**
-   - Verify: `python --version` shows Python 3.11.x
+   - Verify: `python --version` shows Python 3.10+
    - Check environment: `which python` points to chatspatial env
 
 ### Step 3: Connect to Claude Desktop

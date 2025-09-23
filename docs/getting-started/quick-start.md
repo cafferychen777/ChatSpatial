@@ -22,7 +22,7 @@ Get ChatSpatial running in minutes and perform your first spatial analysis.
 ## Prerequisites
 
 Before starting, ensure you have:
-- Python 3.8+ installed
+- Python 3.10+ installed (required for MCP)
 - Claude Desktop or compatible MCP client
 - Git for cloning the repository
 

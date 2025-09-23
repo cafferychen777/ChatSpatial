@@ -39,7 +39,7 @@ python -m chatspatial server --transport sse --port 8000
 
 ## Requirements
 
-- Python 3.8-3.12
+- Python 3.10-3.12 (MCP requires Python 3.10+)
 - 64 GB RAM recommended for large datasets
 - Fast SSD storage
 - Network access for team
