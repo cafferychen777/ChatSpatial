@@ -120,11 +120,21 @@ claude mcp list
 ```
 </details>
 
-### 3. Start Analyzing
-Open your Claude client and try:
-```text
-"Load the demo mouse brain dataset and show me the tissue structure"
+### 3. Download Sample Data & Start Analyzing
+
+**🎯 Quick Test (30 seconds):**
+```bash
+# Download sample datasets for testing
+curl -L -o reference_data.h5ad https://github.com/cafferychen777/ChatSpatial/releases/download/v0.2.0-data/destvi_reference_small.h5ad
+curl -L -o spatial_data.h5ad https://github.com/cafferychen777/ChatSpatial/releases/download/v0.2.0-data/destvi_spatial_small.h5ad
 ```
+
+**Now open your Claude client and try:**
+```text
+"Load /Users/apple/Downloads/reference_data.h5ad and /Users/apple/Downloads/spatial_data.h5ad, then show me the tissue structure"
+```
+
+> ⚠️ **IMPORTANT**: Use **absolute paths** when loading data (e.g., `/Users/apple/Downloads/data.h5ad`)
 
 **🎯 That's it!** No programming, no tutorials, no documentation reading required.
 
@@ -133,6 +143,14 @@ Open your Claude client and try:
 ---
 
 ## 🧬 What You Can Do
+
+### 📊 **Try These Examples** (After Loading Sample Data)
+```text
+"Identify spatial domains using SpaGCN"
+"Deconvolve the spatial data using the reference data with Cell2location"  
+"Analyze cell communication between spatial regions"
+"Find spatially variable genes and create heatmaps"
+```
 
 ### 🔍 **Spatial Analysis Made Simple**
 ```text
