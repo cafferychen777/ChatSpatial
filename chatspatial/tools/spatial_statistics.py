@@ -15,8 +15,6 @@ Key functionalities include:
 
 The primary entry point is the `analyze_spatial_patterns` function, which
 dispatches tasks to the appropriate analysis function based on user parameters.
-An experimental deep learning-based analysis using scvi-tools is included but
-is currently disabled for production use.
 """
 
 import logging
@@ -92,6 +90,7 @@ async def analyze_spatial_patterns(
         "co_occurrence",
         "ripley",
         "moran",
+        "local_moran",  # Added Local Moran's I
         "geary",
         "centrality",
         "getis_ord",
@@ -99,7 +98,6 @@ async def analyze_spatial_patterns(
         "join_count",
         "network_properties",
         "spatial_centrality",
-        "scviva",
     ]
 
     if params.analysis_type not in supported_types:
@@ -136,6 +134,8 @@ async def analyze_spatial_patterns(
         # Route to appropriate analysis function
         if params.analysis_type == "moran":
             result = await _analyze_morans_i(adata, params, context)
+        elif params.analysis_type == "local_moran":
+            result = await _analyze_local_moran(adata, params, context)
         elif params.analysis_type == "geary":
             result = await _analyze_gearys_c(adata, params, context)
         elif params.analysis_type == "neighborhood":
@@ -162,8 +162,6 @@ async def analyze_spatial_patterns(
             result = await _analyze_spatial_centrality(
                 adata, cluster_key, params, context
             )
-        elif params.analysis_type == "scviva":
-            result = await _analyze_with_scviva(adata, params, context)
         else:
             raise ValueError(f"Analysis type {params.analysis_type} not implemented")
 
@@ -364,8 +362,14 @@ async def _analyze_morans_i(
     if context:
         await context.info("Running Moran's I spatial autocorrelation analysis...")
 
-    # Determine genes to analyze
-    if params.moran_genes:
+    # Determine genes to analyze (unified gene selection)
+    if params.genes:
+        # Use unified genes parameter
+        genes = [g for g in params.genes if g in adata.var_names]
+        if not genes:
+            raise ValueError(f"None of the specified genes found: {params.genes}")
+    elif params.moran_genes:
+        # Fallback to legacy parameter for compatibility
         genes = [g for g in params.moran_genes if g in adata.var_names]
         if not genes:
             raise ValueError(f"None of the specified genes found: {params.moran_genes}")
@@ -426,12 +430,26 @@ async def _analyze_gearys_c(
     if context:
         await context.info("Running Geary's C spatial autocorrelation analysis...")
 
-    # Similar to Moran's I but with mode="geary"
-    genes = (
-        params.moran_genes
-        if params.moran_genes
-        else adata.var_names[: params.moran_n_genes]
-    )
+    # Determine genes to analyze (unified gene selection)
+    if params.genes:
+        # Use unified genes parameter
+        genes = [g for g in params.genes if g in adata.var_names]
+        if not genes:
+            raise ValueError(f"None of the specified genes found: {params.genes}")
+    elif params.moran_genes:
+        # Fallback to legacy parameter for compatibility  
+        genes = [g for g in params.moran_genes if g in adata.var_names]
+        if not genes:
+            raise ValueError(f"None of the specified genes found: {params.moran_genes}")
+    else:
+        # Use highly variable genes
+        if "highly_variable" in adata.var and adata.var["highly_variable"].any():
+            genes = adata.var_names[adata.var["highly_variable"]][
+                : params.moran_n_genes
+            ].tolist()
+        else:
+            # Fallback to top genes
+            genes = adata.var_names[: params.moran_n_genes].tolist()
 
     sq.gr.spatial_autocorr(
         adata,
@@ -550,10 +568,19 @@ async def _analyze_getis_ord(
     if context:
         await context.info("Running Getis-Ord Gi* analysis...")
 
-    # Determine genes
-    if params.getis_ord_genes:
+    # Determine genes to analyze (unified gene selection)
+    if params.genes:
+        # Use unified genes parameter
+        genes = [g for g in params.genes if g in adata.var_names]
+        if not genes:
+            raise ValueError(f"None of the specified genes found: {params.genes}")
+    elif params.getis_ord_genes:
+        # Fallback to legacy parameter for compatibility
         genes = [g for g in params.getis_ord_genes if g in adata.var_names]
+        if not genes:
+            raise ValueError(f"None of the specified genes found: {params.getis_ord_genes}")
     else:
+        # Use highly variable genes
         if "highly_variable" not in adata.var:
             raise ValueError("Highly variable genes required for Getis-Ord analysis")
         genes = adata.var_names[adata.var["highly_variable"]][
@@ -579,6 +606,9 @@ async def _analyze_getis_ord(
                 y = y.toarray().flatten()
             else:
                 y = y.flatten()
+            
+            # Ensure y is float64 to match weights matrix dtype
+            y = y.astype(np.float64)
 
             local_g = G_Local(y, w, transform="R", star=True)
 
@@ -913,282 +943,129 @@ async def _analyze_spatial_centrality(
         return {"error": str(e)}
 
 
-# ============================================================================
-# DEEP LEARNING ANALYSIS (preserved from original)
-# ============================================================================
-
-# Import scvi-tools for advanced spatial analysis
-try:
-    import scvi
-    SCVIVA = None  # Placeholder for future spatial VI implementation
-except ImportError:
-    scvi = None
-    SCVIVA = None
-
-
-async def _analyze_with_scviva(
+async def _analyze_local_moran(
     adata: ad.AnnData,
     params: SpatialAnalysisParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
-    Performs spatial analysis using a deep learning model from scvi-tools.
-
-    This function is intended to use a variational autoencoder to learn a
-    low-dimensional latent representation of the gene expression data that
-    preserves spatial information.
-
-    Warning: This function is experimental and currently disabled for general
-    use. It has known numerical stability issues that can lead to incorrect
-    results. Use other available spatial analysis methods until these issues
-    are resolved.
-    """
-    # TODO: Temporarily disabled until NaN issue is resolved
-    return {
-        "error": "SCVIVA analysis is currently under development and disabled. "
-        "Please use other spatial analysis methods."
-    }
-
-    if scvi is None:
-        return {"error": "scvi-tools package required for SCVIVA analysis"}
-
-    if SCVIVA is None:
-        return {"error": "Spatial VI analysis not yet implemented"}
-
-    if context:
-        await context.info("Running SCVIVA deep learning analysis...")
-
-    # Parameters from params object
-    n_epochs = getattr(params, "scviva_n_epochs", 1000)
-    n_hidden = getattr(params, "scviva_n_hidden", 128)
-    n_latent = getattr(params, "scviva_n_latent", 10)
-    use_gpu = getattr(params, "scviva_use_gpu", False)
-
-    try:
-        adata_copy = adata.copy()
-
-        # Add required columns if missing
-        if "sample" not in adata_copy.obs.columns:
-            adata_copy.obs["sample"] = "sample_1"
-
-        if "cell_type" not in adata_copy.obs.columns:
-            adata_copy.obs["cell_type"] = "Unknown"
-
-        # Generate SCVI embeddings if needed
-        if "X_scVI" not in adata_copy.obsm:
-            if context:
-                await context.info("Generating SCVI embeddings...")
-
-            scvi.model.SCVI.setup_anndata(adata_copy, batch_key="sample")
-            scvi_model = scvi.model.SCVI(
-                adata_copy, n_hidden=n_hidden, n_latent=n_latent
-            )
-            scvi_model.train(max_epochs=min(50, n_epochs), early_stopping=True)
-            adata_copy.obsm["X_scVI"] = scvi_model.get_latent_representation()
-
-        # For now, use standard scVI with spatial-aware setup
-        if context:
-            await context.info(
-                "Using scVI for spatial analysis"
-            )
-
-        # Setup scVI with spatial awareness
-        scvi.model.SCVI.setup_anndata(
-            adata_copy,
-            batch_key="sample",
-            categorical_covariate_keys=(
-                ["cell_type"] if "cell_type" in adata_copy.obs.columns else None
-            ),
-        )
-
-        # Create and train model
-        model = scvi.model.SCVI(
-            adata_copy,
-            n_hidden=n_hidden,
-            n_latent=n_latent,
-            gene_likelihood="zinb",  # Zero-inflated negative binomial
-        )
-
-        # Train the model (use_gpu parameter removed in newer scvi versions)
-        train_kwargs = {"max_epochs": n_epochs, "early_stopping": True}
-        if use_gpu:
-            train_kwargs["accelerator"] = "gpu"
-
-        model.train(**train_kwargs)
-
-        # Get latent representation
-        latent = model.get_latent_representation()
-
-        # Store results back
-        adata.obsm["X_scviva_latent"] = latent
-
-        return {
-            "method": "scVI (spatial-aware)",
-            "n_latent_dims": n_latent,
-            "n_epochs": n_epochs,
-            "latent_variance_explained": float(np.var(latent, axis=0).sum()),
-            "training_completed": True,
-            "device": "GPU" if use_gpu else "CPU",
-            "note": "Using standard scVI with spatial context",
-        }
-
-    except Exception as e:
-        if context:
-            await context.error(f"SCVIVA analysis failed: {e}")
-        return {"error": str(e)}
-
-
-# ============================================================================
-# BACKWARD COMPATIBILITY
-# ============================================================================
-
-
-async def analyze_spatial_with_scviva(
-    spatial_adata,
-    n_epochs: int = 1000,
-    n_hidden: int = 128,
-    n_latent: int = 10,
-    use_gpu: bool = False,
-    context: Optional[Context] = None,
-) -> Dict[str, Any]:
-    """Backward compatibility wrapper for SCVIVA analysis."""
-    params = SpatialAnalysisParameters(analysis_type="scviva")
-    params.scviva_n_epochs = n_epochs
-    params.scviva_n_hidden = n_hidden
-    params.scviva_n_latent = n_latent
-    params.scviva_use_gpu = use_gpu
-
-    return await _analyze_with_scviva(spatial_adata, params, context)
-
-
-async def calculate_spatial_stats(
-    data_id: str,
-    data_store: Dict[str, Any],
-    feature: str,
-    statistic: str = "gearys_c",
-    n_neighbors: int = 6,
-    context=None,
-) -> Dict[str, Any]:
-    """
-    Calculates specific spatial statistics for a single gene or feature.
-
-    This function is designed for targeted analysis of individual features and
-    provides access to statistics like Geary's C and Local Moran's I, which are
-    not part of the main `analyze_spatial_patterns` workflow. For global Moran's I
-    analysis of multiple genes, it is recommended to use the main analysis function.
-
+    Calculate Local Moran's I (LISA) for spatial clustering detection.
+    
+    Local Moran's I identifies spatial clusters and outliers by measuring
+    the local spatial autocorrelation for each observation.
+    
     Parameters
     ----------
-    data_id : str
-        The identifier for the dataset.
-    data_store : Dict[str, Any]
-        The dictionary that stores loaded datasets.
-    feature : str
-        The name of the gene or feature in `adata.var_names` to analyze.
-    statistic : str
-        The type of statistic to calculate. Supported options are 'gearys_c'
-        and 'local_morans'.
-    n_neighbors : int
-        The number of neighbors to use for constructing the spatial graph.
-    context : Optional
-        The MCP context for logging.
-
+    adata : ad.AnnData
+        Annotated data object
+    params : SpatialAnalysisParameters
+        Analysis parameters including genes to analyze
+    context : Optional[Context]
+        MCP context for logging
+    
     Returns
     -------
     Dict[str, Any]
-        A dictionary containing the results of the statistical calculation.
+        Results including Local Moran's I values and statistics for each gene
     """
-    # Get data
-    if data_id not in data_store:
-        raise ValueError(f"Dataset {data_id} not found")
+    import numpy as np
+    from scipy.sparse import issparse
+    from scipy.stats import zscore
 
-    adata = data_store[data_id]["adata"]
-
-    # Ensure spatial neighbors exist (equivalent to spatial graph)
-    await _ensure_spatial_neighbors(adata, n_neighbors, context)
-
-    # Calculate statistics based on type
-    if statistic == "gearys_c":
-        # Calculate Geary's C using squidpy
-        import squidpy as sq
-
-        # Ensure feature exists
-        if feature not in adata.var_names:
-            raise ValueError(f"Feature {feature} not found in dataset")
-
-        # Calculate Geary's C
-        sq.gr.spatial_autocorr(adata, mode="geary", genes=[feature], n_jobs=1)
-
-        # Extract results (squidpy returns DataFrame, not dict)
-        if "gearyC" in adata.uns:
-            import pandas as pd
-            df = adata.uns["gearyC"]
-            if isinstance(df, pd.DataFrame) and feature in df.index:
-                geary_c = float(df.loc[feature, 'C'])
-                # Use corrected p-value column name
-                pval = (
-                    float(df.loc[feature, 'pval_norm_fdr_bh'])
-                    if 'pval_norm_fdr_bh' in df.columns
-                    else None
-                )
-
-                return {
-                    "statistic": "gearys_c",
-                    "feature": feature,
-                    "value": geary_c,
-                    "pvalue": pval,
-                    "interpretation": (
-                        "Values < 1 indicate positive spatial autocorrelation"
-                    ),
-                    "n_neighbors": n_neighbors,
-                }
-
-    elif statistic == "local_morans":
-        # Calculate Local Moran's I
-        import numpy as np
-        from scipy.sparse import issparse
-        from scipy.stats import zscore
-
-        # Ensure feature exists
-        if feature not in adata.var_names:
-            raise ValueError(f"Feature {feature} not found in dataset")
-
-        # Get expression values
-        if issparse(adata.X):
-            expr = adata[:, feature].X.toarray().flatten()
+    try:
+        # Ensure spatial neighbors exist
+        await _ensure_spatial_neighbors(
+            adata, params.n_neighbors, context
+        )
+        
+        # Determine genes to analyze
+        if params.genes:
+            genes = params.genes
         else:
-            expr = adata[:, feature].X.flatten()
-
-        # Standardize expression
-        z_expr = zscore(expr)
-
+            # Use top highly variable genes if available
+            if "highly_variable" in adata.var.columns:
+                hvg_genes = adata.var_names[
+                    adata.var["highly_variable"]
+                ].tolist()[:5]
+                genes = hvg_genes if hvg_genes else adata.var_names[:5].tolist()
+            else:
+                genes = adata.var_names[:5].tolist()
+        
+        # Validate genes exist
+        valid_genes = []
+        for gene in genes:
+            if gene in adata.var_names:
+                valid_genes.append(gene)
+            elif context:
+                await context.warning(f"Gene {gene} not found in dataset")
+        
+        if not valid_genes:
+            return {"error": "No valid genes found for analysis"}
+        
         # Get spatial weights
         W = adata.obsp["spatial_connectivities"]
-
-        # Calculate local Moran's I
-        n = len(expr)
-        local_i = np.zeros(n)
-
-        for i in range(n):
-            neighbors = W[i].nonzero()[1]
-            if len(neighbors) > 0:
-                local_i[i] = z_expr[i] * np.mean(z_expr[neighbors])
-
-        # Store in adata
-        adata.obs[f"{feature}_local_morans"] = local_i
-
-        return {
-            "statistic": "local_morans",
-            "feature": feature,
-            "values": local_i.tolist(),
-            "mean": float(np.mean(local_i)),
-            "std": float(np.std(local_i)),
-            "min": float(np.min(local_i)),
-            "max": float(np.max(local_i)),
-            "n_neighbors": n_neighbors,
+        
+        results = {}
+        for gene in valid_genes:
+            # Get expression values
+            if issparse(adata.X):
+                expr = adata[:, gene].X.toarray().flatten()
+            else:
+                expr = adata[:, gene].X.flatten()
+            
+            # Standardize expression
+            z_expr = zscore(expr)
+            
+            # Calculate local Moran's I
+            n = len(expr)
+            local_i = np.zeros(n)
+            
+            for i in range(n):
+                neighbors = W[i].nonzero()[1]
+                if len(neighbors) > 0:
+                    local_i[i] = z_expr[i] * np.mean(z_expr[neighbors])
+            
+            # Store in adata.obs
+            adata.obs[f"{gene}_local_morans"] = local_i
+            
+            # Identify clusters (significant positive values) and outliers (significant negative values)
+            threshold = np.percentile(np.abs(local_i), 95)
+            hotspots = np.where(local_i > threshold)[0].tolist()
+            coldspots = np.where(local_i < -threshold)[0].tolist()
+            
+            results[gene] = {
+                "mean": float(np.mean(local_i)),
+                "std": float(np.std(local_i)),
+                "min": float(np.min(local_i)),
+                "max": float(np.max(local_i)),
+                "n_hotspots": len(hotspots),
+                "n_coldspots": len(coldspots),
+            }
+        
+        # Store summary in uns
+        adata.uns["local_moran"] = {
+            "genes_analyzed": valid_genes,
+            "n_neighbors": params.n_neighbors,
+            "results": results,
         }
+        
+        if context:
+            await context.info(
+                f"Calculated Local Moran's I for {len(valid_genes)} genes"
+            )
+        
+        return {
+            "analysis_type": "local_moran",
+            "genes_analyzed": valid_genes,
+            "results": results,
+            "interpretation": (
+                "Positive values indicate spatial clustering (similar values nearby), "
+                "negative values indicate spatial outliers (different values nearby)"
+            ),
+        }
+    
+    except Exception as e:
+        if context:
+            await context.warning(f"Local Moran's I analysis failed: {str(e)}")
+        return {"error": f"Local Moran's I analysis failed: {str(e)}"}
 
-    else:
-        raise ValueError(f"Unsupported statistic: {statistic}")
-
-    return {"error": f"Failed to calculate {statistic} for {feature}"}

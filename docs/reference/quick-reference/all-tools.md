@@ -7,14 +7,14 @@
 | Category | Tools | Use Cases |
 |----------|-------|-----------|
 | **Data Management** | `load_data`, `preprocess_data` | Loading and preparing datasets |
-| **Analysis** | `analyze_spatial_data`, `find_markers`, `find_spatial_genes`, `calculate_spatial_statistics` | Core spatial analysis |
+| **Analysis** | `analyze_spatial_data`, `find_markers`, `find_spatial_genes` | Core spatial analysis |
 | **Annotation** | `annotate_cells` | Cell type identification |
 | **Advanced Analysis** | `analyze_velocity_data`, `analyze_trajectory_data`, `analyze_cell_communication`, `analyze_enrichment` | RNA velocity, trajectories, communication |
 | **Integration** | `integrate_samples`, `register_spatial_data` | Multi-sample and alignment |
 | **Deconvolution** | `deconvolve_data`, `identify_spatial_domains` | Spot deconvolution and domain identification |
 | **Visualization** | `visualize_data` | All plotting and visualization |
 
-**Total: 15 Core MCP Tools** covering the complete spatial transcriptomics analysis pipeline.
+**Total: 14 Core MCP Tools** covering the complete spatial transcriptomics analysis pipeline.
 
 ---
 
@@ -69,15 +69,30 @@
 
 **Key Parameters**:
 - `data_id`: Dataset ID
-- `params.analysis_type`: `"moran"`, `"getis_ord"`, `"neighborhood"`, `"co_occurrence"`, `"centrality"`, `"ripley"`
-- `params.feature`: Gene/feature to analyze
+- `params.analysis_type`: 
+  - `"moran"` - Global Moran's I
+  - `"local_moran"` - Local Moran's I (LISA) 
+  - `"geary"` - Geary's C
+  - `"getis_ord"` - Getis-Ord Gi*
+  - `"neighborhood"` - Neighborhood enrichment
+  - `"co_occurrence"` - Co-occurrence patterns
+  - `"ripley"` - Ripley's K/L
+  - `"centrality"` - Graph centrality
+  - `"bivariate_moran"` - Gene pair correlation
+  - `"join_count"` - Categorical autocorrelation
+  - `"network_properties"` - Network analysis
+  - `"spatial_centrality"` - Spatial centrality
+- `params.genes`: List of genes to analyze (unified parameter)
 - `params.n_neighbors`: Number of spatial neighbors (default: 6)
 
 **Example Queries**:
 ```
 "Analyze spatial autocorrelation for CD3D"
+"Find local spatial hotspots for these genes"
+"Calculate Geary's C for my marker genes"
 "Find spatial hotspots using Getis-Ord"
 "Calculate neighborhood enrichment"
+"Analyze bivariate spatial correlation between gene pairs"
 ```
 
 **Returns**: Spatial statistics and significance values
@@ -127,26 +142,6 @@
 
 ---
 
-### `calculate_spatial_statistics`
-**Purpose**: Calculate specialized spatial statistics  
-**Difficulty**: 🟡 Intermediate
-
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `feature`: Gene/feature name
-- `statistic`: `"gearys_c"`, `"local_morans"`
-- `n_neighbors`: Spatial neighbors count (default: 6)
-
-**Example Queries**:
-```
-"Calculate Geary's C for GAPDH"
-"Compute local Moran's I statistics"
-"Analyze spatial clustering for this gene"
-```
-
-**Returns**: Spatial statistics results
-
----
 
 ## 🟣 Cell Annotation Tools
 

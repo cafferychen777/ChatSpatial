@@ -27,7 +27,7 @@ ChatSpatial provides 16 MCP tools for spatial transcriptomics analysis. Each too
 |----------|-------|-------------|
 | **[Data Management](#data-management)** | `load_data`, `preprocess_data` | Data loading, QC, and preprocessing |
 | **[Cell Annotation](#cell-annotation)** | `annotate_cells` | 7 annotation methods with reference data support |
-| **[Spatial Analysis](#spatial-analysis)** | `analyze_spatial_data`, `identify_spatial_domains`, `register_spatial_data`, `calculate_spatial_statistics` | Pattern analysis, domain identification, registration, and spatial statistics |
+| **[Spatial Analysis](#spatial-analysis)** | `analyze_spatial_data`, `identify_spatial_domains`, `register_spatial_data` | Comprehensive spatial pattern analysis, domain identification, and registration |
 | **[Gene Analysis](#gene-analysis)** | `find_spatial_genes`, `find_markers`, `analyze_enrichment` | Spatial variable genes, differential expression, and enrichment |
 | **[Cell Communication](#cell-communication)** | `analyze_cell_communication` | Ligand-receptor interaction analysis |
 | **[Deconvolution](#deconvolution)** | `deconvolve_data` | Cell type proportion estimation |
@@ -52,7 +52,7 @@ analyze_enrichment(data_id="dataset", method="spatial_enrichmap")
 
 # Advanced spatial analysis
 register_spatial_data(source_id="section1", target_id="section2")
-calculate_spatial_statistics(data_id="dataset", feature="gene", statistic="gearys_c")
+analyze_spatial_data(data_id="dataset", params={"analysis_type": "geary", "genes": ["gene"]})
 
 # Visualization
 visualize_data(data_id="dataset", plot_type="spatial_domains")
@@ -288,55 +288,59 @@ print(f"Registration successful with transformation matrix")
 print(f"Alignment quality score: {result['alignment_score']:.3f}")
 ```
 
-### calculate_spatial_statistics
+### analyze_spatial_data (Enhanced)
 
-Calculate spatial statistics for gene expression features.
+Unified spatial statistics analysis with support for 12 different analysis types.
 
 **Signature:**
 
 ```python
-calculate_spatial_statistics(
+analyze_spatial_data(
     data_id: str,
-    feature: str,
-    statistic: str = "gearys_c",
-    n_neighbors: int = 6
-) -> Dict[str, Any]
+    params: Dict[str, Any]
+) -> SpatialAnalysisResult
 ```
 
-**Available Statistics:**
+**Available Analysis Types:**
 
-| Statistic | Description | Interpretation |
-|-----------|-------------|----------------|
-| `gearys_c` | Geary's C spatial autocorrelation | Similar to Moran's I but emphasizes local differences |
-| `local_morans` | Local Moran's I statistic | Identifies spatial clusters and outliers |
+| Analysis Type | Description | Key Parameters |
+|--------------|-------------|----------------|
+| `moran` | Global Moran's I spatial autocorrelation | `genes`, `moran_n_perms` |
+| `local_moran` | Local Moran's I (LISA) for hotspot detection | `genes`, `n_neighbors` |
+| `geary` | Geary's C spatial autocorrelation | `genes`, `moran_n_perms` |
+| `getis_ord` | Getis-Ord Gi* hot/cold spot analysis | `genes`, `n_neighbors` |
+| `neighborhood` | Neighborhood enrichment analysis | `cluster_key`, `n_neighbors` |
+| `co_occurrence` | Cell type co-occurrence patterns | `cluster_key`, `n_neighbors` |
+| `ripley` | Ripley's K/L point pattern analysis | `cluster_key` |
+| `centrality` | Graph centrality measures | `cluster_key` |
+| `bivariate_moran` | Bivariate spatial correlation | `gene_pairs` |
+| `join_count` | Join count for categorical data | `cluster_key` |
+| `network_properties` | Spatial network analysis | `cluster_key` |
+| `spatial_centrality` | Spatial-specific centrality | `cluster_key` |
 
-**Features:**
+**New Unified Gene Selection:**
 
-- Complementary to `analyze_spatial_data` 
-- Focus on specific statistics
-- Local spatial pattern detection
-- Statistical significance testing
-- Spatial neighborhood graph construction
+The `genes` parameter now provides unified gene selection across all relevant analysis types:
 
-**Example:**
 ```python
-# Calculate Geary's C for a specific gene
-result = calculate_spatial_statistics(
+# Example: Local Moran's I analysis
+result = analyze_spatial_data(
     data_id="tissue_dataset",
-    feature="GAPDH",
-    statistic="gearys_c",
-    n_neighbors=8
+    params={
+        "analysis_type": "local_moran",
+        "genes": ["CD8A", "FOXP3"],  # Unified parameter
+        "n_neighbors": 6
+    }
 )
 
-print(f"Geary's C: {result['statistic_value']:.3f}")
-print(f"P-value: {result['p_value']:.2e}")
-
-# Local Moran's I for hotspot detection
-result = calculate_spatial_statistics(
-    data_id="tissue_dataset", 
-    feature="MKI67",
-    statistic="local_morans",
-    n_neighbors=6
+# Example: Geary's C analysis  
+result = analyze_spatial_data(
+    data_id="tissue_dataset",
+    params={
+        "analysis_type": "geary", 
+        "genes": ["GAPDH", "MKI67"],  # Same unified parameter
+        "n_neighbors": 8
+    }
 )
 ```
 

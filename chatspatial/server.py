@@ -29,7 +29,7 @@ from .spatial_mcp_adapter import (MCPToolMetadata,
 from .tools.annotation import annotate_cell_types
 from .tools.deconvolution import deconvolve_spatial_data
 from .tools.differential import differential_expression
-from .tools.spatial_analysis import analyze_spatial_patterns
+from .tools.spatial_statistics import analyze_spatial_patterns
 from .tools.spatial_genes import identify_spatial_genes
 from .tools.trajectory import analyze_rna_velocity
 from .utils.error_handling import ProcessingError
@@ -361,12 +361,18 @@ async def analyze_spatial_data(
 
     Notes:
         Available analysis types (implemented):
-        - moran: Moran's I spatial autocorrelation (squidpy)
+        - moran: Global Moran's I spatial autocorrelation (squidpy)
+        - local_moran: Local Moran's I (LISA) for spatial clustering detection
+        - geary: Geary's C spatial autocorrelation (squidpy)
         - getis_ord: Getis-Ord Gi* hot/cold spot detection (esda/PySAL)
         - neighborhood: Neighborhood enrichment (squidpy)
         - co_occurrence: Co-occurrence analysis (squidpy)
         - centrality: Graph centrality scores (squidpy)
-        - ripley: Ripley's K/L
+        - ripley: Ripley's K/L spatial point patterns
+        - bivariate_moran: Bivariate Moran's I for gene pair correlation
+        - join_count: Join count statistics for categorical data
+        - network_properties: Spatial network analysis
+        - spatial_centrality: Spatial-specific centrality measures
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -1351,54 +1357,6 @@ async def register_spatial_data(
     return result
 
 
-@mcp.tool()
-@mcp_tool_error_handler()
-async def calculate_spatial_statistics(
-    data_id: str,
-    feature: str,
-    statistic: str = "gearys_c",
-    n_neighbors: int = 6,
-    context: Context = None,
-) -> Dict[str, Any]:
-    """Calculate specialized spatial statistics for features
-
-    This tool provides advanced spatial statistics not available in analyze_spatial_patterns.
-    For Moran's I analysis, use analyze_spatial_patterns with analysis_type="moran".
-
-    Args:
-        data_id: Dataset ID
-        feature: Feature/gene to analyze
-        statistic: Type of statistic (gearys_c, local_morans). Note: For Moran's I, use analyze_spatial_patterns
-        n_neighbors: Number of neighbors for spatial graph
-
-    Returns:
-        Spatial statistics result
-    """
-    # Import spatial statistics function
-    from .tools.spatial_analysis import calculate_spatial_stats
-
-    # Validate dataset
-    validate_dataset(data_id)
-
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
-
-    # Call spatial statistics function
-    result = await calculate_spatial_stats(
-        data_id, data_store, feature, statistic, n_neighbors, context
-    )
-
-    # Save statistics result
-    await data_manager.save_result(data_id, f"spatial_stats_{feature}", result)
-
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(
-        data_id, f"statistics_{feature}", result
-    )
-
-    return result
-
 
 # Register tool metadata with the adapter
 tool_metadata = {
@@ -1510,13 +1468,6 @@ tool_metadata = {
         description="Align spatial sections",
         read_only_hint=False,
         idempotent_hint=False,
-    ),
-    "calculate_spatial_statistics": MCPToolMetadata(
-        name="calculate_spatial_statistics",
-        title="Calculate Spatial Statistics",
-        description="Calculate spatial statistics for features",
-        read_only_hint=True,
-        idempotent_hint=True,
     ),
 }
 
