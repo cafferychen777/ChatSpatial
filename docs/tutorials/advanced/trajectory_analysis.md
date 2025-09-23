@@ -79,6 +79,8 @@ First, let me examine what type of velocity data you have available..."
 2. **VELOVI** - Deep learning approach for velocity computation, more accurate but slower
 3. **SIRV** - If you have paired scRNA-seq data
 
+**Note**: These methods compute RNA velocity. For trajectory inference, use CellRank, Palantir, or DPT with the computed velocity.
+
 Which velocity method would you prefer, or should I start with scVelo?"
 
 **👤 You:** "Let us start with scVelo. I want to understand the basics first."
@@ -197,6 +199,7 @@ For trajectory inference, I can use:
 - **CellRank** (recommended with velocity data) - Uses velocity to guide trajectory inference
 - **Palantir** - Good general-purpose trajectory method
 - **DPT** - Simple diffusion-based approach
+- **VELOVI** is NOT a trajectory method - it computes velocity which is then used by these methods
 
 Let me start with CellRank since we have velocity data."
 
@@ -458,8 +461,15 @@ This uncertainty information helps you prioritize which findings to pursue exper
 ## **My Recommendations:**
 
 ### **Typical Workflow:**
-1. **Velocity Computation**: scVelo (quick) OR VELOVI (accurate)
-2. **Trajectory Inference**: CellRank (with velocity) OR Palantir (general) OR DPT (simple)
+1. **Velocity Computation** (choose one):
+   - scVelo (quick standard method)
+   - VELOVI (accurate deep learning method)
+   - SIRV (when no spliced/unspliced data)
+2. **Trajectory Inference** (choose one):
+   - CellRank (best with velocity data from step 1)
+   - Palantir (general-purpose, works without velocity)
+   - DPT (simple pseudotime, works without velocity)
+   - Note: VELOVI is NOT a trajectory method - it provides velocity for step 1
 
 ### **Specific Recommendations:**
 
@@ -730,15 +740,17 @@ Note: After VELOVI computes velocities, use trajectory methods:
 
 ### 🔄 Complete Velocity + Trajectory Pipeline
 
-**Step 1: Choose Velocity Method**
+**Step 1: Choose Velocity Method (Optional but Recommended)**
 - **Quick exploration**: "Compute RNA velocity with scVelo"
-- **High accuracy**: "Compute RNA velocity with VELOVI"
+- **High accuracy**: "Compute RNA velocity with VELOVI" (deep learning velocity)
 - **No velocity layers**: "Use SIRV with reference data"
 
-**Step 2: Trajectory Inference** 
-- **With velocity**: "Infer trajectories with CellRank using the velocity data"
-- **General purpose**: "Infer trajectories with Palantir"
-- **Simple analysis**: "Compute pseudotime with DPT"
+**Step 2: Trajectory Inference (Required)** 
+- **With velocity from Step 1**: "Infer trajectories with CellRank using the velocity data"
+- **Without velocity**: "Infer trajectories with Palantir" (expression-based)
+- **Simple analysis**: "Compute pseudotime with DPT" (diffusion-based)
+
+**Important**: VELOVI computes velocity (Step 1), not trajectories (Step 2)
 
 **Step 3: Integration & Validation**
 - **Compare methods**: "Compare CellRank vs Palantir trajectories"

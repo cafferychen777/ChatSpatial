@@ -553,9 +553,9 @@ analyze_velocity_data(
 
 | Method | Description | Features |
 |--------|-------------|----------|
-| `scvelo` | RNA velocity analysis | Dynamical and stochastic models |
-| `velocyto` | Original RNA velocity | Splicing dynamics |
-| `velovi` | RNA velocity estimation | Deep learning velocity model (requires scvi-tools) |
+| `scvelo` | Standard RNA velocity analysis | Stochastic, deterministic, and dynamical models |
+| `velovi` | Deep learning RNA velocity | More accurate velocity with uncertainty quantification (requires scvi-tools) |
+| `sirv` | Reference-based velocity | Transfer velocity from reference dataset (not yet implemented) |
 
 ### analyze_trajectory_data
 
@@ -575,9 +575,11 @@ analyze_trajectory_data(
 
 | Method | Description | Features |
 |--------|-------------|----------|
-| `dpt` | Diffusion pseudotime | Classic pseudotime inference |
-| `palantir` | Probabilistic trajectory inference | Branch probability analysis |
-| `cellrank` | RNA velocity-based trajectory inference | Fate mapping and terminal states |
+| `dpt` | Diffusion pseudotime | Classic pseudotime inference (no velocity needed) |
+| `palantir` | Probabilistic trajectory inference | Branch probability analysis (no velocity needed) |
+| `cellrank` | RNA velocity-based trajectory inference | Fate mapping and terminal states (requires velocity) |
+
+**Important Note**: VELOVI is a velocity computation method (see `analyze_velocity_data` above), not a trajectory inference method. After computing velocity with VELOVI, use CellRank, Palantir, or DPT for trajectory inference.
 
 *Full documentation will be added in future versions*
 
