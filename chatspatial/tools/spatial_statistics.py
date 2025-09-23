@@ -8,13 +8,18 @@ patterns of cell clusters.
 
 Key functionalities include:
 - Global spatial autocorrelation (Moran's I, Geary's C).
+- Local spatial autocorrelation (Local Moran's I / LISA for cluster detection).
 - Local spatial statistics for hotspot detection (Getis-Ord Gi*).
 - Cluster-based analysis (Neighborhood Enrichment, Co-occurrence, Ripley's K).
 - Spatial network analysis (Centrality Scores, Network Properties).
 - Bivariate spatial correlation analysis (Bivariate Moran's I).
+- Categorical spatial analysis (Join Count statistics).
+- Spatial centrality measures for tissue architecture.
 
 The primary entry point is the `analyze_spatial_patterns` function, which
 dispatches tasks to the appropriate analysis function based on user parameters.
+All 12 analysis types are accessible through this unified interface with a
+new unified 'genes' parameter for consistent gene selection across methods.
 """
 
 import logging
