@@ -9,11 +9,14 @@ cellular trajectories.
 
 Key functionalities are organized into two main analysis pipelines:
 1. `analyze_rna_velocity`: Computes RNA velocity directly from spatial data
-   that contains both spliced and unspliced count layers.
+   that contains both spliced and unspliced count layers. Supports multiple
+   velocity methods including scVelo (standard), VELOVI (deep learning),
+   and SIRV (reference-based).
 2. `analyze_trajectory`: Infers developmental trajectories and pseudotime by
    combining velocity information with spatial context. It provides access to
-   advanced methods including CellRank, Palantir, VELOVI, and DPT.
-   Each method has specific data requirements and should be explicitly selected.
+   advanced methods including CellRank (velocity-based), Palantir (expression-based),
+   and DPT (diffusion-based). Each method has specific data requirements and
+   should be explicitly selected.
 """
 
 import logging
@@ -266,11 +269,27 @@ def infer_spatial_trajectory_cellrank(
     spatial_coords = adata.obsm["spatial"]
 
     # Create RNA velocity kernel
-    vk = cr.kernels.VelocityKernel(adata)
-    vk.compute_transition_matrix()
+    # Handle different velocity methods
+    if "velocity_method" in adata.uns and adata.uns["velocity_method"] == "velovi":
+        # For VELOVI, we need to use the preprocessed data that contains Ms/Mu layers
+        if "velovi_adata" in adata.uns:
+            # Use the VELOVI preprocessed data which has the proper layers
+            adata_for_cellrank = adata.uns["velovi_adata"]
+            # Transfer spatial coordinates to the velovi adata for CellRank
+            adata_for_cellrank.obsm["spatial"] = adata.obsm["spatial"]
+            # Use VELOVI data for velocity kernel
+            vk = cr.kernels.VelocityKernel(adata_for_cellrank)
+            vk.compute_transition_matrix()
+        else:
+            raise ProcessingError("VELOVI velocity data not found")
+    else:
+        # Standard velocity (scVelo) - use original adata
+        adata_for_cellrank = adata
+        vk = cr.kernels.VelocityKernel(adata_for_cellrank)
+        vk.compute_transition_matrix()
 
     # Create expression similarity-based kernel
-    ck = cr.kernels.ConnectivityKernel(adata)
+    ck = cr.kernels.ConnectivityKernel(adata_for_cellrank)
     ck.compute_transition_matrix()
 
     # Create custom spatial kernel
@@ -279,7 +298,7 @@ def infer_spatial_trajectory_cellrank(
     spatial_kernel = csr_matrix(spatial_sim)
 
     # Create spatial kernel
-    sk = cr.kernels.PrecomputedKernel(spatial_kernel, adata)
+    sk = cr.kernels.PrecomputedKernel(spatial_kernel, adata_for_cellrank)
     sk.compute_transition_matrix()
 
     # Combine kernels using configurable weights
@@ -339,10 +358,10 @@ def infer_spatial_trajectory_cellrank(
         root_state = terminal_states[0]
         pseudotime = 1 - absorption_probs[root_state].X.flatten()
 
-        # Store results
-        adata.obs["pseudotime"] = pseudotime
-        adata.obsm["fate_probabilities"] = absorption_probs
-        adata.obs["terminal_states"] = g.terminal_states
+        # Store results in adata_for_cellrank (which could be velovi_adata)
+        adata_for_cellrank.obs["pseudotime"] = pseudotime
+        adata_for_cellrank.obsm["fate_probabilities"] = absorption_probs
+        adata_for_cellrank.obs["terminal_states"] = g.terminal_states
     else:
         # No terminal states, use macrostates for pseudotime
         if hasattr(g, "macrostates") and g.macrostates is not None:
@@ -350,7 +369,8 @@ def infer_spatial_trajectory_cellrank(
             macrostate_probs = g.macrostates_memberships
             # Use the first macrostate as the "early" state
             pseudotime = 1 - macrostate_probs[:, 0].X.flatten()
-            adata.obs["pseudotime"] = pseudotime
+            # Store in adata_for_cellrank first for consistency
+            adata_for_cellrank.obs["pseudotime"] = pseudotime
         else:
             raise RuntimeError(
                 "CellRank could not compute either terminal states or macrostates"
@@ -358,7 +378,23 @@ def infer_spatial_trajectory_cellrank(
 
     # Always store macrostates if available
     if hasattr(g, "macrostates") and g.macrostates is not None:
-        adata.obs["macrostates"] = g.macrostates
+        adata_for_cellrank.obs["macrostates"] = g.macrostates
+
+    # Transfer all CellRank results back to original adata
+    # This ensures consistency regardless of whether VELOVI or standard velocity was used
+    if "pseudotime" in adata_for_cellrank.obs:
+        adata.obs["pseudotime"] = adata_for_cellrank.obs["pseudotime"]
+    if "terminal_states" in adata_for_cellrank.obs:
+        adata.obs["terminal_states"] = adata_for_cellrank.obs["terminal_states"]
+    if "macrostates" in adata_for_cellrank.obs:
+        adata.obs["macrostates"] = adata_for_cellrank.obs["macrostates"]
+    if "fate_probabilities" in adata_for_cellrank.obsm:
+        adata.obsm["fate_probabilities"] = adata_for_cellrank.obsm["fate_probabilities"]
+    
+    # Update velovi_adata if it was used (to preserve CellRank results for future use)
+    if "velocity_method" in adata.uns and adata.uns["velocity_method"] == "velovi":
+        if "velovi_adata" in adata.uns:
+            adata.uns["velovi_adata"] = adata_for_cellrank
 
     return adata
 
@@ -583,22 +619,75 @@ async def analyze_rna_velocity(
         raise DataNotFoundError(error_message)
 
     velocity_computed = False
-    with suppress_output():
+    velocity_method_used = params.method
+    
+    # Branch based on velocity computation method
+    if params.method == "scvelo":
+        with suppress_output():
+            try:
+                if context:
+                    await context.info(
+                        f"Computing RNA velocity using scVelo ({params.mode} mode)..."
+                    )
+                # Use existing scVelo computation
+                adata = compute_rna_velocity(adata, mode=params.mode, params=params)
+                velocity_computed = True
+                
+            except Exception as e:
+                error_msg = f"scVelo RNA velocity analysis failed: {str(e)}"
+                if context:
+                    await context.error(error_msg)
+                raise ProcessingError(error_msg) from e
+    
+    elif params.method == "velovi":
+        # VELOVI deep learning velocity computation
+        if context:
+            await context.info("Computing RNA velocity using VELOVI deep learning method...")
+        
+        # Check for required dependencies
+        if scvi is None or VELOVI is None:
+            raise ProcessingError(
+                "VELOVI requires scvi-tools. Install with: pip install scvi-tools"
+            )
+        
         try:
-            if context:
-                await context.info(
-                    "Found spliced/unspliced layers. Computing velocity directly."
-                )
-
-            # Use unified velocity computation
-            adata = compute_rna_velocity(adata, params=params)
-            velocity_computed = True
-
+            # Call VELOVI analysis (moved from trajectory analysis)
+            velovi_results = await analyze_velocity_with_velovi(
+                adata,
+                n_epochs=params.velovi_n_epochs,
+                n_hidden=params.velovi_n_hidden,
+                n_latent=params.velovi_n_latent,
+                use_gpu=params.velovi_use_gpu,
+                context=context
+            )
+            
+            # Check if velocity was successfully computed
+            if velovi_results.get("velocity_computed", False):
+                velocity_computed = True
+                # VELOVI stores results in adata.uns["velovi_adata"] and adata.obs
+                # We need to ensure velocity_graph is available for downstream analysis
+                if "velovi_adata" in adata.uns:
+                    # Create a velocity graph key for compatibility
+                    adata.uns["velocity_graph"] = True  # Marker that velocity exists
+                    adata.uns["velocity_method"] = "velovi"
+            else:
+                raise ProcessingError("VELOVI failed to compute velocity")
+                
         except Exception as e:
-            error_msg = f"RNA velocity analysis failed: {str(e)}"
+            error_msg = f"VELOVI velocity analysis failed: {str(e)}"
             if context:
                 await context.error(error_msg)
             raise ProcessingError(error_msg) from e
+    
+    elif params.method == "sirv":
+        # Placeholder for SIRV implementation
+        raise NotImplementedError(
+            "SIRV velocity method is not yet implemented. "
+            "Please use 'scvelo' or 'velovi' instead."
+        )
+    
+    else:
+        raise ValueError(f"Unknown velocity method: {params.method}")
 
     # Update data store
     data_store[data_id]["adata"] = adata
@@ -608,7 +697,7 @@ async def analyze_rna_velocity(
         data_id=data_id,
         velocity_computed=velocity_computed,
         velocity_graph_key="velocity_graph" if velocity_computed else None,
-        mode=params.mode,
+        mode=velocity_method_used if params.method == "scvelo" else params.method,
     )
 
 
@@ -639,8 +728,12 @@ async def analyze_trajectory(
     # Copy AnnData to avoid modifying original data
     adata = data_store[data_id]["adata"].copy()
 
-    # Check if RNA velocity has been computed
-    has_velocity = "velocity_graph" in adata.uns
+    # Check if RNA velocity has been computed (by any method)
+    has_velocity = (
+        "velocity_graph" in adata.uns or  # scVelo velocity
+        "velovi_adata" in adata.uns or    # VELOVI velocity (stored separately)
+        "velocity_method" in adata.uns    # Generic velocity marker
+    )
 
     pseudotime_key = None
     method_used = params.method
@@ -726,47 +819,6 @@ async def analyze_trajectory(
         except Exception as dpt_error:
             raise ProcessingError(f"DPT analysis failed: {dpt_error}") from dpt_error
 
-    elif params.method == "velovi":
-        if context:
-            await context.info("Attempting trajectory inference with VELOVI...")
-        
-        try:
-            # Check for required dependencies
-            if scvi is None or VELOVI is None:
-                raise ProcessingError(
-                    "VELOVI requires scvi-tools. Install with: pip install scvi-tools"
-                )
-            
-            # Call VELOVI analysis
-            velovi_results = await analyze_velocity_with_velovi(
-                adata,
-                n_epochs=params.velovi_n_epochs,
-                n_hidden=params.velovi_n_hidden,
-                n_latent=params.velovi_n_latent,
-                use_gpu=False,  # Add missing parameter
-                context=context
-            )
-            
-            # VELOVI doesn't compute pseudotime directly - use velocity results
-            # Check if VELOVI successfully computed velocity (stored in obs, not layers due to dimension mismatch)
-            if "velocity_velovi_norm" in adata.obs:
-                # Use pre-computed velocity norm from VELOVI analysis
-                velocity_norm = adata.obs["velocity_velovi_norm"].values
-                # Convert to pseudotime (normalize to 0-1 range)
-                adata.obs["velovi_pseudotime"] = velocity_norm / velocity_norm.max()
-                pseudotime_key = "velovi_pseudotime"
-                method_used = "velovi"
-                has_velocity = True  # VELOVI computed velocity
-            else:
-                raise ProcessingError("VELOVI analysis failed to compute velocity")
-                
-        except Exception as velovi_error:
-            if context:
-                await context.error(f"VELOVI analysis failed: {velovi_error}")
-            raise ProcessingError(
-                f"VELOVI trajectory inference failed: {velovi_error}"
-            ) from velovi_error
-    
     else:
         raise ValueError(f"Unknown trajectory method: {params.method}")
 
