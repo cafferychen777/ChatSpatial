@@ -113,11 +113,19 @@ python -m chatspatial server --transport sse --port 8000
 
 Once ChatSpatial is configured, try these example analyses:
 
+### Download Sample Data First
+
+Before running analyses, download sample datasets from [ChatSpatial Releases](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.2.0-data):
+- `destvi_reference_small.h5ad` (7.8MB)
+- `destvi_spatial_small.h5ad` (10MB)
+
 ### Load and Explore Data
 
 ```
-Load the mouse brain Visium dataset and show me basic information about it
+Load /Users/yourname/Downloads/destvi_spatial_small.h5ad and show me basic information about it
 ```
+
+> ⚠️ **IMPORTANT**: Always use **absolute paths** (starting with `/`) when loading data files.
 
 Expected response: ChatSpatial will load the dataset and provide summary statistics.
 
@@ -150,8 +158,8 @@ This performs automated cell type annotation and spatial mapping.
 ### Basic Spatial Analysis Workflow
 
 ```
-# 1. Load data
-Load the demo Visium dataset
+# 1. Load data (use absolute path!)
+Load /Users/yourname/Downloads/destvi_spatial_small.h5ad
 
 # 2. Quality control  
 Show me quality control metrics and filter low-quality spots
@@ -175,8 +183,8 @@ Identify spatial domains using SpaGCN
 ### Advanced Analysis Workflow
 
 ```
-# 1. Load and preprocess
-Load the mouse brain data and perform quality control
+# 1. Load and preprocess (use absolute paths!)
+Load /Users/yourname/Downloads/destvi_spatial_small.h5ad and /Users/yourname/Downloads/destvi_reference_small.h5ad and perform quality control
 
 # 2. Cell type annotation
 Annotate cell types using the marker gene approach
