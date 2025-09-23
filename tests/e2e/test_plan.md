@@ -1,183 +1,183 @@
 # ChatSpatial MCP Server - End-to-End Test Plan
 
-## 测试目标
-验证ChatSpatial MCP服务器在真实环境中的功能完整性、用户体验和与客户端的集成。
+## Test Objectives
+Verify the functional completeness, user experience, and client integration of ChatSpatial MCP server in real environments.
 
-## 测试环境
-- **MCP Inspector**: 用于直接协议测试
-- **Claude Desktop**: 用于真实用户场景测试
-- **测试数据**: 标准化的空间转录组学数据集
-
----
-
-## 测试用例清单
-
-### E2E-001: 基础工作流测试
-**目标**: 验证标准分析工作流的完整性
-
-| 步骤 | 操作 | 预期结果 | 状态 |
-|------|------|----------|------|
-| 1 | 启动MCP Inspector | 服务器成功连接，工具列表显示 | ⬜ |
-| 2 | 调用`load_data`加载visium数据 | 返回成功消息和数据ID | ⬜ |
-| 3 | 调用`preprocess_data`进行预处理 | 返回预处理完成消息 | ⬜ |
-| 4 | 调用`visualize_data`创建空间图 | 返回有效的PNG图像 | ⬜ |
-| 5 | 验证图像质量 | 图像清晰，包含空间坐标和基因表达 | ⬜ |
-
-**成功标准**: 所有步骤成功执行，最终图像质量符合预期
+## Test Environment
+- **MCP Inspector**: For direct protocol testing
+- **Claude Desktop**: For real user scenario testing
+- **Test Data**: Standardized spatial transcriptomics datasets
 
 ---
 
-### E2E-002: Claude Desktop集成测试
-**目标**: 验证与Claude Desktop的无缝集成
+## Test Case Checklist
 
-| 步骤 | 操作 | 预期结果 | 状态 |
-|------|------|----------|------|
-| 1 | 配置Claude Desktop MCP设置 | 工具图标在界面中显示 | ⬜ |
-| 2 | 重启Claude Desktop | 成功加载ChatSpatial工具 | ⬜ |
-| 3 | 发送消息: "加载visium数据并展示Gad1基因的空间表达图" | Claude理解请求并调用相应工具 | ⬜ |
-| 4 | 验证工具调用序列 | 正确调用load_data → visualize_data | ⬜ |
-| 5 | 检查最终结果 | 聊天窗口显示Gad1基因空间表达图 | ⬜ |
+### E2E-001: Basic Workflow Testing
+**Objective**: Verify the completeness of standard analysis workflow
 
-**成功标准**: Claude能够理解自然语言请求并正确调用工具链
+| Step | Operation | Expected Result | Status |
+|------|-----------|-----------------|--------|
+| 1 | Launch MCP Inspector | Server connects successfully, tool list displays | ⬜ |
+| 2 | Call `load_data` to load visium data | Returns success message and data ID | ⬜ |
+| 3 | Call `preprocess_data` for preprocessing | Returns preprocessing completion message | ⬜ |
+| 4 | Call `visualize_data` to create spatial plot | Returns valid PNG image | ⬜ |
+| 5 | Verify image quality | Image is clear, contains spatial coordinates and gene expression | ⬜ |
 
----
-
-### E2E-003: 进度报告测试
-**目标**: 验证长时间运行任务的进度报告功能
-
-| 步骤 | 操作 | 预期结果 | 状态 |
-|------|------|----------|------|
-| 1 | 启动MCP Inspector | 服务器连接成功 | ⬜ |
-| 2 | 调用耗时工具（如`identify_spatial_domains`）并提供progressToken | 任务开始执行 | ⬜ |
-| 3 | 观察Notifications面板 | 实时显示进度更新 | ⬜ |
-| 4 | 等待任务完成 | 收到完成通知和最终结果 | ⬜ |
-| 5 | 验证结果正确性 | 空间域识别结果符合预期 | ⬜ |
-
-**成功标准**: 进度报告准确，用户体验良好
+**Success Criteria**: All steps execute successfully, final image quality meets expectations
 
 ---
 
-### E2E-004: 错误处理测试
-**目标**: 验证各种错误情况的处理
+### E2E-002: Claude Desktop Integration Testing
+**Objective**: Verify seamless integration with Claude Desktop
 
-| 测试场景 | 操作 | 预期结果 | 状态 |
-|----------|------|----------|------|
-| 无效数据ID | 请求不存在的数据集 | 返回清晰的错误信息 | ⬜ |
-| 无效基因名 | 请求不存在的基因可视化 | 优雅处理，提供替代方案或警告 | ⬜ |
-| 缺失数据 | 在未预处理的数据上请求UMAP | 自动预处理或提供明确指导 | ⬜ |
-| 参数错误 | 提供无效的plot_type | 返回参数验证错误 | ⬜ |
-| 内存不足 | 处理超大数据集 | 优雅降级或内存管理 | ⬜ |
+| Step | Operation | Expected Result | Status |
+|------|-----------|-----------------|--------|
+| 1 | Configure Claude Desktop MCP settings | Tool icons display in interface | ⬜ |
+| 2 | Restart Claude Desktop | Successfully loads ChatSpatial tools | ⬜ |
+| 3 | Send message: "Load visium data and show spatial expression plot for Gad1 gene" | Claude understands request and calls appropriate tools | ⬜ |
+| 4 | Verify tool call sequence | Correctly calls load_data → visualize_data | ⬜ |
+| 5 | Check final result | Chat window displays Gad1 gene spatial expression plot | ⬜ |
 
-**成功标准**: 所有错误情况都有适当的错误信息和恢复建议
-
----
-
-### E2E-005: 增强功能测试
-**目标**: 验证新增的增强功能
-
-| 功能 | 测试操作 | 预期结果 | 状态 |
-|------|----------|----------|------|
-| 空间轮廓叠加 | 请求带轮廓的空间图 | 图像显示cluster边界轮廓 | ⬜ |
-| UMAP双重编码 | 请求颜色+大小编码的UMAP | 点的颜色和大小都有意义 | ⬜ |
-| 空间交互可视化 | 请求配体-受体对可视化 | 显示LR对的空间分布 | ⬜ |
-| 增强热图 | 请求带注释的热图 | 显示行列注释信息 | ⬜ |
-| 整合评估 | 请求批次效应评估 | 多面板显示整合质量 | ⬜ |
-| 网络可视化 | 请求邻域富集网络图 | 显示network layout | ⬜ |
-
-**成功标准**: 所有新功能正常工作，图像质量符合专业标准
+**Success Criteria**: Claude can understand natural language requests and correctly call tool chains
 
 ---
 
-### E2E-006: 性能测试
-**目标**: 验证系统在不同负载下的性能
+### E2E-003: Progress Reporting Testing
+**Objective**: Verify progress reporting functionality for long-running tasks
 
-| 测试场景 | 数据规模 | 预期响应时间 | 状态 |
-|----------|----------|--------------|------|
-| 小数据集 | 100细胞 | < 5秒 | ⬜ |
-| 标准数据集 | 1000细胞 | < 15秒 | ⬜ |
-| 大数据集 | 5000细胞 | < 60秒 | ⬜ |
-| 并发请求 | 5个同时请求 | 正常处理，无崩溃 | ⬜ |
-| 内存使用 | 连续10次可视化 | 内存增长控制在合理范围 | ⬜ |
+| Step | Operation | Expected Result | Status |
+|------|-----------|-----------------|--------|
+| 1 | Launch MCP Inspector | Server connects successfully | ⬜ |
+| 2 | Call time-consuming tool (e.g., `identify_spatial_domains`) with progressToken | Task starts execution | ⬜ |
+| 3 | Observe Notifications panel | Real-time progress updates display | ⬜ |
+| 4 | Wait for task completion | Receive completion notification and final result | ⬜ |
+| 5 | Verify result correctness | Spatial domain identification results meet expectations | ⬜ |
 
-**成功标准**: 响应时间满足用户预期，系统稳定运行
-
----
-
-### E2E-007: 兼容性测试
-**目标**: 验证不同环境下的兼容性
-
-| 环境 | 测试内容 | 预期结果 | 状态 |
-|------|----------|----------|------|
-| macOS | 完整功能测试 | 所有功能正常 | ⬜ |
-| Linux | 完整功能测试 | 所有功能正常 | ⬜ |
-| Windows | 完整功能测试 | 所有功能正常 | ⬜ |
-| Python 3.9 | 基础功能测试 | 正常运行 | ⬜ |
-| Python 3.10 | 基础功能测试 | 正常运行 | ⬜ |
-| Python 3.11 | 基础功能测试 | 正常运行 | ⬜ |
-
-**成功标准**: 在主流操作系统和Python版本上稳定运行
+**Success Criteria**: Progress reporting is accurate, user experience is good
 
 ---
 
-## 执行指南
+### E2E-004: Error Handling Testing
+**Objective**: Verify handling of various error scenarios
 
-### 测试前准备
-1. **环境设置**
+| Test Scenario | Operation | Expected Result | Status |
+|---------------|-----------|-----------------|--------|
+| Invalid Data ID | Request non-existent dataset | Return clear error message | ⬜ |
+| Invalid Gene Name | Request visualization of non-existent gene | Graceful handling, provide alternatives or warnings | ⬜ |
+| Missing Data | Request UMAP on unprocessed data | Auto-preprocess or provide clear guidance | ⬜ |
+| Parameter Error | Provide invalid plot_type | Return parameter validation error | ⬜ |
+| Memory Insufficient | Process oversized dataset | Graceful degradation or memory management | ⬜ |
+
+**Success Criteria**: All error scenarios have appropriate error messages and recovery suggestions
+
+---
+
+### E2E-005: Enhanced Features Testing
+**Objective**: Verify newly added enhanced features
+
+| Feature | Test Operation | Expected Result | Status |
+|---------|----------------|-----------------|--------|
+| Spatial Contour Overlay | Request spatial plot with contours | Image displays cluster boundary contours | ⬜ |
+| UMAP Dual Encoding | Request color+size encoded UMAP | Points have meaningful color and size | ⬜ |
+| Spatial Interaction Visualization | Request ligand-receptor pair visualization | Display spatial distribution of LR pairs | ⬜ |
+| Enhanced Heatmap | Request annotated heatmap | Display row/column annotation information | ⬜ |
+| Integration Assessment | Request batch effect evaluation | Multi-panel display of integration quality | ⬜ |
+| Network Visualization | Request neighborhood enrichment network plot | Display network layout | ⬜ |
+
+**Success Criteria**: All new features work properly, image quality meets professional standards
+
+---
+
+### E2E-006: Performance Testing
+**Objective**: Verify system performance under different loads
+
+| Test Scenario | Data Scale | Expected Response Time | Status |
+|---------------|------------|------------------------|--------|
+| Small Dataset | 100 cells | < 5 seconds | ⬜ |
+| Standard Dataset | 1000 cells | < 15 seconds | ⬜ |
+| Large Dataset | 5000 cells | < 60 seconds | ⬜ |
+| Concurrent Requests | 5 simultaneous requests | Normal processing, no crashes | ⬜ |
+| Memory Usage | 10 consecutive visualizations | Memory growth controlled within reasonable range | ⬜ |
+
+**Success Criteria**: Response times meet user expectations, system runs stably
+
+---
+
+### E2E-007: Compatibility Testing
+**Objective**: Verify compatibility across different environments
+
+| Environment | Test Content | Expected Result | Status |
+|-------------|--------------|-----------------|--------|
+| macOS | Complete functionality test | All features work normally | ⬜ |
+| Linux | Complete functionality test | All features work normally | ⬜ |
+| Windows | Complete functionality test | All features work normally | ⬜ |
+| Python 3.10 | Basic functionality test | Runs normally | ⬜ |
+| Python 3.11 | Basic functionality test | Runs normally | ⬜ |
+| Python 3.12 | Basic functionality test | Runs normally | ⬜ |
+
+**Success Criteria**: Stable operation on mainstream operating systems and Python versions
+
+---
+
+## Execution Guidelines
+
+### Pre-test Preparation
+1. **Environment Setup**
    ```bash
-   # 安装测试依赖
+   # Install test dependencies
    pip install pytest pytest-asyncio pytest-cov
-   
-   # 安装MCP Inspector
+
+   # Install MCP Inspector
    npm install -g @modelcontextprotocol/inspector
-   
-   # 准备测试数据
+
+   # Prepare test data
    python scripts/prepare_test_data.py
    ```
 
-2. **服务器启动**
+2. **Server Startup**
    ```bash
-   # 启动MCP Inspector
+   # Launch MCP Inspector
    npx @modelcontextprotocol/inspector python -m chatspatial
-   
-   # 或启动服务器用于Claude Desktop
+
+   # Or start server for Claude Desktop
    python -m chatspatial
    ```
 
-### 测试执行
-1. **手动测试**: 按照测试用例清单逐项执行
-2. **自动化测试**: 运行端到端自动化脚本
-3. **记录结果**: 在状态列标记✅（通过）或❌（失败）
-4. **问题记录**: 详细记录发现的问题和解决方案
+### Test Execution
+1. **Manual Testing**: Execute test cases one by one according to the checklist
+2. **Automated Testing**: Run end-to-end automation scripts
+3. **Record Results**: Mark ✅ (pass) or ❌ (fail) in status column
+4. **Issue Recording**: Detailed recording of discovered issues and solutions
 
-### 测试报告
-每次测试完成后，生成包含以下内容的测试报告：
-- 测试执行日期和环境信息
-- 各测试用例的详细结果
-- 发现的问题和解决状态
-- 性能数据和趋势分析
-- 改进建议
+### Test Reporting
+After each test completion, generate a test report containing:
+- Test execution date and environment information
+- Detailed results of each test case
+- Discovered issues and resolution status
+- Performance data and trend analysis
+- Improvement recommendations
 
-### 测试频率
-- **完整E2E测试**: 每次主要版本发布前
-- **核心功能测试**: 每次功能更新后
-- **回归测试**: 每周定期执行
-- **性能测试**: 每月执行一次
+### Test Frequency
+- **Complete E2E Testing**: Before each major version release
+- **Core Functionality Testing**: After each feature update
+- **Regression Testing**: Weekly regular execution
+- **Performance Testing**: Monthly execution
 
 ---
 
-## 成功标准
+## Success Criteria
 
-### 整体成功标准
-- ✅ 95%以上的测试用例通过
-- ✅ 关键工作流程100%成功
-- ✅ 错误处理覆盖所有已知场景
-- ✅ 性能指标满足用户预期
-- ✅ 用户体验流畅自然
+### Overall Success Criteria
+- ✅ 95%+ test cases pass
+- ✅ 100% success for critical workflows
+- ✅ Error handling covers all known scenarios
+- ✅ Performance metrics meet user expectations
+- ✅ User experience is smooth and natural
 
-### 质量门禁
-- 🚫 发现严重功能缺陷 → 阻止发布
-- ⚠️  发现轻微问题 → 记录并排期修复
-- 📊 性能不达标 → 优化后重测
-- 🐛 新发现Bug → 增加对应测试用例
+### Quality Gates
+- 🚫 Serious functional defects found → Block release
+- ⚠️  Minor issues found → Record and schedule fixes
+- 📊 Performance below standard → Optimize and retest
+- 🐛 New bugs discovered → Add corresponding test cases
 
-通过这个全面的E2E测试计划，确保ChatSpatial MCP服务器在各种真实场景下都能提供高质量、可靠的服务体验。
+Through this comprehensive E2E test plan, ensure that ChatSpatial MCP server provides high-quality, reliable service experience across various real-world scenarios.
