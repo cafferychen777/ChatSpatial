@@ -52,7 +52,7 @@ dependencies = [
     "scvelo>=0.2.5,<1.0",
     
     # Cell communication (10 references combined)
-    "liana>=0.1.13,<1.0",
+    "liana",  # No version constraint - let pip choose compatible version
     "cellphonedb>=5.0.0,<6.0",
     
     # Batch integration (frequently needed)
