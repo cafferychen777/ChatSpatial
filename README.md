@@ -117,14 +117,32 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 <details>
 <summary><strong>Option B: Claude Code</strong> (Terminal/IDE)</summary>
 
+**Step 1: Install Claude Code CLI**
 ```bash
-# Install Claude Code CLI if not already installed
 npm install -g @anthropic-ai/claude-code
+```
 
-# Add ChatSpatial MCP server (use YOUR virtual environment path)
-claude mcp add chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial
+**Step 2: Find Your Virtual Environment Path**
+```bash
+# First, activate your virtual environment
+source chatspatial_env/bin/activate
 
-# Verify installation
+# Then get the exact Python path (copy this output!)
+which python
+```
+**Example output:** `/Users/yourname/Research/chatspatial_env/bin/python`
+
+**Step 3: Add ChatSpatial MCP Server**
+```bash
+# Replace <PYTHON_PATH_FROM_STEP_2> with the actual path from step 2
+claude mcp add chatspatial <PYTHON_PATH_FROM_STEP_2> -- -m chatspatial
+
+# Example with real path:
+# claude mcp add chatspatial /Users/yourname/Research/chatspatial_env/bin/python -- -m chatspatial
+```
+
+**Step 4: Verify Installation**
+```bash
 claude mcp list
 ```
 </details>
