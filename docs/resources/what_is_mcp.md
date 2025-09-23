@@ -230,7 +230,7 @@ Example configuration for ChatSpatial:
       "args": [
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/Users/your_username/Desktop"
+        "/path/to/your/data"
       ]
     }
   }

@@ -166,13 +166,13 @@ graph LR
 ### Additional Resources
 - [API Reference](../reference/api/) - Detailed method documentation
 - [Troubleshooting Guide](../reference/troubleshooting/) - Common issues and solutions
-- [Community Discussions](https://github.com/yourusername/chatspatial/discussions) - Ask questions and share experiences
+- [Community Discussions](https://github.com/cafferychen777/ChatSpatial/discussions) - Ask questions and share experiences
 
 ### Reporting Issues
 Found an error in a tutorial? Please:
 1. Check the [troubleshooting section](../reference/troubleshooting/)
-2. Search [existing issues](https://github.com/yourusername/chatspatial/issues)
-3. Create a [new issue](https://github.com/yourusername/chatspatial/issues/new) with details
+2. Search [existing issues](https://github.com/cafferychen777/ChatSpatial/issues)
+3. Create a [new issue](https://github.com/cafferychen777/ChatSpatial/issues/new) with details
 
 ---
 

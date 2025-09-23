@@ -96,8 +96,8 @@ export CHATSPATIAL_MAX_MEMORY="8GB"
 # Set number of CPU cores to use
 export CHATSPATIAL_N_JOBS="4"
 
-# Enable GPU acceleration (if available)
-export CHATSPATIAL_USE_GPU="true"
+# Use all available CPU cores
+export CHATSPATIAL_USE_ALL_CORES="true"
 ```
 
 ### Logging Configuration
@@ -132,7 +132,6 @@ data:
 performance:
   max_memory: "8GB"
   n_jobs: 4
-  use_gpu: false
   chunk_size: 1000
 
 # Logging settings
@@ -164,12 +163,12 @@ methods:
 
 ### Deep Learning Methods
 
-Configure PyTorch and GPU settings:
+Configure PyTorch settings:
 
 ```yaml
 # Advanced configuration for deep learning
 deep_learning:
-  device: "auto"  # auto, cpu, cuda, mps
+  device: "cpu"  # cpu for computation
   precision: "float32"  # float32, float16
   batch_size: 128
   max_epochs: 1000
@@ -179,7 +178,6 @@ deep_learning:
 cell2location:
   max_epochs: 30000
   batch_size: null  # auto-determined
-  use_gpu: true
   learning_rate: 0.002
 ```
 
@@ -338,7 +336,6 @@ integrations:
 performance:
   max_memory: "64GB"
   n_jobs: 16
-  use_gpu: true
   chunk_size: 5000
 
 deep_learning:
@@ -354,7 +351,6 @@ deep_learning:
 performance:
   max_memory: "2GB"
   n_jobs: 2
-  use_gpu: false
   chunk_size: 100
 
 analysis:

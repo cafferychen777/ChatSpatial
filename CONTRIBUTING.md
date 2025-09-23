@@ -16,7 +16,7 @@ Thank you for your interest in contributing to ChatSpatial! This document provid
 
 1. **Fork and clone the repository**
    ```bash
-   git clone https://github.com/your-username/ChatSpatial.git
+   git clone https://github.com/cafferychen777/ChatSpatial.git
    cd ChatSpatial
    ```
 
