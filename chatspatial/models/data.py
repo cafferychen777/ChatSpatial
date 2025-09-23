@@ -60,9 +60,15 @@ class AnalysisParameters(BaseModel):
     spatial_key: str = "spatial"  # Key name for spatial coordinates in obsm
     batch_key: str = "batch"  # Key name for batch information in obs
 
-    # User-controllable adaptive parameters (None = use automatic detection)
-    n_neighbors: Optional[Annotated[int, Field(gt=2, le=50)]] = (
-        None  # Number of neighbors for graph construction (None = adaptive: 3-10 based on dataset size)
+    # User-controllable parameters (scientifically-informed defaults)
+    n_neighbors: Annotated[int, Field(gt=2, le=100)] = Field(
+        default=15,
+        description=(
+            "Number of neighbors for k-NN graph construction. "
+            "Default 15 aligns with Scanpy industry standard and UMAP developer recommendations (10-15 range). "
+            "Larger values (20-50) preserve more global structure, smaller values (5-10) emphasize local patterns. "
+            "For spatial transcriptomics: 15 captures meaningful tissue neighborhoods in both Visium (55μm) and Visium HD (2μm) data."
+        )
     )
     clustering_resolution: Optional[Annotated[float, Field(gt=0.1, le=2.0)]] = (
         None  # Leiden clustering resolution (None = adaptive: 0.4-0.8 based on dataset size)
