@@ -8,28 +8,25 @@ version = "0.2.0"
 description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
 requires-python = ">=3.8,<3.13"
 dependencies = [
-    # Core dependencies only - minimal installation
+    # ========== Core Foundation (Essential) ==========
+    # MCP and data processing
     "mcp>=0.1.0",
     "numpy>=1.21.0",
     "pandas>=1.3.0",
     "scipy>=1.7.0",
     "scikit-learn>=1.0.0",
+    
+    # Visualization
     "matplotlib>=3.5.0",
     "seaborn>=0.11.0",
+    "Pillow>=8.0.0",
     
     # Single-cell analysis core
     "scanpy>=1.9.0,<2.0",
-    # Updated to support scvi-tools 1.3.x which requires anndata>=0.11
-    "anndata>=0.11.0",
-    
-    # Version constraint to handle jinja2 conflict with pygpcca
-    "jinja2>=3.0.0",
-    
-    # Spatial analysis essentials
-    # Allow up to 2.0 for better compatibility, but exclude 2.0+ to avoid major breaking changes
+    "anndata>=0.11.0",  # Updated for scvi-tools 1.3.x compatibility
     "squidpy>=1.2.0",
     
-    # Basic clustering and dimensionality reduction
+    # Clustering and dimensionality reduction
     "umap-learn>=0.5.0",
     "igraph>=0.9.0",
     "leidenalg>=0.8.0",
@@ -41,86 +38,95 @@ dependencies = [
     "click>=8.0.0",
     "aiohttp>=3.8.0",
     
-    # Basic plotting
-    "Pillow>=8.0.0",
-]
-
-[project.optional-dependencies]
-# Advanced features with modern dependencies
-advanced = [
-    # Deep learning frameworks (PyTorch 2.x only)
-    "torch>=2.0.0,<3.0",
+    # Version constraints
+    "jinja2>=3.0.0",  # Handle conflict with pygpcca
     
-    # Advanced spatial analysis and domains
-    "SpaGCN>=1.2.5,<2.0",
-    "STAGATE>=1.0.0",  # Spatial domain identification with graph attention
+    # ========== High-Frequency Features (Extended Default) ==========
+    # Most commonly used advanced features based on usage analysis
     
-    # Deconvolution methods
-    "cell2location>=0.1.3,<1.0",
+    # Multi-tool dependency (24 references in codebase)
     "scvi-tools>=1.0.0,<2.0",
-    "mudata>=0.2.0",  # Multi-modal data support for deconvolution
+    "mudata>=0.2.0",  # Required by scvi-tools
     
-    # RNA velocity and trajectory
+    # RNA velocity (7 references)
     "scvelo>=0.2.5,<1.0",
-    "cellrank>=2.0.0,<3.0",
-    "palantir>=1.0.0",  # Trajectory inference
     
-    # Sparse matrix solvers for CellRank (significantly speeds up computation)
-    "petsc4py>=3.18.0,<4.0",
-    "slepc4py>=3.18.0,<4.0",
-    
-    # Batch integration
-    "harmonypy>=0.0.9",
-    "bbknn>=1.5.0",
-    "scanorama>=1.7.0",
-    
-    # Spatial variable genes (GASTON is preferred, SpatialDE kept for compatibility)
-    "spatialde>=1.1.3",
-    "gaston>=0.1.0",  # GASTON neural network for spatial genes
-    "glmpca-py>=0.2.0",  # GLM-PCA for dimensionality reduction
-    
-    # Cell communication
+    # Cell communication (10 references combined)
     "liana>=0.1.13,<1.0",
     "cellphonedb>=5.0.0,<6.0",
     
-    # Cell type annotation
+    # Batch integration (frequently needed)
+    "harmonypy>=0.0.9",
+    "bbknn>=1.5.0",
+    
+    # Spatial statistics extensions
+    "esda>=2.4.0",  # Exploratory spatial data analysis
+    "libpysal>=4.6.0",  # Core spatial analysis library
+    
+    # Gene set enrichment (commonly used)
+    "gseapy>=1.0.0",
+]
+
+[project.optional-dependencies]
+# Full installation with all features (recommended)
+full = [
+    # ========== Deep Learning Frameworks ==========
+    "torch>=2.0.0,<3.0",  # Required for many advanced methods
+    
+    # ========== Advanced Spatial Domains ==========
+    "SpaGCN>=1.2.5,<2.0",  # Graph convolutional network for spatial domains
+    "STAGATE>=1.0.0",  # Spatial domain identification with graph attention
+    
+    # ========== Advanced Deconvolution ==========
+    "cell2location>=0.1.3,<1.0",  # Bayesian deconvolution
+    
+    # ========== Advanced Trajectory Analysis ==========
+    "cellrank>=2.0.0,<3.0",  # RNA velocity-based fate mapping
+    "palantir>=1.0.0",  # Probabilistic trajectory inference
+    
+    # CellRank acceleration (optional but recommended)
+    "petsc4py>=3.18.0,<4.0",
+    "slepc4py>=3.18.0,<4.0",
+    
+    # ========== Additional Integration Methods ==========
+    "scanorama>=1.7.0",  # Cross-dataset integration
+    
+    # ========== Spatial Variable Genes ==========
+    "spatialde>=1.1.3",  # Gaussian process-based method
+    "gaston>=0.1.0",  # GASTON neural network for spatial genes
+    "glmpca-py>=0.2.0",  # GLM-PCA for count data
+    
+    # ========== Advanced Cell Type Annotation ==========
     "tangram-sc>=1.0.0",  # Spatial mapping of cell types
     "singler>=0.4.0",  # SingleR Python implementation
     "singlecellexperiment>=0.4.0",  # Required for SingleR
     "celldex>=0.3.0",  # Reference datasets for SingleR
-    "rpy2>=3.4.0,<4.0",  # R interface for sc-type method
+    "mllmcelltype>=0.1.0",  # LLM-based cell type annotation
     
-    # Spatial statistics and analysis
-    "esda>=2.4.0",  # Exploratory spatial data analysis
-    "libpysal>=4.6.0",  # Core spatial analysis library
-    "pysal>=2.6.0",  # Python spatial analysis library
+    # ========== R Interface (for specific methods) ==========
+    "rpy2>=3.4.0,<4.0",  # Required for RCTD, Spotlight, etc.
+    
+    # ========== Extended Spatial Analysis ==========
+    "pysal>=2.6.0",  # Full Python spatial analysis library
     "statsmodels>=0.13.0",  # Statistical modeling
     "networkx>=2.6.0",  # Network analysis for spatial graphs
     
-    # Spatial registration and optimal transport
+    # ========== Spatial Registration ==========
     "POT>=0.9.0",  # Python optimal transport
     "STalign>=1.0.0",  # Spatial alignment tool
+    "paste-bio>=1.0.0",  # PASTE spatial registration
     
-    # Visualization and performance
-    # Note: numba, dask, plotly, opencv-python are required by other packages
+    # ========== Spatial Enrichment Extensions ==========
+    "enrichmap",  # Enrichment map visualization
+    "statannotations>=0.2.0",  # Statistical annotations for plots
+    "pygam>=0.8.0",  # Generalized additive models
+    "scikit-gstat>=1.0.0",  # Geostatistical analysis
+    "adjustText>=0.8.0",  # Automatic label placement
+    "splot>=1.1.0",  # Spatial plotting
     
-    # Gene set enrichment
-    "gseapy>=1.0.0",
-    
-    # Spatial enrichment analysis (EnrichMap)
-    "enrichmap",
-    "statannotations>=0.2.0",
-    "pygam>=0.8.0",
-    "scikit-gstat>=1.0.0",
-    "adjustText>=0.8.0",
-    "splot>=1.1.0",
-    
-    # Advanced spatial methods and emerging technologies
-    "paste-bio>=1.0.0",  # Spatial registration (alternative methods)
+    # ========== Emerging Technologies ==========
     "spatialdata>=0.2.0",  # Emerging spatial data format standard
-    "mllmcelltype>=0.1.0",  # LLM-based cell type annotation
 ]
-
 
 # Development dependencies
 dev = [
@@ -128,14 +134,9 @@ dev = [
     "pytest-asyncio>=0.23.0,<1.0",
     "black>=22.0.0,<25.0",
     "mypy>=1.0.0,<2.0",
+    "ruff>=0.1.0",
+    "isort>=5.0.0",
     "pre-commit>=3.0.0,<4.0",
-]
-
-# All optional dependencies (use with caution)
-all = [
-    # Include all feature sets
-    "chatspatial[advanced]",
-    "chatspatial[dev]",
 ]
 
 [project.scripts]

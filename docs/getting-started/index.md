@@ -47,4 +47,4 @@ Before you begin, make sure you have:
 
 ---
 
-Need help? Check out our [troubleshooting guide](../reference/troubleshooting/) or [ask a question](https://github.com/yourusername/chatspatial/discussions).
+Need help? Check out our [troubleshooting guide](../reference/troubleshooting/) or [ask a question](https://github.com/cafferychen777/ChatSpatial/discussions).

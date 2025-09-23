@@ -73,7 +73,7 @@ sc.pp.filter_genes(adata, min_cells=3)
 
 ### 1. Install ChatSpatial
 ```bash
-pip install -e ".[advanced]"  # One command, everything included
+pip install -e ".[full]"  # Recommended: All features included
 ```
 
 ### 2. Set up with Claude Desktop
@@ -134,14 +134,14 @@ Open Claude Desktop and try:
 <td width="33%" align="center">
 
 ### 🚀 **Researchers**
-**Just want results?**
+**Quick start?**
 
 ```bash
 pip install -e .
 ```
-✅ Core analysis tools  
-✅ Essential visualizations  
-✅ Production-ready  
+✅ 80% of features  
+✅ Most common methods  
+✅ 6-minute install  
 
 **→ [Research Quick Start](docs/research-quickstart)**
 
@@ -149,14 +149,14 @@ pip install -e .
 <td width="33%" align="center">
 
 ### 🧠 **Power Users**
-**Need everything?**
+**Want everything?**
 
 ```bash
-pip install -e ".[advanced]"
+pip install -e ".[full]"
 ```
-✅ All 16 analysis methods  
-✅ Deep learning models  
-✅ Advanced visualizations  
+✅ 100% of features  
+✅ All 16+ methods  
+✅ Deep learning included  
 
 **→ [Advanced Setup Guide](docs/advanced-setup)**
 

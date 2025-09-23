@@ -43,9 +43,8 @@ conda activate chatspatial
 git clone https://github.com/cafferychen777/ChatSpatial.git
 cd ChatSpatial
 
-# Install ChatSpatial (choose one)
-pip install -e .                    # Core features (recommended for most users)
-pip install -e ".[advanced]"        # Advanced features (deep learning, specialized methods)
+# Install ChatSpatial (recommended)
+pip install -e ".[full]"            # Complete installation with all features
 
 # Verify installation
 chatspatial --help

@@ -28,18 +28,17 @@ Before starting, ensure you have:
 
 ## Step 1: Installation
 
-Choose your installation level based on your needs:
-
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/chatspatial.git
+git clone https://github.com/cafferychen777/ChatSpatial.git
 cd chatspatial
 
-# Install ChatSpatial (choose one)
-pip install -e .                    # Core features (recommended for most users)
-pip install -e ".[advanced]"        # Advanced features (deep learning, specialized methods)
-pip install -e ".[dev]"            # Development tools (for contributors)
+# Recommended: Install with all features
+pip install -e ".[full]"
 ```
+
+{: .highlight }
+💡 For faster installation (80% features): `pip install -e .`
 
 ## Step 2: Configure MCP Client
 
@@ -262,7 +261,7 @@ Now that you have ChatSpatial running:
 1. **Explore Tutorials**: Check out the [tutorials section](../tutorials/) for detailed workflows
 2. **Learn Analysis Methods**: Dive into specific analysis types in the [reference guide](../reference/)
 3. **Try Advanced Features**: Experiment with [advanced analysis methods](../tutorials/advanced/)
-4. **Join the Community**: Participate in [discussions](https://github.com/yourusername/chatspatial/discussions)
+4. **Join the Community**: Participate in [discussions](https://github.com/cafferychen777/ChatSpatial/discussions)
 
 ## Getting Help
 
@@ -270,7 +269,7 @@ If you encounter issues:
 
 1. **Check the logs**: Look for error messages in the console output
 2. **Review documentation**: Browse the [troubleshooting guide](../reference/troubleshooting/)
-3. **Search issues**: Check [existing GitHub issues](https://github.com/yourusername/chatspatial/issues)
+3. **Search issues**: Check [existing GitHub issues](https://github.com/cafferychen777/ChatSpatial/issues)
 4. **Ask for help**: Create a new issue with detailed error information
 
 ---
