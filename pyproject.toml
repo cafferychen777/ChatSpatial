@@ -94,7 +94,7 @@ full = [
     # ========== Spatial Variable Genes ==========
     "spatialde>=1.1.3",  # Gaussian process-based method
     "gaston-spatial>=0.0.3",  # GASTON neural network for spatial genes
-    "glmpca-py>=0.2.0",  # GLM-PCA for count data
+    "glmpca>=0.1.0",  # GLM-PCA for count data
     
     # ========== Advanced Cell Type Annotation ==========
     "tangram-sc>=1.0.0",  # Spatial mapping of cell types
@@ -117,7 +117,7 @@ full = [
     "paste-bio>=1.0.0",  # PASTE spatial registration
     
     # ========== Spatial Enrichment Extensions ==========
-    # "enrichmap",  # Enrichment map visualization (requires Python 3.11)
+    "enrichmap",  # Enrichment map visualization (Python >=3.10)
     "statannotations>=0.2.0",  # Statistical annotations for plots
     "pygam>=0.8.0",  # Generalized additive models
     "scikit-gstat>=1.0.0",  # Geostatistical analysis

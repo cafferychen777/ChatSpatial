@@ -481,6 +481,10 @@ class RNAVelocityParameters(BaseModel):
         "extra": "forbid"
     }  # Strict validation - no extra parameters allowed
 
+    # Velocity computation method selection
+    method: Literal["scvelo", "velovi", "sirv"] = "scvelo"
+    
+    # scVelo specific parameters
     mode: Literal["deterministic", "stochastic", "dynamical"] = "stochastic"
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
     basis: str = "spatial"
@@ -493,12 +497,21 @@ class RNAVelocityParameters(BaseModel):
     n_neighbors: Annotated[int, Field(gt=0)] = (
         30  # Number of neighbors for moments computation
     )
+    
+    # VELOVI specific parameters
+    velovi_n_hidden: int = 128
+    velovi_n_latent: int = 10
+    velovi_n_layers: int = 1
+    velovi_n_epochs: int = 1000
+    velovi_dropout_rate: float = 0.1
+    velovi_learning_rate: float = 1e-3
+    velovi_use_gpu: bool = False
 
 
 class TrajectoryParameters(BaseModel):
     """Trajectory analysis parameters model"""
 
-    method: Literal["cellrank", "palantir", "velovi", "dpt"] = "cellrank"
+    method: Literal["cellrank", "palantir", "dpt"] = "cellrank"
     spatial_weight: Annotated[float, Field(ge=0.0, le=1.0)] = (
         0.5  # Spatial information weight
     )
@@ -520,14 +533,6 @@ class TrajectoryParameters(BaseModel):
     palantir_num_waypoints: Annotated[int, Field(gt=0)] = (
         500  # Number of waypoints for Palantir
     )
-
-    # VeloVI parameters
-    velovi_n_hidden: int = 128
-    velovi_n_latent: int = 10
-    velovi_n_layers: int = 1
-    velovi_dropout_rate: float = 0.1
-    velovi_learning_rate: float = 1e-3
-    velovi_n_epochs: int = 1000
 
     # Fallback control
     # Removed: allow_fallback_to_dpt - No longer doing automatic fallbacks

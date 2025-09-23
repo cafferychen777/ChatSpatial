@@ -226,6 +226,17 @@ python setup.py install
 
 **Note:** STAGATE is optional. ChatSpatial will work without it, but the `stagate` method in spatial domain identification will not be available. Alternative methods (spagcn, leiden, louvain) are fully functional.
 
+### STalign (Spatial Alignment Tool)
+
+STalign is used for aligning spatial transcriptomics datasets. It's not available on PyPI and must be installed from GitHub:
+
+```bash
+pip install --upgrade "git+https://github.com/JEFworks-Lab/STalign.git"
+```
+
+**Note:** STalign is optional. ChatSpatial will work without it, but spatial alignment features may be limited.
+
+
 ## Getting Help
 
 - **Issues**: [GitHub Issues](https://github.com/cafferychen777/ChatSpatial/issues)
