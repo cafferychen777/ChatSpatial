@@ -48,7 +48,7 @@ pip install -e ".[full]"
 ```
 
 {: .highlight }
-💡 **Why virtual environment?** Isolates dependencies, prevents conflicts, and makes configuration with Claude Desktop cleaner.
+💡 **Why virtual environment?** Isolates dependencies, prevents conflicts, and makes configuration with MCP clients cleaner.
 
 {: .highlight }
 💡 **Why [full]?** Enables all 16+ analysis methods. Takes ~13 minutes but provides the complete ChatSpatial experience.
@@ -82,7 +82,7 @@ Everything in Standard, plus:
 - 5-10 GB disk space (for full installation)
 - macOS, Linux, or Windows
 
-## Configure with Claude Desktop
+## Configure Your MCP Client
 
 **Important:** Use your virtual environment's Python path for reliable operation.
 
@@ -95,9 +95,12 @@ which python
 # /Users/apple/Research/SpatialTrans_MCP/chatspatial_env/bin/python
 ```
 
-### Add to Claude Desktop Configuration
+### Option A: Claude Desktop (GUI Application)
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Edit Claude Desktop configuration file:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
 ```json
 {
@@ -122,6 +125,24 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
+### Option B: Claude Code (Terminal/IDE)
+
+Install Claude Code CLI and add ChatSpatial:
+
+```bash
+# Install Claude Code CLI (if not installed)
+npm install -g @anthropic-ai/claude-code
+
+# Add ChatSpatial MCP server
+claude mcp add chatspatial /path/to/your/chatspatial_env/bin/python -- -m chatspatial
+
+# Verify installation
+claude mcp list
+```
+
+{: .note }
+💡 The `--` separates Claude's options from the server command. Use `--scope user` to make ChatSpatial available across all projects.
+
 {: .warning }
 ⚠️ **Never use system Python:** Always use the Python from your virtual environment to avoid dependency conflicts.
 
@@ -145,8 +166,9 @@ python -c "import chatspatial; print('✅ Installation successful')"
 |-------|----------|
 | Import errors | `pip install --upgrade pip` |
 | Package conflicts | `pip install --force-reinstall -e ".[full]"` |
-| Claude doesn't see server | Check that command path points to virtual environment Python |
-| "command not found" error | Use absolute path to Python in virtual environment |
+| Claude Desktop doesn't see server | Check that command path points to virtual environment Python |
+| Claude Code "command not found" | Install CLI: `npm install -g @anthropic-ai/claude-code` |
+| Claude Code connection error | Use absolute path to Python; run `claude mcp list` to verify |
 | Wrong Python version | Recreate virtual environment with correct Python version |
 
 ## Getting Help
