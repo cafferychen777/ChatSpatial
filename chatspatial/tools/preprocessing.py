@@ -422,19 +422,20 @@ async def preprocess_data(
         try:
             sc.tl.pca(adata, n_comps=n_pcs)
         except Exception as e:
+            # PCA failed - provide detailed error information without arbitrary fallback
+            error_msg = (
+                f"PCA computation failed with {n_pcs} components: {str(e)}. "
+                f"This indicates a potential data quality issue. "
+                f"Current dataset: {adata.n_obs} cells × {adata.n_vars} genes. "
+                f"Possible solutions: "
+                f"1) Reduce n_pcs parameter manually (current: {n_pcs}) "
+                f"2) Check data normalization and filtering "
+                f"3) Ensure sufficient gene expression variation "
+                f"4) Check for memory limitations with large datasets"
+            )
             if context:
-                await context.warning(f"PCA failed: {e}. Using reduced components.")
-            # Fallback with fewer components
-            n_pcs_fallback = min(10, adata.n_vars - 1, adata.n_obs - 1)
-            try:
-                sc.tl.pca(adata, n_comps=n_pcs_fallback)
-                n_pcs = n_pcs_fallback  # Update n_pcs for downstream use
-            except Exception as e2:
-                # Both PCA methods failed - this is a critical failure
-                raise RuntimeError(
-                    f"All PCA methods failed. Original error: {str(e)}. Fallback error: {str(e2)}. "
-                    "Cannot perform dimensionality reduction. Please check data quality or try different preprocessing parameters."
-                )
+                await context.error(error_msg)
+            raise RuntimeError(error_msg)
 
         # 8. Compute neighbors graph
         if context:
