@@ -907,7 +907,7 @@ async def _store_results_in_adata(
         "spatial_domains"
     ].astype(str)
 
-    # Store predictions (if available - removed from spatial_analysis to reduce MCP output size)
+    # Store predictions (if available - removed from spatial results to reduce MCP output size)
     # adata.obsm[f"{results_key}_predictions"] = spatial_analysis.get('predictions', None)
 
     # Store spatial embedding (isodepth as 1D embedding)

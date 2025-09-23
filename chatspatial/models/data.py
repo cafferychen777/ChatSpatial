@@ -413,6 +413,7 @@ class SpatialAnalysisParameters(BaseModel):
         "co_occurrence",
         "ripley",
         "moran",
+        "local_moran",  # Added: Local Moran's I (LISA)
         "geary",
         "centrality",
         "getis_ord",
@@ -420,10 +421,15 @@ class SpatialAnalysisParameters(BaseModel):
         "join_count",
         "network_properties",
         "spatial_centrality",
-        # "scviva"  # TODO: Under development - produces NaN values, needs fixing
     ] = "neighborhood"
     cluster_key: str = "leiden"
     n_neighbors: Annotated[int, Field(gt=0)] = 15
+    
+    # Unified gene selection parameter (NEW)
+    genes: Optional[List[str]] = Field(
+        None, 
+        description="Specific genes to analyze. If None, uses HVG or defaults based on analysis type"
+    )
 
     # Parallel processing parameters
     n_jobs: Optional[int] = Field(
@@ -466,16 +472,6 @@ class SpatialAnalysisParameters(BaseModel):
     gene_pairs: Optional[List[Tuple[str, str]]] = Field(
         None, description="Gene pairs for bivariate analysis"
     )
-
-    # SCVIVA deep learning parameters
-    scviva_n_epochs: int = Field(
-        1000, description="Number of training epochs for SCVIVA"
-    )
-    scviva_n_hidden: int = Field(128, description="Number of hidden units in SCVIVA")
-    scviva_n_latent: int = Field(
-        10, description="Number of latent dimensions in SCVIVA"
-    )
-    scviva_use_gpu: bool = Field(False, description="Use GPU for SCVIVA training")
 
 
 class RNAVelocityParameters(BaseModel):
