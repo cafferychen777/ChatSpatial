@@ -507,7 +507,7 @@ def infer_pseudotime_palantir(
     return adata
 
 
-def compute_dpt_trajectory(adata, root_cells=None):
+async def compute_dpt_trajectory(adata, root_cells=None, context=None):
     """Compute Diffusion Pseudotime trajectory analysis."""
     import numpy as np
     import scanpy as sc
@@ -525,12 +525,24 @@ def compute_dpt_trajectory(adata, root_cells=None):
             "Please run in preprocessing.py: sc.pp.neighbors(adata, use_rep='X_pca')"
         )
 
-    # Check if diffusion map has been computed
+    # Check if diffusion map has been computed, compute if missing
     if "X_diffmap" not in adata.obsm:
-        raise ValueError(
-            "Diffusion pseudotime requires diffusion map but X_diffmap not found. "
-            "Please run in preprocessing.py: sc.tl.diffmap(adata)"
-        )
+        if context:
+            await context.info("DPT requires diffusion map. Computing automatically...")
+        try:
+            import scanpy as sc
+            # Auto-compute diffusion map for user convenience
+            sc.tl.diffmap(adata)
+            if context:
+                await context.info("Diffusion map computed successfully for DPT analysis")
+        except Exception as e:
+            error_msg = (
+                f"DPT requires diffusion map but failed to compute it automatically: {e}. "
+                "Please ensure neighbors graph is computed (sc.pp.neighbors) before running DPT."
+            )
+            if context:
+                await context.error(error_msg)
+            raise ValueError(error_msg)
 
     # Set root cell if provided
     if root_cells is not None and len(root_cells) > 0:
@@ -817,7 +829,7 @@ async def analyze_trajectory(
             await context.info("Attempting trajectory inference with DPT...")
         try:
             with suppress_output():
-                adata = compute_dpt_trajectory(adata, root_cells=params.root_cells)
+                adata = await compute_dpt_trajectory(adata, root_cells=params.root_cells, context=context)
             pseudotime_key = "dpt_pseudotime"
             method_used = "dpt"
             if context:
