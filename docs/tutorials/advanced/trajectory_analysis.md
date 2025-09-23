@@ -442,7 +442,7 @@ This uncertainty information helps you prioritize which findings to pursue exper
 - Simple trajectory inference
 - Quick exploratory analysis
 - Linear or simple branching processes
-- Fallback when other methods fail
+- Independent simple method (explicit user choice)
 
 **Advantages:**
 - Fast and simple
@@ -697,7 +697,7 @@ Number of PCs:
 Method Selection:
 - "cellrank": Best when velocity is available
 - "palantir": Good general-purpose method
-- "dpt": Simple fallback method
+- "dpt": Simple diffusion-based method
 
 Spatial Weight:
 - 0.3-0.5: Balanced spatial-expression integration

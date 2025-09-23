@@ -527,6 +527,7 @@ class TrajectoryParameters(BaseModel):
     velovi_n_layers: int = 1
     velovi_dropout_rate: float = 0.1
     velovi_learning_rate: float = 1e-3
+    velovi_n_epochs: int = 1000
 
     # Fallback control
     # Removed: allow_fallback_to_dpt - No longer doing automatic fallbacks
