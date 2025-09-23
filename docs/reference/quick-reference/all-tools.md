@@ -174,18 +174,21 @@
 
 **Key Parameters**:
 - `data_id`: Dataset ID
-- `params.method`: `"scvelo"`, `"velocyto"`, `"velovi"`
-- `params.mode`: `"dynamical"`, `"stochastic"`
+- `params.method`: `"scvelo"` (standard), `"velovi"` (deep learning), `"sirv"` (reference-based)
+- `params.mode`: `"dynamical"`, `"stochastic"` (for scVelo)
 - `params.n_top_genes`: Velocity genes to use
+- `params.velovi_n_epochs`: Training epochs (for VELOVI)
 
 **Example Queries**:
 ```
 "Analyze RNA velocity with scVelo"
-"Calculate cellular trajectories"
-"Show velocity streams in spatial context"
+"Use VELOVI for deep learning velocity computation"
+"Calculate velocity with stochastic mode"
 ```
 
-**Returns**: Velocity vectors and trajectory information
+**Returns**: Velocity vectors and velocity graph
+
+**Note**: This computes RNA velocity. For trajectory inference, use `analyze_trajectory_data` afterwards.
 
 ---
 
@@ -195,9 +198,9 @@
 
 **Key Parameters**:
 - `data_id`: Dataset ID
-- `params.method`: `"dpt"`, `"palantir"`, `"cellrank"`, `"velovi"`
-- `params.root_cell`: Starting cell for trajectory
-- `params.n_components`: Dimensions for trajectory
+- `params.method`: `"dpt"` (diffusion), `"palantir"` (probabilistic), `"cellrank"` (velocity-based)
+- `params.root_cells`: Starting cells for trajectory
+- `params.spatial_weight`: Weight for spatial information
 
 **Example Queries**:
 ```
@@ -207,6 +210,8 @@
 ```
 
 **Returns**: Pseudotime values and trajectory paths
+
+**Note**: CellRank requires velocity data from `analyze_velocity_data`. Palantir and DPT work without velocity.
 
 ---
 
