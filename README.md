@@ -172,7 +172,7 @@ pip install -e .
 ✅ Most common methods  
 ✅ 6-minute install  
 
-**→ [Research Quick Start](docs/research-quickstart)**
+**→ [Research Quick Start](docs/getting-started/quick-start.md)**
 
 </td>
 <td width="33%" align="center">
@@ -187,7 +187,7 @@ pip install -e ".[full]"
 ✅ All 16+ methods  
 ✅ Deep learning included  
 
-**→ [Advanced Setup Guide](docs/advanced-setup)**
+**→ [Advanced Setup Guide](docs/tutorials/learning-paths/advanced.md)**
 
 </td>
 <td width="33%" align="center">
