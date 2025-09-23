@@ -113,11 +113,11 @@ full = [
     
     # ========== Spatial Registration ==========
     "POT>=0.9.0",  # Python optimal transport
-    "STalign>=1.0.0",  # Spatial alignment tool
+    # "STalign>=1.0.0",  # Spatial alignment tool (install from GitHub, not on PyPI)
     "paste-bio>=1.0.0",  # PASTE spatial registration
     
     # ========== Spatial Enrichment Extensions ==========
-    "enrichmap",  # Enrichment map visualization
+    # "enrichmap",  # Enrichment map visualization (requires Python 3.11)
     "statannotations>=0.2.0",  # Statistical annotations for plots
     "pygam>=0.8.0",  # Generalized additive models
     "scikit-gstat>=1.0.0",  # Geostatistical analysis
