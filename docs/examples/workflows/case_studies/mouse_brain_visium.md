@@ -52,9 +52,11 @@ The visual cortex (V1) is particularly well-characterized, making it ideal for v
 
 #### ChatSpatial Conversation 1: Data Loading
 
+> ⚠️ **Path Requirement**: Always use **absolute paths** when loading data. ChatSpatial's MCP server requires complete file paths starting with `/`.
+
 **User:**
 ```
-Load the mouse brain Visium dataset from /data/V1_Adult_Mouse_Brain/ and give me an overview of the data quality and basic statistics.
+Load the mouse brain Visium dataset from /Users/yourname/data/V1_Adult_Mouse_Brain/ and give me an overview of the data quality and basic statistics.
 ```
 
 **ChatSpatial Response:**

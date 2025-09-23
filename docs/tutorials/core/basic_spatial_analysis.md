@@ -78,6 +78,13 @@ ChatSpatial automatically:
 - ❌ Don't say: "Execute load_data() with parameters..."
 - ✅ Do say: "Can you load my Visium data from this file?"
 
+> ⚠️ **CRITICAL**: Always use **absolute paths** (starting with `/`) when specifying file locations. ChatSpatial's MCP server cannot find files with relative paths like `./data.h5ad` or `data.h5ad`.
+
+**Path Examples:**
+- ✅ **Correct**: `/Users/myname/Downloads/destvi_spatial_small.h5ad`
+- ✅ **Correct**: `/home/user/projects/spatial_data.h5ad`
+- ❌ **Wrong**: `data.h5ad` or `./folder/data.h5ad`
+
 **Common questions you can ask:**
 - "What's in my dataset?"
 - "How many cells/spots do I have?"

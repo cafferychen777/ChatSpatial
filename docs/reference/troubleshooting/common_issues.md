@@ -541,13 +541,46 @@ Insufficient velocity genes
 
 ## Data Format and Loading Problems
 
+### Path Issues (Most Common!)
+
+#### Problem: File Not Found - Wrong Path Type
+
+> ⚠️ **CRITICAL REQUIREMENT**: ChatSpatial's MCP server **requires absolute paths**. Relative paths will always fail!
+
+**Error messages:**
+```bash
+File not found
+FileNotFoundError: [Errno 2] No such file or directory: 'data.h5ad'
+Cannot locate file: ./folder/data.h5ad
+```
+
+**Most common mistake:**
+```text
+❌ Wrong: "Load data.h5ad"
+❌ Wrong: "Load ./Downloads/data.h5ad"  
+❌ Wrong: "Load ~/Downloads/data.h5ad"
+✅ Correct: "Load /Users/yourname/Downloads/data.h5ad"
+```
+
+**Quick fix:**
+1. **Find the absolute path:**
+   ```bash
+   cd /your/download/folder
+   pwd  # Shows: /Users/yourname/Downloads
+   ls *.h5ad  # Shows: destvi_spatial_small.h5ad
+   ```
+
+2. **Use in ChatSpatial:**
+   ```text
+   "Load /Users/yourname/Downloads/destvi_spatial_small.h5ad"
+   ```
+
 ### File Format Issues
 
 #### Problem: Data Won't Load
 
 **Error messages:**
 ```bash
-File not found
 Unsupported file format
 Corrupted data file
 KeyError: spatial coordinates not found
@@ -556,8 +589,8 @@ KeyError: spatial coordinates not found
 **File format checklist:**
 1. **Verify file exists and is accessible:**
    ```bash
-   ls -la /path/to/your/data.h5ad
-   file /path/to/your/data.h5ad  # Check file type
+   ls -la /Users/yourname/Downloads/data.h5ad
+   file /Users/yourname/Downloads/data.h5ad  # Check file type
    ```
 
 2. **Check file format support:**
@@ -569,9 +602,9 @@ KeyError: spatial coordinates not found
    - `.csv/.tsv` (text files)
    - `.xlsx` (Excel, limited)
 
-3. **Test with ChatSpatial:**
+3. **Test with ChatSpatial (remember: absolute paths only!):**
    ```text
-   "Load data from /full/absolute/path/to/file.h5ad"
+   "Load data from /Users/yourname/Downloads/destvi_spatial_small.h5ad"
    "Check what file formats are supported"
    "Try loading with different format options"
    ```
