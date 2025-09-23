@@ -39,8 +39,6 @@ except ImportError:
 DEFAULT_TARGET_SUM = 1e4
 MAX_SCALE_VALUE = 10
 MERFISH_GENE_THRESHOLD = 200
-MIN_NEIGHBORS = 3
-MAX_NEIGHBORS_RATIO = 0.1
 MIN_KMEANS_CLUSTERS = 2
 MAX_TSNE_PCA_COMPONENTS = 50
 
@@ -441,23 +439,17 @@ async def preprocess_data(
         if context:
             await context.info("Computing neighbors graph...")
 
-        # Determine n_neighbors: user-specified or adaptive
-        if params.n_neighbors is not None:
-            n_neighbors = params.n_neighbors
-            if context:
-                await context.info(f"Using user-specified n_neighbors: {n_neighbors}")
-        else:
-            # Adaptive n_neighbors based on dataset size
-            n_neighbors = min(
-                10, int(adata.n_obs * MAX_NEIGHBORS_RATIO)
-            )  # Use at most 10% of cells as neighbors
-            n_neighbors = max(
-                n_neighbors, MIN_NEIGHBORS
-            )  # But at least MIN_NEIGHBORS neighbors
-            if context:
-                await context.info(
-                    f"Auto-detected n_neighbors: {n_neighbors} (based on {adata.n_obs} cells)"
-                )
+        # Use scientifically-informed n_neighbors with validation
+        n_neighbors = params.n_neighbors
+        
+        # Validate n_neighbors against dataset constraints
+        if n_neighbors >= adata.n_obs:
+            raise ValueError(
+                f"n_neighbors ({n_neighbors}) must be less than dataset size ({adata.n_obs})"
+            )
+        
+        if context:
+            await context.info(f"Using n_neighbors: {n_neighbors} (Scanpy industry standard)")
 
         if context:
             await context.info(
