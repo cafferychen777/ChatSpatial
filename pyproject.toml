@@ -49,7 +49,7 @@ dependencies = [
     "mudata>=0.2.0",  # Required by scvi-tools
     
     # RNA velocity (7 references)
-    "scvelo>=0.2.5,<1.0",
+    "scvelo>=0.2.5",  # Removed upper bound for better compatibility
     
     # Cell communication (10 references combined)
     "liana",  # No version constraint - let pip choose compatible version
@@ -75,10 +75,10 @@ full = [
     
     # ========== Advanced Spatial Domains ==========
     "SpaGCN>=1.2.5,<2.0",  # Graph convolutional network for spatial domains
-    "STAGATE>=1.0.0",  # Spatial domain identification with graph attention
+    # "STAGATE>=1.0.0",  # Spatial domain identification with graph attention
     
     # ========== Advanced Deconvolution ==========
-    "cell2location>=0.1.3,<1.0",  # Bayesian deconvolution
+    "cell2location>=0.1.3",  # Bayesian deconvolution
     
     # ========== Advanced Trajectory Analysis ==========
     "cellrank>=2.0.0,<3.0",  # RNA velocity-based fate mapping
