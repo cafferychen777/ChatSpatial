@@ -221,9 +221,8 @@ Example configuration for ChatSpatial:
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "python",
-      "args": ["-m", "chatspatial"],
-      "env": {}
+      "command": "/path/to/chatspatial_env/bin/python",
+      "args": ["-m", "chatspatial"]
     },
     "filesystem": {
       "command": "npx",

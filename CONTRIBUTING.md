@@ -22,8 +22,10 @@ Thank you for your interest in contributing to ChatSpatial! This document provid
 
 2. **Create a virtual environment**
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   # Create virtual environment for development
+   python3 -m venv chatspatial_dev
+   source chatspatial_dev/bin/activate  # macOS/Linux
+   # chatspatial_dev\Scripts\activate    # Windows
    ```
 
 3. **Install development dependencies**

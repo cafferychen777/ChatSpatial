@@ -59,8 +59,12 @@ ChatSpatial is a Model Context Protocol (MCP) server that enables spatial transc
 git clone https://github.com/cafferychen777/ChatSpatial.git
 cd ChatSpatial
 
-# Install dependencies
-pip install -e .
+# Create virtual environment (strongly recommended)
+python3 -m venv chatspatial_env
+source chatspatial_env/bin/activate  # macOS/Linux
+
+# Install dependencies (recommended: full installation)
+pip install -e ".[full]"
 
 # Run the MCP server
 python -m chatspatial

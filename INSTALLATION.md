@@ -2,20 +2,40 @@
 
 ## Quick Start (2 minutes)
 
-### Step 1: Install ChatSpatial
+### Step 1: Create Virtual Environment (Strongly Recommended)
 
 ```bash
 # Clone repository
 git clone https://github.com/cafferychen777/ChatSpatial.git
 cd chatspatial
 
+# Create virtual environment (choose one method)
+# Option A: Using venv (Python built-in)
+python3 -m venv chatspatial_env
+source chatspatial_env/bin/activate  # On macOS/Linux
+# chatspatial_env\Scripts\activate    # On Windows
+
+# Option B: Using conda
+conda create -n chatspatial python=3.10
+conda activate chatspatial
+
+# Option C: Using uv (fast, modern)
+uv venv
+source .venv/bin/activate
+```
+
+### Step 2: Install ChatSpatial
+
+```bash
 # Recommended: Install with all features
 pip install -e ".[full]"
 ```
 
 > 💡 **Why [full]?** Enables all 16+ analysis methods including Cell2location, CellRank, SpaGCN, and more. Takes ~13 minutes but worth it for the complete experience.
 
-### Step 2: Configure Claude Desktop
+### Step 3: Configure Claude Desktop with Virtual Environment
+
+**Important:** Use your virtual environment's Python path in the configuration.
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -23,14 +43,28 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "python",
+      "command": "/path/to/your/chatspatial/chatspatial_env/bin/python",
       "args": ["-m", "chatspatial"]
     }
   }
 }
 ```
 
-### Step 3: Restart Claude Desktop
+**Example with actual path:**
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/Users/apple/Research/SpatialTrans_MCP/chatspatial_env/bin/python",
+      "args": ["-m", "chatspatial"]
+    }
+  }
+}
+```
+
+> ⚠️ **Critical:** Replace `/path/to/your/chatspatial/` with your actual installation directory!
+
+### Step 4: Restart Claude Desktop
 
 That's it! Start analyzing your spatial data with natural language.
 
@@ -72,11 +106,16 @@ That's it! Start analyzing your spatial data with natural language.
 |-------|----------|
 | Import errors | Update pip: `pip install --upgrade pip` |
 | Package conflicts | `pip install --force-reinstall -e ".[full]"` |
-| Claude doesn't see server | Restart Claude Desktop after configuration |
+| Claude doesn't see server | Check that command path points to virtual environment Python |
+| "python not found" error | Use absolute path to virtual environment Python in config |
+| Virtual environment issues | Recreate environment: `rm -rf chatspatial_env && python3 -m venv chatspatial_env` |
 
 ## Verify Installation
 
 ```bash
+# Make sure you're in the virtual environment
+which python  # Should show path to your virtual environment
+
 # Check if ChatSpatial is installed
 python -m chatspatial --help
 

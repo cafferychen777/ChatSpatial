@@ -30,15 +30,27 @@ Configure ChatSpatial in Claude Desktop by editing the MCP configuration file:
 - Windows: `%APPDATA%/Claude/claude_desktop_config.json`
 - Linux: `~/.config/Claude/claude_desktop_config.json`
 
-**Basic Configuration:**
+**Basic Configuration (with Virtual Environment):**
 
 ```json
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "python",
-      "args": ["-m", "chatspatial"],
-      "cwd": "/path/to/your/chatspatial"
+      "command": "/path/to/chatspatial_env/bin/python",
+      "args": ["-m", "chatspatial"]
+    }
+  }
+}
+```
+
+**Real Example:**
+
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/Users/apple/Research/SpatialTrans_MCP/st_mcp_env_py310/bin/python",
+      "args": ["-m", "chatspatial"]
     }
   }
 }
@@ -50,13 +62,12 @@ Configure ChatSpatial in Claude Desktop by editing the MCP configuration file:
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "python",
+      "command": "/path/to/chatspatial_env/bin/python",
       "args": [
         "-m", "chatspatial",
         "--log-level", "INFO",
         "--max-memory", "8GB"
       ],
-      "cwd": "/path/to/your/chatspatial",
       "env": {
         "CHATSPATIAL_DATA_DIR": "/path/to/your/data",
         "CHATSPATIAL_CACHE_DIR": "/path/to/cache"
@@ -66,9 +77,24 @@ Configure ChatSpatial in Claude Desktop by editing the MCP configuration file:
 }
 ```
 
+{: .important }
+**Why use virtual environment path?** This ensures ChatSpatial uses the correct Python interpreter with all required packages installed, avoiding system-wide conflicts.
+
 ### Other MCP Clients
 
-For other MCP-compatible clients, refer to their specific configuration documentation. ChatSpatial follows the standard MCP protocol.
+For other MCP-compatible clients, always use the virtual environment's Python path:
+
+1. **Find your Python path:**
+   ```bash
+   # Activate virtual environment first
+   source chatspatial_env/bin/activate
+   which python  # Copy this path
+   ```
+
+2. **Use in configuration:**
+   Replace `"python"` with the full path from above.
+
+ChatSpatial follows the standard MCP protocol.
 
 ## Environment Variables
 
@@ -257,6 +283,9 @@ python -m chatspatial test-config
 ### Debug Configuration Issues
 
 ```bash
+# Make sure you're in the virtual environment
+which python  # Should show virtual environment path
+
 # Verbose configuration loading
 python -m chatspatial --debug show-config
 
@@ -269,6 +298,14 @@ print('Configuration loaded successfully')
 print(f'Data dir: {config.data.default_data_dir}')
 "
 ```
+
+**Common Configuration Problems:**
+
+| Problem | Solution |
+|---------|----------|  
+| "python not found" | Use full path to virtual environment Python |
+| "module not found" | Ensure virtual environment is activated |
+| Claude can't connect | Check JSON syntax and restart Claude Desktop |
 
 ## Advanced Configuration
 
