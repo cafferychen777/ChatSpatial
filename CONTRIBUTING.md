@@ -5,7 +5,7 @@ Thank you for your interest in contributing to ChatSpatial! This document provid
 ## Getting Started
 
 ### Prerequisites
-- Python 3.8 or higher (Python 3.10-3.11 recommended for optimal compatibility)
+- Python 3.10 or higher (required for MCP support)
 - Git
 - Basic understanding of spatial transcriptomics
 - Familiarity with Model Context Protocol (MCP) is helpful

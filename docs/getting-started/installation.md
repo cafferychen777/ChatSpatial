@@ -78,7 +78,7 @@ Everything in Standard, plus:
 
 ## Requirements
 
-- Python 3.8-3.12
+- Python 3.10-3.12 (MCP requires Python 3.10+)
 - 5-10 GB disk space (for full installation)
 - macOS, Linux, or Windows
 

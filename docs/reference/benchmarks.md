@@ -164,5 +164,5 @@ See our [Contributing Guide](../CONTRIBUTING.md) for details.
 
 *Benchmarks last updated: 2024-08-26*
 *Hardware: Intel i7-10700K, 32GB RAM, RTX 3070*
-*Software: ChatSpatial 1.0, Python 3.11*
+*Software: ChatSpatial 1.0, Python 3.10+*
 

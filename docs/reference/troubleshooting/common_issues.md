@@ -40,7 +40,7 @@ ImportError: cannot import name 'X' from 'Y'
 1. **Check your environment:**
    ```bash
    which python
-   python --version  # Should be 3.8+ (3.10-3.11 recommended)
+   python --version  # Should be 3.10+ (required for MCP)
    ```
 
 2. **Verify ChatSpatial installation:**

@@ -35,7 +35,7 @@ In this section, you'll learn how to:
 
 Before you begin, make sure you have:
 
-- Python 3.8 or higher installed
+- Python 3.10 or higher installed (required for MCP)
 - Basic familiarity with spatial transcriptomics concepts
 - Access to Claude Desktop or another MCP-compatible client
 

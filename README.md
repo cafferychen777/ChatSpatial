@@ -2,7 +2,7 @@
 
 # ChatSpatial 🧬
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/) [![MCP Protocol](https://img.shields.io/badge/MCP-v2024.11.05-green.svg)](https://modelcontextprotocol.io) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Docs](https://img.shields.io/badge/docs-available-blue)](https://cafferychen777.github.io/ChatSpatial/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![MCP Protocol](https://img.shields.io/badge/MCP-v2024.11.05-green.svg)](https://modelcontextprotocol.io) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Docs](https://img.shields.io/badge/docs-available-blue)](https://cafferychen777.github.io/ChatSpatial/)
 
 ## Analyze Spatial Transcriptomics Data Through Natural Language Conversation
 
@@ -81,11 +81,16 @@ git clone https://github.com/cafferychen777/ChatSpatial.git
 cd chatspatial
 
 # Create virtual environment (strongly recommended)
-python3 -m venv chatspatial_env
+# For macOS with Homebrew Python:
+/opt/homebrew/bin/python3.10 -m venv chatspatial_env  # macOS Homebrew
+# For other systems:
+# python3 -m venv chatspatial_env  # Linux/other systems
 source chatspatial_env/bin/activate  # macOS/Linux
 # chatspatial_env\Scripts\activate  # Windows
 
-# Install ChatSpatial with all features
+# Verify Python version and install
+python --version  # Should be 3.10+
+pip install --upgrade pip
 pip install -e ".[full]"  # Recommended: All features included
 ```
 
@@ -262,7 +267,7 @@ pip install -e ".[dev]"
 <details>
 <summary><strong>⚙️ System Requirements</strong></summary>
 
-- **Python**: 3.8+ (3.10+ recommended)
+- **Python**: 3.10+ (required for MCP)
 - **Memory**: 8GB+ RAM (16GB+ for large datasets)  
 - **Storage**: 5GB+ for dependencies
 - **OS**: Linux, macOS, Windows (WSL recommended)

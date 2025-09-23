@@ -149,7 +149,7 @@ That's it! Start analyzing your spatial data with natural language.
 
 ## Requirements
 
-- Python 3.8-3.12
+- Python 3.10-3.12 (MCP requires Python 3.10+)
 - macOS, Linux, or Windows
 - 5-10 GB disk space (for full installation)
 
