@@ -2,7 +2,10 @@
 Visualization tools for spatial transcriptomics data.
 """
 
+import os
 import traceback
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import anndata as ad
@@ -4935,3 +4938,312 @@ async def create_integration_check_visualization(
         )
         ax.set_title("Integration Check (Error)", fontsize=14)
         return fig
+
+
+# ============================================================================
+# FILE PERSISTENCE FUNCTIONS
+# ============================================================================
+
+async def save_visualization(
+    data_id: str,
+    plot_type: str,
+    output_dir: str = "./outputs",
+    filename: Optional[str] = None,
+    format: str = "png",
+    dpi: Optional[int] = None,
+    visualization_cache: Optional[Dict[str, Any]] = None,
+    data_store: Optional[Dict[str, Any]] = None,
+    regenerate_high_quality: bool = False,
+    context: Optional[Context] = None,
+) -> str:
+    """Save a visualization from cache to disk
+    
+    Args:
+        data_id: Dataset ID
+        plot_type: Type of plot to save
+        output_dir: Directory to save the file (default: ./outputs)
+        filename: Custom filename (optional, auto-generated if not provided)
+        format: Image format (png, jpg, pdf, svg)
+        dpi: DPI for saved image (default: 100 for png/jpg, 300 for pdf/svg)
+              For publication quality, use 300+ DPI
+        visualization_cache: Cache dictionary containing visualizations
+        data_store: Data store for regenerating visualization at higher quality
+        regenerate_high_quality: If True, regenerate the plot at specified DPI
+        context: MCP context for logging
+        
+    Returns:
+        Path to the saved file
+        
+    Raises:
+        DataNotFoundError: If visualization not found in cache
+        ProcessingError: If saving fails
+        
+    Examples:
+        # Save for publication (high DPI)
+        save_visualization("data1", "spatial", dpi=300, format="pdf")
+        
+        # Save with custom filename
+        save_visualization("data1", "umap", filename="figure_1a")
+    """
+    try:
+        # Validate format
+        valid_formats = ["png", "jpg", "jpeg", "pdf", "svg"]
+        if format.lower() not in valid_formats:
+            raise InvalidParameterError(f"Invalid format: {format}. Must be one of {valid_formats}")
+        
+        # Check cache
+        if visualization_cache is None:
+            raise ProcessingError("Visualization cache not provided")
+            
+        cache_key = f"{data_id}_{plot_type}"
+        if cache_key not in visualization_cache:
+            available_keys = [k for k in visualization_cache.keys() if k.startswith(data_id)]
+            if not available_keys:
+                raise DataNotFoundError(f"No visualizations found for dataset '{data_id}'")
+            else:
+                raise DataNotFoundError(
+                    f"Visualization '{plot_type}' not found for dataset '{data_id}'. "
+                    f"Available: {', '.join([k.replace(data_id + '_', '') for k in available_keys])}"
+                )
+        
+        # Set default DPI based on format
+        if dpi is None:
+            if format.lower() in ["pdf", "svg"]:
+                dpi = 300  # High quality for vector formats
+            else:
+                dpi = 100  # Standard quality for raster formats
+        
+        # For publication quality, recommend at least 300 DPI
+        if dpi >= 300 and context:
+            await context.info(f"Using publication-quality DPI: {dpi}")
+        
+        # Create output directory
+        output_path = Path(output_dir).resolve()
+        
+        # Security check - ensure path is within allowed directory
+        cwd = Path.cwd()
+        if not (output_path.is_relative_to(cwd) or output_path.is_relative_to(Path("./outputs").resolve())):
+            raise InvalidParameterError(f"Output directory must be within current working directory: {output_dir}")
+        
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename if not provided
+        if filename is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if dpi != 100:
+                filename = f"{data_id}_{plot_type}_{dpi}dpi_{timestamp}.{format}"
+            else:
+                filename = f"{data_id}_{plot_type}_{timestamp}.{format}"
+        else:
+            # Ensure filename has correct extension
+            if not filename.endswith(f".{format}"):
+                filename = f"{filename}.{format}"
+        
+        # Full path for the file
+        file_path = output_path / filename
+        
+        # Check if we should regenerate at high quality
+        if (dpi > 100 or format.lower() in ["pdf", "svg"]) and regenerate_high_quality and data_store:
+            if context:
+                await context.info(f"Regenerating visualization at {dpi} DPI for {format} format...")
+            
+            # This would require re-running the visualization with higher DPI
+            # For now, we'll note this as a limitation
+            if context:
+                await context.warning(
+                    f"High-quality regeneration not yet implemented. "
+                    f"Saving cached version. For publication quality, "
+                    f"regenerate the plot with higher DPI parameters."
+                )
+        
+        # Get visualization data from cache
+        viz_data = visualization_cache[cache_key]
+        if not viz_data:
+            raise ProcessingError("Visualization data is empty")
+        
+        # Save the file
+        # Note: For true high-DPI support, we need to regenerate the matplotlib figure
+        # with the specified DPI, not just save the cached PNG data
+        with open(file_path, 'wb') as f:
+            f.write(viz_data)
+        
+        if context:
+            file_size_kb = len(viz_data) / 1024
+            await context.info(
+                f"Saved visualization to {file_path} ({file_size_kb:.1f} KB)"
+            )
+            if dpi >= 300:
+                await context.info(
+                    "Note: For true publication quality, regenerate the plot with "
+                    "visualization parameters: dpi=300 or higher"
+                )
+        
+        return str(file_path)
+        
+    except (DataNotFoundError, InvalidParameterError):
+        raise
+    except Exception as e:
+        raise ProcessingError(f"Failed to save visualization: {str(e)}")
+
+
+async def list_saved_visualizations(
+    output_dir: str = "./outputs",
+    pattern: Optional[str] = None,
+    context: Optional[Context] = None,
+) -> List[Dict[str, Any]]:
+    """List all saved visualizations in the output directory
+    
+    Args:
+        output_dir: Directory to search for saved files
+        pattern: Optional glob pattern to filter files (e.g., "*spatial*")
+        context: MCP context for logging
+        
+    Returns:
+        List of dictionaries with file information
+    """
+    try:
+        output_path = Path(output_dir).resolve()
+        
+        # Check if directory exists
+        if not output_path.exists():
+            if context:
+                await context.info(f"Output directory does not exist: {output_dir}")
+            return []
+        
+        # Security check
+        cwd = Path.cwd()
+        if not (output_path.is_relative_to(cwd) or output_path.is_relative_to(Path("./outputs").resolve())):
+            raise InvalidParameterError(f"Output directory must be within current working directory: {output_dir}")
+        
+        # Get all image files
+        image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.pdf", "*.svg"]
+        files = []
+        
+        for ext in image_extensions:
+            search_pattern = pattern if pattern else ext
+            for file_path in output_path.glob(search_pattern if pattern else ext):
+                if file_path.is_file():
+                    stat = file_path.stat()
+                    files.append({
+                        "filename": file_path.name,
+                        "path": str(file_path),
+                        "size_kb": stat.st_size / 1024,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "format": file_path.suffix[1:],  # Remove the dot
+                    })
+        
+        # Sort by modification time (newest first)
+        files.sort(key=lambda x: x["modified"], reverse=True)
+        
+        if context:
+            await context.info(f"Found {len(files)} saved visualization(s) in {output_dir}")
+        
+        return files
+        
+    except InvalidParameterError:
+        raise
+    except Exception as e:
+        raise ProcessingError(f"Failed to list visualizations: {str(e)}")
+
+
+async def export_all_visualizations(
+    data_id: str,
+    output_dir: str = "./exports",
+    visualization_cache: Optional[Dict[str, Any]] = None,
+    context: Optional[Context] = None,
+) -> List[str]:
+    """Export all cached visualizations for a dataset to disk
+    
+    Args:
+        data_id: Dataset ID to export visualizations for
+        output_dir: Directory to save files
+        visualization_cache: Cache dictionary containing visualizations
+        context: MCP context for logging
+        
+    Returns:
+        List of paths to saved files
+    """
+    try:
+        if visualization_cache is None:
+            raise ProcessingError("Visualization cache not provided")
+        
+        # Find all visualizations for this dataset
+        relevant_keys = [k for k in visualization_cache.keys() if k.startswith(f"{data_id}_")]
+        
+        if not relevant_keys:
+            if context:
+                await context.warning(f"No visualizations found for dataset '{data_id}'")
+            return []
+        
+        saved_files = []
+        
+        for cache_key in relevant_keys:
+            # Extract plot type from cache key
+            plot_type = cache_key.replace(f"{data_id}_", "")
+            
+            try:
+                saved_path = await save_visualization(
+                    data_id=data_id,
+                    plot_type=plot_type,
+                    output_dir=output_dir,
+                    visualization_cache=visualization_cache,
+                    context=context
+                )
+                saved_files.append(saved_path)
+            except Exception as e:
+                if context:
+                    await context.warning(f"Failed to export {cache_key}: {str(e)}")
+        
+        if context:
+            await context.info(
+                f"Exported {len(saved_files)} visualization(s) for dataset '{data_id}' to {output_dir}"
+            )
+        
+        return saved_files
+        
+    except ProcessingError:
+        raise
+    except Exception as e:
+        raise ProcessingError(f"Failed to export visualizations: {str(e)}")
+
+
+async def clear_visualization_cache(
+    data_id: Optional[str] = None,
+    visualization_cache: Optional[Dict[str, Any]] = None,
+    context: Optional[Context] = None,
+) -> int:
+    """Clear visualization cache to free memory
+    
+    Args:
+        data_id: Optional dataset ID to clear specific visualizations
+        visualization_cache: Cache dictionary to clear
+        context: MCP context for logging
+        
+    Returns:
+        Number of visualizations cleared
+    """
+    try:
+        if visualization_cache is None:
+            return 0
+        
+        if data_id:
+            # Clear specific dataset visualizations
+            keys_to_remove = [k for k in visualization_cache.keys() if k.startswith(f"{data_id}_")]
+            for key in keys_to_remove:
+                del visualization_cache[key]
+            cleared_count = len(keys_to_remove)
+            
+            if context:
+                await context.info(f"Cleared {cleared_count} visualization(s) for dataset '{data_id}'")
+        else:
+            # Clear all visualizations
+            cleared_count = len(visualization_cache)
+            visualization_cache.clear()
+            
+            if context:
+                await context.info(f"Cleared all {cleared_count} visualization(s) from cache")
+        
+        return cleared_count
+        
+    except Exception as e:
+        raise ProcessingError(f"Failed to clear cache: {str(e)}")

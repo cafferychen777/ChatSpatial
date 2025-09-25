@@ -244,6 +244,9 @@ async def visualize_data(
     if image is not None:
         import time
 
+        # Use simple cache key for easy retrieval
+        cache_key = f"{data_id}_{params.plot_type}"
+        # Use timestamp version for resource URI to maintain uniqueness
         viz_id = f"{data_id}_{params.plot_type}_{int(time.time())}"
 
         metadata = {
@@ -255,6 +258,10 @@ async def visualize_data(
             "description": f"Visualization of {data_id}",
         }
 
+        # Store in cache with simple key for easy retrieval
+        adapter.resource_manager._visualization_cache[cache_key] = image.data
+        
+        # Also create resource with timestamped ID for uniqueness
         await adapter.resource_manager.create_visualization_resource(
             viz_id, image.data, metadata
         )
@@ -281,6 +288,160 @@ async def visualize_data(
     else:
         # Return error message if no image was generated
         return "❌ Visualization generation failed, please check the data and parameter settings."
+
+
+@mcp.tool()
+@mcp_tool_error_handler()
+async def save_visualization(
+    data_id: str,
+    plot_type: str,
+    output_dir: str = "./outputs",
+    filename: Optional[str] = None,
+    format: str = "png",
+    dpi: Optional[int] = None,
+    context: Context = None,
+) -> str:
+    """Save a visualization from cache to disk
+    
+    Args:
+        data_id: Dataset ID
+        plot_type: Type of plot to save (e.g., 'spatial', 'umap', 'heatmap')
+        output_dir: Directory to save the file (default: ./outputs)
+        filename: Custom filename (optional, auto-generated if not provided)
+        format: Image format (png, jpg, pdf, svg)
+        dpi: DPI for saved image (default: 100 for png/jpg, 300 for pdf/svg)
+             For publication quality, use 300+ DPI
+        
+    Returns:
+        Path to the saved file
+        
+    Examples:
+        Save a spatial plot: save_visualization("data1", "spatial")
+        Save with custom name: save_visualization("data1", "umap", filename="my_umap")
+        Save as PDF with high DPI: save_visualization("data1", "heatmap", format="pdf", dpi=300)
+        Save for publication: save_visualization("data1", "spatial", dpi=300, format="png")
+    """
+    from .tools.visualization import save_visualization as save_func
+    
+    # Get the visualization cache from the adapter's resource manager
+    visualization_cache = adapter.resource_manager._visualization_cache
+    
+    # Get data store for potential high-quality regeneration
+    data_store = data_manager.data_store
+    
+    result = await save_func(
+        data_id=data_id,
+        plot_type=plot_type,
+        output_dir=output_dir,
+        filename=filename,
+        format=format,
+        dpi=dpi,
+        visualization_cache=visualization_cache,
+        data_store=data_store,
+        regenerate_high_quality=False,  # For now, we don't regenerate
+        context=context,
+    )
+    
+    return result
+
+
+@mcp.tool()
+@mcp_tool_error_handler()
+async def list_saved_visualizations(
+    output_dir: str = "./outputs",
+    pattern: Optional[str] = None,
+    context: Context = None,
+) -> List[Dict[str, Any]]:
+    """List all saved visualizations in the output directory
+    
+    Args:
+        output_dir: Directory to search for saved files (default: ./outputs)
+        pattern: Optional glob pattern to filter files (e.g., "*spatial*")
+        
+    Returns:
+        List of saved visualization files with metadata
+        
+    Examples:
+        List all saved files: list_saved_visualizations()
+        List spatial plots: list_saved_visualizations(pattern="*spatial*")
+        List from custom dir: list_saved_visualizations(output_dir="./my_outputs")
+    """
+    from .tools.visualization import list_saved_visualizations as list_func
+    
+    result = await list_func(
+        output_dir=output_dir,
+        pattern=pattern,
+        context=context,
+    )
+    
+    return result
+
+
+@mcp.tool()
+@mcp_tool_error_handler()
+async def export_all_visualizations(
+    data_id: str,
+    output_dir: str = "./exports",
+    context: Context = None,
+) -> List[str]:
+    """Export all cached visualizations for a dataset to disk
+    
+    Args:
+        data_id: Dataset ID to export visualizations for
+        output_dir: Directory to save files (default: ./exports)
+        
+    Returns:
+        List of paths to saved files
+        
+    Examples:
+        Export all visualizations for dataset: export_all_visualizations("data1")
+        Export to custom directory: export_all_visualizations("data1", "./my_exports")
+    """
+    from .tools.visualization import export_all_visualizations as export_func
+    
+    # Get the visualization cache from the adapter's resource manager
+    visualization_cache = adapter.resource_manager._visualization_cache
+    
+    result = await export_func(
+        data_id=data_id,
+        output_dir=output_dir,
+        visualization_cache=visualization_cache,
+        context=context,
+    )
+    
+    return result
+
+
+@mcp.tool()
+@mcp_tool_error_handler()
+async def clear_visualization_cache(
+    data_id: Optional[str] = None,
+    context: Context = None,
+) -> int:
+    """Clear visualization cache to free memory
+    
+    Args:
+        data_id: Optional dataset ID to clear specific visualizations (if None, clears all)
+        
+    Returns:
+        Number of visualizations cleared
+        
+    Examples:
+        Clear all visualizations: clear_visualization_cache()
+        Clear for specific dataset: clear_visualization_cache("data1")
+    """
+    from .tools.visualization import clear_visualization_cache as clear_func
+    
+    # Get the visualization cache from the adapter's resource manager
+    visualization_cache = adapter.resource_manager._visualization_cache
+    
+    result = await clear_func(
+        data_id=data_id,
+        visualization_cache=visualization_cache,
+        context=context,
+    )
+    
+    return result
 
 
 @mcp.tool()

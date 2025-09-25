@@ -366,3 +366,18 @@ archived_docs/
 scripts/fixes/
 scripts/tests/
 tests/comprehensive_tools_testing/
+
+# Visualization outputs (keep directory structure, ignore files)
+outputs/*.png
+outputs/*.jpg
+outputs/*.jpeg
+outputs/*.pdf
+outputs/*.svg
+exports/*.png
+exports/*.jpg
+exports/*.jpeg
+exports/*.pdf
+exports/*.svg
+# Keep README files
+!outputs/README.md
+!exports/README.md
