@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import scanpy as sc
+import scipy.sparse
 import squidpy as sq
 from anndata import AnnData
 from mcp.server.fastmcp import Context
@@ -317,47 +318,107 @@ async def preprocess_data(
                 sc.pp.log1p(adata)
                 logger.info("✓ Applied log1p transformation")
             elif params.normalization == "sct":
-                # SCTransform-like normalization
+                # SCTransform is not actually implemented
+                error_msg = (
+                    "SCTransform normalization is not implemented. "
+                    "Current code only does log normalization, which is NOT SCTransform. "
+                    "Options:\n"
+                    "• Use 'log' for standard normalization\n"
+                    "• Use 'pearson_residuals' for variance stabilization\n"
+                    "• Install and integrate sctransform package for true SCTransform"
+                )
                 if context:
-                    await context.info("Using simplified SCTransform normalization...")
-                if params.normalize_target_sum is not None:
-                    sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
-                else:
-                    sc.pp.normalize_total(adata)  # Use median (adaptive)
-                sc.pp.log1p(adata)
-                # Note: Full SCTransform requires additional variance stabilization
-                # For production use, consider integrating sctransform package
+                    await context.error(error_msg)
+                raise NotImplementedError(error_msg)
             elif params.normalization == "pearson_residuals":
                 # Modern Pearson residuals normalization (recommended for UMI data)
                 if context:
-                    await context.info("Using modern Pearson residuals normalization...")
+                    await context.info("Using Pearson residuals normalization...")
+                
+                # Check if method is available
+                if not hasattr(sc.experimental.pp, "normalize_pearson_residuals"):
+                    error_msg = (
+                        "Pearson residuals normalization not available (requires scanpy>=1.9.0).\n"
+                        "Options:\n"
+                        "• Install newer scanpy: pip install 'scanpy>=1.9.0'\n"
+                        "• Use log normalization instead: params.normalization='log'\n"
+                        "• Skip normalization if data is pre-processed: params.normalization='none'"
+                    )
+                    if context:
+                        await context.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                # Check if data appears to be raw counts
+                if scipy.sparse.issparse(adata.X):
+                    # Sample first 1000 values for efficiency
+                    X_sample = adata.X.data[:min(1000, len(adata.X.data))] if hasattr(adata.X, 'data') else adata.X[:1000].toarray().flatten()
+                else:
+                    X_sample = adata.X.flatten()[:min(1000, adata.X.size)]
+                
+                # Check for non-integer values (indicates normalized data)
+                if np.any((X_sample % 1) != 0):
+                    error_msg = (
+                        "Pearson residuals requires raw count data (integers). "
+                        "Data contains non-integer values. "
+                        "Use params.normalization='none' if data is already normalized, "
+                        "or params.normalization='log' for standard normalization."
+                    )
+                    if context:
+                        await context.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                # Execute normalization
                 try:
-                    # Try experimental version first (more recent)
-                    if hasattr(sc.experimental.pp, "normalize_pearson_residuals"):
-                        sc.experimental.pp.normalize_pearson_residuals(
-                            adata, n_top_genes=min(params.n_hvgs, adata.n_vars)
-                        )
-                    else:
-                        # Fallback to regular version if experimental not available
-                        if params.normalize_target_sum is not None:
-                            sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
-                        else:
-                            sc.pp.normalize_total(adata)  # Use median (adaptive)
-                        sc.pp.log1p(adata)
-                        if context:
-                            await context.warning(
-                                "Pearson residuals not available, using log normalization fallback"
-                            )
+                    # Apply Pearson residuals normalization (to all genes)
+                    # Note: High variable gene selection happens later in the pipeline
+                    sc.experimental.pp.normalize_pearson_residuals(adata)
+                    logger.info("✓ Applied Pearson residuals normalization")
+                except MemoryError:
+                    raise MemoryError(
+                        f"Insufficient memory for Pearson residuals on {adata.n_obs}×{adata.n_vars} matrix. "
+                        "Try reducing n_hvgs or use 'log' normalization."
+                    )
                 except Exception as e:
+                    raise RuntimeError(
+                        f"Pearson residuals normalization failed: {e}. "
+                        "Consider using 'log' normalization instead."
+                    )
+            elif params.normalization == "none":
+                # Explicitly skip normalization
+                if context:
+                    await context.info("Skipping normalization (data assumed to be pre-normalized)")
+                logger.info("✓ Normalization skipped (using pre-normalized data)")
+                
+                # Optional: warn if data appears to be raw counts
+                if scipy.sparse.issparse(adata.X):
+                    X_sample = adata.X.data[:min(1000, len(adata.X.data))] if hasattr(adata.X, 'data') else adata.X[:1000].toarray().flatten()
+                else:
+                    X_sample = adata.X.flatten()[:min(1000, adata.X.size)]
+                
+                # Check if data looks raw (all integers and high values)
+                if np.all((X_sample % 1) == 0) and np.max(X_sample) > 100:
                     if context:
                         await context.warning(
-                            f"Pearson residuals normalization failed: {e}. Using log normalization fallback."
+                            "Data appears to be raw counts (integer values with max > 100). "
+                            "Consider using normalization='log' or 'pearson_residuals'"
                         )
-                    if params.normalize_target_sum is not None:
-                        sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
-                    else:
-                        sc.pp.normalize_total(adata)  # Use median (adaptive)
-                    sc.pp.log1p(adata)
+            elif params.normalization == "scvi":
+                # scVI normalization is not implemented in basic preprocessing
+                error_msg = (
+                    "scVI normalization is not implemented in basic preprocessing. "
+                    "Use params.use_scvi_preprocessing=True for full scVI workflow, "
+                    "or use 'log' or 'pearson_residuals' for standard normalization."
+                )
+                if context:
+                    await context.error(error_msg)
+                raise NotImplementedError(error_msg)
+            else:
+                # Catch unknown normalization methods
+                valid_methods = ["log", "sct", "pearson_residuals", "none", "scvi"]
+                raise ValueError(
+                    f"Unknown normalization method: '{params.normalization}'. "
+                    f"Valid options are: {', '.join(valid_methods)}"
+                )
 
         # 4. Find highly variable genes and apply gene subsampling
         if context:
