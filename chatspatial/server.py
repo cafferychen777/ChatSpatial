@@ -134,7 +134,7 @@ async def preprocess_data(
 
         Advanced configuration options:
         - n_neighbors: Number of neighbors for graph construction (None = adaptive based on dataset size)
-        - clustering_resolution: Leiden clustering resolution (None = adaptive: 0.4-0.8 based on dataset size)
+        - clustering_resolution: Leiden clustering resolution (default: 1.0)
         - clustering_key: Key name for storing clustering results (default: "leiden")
         - spatial_key: Key name for spatial coordinates in obsm (default: "spatial")
         - batch_key: Key name for batch information in obs (default: "batch")
