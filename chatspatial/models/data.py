@@ -40,7 +40,31 @@ class AnalysisParameters(BaseModel):
     subsample_random_seed: int = 42  # Random seed for subsampling
 
     # Normalization and scaling parameters
-    normalization: Literal["log", "sct", "pearson_residuals", "none", "scvi"] = "log"
+    normalization: Literal["log", "sct", "pearson_residuals", "none", "scvi"] = Field(
+        default="log",
+        description=(
+            "Normalization method for gene expression data.\n\n"
+            "AVAILABLE OPTIONS:\n"
+            "• 'log' (default): Standard log(x+1) normalization after library size correction. "
+            "Robust and widely used for most analyses.\n"
+            "• 'pearson_residuals': GLM-based variance stabilization for sparse UMI data. "
+            "Requires raw integer counts and scanpy>=1.9.0. Best for single-cell resolution data.\n"
+            "• 'none': Skip normalization. Use when data is already pre-normalized.\n\n"
+            "NOT IMPLEMENTED (will raise error):\n"
+            "• 'sct': SCTransform normalization - not implemented. Will raise NotImplementedError.\n"
+            "• 'scvi': scVI normalization - use use_scvi_preprocessing=True instead. Will raise NotImplementedError.\n\n"
+            "REQUIREMENTS:\n"
+            "• pearson_residuals: Raw count data (integers only), scanpy>=1.9.0, sufficient memory for dense operations\n"
+            "• none: Data should already be normalized (will warn if raw counts detected)\n\n"
+            "ERROR HANDLING:\n"
+            "If the requested normalization fails, an error will be raised with specific reasons "
+            "and suggested alternatives. No silent fallbacks will occur.\n\n"
+            "RECOMMENDATIONS:\n"
+            "• For raw Visium/Xenium/MERFISH data: 'pearson_residuals' or 'log'\n"
+            "• For pre-processed data: 'none'\n"
+            "• For batch effect correction: use 'log' with batch correction or use_scvi_preprocessing=True"
+        )
+    )
     scale: bool = True
     n_hvgs: Annotated[int, Field(gt=0, le=5000)] = 2000
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
