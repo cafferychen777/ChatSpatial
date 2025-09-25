@@ -2,24 +2,28 @@
 Preprocessing tools for spatial transcriptomics data.
 """
 
+import logging
 import traceback
 from typing import Any, Dict, Optional
 
 import numpy as np
 import scanpy as sc
 import squidpy as sq
+from anndata import AnnData
 from mcp.server.fastmcp import Context
 
 from ..models.analysis import PreprocessingResult
-from ..models.data import AnalysisParameters
+from ..models.data import AnalysisParameters, ResolVIPreprocessingParameters
 from ..utils.data_adapter import standardize_adata
 from ..utils.tool_error_handling import mcp_tool_error_handler
 
 # Import scvi-tools for advanced preprocessing
 try:
+    import torch
     import scvi
     from scvi.external import RESOLVI
 except ImportError:
+    torch = None
     scvi = None
     RESOLVI = None
 
@@ -38,6 +42,9 @@ except ImportError:
 # Constants for preprocessing
 DEFAULT_TARGET_SUM = 1e4
 MAX_SCALE_VALUE = 10
+
+# Setup logger
+logger = logging.getLogger(__name__)
 MERFISH_GENE_THRESHOLD = 200
 MIN_KMEANS_CLUSTERS = 2
 MAX_TSNE_PCA_COMPONENTS = 50
@@ -243,49 +250,84 @@ async def preprocess_data(
             }
         )
 
-        # 3. Normalize data
-        if context:
-            await context.info(
-                f"Normalizing data using {params.normalization} method..."
-            )
-
-        if params.normalization == "log":
-            # Standard log normalization
-            sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
-            sc.pp.log1p(adata)
-        elif params.normalization == "sct":
-            # SCTransform-like normalization
+        # 3. Advanced preprocessing with ResolVI (if enabled)
+        resolvi_used = False
+        if params.use_resolvi_preprocessing and params.resolvi_params:
             if context:
-                await context.info("Using simplified SCTransform normalization...")
-            sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
-            sc.pp.log1p(adata)
-            # Note: Full SCTransform requires additional variance stabilization
-            # For production use, consider integrating sctransform package
-        elif params.normalization == "pearson_residuals":
-            # Modern Pearson residuals normalization (recommended for UMI data)
-            if context:
-                await context.info("Using modern Pearson residuals normalization...")
+                await context.info("Using ResolVI for advanced molecular reassignment correction...")
+            
             try:
-                # Try experimental version first (more recent)
-                if hasattr(sc.experimental.pp, "normalize_pearson_residuals"):
-                    sc.experimental.pp.normalize_pearson_residuals(
-                        adata, n_top_genes=min(params.n_hvgs, adata.n_vars)
+                # Run ResolVI preprocessing
+                resolvi_result = await preprocess_with_resolvi(
+                    adata, params.resolvi_params, context
+                )
+                
+                # Verify that ResolVI actually created the expected outputs
+                if "X_resolvi" not in adata.obsm:
+                    raise RuntimeError(
+                        "ResolVI preprocessing completed but did not create X_resolvi. "
+                        "This indicates a critical error in ResolVI execution."
                     )
-                else:
-                    # Fallback to regular version if experimental not available
-                    sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
-                    sc.pp.log1p(adata)
-                    if context:
-                        await context.warning(
-                            "Pearson residuals not available, using log normalization fallback"
-                        )
+                
+                # ResolVI creates a latent representation in adata.obsm['X_resolvi']
+                # and corrected counts in adata.layers['resolvi_corrected']
+                if context:
+                    await context.info("ResolVI preprocessing completed successfully")
+                    await context.info(f"Created latent representation with shape {adata.obsm['X_resolvi'].shape}")
+                
+                # Skip standard normalization since ResolVI handles it
+                resolvi_used = True
             except Exception as e:
                 if context:
                     await context.warning(
-                        f"Pearson residuals normalization failed: {e}. Using log normalization fallback."
+                        f"ResolVI preprocessing failed: {e}. Falling back to standard normalization."
                     )
+                resolvi_used = False
+        
+        # 3. Normalize data (skip if ResolVI was used)
+        if not resolvi_used:
+            if context:
+                await context.info(
+                    f"Normalizing data using {params.normalization} method..."
+                )
+
+            if params.normalization == "log":
+                # Standard log normalization
                 sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
                 sc.pp.log1p(adata)
+            elif params.normalization == "sct":
+                # SCTransform-like normalization
+                if context:
+                    await context.info("Using simplified SCTransform normalization...")
+                sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
+                sc.pp.log1p(adata)
+                # Note: Full SCTransform requires additional variance stabilization
+                # For production use, consider integrating sctransform package
+            elif params.normalization == "pearson_residuals":
+                # Modern Pearson residuals normalization (recommended for UMI data)
+                if context:
+                    await context.info("Using modern Pearson residuals normalization...")
+                try:
+                    # Try experimental version first (more recent)
+                    if hasattr(sc.experimental.pp, "normalize_pearson_residuals"):
+                        sc.experimental.pp.normalize_pearson_residuals(
+                            adata, n_top_genes=min(params.n_hvgs, adata.n_vars)
+                        )
+                    else:
+                        # Fallback to regular version if experimental not available
+                        sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
+                        sc.pp.log1p(adata)
+                        if context:
+                            await context.warning(
+                                "Pearson residuals not available, using log normalization fallback"
+                            )
+                except Exception as e:
+                    if context:
+                        await context.warning(
+                            f"Pearson residuals normalization failed: {e}. Using log normalization fallback."
+                        )
+                    sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
+                    sc.pp.log1p(adata)
 
         # 4. Find highly variable genes and apply gene subsampling
         if context:
@@ -405,35 +447,42 @@ async def preprocess_data(
                         f"Scaling failed: {e}. Continuing without scaling."
                     )
 
-        # 7. Run PCA
-        if context:
-            await context.info("Running PCA...")
-
-        # Adjust n_pcs based on dataset size
-        n_pcs = min(
-            params.n_pcs, adata.n_vars - 1, adata.n_obs - 1
-        )  # Ensure we don't use more PCs than possible
-
-        if context:
-            await context.info(f"Using {n_pcs} principal components...")
-
-        try:
-            sc.tl.pca(adata, n_comps=n_pcs)
-        except Exception as e:
-            # PCA failed - provide detailed error information without arbitrary fallback
-            error_msg = (
-                f"PCA computation failed with {n_pcs} components: {str(e)}. "
-                f"This indicates a potential data quality issue. "
-                f"Current dataset: {adata.n_obs} cells × {adata.n_vars} genes. "
-                f"Possible solutions: "
-                f"1) Reduce n_pcs parameter manually (current: {n_pcs}) "
-                f"2) Check data normalization and filtering "
-                f"3) Ensure sufficient gene expression variation "
-                f"4) Check for memory limitations with large datasets"
-            )
+        # 7. Run PCA (skip if ResolVI was used)
+        if resolvi_used:
+            # ResolVI already created a latent representation
             if context:
-                await context.error(error_msg)
-            raise RuntimeError(error_msg)
+                await context.info("Skipping PCA (using ResolVI latent representation)")
+            # Use ResolVI latent dimensions for downstream analysis
+            n_pcs = params.resolvi_params.n_latent if params.resolvi_params else params.n_pcs
+        else:
+            if context:
+                await context.info("Running PCA...")
+
+            # Adjust n_pcs based on dataset size
+            n_pcs = min(
+                params.n_pcs, adata.n_vars - 1, adata.n_obs - 1
+            )  # Ensure we don't use more PCs than possible
+
+            if context:
+                await context.info(f"Using {n_pcs} principal components...")
+
+            try:
+                sc.tl.pca(adata, n_comps=n_pcs)
+            except Exception as e:
+                # PCA failed - provide detailed error information without arbitrary fallback
+                error_msg = (
+                    f"PCA computation failed with {n_pcs} components: {str(e)}. "
+                    f"This indicates a potential data quality issue. "
+                    f"Current dataset: {adata.n_obs} cells × {adata.n_vars} genes. "
+                    f"Possible solutions: "
+                    f"1) Reduce n_pcs parameter manually (current: {n_pcs}) "
+                    f"2) Check data normalization and filtering "
+                    f"3) Ensure sufficient gene expression variation "
+                    f"4) Check for memory limitations with large datasets"
+                )
+                if context:
+                    await context.error(error_msg)
+                raise RuntimeError(error_msg)
 
         # 8. Compute neighbors graph
         if context:
@@ -452,12 +501,21 @@ async def preprocess_data(
             await context.info(f"Using n_neighbors: {n_neighbors} (Scanpy industry standard)")
 
         if context:
-            await context.info(
-                f"Using {n_neighbors} neighbors and {n_pcs} PCs for graph construction..."
-            )
+            if resolvi_used:
+                await context.info(
+                    f"Using {n_neighbors} neighbors with ResolVI latent representation for graph construction..."
+                )
+            else:
+                await context.info(
+                    f"Using {n_neighbors} neighbors and {n_pcs} PCs for graph construction..."
+                )
 
         try:
-            sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+            if resolvi_used:
+                # Use ResolVI latent representation for neighbors
+                sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep='X_resolvi')
+            else:
+                sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
 
             # 9. Run UMAP for visualization
             if context:
@@ -615,8 +673,9 @@ async def preprocess_data(
                     await context.warning(f"Spatial domain preprocessing failed: {e}")
 
         # 14. For spatial data, compute spatial neighbors if not already done
-        if params.spatial_key in adata.uns or any(
-            params.spatial_key in key for key in adata.obsm.keys()
+        if params.spatial_key and (
+            params.spatial_key in adata.uns or 
+            any(params.spatial_key in key for key in adata.obsm.keys())
         ):
             if context:
                 await context.info("Computing spatial neighbors...")
@@ -671,51 +730,155 @@ async def preprocess_data(
         raise RuntimeError(f"{error_msg}\n{tb}")
 
 
+def detect_spatial_key(
+    adata: AnnData, 
+    user_key: Optional[str] = None
+) -> Optional[str]:
+    """
+    Intelligently detect spatial coordinate key in the AnnData object
+    
+    Priority:
+    1. User-specified key (if exists)
+    2. Common spatial key names in obsm
+    3. Create from obs columns if x,y coordinates exist
+    
+    Args:
+        adata: AnnData object
+        user_key: User-specified spatial key name
+    
+    Returns:
+        Spatial key name if found, None otherwise
+    """
+    # If user specified a key, validate it exists
+    if user_key:
+        if user_key in adata.obsm:
+            coords = adata.obsm[user_key]
+            if coords.shape[1] >= 2:
+                logger.info(f"Using user-specified spatial key: '{user_key}'")
+                return user_key
+        else:
+            logger.warning(f"User-specified spatial key '{user_key}' not found in obsm")
+    
+    # Auto-detect common spatial key names
+    common_keys = [
+        "X_spatial",       # ResolVI standard
+        "spatial",         # Common default
+        "coordinates",     # Some formats
+        "spatial_coords",  # Variant
+        "X_coordinates",   # Another variant
+        "xy_coords",       # Additional variant
+    ]
+    
+    for key in common_keys:
+        if key in adata.obsm:
+            coords = adata.obsm[key]
+            # Validate it's proper spatial coordinates (at least 2D)
+            if coords.shape[1] >= 2:
+                logger.info(f"Auto-detected spatial coordinates in '{key}'")
+                return key
+    
+    # Check if coordinates exist in obs columns and create obsm entry
+    if "x" in adata.obs.columns and "y" in adata.obs.columns:
+        adata.obsm["X_spatial"] = adata.obs[["x", "y"]].values.astype(np.float32)
+        logger.info("Created X_spatial from x,y columns in obs")
+        return "X_spatial"
+    
+    if "x_centroid" in adata.obs.columns and "y_centroid" in adata.obs.columns:
+        adata.obsm["X_spatial"] = adata.obs[["x_centroid", "y_centroid"]].values.astype(np.float32)
+        logger.info("Created X_spatial from x_centroid,y_centroid columns in obs")
+        return "X_spatial"
+    
+    # Check for other coordinate column naming conventions
+    if "X" in adata.obs.columns and "Y" in adata.obs.columns:
+        adata.obsm["X_spatial"] = adata.obs[["X", "Y"]].values.astype(np.float32)
+        logger.info("Created X_spatial from X,Y columns in obs")
+        return "X_spatial"
+    
+    return None
+
+
 async def preprocess_with_resolvi(
     adata,
-    n_epochs: int = 50,  # Reduced for testing
-    n_hidden: int = 128,
-    n_latent: int = 10,
-    use_gpu: bool = False,
+    params: Optional["ResolVIPreprocessingParameters"] = None,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
-    """Preprocess spatial transcriptomics data using RESOLVI
+    """Preprocess spatial transcriptomics data using ResolVI
 
-    RESOLVI addresses noise and bias in single-cell resolved spatial
-    transcriptomics data through denoising and bias correction.
+    ResolVI addresses noise and bias in single-cell resolved spatial
+    transcriptomics data through molecular reassignment correction.
+    
+    Scientific Requirements:
+    - High-resolution cellular-resolved spatial data (Xenium, MERFISH, etc.)
+    - Real spatial coordinates (cannot work without spatial information)
+    - Preferably raw count data (not log-transformed)
 
     Args:
         adata: Spatial transcriptomics AnnData object
-        n_epochs: Number of epochs for training
-        n_hidden: Number of hidden units in neural networks
-        n_latent: Dimensionality of latent space
-        use_gpu: Whether to use GPU for training
+        params: ResolVI parameters (uses defaults if None)
         context: MCP context for logging
 
     Returns:
-        Dictionary containing RESOLVI preprocessing results
+        Dictionary containing ResolVI preprocessing results
 
     Raises:
         ImportError: If scvi-tools package is not available
-        ValueError: If input data is invalid
+        ValueError: If data doesn't meet ResolVI requirements
         RuntimeError: If RESOLVI computation fails
     """
     try:
+        # Import the parameter model if needed
+        from ..models.data import ResolVIPreprocessingParameters
+        
         if scvi is None or RESOLVI is None:
             raise ImportError(
-                "scvi-tools package is required for RESOLVI preprocessing. Install with 'pip install scvi-tools'"
+                "scvi-tools package is required for ResolVI preprocessing. "
+                "Install with 'pip install scvi-tools'"
             )
 
-        if context:
-            await context.info("Starting RESOLVI spatial data preprocessing...")
+        # Use default parameters if none provided
+        if params is None:
+            params = ResolVIPreprocessingParameters()
 
-        # Validate spatial coordinates
-        spatial_key = "spatial"  # Default spatial key for RESOLVI
-        if spatial_key not in adata.obsm:
-            if context:
-                await context.warning(
-                    "Spatial coordinates not found. RESOLVI works best with spatial information."
+        if context:
+            await context.info("Starting ResolVI spatial data preprocessing...")
+
+        # 1. Validate data size
+        if adata.n_obs < params.min_cells:
+            raise ValueError(
+                f"ResolVI requires at least {params.min_cells} cells for meaningful analysis. "
+                f"Found only {adata.n_obs} cells. "
+                "For small datasets, consider using standard denoising methods instead."
+            )
+
+        # 2. Detect and validate spatial coordinates (CRITICAL)
+        spatial_key = detect_spatial_key(adata, params.spatial_key)
+        
+        if spatial_key is None:
+            if params.require_spatial:
+                # No spatial coordinates found - this is a critical error for ResolVI
+                raise ValueError(
+                    "ResolVI REQUIRES real spatial coordinates for molecular reassignment.\n"
+                    "No spatial coordinates found in adata.obsm.\n"
+                    "ResolVI is specifically designed for high-resolution spatial transcriptomics:\n"
+                    "  - Xenium (10X Genomics)\n"
+                    "  - MERFISH (Vizgen)\n"
+                    "  - CosMx (NanoString)\n"
+                    "  - Visium HD (10X Genomics)\n"
+                    "\nFor non-spatial data, consider alternatives:\n"
+                    "  - scVI for general denoising\n"
+                    "  - MAGIC for imputation\n"
+                    "  - DCA for count data denoising"
                 )
+            else:
+                # require_spatial is False but no spatial coordinates found
+                raise ValueError(
+                    "No spatial coordinates found in dataset. "
+                    "ResolVI requires spatial information. "
+                    "Please check that your data has spatial coordinates in adata.obsm."
+                )
+        
+        if context:
+            await context.info(f"Using spatial coordinates from '{spatial_key}'")
 
         # Ensure data is in the correct format for RESOLVI
         import scipy.sparse as sp
@@ -742,27 +905,25 @@ async def preprocess_with_resolvi(
                 f"Preprocessing {adata.n_obs} spots and {adata.n_vars} genes with RESOLVI"
             )
 
-        # Setup RESOLVI
-        if spatial_key in adata.obsm:
-            # Ensure spatial coordinates are in the correct format for RESOLVI
-            spatial_coords = adata.obsm[spatial_key]
-            if spatial_coords.shape[1] == 2:
-                # Add spatial coordinates as X_spatial for RESOLVI
-                adata.obsm["X_spatial"] = spatial_coords
-        else:
-            # RESOLVI requires spatial coordinates, create dummy ones if not available
-            if context:
-                await context.warning(
-                    "No spatial coordinates found. Creating dummy spatial coordinates for RESOLVI."
-                )
-            # Create a simple 2D grid layout
-            n_spots = adata.n_obs
-            grid_size = int(np.ceil(np.sqrt(n_spots)))
-            x_coords = np.arange(n_spots) % grid_size
-            y_coords = np.arange(n_spots) // grid_size
-            adata.obsm["X_spatial"] = np.column_stack([x_coords, y_coords]).astype(
-                np.float32
+        # Setup RESOLVI - at this point spatial_key is guaranteed to be not None
+        # and should exist in adata.obsm due to detect_spatial_key validation
+        if spatial_key not in adata.obsm:
+            raise RuntimeError(
+                f"Internal error: Spatial key '{spatial_key}' not found in adata.obsm. "
+                f"Available keys: {list(adata.obsm.keys())}. "
+                "This should not happen - please report this issue."
             )
+        
+        # Ensure spatial coordinates are in the correct format for RESOLVI
+        spatial_coords = adata.obsm[spatial_key]
+        if spatial_coords.shape[1] != 2:
+            raise ValueError(
+                f"ResolVI requires 2D spatial coordinates, but got shape {spatial_coords.shape}. "
+                "Expected (n_cells, 2) for x,y coordinates."
+            )
+        
+        # Add spatial coordinates as X_spatial for RESOLVI (required by the model)
+        adata.obsm["X_spatial"] = spatial_coords
 
         # RESOLVI setup without spatial_key parameter (not supported in current version)
         RESOLVI.setup_anndata(adata)
@@ -771,8 +932,8 @@ async def preprocess_with_resolvi(
         # Disable downsample_counts to avoid the LogNormal parameter issue
         resolvi_model = RESOLVI(
             adata,
-            n_hidden=int(n_hidden),
-            n_latent=int(n_latent),
+            n_hidden=int(params.n_hidden),
+            n_latent=int(params.n_latent),
             downsample_counts=False,  # Disable to avoid torch tensor type issues
         )
 
@@ -780,10 +941,10 @@ async def preprocess_with_resolvi(
             await context.info("Training RESOLVI model...")
 
         # Train model
-        if use_gpu:
-            resolvi_model.train(max_epochs=n_epochs, accelerator="gpu")
+        if params.use_gpu and torch.cuda.is_available():
+            resolvi_model.train(max_epochs=params.n_epochs, accelerator="gpu")
         else:
-            resolvi_model.train(max_epochs=n_epochs)
+            resolvi_model.train(max_epochs=params.n_epochs)
 
         if context:
             await context.info("RESOLVI training completed")
@@ -795,12 +956,12 @@ async def preprocess_with_resolvi(
         # Get denoised expression
         denoised_expression = resolvi_model.get_normalized_expression()
 
-        # Get latent representation
-        latent = resolvi_model.get_latent_representation()
+        # Get latent representation (without distribution parameters)
+        latent = resolvi_model.get_latent_representation(return_dist=False)
 
         # Store results in adata
         adata.layers["resolvi_denoised"] = denoised_expression
-        adata.obsm["X_resolvi_latent"] = latent
+        adata.obsm["X_resolvi"] = latent  # Store as X_resolvi for downstream use
 
         # Calculate preprocessing statistics
         original_mean = np.mean(adata.X)
@@ -822,8 +983,8 @@ async def preprocess_with_resolvi(
         # Calculate summary statistics
         results = {
             "method": "RESOLVI",
-            "n_latent_dims": n_latent,
-            "n_epochs": n_epochs,
+            "n_latent_dims": params.n_latent,
+            "n_epochs": params.n_epochs,
             "denoising_completed": True,
             "original_mean_expression": float(original_mean),
             "denoised_mean_expression": float(denoised_mean),
@@ -831,7 +992,7 @@ async def preprocess_with_resolvi(
             "latent_shape": latent.shape,
             "denoised_shape": denoised_expression.shape,
             "training_completed": True,
-            "device": "GPU" if use_gpu else "CPU",
+            "device": "GPU" if (params.use_gpu and torch.cuda.is_available()) else "CPU",
         }
 
         if context:
@@ -840,7 +1001,7 @@ async def preprocess_with_resolvi(
                 "Stored denoised data in adata.layers['resolvi_denoised']"
             )
             await context.info(
-                "Stored latent representation in adata.obsm['X_resolvi_latent']"
+                "Stored latent representation in adata.obsm['X_resolvi']"
             )
             await context.info(f"Noise reduction metric: {noise_reduction:.4f}")
 

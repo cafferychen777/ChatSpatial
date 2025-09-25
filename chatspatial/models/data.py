@@ -52,12 +52,25 @@ class AnalysisParameters(BaseModel):
     scvi_n_layers: int = 1
     scvi_dropout_rate: float = 0.1
     scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
+    
+    # ResolVI preprocessing parameters
+    use_resolvi_preprocessing: bool = Field(
+        default=False,
+        description="Use ResolVI for spatial denoising (high-resolution spatial data only)"
+    )
+    resolvi_params: Optional["ResolVIPreprocessingParameters"] = Field(
+        default=None,
+        description="ResolVI-specific parameters (uses defaults if None)"
+    )
 
     # Key naming parameters (configurable hard-coded keys)
     cluster_key: str = Field(
         "leiden", alias="clustering_key"
     )  # Key name for storing clustering results
-    spatial_key: str = "spatial"  # Key name for spatial coordinates in obsm
+    spatial_key: Optional[str] = Field(
+        default=None,
+        description="Spatial coordinate key in obsm (auto-detected if None)"
+    )  # Changed from hardcoded "spatial" to allow auto-detection
     batch_key: str = "batch"  # Key name for batch information in obs
 
     # User-controllable parameters (scientifically-informed defaults)
@@ -1011,4 +1024,89 @@ class EnrichmentParameters(BaseModel):
     # Result filtering parameters
     plot_top_terms: Annotated[int, Field(gt=0, le=30)] = (
         10  # Number of top terms to include in results
+    )
+
+
+class ResolVIPreprocessingParameters(BaseModel):
+    """ResolVI preprocessing parameters for high-resolution spatial transcriptomics
+    
+    ResolVI is a deep learning method for denoising and correcting molecular 
+    misassignment in cellular-resolved spatial transcriptomics data.
+    
+    Requirements:
+    - High-resolution cellular-resolved spatial data (Xenium, MERFISH, CosMx, etc.)
+    - Real spatial coordinates 
+    - Raw count data (not log-transformed)
+    - Minimum ~1000 cells recommended
+    """
+    
+    # Core model parameters
+    n_latent: int = Field(
+        default=30,
+        gt=0,
+        le=100,
+        description="Number of latent dimensions for ResolVI representation"
+    )
+    n_hidden: int = Field(
+        default=128,
+        gt=0,
+        le=512,
+        description="Number of hidden units in neural network layers"
+    )
+    n_epochs: int = Field(
+        default=100,
+        gt=0,
+        le=1000,
+        description="Number of training epochs (100 recommended by official docs)"
+    )
+    
+    # Data specifications
+    spatial_key: Optional[str] = Field(
+        default=None,
+        description="Spatial coordinate key in obsm (auto-detected if None)"
+    )
+    count_layer: Optional[str] = Field(
+        default=None,
+        description="Layer containing count data (uses X if None)"
+    )
+    
+    # Semi-supervised options
+    labels_key: Optional[str] = Field(
+        default=None,
+        description="Cell type labels column for semi-supervised mode"
+    )
+    batch_key: Optional[str] = Field(
+        default=None,
+        description="Batch key for multi-sample integration"
+    )
+    semisupervised: bool = Field(
+        default=False,
+        description="Enable semi-supervised mode with cell type labels"
+    )
+    
+    # Output options
+    compute_corrected_counts: bool = Field(
+        default=True,
+        description="Compute and store molecularly corrected counts"
+    )
+    compute_differential_abundance: bool = Field(
+        default=False,
+        description="Enable differential abundance computation"
+    )
+    
+    # Hardware configuration
+    use_gpu: bool = Field(
+        default=False,
+        description="Use GPU acceleration (highly recommended for speed)"
+    )
+    
+    # Data validation
+    require_spatial: bool = Field(
+        default=True,
+        description="Require real spatial coordinates (should always be True for ResolVI)"
+    )
+    min_cells: int = Field(
+        default=1000,
+        gt=0,
+        description="Minimum cells required for meaningful ResolVI analysis"
     )
