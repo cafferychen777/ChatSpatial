@@ -65,9 +65,64 @@ def _detect_data_type(adata) -> str:
 
 
 def _should_use_all_genes_for_hvg(adata) -> bool:
-    """Check if we should use all genes for HVG selection (for small gene sets)"""
-    # Only use all genes if we have a very small gene set (like MERFISH)
+    """
+    Check if we should use all genes for HVG selection.
+    
+    Only applies to very small gene sets (e.g., MERFISH with <100 genes)
+    where statistical HVG selection is not meaningful.
+    """
     return adata.n_vars < 100
+
+
+def _diagnose_hvg_failure(adata, n_hvgs: int) -> str:
+    """Provide diagnostic information for HVG selection failures."""
+    diagnostics = []
+    
+    # Check data characteristics
+    try:
+        if hasattr(adata.X, 'toarray'):
+            # Sample sparse matrix safely
+            if adata.X.nnz > 0:
+                X_sample = adata.X[:min(100, adata.n_obs), :min(100, adata.n_vars)].toarray()
+            else:
+                X_sample = np.array([[0]])
+        else:
+            # Dense matrix
+            X_sample = adata.X[:min(100, adata.n_obs), :min(100, adata.n_vars)]
+        
+        # Check if data is normalized
+        if np.any(X_sample < 0):
+            diagnostics.append("✓ Data appears normalized (contains negative values)")
+        elif np.all(X_sample >= 0) and np.any((X_sample % 1) != 0):
+            diagnostics.append("✓ Data appears normalized (contains non-integer values)")
+        else:
+            diagnostics.append("⚠ Data may be raw counts (consider normalization)")
+        
+        # Check data range
+        data_min, data_max = float(adata.X.min()), float(adata.X.max())
+        diagnostics.append(f"Data range: {data_min:.3f} to {data_max:.3f}")
+        
+    except Exception as e:
+        diagnostics.append(f"Could not analyze data characteristics: {e}")
+    
+    # Check if requested HVGs is too high
+    if n_hvgs >= adata.n_vars:
+        diagnostics.append(f"⚠ Requested {n_hvgs} HVGs but only {adata.n_vars} genes available")
+        diagnostics.append(f"Suggested: Use n_hvgs={min(adata.n_vars // 2, 2000)}")
+    
+    # Check for constant genes
+    try:
+        gene_var = _safe_matrix_operation(adata, "variance")
+        if gene_var is not None:
+            zero_var_genes = np.sum(gene_var == 0)
+            if zero_var_genes > 0:
+                diagnostics.append(f"⚠ {zero_var_genes} genes have zero variance")
+        else:
+            diagnostics.append("Could not compute gene variance for diagnosis")
+    except Exception:
+        diagnostics.append("Could not compute gene variance for diagnosis")
+    
+    return "\n".join(diagnostics)
 
 
 def _safe_matrix_operation(adata, operation: str):
@@ -446,39 +501,60 @@ async def preprocess_data(
                 )
             adata.var["highly_variable"] = True
         else:
+            # Attempt HVG selection - no fallback for failures
             try:
                 sc.pp.highly_variable_genes(adata, n_top_genes=n_hvgs)
+                logger.info(f"✓ Selected {n_hvgs} highly variable genes")
             except Exception as e:
+                # Provide detailed error information with diagnostics
+                diagnostics = _diagnose_hvg_failure(adata, n_hvgs)
+                
+                error_msg = (
+                    f"Highly variable gene selection failed: {e}\n\n"
+                    "This is a critical step for downstream analysis. Possible causes:\n"
+                    "• Normalization may have failed or produced invalid data\n"
+                    "• All genes have similar expression (no biological variation)\n"
+                    "• Data quality issues (too few cells/genes)\n\n"
+                    f"DIAGNOSTIC INFORMATION:\n{diagnostics}\n\n"
+                    "SOLUTIONS:\n"
+                    "• Check normalization results and data quality\n"
+                    "• Verify input data is properly filtered\n"
+                    "• Try reducing n_hvgs parameter if dataset is small\n"
+                    "• Use normalization='log' if using advanced methods failed\n\n"
+                    "Continuing with all genes would produce misleading results."
+                )
                 if context:
-                    await context.warning(
-                        f"HVG selection failed: {e}. Using all genes."
-                    )
-                adata.var["highly_variable"] = True
+                    await context.error(error_msg)
+                raise RuntimeError(error_msg)
 
         # Apply gene subsampling if requested
         if gene_subsample_requested and params.subsample_genes < adata.n_vars:
-            if "highly_variable" in adata.var and adata.var["highly_variable"].any():
-                # Keep only highly variable genes
-                adata = adata[:, adata.var["highly_variable"]].copy()
+            # Ensure HVG selection was successful
+            if "highly_variable" not in adata.var:
+                error_msg = (
+                    "Gene subsampling requested but no highly variable genes were identified. "
+                    "This indicates a failure in the HVG selection step."
+                )
                 if context:
-                    await context.info(
-                        f"Subsampled to {adata.n_vars} highly variable genes"
-                    )
-            else:
-                # Fallback: keep top variable genes by variance using safe operation
-                gene_var = _safe_matrix_operation(adata, "variance")
-                if gene_var is not None:
-                    top_genes_idx = np.argsort(gene_var)[-params.subsample_genes :]
-                    adata = adata[:, top_genes_idx].copy()
-                    if context:
-                        await context.info(
-                            f"Subsampled to {adata.n_vars} top variable genes"
-                        )
-                else:
-                    if context:
-                        await context.warning(
-                            "Could not compute gene variance, keeping all genes"
-                        )
+                    await context.error(error_msg)
+                raise RuntimeError(error_msg)
+            
+            if not adata.var["highly_variable"].any():
+                error_msg = (
+                    "Gene subsampling requested but no genes were marked as highly variable. "
+                    "Check HVG selection parameters or data quality."
+                )
+                if context:
+                    await context.error(error_msg)
+                raise RuntimeError(error_msg)
+            
+            # Use properly identified HVGs
+            adata = adata[:, adata.var["highly_variable"]].copy()
+            if context:
+                await context.info(
+                    f"Subsampled to {adata.n_vars} highly variable genes"
+                )
+            logger.info(f"✓ Gene subsampling: kept {adata.n_vars} HVGs")
 
         # 5. Batch effect correction (if applicable)
         if (
