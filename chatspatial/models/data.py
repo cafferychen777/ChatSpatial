@@ -44,6 +44,66 @@ class AnalysisParameters(BaseModel):
     scale: bool = True
     n_hvgs: Annotated[int, Field(gt=0, le=5000)] = 2000
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
+    
+    # ========== Normalization Control Parameters ==========
+    normalize_target_sum: Optional[float] = Field(
+        default=None,  # Adaptive default - uses median counts
+        ge=1.0,  # Must be positive if specified
+        le=1e8,  # Reasonable upper bound
+        description=(
+            "Target sum for total count normalization per cell/spot. "
+            "Controls the library size after normalization. "
+            "\n"
+            "RECOMMENDED VALUES BY TECHNOLOGY:\n"
+            "• None (default): Uses median of total counts - most adaptive, recommended for unknown data\n"
+            "• 1e4 (10,000): Standard for 10x Visium spatial transcriptomics\n"
+            "• 1e6 (1,000,000): CPM normalization, standard for MERFISH/CosMx/Xenium\n"
+            "• Custom value: Match to your expected counts per cell/spot\n"
+            "\n"
+            "DECISION GUIDE:\n"
+            "- Multi-cellular spots (Visium): Use 1e4\n"
+            "- Single-cell imaging (MERFISH, Xenium, CosMx): Use 1e6\n"
+            "- High-depth sequencing: Consider 1e5 or higher\n"
+            "- Low-depth/targeted panels: Consider 1e3-1e4\n"
+            "- Cross-sample integration: Use same value for all samples\n"
+            "- Spatial domain analysis: Consider skipping normalization (None)\n"
+            "\n"
+            "SCIENTIFIC RATIONALE:\n"
+            "This parameter scales all cells/spots to have the same total count, "
+            "removing technical variation due to sequencing depth or capture efficiency. "
+            "The choice affects the magnitude of normalized expression values and "
+            "can influence downstream analyses like HVG selection and clustering."
+        )
+    )
+    
+    scale_max_value: Optional[float] = Field(
+        default=10.0,
+        ge=1.0,  # Must be positive if specified
+        le=100.0,  # Reasonable upper bound
+        description=(
+            "Maximum value for clipping after scaling to unit variance (in standard deviations). "
+            "Prevents extreme outliers from dominating downstream analyses. "
+            "\n"
+            "RECOMMENDED VALUES:\n"
+            "• 10.0 (default): Standard in single-cell field, balances outlier control with data preservation\n"
+            "• None: No clipping - preserves all variation, use for high-quality data\n"
+            "• 5.0-8.0: More aggressive clipping for noisy data\n"
+            "• 15.0-20.0: Less aggressive for clean imaging data\n"
+            "\n"
+            "DECISION GUIDE BY DATA TYPE:\n"
+            "- Standard scRNA-seq or Visium: 10.0\n"
+            "- High-quality imaging (MERFISH/Xenium): 15.0 or None\n"
+            "- Noisy/low-quality data: 5.0-8.0\n"
+            "- Exploratory analysis: Start with 10.0\n"
+            "- Final analysis: Consider None to preserve all variation\n"
+            "\n"
+            "TECHNICAL DETAILS:\n"
+            "After scaling each gene to zero mean and unit variance, "
+            "values exceeding ±max_value standard deviations are clipped. "
+            "This prevents a few extreme values from dominating PCA and clustering. "
+            "Lower values increase robustness but may remove biological signal."
+        )
+    )
 
     # scVI preprocessing parameters
     use_scvi_preprocessing: bool = False  # Whether to use scVI for preprocessing
