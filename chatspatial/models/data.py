@@ -167,8 +167,14 @@ class AnalysisParameters(BaseModel):
             "For spatial transcriptomics: 15 captures meaningful tissue neighborhoods in both Visium (55μm) and Visium HD (2μm) data."
         )
     )
-    clustering_resolution: Optional[Annotated[float, Field(gt=0.1, le=2.0)]] = (
-        None  # Leiden clustering resolution (None = adaptive: 0.4-0.8 based on dataset size)
+    clustering_resolution: Annotated[float, Field(gt=0.1, le=2.0)] = Field(
+        default=1.0,
+        description=(
+            "Leiden clustering resolution parameter controlling clustering coarseness. "
+            "Higher values (1.5-2.0) produce more numerous, smaller clusters; "
+            "lower values (0.2-0.5) produce fewer, broader clusters. "
+            "Common values: 0.25, 0.5, 1.0. Default 1.0 matches scanpy standard and works well for most spatial datasets."
+        )
     )
 
     # Advanced preprocessing options

@@ -46,12 +46,6 @@ MERFISH_GENE_THRESHOLD = 200
 MIN_KMEANS_CLUSTERS = 2
 MAX_TSNE_PCA_COMPONENTS = 50
 
-# Clustering resolution by dataset size
-CLUSTERING_RESOLUTIONS = {
-    "small": 0.4,  # < 100 cells
-    "medium": 0.6,  # 100-500 cells
-    "large": 0.8,  # > 500 cells
-}
 
 
 def _detect_data_type(adata) -> str:
@@ -701,28 +695,12 @@ async def preprocess_data(
             if context:
                 await context.info("Running Leiden clustering...")
 
-            # Determine clustering resolution: user-specified or adaptive
-            if params.clustering_resolution is not None:
-                resolution = params.clustering_resolution
-                if context:
-                    await context.info(
-                        f"Using user-specified clustering resolution: {resolution}"
-                    )
-            else:
-                # Adaptive resolution based on dataset size
-                if adata.n_obs < 100:
-                    resolution = CLUSTERING_RESOLUTIONS["small"]
-                    dataset_size = "small"
-                elif adata.n_obs < 500:
-                    resolution = CLUSTERING_RESOLUTIONS["medium"]
-                    dataset_size = "medium"
-                else:
-                    resolution = CLUSTERING_RESOLUTIONS["large"]
-                    dataset_size = "large"
-                if context:
-                    await context.info(
-                        f"Auto-detected clustering resolution: {resolution} (for {dataset_size} dataset with {adata.n_obs} cells)"
-                    )
+            # Use explicit clustering resolution
+            resolution = params.clustering_resolution
+            if context:
+                await context.info(
+                    f"Using clustering resolution: {resolution}"
+                )
 
             if context:
                 await context.info(
