@@ -39,10 +39,6 @@ try:
 except ImportError:
     spg = None
 
-# Constants for preprocessing
-DEFAULT_TARGET_SUM = 1e4
-MAX_SCALE_VALUE = 10
-
 # Setup logger
 logger = logging.getLogger(__name__)
 MERFISH_GENE_THRESHOLD = 200
@@ -184,8 +180,10 @@ async def preprocess_data(
                 or len(gene_counts) == 0
                 or np.all(gene_counts == 0)
             ):
+                # Use 1/10 of target_sum if specified, otherwise use 1000 as fallback
+                fallback_count = (params.normalize_target_sum or 10000) // 10
                 gene_counts = (
-                    np.ones(adata.n_obs) * DEFAULT_TARGET_SUM // 10
+                    np.ones(adata.n_obs) * fallback_count
                 )  # Realistic fallback
                 n_genes = np.ones(adata.n_obs) * min(100, adata.n_vars)  # Fallback
 
@@ -286,6 +284,21 @@ async def preprocess_data(
         
         # 3. Normalize data (skip if ResolVI was used)
         if not resolvi_used:
+            # Log normalization configuration
+            logger.info("=" * 50)
+            logger.info("Normalization Configuration:")
+            logger.info(f"  Method: {params.normalization}")
+            if params.normalize_target_sum is not None:
+                logger.info(f"  Target sum: {params.normalize_target_sum:.0f}")
+            else:
+                logger.info(f"  Target sum: ADAPTIVE (using median counts)")
+            if params.scale:
+                if params.scale_max_value is not None:
+                    logger.info(f"  Scale clipping: ±{params.scale_max_value} SD")
+                else:
+                    logger.info(f"  Scale clipping: NONE (preserving all outliers)")
+            logger.info("=" * 50)
+            
             if context:
                 await context.info(
                     f"Normalizing data using {params.normalization} method..."
@@ -293,13 +306,24 @@ async def preprocess_data(
 
             if params.normalization == "log":
                 # Standard log normalization
-                sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
+                if params.normalize_target_sum is not None:
+                    sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
+                    logger.info(f"✓ Normalized to target_sum={params.normalize_target_sum:.0f}")
+                else:
+                    # Calculate median before normalization for logging
+                    original_median = np.median(np.array(adata.X.sum(axis=1)).flatten())
+                    sc.pp.normalize_total(adata)  # Use median (adaptive)
+                    logger.info(f"✓ Normalized to median counts={original_median:.0f} (adaptive)")
                 sc.pp.log1p(adata)
+                logger.info("✓ Applied log1p transformation")
             elif params.normalization == "sct":
                 # SCTransform-like normalization
                 if context:
                     await context.info("Using simplified SCTransform normalization...")
-                sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
+                if params.normalize_target_sum is not None:
+                    sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
+                else:
+                    sc.pp.normalize_total(adata)  # Use median (adaptive)
                 sc.pp.log1p(adata)
                 # Note: Full SCTransform requires additional variance stabilization
                 # For production use, consider integrating sctransform package
@@ -315,7 +339,10 @@ async def preprocess_data(
                         )
                     else:
                         # Fallback to regular version if experimental not available
-                        sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
+                        if params.normalize_target_sum is not None:
+                            sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
+                        else:
+                            sc.pp.normalize_total(adata)  # Use median (adaptive)
                         sc.pp.log1p(adata)
                         if context:
                             await context.warning(
@@ -326,7 +353,10 @@ async def preprocess_data(
                         await context.warning(
                             f"Pearson residuals normalization failed: {e}. Using log normalization fallback."
                         )
-                    sc.pp.normalize_total(adata, target_sum=DEFAULT_TARGET_SUM)
+                    if params.normalize_target_sum is not None:
+                        sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
+                    else:
+                        sc.pp.normalize_total(adata)  # Use median (adaptive)
                     sc.pp.log1p(adata)
 
         # 4. Find highly variable genes and apply gene subsampling
@@ -421,25 +451,33 @@ async def preprocess_data(
                 await context.info("Scaling data...")
             try:
                 # Trust scanpy's internal zero-variance handling and sparse matrix optimization
-                sc.pp.scale(adata, max_value=MAX_SCALE_VALUE)
+                sc.pp.scale(adata, max_value=params.scale_max_value)
+                
+                # Log scaling results
+                if params.scale_max_value is not None:
+                    logger.info(f"✓ Scaled to unit variance with clipping at ±{params.scale_max_value} SD")
+                else:
+                    logger.info("✓ Scaled to unit variance without clipping (preserving all outliers)")
 
                 # Clean up any NaN/Inf values that might remain (sparse-matrix safe)
-                if hasattr(adata.X, "data"):
-                    # Sparse matrix - only modify the data array
-                    adata.X.data = np.nan_to_num(
-                        adata.X.data,
-                        nan=0.0,
-                        posinf=MAX_SCALE_VALUE,
-                        neginf=-MAX_SCALE_VALUE,
-                    )
-                else:
-                    # Dense matrix
-                    adata.X = np.nan_to_num(
-                        adata.X,
-                        nan=0.0,
-                        posinf=MAX_SCALE_VALUE,
-                        neginf=-MAX_SCALE_VALUE,
-                    )
+                # Only apply if we have a max_value for clipping
+                if params.scale_max_value is not None:
+                    if hasattr(adata.X, "data"):
+                        # Sparse matrix - only modify the data array
+                        adata.X.data = np.nan_to_num(
+                            adata.X.data,
+                            nan=0.0,
+                            posinf=params.scale_max_value,
+                            neginf=-params.scale_max_value,
+                        )
+                    else:
+                        # Dense matrix
+                        adata.X = np.nan_to_num(
+                            adata.X,
+                            nan=0.0,
+                            posinf=params.scale_max_value,
+                            neginf=-params.scale_max_value,
+                        )
 
             except Exception as e:
                 if context:
