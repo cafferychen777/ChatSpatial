@@ -4,7 +4,7 @@ Main server implementation for ChatSpatial using the Spatial MCP Adapter.
 
 import logging
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Suppress warnings to speed up startup
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -12,6 +12,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.utilities.types import Image
+from mcp.types import EmbeddedResource
 
 from .models.analysis import (AnnotationResult, CellCommunicationResult,
                               DeconvolutionResult,
@@ -173,7 +174,7 @@ async def preprocess_data(
 @manual_parameter_validation(("params", validate_visualization_params))
 async def visualize_data(
     data_id: str, params: Any = None, context: Context = None
-) -> Image:  # ⚠️ CRITICAL: Must return Image object, NOT ImageContent or dict!
+) -> Union[Image, Tuple[Image, EmbeddedResource]]:  # Now supports Tuple for token optimization!
     """Visualize spatial transcriptomics data
 
     Args:
@@ -1635,6 +1636,119 @@ tool_metadata = {
 # Update adapter with tool metadata
 for name, metadata in tool_metadata.items():
     adapter._tool_metadata[name] = metadata
+
+
+# ============== Publication Export Tools ==============
+
+@mcp.tool()
+@mcp_tool_error_handler()
+async def export_for_publication(
+    data_id: str,
+    plot_type: str,
+    output_path: str,
+    format: str = "pdf",
+    dpi: int = 300,
+    context: Context = None
+) -> str:
+    """Export visualization in publication quality
+    
+    Generate high-quality figures suitable for scientific publications.
+    Supports PDF, SVG for vector graphics and high-DPI PNG for raster.
+    
+    Args:
+        data_id: Dataset ID
+        plot_type: Type of plot to export (e.g., 'spatial', 'heatmap')
+        output_path: Full path for output file
+        format: Output format (pdf, svg, png, eps)
+        dpi: DPI for raster formats (default: 300 for publication)
+        
+    Returns:
+        Path to the exported file
+        
+    Examples:
+        # Export for Nature/Science (PDF)
+        export_for_publication("data1", "spatial", "figure1.pdf", format="pdf", dpi=300)
+        
+        # Export for web (SVG)  
+        export_for_publication("data1", "heatmap", "figure2.svg", format="svg")
+        
+        # Export high-res PNG
+        export_for_publication("data1", "umap", "figure3.png", format="png", dpi=600)
+    """
+    from .utils.publication_export import export_for_publication as export_func
+    
+    try:
+        result = await export_func(
+            data_id=data_id,
+            plot_type=plot_type,
+            output_path=output_path,
+            format=format,
+            dpi=dpi,
+            context=context
+        )
+        return f"✅ Exported publication-quality {format.upper()} to: {result}"
+    except Exception as e:
+        error_msg = f"Failed to export: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise
+
+
+@mcp.tool()
+@mcp_tool_error_handler()
+async def batch_export_all_figures(
+    data_id: str,
+    output_dir: str = "./publication_figures",
+    formats: Optional[List[str]] = None,
+    dpi: int = 300,
+    context: Context = None
+) -> str:
+    """Batch export all visualizations for publication
+    
+    Export all cached visualizations for a dataset in multiple formats
+    suitable for scientific publication.
+    
+    Args:
+        data_id: Dataset ID
+        output_dir: Directory for output files
+        formats: List of formats to export (default: ["pdf", "png"])
+        dpi: DPI for raster formats (default: 300)
+        
+    Returns:
+        Summary of exported files
+        
+    Example:
+        batch_export_all_figures("data1", formats=["pdf", "svg", "png"], dpi=300)
+    """
+    from .utils.publication_export import batch_export_for_publication
+    
+    if formats is None:
+        formats = ["pdf", "png"]
+    
+    try:
+        results = await batch_export_for_publication(
+            data_id=data_id,
+            output_dir=output_dir,
+            formats=formats,
+            dpi=dpi,
+            context=context
+        )
+        
+        # Format results summary
+        summary = f"📊 Exported {len(results)} format(s) for dataset '{data_id}':\n"
+        for fmt, files in results.items():
+            summary += f"\n{fmt.upper()}: {len(files)} files\n"
+            for file in files[:3]:  # Show first 3
+                summary += f"  - {file}\n"
+            if len(files) > 3:
+                summary += f"  ... and {len(files)-3} more\n"
+        
+        return summary
+    except Exception as e:
+        error_msg = f"Failed to batch export: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise
 
 
 def main():

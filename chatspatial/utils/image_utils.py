@@ -7,9 +7,16 @@ All functions return Image objects that can be directly used in MCP tools.
 
 import base64
 import io
-from typing import TYPE_CHECKING, Tuple
+import json
+import os
+import pickle
+import uuid
+import weakref
+from pathlib import Path
+from typing import TYPE_CHECKING, Tuple, Optional, Union, Dict, Any
 
 from mcp.server.fastmcp.utilities.types import Image
+from mcp.types import EmbeddedResource, TextResourceContents
 
 if TYPE_CHECKING:
     import matplotlib.pyplot as plt
@@ -215,3 +222,238 @@ def fig_to_base64(
         if close_fig:
             plt.close(fig)
         return base64.b64encode(buf.read()).decode("utf-8")
+
+
+# ============ Token Optimization and Publication Export Support ============
+
+# Global Figure cache (using weak references to avoid memory leaks)
+_figure_cache: Dict[str, weakref.ReferenceType] = {}
+
+
+def cache_figure(key: str, fig: "plt.Figure"):
+    """Cache matplotlib figure object for high-quality export
+    
+    Args:
+        key: Cache key (usually data_id_plot_type)
+        fig: Matplotlib figure to cache
+    """
+    _figure_cache[key] = weakref.ref(fig)
+
+
+def get_cached_figure(key: str) -> Optional["plt.Figure"]:
+    """Get cached figure object
+    
+    Args:
+        key: Cache key
+        
+    Returns:
+        Cached figure or None if not found/expired
+    """
+    if key in _figure_cache:
+        fig_ref = _figure_cache[key]
+        fig = fig_ref()
+        if fig is not None:
+            return fig
+    return None
+
+
+def save_figure_pickle(fig: "plt.Figure", path: str):
+    """Save figure object to pickle file (preserves all information)
+    
+    Args:
+        fig: Matplotlib figure
+        path: Path to save pickle file
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        pickle.dump(fig, f)
+
+
+def load_figure_pickle(path: str) -> "plt.Figure":
+    """Load figure object from pickle file
+    
+    Args:
+        path: Path to pickle file
+        
+    Returns:
+        Loaded figure object
+    """
+    with open(path, 'rb') as f:
+        return pickle.load(f)
+
+
+def estimate_figure_size(fig: "plt.Figure", dpi: int = 100) -> int:
+    """Estimate the size of a figure in bytes
+    
+    Args:
+        fig: Matplotlib figure
+        dpi: DPI setting
+        
+    Returns:
+        Estimated size in bytes
+    """
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight')
+    size = buf.tell()
+    buf.close()
+    return size
+
+
+async def optimize_fig_to_image_with_cache(
+    fig: "plt.Figure",
+    params: Any,
+    context: Optional[Any] = None,
+    data_id: str = None,
+    plot_type: str = None,
+    mode: str = "auto"
+) -> Union[Image, Tuple[Image, EmbeddedResource]]:
+    """Optimized image conversion with Figure caching for high-quality export
+    
+    This function implements the token optimization strategy:
+    - Small images (<100KB): Direct embedding
+    - Large images (>=100KB): Preview + resource reference
+    - Caches Figure object for later high-quality export
+    
+    Args:
+        fig: Matplotlib figure
+        params: Visualization parameters
+        context: MCP context for logging
+        data_id: Dataset ID (for cache key)
+        plot_type: Plot type (for cache key) 
+        mode: Optimization mode - "auto", "preview", or "direct"
+        
+    Returns:
+        Small images: Image object
+        Large images: Tuple[Image preview, EmbeddedResource with high quality]
+    """
+    import matplotlib.pyplot as plt
+    
+    # Cache Figure object for high-quality export
+    if data_id and plot_type:
+        cache_key = f"{data_id}_{plot_type}"
+        cache_figure(cache_key, fig)
+        
+        # Also save pickle file for persistence
+        os.makedirs("/tmp/chatspatial/figures", exist_ok=True)
+        pickle_path = f"/tmp/chatspatial/figures/{cache_key}.pkl"
+        save_figure_pickle(fig, pickle_path)
+        
+        if context:
+            await context.info(f"Cached figure object for high-quality export: {cache_key}")
+    
+    # Estimate original image size
+    test_buf = io.BytesIO()
+    target_dpi = params.dpi if hasattr(params, 'dpi') and params.dpi else 100
+    fig.savefig(test_buf, format='png', dpi=target_dpi, bbox_inches='tight')
+    estimated_size = test_buf.tell()
+    test_buf.close()
+    
+    # Decision thresholds
+    DIRECT_EMBED_THRESHOLD = 100 * 1024  # 100KB
+    PREVIEW_THRESHOLD = 500 * 1024       # 500KB
+    
+    # Mode: direct - force direct embedding
+    if mode == "direct" or (mode == "auto" and estimated_size < DIRECT_EMBED_THRESHOLD):
+        if context:
+            await context.info(f"Small image ({estimated_size//1024}KB), embedding directly")
+        return fig_to_image(fig, dpi=target_dpi, format="png", max_size_kb=900)
+    
+    # Mode: preview - use preview+resource strategy
+    if mode == "preview" or (mode == "auto" and estimated_size > PREVIEW_THRESHOLD):
+        if context:
+            await context.info(f"Large image ({estimated_size//1024}KB), using preview+resource strategy")
+        
+        # 1. Create low-quality preview (target: 50KB)
+        preview_buf = io.BytesIO()
+        try:
+            # Try with quality parameter
+            fig.savefig(
+                preview_buf,
+                format='jpeg',
+                dpi=60,
+                quality=40,
+                bbox_inches='tight',
+                facecolor='white'
+            )
+        except TypeError:
+            # If quality parameter is not supported, try without it
+            fig.savefig(
+                preview_buf,
+                format='jpeg',
+                dpi=60,
+                bbox_inches='tight',
+                facecolor='white'
+            )
+        preview_buf.seek(0)
+        preview_image = Image(data=preview_buf.read(), format="jpeg")
+        
+        # 2. Save high-quality version
+        os.makedirs("/tmp/chatspatial/visualizations", exist_ok=True)
+        hq_filename = f"{plot_type}_{uuid.uuid4().hex[:8]}.png" if plot_type else f"viz_{uuid.uuid4().hex[:8]}.png"
+        hq_path = f"/tmp/chatspatial/visualizations/{hq_filename}"
+        
+        fig.savefig(
+            hq_path,
+            dpi=target_dpi if target_dpi else 300,
+            format='png',
+            bbox_inches='tight',
+            facecolor='white'
+        )
+        
+        # 3. Create resource reference with metadata
+        metadata = {
+            "description": f"High-quality {plot_type if plot_type else 'visualization'} at {target_dpi} DPI",
+            "figure_pickle": pickle_path if data_id and plot_type else None,
+            "can_export_pdf": True,
+            "can_export_svg": True,
+            "cache_key": cache_key if data_id and plot_type else None
+        }
+        
+        resource = EmbeddedResource(
+            type="resource",
+            resource=TextResourceContents(
+                uri=f"file://{hq_path}",
+                mimeType="image/png",
+                text=json.dumps(metadata)
+            )
+        )
+        
+        if context:
+            await context.info(
+                f"✅ Preview: {len(preview_image.data)//1024}KB | "
+                f"High-quality: {hq_path} | "
+                f"Figure cached for PDF/SVG export"
+            )
+        
+        return preview_image, resource
+    
+    # Mode: auto with medium size - compress but don't use preview
+    if context:
+        await context.info(f"Medium image ({estimated_size//1024}KB), using compression")
+    return fig_to_image(fig, dpi=80, format="png", max_size_kb=200)
+
+
+def cleanup_old_visualizations(days: int = 7):
+    """Clean up old visualization files
+    
+    Args:
+        days: Number of days to keep files
+    """
+    import time
+    
+    cache_dirs = [
+        Path("/tmp/chatspatial/visualizations"),
+        Path("/tmp/chatspatial/figures")
+    ]
+    
+    now = time.time()
+    cutoff = now - (days * 86400)
+    
+    for cache_dir in cache_dirs:
+        if not cache_dir.exists():
+            continue
+            
+        for file in cache_dir.glob("*"):
+            if file.is_file() and file.stat().st_mtime < cutoff:
+                file.unlink()
+                print(f"Cleaned up old file: {file.name}")
