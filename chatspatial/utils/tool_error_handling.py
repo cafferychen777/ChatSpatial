@@ -102,6 +102,10 @@ def mcp_tool_error_handler(include_traceback: bool = True):
 
                 if isinstance(result, Image):
                     return result  # MUST return raw Image object!
+                # Support for Tuple[Image, EmbeddedResource] returns
+                if isinstance(result, tuple) and len(result) >= 1:
+                    if isinstance(result[0], Image):
+                        return result  # Let FastMCP handle the tuple!
                 # Otherwise, wrap the result
                 return create_success_result(result).to_dict()
             except Exception as e:
@@ -127,6 +131,10 @@ def mcp_tool_error_handler(include_traceback: bool = True):
 
                 if isinstance(result, Image):
                     return result  # MUST return raw Image object!
+                # Support for Tuple[Image, EmbeddedResource] returns
+                if isinstance(result, tuple) and len(result) >= 1:
+                    if isinstance(result[0], Image):
+                        return result  # Let FastMCP handle the tuple!
                 # Otherwise, wrap the result
                 return create_success_result(result).to_dict()
             except Exception as e:

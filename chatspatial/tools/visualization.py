@@ -6,7 +6,7 @@ import os
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
 import matplotlib.pyplot as plt
@@ -16,6 +16,7 @@ import scanpy as sc
 import seaborn as sns
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.utilities.types import Image
+from mcp.types import EmbeddedResource, TextResourceContents
 from scipy.stats import pearsonr, spearmanr
 
 from ..models.data import VisualizationParameters
@@ -23,7 +24,9 @@ from ..models.data import VisualizationParameters
 from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,
                                     InvalidParameterError, ProcessingError)
 # Import standardized image utilities
-from ..utils.image_utils import create_placeholder_image, fig_to_image
+from ..utils.image_utils import create_placeholder_image, fig_to_image, optimize_fig_to_image_with_cache
+# Import publication export utilities
+from ..utils.publication_export import export_for_publication
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors
 
@@ -548,7 +551,7 @@ async def visualize_data(
     data_store: Dict[str, Any],
     params: VisualizationParameters = VisualizationParameters(),
     context: Optional[Context] = None,
-) -> Image:
+) -> Union[Image, Tuple[Image, EmbeddedResource]]:
     """Visualize spatial transcriptomics data
 
     Args:
@@ -558,7 +561,9 @@ async def visualize_data(
         context: MCP context
 
     Returns:
-        Visualization image
+        Union[Image, Tuple[Image, EmbeddedResource]]:
+            - Small images (<100KB): Image object
+            - Large images (>=100KB): Tuple[Preview Image, High-quality Resource]
 
     Raises:
         DataNotFoundError: If the dataset is not found
@@ -707,7 +712,12 @@ async def visualize_data(
                         await context.info(
                             f"Created multi-panel figure with {len(features)} cell types"
                         )
-                    return fig_to_image(fig, dpi=100, format="png", max_size_kb=900)
+                    return await optimize_fig_to_image_with_cache(
+                        fig, params, context,
+                        data_id=data_id,
+                        plot_type=params.plot_type,
+                        mode="auto"
+                    )
 
         # Create figure based on plot type
         if params.plot_type == "spatial":
@@ -1637,14 +1647,16 @@ async def visualize_data(
                 await context.warning(error_msg)
             raise InvalidParameterError(error_msg)
 
-        # Convert figure directly to Image object
+        # Convert figure with optimization (preview + resource for large images)
         if context:
-            await context.info(f"Converting {params.plot_type} figure to image...")
-        # Use reasonable DPI and size limit for MCP (must be under 1MB)
-        effective_dpi = min(
-            params.dpi, 120
-        )  # Cap DPI at 120 for balance between quality and size
-        return fig_to_image(fig, format="png", dpi=effective_dpi, max_size_kb=900)
+            await context.info(f"Converting {params.plot_type} figure with token optimization...")
+        # Use the optimized conversion function
+        return await optimize_fig_to_image_with_cache(
+            fig, params, context,
+            data_id=data_id,
+            plot_type=params.plot_type,
+            mode="auto"
+        )
 
     except Exception as e:
         # Make sure to close any open figures in case of error
