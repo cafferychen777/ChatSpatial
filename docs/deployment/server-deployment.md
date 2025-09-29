@@ -11,30 +11,33 @@ description: "Deploy ChatSpatial for team access"
 
 Deploy ChatSpatial on a server for team-wide access to spatial transcriptomics analysis.
 
-## Simple HTTP Server
+## MCP Server Deployment
 
-Run ChatSpatial as an HTTP server for browser-based access:
+ChatSpatial implements the Model Context Protocol (MCP) with two transport modes:
+
+### Local Mode (stdio)
+For Claude Desktop and local clients:
 
 ```bash
 # Install ChatSpatial
 pip install -e ".[full]"
 
-# Run HTTP server
-python -m chatspatial.http_server --port 8000
+# Run in stdio mode (default)
+python -m chatspatial
 ```
 
-Access at `http://your-server:8000`
-
-## MCP Server Mode
-
-For integration with Claude Desktop or other MCP clients:
+### Remote Mode (SSE)
+For remote access and HTTP-based clients:
 
 ```bash
-# Standard stdio mode (for Claude Desktop)
-python -m chatspatial
+# SSE mode with HTTP/WebSocket support
+python -m chatspatial server --transport sse --port 8000 --host 0.0.0.0
+```
 
-# SSE mode (for HTTP clients)
-python -m chatspatial server --transport sse --port 8000
+**Note**: Use with mcp-remote proxy for Claude Desktop remote connections:
+```bash
+# Client-side proxy setup
+npx mcp-remote http://your-server:8000/mcp/
 ```
 
 ## Requirements
