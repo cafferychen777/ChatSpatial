@@ -1301,7 +1301,6 @@ async def perform_enrichr(
             top_gene_sets=top_gene_sets,
             libraries_used=gene_sets if isinstance(gene_sets, list) else [gene_sets] if gene_sets else [],
             method_specific_data={
-                "query_genes": gene_list,  # Backward compatibility
                 "top_depleted_sets": [],
                 "n_input_genes": len(gene_list),
                 "organism": organism,
