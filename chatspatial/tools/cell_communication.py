@@ -1292,7 +1292,7 @@ async def _analyze_communication_cellphonedb(
 
             # Run the analysis using CellPhoneDB v5 API with correct parameters
             try:
-                # CellPhoneDB v5 returns a dictionary, not tuple
+                # STRICT: CellPhoneDB v5 ONLY - no backward compatibility for older versions
                 result = cpdb_statistical_analysis_method.call(
                     cpdb_file_path=db_path,  # Fixed: Use actual database path
                     meta_file_path=meta_file,
@@ -1308,33 +1308,50 @@ async def _analyze_communication_cellphonedb(
                     score_interactions=True,  # New: Enable interaction scoring (v5 feature)
                 )
                 
-                # Extract results with proper error handling for v5 format
-                if isinstance(result, dict):
-                    deconvoluted = result.get('deconvoluted')
-                    means = result.get('means')
-                    pvalues = result.get('pvalues') 
-                    significant_means = result.get('significant_means')
-                    
-                    # Validate CellPhoneDB API result completeness
-                    if significant_means is None and 'significant_means' not in result:
-                        # CellPhoneDB API failure - do not mask with empty DataFrame
-                        error_msg = (
-                            "❌ CellPhoneDB API returned incomplete results (missing 'significant_means').\n\n"
-                            "🔧 SOLUTIONS:\n"
-                            "1. Use LIANA method (more robust):\n"
-                            "   analyze_cell_communication(data_id, params={'method': 'liana'})\n\n"
-                            "2. Ensure comprehensive gene coverage (>10,000 genes recommended)\n\n"
-                            "3. Use raw data with full gene set:\n"
-                            "   analyze_cell_communication(data_id, params={'data_source': 'raw'})\n\n"
-                            "4. Check data quality and L-R gene presence in dataset\n\n"
-                            "📋 CONTEXT: This indicates CellPhoneDB internal failure or insufficient gene coverage."
-                        )
-                        if context:
-                            await context.error(error_msg)
-                        raise RuntimeError(error_msg)
-                else:
-                    # Fallback for older tuple format
-                    deconvoluted, means, pvalues, significant_means = result
+                # Validate CellPhoneDB v5 format - NO BACKWARD COMPATIBILITY
+                if not isinstance(result, dict):
+                    # Critical error: unexpected format from CellPhoneDB
+                    error_msg = (
+                        "❌ CRITICAL: CellPhoneDB returned unexpected format.\n\n"
+                        f"Expected dictionary format from CellPhoneDB v5, but received: {type(result).__name__}\n\n"
+                        "🔧 SOLUTIONS:\n"
+                        "1. Verify CellPhoneDB installation:\n"
+                        "   pip list | grep cellphonedb  # Should be >=5.0.0\n\n"
+                        "2. Reinstall correct version:\n"
+                        "   pip uninstall cellphonedb\n"
+                        "   pip install 'cellphonedb>=5.0.0,<6.0'\n\n"
+                        "3. Check for environment conflicts:\n"
+                        "   python -c 'import cellphonedb; print(cellphonedb.__version__)'\n\n"
+                        "📋 SCIENTIFIC INTEGRITY: Using incorrect CellPhoneDB version may produce "
+                        "inconsistent results. We enforce v5 to ensure reproducible analysis."
+                    )
+                    if context:
+                        await context.error(error_msg)
+                    raise RuntimeError(error_msg)
+                
+                # Extract results from CellPhoneDB v5 dictionary format
+                deconvoluted = result.get('deconvoluted')
+                means = result.get('means')
+                pvalues = result.get('pvalues') 
+                significant_means = result.get('significant_means')
+                
+                # Validate CellPhoneDB API result completeness
+                if significant_means is None and 'significant_means' not in result:
+                    # CellPhoneDB API failure - do not mask with empty DataFrame
+                    error_msg = (
+                        "❌ CellPhoneDB API returned incomplete results (missing 'significant_means').\n\n"
+                        "🔧 SOLUTIONS:\n"
+                        "1. Use LIANA method (more robust):\n"
+                        "   analyze_cell_communication(data_id, params={'method': 'liana'})\n\n"
+                        "2. Ensure comprehensive gene coverage (>10,000 genes recommended)\n\n"
+                        "3. Use raw data with full gene set:\n"
+                        "   analyze_cell_communication(data_id, params={'data_source': 'raw'})\n\n"
+                        "4. Check data quality and L-R gene presence in dataset\n\n"
+                        "📋 CONTEXT: This indicates CellPhoneDB internal failure or insufficient gene coverage."
+                    )
+                    if context:
+                        await context.error(error_msg)
+                    raise RuntimeError(error_msg)
             except Exception as api_error:
                 # Simple, direct error handling for MCP - let LLM guide the user
                 error_str = str(api_error)
