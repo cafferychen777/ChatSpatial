@@ -35,6 +35,12 @@ from ..utils.publication_export import export_for_publication
 from ._color_utils import _ensure_categorical_colors
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates
+# Import path utilities for safe file operations
+from ..utils.path_utils import (
+    get_safe_output_path,
+    is_safe_output_path,
+    get_output_dir_from_config,
+)
 
 
 # Helper function to create a figure with the right size
@@ -4721,6 +4727,14 @@ async def save_visualization(
         save_visualization("data1", "umap", filename="figure_1a")
     """
     try:
+        # Use environment variable for output_dir if default value was passed
+        if output_dir == "./outputs":
+            output_dir = get_output_dir_from_config(default="./outputs")
+            if context and output_dir != "./outputs":
+                await context.info(
+                    f"Using output directory from configuration: {output_dir}"
+                )
+
         # Validate format
         valid_formats = ["png", "jpg", "jpeg", "pdf", "svg"]
         if format.lower() not in valid_formats:
@@ -4751,16 +4765,29 @@ async def save_visualization(
         # For publication quality, recommend at least 300 DPI
         if dpi >= 300 and context:
             await context.info(f"Using publication-quality DPI: {dpi}")
-        
-        # Create output directory
-        output_path = Path(output_dir).resolve()
-        
-        # Security check - ensure path is within allowed directory
-        cwd = Path.cwd()
-        if not (output_path.is_relative_to(cwd) or output_path.is_relative_to(Path("./outputs").resolve())):
-            raise InvalidParameterError(f"Output directory must be within current working directory: {output_dir}")
-        
-        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Create output directory using safe path handling
+        # This resolves relative paths against project root (not cwd)
+        # and automatically falls back to /tmp if the directory is not writable
+        try:
+            output_path = get_safe_output_path(
+                output_dir,
+                fallback_to_tmp=True,
+                create_if_missing=True
+            )
+
+            # Inform user if fallback was used
+            if context and str(output_path) != str(Path(output_dir).resolve()):
+                await context.info(
+                    f"Using output directory: {output_path} "
+                    f"(fallback from requested path)"
+                )
+
+        except PermissionError as e:
+            raise ProcessingError(
+                f"Cannot save visualization to {output_dir}: {str(e)}. "
+                f"Please check directory permissions or specify a different output_dir."
+            ) from e
         
         # Generate filename if not provided
         if filename is None:
@@ -4837,18 +4864,24 @@ async def list_saved_visualizations(
         List of dictionaries with file information
     """
     try:
-        output_path = Path(output_dir).resolve()
-        
-        # Check if directory exists
+        # Resolve path against current working directory (respects user config)
+        user_path = Path(output_dir)
+        if user_path.is_absolute():
+            output_path = user_path
+        else:
+            output_path = Path.cwd() / user_path
+
+        # Check if directory exists (don't create, just list)
         if not output_path.exists():
             if context:
-                await context.info(f"Output directory does not exist: {output_dir}")
+                await context.info(f"Output directory does not exist: {output_path}")
             return []
-        
-        # Security check
-        cwd = Path.cwd()
-        if not (output_path.is_relative_to(cwd) or output_path.is_relative_to(Path("./outputs").resolve())):
-            raise InvalidParameterError(f"Output directory must be within current working directory: {output_dir}")
+
+        # Security check using new helper
+        if not is_safe_output_path(output_path):
+            raise InvalidParameterError(
+                f"Output directory must be within project or /tmp/chatspatial: {output_path}"
+            )
         
         # Get all image files
         image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.pdf", "*.svg"]

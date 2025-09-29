@@ -130,10 +130,31 @@ async def export_for_publication(
     # Apply user-provided parameters
     if params:
         save_params.update(params)
-    
-    # Ensure output directory exists
-    output_dir = Path(output_path).parent
-    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Handle output path safely
+    # Resolve relative paths against current working directory (respects user config)
+    user_output_path = Path(output_path)
+    if user_output_path.is_absolute():
+        final_output_path = user_output_path
+    else:
+        # Relative paths are resolved against CWD (follows standard conventions)
+        final_output_path = Path.cwd() / user_output_path
+
+    # Ensure parent directory exists
+    output_dir = final_output_path.parent
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except (OSError, PermissionError) as e:
+        error_msg = (
+            f"Cannot create output directory {output_dir}: {e}. "
+            f"Please check permissions or use an absolute path."
+        )
+        if context:
+            await context.error(error_msg)
+        raise RuntimeError(error_msg) from e
+
+    # Update output_path variable for subsequent use
+    output_path = str(final_output_path)
     
     # Log export details
     if context:
