@@ -157,11 +157,6 @@ def _validate_singler(context: Optional[Context] = None):
 # Constants for annotation
 DEFAULT_HVG_COUNT = 2000
 # DEFAULT_SCANVI_EPOCHS is now replaced by scanvi_query_epochs parameter (default: 100)
-# DEPRECATED: This arbitrary value is scientifically misleading
-# Methods should either provide real confidence scores or return empty dict/None
-# This constant is retained only for legacy compatibility and will be removed
-# IMPORTANT: NEW CODE MUST NOT USE THIS CONSTANT
-CONFIDENCE_MIN = 0.5  # DEPRECATED - DO NOT USE IN NEW CODE
 CONFIDENCE_MAX = 0.99
 
 # Documentation of which methods provide real confidence scores

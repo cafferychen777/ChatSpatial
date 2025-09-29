@@ -33,6 +33,8 @@ from ..utils.image_utils import create_placeholder_image, fig_to_image, optimize
 from ..utils.publication_export import export_for_publication
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors
+# Import spatial coordinates helper from data adapter
+from ..utils.data_adapter import get_spatial_coordinates
 
 
 # Helper function to create a figure with the right size
@@ -191,7 +193,14 @@ def plot_spatial_feature(
 
 
 def handle_visualization_errors(plot_title: str):
-    """A decorator to catch errors in visualization functions and return a placeholder image."""
+    """
+    Improved decorator to catch errors in visualization functions.
+    
+    Strategy:
+    - Scientific/data errors (DataNotFoundError, etc.): Propagate to MCP layer
+    - Technical/rendering errors (matplotlib, memory): Return error figure
+    - Unknown errors: Propagate (conservative approach)
+    """
 
     def decorator(func):
         @wraps(func)
@@ -199,10 +208,25 @@ def handle_visualization_errors(plot_title: str):
             try:
                 # The wrapped function is async, so we need to await it
                 return await func(*args, **kwargs)
-            except Exception as e:
-                # Create a placeholder figure with the error message
+            
+            except (DataNotFoundError, InvalidParameterError, DataCompatibilityError) as e:
+                # Scientific/user errors must propagate for proper error handling
+                # These indicate issues with data or parameters that the user must fix
+                raise
+            
+            except (matplotlib.MatplotlibException, ValueError, MemoryError) as e:
+                # Technical/rendering errors - return a friendly error figure
+                # These are often transient or due to system limitations
                 fig, ax = plt.subplots(figsize=(8, 6))
-                error_text = f"Error creating {plot_title} visualization:\n\n{type(e).__name__}: {str(e)}"
+                
+                # Create clear error message with visual emphasis
+                error_text = (
+                    "⚠️ TECHNICAL ERROR - NOT A DATA ISSUE ⚠️\n\n"
+                    f"{type(e).__name__}: {str(e)}\n\n"
+                    "This is a rendering/technical issue, not a problem with your data.\n"
+                    "The analysis may have succeeded but visualization failed."
+                )
+                
                 ax.text(
                     0.5,
                     0.5,
@@ -212,10 +236,28 @@ def handle_visualization_errors(plot_title: str):
                     transform=ax.transAxes,
                     wrap=True,
                     fontsize=10,
+                    color="darkred",
+                    weight="bold"
                 )
-                ax.set_title(f"{plot_title} - Error", color="red")
+                
+                ax.set_title(f"{plot_title} - Technical Error", color="red", fontsize=14, weight="bold")
                 ax.axis("off")
+                
+                # Add red border to emphasize this is an error
+                rect = plt.Rectangle((0.02, 0.02), 0.96, 0.96, 
+                                    transform=ax.transAxes,
+                                    linewidth=3, 
+                                    edgecolor='red', 
+                                    facecolor='none',
+                                    linestyle='--')
+                ax.add_patch(rect)
+                
                 return fig
+            
+            except Exception:
+                # Unknown exceptions are propagated (conservative strategy)
+                # This ensures we don't hide unexpected errors
+                raise
 
         return wrapper
 
@@ -437,25 +479,6 @@ async def visualize_top_cell_types(adata, deconv_key, n_cell_types=4, context=No
     return features
 
 
-# This function is deprecated - use data_adapter.get_spatial_coordinates() instead
-# Keeping for backward compatibility only
-def get_spatial_coordinates(adata):
-    """Get spatial coordinates from AnnData object
-
-    DEPRECATED: Use chatspatial.utils.data_adapter.get_spatial_coordinates() instead.
-    This function will be removed in a future version.
-
-    Args:
-        adata: AnnData object
-
-    Returns:
-        Tuple of (x_coords, y_coords)
-    """
-    from ..utils.data_adapter import \
-        get_spatial_coordinates as get_coords_standardized
-
-    return get_coords_standardized(adata)
-
 
 
 
@@ -505,7 +528,7 @@ async def visualize_data(
         "pathway_enrichment",
         "spatial_enrichment",
         "spatial_interaction",
-        "integration_check",  # NEW: Enhanced visualization types
+        "batch_integration",  # Batch integration quality assessment
     ]
     if params.plot_type not in valid_plot_types:
         error_msg = (
@@ -1548,10 +1571,10 @@ async def visualize_data(
                 await context.info("Creating spatial interaction visualization")
             fig = await create_spatial_interaction_visualization(adata, params, context)
 
-        elif params.plot_type == "integration_check":
+        elif params.plot_type == "batch_integration":
             if context:
-                await context.info("Creating integration check visualization")
-            fig = await create_integration_check_visualization(adata, params, context)
+                await context.info("Creating batch integration quality visualization")
+            fig = await create_batch_integration_visualization(adata, params, context)
 
         else:
             # This should never happen due to parameter validation at the beginning
@@ -4680,189 +4703,168 @@ async def create_spatial_interaction_visualization(
         return fig
 
 
-async def create_integration_check_visualization(
+@handle_visualization_errors("Batch Integration")
+async def create_batch_integration_visualization(
     adata, params, context: Optional[Context] = None
 ):
-    """Create multi-panel visualization to assess dataset integration quality"""
+    """Create multi-panel visualization to assess batch integration quality
+    
+    This visualization is specifically for evaluating the quality of batch correction
+    after integrating multiple samples. It requires proper batch information.
+    """
 
     if context:
-        await context.info("Creating integration assessment visualization")
+        await context.info("Creating batch integration quality visualization")
 
-    try:
-        # Check if batch information exists
-        batch_key = params.batch_key
-        if batch_key not in adata.obs.columns:
-            if context:
-                await context.warning(
-                    f"Batch key '{batch_key}' not found in adata.obs. Using first categorical column as batch."
-                )
-            # Find first categorical column as fallback
-            categorical_cols = adata.obs.select_dtypes(
-                include=["category", "object"]
-            ).columns
-            if len(categorical_cols) > 0:
-                batch_key = categorical_cols[0]
-            else:
-                raise ValueError(
-                    "No batch/categorical information found for integration assessment"
-                )
-
-        # Create multi-panel figure (2x2 layout)
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-
-        # Panel 1: UMAP colored by batch (shows mixing)
-        if "X_umap" in adata.obsm:
-            umap_coords = adata.obsm["X_umap"]
-            batch_values = adata.obs[batch_key]
-            unique_batches = batch_values.unique()
-            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_batches)))
-
-            for i, batch in enumerate(unique_batches):
-                mask = batch_values == batch
-                axes[0, 0].scatter(
-                    umap_coords[mask, 0],
-                    umap_coords[mask, 1],
-                    c=[colors[i]],
-                    label=f"{batch}",
-                    s=5,
-                    alpha=0.7,
-                )
-
-            axes[0, 0].set_title(
-                "UMAP colored by batch\n(Good integration = mixed colors)", fontsize=12
-            )
-            axes[0, 0].set_xlabel("UMAP 1")
-            axes[0, 0].set_ylabel("UMAP 2")
-            axes[0, 0].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-        else:
-            axes[0, 0].text(
-                0.5, 0.5, "UMAP coordinates not available", ha="center", va="center"
-            )
-            axes[0, 0].set_title("UMAP (Not Available)", fontsize=12)
-
-        # Panel 2: Spatial plot colored by batch (if spatial data available)
-        if "spatial" in adata.obsm:
-            spatial_coords = adata.obsm["spatial"]
-            batch_values = adata.obs[batch_key]
-            unique_batches = batch_values.unique()
-            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_batches)))
-
-            for i, batch in enumerate(unique_batches):
-                mask = batch_values == batch
-                axes[0, 1].scatter(
-                    spatial_coords[mask, 0],
-                    spatial_coords[mask, 1],
-                    c=[colors[i]],
-                    label=f"{batch}",
-                    s=10,
-                    alpha=0.7,
-                )
-
-            axes[0, 1].set_title("Spatial coordinates colored by batch", fontsize=12)
-            axes[0, 1].set_xlabel("Spatial X")
-            axes[0, 1].set_ylabel("Spatial Y")
-            axes[0, 1].set_aspect("equal")
-            axes[0, 1].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-        else:
-            axes[0, 1].text(
-                0.5, 0.5, "Spatial coordinates not available", ha="center", va="center"
-            )
-            axes[0, 1].set_title("Spatial (Not Available)", fontsize=12)
-
-        # Panel 3: Batch composition bar plot
-        batch_counts = adata.obs[batch_key].value_counts()
-        axes[1, 0].bar(
-            range(len(batch_counts)),
-            batch_counts.values,
-            color=colors[: len(batch_counts)],
-        )
-        axes[1, 0].set_xticks(range(len(batch_counts)))
-        axes[1, 0].set_xticklabels(batch_counts.index, rotation=45, ha="right")
-        axes[1, 0].set_title("Cell counts per batch", fontsize=12)
-        axes[1, 0].set_ylabel("Number of cells")
-
-        # Panel 4: Integration quality metrics (if available)
-        axes[1, 1].text(
-            0.1,
-            0.9,
-            "Integration Quality Assessment:",
-            fontsize=14,
-            fontweight="bold",
-            transform=axes[1, 1].transAxes,
+    # Check if batch information exists - STRICT validation, no fallback
+    batch_key = params.batch_key
+    if batch_key not in adata.obs.columns:
+        raise DataNotFoundError(
+            f"Batch key '{batch_key}' not found in data. "
+            f"This visualization requires proper batch information from sample integration. "
+            f"Available columns: {', '.join(adata.obs.columns[:10])}{'...' if len(adata.obs.columns) > 10 else ''}. "
+            f"Please ensure you have run 'integrate_samples' first or specify the correct batch_key."
         )
 
-        metrics_text = f"Total cells: {adata.n_obs:,}\n"
-        metrics_text += f"Total genes: {adata.n_vars:,}\n"
-        metrics_text += f"Batches: {len(unique_batches)} ({', '.join(map(str, unique_batches))})\n\n"
+    # Create multi-panel figure (2x2 layout)
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
-        if params.integration_method:
-            metrics_text += f"Integration method: {params.integration_method}\n"
+    # Panel 1: UMAP colored by batch (shows mixing)
+    if "X_umap" in adata.obsm:
+        umap_coords = adata.obsm["X_umap"]
+        batch_values = adata.obs[batch_key]
+        unique_batches = batch_values.unique()
+        colors = plt.cm.Set3(np.linspace(0, 1, len(unique_batches)))
 
-        # Add basic mixing metrics
-        if "X_umap" in adata.obsm:
-            # Calculate simple mixing metric (entropy)
-            from scipy.stats import entropy
+        for i, batch in enumerate(unique_batches):
+            mask = batch_values == batch
+            axes[0, 0].scatter(
+                umap_coords[mask, 0],
+                umap_coords[mask, 1],
+                c=[colors[i]],
+                label=f"{batch}",
+                s=5,
+                alpha=0.7,
+            )
 
-            # Divide UMAP space into grid and calculate batch entropy per grid cell
-            umap_coords = adata.obsm["X_umap"]
-            x_bins = np.linspace(umap_coords[:, 0].min(), umap_coords[:, 0].max(), 10)
-            y_bins = np.linspace(umap_coords[:, 1].min(), umap_coords[:, 1].max(), 10)
+        axes[0, 0].set_title(
+            "UMAP colored by batch\n(Good integration = mixed colors)", fontsize=12
+        )
+        axes[0, 0].set_xlabel("UMAP 1")
+        axes[0, 0].set_ylabel("UMAP 2")
+        axes[0, 0].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    else:
+        axes[0, 0].text(
+            0.5, 0.5, "UMAP coordinates not available", ha="center", va="center"
+        )
+        axes[0, 0].set_title("UMAP (Not Available)", fontsize=12)
 
-            entropies = []
-            for i in range(len(x_bins) - 1):
-                for j in range(len(y_bins) - 1):
-                    mask = (
-                        (umap_coords[:, 0] >= x_bins[i])
-                        & (umap_coords[:, 0] < x_bins[i + 1])
-                        & (umap_coords[:, 1] >= y_bins[j])
-                        & (umap_coords[:, 1] < y_bins[j + 1])
+    # Panel 2: Spatial plot colored by batch (if spatial data available)
+    if "spatial" in adata.obsm:
+        spatial_coords = adata.obsm["spatial"]
+        batch_values = adata.obs[batch_key]
+        unique_batches = batch_values.unique()
+        colors = plt.cm.Set3(np.linspace(0, 1, len(unique_batches)))
+
+        for i, batch in enumerate(unique_batches):
+            mask = batch_values == batch
+            axes[0, 1].scatter(
+                spatial_coords[mask, 0],
+                spatial_coords[mask, 1],
+                c=[colors[i]],
+                label=f"{batch}",
+                s=10,
+                alpha=0.7,
+            )
+
+        axes[0, 1].set_title("Spatial coordinates colored by batch", fontsize=12)
+        axes[0, 1].set_xlabel("Spatial X")
+        axes[0, 1].set_ylabel("Spatial Y")
+        axes[0, 1].set_aspect("equal")
+        axes[0, 1].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    else:
+        axes[0, 1].text(
+            0.5, 0.5, "Spatial coordinates not available", ha="center", va="center"
+        )
+        axes[0, 1].set_title("Spatial (Not Available)", fontsize=12)
+
+    # Panel 3: Batch composition bar plot
+    batch_counts = adata.obs[batch_key].value_counts()
+    axes[1, 0].bar(
+        range(len(batch_counts)),
+        batch_counts.values,
+        color=colors[: len(batch_counts)],
+    )
+    axes[1, 0].set_xticks(range(len(batch_counts)))
+    axes[1, 0].set_xticklabels(batch_counts.index, rotation=45, ha="right")
+    axes[1, 0].set_title("Cell counts per batch", fontsize=12)
+    axes[1, 0].set_ylabel("Number of cells")
+
+    # Panel 4: Integration quality metrics (if available)
+    axes[1, 1].text(
+        0.1,
+        0.9,
+        "Integration Quality Assessment:",
+        fontsize=14,
+        fontweight="bold",
+        transform=axes[1, 1].transAxes,
+    )
+
+    metrics_text = f"Total cells: {adata.n_obs:,}\n"
+    metrics_text += f"Total genes: {adata.n_vars:,}\n"
+    metrics_text += f"Batches: {len(unique_batches)} ({', '.join(map(str, unique_batches))})\n\n"
+
+    if params.integration_method:
+        metrics_text += f"Integration method: {params.integration_method}\n"
+
+    # Add basic mixing metrics
+    if "X_umap" in adata.obsm:
+        # Calculate simple mixing metric (entropy)
+        from scipy.stats import entropy
+
+        # Divide UMAP space into grid and calculate batch entropy per grid cell
+        umap_coords = adata.obsm["X_umap"]
+        x_bins = np.linspace(umap_coords[:, 0].min(), umap_coords[:, 0].max(), 10)
+        y_bins = np.linspace(umap_coords[:, 1].min(), umap_coords[:, 1].max(), 10)
+
+        entropies = []
+        for i in range(len(x_bins) - 1):
+            for j in range(len(y_bins) - 1):
+                mask = (
+                    (umap_coords[:, 0] >= x_bins[i])
+                    & (umap_coords[:, 0] < x_bins[i + 1])
+                    & (umap_coords[:, 1] >= y_bins[j])
+                    & (umap_coords[:, 1] < y_bins[j + 1])
+                )
+                if mask.sum() > 10:  # Only consider regions with enough cells
+                    batch_props = adata.obs[batch_key][mask].value_counts(
+                        normalize=True
                     )
-                    if mask.sum() > 10:  # Only consider regions with enough cells
-                        batch_props = adata.obs[batch_key][mask].value_counts(
-                            normalize=True
-                        )
-                        entropies.append(entropy(batch_props))
+                    entropies.append(entropy(batch_props))
 
-            if entropies:
-                avg_entropy = np.mean(entropies)
-                max_entropy = np.log(len(unique_batches))  # Perfect mixing entropy
-                mixing_score = avg_entropy / max_entropy if max_entropy > 0 else 0
-                metrics_text += f"Mixing score: {mixing_score:.3f} (0=segregated, 1=perfectly mixed)\n"
+        if entropies:
+            avg_entropy = np.mean(entropies)
+            max_entropy = np.log(len(unique_batches))  # Perfect mixing entropy
+            mixing_score = avg_entropy / max_entropy if max_entropy > 0 else 0
+            metrics_text += f"Mixing score: {mixing_score:.3f} (0=segregated, 1=perfectly mixed)\n"
 
-        axes[1, 1].text(
-            0.1,
-            0.7,
-            metrics_text,
-            fontsize=10,
-            transform=axes[1, 1].transAxes,
-            verticalalignment="top",
-            fontfamily="monospace",
-        )
-        axes[1, 1].set_xlim(0, 1)
-        axes[1, 1].set_ylim(0, 1)
-        axes[1, 1].set_xticks([])
-        axes[1, 1].set_yticks([])
-        axes[1, 1].set_title("Integration Metrics", fontsize=12)
+    axes[1, 1].text(
+        0.1,
+        0.7,
+        metrics_text,
+        fontsize=10,
+        transform=axes[1, 1].transAxes,
+        verticalalignment="top",
+        fontfamily="monospace",
+    )
+    axes[1, 1].set_xlim(0, 1)
+    axes[1, 1].set_ylim(0, 1)
+    axes[1, 1].set_xticks([])
+    axes[1, 1].set_yticks([])
+    axes[1, 1].set_title("Integration Metrics", fontsize=12)
 
-        plt.tight_layout()
-        return fig
-
-    except Exception as e:
-        if context:
-            await context.warning(f"Failed to create integration check plot: {str(e)}")
-        # Fallback to basic info plot
-        fig, ax = create_figure()
-        ax.text(
-            0.5,
-            0.5,
-            f"Integration check visualization failed:\n{str(e)}",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-            fontsize=12,
-        )
-        ax.set_title("Integration Check (Error)", fontsize=14)
-        return fig
+    plt.tight_layout()
+    return fig
 
 
 # ============================================================================
