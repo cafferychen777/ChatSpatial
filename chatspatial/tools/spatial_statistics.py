@@ -254,15 +254,21 @@ async def _ensure_cluster_key(
             adata.obs[requested_key] = adata.obs[requested_key].astype("category")
         return requested_key
 
-    if "leiden" in adata.obs.columns:
-        if context:
-            await context.warning(
-                f"Using 'leiden' as fallback for missing '{requested_key}'"
-            )
-        return "leiden"
-
+    # NO FALLBACK: User's explicit clustering choice must be respected
+    available_keys = [col for col in adata.obs.columns 
+                     if 'cluster' in col.lower() or col in ['leiden', 'louvain']]
+    
     raise ValueError(
-        f"Cluster key '{requested_key}' not found and no 'leiden' clustering available"
+        f"❌ Requested cluster key '{requested_key}' not found in data.\n\n"
+        f"Available clustering keys: {available_keys if available_keys else 'None found'}\n"
+        f"All obs keys: {list(adata.obs.columns[:10])}...\n\n"
+        "🔧 SOLUTIONS:\n"
+        "1. Run clustering first:\n"
+        "   sc.tl.leiden(adata, key_added='leiden')\n\n"
+        "2. Use an existing cluster key from the list above\n\n"
+        "3. Check your preprocessing pipeline included clustering\n\n"
+        "📋 SCIENTIFIC INTEGRITY: Different clustering methods produce different results. "
+        "We cannot substitute one for another without explicit user consent."
     )
 
 
