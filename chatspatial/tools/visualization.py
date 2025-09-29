@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
+# Set non-interactive backend for matplotlib to prevent GUI popups on macOS
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend - prevents Dock popup
 import matplotlib.pyplot as plt
+plt.ioff()  # Turn off interactive mode
 import numpy as np
 import pandas as pd
 import scanpy as sc

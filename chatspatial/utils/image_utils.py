@@ -18,6 +18,16 @@ from typing import TYPE_CHECKING, Tuple, Optional, Union, Dict, Any
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.types import EmbeddedResource, TextResourceContents
 
+# Function to ensure matplotlib uses non-interactive backend
+def _ensure_non_interactive_backend():
+    """Ensure matplotlib uses non-interactive backend to prevent GUI popups on macOS."""
+    import matplotlib
+    current_backend = matplotlib.get_backend()
+    if current_backend != 'Agg':
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        plt.ioff()  # Turn off interactive mode
+
 if TYPE_CHECKING:
     import matplotlib.pyplot as plt
 
@@ -41,6 +51,7 @@ def fig_to_image(
     Returns:
         Image object
     """
+    _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
     import matplotlib.pyplot as plt
 
     # Try different compression settings until we get a small enough image
@@ -172,6 +183,7 @@ def create_placeholder_image(
     Returns:
         Image object
     """
+    _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=figsize)
@@ -326,6 +338,7 @@ async def optimize_fig_to_image_with_cache(
         Small images: Image object
         Large images: Tuple[Image preview, EmbeddedResource with high quality]
     """
+    _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
     import matplotlib.pyplot as plt
     
     # Cache Figure object for high-quality export
