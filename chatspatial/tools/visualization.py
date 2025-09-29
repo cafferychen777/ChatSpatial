@@ -734,9 +734,8 @@ async def visualize_data(
                         adata.X = np.nan_to_num(
                             adata.X, nan=0.0, posinf=0.0, neginf=0.0
                         )
-                    
-                    # Import and compute UMAP
-                    import scanpy as sc
+
+                    # Compute UMAP (scanpy already imported globally)
                     sc.tl.umap(adata)
                     
                     if context:
