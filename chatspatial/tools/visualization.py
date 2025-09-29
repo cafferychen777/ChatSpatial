@@ -1613,18 +1613,33 @@ async def create_spatial_domains_visualization(
     if context:
         await context.info(f"Visualizing spatial domains using column: {domain_key}")
 
-    # Get spatial coordinates
+    # Get spatial coordinates - STRICT: NO FALLBACK to non-spatial data
     try:
         x_coords, y_coords = get_spatial_coordinates(adata)
         coord_type = "spatial"
-    except:
-        # Fallback to first two PCs if available
-        if "X_pca" in adata.obsm:
-            x_coords = adata.obsm["X_pca"][:, 0]
-            y_coords = adata.obsm["X_pca"][:, 1]
-            coord_type = "PCA"
-        else:
-            raise ValueError("No spatial coordinates or PCA found in dataset")
+    except Exception as e:
+        # NO FALLBACK: Spatial domains require REAL spatial coordinates
+        error_msg = (
+            "❌ Spatial domain visualization requires actual spatial coordinates.\n\n"
+            f"Error details: {str(e)}\n\n"
+            "🔧 SOLUTIONS:\n"
+            "1. Ensure your data contains spatial coordinates:\n"
+            "   - Standard location: adata.obsm['spatial']\n"
+            "   - Alternative: adata.obs['x'] and adata.obs['y']\n\n"
+            "2. For Visium data, ensure proper loading:\n"
+            "   sc.read_visium(path_to_data)\n\n"
+            "3. For other spatial platforms, add coordinates manually:\n"
+            "   adata.obsm['spatial'] = np.column_stack([x_coords, y_coords])\n\n"
+            "📋 SCIENTIFIC INTEGRITY: Spatial domains are tissue regions defined by\n"
+            "PHYSICAL LOCATION. PCA coordinates represent gene expression similarity,\n"
+            "NOT spatial position. We cannot substitute one for the other.\n\n"
+            "• Spatial coords: Real (x,y) positions on tissue\n"
+            "• PCA coords: Abstract dimensions of gene expression variance\n"
+            "Using PCA as spatial would completely invalidate spatial analysis."
+        )
+        if context:
+            await context.error(error_msg)
+        raise ValueError(error_msg)
 
     # Create figure
     figsize = params.figure_size or (10, 8)
