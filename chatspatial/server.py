@@ -1205,27 +1205,23 @@ async def analyze_enrichment(
                     "Pathway ssGSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
                 )
         elif params.method == "pathway_enrichr":
-            # For Enrichr, we need a gene list
-            if hasattr(params, "query_genes") and params.query_genes:
-                gene_list = params.query_genes
+            # For Enrichr, we need a gene list - use HVG or top variable genes
+            if "highly_variable" in adata.var:
+                gene_list = adata.var_names[adata.var["highly_variable"]].tolist()[
+                    :500
+                ]
             else:
-                # Use highly variable genes or DEGs
-                if "highly_variable" in adata.var:
-                    gene_list = adata.var_names[adata.var["highly_variable"]].tolist()[
-                        :500
-                    ]
-                else:
-                    # Use top variable genes
-                    import numpy as np
-                    from scipy import sparse
+                # Use top variable genes
+                import numpy as np
+                from scipy import sparse
 
-                    if sparse.issparse(adata.X):
-                        # Handle sparse matrix
-                        var_scores = np.array(adata.X.toarray().var(axis=0)).flatten()
-                    else:
-                        var_scores = np.array(adata.X.var(axis=0)).flatten()
-                    top_indices = np.argsort(var_scores)[-500:]
-                    gene_list = adata.var_names[top_indices].tolist()
+                if sparse.issparse(adata.X):
+                    # Handle sparse matrix
+                    var_scores = np.array(adata.X.toarray().var(axis=0)).flatten()
+                else:
+                    var_scores = np.array(adata.X.var(axis=0)).flatten()
+                top_indices = np.argsort(var_scores)[-500:]
+                gene_list = adata.var_names[top_indices].tolist()
 
             result_dict = (await perform_enrichr(
                 gene_list=gene_list,
