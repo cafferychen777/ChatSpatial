@@ -1104,55 +1104,40 @@ async def analyze_enrichment(
                     await context.info(f"Using {len(gene_sets)} top pathways for analysis")
 
         except Exception as e:
-            # Fallback: use highly variable genes as a default gene set
-            if context:
-                await context.info(
-                    f"Failed to load gene sets from {params.gene_set_database}: {e}"
-                )
-                await context.info("Using highly variable genes as fallback")
-
-            # Get highly variable genes if available
-            if "highly_variable" in adata.var.columns:
-                hvg_genes = adata.var_names[adata.var.highly_variable].tolist()
-                if len(hvg_genes) >= params.min_genes:
-                    gene_sets = {
-                        "highly_variable_genes": hvg_genes[:200]
-                    }  # Use top 200 HVGs
-                else:
-                    # Use all available genes as last resort
-                    gene_sets = {"all_genes": adata.var_names.tolist()[:500]}
-            else:
-                # Use top genes by mean expression
-                import numpy as np
-
-                gene_means = np.array(adata.X.mean(axis=0)).flatten()
-                top_gene_indices = np.argsort(gene_means)[-500:]
-                gene_sets = {
-                    "top_expressed_genes": adata.var_names[top_gene_indices].tolist()
-                }
-
-    # If still no gene sets, use default strategy
-    if gene_sets is None:
-        if context:
-            await context.info(
-                "No gene sets provided or loaded. Using default gene sets based on data."
+            # NO FALLBACK: Enrichment analysis requires specific gene sets for scientific validity
+            error_msg = (
+                f"Failed to load gene sets from {params.gene_set_database}: {e}\n\n"
+                f"❌ ENRICHMENT ANALYSIS REQUIRES SPECIFIC GENE SETS\n\n"
+                f"Gene set enrichment analysis cannot proceed with arbitrary gene substitutions.\n"
+                f"This preserves scientific integrity and prevents misleading results.\n\n"
+                f"💡 SOLUTIONS:\n"
+                f"1. Check your internet connection (required for database access)\n"
+                f"2. Verify species parameter: '{params.species}' (use 'human' or 'mouse')\n"
+                f"3. Try a different database:\n"
+                f"   - 'KEGG_Pathways' (recommended for pathway analysis)\n"
+                f"   - 'GO_Biological_Process' (for biological processes)\n"
+                f"   - 'Reactome_Pathways' (for molecular pathways)\n"
+                f"   - 'MSigDB_Hallmark' (for hallmark gene sets)\n"
+                f"4. Provide custom gene sets via 'gene_sets' parameter\n"
+                f"5. Use spatial analysis tools for data-driven insights without predefined pathways\n\n"
+                f"🔬 WHY NO FALLBACK:\n"
+                f"Using different gene sets (like highly variable genes) would produce\n"
+                f"scientifically different results while appearing to be pathway analysis."
             )
+            
+            if context:
+                await context.error(f"Gene set database loading failed: {e}")
+                await context.error("❌ No fallback - preserving scientific integrity")
+            
+            raise ProcessingError(error_msg)
 
-        # Use highly variable genes or top expressed genes
-        if "highly_variable" in adata.var.columns:
-            hvg_genes = adata.var_names[adata.var.highly_variable].tolist()
-            gene_sets = {"highly_variable_genes": hvg_genes[:200]}
-        else:
-            import numpy as np
-
-            gene_means = np.array(adata.X.mean(axis=0)).flatten()
-            top_gene_indices = np.argsort(gene_means)[-200:]
-            gene_sets = {
-                "top_expressed_genes": adata.var_names[top_gene_indices].tolist()
-            }
-
+    # Verify we have valid gene sets (should not be None after proper error handling above)
     if gene_sets is None or len(gene_sets) == 0:
-        raise ValueError("No valid gene sets available for enrichment analysis")
+        # This should not happen with proper error handling above, but safety check
+        raise ProcessingError(
+            "No valid gene sets available for enrichment analysis. "
+            "Please provide gene sets via 'gene_sets' parameter or specify a valid 'gene_set_database'."
+        )
 
     # Call appropriate enrichment function based on method
     if params.method == "spatial_enrichmap":
