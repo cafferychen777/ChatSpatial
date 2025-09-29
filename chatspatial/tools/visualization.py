@@ -2408,12 +2408,6 @@ async def create_lr_pairs_visualization(
                         parts = str(item).split("_")
                         if len(parts) == 2:
                             lr_pairs.append((parts[0], parts[1]))
-            elif len(feature_list) >= 2:
-                # Handle paired items (legacy format) only if no special format
-                lr_pairs = [
-                    (feature_list[i], feature_list[i + 1])
-                    for i in range(0, len(feature_list) - 1, 2)
-                ]
         
         # 3. Try to get from stored analysis results if no pairs found yet
         if not lr_pairs and hasattr(adata, 'uns'):
@@ -2440,7 +2434,8 @@ async def create_lr_pairs_visualization(
             "This tool requires actual L-R pairs from your analysis. Options:\n"
             "1. Run cell communication analysis first (recommended)\n"
             "2. Specify lr_pairs parameter: lr_pairs=[('Ligand', 'Receptor')]\n"
-            "3. Pass pairs in feature parameter: feature=['Ligand^Receptor']\n\n"
+            "3. Use LIANA format: feature=['Ligand^Receptor']\n"
+            "4. Use underscore format: feature=['Ligand_Receptor']\n\n"
             "Note: This tool does NOT provide demo/default data.\n"
             "Only real experimental results should be visualized in scientific analysis."
         )

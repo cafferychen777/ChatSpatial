@@ -674,14 +674,16 @@ async def _analyze_bivariate_moran(
     if context:
         await context.info("Running Bivariate Moran's I analysis...")
 
-    # Get gene pairs from parameters
+    # Get gene pairs from parameters - NO ARBITRARY DEFAULTS
     if not hasattr(params, "gene_pairs") or not params.gene_pairs:
-        # Use top highly variable genes to create pairs
-        if "highly_variable" not in adata.var:
-            raise ValueError("Highly variable genes required for bivariate analysis")
-
-        hvg = adata.var_names[adata.var["highly_variable"]][:10]
-        gene_pairs = [(hvg[i], hvg[i + 1]) for i in range(0, len(hvg) - 1, 2)]
+        raise ValueError(
+            "Bivariate Moran's I analysis requires explicit gene pairs.\n\n"
+            "This tool analyzes spatial correlation between TWO specific genes. "
+            "Please provide gene_pairs parameter with scientifically meaningful pairs.\n\n"
+            "Example: gene_pairs=[('Gene1', 'Gene2'), ('Gene3', 'Gene4')]\n\n"
+            "Note: This tool does NOT create arbitrary gene pairs from HVG list.\n"
+            "Only scientifically justified gene pairs should be analyzed."
+        )
     else:
         gene_pairs = params.gene_pairs
 

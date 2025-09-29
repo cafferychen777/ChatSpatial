@@ -20,7 +20,7 @@ Key functionalities are organized into two main analysis pipelines:
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -42,68 +42,8 @@ except ImportError:
     VELOVI = None
 
 
-def validate_velocity_data(adata) -> Tuple[bool, List[str]]:
-    """
-    Validate if AnnData object has necessary data for RNA velocity analysis.
-
-    This function now uses the unified validation system for consistency,
-    but maintains the same interface for backward compatibility.
-
-    Parameters
-    ----------
-    adata : AnnData
-        Annotated data matrix to validate
-
-    Returns
-    -------
-    Tuple[bool, List[str]]
-        Tuple of (is_valid, list_of_issues)
-    """
-    try:
-        validate_adata(adata, {}, check_velocity=True)
-        return True, []
-    except DataNotFoundError as e:
-        # Extract individual issues from the error message
-        error_msg = str(e)
-        if "Validation failed: " in error_msg:
-            issues = error_msg.replace("Validation failed: ", "").split(", ")
-        else:
-            issues = [error_msg]
-        return False, issues
 
 
-def validate_spatial_data(
-    adata, spatial_key: str = "spatial"
-) -> Tuple[bool, List[str]]:
-    """
-    Validate if AnnData object has necessary spatial information.
-
-    This function now uses the unified validation system for consistency,
-    but maintains the same interface for backward compatibility.
-
-    Parameters
-    ----------
-    adata : AnnData
-        Annotated data matrix to validate
-    spatial_key : str, default 'spatial'
-        Key for spatial coordinates in adata.obsm
-
-    Returns
-    -------
-    Tuple[bool, List[str]]
-        Tuple of (is_valid, list_of_issues)
-    """
-    try:
-        validate_adata(adata, {}, check_spatial=True, spatial_key=spatial_key)
-        return True, []
-    except DataNotFoundError as e:
-        # Extract individual issues from the error message
-        error_msg = str(e)
-        if "Validation failed: " in error_msg:
-            issues = error_msg.replace("Validation failed: ", "").split(", ")
-        else:
-            issues = [error_msg]
-        return False, issues
 
 
 def preprocess_for_velocity(
@@ -149,9 +89,10 @@ def preprocess_for_velocity(
             n_neighbors = params.n_neighbors
 
     # Validate velocity data
-    is_valid, issues = validate_velocity_data(adata)
-    if not is_valid:
-        raise ValueError(f"Invalid velocity data: {'; '.join(issues)}")
+    try:
+        validate_adata(adata, {}, check_velocity=True)
+    except DataNotFoundError as e:
+        raise ValueError(f"Invalid velocity data: {e}")
 
     # Standard preprocessing with configurable parameters
     scv.pp.filter_and_normalize(
@@ -242,9 +183,10 @@ def infer_spatial_trajectory_cellrank(
     from scipy.spatial.distance import pdist, squareform
 
     # Validate spatial data
-    is_valid, issues = validate_spatial_data(adata)
-    if not is_valid:
-        raise ValueError(f"Invalid spatial data: {'; '.join(issues)}")
+    try:
+        validate_adata(adata, {}, check_spatial=True)
+    except DataNotFoundError as e:
+        raise ValueError(f"Invalid spatial data: {e}")
 
     spatial_coords = adata.obsm["spatial"]
 
@@ -391,9 +333,10 @@ def spatial_aware_embedding(adata, spatial_weight=0.3):
     from umap import UMAP
 
     # Validate spatial data
-    is_valid, issues = validate_spatial_data(adata)
-    if not is_valid:
-        raise ValueError(f"Invalid spatial data: {'; '.join(issues)}")
+    try:
+        validate_adata(adata, {}, check_spatial=True)
+    except DataNotFoundError as e:
+        raise ValueError(f"Invalid spatial data: {e}")
 
     spatial_coords = adata.obsm["spatial"]
 
@@ -605,11 +548,12 @@ async def analyze_rna_velocity(
     adata = data_store[data_id]["adata"].copy()
 
     # Validate data for velocity analysis
-    is_valid, issues = validate_velocity_data(adata)
-    if not is_valid:
+    try:
+        validate_adata(adata, {}, check_velocity=True)
+    except DataNotFoundError as e:
         error_message = (
             "The dataset is missing required data for RNA velocity analysis. "
-            f"Specific issues: {'; '.join(issues)}. Please ensure the data "
+            f"Specific issues: {e}. Please ensure the data "
             "contains both 'spliced' and 'unspliced' count layers."
         )
         if context:
