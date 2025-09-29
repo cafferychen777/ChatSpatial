@@ -217,15 +217,6 @@ class SpatialMetricResult:
     score_key: str
     metrics: Dict[str, Dict[str, float]]
     parameters: Dict[str, Any]
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format for backward compatibility."""
-        return {
-            "data_id": self.data_id,
-            "score_key": self.score_key,
-            "metrics": self.metrics,
-            "parameters": self.parameters,
-        }
 
 
 @dataclass
@@ -239,16 +230,6 @@ class ClusterCorrelationResult:
     cluster_key: str
     correlation_method: str
     cluster_correlations: Dict[str, Any]
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format for backward compatibility."""
-        return {
-            "data_id": self.data_id,
-            "signature_name": self.signature_name,
-            "cluster_key": self.cluster_key,
-            "correlation_method": self.correlation_method,
-            "cluster_correlations": self.cluster_correlations,
-        }
 
 
 @dataclass
@@ -825,17 +806,6 @@ async def perform_gsea(
         # Save results to adata.uns for visualization
         # Store full results DataFrame for visualization
         adata.uns["gsea_results"] = results_df
-
-        # Also store as dict format for backward compatibility
-        adata.uns["gsea_results_dict"] = {
-            "results_df": results_df,
-            "enrichment_scores": enrichment_scores,
-            "pvalues": pvalues,
-            "adjusted_pvalues": adjusted_pvalues,
-            "top_enriched": top_enriched,
-            "top_depleted": top_depleted,
-            "method": "gsea",
-        }
 
         # Inform user about visualization options
         if context:
