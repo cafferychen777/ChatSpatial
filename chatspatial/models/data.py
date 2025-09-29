@@ -535,9 +535,6 @@ class SpatialAnalysisParameters(BaseModel):
     )
 
     # Moran's I specific parameters
-    moran_genes: Optional[List[str]] = Field(
-        None, description="Specific genes for Moran's I (None = use HVG)"
-    )
     moran_n_genes: Annotated[int, Field(gt=0, le=100)] = Field(
         10, description="Number of HVG for Moran's I (default 10 for speed)"
     )
@@ -548,9 +545,6 @@ class SpatialAnalysisParameters(BaseModel):
     moran_two_tailed: bool = Field(False, description="Use two-tailed test")
 
     # Getis-Ord Gi* specific parameters
-    getis_ord_genes: Optional[List[str]] = (
-        None  # Specific genes to analyze (if None, use highly variable genes)
-    )
     getis_ord_n_genes: Annotated[int, Field(gt=0, le=100)] = (
         20  # Number of top highly variable genes to analyze
     )

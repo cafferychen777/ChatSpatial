@@ -369,15 +369,10 @@ async def _analyze_morans_i(
 
     # Determine genes to analyze (unified gene selection)
     if params.genes:
-        # Use unified genes parameter
+        # Use specific genes
         genes = [g for g in params.genes if g in adata.var_names]
         if not genes:
             raise ValueError(f"None of the specified genes found: {params.genes}")
-    elif params.moran_genes:
-        # Fallback to legacy parameter for compatibility
-        genes = [g for g in params.moran_genes if g in adata.var_names]
-        if not genes:
-            raise ValueError(f"None of the specified genes found: {params.moran_genes}")
     else:
         # Use highly variable genes
         if "highly_variable" not in adata.var or not adata.var["highly_variable"].any():
@@ -437,15 +432,10 @@ async def _analyze_gearys_c(
 
     # Determine genes to analyze (unified gene selection)
     if params.genes:
-        # Use unified genes parameter
+        # Use specific genes
         genes = [g for g in params.genes if g in adata.var_names]
         if not genes:
             raise ValueError(f"None of the specified genes found: {params.genes}")
-    elif params.moran_genes:
-        # Fallback to legacy parameter for compatibility  
-        genes = [g for g in params.moran_genes if g in adata.var_names]
-        if not genes:
-            raise ValueError(f"None of the specified genes found: {params.moran_genes}")
     else:
         # Use highly variable genes
         if "highly_variable" in adata.var and adata.var["highly_variable"].any():
@@ -575,15 +565,10 @@ async def _analyze_getis_ord(
 
     # Determine genes to analyze (unified gene selection)
     if params.genes:
-        # Use unified genes parameter
+        # Use specific genes
         genes = [g for g in params.genes if g in adata.var_names]
         if not genes:
             raise ValueError(f"None of the specified genes found: {params.genes}")
-    elif params.getis_ord_genes:
-        # Fallback to legacy parameter for compatibility
-        genes = [g for g in params.getis_ord_genes if g in adata.var_names]
-        if not genes:
-            raise ValueError(f"None of the specified genes found: {params.getis_ord_genes}")
     else:
         # Use highly variable genes
         if "highly_variable" not in adata.var:
