@@ -180,22 +180,7 @@ class AnalysisParameters(BaseModel):
     # Advanced preprocessing options
     enable_rna_velocity: bool = False  # Whether to include RNA velocity preprocessing
     velocity_params: Optional["RNAVelocityParameters"] = (
-        None  # Embedded velocity parameters (if None, uses defaults)
-    )
-
-    # Deprecated: Individual velocity fields (kept for backward compatibility)
-    velocity_mode: Optional[Literal["stochastic", "deterministic", "dynamical"]] = (
-        None  # Deprecated: use velocity_params.mode
-    )
-    velocity_min_shared_counts: Optional[int] = (
-        None  # Deprecated: use velocity_params.min_shared_counts
-    )
-    velocity_n_top_genes: Optional[int] = (
-        None  # Deprecated: use velocity_params.n_top_genes
-    )
-    velocity_n_pcs: Optional[int] = None  # Deprecated: use velocity_params.n_pcs
-    velocity_n_neighbors: Optional[int] = (
-        None  # Deprecated: use velocity_params.n_neighbors
+        None  # RNA velocity parameters. If None and enable_rna_velocity=True, defaults will be used
     )
 
     enable_trajectory_analysis: bool = (
@@ -371,10 +356,9 @@ class VisualizationParameters(BaseModel):
         "spring", "circular", "kamada_kawai", "fruchterman_reingold"
     ] = Field("spring", description="Network layout algorithm")
 
-    # Legacy parameters (for backward compatibility)
-    show_deconvolution: bool = False  # Whether to show deconvolution results
+    # Deconvolution visualization parameters
     n_cell_types: Annotated[int, Field(gt=0, le=10)] = (
-        4  # Number of top cell types to show
+        4  # Number of top cell types to show in deconvolution visualization
     )
 
     @model_validator(mode="after")

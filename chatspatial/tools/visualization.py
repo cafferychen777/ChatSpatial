@@ -429,55 +429,6 @@ def get_deconvolution_dataframe(adata, deconv_key):
             return None
 
 
-# Helper function to visualize deconvolution results
-async def visualize_top_cell_types(adata, deconv_key, n_cell_types=4, context=None):
-    """Visualize top cell types from deconvolution results
-
-    Args:
-        adata: AnnData object
-        deconv_key: Key in adata.obsm for deconvolution results
-        n_cell_types: Number of top cell types to visualize (will be limited to 6 max)
-        context: MCP context for logging
-
-    Returns:
-        List of feature names for visualization
-    """
-    # Limit the number of cell types to avoid oversized responses
-    n_cell_types = min(n_cell_types, 6)  # Limit to maximum 6 cell types
-
-    if context:
-        await context.info(
-            f"Limiting to top {n_cell_types} cell types to avoid oversized responses"
-        )
-
-    # Get deconvolution results as DataFrame
-    deconv_df = get_deconvolution_dataframe(adata, deconv_key)
-    if deconv_df is None:
-        if context:
-            await context.warning(f"Deconvolution result {deconv_key} not found")
-        return []
-
-    # Get top cell types by mean proportion
-    top_cell_types = deconv_df.mean().sort_values(ascending=False).index[:n_cell_types]
-
-    # Add cell type proportions to obs for visualization
-    features = []
-    for cell_type in top_cell_types:
-        obs_key = f"{deconv_key}_{cell_type}"
-
-        # Add to obs if not already there
-        if obs_key not in adata.obs.columns:
-            adata.obs[obs_key] = deconv_df[cell_type].values
-
-        features.append(obs_key)
-
-    if context:
-        await context.info(
-            f"Added top {len(features)} cell types to obs: {', '.join(features)}"
-        )
-
-    return features
-
 
 
 
@@ -544,12 +495,6 @@ async def visualize_data(
             f"Parameters: feature={params.feature}, colormap={params.colormap}"
         )
 
-        # Log deconvolution parameters if enabled
-        if params.show_deconvolution:
-            await context.info(
-                f"Showing top {params.n_cell_types} cell types from deconvolution results"
-            )
-
     # Retrieve the AnnData object from data store
     if data_id not in data_store:
         error_msg = f"Dataset {data_id} not found in data store"
@@ -568,92 +513,6 @@ async def visualize_data(
 
         # Set matplotlib style for better visualizations
         sc.settings.set_figure_params(dpi=120, facecolor="white")
-
-        # Check if we should show deconvolution results
-        if params.show_deconvolution:
-            # Find deconvolution results in obsm
-            deconv_keys = [
-                key for key in adata.obsm.keys() if key.startswith("deconvolution_")
-            ]
-            if deconv_keys:
-                # Use the first deconvolution result
-                deconv_key = deconv_keys[0]
-                if context:
-                    await context.info(f"Found deconvolution result: {deconv_key}")
-
-                # Get top cell types
-                features = await visualize_top_cell_types(
-                    adata, deconv_key, params.n_cell_types, context
-                )
-
-                if features:
-                    # Create a multi-panel figure with smaller size per panel
-                    n_cols = min(3, len(features))  # Use up to 3 columns instead of 2
-                    n_rows = (len(features) + n_cols - 1) // n_cols
-
-                    # Reduce figure size from 6x6 per panel to 4x4 to decrease overall image size
-                    fig, axes = plt.subplots(
-                        n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows)
-                    )
-                    axes = axes.flatten() if n_rows * n_cols > 1 else [axes]
-
-                    # Plot each cell type
-                    for i, feature in enumerate(features):
-                        if i < len(axes):
-                            ax = axes[i]
-                            if (
-                                "spatial" in adata.uns
-                                and "images" in adata.uns["spatial"]
-                            ):
-                                # With tissue image background - use lower spot size
-                                sc.pl.spatial(
-                                    adata,
-                                    img_key="hires",
-                                    color=feature,
-                                    ax=ax,
-                                    show=False,
-                                    spot_size=None,
-                                )  # Let scanpy determine optimal spot size
-                            else:
-                                # Without tissue image - use smaller point size
-                                sc.pl.embedding(
-                                    adata,
-                                    basis="spatial",
-                                    color=feature,
-                                    ax=ax,
-                                    show=False,
-                                    size=30,
-                                )  # Smaller point size
-                                ax.set_aspect("equal")
-
-                            # Get cell type name from feature
-                            cell_type = (
-                                feature.split("_")[-1] if "_" in feature else feature
-                            )
-                            ax.set_title(
-                                f"{cell_type}", fontsize=10
-                            )  # Smaller font size
-
-                            # Simplify axis labels
-                            ax.tick_params(labelsize=8)  # Smaller tick labels
-
-                    # Hide empty axes
-                    for i in range(len(features), len(axes)):
-                        axes[i].axis("off")
-
-                    plt.tight_layout()
-
-                    # Convert figure to image with lower DPI and PNG format (Claude doesn't support JPG)
-                    if context:
-                        await context.info(
-                            f"Created multi-panel figure with {len(features)} cell types"
-                        )
-                    return await optimize_fig_to_image_with_cache(
-                        fig, params, context,
-                        data_id=data_id,
-                        plot_type=params.plot_type,
-                        mode="auto"
-                    )
 
         # Create figure based on plot type
         if params.plot_type == "spatial":
@@ -3805,7 +3664,7 @@ async def create_gaston_genes_visualization(
     discontinuous_genes = gaston_results.get("discontinuous_genes", {})
 
     # Select top genes to visualize
-    n_genes = min(params.n_cell_types or 6, 6)  # Limit to 6 genes max
+    n_genes = 6  # Fixed number for GASTON genes visualization
 
     # Combine and select top genes
     all_genes = (

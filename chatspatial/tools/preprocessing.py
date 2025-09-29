@@ -740,23 +740,12 @@ async def preprocess_data(
                     from ..models.data import RNAVelocityParameters
                     from .trajectory import compute_rna_velocity
 
-                    # Create RNAVelocityParameters from AnalysisParameters
-                    # Use embedded velocity_params if available, otherwise create from individual fields
-                    if (
-                        hasattr(params, "velocity_params")
-                        and params.velocity_params is not None
-                    ):
-                        velocity_params = params.velocity_params
-                    else:
-                        # Build from individual fields for backward compatibility
-                        velocity_params = RNAVelocityParameters(
-                            mode=getattr(params, "velocity_mode", "stochastic"),
-                            min_shared_counts=getattr(
-                                params, "velocity_min_shared_counts", 30
-                            ),
-                            n_top_genes=getattr(params, "velocity_n_top_genes", 2000),
-                            n_pcs=getattr(params, "velocity_n_pcs", 30),
-                            n_neighbors=getattr(params, "velocity_n_neighbors", 30),
+                    # Use velocity_params or create with defaults
+                    velocity_params = params.velocity_params or RNAVelocityParameters()
+                    
+                    if params.velocity_params is None and context:
+                        await context.info(
+                            "Using default RNA velocity parameters"
                         )
 
                     # Compute velocity with unified function
