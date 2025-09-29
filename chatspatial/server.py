@@ -3,12 +3,25 @@ Main server implementation for ChatSpatial using the Spatial MCP Adapter.
 """
 
 import logging
+import os
+import sys
 import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Suppress warnings to speed up startup
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
+
+# CRITICAL: Disable progress bars to prevent stdout pollution
+# This protects against accidental stdout usage if server is imported directly
+os.environ["TQDM_DISABLE"] = "1"
+
+# Suppress scanpy/squidpy verbosity
+try:
+    import scanpy as sc
+    sc.settings.verbosity = 0
+except ImportError:
+    pass
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.utilities.types import Image
@@ -1664,7 +1677,7 @@ def main():
 
     args = parser.parse_args()
 
-    print(f"Starting ChatSpatial server with {args.transport} transport...")
+    print(f"Starting ChatSpatial server with {args.transport} transport...", file=sys.stderr)
     mcp.run(transport=args.transport)
 
 

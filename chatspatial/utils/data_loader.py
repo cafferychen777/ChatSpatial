@@ -155,8 +155,8 @@ async def load_spatial_data(
                                             "scalefactors": scalefactors
                                         }
                             except Exception as e:
-                                print(
-                                    f"Warning: Could not load spatial information: {str(e)}"
+                                logger.warning(
+                                    f"Could not load spatial information: {str(e)}"
                                 )
                 else:
                     raise ValueError(
@@ -205,7 +205,7 @@ async def load_spatial_data(
                 try:
                     sq.gr.spatial_neighbors(adata)
                 except Exception as e:
-                    print(f"Warning: Could not compute spatial neighbors: {str(e)}")
+                    logger.warning(f"Could not compute spatial neighbors: {str(e)}")
         except FileNotFoundError as e:
             raise ValueError(f"File not found: {str(e)}")
         except Exception as e:

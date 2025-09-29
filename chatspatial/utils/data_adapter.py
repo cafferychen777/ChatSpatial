@@ -564,7 +564,3 @@ def ensure_spatial_neighbors(adata: "ad.AnnData") -> None:
             warnings.warn(f"Could not compute spatial neighbors: {e}")
 
 
-
-    print(f"\nData dimensions: {adata.n_obs} observations × {adata.n_vars} variables")
-
-
