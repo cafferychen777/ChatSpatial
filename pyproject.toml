@@ -141,7 +141,6 @@ dev = [
 
 [project.scripts]
 chatspatial = "chatspatial.__main__:main"
-chatspatial-http = "chatspatial.http_server:main"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
