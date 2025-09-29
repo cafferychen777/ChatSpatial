@@ -163,13 +163,3 @@ def get_tool_with_annotations(tool_info: Dict[str, Any]) -> Dict[str, Any]:
     return tool_info
 
 
-def get_all_tools_with_annotations(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Enhance all tools with MCP annotations
-
-    Args:
-        tools: List of tool information dictionaries
-
-    Returns:
-        List of tools enhanced with MCP annotations
-    """
-    return [get_tool_with_annotations(tool) for tool in tools]
