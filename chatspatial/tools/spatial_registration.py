@@ -5,7 +5,7 @@ This module provides functionality for aligning and registering multiple spatial
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import anndata as ad
 import numpy as np
@@ -546,111 +546,6 @@ class SpatialRegistration:
 
         return transformed
 
-    def compute_registration_quality(
-        self, adata_list: List[ad.AnnData], use_registered: bool = True
-    ) -> Dict[str, float]:
-        """
-        Compute quality metrics for registration.
-
-        Parameters
-        ----------
-        adata_list : List[ad.AnnData]
-            List of registered AnnData objects
-        use_registered : bool
-            Whether to use registered coordinates
-
-        Returns
-        -------
-        Dict[str, float]
-            Dictionary of quality metrics
-        """
-        coord_key = "spatial_registered" if use_registered else "spatial"
-
-        metrics = {}
-
-        # Compute pairwise distances between slices
-        for i in range(len(adata_list) - 1):
-            coords1 = adata_list[i].obsm[coord_key]
-            coords2 = adata_list[i + 1].obsm[coord_key]
-
-            # Compute mean distance to nearest neighbor
-            from sklearn.neighbors import NearestNeighbors
-
-            nbrs = NearestNeighbors(n_neighbors=1).fit(coords2)
-            distances, _ = nbrs.kneighbors(coords1)
-
-            metrics[f"mean_nn_distance_{i}_{i+1}"] = float(distances.mean())
-
-        # Compute overlap scores if cell types are available
-        if all("cell_type" in adata.obs for adata in adata_list):
-            for i in range(len(adata_list) - 1):
-                ct1 = adata_list[i].obs["cell_type"].value_counts(normalize=True)
-                ct2 = adata_list[i + 1].obs["cell_type"].value_counts(normalize=True)
-
-                # Compute overlap coefficient
-                common_types = set(ct1.index) & set(ct2.index)
-                overlap = sum(min(ct1[ct], ct2[ct]) for ct in common_types)
-                metrics[f"cell_type_overlap_{i}_{i+1}"] = float(overlap)
-
-        return metrics
-
-    def visualize_registration(
-        self,
-        adata_list: List[ad.AnnData],
-        use_registered: bool = True,
-        save: Optional[str] = None,
-        **kwargs,
-    ):
-        """
-        Visualize registration results.
-
-        Parameters
-        ----------
-        adata_list : List[ad.AnnData]
-            List of AnnData objects
-        use_registered : bool
-            Whether to use registered coordinates
-        save : Optional[str]
-            Path to save figure
-        **kwargs
-            Additional plotting parameters
-        """
-        import matplotlib.pyplot as plt
-
-        coord_key = "spatial_registered" if use_registered else "spatial"
-        n_slices = len(adata_list)
-
-        fig, axes = plt.subplots(1, n_slices, figsize=(5 * n_slices, 5))
-        if n_slices == 1:
-            axes = [axes]
-
-        for i, (adata, ax) in enumerate(zip(adata_list, axes)):
-            coords = adata.obsm[coord_key]
-
-            # Plot with colors if available
-            if "cell_type" in adata.obs:
-                import seaborn as sns
-
-                palette = sns.color_palette(
-                    "tab20", n_colors=adata.obs["cell_type"].nunique()
-                )
-                color_map = dict(zip(adata.obs["cell_type"].unique(), palette))
-                colors = [color_map[ct] for ct in adata.obs["cell_type"]]
-                ax.scatter(coords[:, 0], coords[:, 1], c=colors, s=10, alpha=0.6)
-            else:
-                ax.scatter(coords[:, 0], coords[:, 1], s=10, alpha=0.6)
-
-            ax.set_title(f"Slice {i+1}")
-            ax.set_aspect("equal")
-            ax.axis("off")
-
-        plt.suptitle("Registered" if use_registered else "Original")
-        plt.tight_layout()
-
-        if save:
-            plt.savefig(save, dpi=300, bbox_inches="tight")
-        plt.show()
-
 
 # Create convenience functions for direct use
 def register_spatial_slices(
@@ -675,28 +570,6 @@ def register_spatial_slices(
     """
     registration_tool = SpatialRegistration()
     return registration_tool.register_slices(adata_list, method=method, **kwargs)
-
-
-def evaluate_registration(
-    adata_list: List[ad.AnnData], use_registered: bool = True
-) -> Dict[str, float]:
-    """
-    Evaluate registration quality.
-
-    Parameters
-    ----------
-    adata_list : List[ad.AnnData]
-        List of registered AnnData objects
-    use_registered : bool
-        Whether to evaluate registered coordinates
-
-    Returns
-    -------
-    Dict[str, float]
-        Registration quality metrics
-    """
-    registration_tool = SpatialRegistration()
-    return registration_tool.compute_registration_quality(adata_list, use_registered)
 
 
 # Standard architecture-compliant wrapper function for MCP server

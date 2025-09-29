@@ -9,8 +9,11 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+# Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend - prevents Dock popup
 import matplotlib.pyplot as plt
+plt.ioff()  # Turn off interactive mode
 
 from .image_utils import get_cached_figure, load_figure_pickle
 
