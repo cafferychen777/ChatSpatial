@@ -374,12 +374,17 @@ class DataAdapter:
             adata.var_names = cleaned_names
 
     def _add_missing_standard_fields(self, adata: "ad.AnnData") -> None:
-        """Add missing standard fields with sensible defaults."""
-
-        # Add default batch information if missing
-        if BATCH_KEY not in adata.obs:
-            adata.obs[BATCH_KEY] = self.pd.Categorical(["batch1"] * adata.n_obs)
-
+        """Add missing standard fields - NO AUTOMATIC DATA CREATION.
+        
+        This function no longer creates fake batch information to preserve scientific integrity.
+        Tools must handle missing batch information appropriately.
+        """
+        # ❌ REMOVED: Automatic batch creation - violates scientific integrity
+        # Previous code automatically created fake "batch1" labels for all data
+        # This misled users into thinking their data had batch information
+        # Scientific integrity requires honest handling of missing metadata
+        
+        # ✅ PRESERVED: Don't create fake clustering or cell types
         # Add placeholder clustering if none exists
         if not any(key in adata.obs for key in ALTERNATIVE_CLUSTER_KEYS):
             # Don't add default clustering - let tools handle this
