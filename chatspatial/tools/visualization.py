@@ -2,17 +2,19 @@
 Visualization tools for spatial transcriptomics data.
 """
 
-import os
 import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
+
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend - prevents Dock popup
+
+matplotlib.use("Agg")  # Non-interactive backend - prevents Dock popup
 import matplotlib.pyplot as plt
+
 plt.ioff()  # Turn off interactive mode
 import numpy as np
 import pandas as pd
@@ -20,21 +22,33 @@ import scanpy as sc
 import seaborn as sns
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.utilities.types import Image
-from mcp.types import EmbeddedResource, TextResourceContents
+from mcp.types import EmbeddedResource
 from scipy.stats import pearsonr, spearmanr
 
 from ..models.data import VisualizationParameters
+
 # Import error handling utilities
-from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,
-                                    InvalidParameterError, ProcessingError)
+from ..utils.error_handling import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    InvalidParameterError,
+    ProcessingError,
+)
+
 # Import standardized image utilities
-from ..utils.image_utils import create_placeholder_image, fig_to_image, optimize_fig_to_image_with_cache
+from ..utils.image_utils import (
+    create_placeholder_image,
+    optimize_fig_to_image_with_cache,
+)
+
 # Import publication export utilities
-from ..utils.publication_export import export_for_publication
+
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors
+
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates
+
 # Import path utilities for safe file operations
 from ..utils.path_utils import (
     get_safe_output_path,
@@ -120,13 +134,13 @@ async def get_validated_features(
             "3. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n\n"
             "📋 CONTEXT: Explicit gene selection required for scientific accuracy."
         )
-    
+
     # Parse user features
     features = params.feature if isinstance(params.feature, list) else [params.feature]
-    
+
     # Check which features are available
     available_features = [f for f in features if f in adata.var_names]
-    
+
     if not available_features:
         missing = [f for f in features if f not in adata.var_names]
         examples = list(adata.var_names[:10])
@@ -138,7 +152,7 @@ async def get_validated_features(
             f"3. Use gene discovery tools\n\n"
             f"📋 CONTEXT: Dataset has {adata.n_vars:,} genes."
         )
-    
+
     if len(available_features) > max_features:
         raise ValueError(
             f"❌ Too many genes ({len(available_features)} > {max_features}).\n\n"
@@ -147,7 +161,7 @@ async def get_validated_features(
             f"2. Create multiple visualizations\n"
             f"3. Use heatmap for larger sets"
         )
-    
+
     return available_features
 
 
@@ -195,7 +209,7 @@ def plot_spatial_feature(
 def handle_visualization_errors(plot_title: str):
     """
     Improved decorator to catch errors in visualization functions.
-    
+
     Strategy:
     - Scientific/data errors (DataNotFoundError, etc.): Propagate to MCP layer
     - Technical/rendering errors (matplotlib, memory): Return error figure
@@ -208,17 +222,21 @@ def handle_visualization_errors(plot_title: str):
             try:
                 # The wrapped function is async, so we need to await it
                 return await func(*args, **kwargs)
-            
-            except (DataNotFoundError, InvalidParameterError, DataCompatibilityError) as e:
+
+            except (
+                DataNotFoundError,
+                InvalidParameterError,
+                DataCompatibilityError,
+            ):
                 # Scientific/user errors must propagate for proper error handling
                 # These indicate issues with data or parameters that the user must fix
                 raise
-            
+
             except (ValueError, MemoryError, RuntimeError, ImportError) as e:
                 # Technical/rendering errors - return a friendly error figure
                 # These are often transient or due to system limitations
                 fig, ax = plt.subplots(figsize=(8, 6))
-                
+
                 # Create clear error message with visual emphasis
                 error_text = (
                     "⚠️ TECHNICAL ERROR - NOT A DATA ISSUE ⚠️\n\n"
@@ -226,7 +244,7 @@ def handle_visualization_errors(plot_title: str):
                     "This is a rendering/technical issue, not a problem with your data.\n"
                     "The analysis may have succeeded but visualization failed."
                 )
-                
+
                 ax.text(
                     0.5,
                     0.5,
@@ -237,23 +255,32 @@ def handle_visualization_errors(plot_title: str):
                     wrap=True,
                     fontsize=10,
                     color="darkred",
-                    weight="bold"
+                    weight="bold",
                 )
-                
-                ax.set_title(f"{plot_title} - Technical Error", color="red", fontsize=14, weight="bold")
+
+                ax.set_title(
+                    f"{plot_title} - Technical Error",
+                    color="red",
+                    fontsize=14,
+                    weight="bold",
+                )
                 ax.axis("off")
-                
+
                 # Add red border to emphasize this is an error
-                rect = plt.Rectangle((0.02, 0.02), 0.96, 0.96, 
-                                    transform=ax.transAxes,
-                                    linewidth=3, 
-                                    edgecolor='red', 
-                                    facecolor='none',
-                                    linestyle='--')
+                rect = plt.Rectangle(
+                    (0.02, 0.02),
+                    0.96,
+                    0.96,
+                    transform=ax.transAxes,
+                    linewidth=3,
+                    edgecolor="red",
+                    facecolor="none",
+                    linestyle="--",
+                )
                 ax.add_patch(rect)
-                
+
                 return fig
-            
+
             except Exception:
                 # Unknown exceptions are propagated (conservative strategy)
                 # This ensures we don't hide unexpected errors
@@ -427,10 +454,6 @@ def get_deconvolution_dataframe(adata, deconv_key):
             return pd.DataFrame(deconv_results, index=adata.obs_names)
         except:
             return None
-
-
-
-
 
 
 async def visualize_data(
@@ -706,7 +729,7 @@ async def visualize_data(
             # Check if UMAP has been computed
             if "X_umap" not in adata.obsm:
                 # STRICT: NO FALLBACK - UMAP and PCA are fundamentally different algorithms
-                
+
                 # Check prerequisites for UMAP
                 if "neighbors" not in adata.uns:
                     error_msg = (
@@ -721,13 +744,13 @@ async def visualize_data(
                     if context:
                         await context.error(error_msg)
                     raise ValueError(error_msg)
-                
+
                 # Try to compute UMAP with proper error handling
                 if context:
                     await context.info(
                         "UMAP not found. Attempting to compute UMAP coordinates..."
                     )
-                
+
                 try:
                     # Clean data before computing UMAP to handle extreme values
                     if hasattr(adata.X, "data"):
@@ -743,10 +766,10 @@ async def visualize_data(
 
                     # Compute UMAP (scanpy already imported globally)
                     sc.tl.umap(adata)
-                    
+
                     if context:
                         await context.info("Successfully computed UMAP coordinates")
-                        
+
                 except Exception as e:
                     # NO FALLBACK: Honest error reporting with alternatives
                     error_msg = (
@@ -989,7 +1012,10 @@ async def visualize_data(
                 await context.info("Creating heatmap plot")
 
             # For heatmap, we need highly variable genes for meaningful clustering
-            if "highly_variable" not in adata.var or not adata.var["highly_variable"].any():
+            if (
+                "highly_variable" not in adata.var
+                or not adata.var["highly_variable"].any()
+            ):
                 raise ValueError(
                     "❌ Heatmap requires highly variable genes but none found.\n\n"
                     "🔧 SOLUTIONS:\n"
@@ -1252,22 +1278,44 @@ async def visualize_data(
                     f"Creating violin plot for {params.feature if params.feature else 'top genes'}"
                 )
 
-            # Check if feature exists for violin plot
-            if params.feature and params.feature not in adata.var_names:
-                examples = list(adata.var_names[:10])
-                raise DataNotFoundError(
-                    f"❌ Gene '{params.feature}' not found in dataset.\n\n"
-                    f"🔧 SOLUTIONS:\n"
-                    f"1. Choose from available genes (examples: {examples})\n"
-                    f"2. Check gene name format (e.g., 'CD3D' vs 'Cd3d')\n"
-                    f"3. Use gene search functionality\n\n"
-                    f"📋 CONTEXT: Dataset contains {adata.n_vars:,} genes total."
-                )
-            
-            # Use the specified gene or default to first 3 genes
-            genes = (
-                [params.feature] if params.feature else adata.var_names[:3]
+            # Normalize feature to list format (same logic as heatmap)
+            feature_list = (
+                params.feature
+                if isinstance(params.feature, list)
+                else ([params.feature] if params.feature else [])
             )
+
+            # Use specified genes or default to first 3 genes
+            if feature_list:
+                # Check which genes exist in dataset
+                available_genes = [
+                    gene for gene in feature_list if gene in adata.var_names
+                ]
+                missing_genes = [
+                    gene for gene in feature_list if gene not in adata.var_names
+                ]
+
+                if not available_genes:
+                    # None of the specified genes found
+                    examples = list(adata.var_names[:10])
+                    raise DataNotFoundError(
+                        f"❌ Genes not found in dataset: {missing_genes}\n\n"
+                        f"🔧 SOLUTIONS:\n"
+                        f"1. Choose from available genes (examples: {examples})\n"
+                        f"2. Check gene name format (e.g., 'CD3D' vs 'Cd3d')\n"
+                        f"3. Use gene search functionality\n\n"
+                        f"📋 CONTEXT: Dataset contains {adata.n_vars:,} genes total."
+                    )
+                elif missing_genes and context:
+                    # Some genes missing - warn but continue
+                    await context.warning(
+                        f"Genes not found (skipping): {missing_genes}"
+                    )
+
+                genes = available_genes
+            else:
+                # No genes specified, use first 3 genes
+                genes = list(adata.var_names[:3])
 
             # Check if we have clusters for grouping
             if "leiden" in adata.obs.columns:
@@ -1389,13 +1437,17 @@ async def visualize_data(
 
         # Convert figure with optimization (preview + resource for large images)
         if context:
-            await context.info(f"Converting {params.plot_type} figure with token optimization...")
+            await context.info(
+                f"Converting {params.plot_type} figure with token optimization..."
+            )
         # Use the optimized conversion function
         return await optimize_fig_to_image_with_cache(
-            fig, params, context,
+            fig,
+            params,
+            context,
             data_id=data_id,
             plot_type=params.plot_type,
-            mode="auto"
+            mode="auto",
         )
 
     except Exception as e:
@@ -2396,7 +2448,7 @@ async def create_lr_pairs_visualization(
 
     # Parse LR pairs from various sources
     lr_pairs = []
-    
+
     # 1. Check for explicit lr_pairs parameter
     if params.lr_pairs:
         lr_pairs = params.lr_pairs
@@ -2407,14 +2459,14 @@ async def create_lr_pairs_visualization(
             if isinstance(params.feature, list)
             else ([params.feature] if params.feature else [])
         )
-        
+
         if feature_list:
             # First check if any items have special format
             has_special_format = any(
                 "^" in str(f) or ("_" in str(f) and not str(f).startswith("_"))
                 for f in feature_list
             )
-            
+
             if has_special_format:
                 # Parse different L-R pair formats
                 for item in feature_list:
@@ -2427,17 +2479,17 @@ async def create_lr_pairs_visualization(
                         parts = str(item).split("_")
                         if len(parts) == 2:
                             lr_pairs.append((parts[0], parts[1]))
-        
+
         # 3. Try to get from stored analysis results if no pairs found yet
-        if not lr_pairs and hasattr(adata, 'uns'):
+        if not lr_pairs and hasattr(adata, "uns"):
             # Check for standardized storage
-            if 'detected_lr_pairs' in adata.uns:
-                lr_pairs = adata.uns['detected_lr_pairs']
+            if "detected_lr_pairs" in adata.uns:
+                lr_pairs = adata.uns["detected_lr_pairs"]
             # Try to parse from cell communication results
-            elif 'cell_communication_results' in adata.uns:
-                comm_results = adata.uns['cell_communication_results']
-                if 'top_lr_pairs' in comm_results:
-                    for pair_str in comm_results['top_lr_pairs']:
+            elif "cell_communication_results" in adata.uns:
+                comm_results = adata.uns["cell_communication_results"]
+                if "top_lr_pairs" in comm_results:
+                    for pair_str in comm_results["top_lr_pairs"]:
                         if "^" in pair_str:
                             ligand, receptor = pair_str.split("^", 1)
                             lr_pairs.append((ligand, receptor))
@@ -2445,7 +2497,7 @@ async def create_lr_pairs_visualization(
                             parts = pair_str.split("_")
                             if len(parts) == 2:
                                 lr_pairs.append((parts[0], parts[1]))
-    
+
     # CRITICAL: No hardcoded defaults! Scientific integrity requires real data only
     if not lr_pairs:
         raise DataNotFoundError(
@@ -4522,7 +4574,7 @@ async def create_batch_integration_visualization(
     adata, params, context: Optional[Context] = None
 ):
     """Create multi-panel visualization to assess batch integration quality
-    
+
     This visualization is specifically for evaluating the quality of batch correction
     after integrating multiple samples. It requires proper batch information.
     """
@@ -4626,7 +4678,9 @@ async def create_batch_integration_visualization(
 
     metrics_text = f"Total cells: {adata.n_obs:,}\n"
     metrics_text += f"Total genes: {adata.n_vars:,}\n"
-    metrics_text += f"Batches: {len(unique_batches)} ({', '.join(map(str, unique_batches))})\n\n"
+    metrics_text += (
+        f"Batches: {len(unique_batches)} ({', '.join(map(str, unique_batches))})\n\n"
+    )
 
     if params.integration_method:
         metrics_text += f"Integration method: {params.integration_method}\n"
@@ -4660,7 +4714,9 @@ async def create_batch_integration_visualization(
             avg_entropy = np.mean(entropies)
             max_entropy = np.log(len(unique_batches))  # Perfect mixing entropy
             mixing_score = avg_entropy / max_entropy if max_entropy > 0 else 0
-            metrics_text += f"Mixing score: {mixing_score:.3f} (0=segregated, 1=perfectly mixed)\n"
+            metrics_text += (
+                f"Mixing score: {mixing_score:.3f} (0=segregated, 1=perfectly mixed)\n"
+            )
 
     axes[1, 1].text(
         0.1,
@@ -4685,6 +4741,7 @@ async def create_batch_integration_visualization(
 # FILE PERSISTENCE FUNCTIONS
 # ============================================================================
 
+
 async def save_visualization(
     data_id: str,
     plot_type: str,
@@ -4698,7 +4755,7 @@ async def save_visualization(
     context: Optional[Context] = None,
 ) -> str:
     """Save a visualization from cache to disk
-    
+
     Args:
         data_id: Dataset ID
         plot_type: Type of plot to save
@@ -4711,18 +4768,18 @@ async def save_visualization(
         data_store: Data store for regenerating visualization at higher quality
         regenerate_high_quality: If True, regenerate the plot at specified DPI
         context: MCP context for logging
-        
+
     Returns:
         Path to the saved file
-        
+
     Raises:
         DataNotFoundError: If visualization not found in cache
         ProcessingError: If saving fails
-        
+
     Examples:
         # Save for publication (high DPI)
         save_visualization("data1", "spatial", dpi=300, format="pdf")
-        
+
         # Save with custom filename
         save_visualization("data1", "umap", filename="figure_1a")
     """
@@ -4738,30 +4795,36 @@ async def save_visualization(
         # Validate format
         valid_formats = ["png", "jpg", "jpeg", "pdf", "svg"]
         if format.lower() not in valid_formats:
-            raise InvalidParameterError(f"Invalid format: {format}. Must be one of {valid_formats}")
-        
+            raise InvalidParameterError(
+                f"Invalid format: {format}. Must be one of {valid_formats}"
+            )
+
         # Check cache
         if visualization_cache is None:
             raise ProcessingError("Visualization cache not provided")
-            
+
         cache_key = f"{data_id}_{plot_type}"
         if cache_key not in visualization_cache:
-            available_keys = [k for k in visualization_cache.keys() if k.startswith(data_id)]
+            available_keys = [
+                k for k in visualization_cache.keys() if k.startswith(data_id)
+            ]
             if not available_keys:
-                raise DataNotFoundError(f"No visualizations found for dataset '{data_id}'")
+                raise DataNotFoundError(
+                    f"No visualizations found for dataset '{data_id}'"
+                )
             else:
                 raise DataNotFoundError(
                     f"Visualization '{plot_type}' not found for dataset '{data_id}'. "
                     f"Available: {', '.join([k.replace(data_id + '_', '') for k in available_keys])}"
                 )
-        
+
         # Set default DPI based on format
         if dpi is None:
             if format.lower() in ["pdf", "svg"]:
                 dpi = 300  # High quality for vector formats
             else:
                 dpi = 100  # Standard quality for raster formats
-        
+
         # For publication quality, recommend at least 300 DPI
         if dpi >= 300 and context:
             await context.info(f"Using publication-quality DPI: {dpi}")
@@ -4771,9 +4834,7 @@ async def save_visualization(
         # and automatically falls back to /tmp if the directory is not writable
         try:
             output_path = get_safe_output_path(
-                output_dir,
-                fallback_to_tmp=True,
-                create_if_missing=True
+                output_dir, fallback_to_tmp=True, create_if_missing=True
             )
 
             # Inform user if fallback was used
@@ -4788,7 +4849,7 @@ async def save_visualization(
                 f"Cannot save visualization to {output_dir}: {str(e)}. "
                 f"Please check directory permissions or specify a different output_dir."
             ) from e
-        
+
         # Generate filename if not provided
         if filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -4800,35 +4861,41 @@ async def save_visualization(
             # Ensure filename has correct extension
             if not filename.endswith(f".{format}"):
                 filename = f"{filename}.{format}"
-        
+
         # Full path for the file
         file_path = output_path / filename
-        
+
         # Check if we should regenerate at high quality
-        if (dpi > 100 or format.lower() in ["pdf", "svg"]) and regenerate_high_quality and data_store:
+        if (
+            (dpi > 100 or format.lower() in ["pdf", "svg"])
+            and regenerate_high_quality
+            and data_store
+        ):
             if context:
-                await context.info(f"Regenerating visualization at {dpi} DPI for {format} format...")
-            
+                await context.info(
+                    f"Regenerating visualization at {dpi} DPI for {format} format..."
+                )
+
             # This would require re-running the visualization with higher DPI
             # For now, we'll note this as a limitation
             if context:
                 await context.warning(
-                    f"High-quality regeneration not yet implemented. "
-                    f"Saving cached version. For publication quality, "
-                    f"regenerate the plot with higher DPI parameters."
+                    "High-quality regeneration not yet implemented. "
+                    "Saving cached version. For publication quality, "
+                    "regenerate the plot with higher DPI parameters."
                 )
-        
+
         # Get visualization data from cache
         viz_data = visualization_cache[cache_key]
         if not viz_data:
             raise ProcessingError("Visualization data is empty")
-        
+
         # Save the file
         # Note: For true high-DPI support, we need to regenerate the matplotlib figure
         # with the specified DPI, not just save the cached PNG data
-        with open(file_path, 'wb') as f:
+        with open(file_path, "wb") as f:
             f.write(viz_data)
-        
+
         if context:
             file_size_kb = len(viz_data) / 1024
             await context.info(
@@ -4839,9 +4906,9 @@ async def save_visualization(
                     "Note: For true publication quality, regenerate the plot with "
                     "visualization parameters: dpi=300 or higher"
                 )
-        
+
         return str(file_path)
-        
+
     except (DataNotFoundError, InvalidParameterError):
         raise
     except Exception as e:
@@ -4854,12 +4921,12 @@ async def list_saved_visualizations(
     context: Optional[Context] = None,
 ) -> List[Dict[str, Any]]:
     """List all saved visualizations in the output directory
-    
+
     Args:
         output_dir: Directory to search for saved files
         pattern: Optional glob pattern to filter files (e.g., "*spatial*")
         context: MCP context for logging
-        
+
     Returns:
         List of dictionaries with file information
     """
@@ -4882,32 +4949,38 @@ async def list_saved_visualizations(
             raise InvalidParameterError(
                 f"Output directory must be within project or /tmp/chatspatial: {output_path}"
             )
-        
+
         # Get all image files
         image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.pdf", "*.svg"]
         files = []
-        
+
         for ext in image_extensions:
             search_pattern = pattern if pattern else ext
             for file_path in output_path.glob(search_pattern if pattern else ext):
                 if file_path.is_file():
                     stat = file_path.stat()
-                    files.append({
-                        "filename": file_path.name,
-                        "path": str(file_path),
-                        "size_kb": stat.st_size / 1024,
-                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                        "format": file_path.suffix[1:],  # Remove the dot
-                    })
-        
+                    files.append(
+                        {
+                            "filename": file_path.name,
+                            "path": str(file_path),
+                            "size_kb": stat.st_size / 1024,
+                            "modified": datetime.fromtimestamp(
+                                stat.st_mtime
+                            ).isoformat(),
+                            "format": file_path.suffix[1:],  # Remove the dot
+                        }
+                    )
+
         # Sort by modification time (newest first)
         files.sort(key=lambda x: x["modified"], reverse=True)
-        
+
         if context:
-            await context.info(f"Found {len(files)} saved visualization(s) in {output_dir}")
-        
+            await context.info(
+                f"Found {len(files)} saved visualization(s) in {output_dir}"
+            )
+
         return files
-        
+
     except InvalidParameterError:
         raise
     except Exception as e:
@@ -4921,54 +4994,58 @@ async def export_all_visualizations(
     context: Optional[Context] = None,
 ) -> List[str]:
     """Export all cached visualizations for a dataset to disk
-    
+
     Args:
         data_id: Dataset ID to export visualizations for
         output_dir: Directory to save files
         visualization_cache: Cache dictionary containing visualizations
         context: MCP context for logging
-        
+
     Returns:
         List of paths to saved files
     """
     try:
         if visualization_cache is None:
             raise ProcessingError("Visualization cache not provided")
-        
+
         # Find all visualizations for this dataset
-        relevant_keys = [k for k in visualization_cache.keys() if k.startswith(f"{data_id}_")]
-        
+        relevant_keys = [
+            k for k in visualization_cache.keys() if k.startswith(f"{data_id}_")
+        ]
+
         if not relevant_keys:
             if context:
-                await context.warning(f"No visualizations found for dataset '{data_id}'")
+                await context.warning(
+                    f"No visualizations found for dataset '{data_id}'"
+                )
             return []
-        
+
         saved_files = []
-        
+
         for cache_key in relevant_keys:
             # Extract plot type from cache key
             plot_type = cache_key.replace(f"{data_id}_", "")
-            
+
             try:
                 saved_path = await save_visualization(
                     data_id=data_id,
                     plot_type=plot_type,
                     output_dir=output_dir,
                     visualization_cache=visualization_cache,
-                    context=context
+                    context=context,
                 )
                 saved_files.append(saved_path)
             except Exception as e:
                 if context:
                     await context.warning(f"Failed to export {cache_key}: {str(e)}")
-        
+
         if context:
             await context.info(
                 f"Exported {len(saved_files)} visualization(s) for dataset '{data_id}' to {output_dir}"
             )
-        
+
         return saved_files
-        
+
     except ProcessingError:
         raise
     except Exception as e:
@@ -4981,37 +5058,43 @@ async def clear_visualization_cache(
     context: Optional[Context] = None,
 ) -> int:
     """Clear visualization cache to free memory
-    
+
     Args:
         data_id: Optional dataset ID to clear specific visualizations
         visualization_cache: Cache dictionary to clear
         context: MCP context for logging
-        
+
     Returns:
         Number of visualizations cleared
     """
     try:
         if visualization_cache is None:
             return 0
-        
+
         if data_id:
             # Clear specific dataset visualizations
-            keys_to_remove = [k for k in visualization_cache.keys() if k.startswith(f"{data_id}_")]
+            keys_to_remove = [
+                k for k in visualization_cache.keys() if k.startswith(f"{data_id}_")
+            ]
             for key in keys_to_remove:
                 del visualization_cache[key]
             cleared_count = len(keys_to_remove)
-            
+
             if context:
-                await context.info(f"Cleared {cleared_count} visualization(s) for dataset '{data_id}'")
+                await context.info(
+                    f"Cleared {cleared_count} visualization(s) for dataset '{data_id}'"
+                )
         else:
             # Clear all visualizations
             cleared_count = len(visualization_cache)
             visualization_cache.clear()
-            
+
             if context:
-                await context.info(f"Cleared all {cleared_count} visualization(s) from cache")
-        
+                await context.info(
+                    f"Cleared all {cleared_count} visualization(s) from cache"
+                )
+
         return cleared_count
-        
+
     except Exception as e:
         raise ProcessingError(f"Failed to clear cache: {str(e)}")
