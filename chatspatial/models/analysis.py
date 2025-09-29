@@ -250,9 +250,8 @@ class EnrichmentResult(BaseModel):
         None  # Key in adata.obsm for spatial enrichment scores
     )
 
-    # Gene set information
-    gene_sets_used: Dict[str, List[str]]  # Gene sets that were actually used
-    genes_found: Dict[str, List[str]]  # Genes found in data for each gene set
+    # Gene set information (optimized for token efficiency)
+    gene_set_summaries: Dict[str, Dict[str, Any]]  # Compact summaries with gene counts and sample genes
 
     # Top results
     top_gene_sets: List[str]  # Top enriched gene sets
