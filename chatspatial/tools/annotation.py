@@ -675,18 +675,23 @@ async def _annotate_with_tangram(
                             f"Extracted Tangram mapping score: {tangram_mapping_score:.4f}"
                         )
 
-                # Fallback to old format if dict method fails
-                elif isinstance(history, (list, tuple)) and len(history) > 0:
-                    last_entry = history[-1]
-                    if isinstance(last_entry, (list, tuple)) and len(last_entry) > 0:
-                        tangram_mapping_score = float(last_entry[0])
-                    elif isinstance(last_entry, (int, float)):
-                        tangram_mapping_score = float(last_entry)
                 else:
+                    # NO FALLBACK: Require modern Tangram format for scientific integrity
+                    error_msg = (
+                        "❌ Tangram training history format not recognized.\n\n"
+                        "Expected dictionary with 'main_loss' key, but got: "
+                        f"{type(history).__name__ if history else 'None'}\n\n"
+                        "🔧 SOLUTIONS:\n"
+                        "1. Ensure using modern Tangram-sc version:\n"
+                        "   pip install --upgrade tangram-sc\n\n"
+                        "2. Verify Tangram completed training successfully\n\n"
+                        "3. Check that mapping_result has valid training_history\n\n"
+                        "📋 SCIENTIFIC INTEGRITY: We require consistent Tangram output format "
+                        "to ensure reproducible cell type mapping scores."
+                    )
                     if context:
-                        await context.warning(
-                            "No valid training history found, using default score"
-                        )
+                        await context.error(error_msg)
+                    raise ValueError(error_msg)
         except Exception as score_error:
             if context:
                 await context.error(
@@ -1020,13 +1025,15 @@ async def _annotate_with_scanvi(
         # Add unlabeled category for all cells
         adata.obs[cell_type_key] = params.scanvi_unlabeled_category
 
-        # Setup query data (batch handling)
+        # Setup query data (batch handling) - TRANSPARENT TEMPORARY METADATA
         if batch_key and batch_key not in adata.obs:
-            # Add a default batch for query if reference has batches
+            # ScANVI requires batch information for technical reasons
             adata.obs[batch_key] = "query_batch"
             if context:
                 await context.info(
-                    f"Added '{batch_key}' column with 'query_batch' for query data"
+                    f"🔧 Added temporary batch label '{batch_key}' = 'query_batch' for ScANVI compatibility.\n"
+                    f"   This is TECHNICAL METADATA, not real batch information from your experiment.\n"
+                    f"   ScANVI algorithm requires batch labels to function properly."
                 )
 
         scvi.model.SCANVI.setup_anndata(
