@@ -147,29 +147,16 @@ async def _validate_liana_requirements(
             actual_gene_count < params.min_genes_required
             and not params.force_analysis_with_few_genes
         ):
-            # Check if raw data is available as an alternative
-            if adata.raw is not None and adata.raw.n_vars >= params.min_genes_required:
-                error_msg = (
-                    f"Insufficient genes for LIANA+ analysis:\n"
-                    f"  Current data: {actual_gene_count} genes\n"
-                    f"  Raw data available: {adata.raw.n_vars} genes\n"
-                    f"  Required: {params.min_genes_required} genes\n\n"
-                    f"LIANA+ requires comprehensive gene coverage for L-R analysis.\n"
-                    f"Options:\n"
-                    f"  1. Set data_source='raw' to use raw data\n"
-                    f"  2. Load full transcriptome dataset\n"
-                    f"  3. Set force_analysis_with_few_genes=True (not recommended)"
-                )
-            else:
-                # No sufficient alternatives available
-                error_msg = (
-                    f"Insufficient genes for LIANA+ analysis:\n"
-                    f"  Current data: {actual_gene_count} genes\n"
-                    f"  Required: {params.min_genes_required} genes\n"
-                    f"  No raw data with sufficient genes available\n\n"
-                    f"LIANA+ requires comprehensive gene coverage for reliable L-R analysis.\n"
-                    f"Please load a dataset with full transcriptome coverage."
-                )
+            # Direct error - no complex fallback suggestions
+            error_msg = (
+                f"Insufficient genes for LIANA+ analysis:\n"
+                f"  Current data: {actual_gene_count} genes\n"
+                f"  Required: {params.min_genes_required} genes\n\n"
+                f"Solutions:\n"
+                f"  1. Use data_source='raw' if raw data available\n"
+                f"  2. Load dataset with comprehensive gene coverage\n"
+                f"  3. Set force_analysis_with_few_genes=True (not recommended)"
+            )
             
             validation_result["passed"] = False
             validation_result["errors"].append(error_msg)
@@ -1328,18 +1315,23 @@ async def _analyze_communication_cellphonedb(
                     pvalues = result.get('pvalues') 
                     significant_means = result.get('significant_means')
                     
-                    # Handle CellPhoneDB internal bug: missing 'significant_means' key
+                    # Validate CellPhoneDB API result completeness
                     if significant_means is None and 'significant_means' not in result:
-                        # Create empty DataFrame to prevent crashes
-                        import pandas as pd
-                        significant_means = pd.DataFrame()
-                        
+                        # CellPhoneDB API failure - do not mask with empty DataFrame
+                        error_msg = (
+                            "❌ CellPhoneDB API returned incomplete results (missing 'significant_means').\n\n"
+                            "🔧 SOLUTIONS:\n"
+                            "1. Use LIANA method (more robust):\n"
+                            "   analyze_cell_communication(data_id, params={'method': 'liana'})\n\n"
+                            "2. Ensure comprehensive gene coverage (>10,000 genes recommended)\n\n"
+                            "3. Use raw data with full gene set:\n"
+                            "   analyze_cell_communication(data_id, params={'data_source': 'raw'})\n\n"
+                            "4. Check data quality and L-R gene presence in dataset\n\n"
+                            "📋 CONTEXT: This indicates CellPhoneDB internal failure or insufficient gene coverage."
+                        )
                         if context:
-                            await context.warning(
-                                "CellPhoneDB found no significant interactions (missing 'significant_means' key). "
-                                "This typically indicates insufficient ligand-receptor gene coverage in the dataset. "
-                                "Consider using datasets with comprehensive gene panels or trying LIANA method."
-                            )
+                            await context.error(error_msg)
+                        raise RuntimeError(error_msg)
                 else:
                     # Fallback for older tuple format
                     deconvoluted, means, pvalues, significant_means = result
@@ -1747,12 +1739,19 @@ async def _comprehensive_data_validation(
         warnings_list.extend(expression_check["warnings"])
 
         # 3. Spatial coordinates validation
-        spatial_check = await _validate_spatial_coordinates(adata, context)
+        from ..utils.data_validator import validate_for_cell_communication
+        spatial_check = validate_for_cell_communication(adata, strict=False)
         validation_result["validation_details"]["spatial"] = spatial_check
-        if not spatial_check["passed"]:
-            errors.extend(spatial_check["errors"])
-            suggestions.extend(spatial_check["suggestions"])
-        warnings_list.extend(spatial_check["warnings"])
+        if not spatial_check.passed:
+            errors.extend(spatial_check.errors)
+            suggestions.extend(spatial_check.suggestions)
+            if context:
+                await context.warning(
+                    f"Cell communication validation failed: {len(spatial_check.errors)} errors"
+                )
+                for error in spatial_check.errors[:3]:  # Show first 3 errors
+                    await context.warning(f"  • {error}")
+        warnings_list.extend(spatial_check.warnings)
 
         # 4. Metadata validation
         metadata_check = await _validate_metadata(adata, context)
@@ -1975,36 +1974,6 @@ async def _validate_expression_matrix(
     return result
 
 
-async def _validate_spatial_coordinates(
-    adata: Any, context: Optional[Context] = None
-) -> Dict[str, Any]:
-    """
-    Validate spatial coordinates for cell communication analysis.
-
-    REFACTORED: Now uses unified ChatSpatial validation system instead of
-    duplicated validation logic. This eliminates special cases.
-    """
-    from ..utils.data_validator import validate_for_cell_communication
-
-    # Use unified validation system - no more special cases!
-    validation_result = validate_for_cell_communication(adata, strict=False)
-
-    # Convert to expected format for backward compatibility
-    result = {
-        "passed": validation_result.passed,
-        "errors": validation_result.errors,
-        "warnings": validation_result.warnings,
-        "suggestions": validation_result.suggestions,
-    }
-
-    if context and not validation_result.passed:
-        await context.warning(
-            f"Cell communication validation failed: {len(validation_result.errors)} errors"
-        )
-        for error in validation_result.errors[:3]:  # Show first 3 errors
-            await context.warning(f"  • {error}")
-
-    return result
 
 
 async def _validate_metadata(
