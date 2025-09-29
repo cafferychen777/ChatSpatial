@@ -699,10 +699,29 @@ async def visualize_data(
 
             # Check if UMAP has been computed
             if "X_umap" not in adata.obsm:
-                if context:
-                    await context.warning(
-                        "UMAP not found in dataset. Computing UMAP..."
+                # STRICT: NO FALLBACK - UMAP and PCA are fundamentally different algorithms
+                
+                # Check prerequisites for UMAP
+                if "neighbors" not in adata.uns:
+                    error_msg = (
+                        "❌ UMAP visualization requires neighborhood graph.\n\n"
+                        "🔧 SOLUTION:\n"
+                        "Run preprocessing first:\n"
+                        "1. sc.pp.neighbors(adata)\n"
+                        "2. sc.tl.umap(adata)\n\n"
+                        "📋 SCIENTIFIC INTEGRITY: UMAP requires a k-nearest neighbor graph "
+                        "to preserve local manifold structure. Cannot proceed without it."
                     )
+                    if context:
+                        await context.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                # Try to compute UMAP with proper error handling
+                if context:
+                    await context.info(
+                        "UMAP not found. Attempting to compute UMAP coordinates..."
+                    )
+                
                 try:
                     # Clean data before computing UMAP to handle extreme values
                     if hasattr(adata.X, "data"):
@@ -715,58 +734,38 @@ async def visualize_data(
                         adata.X = np.nan_to_num(
                             adata.X, nan=0.0, posinf=0.0, neginf=0.0
                         )
-
-                    # Validate UMAP prerequisites
-                    if "neighbors" not in adata.uns:
-                        raise ValueError(
-                            "UMAP visualization requires neighborhood graph but neighbors not found. "
-                            "Please run in preprocessing.py: sc.pp.neighbors(adata)"
-                        )
-
-                    # Check if UMAP has been computed
-                    if "X_umap" not in adata.obsm:
-                        raise ValueError(
-                            "UMAP visualization requires UMAP coordinates but X_umap not found. "
-                            "Please run in preprocessing.py: sc.tl.umap(adata)"
-                        )
-                except Exception as e:
+                    
+                    # Import and compute UMAP
+                    import scanpy as sc
+                    sc.tl.umap(adata)
+                    
                     if context:
-                        await context.warning(f"Failed to compute UMAP: {str(e)}")
-                        await context.info("Creating fallback UMAP using PCA...")
-
-                    # Create a fallback UMAP using PCA
-                    from sklearn.decomposition import PCA
-
-                    # Compute PCA if not already done
-                    if "X_pca" not in adata.obsm:
-                        try:
-                            # Clean data for PCA
-                            X_clean = (
-                                adata.X.toarray()
-                                if hasattr(adata.X, "toarray")
-                                else adata.X.copy()
-                            )
-                            X_clean = np.nan_to_num(
-                                X_clean, nan=0.0, posinf=0.0, neginf=0.0
-                            )
-
-                            pca = PCA(
-                                n_components=min(50, adata.n_vars - 1, X_clean.shape[1])
-                            )
-                            X_pca = pca.fit_transform(X_clean)
-                            adata.obsm["X_pca"] = X_pca
-                        except Exception as pca_e:
-                            if context:
-                                await context.error(
-                                    f"PCA fallback also failed: {str(pca_e)}."
-                                )
-                            raise ProcessingError(
-                                f"All dimensionality reduction methods failed. UMAP error: {str(e)}. PCA error: {str(pca_e)}. "
-                                "Cannot generate reliable 2D visualization. Please check data quality or preprocessing."
-                            )
-
-                    # Use PCA as UMAP for visualization
-                    adata.obsm["X_umap"] = adata.obsm["X_pca"][:, :2]
+                        await context.info("Successfully computed UMAP coordinates")
+                        
+                except Exception as e:
+                    # NO FALLBACK: Honest error reporting with alternatives
+                    error_msg = (
+                        "❌ Failed to compute UMAP for visualization.\n\n"
+                        f"Error: {str(e)}\n\n"
+                        "🔧 ALTERNATIVES:\n"
+                        "1. Use PCA visualization instead (LINEAR method):\n"
+                        "   visualize_data(data_id, params={'plot_type': 'pca'})\n\n"
+                        "2. Use t-SNE visualization (NON-LINEAR, different from UMAP):\n"
+                        "   visualize_data(data_id, params={'plot_type': 'tsne'})\n\n"
+                        "3. Fix UMAP computation in preprocessing:\n"
+                        "   - Ensure data is properly normalized\n"
+                        "   - Check for extreme values or NaN\n"
+                        "   - Verify neighbors graph is computed correctly\n"
+                        "   - Try different UMAP parameters\n\n"
+                        "📋 SCIENTIFIC INTEGRITY: UMAP (Uniform Manifold Approximation) and PCA "
+                        "(Principal Component Analysis) are fundamentally different algorithms:\n"
+                        "• UMAP: Non-linear, preserves local structure, reveals clusters\n"
+                        "• PCA: Linear, preserves global variance, shows major axes of variation\n"
+                        "We cannot substitute one for another without explicit user consent."
+                    )
+                    if context:
+                        await context.error(error_msg)
+                    raise RuntimeError(error_msg)
 
             # Check if we should create multi-panel plot for multiple features
             feature_list = (
