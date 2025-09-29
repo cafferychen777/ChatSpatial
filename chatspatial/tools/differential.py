@@ -51,25 +51,55 @@ async def differential_expression(
         if context:
             await context.info(f"Finding marker genes for all groups in '{group_key}'")
 
-        # Run rank_genes_groups for all groups
+        # Filter out groups with too few cells
+        group_sizes = adata.obs[group_key].value_counts()
+        min_cells = 3  # Minimum for Wilcoxon test
+        valid_groups = group_sizes[group_sizes >= min_cells]
+        skipped_groups = group_sizes[group_sizes < min_cells]
+
+        # Warn about skipped groups
+        if len(skipped_groups) > 0:
+            if context:
+                skipped_list = "\n".join(
+                    [f"  • {g}: {n} cell(s)" for g, n in skipped_groups.items()]
+                )
+                await context.warning(
+                    f"⚠️ Skipped {len(skipped_groups)} group(s) with <{min_cells} cells:\n{skipped_list}"
+                )
+
+        # Check if any valid groups remain
+        if len(valid_groups) == 0:
+            all_sizes = "\n".join(
+                [f"  • {g}: {n} cell(s)" for g, n in group_sizes.items()]
+            )
+            raise ValueError(
+                f"❌ All groups have <{min_cells} cells. Cannot perform {method} test.\n\n"
+                f"📊 Group sizes:\n{all_sizes}\n\n"
+                f"💡 Try: find_markers(group_key='leiden') or merge small groups"
+            )
+
+        # Filter data to only include valid groups
+        adata_filtered = adata[adata.obs[group_key].isin(valid_groups.index)].copy()
+
+        # Run rank_genes_groups on filtered data
         sc.tl.rank_genes_groups(
-            adata,
+            adata_filtered,
             groupby=group_key,
             method=method,
             n_genes=n_top_genes,
             reference="rest",
         )
 
-        # Get all groups
-        groups = adata.obs[group_key].unique()
+        # Get all groups (from filtered data)
+        groups = adata_filtered.obs[group_key].unique()
 
         # Collect top genes from all groups
         all_top_genes = []
         if (
-            "rank_genes_groups" in adata.uns
-            and "names" in adata.uns["rank_genes_groups"]
+            "rank_genes_groups" in adata_filtered.uns
+            and "names" in adata_filtered.uns["rank_genes_groups"]
         ):
-            gene_names = adata.uns["rank_genes_groups"]["names"]
+            gene_names = adata_filtered.uns["rank_genes_groups"]["names"]
             for group in groups:
                 if str(group) in gene_names.dtype.names:
                     genes = list(gene_names[str(group)][:n_top_genes])
