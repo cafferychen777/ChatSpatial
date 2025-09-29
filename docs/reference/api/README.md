@@ -628,7 +628,7 @@ visualize_data(
 | `spatial_enrichment` | Spatial enrichment maps | Functional enrichment |
 | `pathway_enrichment` | Pathway enrichment plots | GSEA visualization |
 | `spatial_interaction` | Cell-cell interactions | Spatial communication |
-| `integration_check` | Integration quality plots | Batch correction QC |
+| `batch_integration` | Batch integration quality | Batch correction QC |
 
 **MCP Integration:**
 
