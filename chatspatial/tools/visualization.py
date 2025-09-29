@@ -93,9 +93,7 @@ def setup_multi_panel_figure(
 async def get_validated_features(
     adata: ad.AnnData,
     params: VisualizationParameters,
-    min_features: int = 1,
-    max_features: int = 12,  # Limit to avoid overly large plots
-    default_to_highly_variable: bool = True,
+    max_features: int = 12,
     context: Optional[Context] = None,
 ) -> List[str]:
     """Gets a validated list of features (genes) for visualization."""
@@ -106,49 +104,45 @@ async def get_validated_features(
             await context.info("Making gene names unique to avoid indexing errors.")
         adata.var_names_make_unique()
 
-    features = []
-    if params.feature:
-        if isinstance(params.feature, list):
-            features = params.feature
-        else:
-            features = [params.feature]
-
-    if features:
-        available_features = [f for f in features if f in adata.var_names]
-        if not available_features:
-            if context:
-                await context.warning(f"None of the specified genes found: {features}.")
-        else:
-            if len(available_features) > max_features:
-                if context:
-                    await context.warning(
-                        f"Too many features requested ({len(available_features)}). Limiting to first {max_features}."
-                    )
-                return available_features[:max_features]
-            return available_features
-
-    # Fallback logic if no valid features were provided or found
-    if default_to_highly_variable:
-        if "highly_variable" in adata.var:
-            hvg = adata.var_names[adata.var.highly_variable].tolist()
-            if hvg:
-                if context:
-                    await context.info(
-                        f"No valid features provided. Using top {min(max_features, len(hvg))} highly variable genes."
-                    )
-                return hvg[:max_features]
-
-    # Final fallback if still no features
-    if len(adata.var_names) >= min_features:
-        if context:
-            await context.info(
-                f"No valid features. Using first {min_features} genes from the dataset."
-            )
-        return adata.var_names[:min_features].tolist()
-
-    raise DataNotFoundError(
-        f"Could not find at least {min_features} valid genes for visualization."
-    )
+    # Check if user specified any features
+    if not params.feature:
+        raise DataNotFoundError(
+            "❌ No genes specified for visualization.\n\n"
+            "🔧 SOLUTIONS:\n"
+            "1. Specify genes: visualize_data(data_id, params={'feature': ['CD3D', 'CD8A']})\n"
+            "2. Find markers: find_markers(data_id, group_key='cell_type')\n"
+            "3. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n\n"
+            "📋 CONTEXT: Explicit gene selection required for scientific accuracy."
+        )
+    
+    # Parse user features
+    features = params.feature if isinstance(params.feature, list) else [params.feature]
+    
+    # Check which features are available
+    available_features = [f for f in features if f in adata.var_names]
+    
+    if not available_features:
+        missing = [f for f in features if f not in adata.var_names]
+        examples = list(adata.var_names[:10])
+        raise DataNotFoundError(
+            f"❌ Genes not found: {missing}\n\n"
+            f"🔧 SOLUTIONS:\n"
+            f"1. Check names (available: {examples})\n"
+            f"2. Search for similar gene names\n"
+            f"3. Use gene discovery tools\n\n"
+            f"📋 CONTEXT: Dataset has {adata.n_vars:,} genes."
+        )
+    
+    if len(available_features) > max_features:
+        raise ValueError(
+            f"❌ Too many genes ({len(available_features)} > {max_features}).\n\n"
+            f"🔧 SOLUTIONS:\n"
+            f"1. Select {max_features} genes from: {available_features}\n"
+            f"2. Create multiple visualizations\n"
+            f"3. Use heatmap for larger sets"
+        )
+    
+    return available_features
 
 
 def plot_spatial_feature(
@@ -214,7 +208,7 @@ def handle_visualization_errors(plot_title: str):
                 # These indicate issues with data or parameters that the user must fix
                 raise
             
-            except (matplotlib.MatplotlibException, ValueError, MemoryError) as e:
+            except (ValueError, MemoryError, RuntimeError, ImportError) as e:
                 # Technical/rendering errors - return a friendly error figure
                 # These are often transient or due to system limitations
                 fig, ax = plt.subplots(figsize=(8, 6))
@@ -990,44 +984,15 @@ async def visualize_data(
             if context:
                 await context.info("Creating heatmap plot")
 
-            # For heatmap, we need to select top genes or use highly variable genes
-            highly_variable = adata.var.get("highly_variable", None)
-            if highly_variable is None or not highly_variable.any():
-                if context:
-                    await context.warning(
-                        "No highly variable genes found. Computing..."
-                    )
-                try:
-                    # Clean data before computing highly variable genes
-                    # Replace infinite values with NaN, then fill with 0
-                    if hasattr(adata.X, "data"):
-                        # Sparse matrix
-                        adata.X.data = np.nan_to_num(
-                            adata.X.data, nan=0.0, posinf=0.0, neginf=0.0
-                        )
-                    else:
-                        # Dense matrix
-                        adata.X = np.nan_to_num(
-                            adata.X, nan=0.0, posinf=0.0, neginf=0.0
-                        )
-
-                    raise ValueError(
-                        "Visualization requires highly variable genes but none found. "
-                        "Please run HVG selection in preprocessing.py: "
-                        "sc.pp.highly_variable_genes(adata, n_top_genes=50)"
-                    )
-                except Exception as e:
-                    if context:
-                        await context.warning(
-                            f"Failed to compute highly variable genes: {e}. Using top expressed genes instead."
-                        )
-                    # Fallback: use top expressed genes
-                    gene_means = np.array(adata.X.mean(axis=0)).flatten()
-                    top_gene_indices = np.argsort(gene_means)[-50:]
-                    adata.var["highly_variable"] = False
-                    adata.var.iloc[
-                        top_gene_indices, adata.var.columns.get_loc("highly_variable")
-                    ] = True
+            # For heatmap, we need highly variable genes for meaningful clustering
+            if "highly_variable" not in adata.var or not adata.var["highly_variable"].any():
+                raise ValueError(
+                    "❌ Heatmap requires highly variable genes but none found.\n\n"
+                    "🔧 SOLUTIONS:\n"
+                    "1. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n"
+                    "2. Specify genes: visualize_data(data_id, params={'feature': ['CD3D']})\n"
+                    "3. Use spatial plot: visualize_data(data_id, params={'plot_type': 'spatial'})"
+                )
 
             # Create heatmap of top genes across groups
             if "leiden" in adata.obs.columns:
@@ -1285,44 +1250,20 @@ async def visualize_data(
 
             # Check if feature exists for violin plot
             if params.feature and params.feature not in adata.var_names:
-                if context:
-                    await context.warning(
-                        f"Gene {params.feature} not found in dataset. Showing top genes instead."
-                    )
-                # Use top highly variable genes
-                highly_variable = adata.var.get("highly_variable", None)
-                if highly_variable is None or not highly_variable.any():
-                    try:
-                        # Clean data before computing highly variable genes
-                        if hasattr(adata.X, "data"):
-                            adata.X.data = np.nan_to_num(
-                                adata.X.data, nan=0.0, posinf=0.0, neginf=0.0
-                            )
-                        else:
-                            adata.X = np.nan_to_num(
-                                adata.X, nan=0.0, posinf=0.0, neginf=0.0
-                            )
-
-                        raise ValueError(
-                            "Visualization requires highly variable genes but none found. "
-                            "Please run HVG selection in preprocessing.py: "
-                            "sc.pp.highly_variable_genes(adata, n_top_genes=50)"
-                        )
-                    except Exception:
-                        # Fallback: use top expressed genes
-                        gene_means = np.array(adata.X.mean(axis=0)).flatten()
-                        top_gene_indices = np.argsort(gene_means)[-50:]
-                        adata.var["highly_variable"] = False
-                        adata.var.iloc[
-                            top_gene_indices,
-                            adata.var.columns.get_loc("highly_variable"),
-                        ] = True
-                # Limit to 3 genes to reduce image size
-                genes = adata.var_names[adata.var.highly_variable][:3]
-            else:
-                genes = (
-                    [params.feature] if params.feature else adata.var_names[:3]
-                )  # Limit to 3 genes
+                examples = list(adata.var_names[:10])
+                raise DataNotFoundError(
+                    f"❌ Gene '{params.feature}' not found in dataset.\n\n"
+                    f"🔧 SOLUTIONS:\n"
+                    f"1. Choose from available genes (examples: {examples})\n"
+                    f"2. Check gene name format (e.g., 'CD3D' vs 'Cd3d')\n"
+                    f"3. Use gene search functionality\n\n"
+                    f"📋 CONTEXT: Dataset contains {adata.n_vars:,} genes total."
+                )
+            
+            # Use the specified gene or default to first 3 genes
+            genes = (
+                [params.feature] if params.feature else adata.var_names[:3]
+            )
 
             # Check if we have clusters for grouping
             if "leiden" in adata.obs.columns:
@@ -2217,7 +2158,7 @@ async def create_multi_gene_umap_visualization(
     """
     # USE THE NEW FEATURE HELPER
     available_genes = await get_validated_features(
-        adata, params, min_features=1, max_features=12, context=context
+        adata, params, max_features=12, context=context
     )
 
     if context:
@@ -2316,7 +2257,7 @@ async def create_multi_gene_visualization(
     """
     # USE THE NEW FEATURE HELPER
     available_genes = await get_validated_features(
-        adata, params, min_features=1, max_features=12, context=context
+        adata, params, max_features=12, context=context
     )
 
     if context:
@@ -3450,7 +3391,7 @@ async def create_gene_correlation_visualization(
     """
     # USE THE NEW FEATURE HELPER
     available_genes = await get_validated_features(
-        adata, params, min_features=2, max_features=10, context=context
+        adata, params, max_features=10, context=context
     )
 
     if context:
