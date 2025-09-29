@@ -472,9 +472,18 @@ async def compute_dpt_trajectory(adata, root_cells=None, context=None):
         if root_cells[0] in adata.obs_names:
             adata.uns["iroot"] = np.where(adata.obs_names == root_cells[0])[0][0]
         else:
-            # If provided root cell not found, use first cell and warn
-            # Root cell not found - using first cell as fallback
-            adata.uns["iroot"] = 0
+            # NO FALLBACK: Root cell selection is critical for trajectory analysis
+            raise ValueError(
+                f"❌ Specified root cell '{root_cells[0]}' not found in data.\n\n"
+                f"Available cells: {adata.n_obs:,} cells with IDs like: "
+                f"{list(adata.obs_names[:3])}...\n\n"
+                "🔧 SOLUTIONS:\n"
+                "1. Verify the cell ID exists in your data\n"
+                "2. Use a valid cell ID from adata.obs_names\n"
+                "3. Omit root_cells to auto-select based on data\n\n"
+                "📋 SCIENTIFIC INTEGRITY: Root cell selection critically affects "
+                "trajectory inference. We cannot arbitrarily substitute cells."
+            )
     else:
         # If no root cell specified, set the first cell as root
         adata.uns["iroot"] = 0
