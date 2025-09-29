@@ -972,9 +972,9 @@ class CellCommunicationParameters(BaseModel):
     # Expert mode
     expert_mode: bool = False  # Expert mode skips some safety checks
 
-    # ========== Backward Compatibility Parameters ==========
+    # ========== Expression Filtering Parameters ==========
     min_cells: Annotated[int, Field(ge=0)] = (
-        3  # Minimum cells expressing ligand or receptor
+        3  # Minimum cells expressing ligand or receptor (required by LIANA for statistical validity)
     )
 
     # ========== Result Control ==========
