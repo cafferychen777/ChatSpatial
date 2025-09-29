@@ -9,6 +9,7 @@ import os
 import sys
 import traceback
 import warnings
+from pathlib import Path
 
 import click
 
@@ -26,6 +27,49 @@ try:
     sc.settings.verbosity = 0  # Suppress scanpy output
 except ImportError:
     pass  # scanpy may not be installed yet
+
+# IMPORTANT: Intelligent working directory handling
+# Only change cwd when it's clearly problematic, otherwise respect user configuration
+PROJECT_ROOT = Path(__file__).parent.resolve()
+user_cwd = Path.cwd()
+
+# Identify problematic working directories that should be changed
+problematic_cwds = [
+    Path("/"),                # Root directory
+    Path("/tmp"),             # Temp directory
+    Path("/var"),             # System directory
+    Path("/usr"),             # System directory
+    Path("/etc"),             # System directory
+]
+
+# Check if current cwd is problematic
+is_problematic = (
+    # Check exact match
+    user_cwd in problematic_cwds or
+    # Check if cwd is a parent of problematic directories
+    any(user_cwd == p.parent for p in problematic_cwds) or
+    # Check if directory doesn't exist
+    not user_cwd.exists() or
+    # Check if it's a temporary npx directory (common MCP issue)
+    "_npx" in str(user_cwd) or
+    ".npm" in str(user_cwd)
+)
+
+if is_problematic:
+    print(
+        f"⚠️  Working directory appears problematic: {user_cwd}\n"
+        f"   Changing to project root: {PROJECT_ROOT}\n"
+        f"   (This ensures file operations work correctly)",
+        file=sys.stderr,
+    )
+    os.chdir(PROJECT_ROOT)
+else:
+    print(
+        f"✓ Using configured working directory: {user_cwd}\n"
+        f"  (Project root: {PROJECT_ROOT})",
+        file=sys.stderr,
+    )
+    # Keep user's configured cwd - don't change it!
 
 from .server import mcp
 
