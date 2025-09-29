@@ -364,7 +364,7 @@ Your tissue shows highly organized, non-random spatial patterns!"
 
 **🤖 ChatSpatial:** "Here's your integration quality assessment! ✅🔍
 
-**Integration Check (`integration_check`):**
+**Batch Integration Quality (`batch_integration`):**
 - **UMAP by batch**: Shows how well batches mix
 - **Gene expression consistency**: Batch-specific artifacts detected
 - **Integration metrics**: Quantitative mixing scores
@@ -631,14 +631,14 @@ ChatSpatial provides comprehensive visualization capabilities:
 **Quality Control (3 types):**
 18. `deconvolution` - Cell type proportions
 19. `pathway_enrichment` - GSEA and pathway activity
-20. `integration_check` - Batch correction assessment
+20. `batch_integration` - Batch correction assessment
 
 ### 🚀 Pro Tips for Maximum Impact
 
 **For Presentations:**
 - Use `multi_gene` plots to compare key markers
 - Combine `spatial_domains` with `cell_communication` for complete story
-- Include `integration_check` to show data quality
+- Include `batch_integration` to show data quality
 
 **For Publications:**
 - Start with `spatial` overview, then zoom into specific analyses
