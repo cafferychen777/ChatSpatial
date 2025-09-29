@@ -248,7 +248,7 @@ class VisualizationParameters(BaseModel):
         "pathway_enrichment",
         "spatial_enrichment",  # Clear enrichment types
         "spatial_interaction",
-        "integration_check",  # NEW: Enhanced visualization types
+        "batch_integration",  # Batch integration quality assessment
     ] = "spatial"
     colormap: str = "viridis"
 
