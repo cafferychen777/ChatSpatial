@@ -1344,172 +1344,65 @@ async def _analyze_communication_cellphonedb(
                     # Fallback for older tuple format
                     deconvoluted, means, pvalues, significant_means = result
             except Exception as api_error:
-                # Enhanced error handling based on ULTRATHINK research
+                # Simple, direct error handling for MCP - let LLM guide the user
                 error_str = str(api_error)
                 
-                # ULTRATHINK: Check for ICAM3_integrin_aDb2_complex error and apply fallback
+                # Provide clear, actionable error message for LLM
                 if ('ICAM3_integrin_aDb2_complex' in error_str or 
                     ('integrin' in error_str.lower() and 'KeyError' in error_str)):
-                    # This is the specific error we can handle with gene filtering
-                    if params.enable_gene_filtering and params.gene_filtering_strategy == 'conservative':
-                        # Try moderate strategy as fallback
-                        if context:
-                            await context.warning(
-                                f"⚠️ ULTRATHINK Fallback: Conservative filtering failed with error:\n"
-                                f"  {error_str}\n"
-                                f"  Attempting moderate filtering strategy..."
-                            )
-                        
-                        # Apply more aggressive filtering
-                        adata_for_fallback = _smart_gene_filtering(
-                            adata,  # Use original data, not already filtered
-                            strategy='moderate',
-                            context=None
-                        )
-                        
-                        # Prepare data with moderate filtering
-                        if hasattr(adata_for_fallback.X, "toarray"):
-                            counts_df = pd.DataFrame(
-                                adata_for_fallback.X.toarray().T, 
-                                index=adata_for_fallback.var.index, 
-                                columns=adata_for_fallback.obs.index
-                            )
-                        else:
-                            counts_df = pd.DataFrame(
-                                adata_for_fallback.X.T, 
-                                index=adata_for_fallback.var.index, 
-                                columns=adata_for_fallback.obs.index
-                            )
-                        
-                        # Save updated counts for retry
-                        counts_df.to_csv(counts_file, sep="\t")
-                        
-                        if context:
-                            await context.info("🔄 Retrying CellPhoneDB with moderate filtering...")
-                        
-                        # Retry the analysis with filtered data
-                        try:
-                            result = cpdb_statistical_analysis_method.call(
-                                cpdb_file_path=db_path,
-                                meta_file_path=meta_file,
-                                counts_file_path=counts_file,
-                                counts_data="hgnc_symbol",
-                                threshold=params.cellphonedb_threshold,
-                                result_precision=params.cellphonedb_result_precision,
-                                pvalue=params.cellphonedb_pvalue,
-                                iterations=params.cellphonedb_iterations,
-                                debug_seed=debug_seed,
-                                output_path=temp_dir,
-                                microenvs_file_path=microenvs_file,
-                                score_interactions=True,
-                            )
-                            
-                            if context:
-                                await context.info("✅ Fallback successful with moderate filtering!")
-                            
-                            # Process result (same as above)
-                            if isinstance(result, dict):
-                                deconvoluted = result.get('deconvoluted')
-                                means = result.get('means')
-                                pvalues = result.get('pvalues')
-                                significant_means = result.get('significant_means')
-                                
-                                if significant_means is None and 'significant_means' not in result:
-                                    significant_means = pd.DataFrame()
-                            else:
-                                deconvoluted, means, pvalues, significant_means = result
-                                
-                        except Exception as fallback_error:
-                            # Even moderate filtering failed
-                            error_msg = (
-                                f"ULTRATHINK Gene Filtering Fallback Failed:\n"
-                                f"Original error: {error_str}\n"
-                                f"Fallback error: {str(fallback_error)}\n\n"
-                                f"Both conservative and moderate filtering strategies failed.\n"
-                                f"This suggests a deeper compatibility issue.\n\n"
-                                f"RECOMMENDATIONS:\n"
-                                f"1. Try aggressive filtering: gene_filtering_strategy='aggressive'\n"
-                                f"2. Disable microenvironments: cellphonedb_use_microenvironments=False\n"
-                                f"3. Use alternative method: method='liana'\n"
-                                f"4. Check CellPhoneDB database version compatibility"
-                            )
-                            raise RuntimeError(error_msg) from fallback_error
-                    else:
-                        # Cannot apply fallback (either disabled or already tried)
-                        error_msg = (
-                            f"CellPhoneDB KeyError with integrin complex: {error_str}\n\n"
-                            f"This is a known issue with ICAM3_integrin_aDb2_complex in microenvironments.\n"
-                            f"Gene filtering is {'disabled' if not params.enable_gene_filtering else 'already at maximum'}.\n\n"
-                            f"SOLUTIONS:\n"
-                            f"1. Enable gene filtering: enable_gene_filtering=True\n"
-                            f"2. Use more aggressive strategy: gene_filtering_strategy='aggressive'\n"
-                            f"3. Disable microenvironments: cellphonedb_use_microenvironments=False\n"
-                            f"4. Use LIANA method instead: method='liana'"
-                        )
-                        raise RuntimeError(error_msg) from api_error
-                    
-                # Check for other specific error patterns
-                elif "'significant_means'" in error_str or "KeyError: 'significant_means'" in error_str:
-                    # This is the specific error identified through ULTRATHINK analysis
                     error_msg = (
-                        f"CellPhoneDB 'significant_means' KeyError: {error_str}\n\n"
-                        "ULTRATHINK ANALYSIS RESULT: This error occurs when datasets lack sufficient\n"
-                        "ligand-receptor gene coverage, causing CellPhoneDB to find no interactions\n"
-                        "and fail to create the 'significant_means' key in its internal result handling.\n\n"
-                        "DATASET DIAGNOSIS:\n"
-                        f"- Current dataset: {adata.n_obs} cells, {adata.n_vars:,} genes\n"
-                        "- This error is typically caused by insufficient L-R gene coverage\n"
-                        "- Successful datasets (like lymph node with 36K genes) have 100% L-R coverage\n"
-                        "- Failed datasets (like destvi with 300 genes) have 0% L-R coverage\n\n"
-                        "IMMEDIATE SOLUTIONS:\n"
-                        "1. Use datasets with comprehensive gene panels (>10,000 genes)\n"
-                        "2. Switch to data_source='raw' for unfiltered gene access\n"
-                        "3. Use LIANA method instead: params.method='liana' (handles sparse data better)\n"
-                        "4. For Visium data, ensure all genes included (not just HVGs)\n\n"
-                        "ALTERNATIVE APPROACHES:\n"
-                        "- Try CellChat via LIANA: params.method='cellchat_liana'\n"
-                        "- Use lower statistical thresholds (higher p-value, fewer iterations)\n"
-                        "- Consider if your dataset is appropriate for cell communication analysis\n\n"
-                        "This is a known limitation of CellPhoneDB when applied to sparse gene panels."
+                        f"❌ CellPhoneDB analysis failed due to ICAM3_integrin_aDb2_complex compatibility issue.\n\n"
+                        f"🔧 SOLUTIONS:\n"
+                        f"1. Try aggressive gene filtering:\n"
+                        f"   analyze_cell_communication(data_id, params={{'gene_filtering_strategy': 'aggressive'}})\n\n"
+                        f"2. Disable spatial microenvironments:\n"
+                        f"   analyze_cell_communication(data_id, params={{'cellphonedb_use_microenvironments': False}})\n\n"
+                        f"3. Use alternative method (recommended):\n"
+                        f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
+                        f"4. Try CellChat via LIANA:\n"
+                        f"   analyze_cell_communication(data_id, params={{'method': 'cellchat_liana'}})\n\n"
+                        f"📋 CONTEXT: This is a known CellPhoneDB compatibility issue with integrin complexes.\n"
+                        f"Original error: {error_str}"
                     )
-                elif "arguments need to be provided" in error_str:
+                elif "'significant_means'" in error_str or "KeyError: 'significant_means'" in error_str:
                     error_msg = (
-                        f"CellPhoneDB v5 API parameter error: {error_str}\n\n"
-                        "This error was fixed in this version. If you see this, please:\n"
-                        "1. Restart the MCP server to load the updated code\n"
-                        "2. Ensure you're using CellPhoneDB v5.0+: pip install --upgrade cellphonedb\n"
-                        "3. Check that the database was downloaded successfully\n\n"
-                        "Technical details:\n"
-                        f"- Database path: {db_path if 'db_path' in locals() else 'Unknown'}\n"
-                        f"- Counts data format: hgnc_symbol\n"
-                        f"- Interaction scoring: enabled"
+                        f"❌ CellPhoneDB analysis failed - insufficient ligand-receptor gene coverage.\n\n"
+                        f"🔧 SOLUTIONS:\n"
+                        f"1. Use raw data with full gene set:\n"
+                        f"   analyze_cell_communication(data_id, params={{'data_source': 'raw'}})\n\n"
+                        f"2. Use LIANA method (handles sparse data better):\n"
+                        f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
+                        f"3. Ensure comprehensive gene panel (>10,000 genes recommended)\n\n"
+                        f"4. For Visium data, include all genes (not just HVGs)\n\n"
+                        f"📋 CONTEXT: Dataset has {adata.n_vars:,} genes. CellPhoneDB requires extensive L-R gene coverage.\n"
+                        f"Original error: {error_str}"
                     )
                 elif microenvs_file:
                     error_msg = (
-                        f"CellPhoneDB spatial analysis failed: {error_str}\n\n"
-                        "CRITICAL: Cannot fall back to non-spatial analysis because:\n"
-                        "1. Spatial microenvironments fundamentally change the analysis\n"
-                        "2. Results would be scientifically different and misleading\n"
-                        "3. You requested spatial analysis but would get non-spatial results\n\n"
-                        "Possible solutions:\n"
-                        "- Check if your CellPhoneDB version supports microenvironments (v3.0+)\n"
-                        "- Set cellphonedb_use_microenvironments=False for non-spatial analysis\n"
-                        "- Verify microenvironment file format (two columns: cell_type, microenvironment)\n"
-                        "- Ensure spatial coordinates are present in data"
+                        f"❌ CellPhoneDB spatial analysis failed.\n\n"
+                        f"🔧 SOLUTIONS:\n"
+                        f"1. Disable spatial microenvironments:\n"
+                        f"   analyze_cell_communication(data_id, params={{'cellphonedb_use_microenvironments': False}})\n\n"
+                        f"2. Verify spatial coordinates are present in data\n\n"
+                        f"3. Check microenvironment file format (cell_type, microenvironment columns)\n\n"
+                        f"4. Use LIANA for spatial analysis:\n"
+                        f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
+                        f"📋 CONTEXT: Spatial analysis requires properly formatted data and coordinates.\n"
+                        f"Original error: {error_str}"
                     )
                 else:
-                    # Enhanced non-spatial analysis error handling
                     error_msg = (
-                        f"CellPhoneDB analysis failed: {error_str}\n\n"
-                        "Enhanced troubleshooting (based on common issues):\n"
-                        "1. Installation: Ensure CellPhoneDB v5+ is installed\n"
-                        "   pip install --upgrade cellphonedb\n"
-                        "2. Data format: Verify genes as rows, cells as columns\n"
-                        "3. Gene identifiers: Using hgnc_symbol (recommended for v5)\n"
-                        "4. Cell types: Ensure cell type annotations are present\n"
-                        "5. Memory: Check memory availability for large datasets\n"
-                        "6. Database: Verify database download completed successfully\n\n"
-                        "If the error persists, try running with fewer iterations or a higher threshold."
+                        f"❌ CellPhoneDB analysis failed.\n\n"
+                        f"🔧 SOLUTIONS:\n"
+                        f"1. Try LIANA method (more robust):\n"
+                        f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
+                        f"2. Check CellPhoneDB installation:\n"
+                        f"   pip install --upgrade cellphonedb\n\n"
+                        f"3. Verify cell type annotations exist in data\n\n"
+                        f"4. Reduce computational requirements:\n"
+                        f"   analyze_cell_communication(data_id, params={{'cellphonedb_iterations': 100}})\n\n"
+                        f"📋 CONTEXT: General CellPhoneDB failure - consider alternative methods.\n"
+                        f"Original error: {error_str}"
                     )
                 
                 raise RuntimeError(error_msg) from api_error
