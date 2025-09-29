@@ -196,44 +196,6 @@ def create_placeholder_image(
     return fig_to_image(fig, format=format)
 
 
-def fig_to_base64(
-    fig: "plt.Figure",
-    dpi: int = 100,
-    format: str = "png",
-    max_size_mb: float = 5,
-    close_fig: bool = True,
-) -> str:
-    """Convert matplotlib figure to base64 encoded string
-
-    This function is provided for backward compatibility.
-    New code should use fig_to_image instead.
-
-    Args:
-        fig: Matplotlib figure
-        dpi: Resolution in dots per inch
-        format: Image format (png, jpg)
-        max_size_mb: Maximum size in MB for the image
-        close_fig: Whether to close the figure after conversion
-
-    Returns:
-        Base64 encoded string of the image
-    """
-    # Convert to Image object first
-    image = fig_to_image(
-        fig, dpi=dpi, format=format, max_size_kb=max_size_mb * 1024, close_fig=close_fig
-    )
-
-    # Extract base64 string from Image object
-    if isinstance(image.data, bytes):
-        return base64.b64encode(image.data).decode("utf-8")
-    else:
-        # This should not happen, but just in case
-        buf = io.BytesIO()
-        fig.savefig(buf, format=format, dpi=dpi)
-        buf.seek(0)
-        if close_fig:
-            plt.close(fig)
-        return base64.b64encode(buf.read()).decode("utf-8")
 
 
 # ============ Token Optimization and Publication Export Support ============
@@ -294,21 +256,6 @@ def load_figure_pickle(path: str) -> "plt.Figure":
         return pickle.load(f)
 
 
-def estimate_figure_size(fig: "plt.Figure", dpi: int = 100) -> int:
-    """Estimate the size of a figure in bytes
-    
-    Args:
-        fig: Matplotlib figure
-        dpi: DPI setting
-        
-    Returns:
-        Estimated size in bytes
-    """
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight')
-    size = buf.tell()
-    buf.close()
-    return size
 
 
 async def optimize_fig_to_image_with_cache(
@@ -446,27 +393,3 @@ async def optimize_fig_to_image_with_cache(
     return fig_to_image(fig, dpi=80, format="png", max_size_kb=200)
 
 
-def cleanup_old_visualizations(days: int = 7):
-    """Clean up old visualization files
-    
-    Args:
-        days: Number of days to keep files
-    """
-    import time
-    
-    cache_dirs = [
-        Path("/tmp/chatspatial/visualizations"),
-        Path("/tmp/chatspatial/figures")
-    ]
-    
-    now = time.time()
-    cutoff = now - (days * 86400)
-    
-    for cache_dir in cache_dirs:
-        if not cache_dir.exists():
-            continue
-            
-        for file in cache_dir.glob("*"):
-            if file.is_file() and file.stat().st_mtime < cutoff:
-                file.unlink()
-                print(f"Cleaned up old file: {file.name}")

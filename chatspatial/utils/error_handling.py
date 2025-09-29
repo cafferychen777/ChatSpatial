@@ -177,27 +177,6 @@ def handle_error(error: Exception, context: Optional[Any] = None) -> None:
             context.debug(traceback.format_exc())
 
 
-def try_except_with_feedback(func: Callable) -> Callable:
-    """Decorator to add error handling with feedback
-
-    Args:
-        func: Function to wrap
-
-    Returns:
-        Wrapped function with error handling
-    """
-
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        context = kwargs.get("context")
-        try:
-            return await func(*args, **kwargs)
-        except Exception as e:
-            handle_error(e, context)
-            raise
-
-    return wrapper
-
 
 @contextmanager
 def suppress_output():

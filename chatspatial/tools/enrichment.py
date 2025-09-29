@@ -480,19 +480,6 @@ def categorize_pathway(pathway_name: str) -> str:
     
     return "Other"
 
-def format_significance(pvalue: Optional[float]) -> str:
-    """Convert p-value to human-readable significance."""
-    if pvalue is None:
-        return "Not Available"
-    
-    if pvalue < 0.001:
-        return "Very High (p<0.001)"
-    elif pvalue < 0.01:
-        return "High (p<0.01)"
-    elif pvalue < 0.05:
-        return "Moderate (p<0.05)"
-    else:
-        return f"Low (p={pvalue:.3f})"
 
 def format_effect_size(score: float, baseline: float = 1.0) -> str:
     """Convert score to interpretable effect size."""

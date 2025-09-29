@@ -217,26 +217,6 @@ def compute_rna_velocity(adata, mode="stochastic", params=None):
     return adata
 
 
-def validate_rna_velocity_computation(adata, mode="stochastic"):
-    """Validate RNA velocity computation requirements (no computation performed)"""
-
-    # Check if velocity has been computed
-    velocity_key = "velocity"
-    if velocity_key not in adata.layers:
-        raise ValueError(
-            f"RNA velocity ({mode} mode) not found but required for analysis. "
-            "Please run velocity computation in preprocessing.py: "
-            f"scv.tl.velocity(adata, mode='{mode}')"
-        )
-
-    # Check if velocity graph has been computed
-    if "velocity_graph" not in adata.uns:
-        raise ValueError(
-            "Velocity graph not found but required for trajectory analysis. "
-            "Please run in preprocessing.py: scv.tl.velocity_graph(adata)"
-        )
-
-    return adata
 
 
 def infer_spatial_trajectory_cellrank(
