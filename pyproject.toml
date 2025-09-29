@@ -102,7 +102,9 @@ full = [
     "mllmcelltype>=0.1.0",  # LLM-based cell type annotation
     
     # ========== R Interface (for specific methods) ==========
-    "rpy2>=3.4.0,<4.0",  # Required for RCTD, Spotlight, etc.
+    # IMPORTANT: rpy2 3.6.x requires R 4.5 which has compatibility issues
+    # We pin to 3.5.x which works well with R 4.4.1
+    "rpy2>=3.5.0,<3.6",  # Compatible with R 4.4.x, required for RCTD, SPOTlight, etc.
     
     # ========== Extended Spatial Analysis ==========
     "pysal>=2.6.0",  # Full Python spatial analysis library
