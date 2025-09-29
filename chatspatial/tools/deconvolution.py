@@ -379,6 +379,162 @@ def _create_deconvolution_stats(
     return stats
 
 
+def _process_deconvolution_results_transparently(
+    proportions: pd.DataFrame,
+    method: str,
+    normalize: bool = False,
+    context=None,
+) -> pd.DataFrame:
+    """
+    Transparently process deconvolution results while preserving data integrity.
+    
+    DESIGN NOTE: This function is synchronous (not async) because it needs to be called
+    from both sync and async deconvolution methods. The context object supports sync calls,
+    so we use sync mode for maximum compatibility.
+    
+    SCIENTIFIC INTEGRITY: This function respects the real meaning of special values:
+    - NaN means "computation failed" - NOT "zero cells"
+    - Negative values indicate algorithm errors - NOT to be silently fixed
+    - Non-normalized sums may indicate issues - NOT to be forced to 1
+    
+    Args:
+        proportions: Raw deconvolution output
+        method: Deconvolution method name
+        normalize: Whether to normalize to sum to 1 (user must explicitly request)
+        context: MCP context for logging
+        
+    Returns:
+        Processed proportions with transparency
+        
+    Raises:
+        ValueError: If negative values detected (algorithm error)
+    """
+    # 1. Check for NaN values - preserve them for transparency
+    nan_mask = proportions.isna()
+    if nan_mask.any().any():
+        nan_count = nan_mask.sum().sum()
+        nan_spots = nan_mask.any(axis=1).sum()
+        total_values = proportions.shape[0] * proportions.shape[1]
+        nan_percentage = (nan_count / total_values) * 100
+        
+        if context:
+            context.warning(
+                f"⚠️ Deconvolution produced {nan_count} NaN values ({nan_percentage:.1f}%) "
+                f"in {nan_spots}/{proportions.shape[0]} spots.\n\n"
+                "IMPORTANT: NaN indicates computation failure, NOT absence of cell types.\n"
+                "These values are preserved for transparency.\n\n"
+                "Possible causes:\n"
+                "• Algorithm convergence failure\n"
+                "• Insufficient gene overlap\n"
+                "• Numerical instability\n\n"
+                "Consider:\n"
+                "1. Checking input data quality\n"
+                "2. Adjusting algorithm parameters\n" 
+                "3. Using a different deconvolution method"
+            )
+    
+    # 2. Check for negative values - this is a critical error
+    if (proportions < 0).any().any():
+        neg_mask = proportions < 0
+        neg_count = neg_mask.sum().sum()
+        neg_spots = neg_mask.any(axis=1).sum()
+        min_value = proportions.min().min()
+        
+        error_msg = (
+            f"❌ CRITICAL: {method} produced {neg_count} negative values "
+            f"(minimum: {min_value:.4f}) in {neg_spots} spots.\n\n"
+            "This indicates a serious problem:\n"
+            "• Algorithm implementation error\n"
+            "• Reference-spatial data incompatibility\n"
+            "• Invalid input data format\n\n"
+            "Negative cell type proportions are biologically impossible.\n"
+            "Cannot proceed with invalid results.\n\n"
+            "🔧 SOLUTIONS:\n"
+            "1. Verify input data is raw counts (not normalized)\n"
+            "2. Check reference data quality\n"
+            "3. Report this as a bug if using standard data"
+        )
+        
+        if context:
+            context.error(error_msg)
+        
+        raise ValueError(error_msg)
+    
+    # 3. Analyze sum deviation - inform but don't force normalization
+    row_sums = proportions.sum(axis=1, skipna=True)
+    
+    # Different methods have different expected outputs
+    if method.lower() in ['rctd', 'spotlight', 'tangram']:
+        # These methods should output proportions that sum to ~1
+        expected_sum = 1.0
+        sum_deviation = abs(row_sums - expected_sum)
+        max_deviation = sum_deviation.max()
+        
+        if max_deviation > 0.1:  # More than 10% deviation
+            spots_affected = (sum_deviation > 0.1).sum()
+            
+            if context:
+                context.warning(
+                    f"⚠️ {method} proportions deviate from expected sum of 1.0:\n"
+                    f"• Maximum deviation: {max_deviation:.3f}\n"
+                    f"• Spots affected: {spots_affected}/{len(row_sums)}\n"
+                    f"• Sum range: [{row_sums.min():.3f}, {row_sums.max():.3f}]\n\n"
+                    "This may indicate:\n"
+                    "• Incomplete deconvolution\n"
+                    "• Missing cell types in reference\n"
+                    "• Algorithm convergence issues\n\n"
+                    "Original sums are preserved."
+                )
+    
+    elif method.lower() in ['cell2location', 'destvi', 'stereoscope']:
+        # These methods may output absolute abundances
+        if context:
+            context.info(
+                f"📊 {method} output statistics:\n"
+                f"• Estimated cells per spot: {row_sums.mean():.2f} ± {row_sums.std():.2f}\n"
+                f"• Range: [{row_sums.min():.2f}, {row_sums.max():.2f}]\n"
+                f"• Zero spots: {(row_sums == 0).sum()}\n\n"
+                "Note: These may represent absolute abundances, not proportions."
+            )
+    
+    # 4. Handle normalization if explicitly requested
+    if normalize:
+        # Check for zero sums that would cause division errors
+        zero_sum_spots = (row_sums == 0).sum()
+        if zero_sum_spots > 0:
+            if context:
+                context.warning(
+                    f"⚠️ Cannot normalize {zero_sum_spots} spots with zero total abundance.\n"
+                    "These spots will remain as zeros."
+                )
+        
+        if context:
+            context.info(
+                "🔄 Normalizing proportions to sum to 1 as requested.\n"
+                "Note: This converts absolute abundances to relative proportions."
+            )
+        
+        # Perform normalization, preserving zeros and NaN
+        proportions_normalized = proportions.div(row_sums, axis=0)
+        
+        # Don't fill NaN - preserve them
+        # proportions_normalized = proportions_normalized.fillna(0)  # REMOVED
+        
+        # Store original sums as metadata
+        proportions_normalized.attrs = proportions_normalized.attrs or {}
+        proportions_normalized.attrs['original_sums'] = row_sums
+        proportions_normalized.attrs['normalization_applied'] = True
+        
+        return proportions_normalized
+    
+    # Return unmodified data with metadata
+    proportions.attrs = proportions.attrs or {}
+    proportions.attrs['original_sums'] = row_sums
+    proportions.attrs['normalization_applied'] = False
+    
+    return proportions
+
+
 def deconvolve_cell2location(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
@@ -575,23 +731,14 @@ def deconvolve_cell2location(
             cell_abundance, index=sp.obs_names, columns=ref_signatures.columns
         )
 
-        # Check for NaN values
-        if proportions.isna().any().any():
-            warnings.warn("Cell2location returned NaN values. Filling with zeros.")
-            proportions = proportions.fillna(0)
-
-        # Check for negative values
-        if (proportions < 0).any().any():
-            warnings.warn("Cell2location returned negative values. Setting to zero.")
-            proportions[proportions < 0] = 0
-
-        # Normalize proportions to sum to 1
-        row_sums = proportions.sum(axis=1)
-        if (row_sums == 0).any():
-            warnings.warn(
-                "Some spots have zero total proportion. These will remain as zeros."
-            )
-        proportions = proportions.div(row_sums, axis=0).fillna(0)
+        # Process results transparently - Cell2location outputs absolute cell counts
+        # so normalization would be converting to proportions (user should decide)
+        proportions = _process_deconvolution_results_transparently(
+            proportions=proportions,
+            method="cell2location",
+            normalize=False,  # Cell2location outputs absolute counts, not proportions
+            context=context
+        )
 
         # Create standardized statistics using helper function
         stats = _create_deconvolution_stats(
@@ -767,7 +914,10 @@ def deconvolve_rctd(
         )
 
         # Prepare cell type information as named factor
-        cell_types = reference_data.obs[cell_type_key]
+        cell_types = reference_data.obs[cell_type_key].copy()
+        # Clean cell type names - RCTD doesn't allow special characters
+        cell_types = cell_types.str.replace("/", "_", regex=False)
+        cell_types = cell_types.str.replace(" ", "_", regex=False)
         cell_types_series = pd.Series(
             cell_types.values, index=reference_data.obs_names, name="cell_type"
         )
@@ -986,9 +1136,57 @@ def deconvolve_rctd(
                         f"RCTD {mode} mode result extraction failed: {str(e)}"
                     ) from e
 
-        # Normalize proportions to sum to 1 if needed
-        row_sums = proportions.sum(axis=1)
-        proportions = proportions.div(row_sums, axis=0).fillna(0)
+        # SCIENTIFIC INTEGRITY: Process results transparently
+        # RCTD should output proportions that sum to ~1, but we won't force it
+        
+        # Check for NaN values - preserve them for transparency  
+        nan_mask = proportions.isna()
+        if nan_mask.any().any():
+            nan_count = nan_mask.sum().sum()
+            nan_spots = nan_mask.any(axis=1).sum()
+            
+            if context:
+                warnings.warn(
+                    f"RCTD produced {nan_count} NaN values in {nan_spots} spots. "
+                    "NaN indicates computation failure, NOT absence of cell types. "
+                    "These values are preserved for transparency."
+                )
+        
+        # Check for negative values - this would be a critical error
+        if (proportions < 0).any().any():
+            neg_count = (proportions < 0).sum().sum()
+            min_value = proportions.min().min()
+            
+            error_msg = (
+                f"CRITICAL: RCTD produced {neg_count} negative values (min: {min_value:.4f}). "
+                "This indicates a serious algorithm error. Negative proportions are impossible."
+            )
+            raise ValueError(error_msg)
+        
+        # Analyze sum deviation but don't force normalization
+        row_sums = proportions.sum(axis=1, skipna=True)
+        sum_deviation = abs(row_sums - 1.0)
+        max_deviation = sum_deviation.max()
+        
+        if max_deviation > 0.1:  # More than 10% deviation
+            spots_affected = (sum_deviation > 0.1).sum()
+            
+            if context:
+                warnings.warn(
+                    f"RCTD proportions deviate from expected sum of 1.0: "
+                    f"max deviation {max_deviation:.3f} in {spots_affected} spots. "
+                    f"This may indicate incomplete deconvolution or convergence issues."
+                )
+        
+        # Don't force normalization or fill NaN with 0
+        # Users can request normalization if needed
+        # Original: proportions = proportions.div(row_sums, axis=0).fillna(0)
+        
+        # Store metadata about the results
+        proportions.attrs = getattr(proportions, 'attrs', {}) or {}
+        proportions.attrs['method'] = f'RCTD-{mode}'
+        proportions.attrs['original_sums'] = row_sums
+        proportions.attrs['has_nan'] = nan_mask.any().any()
 
         # Create statistics
         stats = _create_deconvolution_stats(
@@ -1582,6 +1780,14 @@ async def deconvolve_destvi(
         # Validate proportions
         if proportions_df.empty or proportions_df.shape[0] != spatial_data.n_obs:
             raise RuntimeError("Failed to extract valid proportions from DestVI model")
+        
+        # Process results transparently - DestVI outputs proportions
+        proportions_df = _process_deconvolution_results_transparently(
+            proportions=proportions_df,
+            method="DestVI",
+            normalize=False,  # DestVI already outputs proportions
+            context=context
+        )
 
         cell_types_result = list(proportions_df.columns)
 
@@ -1732,6 +1938,14 @@ async def deconvolve_stereoscope(
         proportions = pd.DataFrame(
             proportions_array, index=spatial_data.obs_names, columns=cell_types
         )
+        
+        # Process results transparently - Stereoscope outputs proportions
+        proportions = _process_deconvolution_results_transparently(
+            proportions=proportions,
+            method="Stereoscope",
+            normalize=False,  # Stereoscope already outputs proportions
+            context=context
+        )
 
         # Create statistics
         stats = _create_deconvolution_stats(
@@ -1855,8 +2069,10 @@ def deconvolve_spotlight(
         # Get spatial coordinates
         spatial_coords = spatial_subset.obsm["spatial"]
 
-        # Cell type labels
+        # Cell type labels - clean special characters for R compatibility
         cell_types = reference_subset.obs[cell_type_key].astype(str)
+        cell_types = cell_types.str.replace("/", "_", regex=False)
+        cell_types = cell_types.str.replace(" ", "_", regex=False)
 
         # Preparing data for SPOTlight deconvolution
 
@@ -2005,9 +2221,14 @@ def deconvolve_spotlight(
             proportions_np, index=spot_names, columns=cell_type_names
         )
 
-        # Ensure proportions sum to 1 (official SPOTlight should already do this)
-        row_sums = proportions.sum(axis=1)
-        proportions = proportions.div(row_sums, axis=0)
+        # Process results transparently - SPOTlight should output proportions
+        # but check if they already sum to 1
+        proportions = _process_deconvolution_results_transparently(
+            proportions=proportions,
+            method="SPOTlight",
+            normalize=False,  # SPOTlight should already output proportions
+            context=context
+        )
 
         # Add results to spatial adata
         for cell_type in proportions.columns:
@@ -2175,13 +2396,18 @@ async def deconvolve_tangram(
         # Create proportions DataFrame (transpose to get spots x cell_types)
         proportions_array = np.column_stack(proportions_list)
 
-        # Normalize to sum to 1
-        row_sums = proportions_array.sum(axis=1, keepdims=True)
-        row_sums[row_sums == 0] = 1  # Avoid division by zero
-        proportions_array = proportions_array / row_sums
-
+        # Create DataFrame without forced normalization
         proportions = pd.DataFrame(
             proportions_array, index=spatial_data.obs_names, columns=cell_types
+        )
+        
+        # Process results transparently - Tangram weights should naturally sum to 1
+        # but we check and report if they don't
+        proportions = _process_deconvolution_results_transparently(
+            proportions=proportions,
+            method="Tangram",
+            normalize=False,  # Don't force normalization
+            context=context
         )
 
         # Create statistics dictionary
