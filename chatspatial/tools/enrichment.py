@@ -165,9 +165,6 @@ class EnrichmentInternalResult:
         Returns:
             Token-optimized dictionary focusing on statistical value and essential summaries.
             Prioritizes enrichment statistics over complete gene lists.
-            
-            For backward compatibility with server.py, includes empty gene_sets_used and genes_found
-            fields to avoid breaking existing code while providing optimized data via gene_set_summaries.
         """
         # Optimize gene_set_statistics by removing complete gene lists
         optimized_gene_set_statistics = {}
@@ -193,12 +190,9 @@ class EnrichmentInternalResult:
             "pvalues": self.pvalues,
             "adjusted_pvalues": self.adjusted_pvalues,
             "gene_set_statistics": optimized_gene_set_statistics,  # Optimized version
-            "gene_set_summaries": self.gene_set_summaries,  # New optimized field
+            "gene_set_summaries": self.gene_set_summaries,  # Optimized field
             "top_gene_sets": self.top_gene_sets,
             "top_depleted_sets": self.top_depleted_sets,
-            # Backward compatibility: provide empty structures for server.py
-            "gene_sets_used": {},  # Empty to avoid token bloat but maintain compatibility
-            "genes_found": {},     # Empty to avoid token bloat but maintain compatibility
         }
         
         # Add spatial analysis results
@@ -313,6 +307,7 @@ class EnrichrResult:
             "adjusted_pvalues": self.adjusted_pvalues,
             "odds_ratios": self.odds_ratios,
             "gene_set_statistics": self.gene_set_statistics,
+            "gene_set_summaries": {},  # Enrichr doesn't have local gene sets
             "top_gene_sets": self.top_gene_sets,
             "libraries_used": self.libraries_used,
             **self.method_specific_data
@@ -428,8 +423,7 @@ class EnrichmentInsights:
             "pvalues": pvalues,
             "adjusted_pvalues": adjusted_pvalues,
             "gene_set_statistics": gene_set_statistics,  # Optimized, no full gene lists
-            "gene_sets_used": {},  # Empty to prevent token bloat
-            "genes_found": {},     # Empty to prevent token bloat
+            "gene_set_summaries": {},  # Insights are in pathway_categories
             "top_gene_sets": [p.name.replace(" ", "_").lower() for p in self.top_pathways[:10]],
             "top_depleted_sets": [],  # Spatial enrichment doesn't have depleted sets
             "spatial_metrics": None,
@@ -1188,12 +1182,6 @@ async def perform_ssgsea(
         enrichment_scores_lists = {}
         for gs_name in scores_df.index:
             enrichment_scores_lists[gs_name] = scores_df.loc[gs_name].values.tolist()
-        
-        # Convert gene_sets_used to match SSGSEAResult format (gene_set -> list of genes)
-        gene_sets_used_genes = {k: v for k, v in gene_sets.items()}
-        
-        # Extract genes found (same as gene_sets for ssGSEA)
-        genes_found_genes = {k: v for k, v in gene_sets.items()}
         
         # Convert gene_set_statistics to summary_stats format
         summary_stats = {}
