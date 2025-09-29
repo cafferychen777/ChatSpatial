@@ -223,19 +223,29 @@ async def preprocess_data(
             gene_counts = _safe_matrix_operation(adata, "sum_axis1")
             n_genes = _safe_matrix_operation(adata, "count_nonzero_axis1")
 
-            # Ensure we have valid data
+            # Ensure we have valid data - NO FAKE DATA CREATION
             if (
                 gene_counts is None
                 or n_genes is None
                 or len(gene_counts) == 0
                 or np.all(gene_counts == 0)
             ):
-                # Use 1/10 of target_sum if specified, otherwise use 1000 as fallback
-                fallback_count = (params.normalize_target_sum or 10000) // 10
-                gene_counts = (
-                    np.ones(adata.n_obs) * fallback_count
-                )  # Realistic fallback
-                n_genes = np.ones(adata.n_obs) * min(100, adata.n_vars)  # Fallback
+                # ❌ REMOVED: Fallback creation of fake QC metrics
+                # Creating artificial count data violates scientific integrity
+                raise ValueError(
+                    "❌ CRITICAL DATA QUALITY ISSUE\n\n"
+                    "Unable to calculate basic QC metrics from your data:\n"
+                    "• Gene count calculation failed\n"
+                    "• Cell gene count calculation failed\n"
+                    "• This indicates fundamental data corruption or format issues\n\n"
+                    "🛠️ REQUIRED ACTIONS:\n"
+                    "1. Verify your input data format and integrity\n"
+                    "2. Check for correct gene expression matrix structure\n"
+                    "3. Ensure data is not corrupted during loading\n"
+                    "4. Verify that adata.X contains valid numeric expression data\n\n"
+                    "⚠️ SCIENTIFIC INTEGRITY: We refuse to create fake QC metrics.\n"
+                    "   Real scientific analysis requires real data, not artificial fallbacks."
+                )
 
             adata.obs["total_counts"] = gene_counts
             adata.obs["n_genes_by_counts"] = n_genes
@@ -306,7 +316,7 @@ async def preprocess_data(
             
             try:
                 # Run ResolVI preprocessing
-                resolvi_result = await preprocess_with_resolvi(
+                await preprocess_with_resolvi(
                     adata, params.resolvi_params, context
                 )
                 
@@ -360,10 +370,17 @@ async def preprocess_data(
                     sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
                     logger.info(f"✓ Normalized to target_sum={params.normalize_target_sum:.0f}")
                 else:
-                    # Calculate median before normalization for logging
-                    original_median = np.median(np.array(adata.X.sum(axis=1)).flatten())
-                    sc.pp.normalize_total(adata)  # Use median (adaptive)
-                    logger.info(f"✓ Normalized to median counts={original_median:.0f} (adaptive)")
+                    # Calculate median and inform user transparently
+                    calculated_median = np.median(np.array(adata.X.sum(axis=1)).flatten())
+                    if context:
+                        await context.info(
+                            f"🔧 normalize_target_sum not specified. Using adaptive normalization:\n"
+                            f"   • Calculated median counts: {calculated_median:.0f}\n"
+                            f"   • This value was automatically determined from your data\n"
+                            f"   • For reproducible results, use: normalize_target_sum={calculated_median:.0f}"
+                        )
+                    sc.pp.normalize_total(adata, target_sum=calculated_median)
+                    logger.info(f"✓ Normalized to adaptive target_sum={calculated_median:.0f}")
                 sc.pp.log1p(adata)
                 logger.info("✓ Applied log1p transformation")
             elif params.normalization == "sct":
@@ -740,12 +757,19 @@ async def preprocess_data(
                     from ..models.data import RNAVelocityParameters
                     from .trajectory import compute_rna_velocity
 
-                    # Use velocity_params or create with defaults
+                    # Use velocity_params or create with defaults - TRANSPARENT
                     velocity_params = params.velocity_params or RNAVelocityParameters()
                     
                     if params.velocity_params is None and context:
+                        default_params = RNAVelocityParameters()
                         await context.info(
-                            "Using default RNA velocity parameters"
+                            f"🔧 velocity_params not specified. Using default parameters:\n"
+                            f"   • Method: {default_params.method}\n"
+                            f"   • Mode: {default_params.mode}\n"
+                            f"   • N top genes: {default_params.n_top_genes}\n"
+                            f"   • N neighbors: {default_params.n_neighbors}\n"
+                            f"   • Min shared counts: {default_params.min_shared_counts}\n"
+                            f"   For custom settings, provide velocity_params parameter"
                         )
 
                     # Compute velocity with unified function
