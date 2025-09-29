@@ -5,6 +5,7 @@ This module provides the command-line interface for starting the
 ChatSpatial server using either stdio or SSE transport.
 """
 
+import os
 import sys
 import traceback
 import warnings
@@ -14,6 +15,17 @@ import click
 # Suppress warnings to speed up startup
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
+
+# CRITICAL: Disable all progress bars to prevent stdout pollution in MCP protocol
+# MCP uses JSON-RPC over stdio, any non-JSON output breaks communication
+os.environ["TQDM_DISABLE"] = "1"  # Disable tqdm globally
+
+# Configure scientific libraries to suppress output
+try:
+    import scanpy as sc
+    sc.settings.verbosity = 0  # Suppress scanpy output
+except ImportError:
+    pass  # scanpy may not be installed yet
 
 from .server import mcp
 

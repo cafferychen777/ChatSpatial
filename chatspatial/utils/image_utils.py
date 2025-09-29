@@ -10,6 +10,7 @@ import io
 import json
 import os
 import pickle
+import sys
 import uuid
 import weakref
 from pathlib import Path
@@ -133,7 +134,7 @@ def fig_to_image(
                 current_dpi = max(min_dpi, int(current_dpi * 0.6))  # Reduce DPI by 40%
 
         except Exception as e:
-            print(f"Error saving figure: {str(e)}")
+            print(f"Error saving figure: {str(e)}", file=sys.stderr)
             # Try with a lower DPI
             current_dpi = max(min_dpi, int(current_dpi * 0.6))
 
