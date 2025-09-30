@@ -107,61 +107,7 @@ async def _validate_liana_requirements(
                             "Species mismatch detected but continuing due to warning mode"
                         )
 
-    # 2. Gene count validation
-    # Determine actual gene count based on data_source parameter
-    if params.data_source == "raw":
-        # Check raw data availability and gene count
-        if adata.raw is None:
-            # Raw data requested but not available
-            validation_result["passed"] = False
-            validation_result["errors"].append(
-                f"data_source='raw' specified but no raw data available.\n"
-                f"Current data only has {adata.n_vars} genes.\n"
-                f"Options:\n"
-                f"  1. Use data_source='current' if {adata.n_vars} genes are sufficient\n"
-                f"  2. Load data that preserves raw counts\n"
-                f"  3. Set force_analysis_with_few_genes=True (not recommended)"
-            )
-        else:
-            # Use raw gene count for validation
-            actual_gene_count = adata.raw.n_vars
-            if (
-                actual_gene_count < params.min_genes_required
-                and not params.force_analysis_with_few_genes
-            ):
-                validation_result["passed"] = False
-                validation_result["errors"].append(
-                    f"Insufficient genes in raw data for LIANA+ analysis:\n"
-                    f"  Raw data: {actual_gene_count} genes\n"
-                    f"  Required: {params.min_genes_required} genes\n\n"
-                    f"LIANA+ requires comprehensive gene coverage for reliable L-R analysis.\n"
-                    f"Options:\n"
-                    f"  1. Load a dataset with more comprehensive gene coverage\n"
-                    f"  2. Set force_analysis_with_few_genes=True (not recommended)\n"
-                    f"  3. Lower min_genes_required parameter"
-                )
-    else:  # data_source == "current"
-        # Use current gene count for validation
-        actual_gene_count = adata.n_vars
-        if (
-            actual_gene_count < params.min_genes_required
-            and not params.force_analysis_with_few_genes
-        ):
-            # Direct error - no complex fallback suggestions
-            error_msg = (
-                f"Insufficient genes for LIANA+ analysis:\n"
-                f"  Current data: {actual_gene_count} genes\n"
-                f"  Required: {params.min_genes_required} genes\n\n"
-                f"Solutions:\n"
-                f"  1. Use data_source='raw' if raw data available\n"
-                f"  2. Load dataset with comprehensive gene coverage\n"
-                f"  3. Set force_analysis_with_few_genes=True (not recommended)"
-            )
-            
-            validation_result["passed"] = False
-            validation_result["errors"].append(error_msg)
-
-    # 3. Spatial connectivity validation
+    # 2. Spatial connectivity validation
     if (
         params.perform_spatial_analysis
         and params.spatial_connectivity_handling == "require_existing"
@@ -177,7 +123,7 @@ async def _validate_liana_requirements(
             validation_result["passed"] = False
             validation_result["errors"].append(error_msg)
 
-    # 4. Cell type validation
+    # 3. Cell type validation
     if params.cell_type_handling == "require":
         if params.cell_type_column not in adata.obs.columns:
             available_cols = [
@@ -208,7 +154,7 @@ async def _validate_liana_requirements(
             validation_result["passed"] = False
             validation_result["errors"].append(error_msg)
 
-    # 5. Resource matching validation
+    # 4. Resource matching validation
     if params.species == "mouse" and params.liana_resource == "consensus":
         warning_msg = (
             "Using 'consensus' resource for mouse data. "
@@ -1581,7 +1527,6 @@ async def _analyze_communication_cellchat_liana(
             "n_permutations": n_perms,
             "significance_threshold": 0.05,
             "resource": "cellchat",
-            "cellchat_type": params.cellchat_type,
             "analysis_time_seconds": analysis_time,
         }
 
