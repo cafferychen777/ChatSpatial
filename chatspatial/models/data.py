@@ -903,16 +903,6 @@ class CellCommunicationParameters(BaseModel):
     data_source: Literal["current", "raw"] = "current"
     # current: Use adata.X, raw: Use adata.raw (if exists)
 
-    # Gene count thresholds
-    min_genes_required: int = 1000  # Minimum genes required for LIANA analysis
-    force_analysis_with_few_genes: bool = (
-        False  # Force analysis with insufficient genes
-    )
-
-    # Preprocessing validation
-    validate_preprocessing: bool = True  # Whether to validate data preprocessing
-    preprocessing_strictness: Literal["strict", "warning", "disabled"] = "warning"
-
     # ========== Spatial Analysis Control ==========
     perform_spatial_analysis: bool = (
         True  # Whether to perform spatial bivariate analysis
@@ -963,9 +953,6 @@ class CellCommunicationParameters(BaseModel):
     verbose_validation: bool = True  # Output detailed validation info
     log_parameter_choices: bool = True  # Log parameter choice reasons
 
-    # Expert mode
-    expert_mode: bool = False  # Expert mode skips some safety checks
-
     # ========== Expression Filtering Parameters ==========
     min_cells: Annotated[int, Field(ge=0)] = (
         3  # Minimum cells expressing ligand or receptor (required by LIANA for statistical validity)
@@ -975,10 +962,6 @@ class CellCommunicationParameters(BaseModel):
     plot_top_pairs: Annotated[int, Field(gt=0, le=20)] = (
         6  # Number of top LR pairs to include in results
     )
-
-    # Result filtering
-    min_lr_score_threshold: Optional[float] = None  # Minimum L-R score threshold
-    filter_low_confidence_pairs: bool = True
 
     # ========== CellPhoneDB Specific Parameters ==========
     cellphonedb_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = (
@@ -1014,20 +997,6 @@ class CellCommunicationParameters(BaseModel):
     # - moderate: Remove core + ITGB2 for added safety
     # - aggressive: Remove all potentially related genes
     # - adaptive: Automatically adjust based on dataset characteristics
-
-    # ========== CellChat Specific Parameters ==========
-    cellchat_type: Literal["triMean", "truncatedMean", "median"] = (
-        "triMean"  # Method for computing communication probability
-    )
-    cellchat_trim: Annotated[float, Field(ge=0.0, le=0.5)] = (
-        0.1  # Trimming parameter for truncatedMean
-    )
-    cellchat_population_size: bool = False  # Whether to consider population size effect
-
-    # ========== Advanced User Options ==========
-    custom_lr_pairs: Optional[List[Tuple[str, str]]] = (
-        None  # Custom LR pairs as (ligand, receptor) tuples
-    )
 
 
 class EnrichmentParameters(BaseModel):
