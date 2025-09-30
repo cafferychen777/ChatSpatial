@@ -949,10 +949,6 @@ class CellCommunicationParameters(BaseModel):
     # Failure handling
     on_validation_failure: Literal["error", "warning", "ignore"] = "error"
 
-    # Logging control
-    verbose_validation: bool = True  # Output detailed validation info
-    log_parameter_choices: bool = True  # Log parameter choice reasons
-
     # ========== Expression Filtering Parameters ==========
     min_cells: Annotated[int, Field(ge=0)] = (
         3  # Minimum cells expressing ligand or receptor (required by LIANA for statistical validity)

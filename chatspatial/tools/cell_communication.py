@@ -75,7 +75,7 @@ async def _validate_liana_requirements(
         "suggestions": [],
     }
 
-    if params.verbose_validation and context:
+    if context:
         await context.info("Performing comprehensive LIANA+ validation...")
 
     # 1. Species validation
@@ -204,7 +204,7 @@ async def _prepare_data_with_user_control(
         adata = adata_full
 
     elif params.data_source == "current":
-        if context and params.verbose_validation:
+        if context:
             await context.info(f"Using current data: {adata.n_vars} genes")
 
     # 2. Handle spatial connectivity
@@ -238,7 +238,7 @@ async def _prepare_data_with_user_control(
         )
 
     # 4. Log final data state
-    if context and params.log_parameter_choices:
+    if context:
         await context.info("Final data preparation complete:")
         await context.info(f"  Data source: {params.data_source}")
         await context.info(f"  Genes: {adata.n_vars}")
