@@ -107,7 +107,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "chatspatial": {
       "command": "/path/to/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial"]
+      "args": ["-m", "chatspatial", "server"]
     }
   }
 }
@@ -270,15 +270,21 @@ pip install -e ".[dev]"
 </details>
 
 <details>
-<summary><strong>🔬 Analysis Methods (16 Total)</strong></summary>
+<summary><strong>🔬 Analysis Methods (11 Categories, 56 Methods)</strong></summary>
 
 | Category | Methods |
 |----------|---------|
+| **Cell Type Annotation** | Tangram, scANVI, CellAssign, mLLMCellType, sc-type, SingleR |
 | **Spatial Domains** | SpaGCN, STAGATE, Leiden/Louvain clustering |
-| **Cell Communication** | LIANA, CellPhoneDB, CellChat |
-| **Deconvolution** | Cell2location, DestVI, RCTD, Tangram |
-| **Variable Genes** | GASTON, SpatialDE, SPARK-X |
-| **Trajectories** | CellRank, Palantir, scVelo |
+| **Cell Communication** | LIANA, CellPhoneDB, CellChat (via LIANA) |
+| **Deconvolution** | Cell2location, DestVI, RCTD, Tangram, Stereoscope, Spotlight |
+| **Spatial Variable Genes** | GASTON, SpatialDE, SPARK-X |
+| **Trajectory & Velocity** | CellRank, Palantir, DPT (Diffusion Pseudotime), scVelo/VeloVI |
+| **Sample Integration** | Harmony, BBKNN, Scanorama, MNN, scVI, MultiVI, TotalVI, ContrastiveVI |
+| **Differential Expression** | Wilcoxon, t-test, rank_genes_groups (scanpy methods) |
+| **Gene Set Enrichment** | GSEA, ORA, ssGSEA, Enrichr, Spatial EnrichMap |
+| **Spatial Statistics** | Moran's I, Local Moran's I (LISA), Geary's C, Getis-Ord Gi*, Neighborhood Enrichment, Co-occurrence, Ripley's K/L, Bivariate Moran's I, Join Count, Network Properties, Spatial Centrality |
+| **Spatial Registration** | PASTE (optimal transport), STalign (diffeomorphic) |
 
 </details>
 
