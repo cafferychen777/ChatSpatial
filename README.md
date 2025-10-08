@@ -145,6 +145,14 @@ claude mcp add chatspatial <PYTHON_PATH_FROM_STEP_2> -- -m chatspatial server
 ```bash
 claude mcp list
 ```
+
+**Step 5: Restart Claude Code** ⚠️
+```bash
+# IMPORTANT: Exit and restart Claude Code for changes to take effect
+/quit
+```
+> 💡 **Note**: After adding the MCP server, you MUST restart Claude Code using `/quit` for ChatSpatial to appear in the available tools.
+
 </details>
 
 ### 3. Download Sample Data & Start Analyzing
