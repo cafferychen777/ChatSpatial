@@ -884,22 +884,39 @@ async def perform_ora(
             # Get DEGs
             result = adata.uns["rank_genes_groups"]
             names = result["names"]
-            pvals = result["pvals_adj"] if "pvals_adj" in result else result["pvals"]
-            logfcs = result["logfoldchanges"]
+
+            # Check if pvals exist (not all rank_genes_groups have pvals)
+            pvals = None
+            if "pvals_adj" in result:
+                pvals = result["pvals_adj"]
+            elif "pvals" in result:
+                pvals = result["pvals"]
+
+            # Check if logfcs exist
+            logfcs = result.get("logfoldchanges", None)
 
             # Get first group's DEGs
             degs = []
             for i in range(len(names[0])):
-                if (
-                    pvals[0][i] < pvalue_threshold
-                    and abs(logfcs[0][i]) > logfc_threshold
-                ):
-                    degs.append(names[0][i])
+                # If pvals and logfcs exist, filter by thresholds
+                if pvals is not None and logfcs is not None:
+                    if (
+                        pvals[0][i] < pvalue_threshold
+                        and abs(logfcs[0][i]) > logfc_threshold
+                    ):
+                        degs.append(names[0][i])
+                else:
+                    # If no pvals/logfcs, just use top N genes (e.g., top 100)
+                    if i < 100:
+                        degs.append(names[0][i])
 
             gene_list = degs
 
             if context:
-                await context.info(f"Using {len(gene_list)} DEGs for ORA")
+                if pvals is not None:
+                    await context.info(f"Using {len(gene_list)} DEGs for ORA (filtered by p-value and log2FC)")
+                else:
+                    await context.info(f"Using top {len(gene_list)} ranked genes for ORA (no p-values available)")
         else:
             # Use highly variable genes
             if "highly_variable" in adata.var:
