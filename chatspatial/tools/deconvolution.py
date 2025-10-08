@@ -1561,6 +1561,10 @@ async def deconvolve_spatial_data(
                 "Adding cell type annotation based on deconvolution results"
             )
 
+        # Use method-prefixed output key to avoid overwriting
+        # Use 'dominant_celltype' to semantically distinguish from annotation results
+        dominant_type_key = f"dominant_celltype_{params.method}"
+
         # Determine the dominant cell type for each spot using full proportions
         dominant_cell_types = []
         for i in range(full_proportions.shape[0]):
@@ -1569,10 +1573,10 @@ async def deconvolve_spatial_data(
             dominant_cell_types.append(proportions.columns[max_idx])
 
         # Add to adata.obs
-        spatial_adata.obs["cell_type"] = dominant_cell_types
+        spatial_adata.obs[dominant_type_key] = dominant_cell_types
 
         # Make it categorical
-        spatial_adata.obs["cell_type"] = spatial_adata.obs["cell_type"].astype(
+        spatial_adata.obs[dominant_type_key] = spatial_adata.obs[dominant_type_key].astype(
             "category"
         )
 
@@ -1581,13 +1585,14 @@ async def deconvolve_spatial_data(
                 f"Added cell type annotation with {len(proportions.columns)} cell types"
             )
             await context.info(
-                f"Most common cell type: {spatial_adata.obs['cell_type'].value_counts().index[0]}"
+                f"Most common cell type: {spatial_adata.obs[dominant_type_key].value_counts().index[0]}"
             )
 
         # Return result
         result = DeconvolutionResult(
             data_id=data_id,
             method=params.method,
+            dominant_type_key=dominant_type_key,
             cell_types=list(proportions.columns),
             n_cell_types=proportions.shape[1],
             proportions_key=proportions_key,
