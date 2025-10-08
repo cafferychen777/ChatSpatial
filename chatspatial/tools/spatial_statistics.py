@@ -16,7 +16,7 @@ Key functionalities include:
 - Categorical spatial analysis (Join Count statistics).
 - Spatial centrality measures for tissue architecture.
 
-The primary entry point is the `analyze_spatial_patterns` function, which
+The primary entry point is the `analyze_spatial_statistics` function, which
 dispatches tasks to the appropriate analysis function based on user parameters.
 All 12 analysis types are accessible through this unified interface with a
 new unified 'genes' parameter for consistent gene selection across methods.
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-async def analyze_spatial_patterns(
+async def analyze_spatial_statistics(
     data_id: str,
     data_store: Dict[str, Any],
     params: SpatialAnalysisParameters,  # No default - must be provided by caller (LLM)
@@ -130,8 +130,21 @@ async def analyze_spatial_patterns(
         # Basic validation
         _validate_spatial_data(adata)
 
-        # Ensure cluster key if needed
-        cluster_key = await _ensure_cluster_key(adata, params.cluster_key, context)
+        # Determine if cluster_key is required for this analysis type
+        analyses_requiring_cluster_key = {
+            "neighborhood",
+            "co_occurrence",
+            "ripley",
+            "join_count",
+            "centrality",
+            "network_properties",
+            "spatial_centrality",
+        }
+
+        # Ensure cluster key only for analyses that require it
+        cluster_key = None
+        if params.analysis_type in analyses_requiring_cluster_key:
+            cluster_key = await _ensure_cluster_key(adata, params.cluster_key, context)
 
         # Ensure spatial neighbors
         await _ensure_spatial_neighbors(adata, params.n_neighbors, context)

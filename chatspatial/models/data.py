@@ -444,7 +444,26 @@ class AnnotationParameters(BaseModel):
     cluster_label: Optional[str] = (
         None  # For mLLMCellType method - cluster label in spatial data. Only required when method='mllmcelltype'
     )
-    cell_type_key: str  # REQUIRED: Column name for cell types in REFERENCE data. LLM will infer this from metadata. Common values: 'cell_type', 'cell_types', 'celltype', 'annotation', 'label'
+    cell_type_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Column name for cell types in REFERENCE data. "
+            "\n\n"
+            "REQUIRED FOR METHODS USING REFERENCE DATA:\n"
+            "  • tangram: REQUIRED - maps spatial data to reference using cell type labels\n"
+            "  • scanvi: REQUIRED - transfers labels from reference to query data\n"
+            "  • singler: REQUIRED - correlates expression with reference cell types\n"
+            "\n"
+            "NOT REQUIRED FOR METHODS WITHOUT REFERENCE:\n"
+            "  • cellassign: Not needed - uses marker_genes parameter instead\n"
+            "  • sctype: Not needed - uses built-in database or custom markers\n"
+            "  • mllmcelltype: Not needed - uses LLM for annotation\n"
+            "\n"
+            "Common column names in reference data: 'cell_type', 'cell_types', 'celltype', 'annotation', 'label', 'cell_type_original'\n"
+            "\n"
+            "The LLM will auto-detect from metadata if not specified, but explicit specification is recommended."
+        )
+    )
 
     # Tangram-specific parameters (aligned with official API)
     tangram_density_prior: Literal["rna_count_based", "uniform"] = (
@@ -538,7 +557,32 @@ class SpatialAnalysisParameters(BaseModel):
         "network_properties",
         "spatial_centrality",
     ] = "neighborhood"
-    cluster_key: str  # REQUIRED: Column name for cluster/cell type labels. LLM will infer from metadata. Common values: 'leiden', 'louvain', 'cell_type', 'seurat_clusters'
+    cluster_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Column name for cluster/cell type labels in adata.obs. "
+            "\n\n"
+            "REQUIRED FOR GROUP-BASED ANALYSES:\n"
+            "  • neighborhood: REQUIRED - analyzes enrichment between cell type groups\n"
+            "  • co_occurrence: REQUIRED - measures spatial co-occurrence of groups\n"
+            "  • ripley: REQUIRED - analyzes spatial point patterns by group\n"
+            "  • join_count: REQUIRED - tests spatial autocorrelation of categorical groups\n"
+            "\n"
+            "OPTIONAL/NOT REQUIRED FOR GENE-BASED ANALYSES:\n"
+            "  • moran: Not required - analyzes gene expression spatial patterns\n"
+            "  • local_moran: Not required - identifies local spatial clusters for genes\n"
+            "  • geary: Not required - measures gene expression spatial autocorrelation\n"
+            "  • getis_ord: Not required - detects hot/cold spots for gene expression\n"
+            "  • bivariate_moran: Not required - analyzes gene pair spatial correlation\n"
+            "  • centrality: Not required - computes spatial network centrality\n"
+            "  • network_properties: Not required - analyzes spatial network structure\n"
+            "  • spatial_centrality: Not required - measures spatial importance\n"
+            "\n"
+            "Common column names: 'leiden', 'louvain', 'cell_type', 'cell_type_tangram', 'seurat_clusters', 'clusters'\n"
+            "\n"
+            "The LLM will auto-detect from metadata if not specified for required analyses."
+        )
+    )
     n_neighbors: Annotated[int, Field(gt=0)] = 15
 
     # Unified gene selection parameter (NEW)
