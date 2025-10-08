@@ -120,7 +120,9 @@ async def identify_spatial_domains(
     if data_id not in data_store:
         raise ValueError(f"Dataset {data_id} not found in data store")
 
-    adata = data_store[data_id]["adata"].copy()
+    # ✅ COW FIX: Direct reference instead of copy
+    # Only add metadata to adata.obs/obsm/obsp, never overwrite entire adata
+    adata = data_store[data_id]["adata"]
 
     try:
         # Check if spatial coordinates exist
@@ -164,13 +166,13 @@ async def identify_spatial_domains(
         # Report data statistics for LLM awareness
         has_negatives = data_min < 0
         has_large_values = data_max > 100
-        
+
         if context:
             await context.info(
                 f"Data statistics: min={data_min:.2f}, max={data_max:.2f}, "
                 f"has_negatives={has_negatives}, has_large_values={has_large_values}"
             )
-        
+
         # Provide informative warnings without enforcing
         if has_negatives:
             if context:
@@ -188,7 +190,7 @@ async def identify_spatial_domains(
                     )
                 gene_mask = adata.raw.var_names.isin(adata_subset.var_names)
                 adata_subset = adata.raw[:, gene_mask].to_adata()
-        
+
         elif has_large_values:
             if context:
                 await context.warning(
@@ -196,7 +198,6 @@ async def identify_spatial_domains(
                     "This might indicate raw count data. "
                     "Consider normalizing and log-transforming for better results."
                 )
-
 
         # Ensure data is float type for SpaGCN compatibility
         if adata_subset.X.dtype != np.float32 and adata_subset.X.dtype != np.float64:
@@ -327,8 +328,8 @@ async def identify_spatial_domains(
         domain_counts = adata.obs[domain_key].value_counts().to_dict()
         domain_counts = {str(k): int(v) for k, v in domain_counts.items()}
 
-        # Update data store
-        data_store[data_id]["adata"] = adata
+        # ✅ COW FIX: No need to update data_store - changes already reflected via direct reference
+        # All modifications to adata.obs/obsm/obsp are in-place and preserved
 
         # Create result
         result = SpatialDomainResult(
@@ -546,8 +547,10 @@ async def _identify_domains_spagcn(
                 )
 
                 # Simple, predictable timeout
-                timeout_seconds = params.timeout if params.timeout else 600  # Default 10 minutes
-                
+                timeout_seconds = (
+                    params.timeout if params.timeout else 600
+                )  # Default 10 minutes
+
                 if context:
                     await context.info(
                         f"Running SpaGCN with {timeout_seconds}s timeout"
@@ -658,12 +661,12 @@ async def _identify_domains_clustering(
                         "❌ CRITICAL: squidpy is required for spatial domain analysis but not available.\n\n"
                         "🔬 SCIENTIFIC INTEGRITY NOTICE:\n"
                         "Spatial domain identification requires proper spatial neighbor graphs.\n"
-                        "Alternative methods would compromise scientific validity.\n\n" 
+                        "Alternative methods would compromise scientific validity.\n\n"
                         "💡 SOLUTION:\n"
                         "Install squidpy: pip install 'squidpy>=1.2.0'\n\n"
                         "🚫 Cannot proceed with spatial domain analysis without squidpy."
                     )
-                
+
                 # Use squidpy's scientifically validated spatial neighbors
                 sq.gr.spatial_neighbors(adata, coord_type="generic")
 
@@ -749,7 +752,7 @@ def _refine_spatial_domains(adata: Any, domain_key: str, refined_key: str) -> pd
                 "Note: PCA coordinates represent gene expression space, NOT physical space,\n"
                 "and cannot be used for spatial smoothing."
             )
-        
+
         coords = adata.obsm["spatial"]
 
         # Validate coordinates
@@ -890,5 +893,3 @@ async def _identify_domains_stagate(
         if context:
             await context.warning(error_msg)
         raise RuntimeError(error_msg) from e
-
-

@@ -31,15 +31,13 @@ from ..models.data import AnnotationParameters
 # ============================================================================
 
 
-
-
 def _validate_scvi_tools(context: Optional[Context] = None):
     """Validate scvi-tools availability and return the module"""
     try:
         import scvi
     except ImportError:
         scvi = None
-    
+
     if scvi is None:
         error_msg = "scvi-tools is required for scANVI and CellAssign methods. Install with: pip install scvi-tools"
         if context:
@@ -78,7 +76,9 @@ def _validate_tangram(context: Optional[Context] = None):
 
         return tg
     except ImportError as e:
-        raise ImportError("tangram-sc is required for Tangram method. Install with: pip install tangram-sc") from e
+        raise ImportError(
+            "tangram-sc is required for Tangram method. Install with: pip install tangram-sc"
+        ) from e
 
 
 def _validate_mllmcelltype(context: Optional[Context] = None):
@@ -91,7 +91,9 @@ def _validate_mllmcelltype(context: Optional[Context] = None):
 
         return mllmcelltype
     except ImportError as e:
-        raise ImportError("mllmcelltype is required for mLLMCellType method. Install with: pip install mllmcelltype") from e
+        raise ImportError(
+            "mllmcelltype is required for mLLMCellType method. Install with: pip install mllmcelltype"
+        ) from e
 
 
 def _validate_rpy2_and_r(context: Optional[Context] = None):
@@ -99,10 +101,10 @@ def _validate_rpy2_and_r(context: Optional[Context] = None):
     try:
         # First check rpy2
         import rpy2.robjects as robjects
-        from rpy2.robjects import numpy2ri, pandas2ri, conversion, default_converter
+        from rpy2.rinterface_lib import openrlib  # For thread safety
+        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
         from rpy2.robjects.conversion import localconverter
         from rpy2.robjects.packages import importr
-        from rpy2.rinterface_lib import openrlib  # For thread safety
 
         # Test R availability with proper conversion context (FIX for contextvars issue)
         # Same pattern as SPARK-X to prevent "Conversion rules missing" errors
@@ -114,9 +116,19 @@ def _validate_rpy2_and_r(context: Optional[Context] = None):
                     r_version = robjects.r("R.version.string")[0]
                     context.info(f"Using R: {r_version}")
 
-        return robjects, pandas2ri, numpy2ri, importr, localconverter, default_converter, openrlib
+        return (
+            robjects,
+            pandas2ri,
+            numpy2ri,
+            importr,
+            localconverter,
+            default_converter,
+            openrlib,
+        )
     except ImportError as e:
-        raise ImportError("rpy2 is required for sc-type method. Install with: pip install rpy2 (requires R installation)") from e
+        raise ImportError(
+            "rpy2 is required for sc-type method. Install with: pip install rpy2 (requires R installation)"
+        ) from e
     except Exception as e:
         error_msg = f"""
 R environment setup failed: {str(e)}
@@ -129,7 +141,9 @@ Common solutions:
   • Ubuntu: sudo apt install r-base
   • Windows: Download from CRAN
 """
-        raise ImportError(f"R environment setup failed for sc-type method: {str(e)}") from e
+        raise ImportError(
+            f"R environment setup failed for sc-type method: {str(e)}"
+        ) from e
 
 
 def _validate_singler(context: Optional[Context] = None):
@@ -154,8 +168,9 @@ def _validate_singler(context: Optional[Context] = None):
 
         return singler, sce, celldex
     except ImportError as e:
-        raise ImportError("singler is required for SingleR method. Install with: pip install singler singlecellexperiment") from e
-
+        raise ImportError(
+            "singler is required for SingleR method. Install with: pip install singler singlecellexperiment"
+        ) from e
 
 
 # Constants for annotation
@@ -199,8 +214,6 @@ async def _handle_annotation_error(
     if context:
         await context.error(f"Error in {method} annotation: {str(error)}")
     raise ValueError(error_msg)
-
-
 
 
 async def _annotate_with_singler(
@@ -332,8 +345,9 @@ async def _annotate_with_singler(
 
                 # Categorize columns by type for better guidance
                 categorical_cols = [
-                    col for col in available_cols
-                    if reference_adata.obs[col].dtype.name in ['object', 'category']
+                    col
+                    for col in available_cols
+                    if reference_adata.obs[col].dtype.name in ["object", "category"]
                 ]
 
                 raise ValueError(
@@ -347,7 +361,9 @@ async def _annotate_with_singler(
 
             ref_labels = list(reference_adata.obs[cell_type_key])
             if context:
-                await context.info(f"Using '{cell_type_key}' column for reference labels")
+                await context.info(
+                    f"Using '{cell_type_key}' column for reference labels"
+                )
 
             # For SingleR, pass the actual expression matrix directly (not SCE)
             # This has been shown to work better in testing
@@ -540,12 +556,12 @@ async def _annotate_with_tangram(
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
 
         # Get reference single-cell data
-        adata_sc = data_store[params.reference_data_id]["adata"]
-        adata_sp = adata  # Spatial data
+        adata_sc_original = data_store[params.reference_data_id]["adata"]
+        adata_sp = adata  # Spatial data (will be modified in-place for results)
 
         if context:
             await context.info(
-                f"Using reference dataset {params.reference_data_id} with {adata_sc.n_obs} cells"
+                f"Using reference dataset {params.reference_data_id} with {adata_sc_original.n_obs} cells"
             )
 
         # Determine training genes
@@ -565,16 +581,26 @@ async def _annotate_with_tangram(
                 training_genes = list(set(training_genes))  # Remove duplicates
             else:
                 # Use highly variable genes
-                if "highly_variable" not in adata_sc.var:
+                if "highly_variable" not in adata_sc_original.var:
                     raise ValueError(
                         "Highly variable genes not found in reference data. "
                         "Tangram mapping requires HVG selection. "
                         "Please run HVG selection in preprocessing.py or use: sc.pp.highly_variable_genes(adata)"
                     )
-                training_genes = list(adata_sc.var_names[adata_sc.var.highly_variable])
+                training_genes = list(
+                    adata_sc_original.var_names[adata_sc_original.var.highly_variable]
+                )
 
         if context:
             await context.info(f"Using {len(training_genes)} genes for Tangram mapping")
+
+        # ✅ COW FIX: Create copy of reference data to avoid modifying original
+        # Tangram's pp_adatas adds metadata (uns, obs) but doesn't subset genes
+        adata_sc = adata_sc_original.copy()
+        if context:
+            await context.info(
+                "Created working copy of reference data to preserve original"
+            )
 
         # Preprocess data for Tangram
         tg.pp_adatas(adata_sc, adata_sp, genes=training_genes)
@@ -765,8 +791,9 @@ async def _annotate_with_tangram(
                     # Improved error message showing available columns
                     available_cols = list(adata_sc.obs.columns)
                     categorical_cols = [
-                        col for col in available_cols
-                        if adata_sc.obs[col].dtype.name in ['object', 'category']
+                        col
+                        for col in available_cols
+                        if adata_sc.obs[col].dtype.name in ["object", "category"]
                     ]
 
                     raise ValueError(
@@ -899,28 +926,38 @@ async def _annotate_with_scanvi(
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
 
         # Get reference single-cell data
-        adata_ref = data_store[params.reference_data_id]["adata"]
+        adata_ref_original = data_store[params.reference_data_id]["adata"]
 
         # ===== Gene Alignment (NEW) =====
         if context:
             await context.info("Aligning genes between reference and query data...")
 
-        common_genes = adata_ref.var_names.intersection(adata.var_names)
+        common_genes = adata_ref_original.var_names.intersection(adata.var_names)
 
-        if len(common_genes) < min(100, adata_ref.n_vars * 0.5):
+        if len(common_genes) < min(100, adata_ref_original.n_vars * 0.5):
             raise ValueError(
                 f"Insufficient gene overlap: Only {len(common_genes)} common genes found. "
-                f"Reference has {adata_ref.n_vars}, query has {adata.n_vars} genes."
+                f"Reference has {adata_ref_original.n_vars}, query has {adata.n_vars} genes."
             )
 
-        if len(common_genes) < adata_ref.n_vars:
+        # ✅ COW FIX: Operate on temporary copies for gene subsetting
+        # This prevents loss of HVG information in the original adata
+        if len(common_genes) < adata_ref_original.n_vars:
             if context:
                 await context.warning(
-                    f"Subsetting to {len(common_genes)} common genes "
-                    f"(reference: {adata_ref.n_vars}, query: {adata.n_vars})"
+                    f"Subsetting to {len(common_genes)} common genes for ScanVI training "
+                    f"(reference: {adata_ref_original.n_vars}, query: {adata.n_vars})"
                 )
-            adata_ref = adata_ref[:, common_genes].copy()
-            adata = adata[:, common_genes].copy()
+                await context.info(
+                    "Note: Original gene set and HVG information will be preserved"
+                )
+            # Create subsets for ScanVI (not modifying originals)
+            adata_ref = adata_ref_original[:, common_genes].copy()
+            adata_subset = adata[:, common_genes].copy()
+        else:
+            # No subsetting needed
+            adata_ref = adata_ref_original.copy()
+            adata_subset = adata.copy()
 
         # ===== Data Validation (NEW) =====
         if context:
@@ -1023,13 +1060,14 @@ async def _annotate_with_scanvi(
         if context:
             await context.info("Step 3/3: Preparing and training on query data...")
 
-        # Add unlabeled category for all cells
-        adata.obs[cell_type_key] = params.scanvi_unlabeled_category
+        # ✅ COW FIX: Work on adata_subset for query data preparation
+        # Add unlabeled category for all cells (on subset, not original)
+        adata_subset.obs[cell_type_key] = params.scanvi_unlabeled_category
 
         # Setup query data (batch handling) - TRANSPARENT TEMPORARY METADATA
-        if batch_key and batch_key not in adata.obs:
+        if batch_key and batch_key not in adata_subset.obs:
             # ScANVI requires batch information for technical reasons
-            adata.obs[batch_key] = "query_batch"
+            adata_subset.obs[batch_key] = "query_batch"
             if context:
                 await context.info(
                     f"🔧 Added temporary batch label '{batch_key}' = 'query_batch' for ScANVI compatibility.\n"
@@ -1038,14 +1076,14 @@ async def _annotate_with_scanvi(
                 )
 
         scvi.model.SCANVI.setup_anndata(
-            adata,
+            adata_subset,
             labels_key=cell_type_key,
             unlabeled_category=params.scanvi_unlabeled_category,
             batch_key=batch_key,
         )
 
         # Transfer model to spatial data with proper parameters
-        spatial_model = scvi.model.SCANVI.load_query_data(adata, model)
+        spatial_model = scvi.model.SCANVI.load_query_data(adata_subset, model)
 
         # ===== Improved Query Training (NEW) =====
         spatial_model.train(
@@ -1055,21 +1093,23 @@ async def _annotate_with_scanvi(
             check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch,
         )
 
-        # Get predictions
+        # ✅ COW FIX: Get predictions from adata_subset, then add to original adata
         predictions = spatial_model.predict()
-        adata.obs[cell_type_key] = predictions
-        adata.obs[cell_type_key] = adata.obs[cell_type_key].astype("category")
+        adata_subset.obs[cell_type_key] = predictions
+        adata_subset.obs[cell_type_key] = adata_subset.obs[cell_type_key].astype(
+            "category"
+        )
 
-        # Get cell types and counts
-        cell_types = list(adata.obs[cell_type_key].cat.categories)
-        counts = adata.obs[cell_type_key].value_counts().to_dict()
+        # Extract results from adata_subset
+        cell_types = list(adata_subset.obs[cell_type_key].cat.categories)
+        counts = adata_subset.obs[cell_type_key].value_counts().to_dict()
 
         # Get prediction probabilities as confidence scores
         try:
             probs = spatial_model.predict(soft=True)
             confidence_scores = {}
             for i, cell_type in enumerate(cell_types):
-                cells_of_type = adata.obs[cell_type_key] == cell_type
+                cells_of_type = adata_subset.obs[cell_type_key] == cell_type
                 if np.sum(cells_of_type) > 0 and isinstance(probs, pd.DataFrame):
                     if cell_type in probs.columns:
                         mean_prob = probs.loc[cells_of_type, cell_type].mean()
@@ -1092,6 +1132,10 @@ async def _annotate_with_scanvi(
             confidence_scores = (
                 {}
             )  # Empty dict clearly indicates no confidence data available
+
+        # ✅ COW FIX: Add prediction results to original adata.obs
+        # This will be picked up by the main function to store in adata.obs[output_key]
+        adata.obs[cell_type_key] = adata_subset.obs[cell_type_key].values
 
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
@@ -1126,8 +1170,9 @@ async def _annotate_with_mllmcelltype(
         if not params.cluster_label:
             available_cols = list(adata.obs.columns)
             categorical_cols = [
-                col for col in available_cols
-                if adata.obs[col].dtype.name in ['object', 'category']
+                col
+                for col in available_cols
+                if adata.obs[col].dtype.name in ["object", "category"]
             ]
 
             raise ValueError(
@@ -1143,8 +1188,9 @@ async def _annotate_with_mllmcelltype(
         if cluster_key not in adata.obs:
             available_cols = list(adata.obs.columns)
             categorical_cols = [
-                col for col in available_cols
-                if adata.obs[col].dtype.name in ['object', 'category']
+                col
+                for col in available_cols
+                if adata.obs[col].dtype.name in ["object", "category"]
             ]
 
             raise ValueError(
@@ -1284,13 +1330,13 @@ async def _annotate_with_cellassign(
                 "CellAssign requires marker genes to be provided. "
                 "Please specify marker_genes parameter with a dictionary of cell types and their marker genes."
             )
-        
+
         marker_genes = params.marker_genes
 
         # Validate marker genes exist in dataset
         all_genes = set(adata.var_names)
         valid_marker_genes = {}
-        
+
         for cell_type, genes in marker_genes.items():
             existing_genes = [gene for gene in genes if gene in all_genes]
             if existing_genes:
@@ -1301,7 +1347,7 @@ async def _annotate_with_cellassign(
                     )
             elif context:
                 await context.warning(f"No marker genes found for {cell_type}")
-        
+
         if not valid_marker_genes:
             raise ValueError("No valid marker genes found for any cell type")
         valid_cell_types = list(valid_marker_genes.keys())
@@ -1508,12 +1554,14 @@ async def annotate_cell_types(
             await context.error(f"Annotation failed: {str(e)}")
         raise
 
-    # Update the AnnData object in the data store
-    data_store[data_id]["adata"] = adata
-
-    # Construct output keys (method-prefixed to avoid overwriting)
+    # ✅ COW FIX: Each annotation method handles adata.obs assignment internally
+    # This maintains consistency and prevents duplicate assignments
+    # Construct output keys for result reporting
     output_key = f"cell_type_{params.method}"
     confidence_key = f"confidence_{params.method}" if confidence_scores else None
+
+    # ❌ REMOVED: data_store[data_id]["adata"] = adata
+    # No longer overwrite adata to preserve HVG information and original gene set
 
     # Inform user about visualization options
     if context:
@@ -1579,7 +1627,9 @@ async def _load_sctype_functions(context: Optional[Context] = None) -> None:
 
     try:
         # Get robjects from validation
-        robjects, _, _, _, _, default_converter, openrlib = _validate_rpy2_and_r(context)
+        robjects, _, _, _, _, default_converter, openrlib = _validate_rpy2_and_r(
+            context
+        )
 
         # Import conversion module
         from rpy2.robjects import conversion
@@ -1637,7 +1687,9 @@ async def _prepare_sctype_genesets(
 
     try:
         # Get robjects from validation
-        robjects, _, _, _, _, default_converter, openrlib = _validate_rpy2_and_r(context)
+        robjects, _, _, _, _, default_converter, openrlib = _validate_rpy2_and_r(
+            context
+        )
 
         if params.sctype_custom_markers:
             # Use custom markers
@@ -1731,7 +1783,9 @@ def _convert_custom_markers_to_gs(
         )
 
     # Get robjects and converters from validation
-    robjects, pandas2ri, _, _, localconverter, default_converter, openrlib = _validate_rpy2_and_r(context)
+    robjects, pandas2ri, _, _, localconverter, default_converter, openrlib = (
+        _validate_rpy2_and_r(context)
+    )
 
     # Wrap R calls in conversion context (FIX for contextvars issue)
     with openrlib.rlock:
@@ -1767,7 +1821,9 @@ async def _run_sctype_scoring(
 
     try:
         # Get robjects and converters from validation
-        robjects, pandas2ri, _, _, localconverter, default_converter, openrlib = _validate_rpy2_and_r(context)
+        robjects, pandas2ri, _, _, localconverter, default_converter, openrlib = (
+            _validate_rpy2_and_r(context)
+        )
 
         # Import conversion module
         from rpy2.robjects import conversion
@@ -1803,10 +1859,12 @@ async def _run_sctype_scoring(
                 robjects.r.assign("gs_list", gs_list)
 
                 # Extract gs_positive and gs_negative from gs_list in R
-                robjects.r("""
+                robjects.r(
+                    """
                     gs_positive <- gs_list$gs_positive
                     gs_negative <- gs_list$gs_negative
-                """)
+                """
+                )
 
                 # Run sc-type scoring with comprehensive error handling
                 robjects.r(
@@ -1890,7 +1948,12 @@ async def _run_sctype_scoring(
 
         if context:
             await context.info(
-                f"✅ Scoring completed for {scores_df.shape[0]} cell types and {scores_df.shape[1]} cells"
+                f"✅ Scoring completed - DataFrame shape: {scores_df.shape}"
+            )
+            await context.info(f"   Rows (should be cell types): {scores_df.shape[0]}")
+            await context.info(f"   Cols (should be cells): {scores_df.shape[1]}")
+            await context.info(
+                f"   Expected cells: {len(col_names) if col_names else 'unknown'}"
             )
             if scores_df.index is not None and len(scores_df.index) > 0:
                 cell_type_names = list(scores_df.index)[:5]
@@ -2123,9 +2186,15 @@ async def _annotate_with_sctype(
     """
 
     # Validate dependencies with comprehensive error reporting
-    robjects, pandas2ri, numpy2ri, importr, localconverter, default_converter, openrlib = _validate_rpy2_and_r(
-        context
-    )
+    (
+        robjects,
+        pandas2ri,
+        numpy2ri,
+        importr,
+        localconverter,
+        default_converter,
+        openrlib,
+    ) = _validate_rpy2_and_r(context)
 
     # Define supported tissue types from sc-type database
     SCTYPE_VALID_TISSUES = {
@@ -2216,9 +2285,8 @@ async def _annotate_with_sctype(
             else:
                 confidence_by_celltype[cell_type] = 0.0
 
-        # Step 7: Add results to adata
-
-        # Use method-prefixed output keys to avoid overwriting
+        # ✅ COW FIX: Assign results to adata.obs (like tangram and other methods)
+        # This maintains consistency across all annotation methods
         output_key = f"cell_type_{params.method}"
         confidence_key = f"confidence_{params.method}"
 
@@ -2226,7 +2294,7 @@ async def _annotate_with_sctype(
         adata.obs[output_key] = adata.obs[output_key].astype("category")
         adata.obs[confidence_key] = confidence_scores
 
-        # Return unique cell types, not the full list
+        # Return unique cell types and per-cell-type confidence dict (for AnnotationResult)
         unique_cell_types = list(set(cell_types))
         results = (unique_cell_types, counts, confidence_by_celltype, None)
 
@@ -2239,12 +2307,6 @@ async def _annotate_with_sctype(
             await context.info(
                 f"📈 Found {len(counts)} cell types: {', '.join(list(counts.keys())[:5])}"
                 + ("..." if len(counts) > 5 else "")
-            )
-            await context.info(
-                f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-            )
-            await context.info(
-                f"Use visualize_data tool with feature='{output_key}' to visualize results"
             )
 
         return results
