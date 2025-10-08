@@ -99,18 +99,22 @@ def _validate_rpy2_and_r(context: Optional[Context] = None):
     try:
         # First check rpy2
         import rpy2.robjects as robjects
-        from rpy2.robjects import numpy2ri, pandas2ri
+        from rpy2.robjects import numpy2ri, pandas2ri, conversion, default_converter
         from rpy2.robjects.conversion import localconverter
         from rpy2.robjects.packages import importr
+        from rpy2.rinterface_lib import openrlib  # For thread safety
 
-        # Test R availability
-        robjects.r("R.version")
+        # Test R availability with proper conversion context (FIX for contextvars issue)
+        # Same pattern as SPARK-X to prevent "Conversion rules missing" errors
+        with openrlib.rlock:
+            with conversion.localconverter(default_converter):
+                robjects.r("R.version")
 
-        if context:
-            r_version = robjects.r("R.version.string")[0]
-            context.info(f"Using R: {r_version}")
+                if context:
+                    r_version = robjects.r("R.version.string")[0]
+                    context.info(f"Using R: {r_version}")
 
-        return robjects, pandas2ri, numpy2ri, importr, localconverter
+        return robjects, pandas2ri, numpy2ri, importr, localconverter, default_converter, openrlib
     except ImportError as e:
         raise ImportError("rpy2 is required for sc-type method. Install with: pip install rpy2 (requires R installation)") from e
     except Exception as e:
@@ -1575,38 +1579,44 @@ async def _load_sctype_functions(context: Optional[Context] = None) -> None:
 
     try:
         # Get robjects from validation
-        robjects, _, _, _, _ = _validate_rpy2_and_r(context)
+        robjects, _, _, _, _, default_converter, openrlib = _validate_rpy2_and_r(context)
 
-        # Auto-install required R packages
-        robjects.r(
-            """
-            # Install packages automatically if not present
-            required_packages <- c("dplyr", "openxlsx", "HGNChelper")
-            for (pkg in required_packages) {
-                if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
-                    cat("Installing R package:", pkg, "\\n")
-                    install.packages(pkg, repos = "https://cran.r-project.org/", quiet = TRUE)
-                    if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
-                        stop(paste("Failed to install required R package:", pkg))
+        # Import conversion module
+        from rpy2.robjects import conversion
+
+        # Wrap R calls in conversion context (FIX for contextvars issue)
+        with openrlib.rlock:
+            with conversion.localconverter(default_converter):
+                # Auto-install required R packages
+                robjects.r(
+                    """
+                    # Install packages automatically if not present
+                    required_packages <- c("dplyr", "openxlsx", "HGNChelper")
+                    for (pkg in required_packages) {
+                        if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+                            cat("Installing R package:", pkg, "\\n")
+                            install.packages(pkg, repos = "https://cran.r-project.org/", quiet = TRUE)
+                            if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+                                stop(paste("Failed to install required R package:", pkg))
+                            }
+                        }
                     }
-                }
-            }
-        """
-        )
+                """
+                )
 
-        if context:
-            await context.info("✅ R packages loaded/installed successfully")
+                if context:
+                    await context.info("✅ R packages loaded/installed successfully")
 
-        # Load sc-type functions from GitHub
-        robjects.r(
-            """
-            # Load gene sets preparation function
-            source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
-            
-            # Load scoring function
-            source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
-        """
-        )
+                # Load sc-type functions from GitHub
+                robjects.r(
+                    """
+                    # Load gene sets preparation function
+                    source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
+
+                    # Load scoring function
+                    source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
+                """
+                )
 
         if context:
             await context.info("✅ sc-type R functions loaded successfully")
@@ -1627,7 +1637,7 @@ async def _prepare_sctype_genesets(
 
     try:
         # Get robjects from validation
-        robjects, _, _, _, _ = _validate_rpy2_and_r(context)
+        robjects, _, _, _, _, default_converter, openrlib = _validate_rpy2_and_r(context)
 
         if params.sctype_custom_markers:
             # Use custom markers
@@ -1651,17 +1661,23 @@ async def _prepare_sctype_genesets(
                 or "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx"
             )
 
-            robjects.r.assign("db_path", db_path)
-            robjects.r.assign("tissue_type", tissue)
+            # Import conversion module
+            from rpy2.robjects import conversion
 
-            robjects.r(
-                """
-                # Load gene sets
-                gs_list <- gene_sets_prepare(db_path, tissue_type)
-            """
-            )
+            # Wrap R calls in conversion context (FIX for contextvars issue)
+            with openrlib.rlock:
+                with conversion.localconverter(default_converter):
+                    robjects.r.assign("db_path", db_path)
+                    robjects.r.assign("tissue_type", tissue)
 
-            return robjects.r["gs_list"]
+                    robjects.r(
+                        """
+                        # Load gene sets
+                        gs_list <- gene_sets_prepare(db_path, tissue_type)
+                    """
+                    )
+
+                    return robjects.r["gs_list"]
 
     except Exception as e:
         error_msg = f"Failed to prepare gene sets: {str(e)}"
@@ -1715,28 +1731,29 @@ def _convert_custom_markers_to_gs(
         )
 
     # Get robjects and converters from validation
-    robjects, pandas2ri, _, _, localconverter = _validate_rpy2_and_r(context)
+    robjects, pandas2ri, _, _, localconverter, default_converter, openrlib = _validate_rpy2_and_r(context)
 
-    # Convert to R lists using proper nested conversion
-    with localconverter(robjects.default_converter + pandas2ri.converter):
-        # Convert Python dictionaries to R named lists, handle empty lists properly
-        r_gs_positive = robjects.r["list"](
-            **{
-                k: robjects.StrVector(v) if v else robjects.StrVector([])
-                for k, v in gs_positive.items()
-            }
-        )
-        r_gs_negative = robjects.r["list"](
-            **{
-                k: robjects.StrVector(v) if v else robjects.StrVector([])
-                for k, v in gs_negative.items()
-            }
-        )
+    # Wrap R calls in conversion context (FIX for contextvars issue)
+    with openrlib.rlock:
+        with localconverter(robjects.default_converter + pandas2ri.converter):
+            # Convert Python dictionaries to R named lists, handle empty lists properly
+            r_gs_positive = robjects.r["list"](
+                **{
+                    k: robjects.StrVector(v) if v else robjects.StrVector([])
+                    for k, v in gs_positive.items()
+                }
+            )
+            r_gs_negative = robjects.r["list"](
+                **{
+                    k: robjects.StrVector(v) if v else robjects.StrVector([])
+                    for k, v in gs_negative.items()
+                }
+            )
 
-        # Create the final gs_list structure
-        gs_list = robjects.r["list"](
-            gs_positive=r_gs_positive, gs_negative=r_gs_negative
-        )
+            # Create the final gs_list structure
+            gs_list = robjects.r["list"](
+                gs_positive=r_gs_positive, gs_negative=r_gs_negative
+            )
 
     return gs_list
 
@@ -1750,7 +1767,10 @@ async def _run_sctype_scoring(
 
     try:
         # Get robjects and converters from validation
-        robjects, pandas2ri, _, _, localconverter = _validate_rpy2_and_r(context)
+        robjects, pandas2ri, _, _, localconverter, default_converter, openrlib = _validate_rpy2_and_r(context)
+
+        # Import conversion module
+        from rpy2.robjects import conversion
 
         # Prepare expression data
         if params.sctype_scaled and "scaled" in adata.layers:
@@ -1775,80 +1795,84 @@ async def _run_sctype_scoring(
             columns=adata.obs_names,
         )
 
-        # Transfer to R
-        with localconverter(robjects.default_converter + pandas2ri.converter):
-            robjects.r.assign("scdata", expr_df)
+        # Wrap ALL R calls in conversion context (FIX for contextvars issue)
+        with openrlib.rlock:
+            with conversion.localconverter(default_converter + pandas2ri.converter):
+                # Transfer to R
+                robjects.r.assign("scdata", expr_df)
+                robjects.r.assign("gs_list", gs_list)
 
-        robjects.r.assign("gs_positive", gs_list[0])  # gs_positive from gs_list
-        robjects.r.assign("gs_negative", gs_list[1])  # gs_negative from gs_list
+                # Extract gs_positive and gs_negative from gs_list in R
+                robjects.r("""
+                    gs_positive <- gs_list$gs_positive
+                    gs_negative <- gs_list$gs_negative
+                """)
 
-        # Run sc-type scoring with comprehensive error handling
-        robjects.r(
-            """
-            # Check if gene sets are valid
-            if (length(gs_positive) == 0) {
-                stop("No valid positive gene sets found")
-            }
-            
-            # Get available genes in the dataset
-            available_genes <- rownames(scdata)
-            
-            # Check each cell type for overlapping genes and filter empty ones
-            filtered_gs_positive <- list()
-            filtered_gs_negative <- list()
-            
-            for (celltype in names(gs_positive)) {
-                pos_genes <- gs_positive[[celltype]]
-                neg_genes <- if (celltype %in% names(gs_negative)) gs_negative[[celltype]] else c()
-                
-                # Find overlapping genes
-                pos_overlap <- intersect(toupper(pos_genes), toupper(available_genes))
-                neg_overlap <- intersect(toupper(neg_genes), toupper(available_genes))
-                
-                # Only keep cell types with at least one positive marker gene
-                if (length(pos_overlap) > 0) {
-                    filtered_gs_positive[[celltype]] <- pos_overlap
-                    filtered_gs_negative[[celltype]] <- neg_overlap
-                }
-            }
-            
-            # Check if we have any valid cell types after filtering
-            if (length(filtered_gs_positive) == 0) {
-                # Fail explicitly when no valid gene sets are available
-                stop("No valid cell type gene sets found after filtering. Available tissues: ", 
-                     paste(unique(tissue_df$tissueType), collapse=", "), 
-                     ". Please check your tissue parameter or provide custom markers.")
-            }
-            
-            # Run sc-type scoring with filtered gene sets
-            tryCatch({
-                es_max <- sctype_score(
-                    scRNAseqData = as.matrix(scdata),
-                    scaled = TRUE,
-                    gs = filtered_gs_positive,
-                    gs2 = filtered_gs_negative
+                # Run sc-type scoring with comprehensive error handling
+                robjects.r(
+                    """
+                    # Check if gene sets are valid
+                    if (length(gs_positive) == 0) {
+                        stop("No valid positive gene sets found")
+                    }
+
+                    # Get available genes in the dataset
+                    available_genes <- rownames(scdata)
+
+                    # Check each cell type for overlapping genes and filter empty ones
+                    filtered_gs_positive <- list()
+                    filtered_gs_negative <- list()
+
+                    for (celltype in names(gs_positive)) {
+                        pos_genes <- gs_positive[[celltype]]
+                        neg_genes <- if (celltype %in% names(gs_negative)) gs_negative[[celltype]] else c()
+
+                        # Find overlapping genes
+                        pos_overlap <- intersect(toupper(pos_genes), toupper(available_genes))
+                        neg_overlap <- intersect(toupper(neg_genes), toupper(available_genes))
+
+                        # Only keep cell types with at least one positive marker gene
+                        if (length(pos_overlap) > 0) {
+                            filtered_gs_positive[[celltype]] <- pos_overlap
+                            filtered_gs_negative[[celltype]] <- neg_overlap
+                        }
+                    }
+
+                    # Check if we have any valid cell types after filtering
+                    if (length(filtered_gs_positive) == 0) {
+                        # Fail explicitly when no valid gene sets are available
+                        stop("No valid cell type gene sets found after filtering. Available tissues: ",
+                             paste(unique(tissue_df$tissueType), collapse=", "),
+                             ". Please check your tissue parameter or provide custom markers.")
+                    }
+
+                    # Run sc-type scoring with filtered gene sets
+                    tryCatch({
+                        es_max <- sctype_score(
+                            scRNAseqData = as.matrix(scdata),
+                            scaled = TRUE,
+                            gs = filtered_gs_positive,
+                            gs2 = filtered_gs_negative
+                        )
+
+                        # Check for valid results
+                        if (is.null(es_max) || nrow(es_max) == 0 || ncol(es_max) == 0) {
+                            stop("SC-Type analysis failed to generate valid results. This may be due to: ",
+                                 "1) Insufficient gene overlap between data and markers, ",
+                                 "2) Poor data quality, or 3) Inappropriate tissue selection.")
+                        }
+                    }, error = function(e) {
+                        # Propagate the actual error instead of masking it
+                        stop("SC-Type scoring failed: ", e$message)
+                    })
+                    """
                 )
-                
-                # Check for valid results
-                if (is.null(es_max) || nrow(es_max) == 0 || ncol(es_max) == 0) {
-                    stop("SC-Type analysis failed to generate valid results. This may be due to: ",
-                         "1) Insufficient gene overlap between data and markers, ",
-                         "2) Poor data quality, or 3) Inappropriate tissue selection.")
-                }
-            }, error = function(e) {
-                # Propagate the actual error instead of masking it
-                stop("SC-Type scoring failed: ", e$message)
-            })
-        """
-        )
 
-        # Get results back to Python with row and column names preserved
-        # Extract row names (cell type names) and column names from R
-        row_names = list(robjects.r("rownames(es_max)"))
-        col_names = list(robjects.r("colnames(es_max)"))
-
-        with localconverter(robjects.default_converter + pandas2ri.converter):
-            scores_matrix = robjects.r["es_max"]
+                # Get results back to Python with row and column names preserved
+                # Extract row names (cell type names) and column names from R
+                row_names = list(robjects.r("rownames(es_max)"))
+                col_names = list(robjects.r("colnames(es_max)"))
+                scores_matrix = robjects.r["es_max"]
 
         # Convert to DataFrame with proper index and columns
         if isinstance(scores_matrix, pd.DataFrame):
@@ -2099,7 +2123,7 @@ async def _annotate_with_sctype(
     """
 
     # Validate dependencies with comprehensive error reporting
-    robjects, pandas2ri, numpy2ri, importr, localconverter = _validate_rpy2_and_r(
+    robjects, pandas2ri, numpy2ri, importr, localconverter, default_converter, openrlib = _validate_rpy2_and_r(
         context
     )
 
