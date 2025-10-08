@@ -126,20 +126,25 @@ async def _validate_liana_requirements(
     # 3. Cell type validation
     if params.cell_type_handling == "require":
         if params.cell_type_column not in adata.obs.columns:
-            available_cols = [
-                col
-                for col in adata.obs.columns
-                if col
-                in ["leiden", "louvain", "cell_type", "celltype", "seurat_clusters"]
+            # Show all categorical columns (more helpful than hardcoded list)
+            all_cols = list(adata.obs.columns)
+            categorical_cols = [
+                col for col in all_cols
+                if adata.obs[col].dtype.name in ['object', 'category']
             ]
+
             error_msg = (
                 f"Cell type annotations required for LIANA+ analysis.\n"
-                f"Missing column: '{params.cell_type_column}'\n"
-                f"Available columns: {available_cols}\n\n"
+                f"Missing column: '{params.cell_type_column}'\n\n"
+                f"Available categorical columns ({len(categorical_cols)} total):\n"
+                f"  {', '.join(categorical_cols[:15])}\n"
+                f"  {'...' if len(categorical_cols) > 15 else ''}\n\n"
                 f"Options:\n"
-                f"  1. Set cell_type_handling='create_from_column' and specify cell_type_source_column\n"
-                f"  2. Run cell type annotation first\n"
-                f"  3. Manually create: adata.obs['{params.cell_type_column}'] = adata.obs['leiden']"
+                f"  1. Set cell_type_handling='create_from_column' and cell_type_source_column='<your_column>'\n"
+                f"  2. Run cell type annotation first using annotate_cells()\n"
+                f"  3. Manually create cell type column from existing clustering\n\n"
+                f"Common cell type column names: cell_type, celltype, annotation, label\n"
+                f"Common cluster column names: leiden, louvain, seurat_clusters, phenograph"
             )
             validation_result["passed"] = False
             validation_result["errors"].append(error_msg)
@@ -694,15 +699,22 @@ async def _run_liana_cluster_analysis(
     """Run LIANA+ cluster-based analysis"""
     import liana as li
 
-    # Determine groupby column
-    groupby_col = None
-    for col in ["cell_type", "cluster", "leiden", "louvain"]:
-        if col in adata.obs.columns:
-            groupby_col = col
-            break
+    # Use cell_type_column from params (required field, no auto-detect)
+    groupby_col = params.cell_type_column
 
-    if not groupby_col:
-        raise ValueError("No suitable groupby column found for cluster analysis")
+    if groupby_col not in adata.obs.columns:
+        available_cols = list(adata.obs.columns)
+        categorical_cols = [
+            col for col in available_cols
+            if adata.obs[col].dtype.name in ['object', 'category']
+        ]
+
+        raise ValueError(
+            f"Groupby column '{groupby_col}' not found for cluster analysis.\n\n"
+            f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
+            f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+            f"Please specify the correct column using cell_type_column parameter."
+        )
 
     if context:
         await context.info(
@@ -1117,16 +1129,21 @@ async def _analyze_communication_cellphonedb(
         if context:
             await context.info("Preparing data for CellPhoneDB analysis...")
 
-        # Check for required cell type information
-        cell_type_col = None
-        for col in ["cell_type", "celltype", "cluster", "leiden", "louvain"]:
-            if col in adata.obs.columns:
-                cell_type_col = col
-                break
+        # Use cell_type_column from params (required field, no auto-detect)
+        cell_type_col = params.cell_type_column
 
-        if not cell_type_col:
+        if cell_type_col not in adata.obs.columns:
+            available_cols = list(adata.obs.columns)
+            categorical_cols = [
+                col for col in available_cols
+                if adata.obs[col].dtype.name in ['object', 'category']
+            ]
+
             raise ValueError(
-                "No cell type information found. Please ensure your data has one of: 'cell_type', 'celltype', 'cluster', 'leiden', 'louvain' columns"
+                f"Cell type column '{cell_type_col}' not found for CellPhoneDB analysis.\n\n"
+                f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
+                f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+                f"Please specify the correct column using cell_type_column parameter."
             )
 
         # ULTRATHINK: Apply gene filtering if microenvironments is enabled
@@ -1451,16 +1468,21 @@ async def _analyze_communication_cellchat_liana(
 
         start_time = time.time()
 
-        # Determine groupby column for CellChat
-        groupby_col = None
-        for col in ["cell_type", "celltype", "cluster", "leiden", "louvain"]:
-            if col in adata.obs.columns:
-                groupby_col = col
-                break
+        # Use cell_type_column from params (required field, no auto-detect)
+        groupby_col = params.cell_type_column
 
-        if not groupby_col:
+        if groupby_col not in adata.obs.columns:
+            available_cols = list(adata.obs.columns)
+            categorical_cols = [
+                col for col in available_cols
+                if adata.obs[col].dtype.name in ['object', 'category']
+            ]
+
             raise ValueError(
-                "No suitable groupby column found. Please ensure your data has cell type annotations"
+                f"Cell type column '{groupby_col}' not found for CellChat analysis.\n\n"
+                f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
+                f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+                f"Please specify the correct column using cell_type_column parameter."
             )
 
         if context:

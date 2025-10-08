@@ -319,29 +319,31 @@ async def _annotate_with_singler(
                 )
 
             # Get labels from reference - check various common column names
-            cell_type_key = getattr(params, "cell_type_key", "cell_type")
-            possible_columns = [
-                cell_type_key,
-                "cell_types",
-                "cell_type",
-                "celltype",
-                "CellType",
-                "leiden",
-            ]
+            # cell_type_key is now required (no default value)
+            cell_type_key = params.cell_type_key
 
-            for col in possible_columns:
-                if col in reference_adata.obs.columns:
-                    ref_labels = list(reference_adata.obs[col])
-                    if context:
-                        await context.info(f"Using '{col}' column for reference labels")
-                    break
-            if ref_labels is None:
-                available_cols = list(reference_adata.obs.columns)[:10]
+            if cell_type_key not in reference_adata.obs.columns:
+                # Improved error message showing available columns
+                available_cols = list(reference_adata.obs.columns)
+
+                # Categorize columns by type for better guidance
+                categorical_cols = [
+                    col for col in available_cols
+                    if reference_adata.obs[col].dtype.name in ['object', 'category']
+                ]
+
                 raise ValueError(
-                    f"No cell type labels found in reference data. "
-                    f"Looked for: {possible_columns}. "
-                    f"Available columns: {available_cols}"
+                    f"Cell type column '{cell_type_key}' not found in reference data.\n\n"
+                    f"Available categorical columns (likely cell types):\n  {', '.join(categorical_cols[:15])}\n"
+                    f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+                    f"All columns ({len(available_cols)} total):\n  {', '.join(available_cols[:20])}\n"
+                    f"{f'  ... and {len(available_cols)-20} more' if len(available_cols) > 20 else ''}\n\n"
+                    f"Please specify the correct column using: cell_type_key='your_column_name'"
                 )
+
+            ref_labels = list(reference_adata.obs[cell_type_key])
+            if context:
+                await context.info(f"Using '{cell_type_key}' column for reference labels")
 
             # For SingleR, pass the actual expression matrix directly (not SCE)
             # This has been shown to work better in testing
@@ -750,41 +752,28 @@ async def _annotate_with_tangram(
             if mode == "clusters" and cluster_label:
                 annotation_col = cluster_label
             else:
-                # Check if user specified cell_type_key
-                if params.cell_type_key:
-                    # User specified exact column name
-                    if params.cell_type_key in adata_sc.obs:
-                        annotation_col = params.cell_type_key
-                        if context:
-                            await context.info(
-                                f"Using user-specified cell type column: '{params.cell_type_key}'"
-                            )
-                    else:
-                        # User specified column doesn't exist - this is an error
-                        available_cols = list(adata_sc.obs.columns)
-                        raise ValueError(
-                            f"Specified cell_type_key '{params.cell_type_key}' not found in reference data. "
-                            f"Available columns: {', '.join(available_cols[:10])}"
-                            f"{' ...' if len(available_cols) > 10 else ''}"
-                        )
-                else:
-                    # Auto-detect: try multiple common column names
-                    potential_cols = [
-                        "cell_type",
-                        "celltype",
-                        "cell_types",
-                        "CellType",
-                        "cellTypes",
-                        "subclass_label",
+                # cell_type_key is now required (no auto-detect)
+                if params.cell_type_key not in adata_sc.obs:
+                    # Improved error message showing available columns
+                    available_cols = list(adata_sc.obs.columns)
+                    categorical_cols = [
+                        col for col in available_cols
+                        if adata_sc.obs[col].dtype.name in ['object', 'category']
                     ]
-                    for col in potential_cols:
-                        if col in adata_sc.obs:
-                            annotation_col = col
-                            if context:
-                                await context.info(
-                                    f"Auto-detected cell type column: '{col}'"
-                                )
-                            break
+
+                    raise ValueError(
+                        f"Cell type column '{params.cell_type_key}' not found in reference data.\n\n"
+                        f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
+                        f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+                        f"All columns ({len(available_cols)} total):\n  {', '.join(available_cols[:20])}\n"
+                        f"{f'  ... and {len(available_cols)-20} more' if len(available_cols) > 20 else ''}"
+                    )
+
+                annotation_col = params.cell_type_key
+                if context:
+                    await context.info(
+                        f"Using cell type column: '{params.cell_type_key}'"
+                    )
 
             if annotation_col:
                 if context:
@@ -1121,12 +1110,37 @@ async def _annotate_with_mllmcelltype(
         mllmcelltype = _validate_mllmcelltype(context)
 
         # Validate clustering has been performed
-        cluster_key = params.cluster_label if params.cluster_label else "leiden"
-        if cluster_key not in adata.obs:
+        # cluster_label is now required for mLLMCellType (no default value)
+        if not params.cluster_label:
+            available_cols = list(adata.obs.columns)
+            categorical_cols = [
+                col for col in available_cols
+                if adata.obs[col].dtype.name in ['object', 'category']
+            ]
+
             raise ValueError(
-                f"Clustering key '{cluster_key}' not found in adata.obs. "
-                f"mLLMCellType annotation requires clustering information. "
-                f"Please run clustering in preprocessing.py or use: sc.tl.{cluster_key}(adata)"
+                f"cluster_label parameter is required for mLLMCellType method.\n\n"
+                f"Available categorical columns (likely clusters):\n  {', '.join(categorical_cols[:15])}\n"
+                f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+                f"Common cluster column names: leiden, louvain, seurat_clusters, phenograph\n\n"
+                f"Example: params = {{'cluster_label': 'leiden', ...}}"
+            )
+
+        cluster_key = params.cluster_label
+
+        if cluster_key not in adata.obs:
+            available_cols = list(adata.obs.columns)
+            categorical_cols = [
+                col for col in available_cols
+                if adata.obs[col].dtype.name in ['object', 'category']
+            ]
+
+            raise ValueError(
+                f"Clustering key '{cluster_key}' not found in adata.obs.\n\n"
+                f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
+                f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+                f"mLLMCellType annotation requires clustering information.\n"
+                f"Please run clustering in preprocessing.py first."
             )
 
         # Find differentially expressed genes for each cluster
