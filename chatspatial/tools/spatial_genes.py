@@ -473,11 +473,19 @@ async def _identify_spatial_genes_spatialde(
     q_values = dict(zip(results["g"], results["qval"]))
 
     # Create SpatialDE-specific results
+    # Only return summary statistics (top 10 genes) to avoid exceeding MCP token limit
+    top_results = results.head(10)
     spatialde_results = {
-        "results_dataframe": results.to_dict(),
+        "top_genes_summary": {
+            "genes": top_results["g"].tolist(),
+            "pvalues": top_results["pval"].tolist(),
+            "qvalues": top_results["qval"].tolist(),
+            "log_likelihood_ratios": top_results["LLR"].tolist(),
+        },
         "kernel": params.spatialde_kernel,
         "normalized": params.spatialde_normalized,
         "n_significant_genes": len(significant_genes),
+        "note": "Full results stored in adata.var['spatialde_pval', 'spatialde_qval', 'spatialde_l']",
     }
 
     result = SpatialVariableGenesResult(
@@ -1232,13 +1240,21 @@ async def _identify_spatial_genes_sparkx(
     q_values = dict(zip(results_df["gene"], results_df["adjusted_pvalue"]))
 
     # Create SPARK-X specific results
+    # Only return summary statistics (top 10 genes) to avoid exceeding MCP token limit
+    top_results = results_df.head(10)
     sparkx_results = {
-        "results_dataframe": results_df.to_dict(),
+        "top_genes_summary": {
+            "genes": top_results["gene"].tolist(),
+            "pvalues": top_results["pvalue"].tolist(),
+            "adjusted_pvalues": top_results["adjusted_pvalue"].tolist(),
+            "combined_pvalues": top_results["combined_pvalue"].tolist() if "combined_pvalue" in top_results.columns else None,
+        },
         "method": "sparkx",
         "num_core": params.sparkx_num_core,
         "option": params.sparkx_option,
         "n_significant_genes": len(significant_genes),
         "data_format": "genes_x_spots",
+        "note": "Full results stored in adata.var['sparkx_pval', 'sparkx_qval']",
     }
 
     result = SpatialVariableGenesResult(

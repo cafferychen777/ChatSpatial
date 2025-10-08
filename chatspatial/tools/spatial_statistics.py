@@ -38,6 +38,7 @@ from ..models.analysis import SpatialAnalysisResult
 from ..models.data import SpatialAnalysisParameters
 from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,
                                     InvalidParameterError, ProcessingError)
+
 # Import standardized utilities
 
 logger = logging.getLogger(__name__)
@@ -124,8 +125,9 @@ async def analyze_spatial_statistics(
         raise DataNotFoundError(f"Dataset {data_id} not found in data store")
 
     try:
-        # Get AnnData object (make a copy to avoid modifying original)
-        adata = data_store[data_id]["adata"].copy()
+        # ✅ COW FIX: Direct reference instead of copy
+        # Only add metadata to adata.obs/uns/obsp, never overwrite entire adata
+        adata = data_store[data_id]["adata"]
 
         # Basic validation
         _validate_spatial_data(adata)
@@ -183,8 +185,8 @@ async def analyze_spatial_statistics(
         else:
             raise ValueError(f"Analysis type {params.analysis_type} not implemented")
 
-        # Update data store with modified adata
-        data_store[data_id]["adata"] = adata
+        # ✅ COW FIX: No need to update data_store - changes already reflected via direct reference
+        # All modifications to adata.obs/uns/obsp are in-place and preserved
 
         # Ensure result is a dictionary
         if not isinstance(result, dict):
@@ -268,9 +270,12 @@ async def _ensure_cluster_key(
         return requested_key
 
     # NO FALLBACK: User's explicit clustering choice must be respected
-    available_keys = [col for col in adata.obs.columns 
-                     if 'cluster' in col.lower() or col in ['leiden', 'louvain']]
-    
+    available_keys = [
+        col
+        for col in adata.obs.columns
+        if "cluster" in col.lower() or col in ["leiden", "louvain"]
+    ]
+
     raise ValueError(
         f"❌ Requested cluster key '{requested_key}' not found in data.\n\n"
         f"Available clustering keys: {available_keys if available_keys else 'None found'}\n"
@@ -290,12 +295,12 @@ async def _ensure_spatial_neighbors(
 ) -> None:
     """
     Ensure spatial neighbors are computed using squidpy's scientifically validated methods.
-    
+
     This function strictly uses squidpy.gr.spatial_neighbors, which is specifically
     designed for spatial transcriptomics data and supports advanced spatial topologies
     like Delaunay triangulation, adaptive neighborhood sizes, and biologically-relevant
     spatial relationships.
-    
+
     IMPORTANT: This function will NOT fallback to sklearn.NearestNeighbors as the two
     methods are scientifically incompatible and could lead to incorrect spatial analysis
     results. If squidpy fails, the analysis should be terminated with proper error guidance.
@@ -309,16 +314,18 @@ async def _ensure_spatial_neighbors(
         try:
             # Use squidpy's spatial-transcriptomics optimized method
             sq.gr.spatial_neighbors(
-                adata, 
+                adata,
                 n_neighs=n_neighbors,
                 coord_type="generic",  # Works for all spatial data types
-                set_diag=False,        # Exclude self-neighbors
-                key_added="spatial"    # Standard key for spatial neighbors
+                set_diag=False,  # Exclude self-neighbors
+                key_added="spatial",  # Standard key for spatial neighbors
             )
-            
+
             if context:
-                await context.info("✅ Spatial neighbors computed successfully with squidpy")
-                
+                await context.info(
+                    "✅ Spatial neighbors computed successfully with squidpy"
+                )
+
         except Exception as e:
             error_msg = (
                 f"❌ CRITICAL: Spatial neighbor computation failed: {e}\n\n"
@@ -333,10 +340,10 @@ async def _ensure_spatial_neighbors(
                 "5. Reduce n_neighbors if dataset is very small\n\n"
                 "🚫 Analysis cannot proceed without proper spatial neighbors."
             )
-            
+
             if context:
                 await context.error(error_msg)
-            
+
             raise ProcessingError(
                 f"Spatial neighbor computation failed. Cannot proceed with spatial analysis. "
                 f"Original error: {e}"
@@ -478,6 +485,7 @@ async def _analyze_gearys_c(
     geary_key = "gearyC"
     if geary_key in adata.uns:
         import pandas as pd
+
         results_df = adata.uns[geary_key]
         if isinstance(results_df, pd.DataFrame):
             return {
@@ -615,7 +623,7 @@ async def _analyze_getis_ord(
                 y = y.toarray().flatten()
             else:
                 y = y.flatten()
-            
+
             # Ensure y is float64 to match weights matrix dtype
             y = y.astype(np.float64)
 
@@ -961,10 +969,10 @@ async def _analyze_local_moran(
 ) -> Dict[str, Any]:
     """
     Calculate Local Moran's I (LISA) for spatial clustering detection.
-    
+
     Local Moran's I identifies spatial clusters and outliers by measuring
     the local spatial autocorrelation for each observation.
-    
+
     Parameters
     ----------
     adata : ad.AnnData
@@ -973,7 +981,7 @@ async def _analyze_local_moran(
         Analysis parameters including genes to analyze
     context : Optional[Context]
         MCP context for logging
-    
+
     Returns
     -------
     Dict[str, Any]
@@ -985,23 +993,19 @@ async def _analyze_local_moran(
 
     try:
         # Ensure spatial neighbors exist
-        await _ensure_spatial_neighbors(
-            adata, params.n_neighbors, context
-        )
-        
+        await _ensure_spatial_neighbors(adata, params.n_neighbors, context)
+
         # Determine genes to analyze
         if params.genes:
             genes = params.genes
         else:
             # Use top highly variable genes if available
             if "highly_variable" in adata.var.columns:
-                hvg_genes = adata.var_names[
-                    adata.var["highly_variable"]
-                ].tolist()[:5]
+                hvg_genes = adata.var_names[adata.var["highly_variable"]].tolist()[:5]
                 genes = hvg_genes if hvg_genes else adata.var_names[:5].tolist()
             else:
                 genes = adata.var_names[:5].tolist()
-        
+
         # Validate genes exist
         valid_genes = []
         for gene in genes:
@@ -1009,13 +1013,13 @@ async def _analyze_local_moran(
                 valid_genes.append(gene)
             elif context:
                 await context.warning(f"Gene {gene} not found in dataset")
-        
+
         if not valid_genes:
             return {"error": "No valid genes found for analysis"}
-        
+
         # Get spatial weights
         W = adata.obsp["spatial_connectivities"]
-        
+
         results = {}
         for gene in valid_genes:
             # Get expression values
@@ -1023,27 +1027,27 @@ async def _analyze_local_moran(
                 expr = adata[:, gene].X.toarray().flatten()
             else:
                 expr = adata[:, gene].X.flatten()
-            
+
             # Standardize expression
             z_expr = zscore(expr)
-            
+
             # Calculate local Moran's I
             n = len(expr)
             local_i = np.zeros(n)
-            
+
             for i in range(n):
                 neighbors = W[i].nonzero()[1]
                 if len(neighbors) > 0:
                     local_i[i] = z_expr[i] * np.mean(z_expr[neighbors])
-            
+
             # Store in adata.obs
             adata.obs[f"{gene}_local_morans"] = local_i
-            
+
             # Identify clusters (significant positive values) and outliers (significant negative values)
             threshold = np.percentile(np.abs(local_i), 95)
             hotspots = np.where(local_i > threshold)[0].tolist()
             coldspots = np.where(local_i < -threshold)[0].tolist()
-            
+
             results[gene] = {
                 "mean": float(np.mean(local_i)),
                 "std": float(np.std(local_i)),
@@ -1052,19 +1056,19 @@ async def _analyze_local_moran(
                 "n_hotspots": len(hotspots),
                 "n_coldspots": len(coldspots),
             }
-        
+
         # Store summary in uns
         adata.uns["local_moran"] = {
             "genes_analyzed": valid_genes,
             "n_neighbors": params.n_neighbors,
             "results": results,
         }
-        
+
         if context:
             await context.info(
                 f"Calculated Local Moran's I for {len(valid_genes)} genes"
             )
-        
+
         return {
             "analysis_type": "local_moran",
             "genes_analyzed": valid_genes,
@@ -1074,9 +1078,8 @@ async def _analyze_local_moran(
                 "negative values indicate spatial outliers (different values nearby)"
             ),
         }
-    
+
     except Exception as e:
         if context:
             await context.warning(f"Local Moran's I analysis failed: {str(e)}")
         return {"error": f"Local Moran's I analysis failed: {str(e)}"}
-
