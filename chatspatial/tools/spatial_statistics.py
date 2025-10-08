@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 async def analyze_spatial_patterns(
     data_id: str,
     data_store: Dict[str, Any],
-    params: SpatialAnalysisParameters = SpatialAnalysisParameters(),
+    params: SpatialAnalysisParameters,  # No default - must be provided by caller (LLM)
     context: Optional[Context] = None,
 ) -> SpatialAnalysisResult:
     """

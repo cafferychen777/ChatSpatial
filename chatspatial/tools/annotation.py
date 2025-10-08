@@ -1428,7 +1428,7 @@ async def _annotate_with_cellassign(
 async def annotate_cell_types(
     data_id: str,
     data_store: Dict[str, Any],
-    params: AnnotationParameters = AnnotationParameters(),
+    params: AnnotationParameters,  # No default - must be provided by caller (LLM)
     context: Optional[Context] = None,
 ) -> AnnotationResult:
     """Annotate cell types in spatial transcriptomics data
