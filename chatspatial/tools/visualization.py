@@ -805,12 +805,24 @@ async def visualize_data(
                 # Use the new dedicated function for multi-gene UMAP
                 fig = await create_multi_gene_umap_visualization(adata, params, context)
             else:
-                # Simplified feature validation: let validate_and_prepare_feature handle all cases
-                default_feature = "leiden" if "leiden" in adata.obs.columns else None
-                single_feature = feature_list[0] if feature_list else None
+                # REQUIRE explicit feature specification - no automatic defaults
+                if not feature_list:
+                    categorical_cols = [
+                        col for col in adata.obs.columns
+                        if adata.obs[col].dtype.name in ['object', 'category']
+                    ]
+                    raise ValueError(
+                        "❌ UMAP visualization requires 'feature' parameter.\n\n"
+                        f"Available categorical columns ({len(categorical_cols)} total):\n"
+                        f"  {', '.join(categorical_cols[:15])}\n\n"
+                        "🔧 SOLUTION: Specify feature explicitly:\n"
+                        "  visualize_data(data_id, params={'plot_type': 'umap', 'feature': 'your_column_name'})"
+                    )
+
+                single_feature = feature_list[0]
                 # Directly call the helper, it will handle all cases including deconvolution keys
                 feature = await validate_and_prepare_feature(
-                    adata, single_feature, context, default_feature=default_feature
+                    adata, single_feature, context, default_feature=None
                 )
 
                 # Create UMAP plot with potential dual encoding (color + size)
@@ -1025,24 +1037,38 @@ async def visualize_data(
                 )
 
             # Create heatmap of top genes across groups
-            if "leiden" in adata.obs.columns:
-                # Use leiden clusters for grouping
-                groupby = "leiden"
+            # REQUIRE explicit cluster_key specification for grouping
+            if not params.cluster_key:
+                categorical_cols = [
+                    col for col in adata.obs.columns
+                    if adata.obs[col].dtype.name in ['object', 'category']
+                ]
+                raise ValueError(
+                    "❌ Heatmap visualization requires 'cluster_key' parameter for grouping.\n\n"
+                    f"Available categorical columns ({len(categorical_cols)} total):\n"
+                    f"  {', '.join(categorical_cols[:15])}\n\n"
+                    "🔧 SOLUTION: Specify cluster_key explicitly:\n"
+                    "  visualize_data(data_id, params={'plot_type': 'heatmap', 'cluster_key': 'your_column_name'})"
+                )
 
-                # Limit the number of groups to avoid oversized responses
-                n_groups = len(adata.obs[groupby].cat.categories)
-                if n_groups > 10:
-                    if context:
-                        await context.warning(
-                            f"Too many groups ({n_groups}). Limiting to 10 groups."
-                        )
-                    # Get the 10 largest groups
-                    group_counts = adata.obs[groupby].value_counts().nlargest(10).index
-                    # Subset the data to include only these groups
-                    adata = adata[adata.obs[groupby].isin(group_counts)].copy()
-            else:
-                # No grouping
-                groupby = None
+            if params.cluster_key not in adata.obs.columns:
+                raise ValueError(
+                    f"❌ Cluster key '{params.cluster_key}' not found in data.\n\n"
+                    f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
+                )
+
+            groupby = params.cluster_key
+            # Limit the number of groups to avoid oversized responses
+            n_groups = len(adata.obs[groupby].cat.categories)
+            if n_groups > 10:
+                if context:
+                    await context.warning(
+                        f"Too many groups ({n_groups}). Limiting to 10 groups."
+                    )
+                # Get the 10 largest groups
+                group_counts = adata.obs[groupby].value_counts().nlargest(10).index
+                # Subset the data to include only these groups
+                adata = adata[adata.obs[groupby].isin(group_counts)].copy()
 
             # Limit the number of genes to avoid oversized responses
             # Use a smaller number (20) instead of 50 to reduce response size
@@ -1317,22 +1343,40 @@ async def visualize_data(
                 # No genes specified, use first 3 genes
                 genes = list(adata.var_names[:3])
 
-            # Check if we have clusters for grouping
-            if "leiden" in adata.obs.columns:
-                groupby = "leiden"
+            # REQUIRE explicit cluster_key specification for grouping
+            if not params.cluster_key:
+                categorical_cols = [
+                    col for col in adata.obs.columns
+                    if adata.obs[col].dtype.name in ['object', 'category']
+                ]
+                raise ValueError(
+                    "❌ Violin plot requires 'cluster_key' parameter for grouping.\n\n"
+                    f"Available categorical columns ({len(categorical_cols)} total):\n"
+                    f"  {', '.join(categorical_cols[:15])}\n\n"
+                    "🔧 SOLUTION: Specify cluster_key explicitly:\n"
+                    "  visualize_data(data_id, params={'plot_type': 'violin', 'cluster_key': 'your_column_name'})"
+                )
 
-                # Limit the number of groups to avoid oversized responses
-                n_groups = len(adata.obs[groupby].cat.categories)
-                if n_groups > 8:
-                    if context:
-                        await context.warning(
-                            f"Too many groups ({n_groups}). Limiting to 8 groups."
-                        )
-                    # Get the 8 largest groups
-                    group_counts = adata.obs[groupby].value_counts().nlargest(8).index
-                    # Subset the data to include only these groups
-                    adata = adata[adata.obs[groupby].isin(group_counts)].copy()
-            else:
+            if params.cluster_key not in adata.obs.columns:
+                raise ValueError(
+                    f"❌ Cluster key '{params.cluster_key}' not found in data.\n\n"
+                    f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
+                )
+
+            groupby = params.cluster_key
+            # Limit the number of groups to avoid oversized responses
+            n_groups = len(adata.obs[groupby].cat.categories)
+            if n_groups > 8:
+                if context:
+                    await context.warning(
+                        f"Too many groups ({n_groups}). Limiting to 8 groups."
+                    )
+                # Get the 8 largest groups
+                group_counts = adata.obs[groupby].value_counts().nlargest(8).index
+                # Subset the data to include only these groups
+                adata = adata[adata.obs[groupby].isin(group_counts)].copy()
+
+            if False:  # Disabled the no-grouping path - cluster_key now required
                 groupby = None
 
             # Create violin plot with smaller figure size
@@ -1641,11 +1685,14 @@ async def create_spatial_domains_visualization(
         if "spatial_domains" in col.lower() or "domain" in col.lower()
     ]
 
-    # Also check for leiden/louvain clustering results that might represent domains
+    # Also check for any categorical clustering results that might represent domains
     if not domain_keys:
-        domain_keys = [
-            col for col in adata.obs.columns if col in ["leiden", "louvain", "clusters"]
+        # Find categorical columns (potential clustering/domain results)
+        categorical_cols = [
+            col for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ['object', 'category']
         ]
+        domain_keys = categorical_cols[:5]  # Take first 5 categorical columns as potential domains
 
     if not domain_keys:
         # No spatial domains found, suggest running domain identification first
@@ -1655,7 +1702,7 @@ async def create_spatial_domains_visualization(
             0.5,
             "No spatial domains found in dataset.\n\n"
             "Please run spatial domain identification first:\n"
-            'identify_spatial_domains(data_id="data_1", params={"method": "leiden"})',
+            'identify_spatial_domains(data_id="data_1", params={"method": "spagcn"})',
             ha="center",
             va="center",
             transform=ax.transAxes,
@@ -2725,11 +2772,20 @@ async def create_rna_velocity_visualization(
             )
 
     # Prepare feature for coloring
+    # Find first categorical column as default (no hardcoded assumptions)
+    default_feature = None
+    if not params.feature:
+        categorical_cols = [
+            col for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ['object', 'category']
+        ]
+        default_feature = categorical_cols[0] if categorical_cols else None
+
     feature = await validate_and_prepare_feature(
         adata,
         params.feature,
         context,
-        default_feature="leiden" if "leiden" in adata.obs.columns else None,
+        default_feature=default_feature,
     )
 
     # Create figure
@@ -2805,9 +2861,24 @@ async def create_neighborhood_enrichment_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create neighborhood enrichment visualization with optional network view"""
-    cluster_key = params.cluster_key or "leiden"
-    enrichment_key = f"{cluster_key}_nhood_enrichment"
+    # Infer cluster_key from params or from available results in adata.uns
+    cluster_key = params.cluster_key
+    if not cluster_key:
+        # Try to infer from adata.uns keys
+        enrichment_keys = [k for k in adata.uns.keys() if k.endswith("_nhood_enrichment")]
+        if enrichment_keys:
+            cluster_key = enrichment_keys[0].replace("_nhood_enrichment", "")
+            if context:
+                await context.info(f"Inferred cluster_key: '{cluster_key}' from existing results")
+        else:
+            raise ValueError(
+                "cluster_key parameter is required but not provided.\n\n"
+                "Available categorical columns in data:\n  "
+                + ", ".join([col for col in adata.obs.columns if adata.obs[col].dtype.name in ['object', 'category']][:10])
+                + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
+            )
 
+    enrichment_key = f"{cluster_key}_nhood_enrichment"
     if enrichment_key not in adata.uns:
         raise DataNotFoundError(
             f"Neighborhood enrichment results not found. Expected key: {enrichment_key}"
@@ -2971,9 +3042,24 @@ async def create_co_occurrence_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create co-occurrence analysis visualization"""
-    cluster_key = params.cluster_key or "leiden"
-    co_occurrence_key = f"{cluster_key}_co_occurrence"
+    # Infer cluster_key from params or from available results in adata.uns
+    cluster_key = params.cluster_key
+    if not cluster_key:
+        # Try to infer from adata.uns keys
+        co_occurrence_keys = [k for k in adata.uns.keys() if k.endswith("_co_occurrence")]
+        if co_occurrence_keys:
+            cluster_key = co_occurrence_keys[0].replace("_co_occurrence", "")
+            if context:
+                await context.info(f"Inferred cluster_key: '{cluster_key}' from existing results")
+        else:
+            raise ValueError(
+                "cluster_key parameter is required but not provided.\n\n"
+                "Available categorical columns in data:\n  "
+                + ", ".join([col for col in adata.obs.columns if adata.obs[col].dtype.name in ['object', 'category']][:10])
+                + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
+            )
 
+    co_occurrence_key = f"{cluster_key}_co_occurrence"
     if co_occurrence_key not in adata.uns:
         raise DataNotFoundError(
             f"Co-occurrence results not found. Expected key: {co_occurrence_key}"
@@ -3042,9 +3128,24 @@ async def create_ripley_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create Ripley's function visualization"""
-    cluster_key = params.cluster_key or "leiden"
-    ripley_key = f"{cluster_key}_ripley_L"
+    # Infer cluster_key from params or from available results in adata.uns
+    cluster_key = params.cluster_key
+    if not cluster_key:
+        # Try to infer from adata.uns keys
+        ripley_keys = [k for k in adata.uns.keys() if k.endswith("_ripley_L")]
+        if ripley_keys:
+            cluster_key = ripley_keys[0].replace("_ripley_L", "")
+            if context:
+                await context.info(f"Inferred cluster_key: '{cluster_key}' from existing results")
+        else:
+            raise ValueError(
+                "cluster_key parameter is required but not provided.\n\n"
+                "Available categorical columns in data:\n  "
+                + ", ".join([col for col in adata.obs.columns if adata.obs[col].dtype.name in ['object', 'category']][:10])
+                + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
+            )
 
+    ripley_key = f"{cluster_key}_ripley_L"
     if ripley_key not in adata.uns:
         raise DataNotFoundError(
             f"Ripley analysis results not found. Expected key: {ripley_key}"
@@ -3139,9 +3240,24 @@ async def create_centrality_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create centrality scores visualization"""
-    cluster_key = params.cluster_key or "leiden"
-    centrality_key = f"{cluster_key}_centrality_scores"
+    # Infer cluster_key from params or from available results in adata.uns
+    cluster_key = params.cluster_key
+    if not cluster_key:
+        # Try to infer from adata.uns keys
+        centrality_keys = [k for k in adata.uns.keys() if k.endswith("_centrality_scores")]
+        if centrality_keys:
+            cluster_key = centrality_keys[0].replace("_centrality_scores", "")
+            if context:
+                await context.info(f"Inferred cluster_key: '{cluster_key}' from existing results")
+        else:
+            raise ValueError(
+                "cluster_key parameter is required but not provided.\n\n"
+                "Available categorical columns in data:\n  "
+                + ", ".join([col for col in adata.obs.columns if adata.obs[col].dtype.name in ['object', 'category']][:10])
+                + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
+            )
 
+    centrality_key = f"{cluster_key}_centrality_scores"
     if centrality_key not in adata.uns:
         raise DataNotFoundError(
             f"Centrality scores not found. Expected key: {centrality_key}"
@@ -3808,12 +3924,22 @@ async def create_enrichment_visualization(
     if params.plot_type == "violin" or (
         hasattr(params, "show_violin") and params.show_violin
     ):
-        # Determine grouping variable
-        group_by = (
-            params.cluster_key
-            if hasattr(params, "cluster_key") and params.cluster_key
-            else "leiden"
-        )
+        # Determine grouping variable - require explicit specification
+        if hasattr(params, "cluster_key") and params.cluster_key:
+            group_by = params.cluster_key
+        else:
+            # No cluster_key provided - show error with available options
+            categorical_cols = [
+                col for col in adata.obs.columns
+                if adata.obs[col].dtype.name in ['object', 'category']
+            ]
+            raise ValueError(
+                "❌ Enrichment violin plot requires 'cluster_key' parameter.\n\n"
+                f"Available categorical columns ({len(categorical_cols)} total):\n"
+                f"  {', '.join(categorical_cols[:15])}\n\n"
+                "🔧 SOLUTION: Specify cluster_key explicitly:\n"
+                "  params={'cluster_key': 'your_column_name'}"
+            )
 
         if group_by not in adata.obs.columns:
             raise DataNotFoundError(
