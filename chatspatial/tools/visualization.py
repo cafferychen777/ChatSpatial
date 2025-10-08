@@ -832,6 +832,9 @@ async def visualize_data(
                     plot_kwargs["color"] = feature
                     if feature in adata.var_names:
                         plot_kwargs["cmap"] = params.colormap
+                    elif feature in adata.obs.columns:
+                        # Ensure categorical features have proper colors
+                        _ensure_categorical_colors(adata, feature)
 
                 # Add size encoding if requested
                 if params.size_by:
@@ -3158,7 +3161,7 @@ async def create_ripley_visualization(
         fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
 
         sq.pl.ripley(
-            adata, cluster_key=cluster_key, mode="L", plot_sims=True, ax=ax, show=False
+            adata, cluster_key=cluster_key, mode="L", plot_sims=True, ax=ax
         )
 
         title = params.title or f"Ripley's L Function ({cluster_key})"
@@ -3170,7 +3173,7 @@ async def create_ripley_visualization(
             f"Ripley's L function visualization failed: {e}. "
             f"This requires squidpy for proper spatial statistics calculation. "
             f"Please install squidpy (pip install squidpy) and ensure Ripley analysis "
-            f"has been performed first using analyze_spatial_data with analysis_type='ripley'."
+            f"has been performed first using analyze_spatial_statistics with analysis_type='ripley'."
         )
         if context:
             await context.error(error_msg)

@@ -444,8 +444,8 @@ class SpatialMCPAdapter:
                 idempotent_hint=False,
                 open_world_hint=True,
             ),
-            "analyze_spatial_data": MCPToolMetadata(
-                name="analyze_spatial_data",
+            "analyze_spatial_statistics": MCPToolMetadata(
+                name="analyze_spatial_statistics",
                 title="Spatial Pattern Analysis",
                 description="Analyze spatial patterns and correlations",
                 read_only_hint=False,

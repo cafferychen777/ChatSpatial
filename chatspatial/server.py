@@ -59,7 +59,7 @@ from .tools.annotation import annotate_cell_types
 from .tools.deconvolution import deconvolve_spatial_data
 from .tools.differential import differential_expression
 from .tools.spatial_genes import identify_spatial_genes
-from .tools.spatial_statistics import analyze_spatial_patterns
+from .tools.spatial_statistics import analyze_spatial_statistics as _analyze_spatial_statistics
 from .tools.trajectory import analyze_rna_velocity
 from .utils.error_handling import ProcessingError
 from .utils.mcp_parameter_handler import (
@@ -569,17 +569,17 @@ async def annotate_cells(
 @mcp.tool()
 @mcp_tool_error_handler()
 @manual_parameter_validation(("params", validate_spatial_analysis_params))
-async def analyze_spatial_data(
+async def analyze_spatial_statistics(
     data_id: str, params: Any = None, context: Context = None
 ) -> SpatialAnalysisResult:
-    """Analyze spatial patterns and relationships in the data
+    """Analyze spatial statistics and autocorrelation patterns
 
     Args:
         data_id: Dataset ID
         params: Analysis parameters
 
     Returns:
-        Spatial analysis result with statistics and optional visualization
+        Spatial statistics analysis result with statistics and optional visualization
 
     Notes:
         Available analysis types (implemented):
@@ -603,8 +603,8 @@ async def analyze_spatial_data(
     dataset_info = await data_manager.get_dataset(data_id)
     data_store = {data_id: dataset_info}
 
-    # Call spatial analysis function
-    result = await analyze_spatial_patterns(data_id, data_store, params, context)
+    # Call spatial statistics analysis function
+    result = await _analyze_spatial_statistics(data_id, data_store, params, context)
 
     # Update dataset in data manager
     data_manager.data_store[data_id] = data_store[data_id]
@@ -1525,8 +1525,8 @@ tool_metadata = {
         idempotent_hint=False,
         open_world_hint=True,
     ),
-    "analyze_spatial_data": MCPToolMetadata(
-        name="analyze_spatial_data",
+    "analyze_spatial_statistics": MCPToolMetadata(
+        name="analyze_spatial_statistics",
         title="Spatial Pattern Analysis",
         description="Analyze spatial patterns and correlations",
         read_only_hint=False,
