@@ -40,6 +40,8 @@ class AnnotationResult(BaseModel):
     Attributes:
         data_id: Dataset identifier
         method: Annotation method used
+        output_key: Column name in adata.obs where cell types are stored (e.g., "cell_type_tangram")
+        confidence_key: Column name in adata.obs where confidence scores are stored (e.g., "confidence_tangram")
         cell_types: List of unique cell types identified
         counts: Number of cells per cell type
         confidence_scores: Confidence scores per cell type (when available).
@@ -50,6 +52,8 @@ class AnnotationResult(BaseModel):
 
     data_id: str
     method: str
+    output_key: str  # Column name where cell types are stored
+    confidence_key: Optional[str] = None  # Column name where confidence scores are stored
     cell_types: List[str]
     counts: Dict[str, int]
     confidence_scores: Optional[Dict[str, float]] = None
@@ -106,10 +110,21 @@ class IntegrationResult(BaseModel):
 
 
 class DeconvolutionResult(BaseModel):
-    """Result of spatial deconvolution"""
+    """Result of spatial deconvolution
+
+    Attributes:
+        data_id: Dataset identifier
+        method: Deconvolution method used
+        dominant_type_key: Column name in adata.obs where dominant cell type is stored (e.g., "dominant_celltype_cell2location")
+        cell_types: List of cell types identified
+        n_cell_types: Number of cell types
+        proportions_key: Key in adata.obsm where cell type proportions are stored
+        statistics: Statistics about the deconvolution results
+    """
 
     data_id: str
     method: str
+    dominant_type_key: str  # Column name where dominant cell type is stored
     cell_types: List[str]
     n_cell_types: int
     proportions_key: str  # Key in adata.obsm where cell type proportions are stored
