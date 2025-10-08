@@ -10,8 +10,18 @@ from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Self
 
 
+class ColumnInfo(BaseModel):
+    """Metadata column information for dataset profiling"""
+
+    name: str
+    dtype: Literal["categorical", "numerical"]
+    n_unique: int
+    sample_values: Optional[List[str]] = None  # Sample values for categorical
+    range: Optional[Tuple[float, float]] = None  # Value range for numerical
+
+
 class SpatialDataset(BaseModel):
-    """Spatial transcriptomics dataset model"""
+    """Spatial transcriptomics dataset model with comprehensive metadata profile"""
 
     id: str
     name: str
@@ -19,6 +29,22 @@ class SpatialDataset(BaseModel):
         "10x_visium", "slide_seq", "merfish", "seqfish", "other", "h5ad", "auto"
     ]
     description: Optional[str] = None
+
+    # Basic statistics
+    n_cells: int = 0
+    n_genes: int = 0
+    spatial_coordinates_available: bool = False
+    tissue_image_available: bool = False
+
+    # Metadata profiles - let LLM interpret the structure
+    obs_columns: Optional[List[ColumnInfo]] = None  # Cell-level metadata
+    var_columns: Optional[List[ColumnInfo]] = None  # Gene-level metadata
+    obsm_keys: Optional[List[str]] = None  # Multi-dimensional data keys
+    uns_keys: Optional[List[str]] = None  # Unstructured data keys
+
+    # Gene expression profiles
+    top_highly_variable_genes: Optional[List[str]] = None
+    top_expressed_genes: Optional[List[str]] = None
 
 
 class AnalysisParameters(BaseModel):
@@ -63,12 +89,12 @@ class AnalysisParameters(BaseModel):
             "• For raw Visium/Xenium/MERFISH data: 'pearson_residuals' or 'log'\n"
             "• For pre-processed data: 'none'\n"
             "• For batch effect correction: use 'log' with batch correction or use_scvi_preprocessing=True"
-        )
+        ),
     )
     scale: bool = True
     n_hvgs: Annotated[int, Field(gt=0, le=5000)] = 2000
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
-    
+
     # ========== Normalization Control Parameters ==========
     normalize_target_sum: Optional[float] = Field(
         default=None,  # Adaptive default - uses median counts
@@ -97,9 +123,9 @@ class AnalysisParameters(BaseModel):
             "removing technical variation due to sequencing depth or capture efficiency. "
             "The choice affects the magnitude of normalized expression values and "
             "can influence downstream analyses like HVG selection and clustering."
-        )
+        ),
     )
-    
+
     scale_max_value: Optional[float] = Field(
         default=10.0,
         ge=1.0,  # Must be positive if specified
@@ -126,7 +152,7 @@ class AnalysisParameters(BaseModel):
             "values exceeding ±max_value standard deviations are clipped. "
             "This prevents a few extreme values from dominating PCA and clustering. "
             "Lower values increase robustness but may remove biological signal."
-        )
+        ),
     )
 
     # scVI preprocessing parameters
@@ -136,15 +162,14 @@ class AnalysisParameters(BaseModel):
     scvi_n_layers: int = 1
     scvi_dropout_rate: float = 0.1
     scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
-    
+
     # ResolVI preprocessing parameters
     use_resolvi_preprocessing: bool = Field(
         default=False,
-        description="Use ResolVI for spatial denoising (high-resolution spatial data only)"
+        description="Use ResolVI for spatial denoising (high-resolution spatial data only)",
     )
     resolvi_params: Optional["ResolVIPreprocessingParameters"] = Field(
-        default=None,
-        description="ResolVI-specific parameters (uses defaults if None)"
+        default=None, description="ResolVI-specific parameters (uses defaults if None)"
     )
 
     # Key naming parameters (configurable hard-coded keys)
@@ -153,7 +178,7 @@ class AnalysisParameters(BaseModel):
     )  # Key name for storing clustering results
     spatial_key: Optional[str] = Field(
         default=None,
-        description="Spatial coordinate key in obsm (auto-detected if None)"
+        description="Spatial coordinate key in obsm (auto-detected if None)",
     )  # Changed from hardcoded "spatial" to allow auto-detection
     batch_key: str = "batch"  # Key name for batch information in obs
 
@@ -165,7 +190,7 @@ class AnalysisParameters(BaseModel):
             "Default 15 aligns with Scanpy industry standard and UMAP developer recommendations (10-15 range). "
             "Larger values (20-50) preserve more global structure, smaller values (5-10) emphasize local patterns. "
             "For spatial transcriptomics: 15 captures meaningful tissue neighborhoods in both Visium (55μm) and Visium HD (2μm) data."
-        )
+        ),
     )
     clustering_resolution: Annotated[float, Field(gt=0.1, le=2.0)] = Field(
         default=1.0,
@@ -174,7 +199,7 @@ class AnalysisParameters(BaseModel):
             "Higher values (1.5-2.0) produce more numerous, smaller clusters; "
             "lower values (0.2-0.5) produce fewer, broader clusters. "
             "Common values: 0.25, 0.5, 1.0. Default 1.0 matches scanpy standard and works well for most spatial datasets."
-        )
+        ),
     )
 
     # Advanced preprocessing options
@@ -417,11 +442,9 @@ class AnnotationParameters(BaseModel):
     )
     mode: Literal["cells", "clusters"] = "cells"  # For Tangram method - mapping mode
     cluster_label: Optional[str] = (
-        None  # For Tangram method - cluster label in reference data
+        None  # For mLLMCellType method - cluster label in spatial data. Only required when method='mllmcelltype'
     )
-    cell_type_key: Optional[str] = (
-        None  # IMPORTANT: Column name for cell types in REFERENCE data. Common values: 'cell_type', 'cell_types', 'celltype'. Leave as None to auto-detect. Only set if you know the exact column name!
-    )
+    cell_type_key: str  # REQUIRED: Column name for cell types in REFERENCE data. LLM will infer this from metadata. Common values: 'cell_type', 'cell_types', 'celltype', 'annotation', 'label'
 
     # Tangram-specific parameters (aligned with official API)
     tangram_density_prior: Literal["rna_count_based", "uniform"] = (
@@ -515,13 +538,13 @@ class SpatialAnalysisParameters(BaseModel):
         "network_properties",
         "spatial_centrality",
     ] = "neighborhood"
-    cluster_key: str = "leiden"
+    cluster_key: str  # REQUIRED: Column name for cluster/cell type labels. LLM will infer from metadata. Common values: 'leiden', 'louvain', 'cell_type', 'seurat_clusters'
     n_neighbors: Annotated[int, Field(gt=0)] = 15
-    
+
     # Unified gene selection parameter (NEW)
     genes: Optional[List[str]] = Field(
-        None, 
-        description="Specific genes to analyze. If None, uses HVG or defaults based on analysis type"
+        None,
+        description="Specific genes to analyze. If None, uses HVG or defaults based on analysis type",
     )
 
     # Parallel processing parameters
@@ -570,7 +593,7 @@ class RNAVelocityParameters(BaseModel):
 
     # Velocity computation method selection
     method: Literal["scvelo", "velovi", "sirv"] = "scvelo"
-    
+
     # scVelo specific parameters
     mode: Literal["deterministic", "stochastic", "dynamical"] = "stochastic"
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
@@ -584,7 +607,7 @@ class RNAVelocityParameters(BaseModel):
     n_neighbors: Annotated[int, Field(gt=0)] = (
         30  # Number of neighbors for moments computation
     )
-    
+
     # VELOVI specific parameters
     velovi_n_hidden: int = 128
     velovi_n_latent: int = 10
@@ -671,7 +694,7 @@ class DeconvolutionParameters(BaseModel):
     reference_data_id: Optional[str] = (
         None  # Reference single-cell data for deconvolution
     )
-    cell_type_key: str = "cell_type"  # Key in reference data for cell type information
+    cell_type_key: str  # REQUIRED: Key in reference data for cell type information. LLM will infer from metadata. Common values: 'cell_type', 'celltype', 'annotation', 'label'
     n_top_genes: Annotated[int, Field(gt=0, le=5000)] = (
         2000  # Number of top genes to use
     )
@@ -754,7 +777,6 @@ class SpatialDomainParameters(BaseModel):
     )
     stagate_random_seed: Optional[int] = None  # Random seed (default: 42)
 
-    
     # Simple timeout configuration
     timeout: Optional[int] = None  # Timeout in seconds (default: 600)
 
@@ -920,7 +942,7 @@ class CellCommunicationParameters(BaseModel):
 
     # ========== Cell Type Control ==========
     # Cell type column control
-    cell_type_column: str = "cell_type"  # Which column to use for cell types
+    cell_type_column: str  # REQUIRED: Which column to use for cell types. LLM will infer from metadata. Common values: 'cell_type', 'celltype', 'leiden', 'louvain', 'seurat_clusters'
     cell_type_handling: Literal["require", "create_from_column", "skip_validation"] = (
         "require"
     )
@@ -979,7 +1001,7 @@ class CellCommunicationParameters(BaseModel):
         None  # Spatial radius for microenvironments
     )
     cellphonedb_debug_seed: Optional[int] = None  # Random seed for reproducible results
-    
+
     # ========== Gene Filtering for CellPhoneDB Compatibility (ULTRATHINK) ==========
     enable_gene_filtering: bool = (
         True  # Whether to enable automatic gene filtering for CellPhoneDB compatibility
@@ -997,7 +1019,7 @@ class CellCommunicationParameters(BaseModel):
 
 class EnrichmentParameters(BaseModel):
     """Parameters for gene set enrichment analysis"""
-    
+
     # REQUIRED: Species specification (no default value)
     species: Literal["human", "mouse", "zebrafish"]
     # Must explicitly specify the species for gene set matching:
@@ -1019,17 +1041,19 @@ class EnrichmentParameters(BaseModel):
         None  # Gene sets to analyze
     )
     score_keys: Optional[Union[str, List[str]]] = None  # Names for gene signatures
-    
+
     # Gene set database - choose species-appropriate option
-    gene_set_database: Optional[Literal[
-        "GO_Biological_Process",          # Default (auto-adapts to species)
-        "GO_Molecular_Function",          # GO molecular function terms
-        "GO_Cellular_Component",          # GO cellular component terms
-        "KEGG_Pathways",                  # KEGG pathways (species-specific: human=2021, mouse=2019)
-        "Reactome_Pathways",              # Reactome pathway database (2022 version)
-        "MSigDB_Hallmark",                # MSigDB hallmark gene sets (2020 version)
-        "Cell_Type_Markers"               # Cell type marker genes
-    ]] = "GO_Biological_Process"
+    gene_set_database: Optional[
+        Literal[
+            "GO_Biological_Process",  # Default (auto-adapts to species)
+            "GO_Molecular_Function",  # GO molecular function terms
+            "GO_Cellular_Component",  # GO cellular component terms
+            "KEGG_Pathways",  # KEGG pathways (species-specific: human=2021, mouse=2019)
+            "Reactome_Pathways",  # Reactome pathway database (2022 version)
+            "MSigDB_Hallmark",  # MSigDB hallmark gene sets (2020 version)
+            "Cell_Type_Markers",  # Cell type marker genes
+        ]
+    ] = "GO_Biological_Process"
 
     # Spatial parameters (for spatial_enrichmap)
     spatial_key: str = "spatial"  # Key for spatial coordinates
@@ -1062,84 +1086,77 @@ class EnrichmentParameters(BaseModel):
 
 class ResolVIPreprocessingParameters(BaseModel):
     """ResolVI preprocessing parameters for high-resolution spatial transcriptomics
-    
-    ResolVI is a deep learning method for denoising and correcting molecular 
+
+    ResolVI is a deep learning method for denoising and correcting molecular
     misassignment in cellular-resolved spatial transcriptomics data.
-    
+
     Requirements:
     - High-resolution cellular-resolved spatial data (Xenium, MERFISH, CosMx, etc.)
-    - Real spatial coordinates 
+    - Real spatial coordinates
     - Raw count data (not log-transformed)
     - Minimum ~1000 cells recommended
     """
-    
+
     # Core model parameters
     n_latent: int = Field(
         default=30,
         gt=0,
         le=100,
-        description="Number of latent dimensions for ResolVI representation"
+        description="Number of latent dimensions for ResolVI representation",
     )
     n_hidden: int = Field(
         default=128,
         gt=0,
         le=512,
-        description="Number of hidden units in neural network layers"
+        description="Number of hidden units in neural network layers",
     )
     n_epochs: int = Field(
         default=100,
         gt=0,
         le=1000,
-        description="Number of training epochs (100 recommended by official docs)"
+        description="Number of training epochs (100 recommended by official docs)",
     )
-    
+
     # Data specifications
     spatial_key: Optional[str] = Field(
         default=None,
-        description="Spatial coordinate key in obsm (auto-detected if None)"
+        description="Spatial coordinate key in obsm (auto-detected if None)",
     )
     count_layer: Optional[str] = Field(
-        default=None,
-        description="Layer containing count data (uses X if None)"
+        default=None, description="Layer containing count data (uses X if None)"
     )
-    
+
     # Semi-supervised options
     labels_key: Optional[str] = Field(
-        default=None,
-        description="Cell type labels column for semi-supervised mode"
+        default=None, description="Cell type labels column for semi-supervised mode"
     )
     batch_key: Optional[str] = Field(
-        default=None,
-        description="Batch key for multi-sample integration"
+        default=None, description="Batch key for multi-sample integration"
     )
     semisupervised: bool = Field(
-        default=False,
-        description="Enable semi-supervised mode with cell type labels"
+        default=False, description="Enable semi-supervised mode with cell type labels"
     )
-    
+
     # Output options
     compute_corrected_counts: bool = Field(
-        default=True,
-        description="Compute and store molecularly corrected counts"
+        default=True, description="Compute and store molecularly corrected counts"
     )
     compute_differential_abundance: bool = Field(
-        default=False,
-        description="Enable differential abundance computation"
+        default=False, description="Enable differential abundance computation"
     )
-    
+
     # Hardware configuration
     use_gpu: bool = Field(
-        default=False,
-        description="Use GPU acceleration (highly recommended for speed)"
+        default=False, description="Use GPU acceleration (highly recommended for speed)"
     )
-    
+
     # Data validation
     require_spatial: bool = Field(
         default=True,
-        description="Require real spatial coordinates (should always be True for ResolVI)"
+        description="Require real spatial coordinates (should always be True for ResolVI)",
     )
     min_cells: int = Field(
         default=1000,
         gt=0,
-        description="Minimum cells required for meaningful ResolVI analysis"
+        description="Minimum cells required for meaningful ResolVI analysis",
     )
