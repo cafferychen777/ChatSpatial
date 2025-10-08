@@ -1027,16 +1027,26 @@ async def visualize_data(
                 await context.info("Creating heatmap plot")
 
             # For heatmap, we need highly variable genes for meaningful clustering
-            if (
-                "highly_variable" not in adata.var
-                or not adata.var["highly_variable"].any()
-            ):
+            hvg_exists = "highly_variable" in adata.var
+            hvg_any = adata.var["highly_variable"].any() if hvg_exists else False
+
+            if not hvg_exists or not hvg_any:
+                # Provide detailed diagnostic information
+                diagnostic_info = f"\n📋 DIAGNOSTIC INFO:\n"
+                diagnostic_info += f"  - 'highly_variable' column exists: {hvg_exists}\n"
+                if hvg_exists:
+                    diagnostic_info += f"  - Number of HVGs marked: {adata.var['highly_variable'].sum()}\n"
+                    diagnostic_info += f"  - Total genes in dataset: {adata.n_vars}\n"
+                    diagnostic_info += f"  - HVG column dtype: {adata.var['highly_variable'].dtype}\n"
+                diagnostic_info += f"  - Available var columns: {list(adata.var.columns)[:10]}\n"
+
                 raise ValueError(
                     "❌ Heatmap requires highly variable genes but none found.\n\n"
                     "🔧 SOLUTIONS:\n"
                     "1. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n"
                     "2. Specify genes: visualize_data(data_id, params={'feature': ['CD3D']})\n"
-                    "3. Use spatial plot: visualize_data(data_id, params={'plot_type': 'spatial'})"
+                    "3. Use spatial plot: visualize_data(data_id, params={'plot_type': 'spatial'})\n"
+                    + diagnostic_info
                 )
 
             # Create heatmap of top genes across groups
