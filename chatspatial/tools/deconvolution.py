@@ -1214,7 +1214,7 @@ def deconvolve_rctd(
 async def deconvolve_spatial_data(
     data_id: str,
     data_store: Dict[str, Any],
-    params: DeconvolutionParameters = DeconvolutionParameters(),
+    params: DeconvolutionParameters,  # No default - must be provided by caller (LLM)
     context: Optional[Context] = None,
 ) -> DeconvolutionResult:
     """Deconvolve spatial transcriptomics data to estimate cell type proportions

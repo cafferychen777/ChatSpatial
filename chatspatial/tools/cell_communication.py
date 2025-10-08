@@ -259,7 +259,7 @@ async def _prepare_data_with_user_control(
 async def analyze_cell_communication(
     data_id: str,
     data_store: Dict[str, Any],
-    params: CellCommunicationParameters = CellCommunicationParameters(),
+    params: CellCommunicationParameters,  # No default - must be provided by caller (LLM)
     context: Optional[Context] = None,
 ) -> CellCommunicationResult:
     """Analyze cell-cell communication in spatial transcriptomics data
