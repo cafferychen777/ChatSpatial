@@ -282,6 +282,13 @@ async def visualize_data(
             "feature": ["Fn1^Cd79a", "Vegfa^Nrp2"]  # Will be parsed automatically
         }
 
+        # Visualize spatial analysis results (Ripley, neighborhood enrichment, etc.)
+        params = {
+            "plot_type": "spatial_analysis",
+            "analysis_type": "ripley",  # neighborhood, co_occurrence, ripley, moran, centrality, getis_ord
+            "cluster_key": "leiden"
+        }
+
         # NOTE: This tool does NOT provide demo/default data for scientific integrity.
         # All visualizations must be based on actual experimental results.
     """

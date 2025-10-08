@@ -263,7 +263,7 @@ class VisualizationParameters(BaseModel):
     colormap: str = "viridis"
 
     # Spatial analysis visualization parameters
-    analysis_sub_type: Optional[
+    analysis_type: Optional[
         Literal[
             "neighborhood",
             "co_occurrence",
@@ -274,7 +274,7 @@ class VisualizationParameters(BaseModel):
         ]
     ] = Field(
         None,
-        description="Sub-type for spatial_analysis plot type. Determines which spatial analysis result to visualize.",
+        description="Analysis type for spatial_analysis plot type. Determines which spatial analysis result to visualize.",
     )
     cluster_key: Optional[str] = Field(
         None,
@@ -392,11 +392,11 @@ class VisualizationParameters(BaseModel):
 
         # Spatial analysis validation
         if self.plot_type == "spatial_analysis":
-            if not self.analysis_sub_type or (
-                isinstance(self.analysis_sub_type, str)
-                and not self.analysis_sub_type.strip()
+            if not self.analysis_type or (
+                isinstance(self.analysis_type, str)
+                and not self.analysis_type.strip()
             ):
-                available_subtypes = [
+                available_types = [
                     "neighborhood",
                     "co_occurrence",
                     "ripley",
@@ -405,9 +405,9 @@ class VisualizationParameters(BaseModel):
                     "getis_ord",
                 ]
                 raise ValueError(
-                    f"Parameter dependency error: analysis_sub_type is required when plot_type='spatial_analysis'.\n"
-                    f"Available analysis types: {', '.join(available_subtypes)}\n"
-                    f"Example usage: VisualizationParameters(plot_type='spatial_analysis', analysis_sub_type='neighborhood')\n"
+                    f"Parameter dependency error: analysis_type is required when plot_type='spatial_analysis'.\n"
+                    f"Available analysis types: {', '.join(available_types)}\n"
+                    f"Example usage: VisualizationParameters(plot_type='spatial_analysis', analysis_type='neighborhood')\n"
                     f"For more details, see spatial analysis documentation."
                 )
 

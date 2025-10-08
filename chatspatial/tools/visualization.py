@@ -2824,11 +2824,11 @@ async def create_rna_velocity_visualization(
 async def create_spatial_analysis_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create spatial analysis visualization based on analysis_sub_type
+    """Create spatial analysis visualization based on analysis_type
 
     Args:
         adata: AnnData object with spatial analysis results
-        params: Visualization parameters including analysis_sub_type
+        params: Visualization parameters including analysis_type
         context: MCP context
 
     Returns:
@@ -2836,26 +2836,26 @@ async def create_spatial_analysis_visualization(
     """
     if context:
         await context.info(
-            f"Creating {params.analysis_sub_type} spatial analysis visualization"
+            f"Creating {params.analysis_type} spatial analysis visualization"
         )
 
-    if params.analysis_sub_type == "neighborhood":
+    if params.analysis_type == "neighborhood":
         return await create_neighborhood_enrichment_visualization(
             adata, params, context
         )
-    elif params.analysis_sub_type == "co_occurrence":
+    elif params.analysis_type == "co_occurrence":
         return await create_co_occurrence_visualization(adata, params, context)
-    elif params.analysis_sub_type == "ripley":
+    elif params.analysis_type == "ripley":
         return await create_ripley_visualization(adata, params, context)
-    elif params.analysis_sub_type == "moran":
+    elif params.analysis_type == "moran":
         return await create_moran_visualization(adata, params, context)
-    elif params.analysis_sub_type == "centrality":
+    elif params.analysis_type == "centrality":
         return await create_centrality_visualization(adata, params, context)
-    elif params.analysis_sub_type == "getis_ord":
+    elif params.analysis_type == "getis_ord":
         return await create_getis_ord_visualization(adata, params, context)
     else:
         raise InvalidParameterError(
-            f"Unsupported analysis sub-type: {params.analysis_sub_type}"
+            f"Unsupported analysis type: {params.analysis_type}"
         )
 
 
