@@ -538,7 +538,7 @@ def _process_deconvolution_results_transparently(
 def deconvolve_cell2location(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
-    cell_type_key: str = "cell_type",
+    cell_type_key: str,  # REQUIRED - LLM will infer from metadata
     n_epochs: int = 10000,
     n_cells_per_spot: int = 10,
     use_gpu: bool = False,
@@ -550,7 +550,7 @@ def deconvolve_cell2location(
     Args:
         spatial_adata: Spatial transcriptomics AnnData object
         reference_adata: Reference single-cell RNA-seq AnnData object
-        cell_type_key: Key in reference_adata.obs for cell type information
+        cell_type_key: REQUIRED - Key in reference_adata.obs for cell type information. Common values: 'cell_type', 'celltype', 'annotation'
         n_epochs: Number of epochs for training
         n_cells_per_spot: Expected number of cells per spot
         use_gpu: Whether to use GPU for training
@@ -818,7 +818,7 @@ def is_rctd_available() -> Tuple[bool, str]:
 def deconvolve_rctd(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
-    cell_type_key: str = "cell_type",
+    cell_type_key: str,  # REQUIRED - LLM will infer from metadata
     mode: str = "full",
     max_cores: int = 4,
     confidence_threshold: float = 10.0,
@@ -1633,7 +1633,7 @@ async def deconvolve_spatial_data(
 async def deconvolve_destvi(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
-    cell_type_key: str = "cell_type",
+    cell_type_key: str,  # REQUIRED - LLM will infer from metadata
     n_epochs: int = 10000,
     n_hidden: int = 128,
     n_latent: int = 10,
@@ -1826,7 +1826,7 @@ async def deconvolve_destvi(
 async def deconvolve_stereoscope(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
-    cell_type_key: str = "cell_type",
+    cell_type_key: str,  # REQUIRED - LLM will infer from metadata
     n_epochs: int = 10000,
     learning_rate: float = 0.01,
     batch_size: int = 128,
@@ -2009,7 +2009,7 @@ def is_spotlight_available() -> Tuple[bool, str]:
 def deconvolve_spotlight(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
-    cell_type_key: str = "cell_type",
+    cell_type_key: str,  # REQUIRED - LLM will infer from metadata
     n_top_genes: int = 2000,
     min_common_genes: int = 100,
     context=None,
@@ -2254,7 +2254,7 @@ def deconvolve_spotlight(
 async def deconvolve_tangram(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
-    cell_type_key: str = "cell_type",
+    cell_type_key: str,  # REQUIRED - LLM will infer from metadata
     n_epochs: int = 1000,
     use_gpu: bool = False,
     context: Optional[Context] = None,
