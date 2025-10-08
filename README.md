@@ -135,10 +135,10 @@ which python
 **Step 3: Add ChatSpatial MCP Server**
 ```bash
 # Replace <PYTHON_PATH_FROM_STEP_2> with the actual path from step 2
-claude mcp add chatspatial <PYTHON_PATH_FROM_STEP_2> -- -m chatspatial
+claude mcp add chatspatial <PYTHON_PATH_FROM_STEP_2> -- -m chatspatial server
 
 # Example with real path:
-# claude mcp add chatspatial /Users/yourname/Research/chatspatial_env/bin/python -- -m chatspatial
+# claude mcp add chatspatial /Users/yourname/Research/chatspatial_env/bin/python -- -m chatspatial server
 ```
 
 **Step 4: Verify Installation**
