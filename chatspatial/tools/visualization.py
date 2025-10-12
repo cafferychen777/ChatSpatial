@@ -50,9 +50,6 @@ from ._color_utils import _ensure_categorical_colors
 # Import publication export utilities
 
 
-
-
-
 # Helper function to create a figure with the right size
 def create_figure(figsize=(10, 8)):
     """Create a matplotlib figure with the right size and style"""
@@ -187,13 +184,18 @@ def plot_spatial_feature(
         "title": "",  # We will set the title manually
     }
 
-    # Both functions accept 'size' parameter
-    if params.spot_size:
-        plot_kwargs["size"] = params.spot_size
-
+    # For spatial plots with tissue image, use 'spot_size'; for embedding use 'size'
     if has_image:
+        # Add alpha_img for tissue background dimming (only supported by sc.pl.spatial)
+        plot_kwargs["alpha_img"] = params.alpha_img
+        # Only add spot_size if explicitly set (None = auto-determined, recommended)
+        if params.spot_size is not None:
+            plot_kwargs["spot_size"] = params.spot_size
         sc.pl.spatial(adata, img_key="hires", **plot_kwargs)
     else:
+        # For embeddings, use 'size' parameter if spot_size is set
+        if params.spot_size is not None:
+            plot_kwargs["size"] = params.spot_size
         sc.pl.embedding(adata, basis="spatial", **plot_kwargs)
         ax.set_aspect("equal")
 
@@ -562,36 +564,67 @@ async def visualize_data(
                 )
 
                 # Create spatial plot
-                # For 10x Visium data
-                if "spatial" in adata.uns and "images" in adata.uns["spatial"]:
+                # For 10x Visium data - check if any sample has tissue images
+                has_tissue_image = False
+                if "spatial" in adata.uns:
+                    for key in adata.uns["spatial"].keys():
+                        if "images" in adata.uns["spatial"][key]:
+                            has_tissue_image = True
+                            break
+
+                if has_tissue_image:
+
+                    # Get sample key for library_id
+                    sample_key = (
+                        list(adata.uns["spatial"].keys())[0]
+                        if "spatial" in adata.uns
+                        else None
+                    )
+
+                    # Build common kwargs for sc.pl.spatial with beautification parameters
+                    # NOTE: Do NOT use return_fig=True as it breaks spot rendering!
+                    spatial_kwargs = {
+                        "img_key": "hires",
+                        "show": False,
+                        # NO return_fig parameter - it breaks spot rendering!
+                        "alpha": params.alpha,  # Spot transparency
+                        "alpha_img": params.alpha_img,  # Dim background for better visibility
+                        "frameon": params.show_axes,
+                    }
+
+                    # Only add spot_size if explicitly set (None = auto-determined, recommended)
+                    if params.spot_size is not None:
+                        spatial_kwargs["spot_size"] = params.spot_size
+
+                    # Add library_id for multi-sample reliability
+                    if sample_key:
+                        spatial_kwargs["library_id"] = sample_key
+
+                    # Add outline parameters if requested
+                    if params.add_outline:
+                        spatial_kwargs["na_in_legend"] = False
+
                     # With tissue image background
                     if feature:
                         if feature in adata.var_names:
-                            # Gene expression
-                            fig = sc.pl.spatial(
-                                adata,
-                                img_key="hires",
-                                color=feature,
-                                cmap=params.colormap,
-                                show=False,
-                                return_fig=True,
-                            )
+                            # Gene expression (continuous data)
+                            spatial_kwargs["cmap"] = params.colormap or "viridis"
+                            sc.pl.spatial(adata, color=feature, **spatial_kwargs)
                         elif feature in adata.obs.columns:
-                            # Observation annotation (like clusters or cell types)
-                            # Ensure categorical features have proper colors
+                            # Observation annotation (categorical data)
                             _ensure_categorical_colors(adata, feature)
-                            fig = sc.pl.spatial(
-                                adata,
-                                img_key="hires",
-                                color=feature,
-                                show=False,
-                                return_fig=True,
-                            )
+                            # Use palette for categorical data
+                            if pd.api.types.is_categorical_dtype(adata.obs[feature]):
+                                spatial_kwargs["palette"] = params.colormap or "Set2"
+                            else:
+                                spatial_kwargs["cmap"] = params.colormap or "viridis"
+                            sc.pl.spatial(adata, color=feature, **spatial_kwargs)
                     else:
                         # Just tissue image with spots
-                        fig = sc.pl.spatial(
-                            adata, img_key="hires", show=False, return_fig=True
-                        )
+                        sc.pl.spatial(adata, **spatial_kwargs)
+
+                    # Get figure using plt.gcf() since we didn't use return_fig
+                    fig = plt.gcf()
 
                     # Add outline/contour overlay if requested
                     if (
@@ -1030,7 +1063,7 @@ async def visualize_data(
 
             if not hvg_exists or not hvg_any:
                 # Provide detailed diagnostic information
-                diagnostic_info = f"\n📋 DIAGNOSTIC INFO:\n"
+                diagnostic_info = "\n📋 DIAGNOSTIC INFO:\n"
                 diagnostic_info += (
                     f"  - 'highly_variable' column exists: {hvg_exists}\n"
                 )
@@ -1259,7 +1292,7 @@ async def visualize_data(
                     )
 
                 # Fallback: create custom heatmap using seaborn
-                import pandas as pd
+                # Note: pandas and seaborn already imported at module level
                 import seaborn as sns
 
                 # Get expression data
@@ -5108,8 +5141,8 @@ async def save_visualization(
         file_path = output_path / filename
 
         # Try to get cached figure object for high-quality export
+
         from ..utils.image_utils import get_cached_figure, load_figure_pickle
-        import matplotlib.pyplot as plt
 
         cached_fig = None
 
@@ -5124,10 +5157,14 @@ async def save_visualization(
                     try:
                         cached_fig = load_figure_pickle(pickle_path)
                         if context:
-                            await context.info(f"Loaded figure from pickle cache for high-quality export")
+                            await context.info(
+                                "Loaded figure from pickle cache for high-quality export"
+                            )
                     except Exception as e:
                         if context:
-                            await context.warning(f"Failed to load figure from pickle: {str(e)}")
+                            await context.warning(
+                                f"Failed to load figure from pickle: {str(e)}"
+                            )
 
         # If we have the original figure, regenerate at high quality
         if cached_fig is not None:
@@ -5141,8 +5178,8 @@ async def save_visualization(
                     str(file_path),
                     format=format,
                     dpi=dpi,
-                    bbox_inches='tight',
-                    facecolor='white'
+                    bbox_inches="tight",
+                    facecolor="white",
                 )
 
                 # Get file size
@@ -5164,7 +5201,7 @@ async def save_visualization(
         # Fallback: Save cached compressed version
         if context:
             await context.warning(
-                f"⚠️  Original figure not found in cache. Saving compressed version from MCP transmission."
+                "⚠️  Original figure not found in cache. Saving compressed version from MCP transmission."
             )
             if dpi > 100:
                 await context.warning(

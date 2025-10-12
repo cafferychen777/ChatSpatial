@@ -300,9 +300,15 @@ class VisualizationParameters(BaseModel):
     figure_size: Optional[Tuple[int, int]] = (
         None  # (width, height) - auto-determined if None
     )
-    dpi: int = 100
-    alpha: float = 0.8
-    spot_size: Optional[float] = None  # Auto-determined if None
+    dpi: int = 300  # Publication quality (Nature/Cell standard)
+    alpha: float = 0.9  # Spot transparency (higher = more opaque)
+    spot_size: Optional[float] = None  # Auto-determined if None (recommended)
+    alpha_img: float = Field(
+        0.5,
+        ge=0.0,
+        le=1.0,
+        description="Background tissue image transparency (lower = dimmer, helps spots stand out)",
+    )
 
     # Color parameters
     vmin: Optional[float] = None  # Minimum value for color scale
@@ -333,7 +339,9 @@ class VisualizationParameters(BaseModel):
         False, description="Add cluster outline/contour overlay to spatial plots"
     )
     outline_color: str = Field("black", description="Color for cluster outlines")
-    outline_width: float = Field(1.0, description="Line width for cluster outlines")
+    outline_width: float = Field(
+        0.4, description="Line width for cluster outlines (Nature/Cell standard)"
+    )
     outline_cluster_key: Optional[str] = Field(
         None, description="Cluster key for outlines (e.g., 'leiden')"
     )
