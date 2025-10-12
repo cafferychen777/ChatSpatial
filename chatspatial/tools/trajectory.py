@@ -28,8 +28,12 @@ from mcp.server.fastmcp import Context
 
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
-from ..utils.error_handling import (DataNotFoundError, ProcessingError,
-                                    suppress_output, validate_adata)
+from ..utils.error_handling import (
+    DataNotFoundError,
+    ProcessingError,
+    suppress_output,
+    validate_adata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -777,6 +781,57 @@ async def analyze_trajectory(
 
     # ✅ COW FIX: No need to update data_store - changes already reflected via direct reference
     # All modifications to adata.obs/uns/obsm are in-place and preserved
+
+    # Store scientific metadata for reproducibility
+    from ..utils.metadata_storage import store_analysis_metadata
+
+    # Determine results keys based on method
+    results_keys_dict = {"obs": [pseudotime_key], "obsm": [], "uns": []}
+
+    if method_used == "cellrank":
+        results_keys_dict["obs"].extend(["terminal_states", "macrostates"])
+        results_keys_dict["obsm"].append("fate_probabilities")
+        results_keys_dict["uns"].append("velocity_method")
+    elif method_used == "palantir":
+        results_keys_dict["obsm"].append("palantir_branch_probs")
+    elif method_used == "dpt":
+        results_keys_dict["uns"].append("iroot")
+
+    # Prepare parameters dict
+    parameters_dict = {"spatial_weight": params.spatial_weight}
+    if method_used == "cellrank":
+        parameters_dict.update(
+            {
+                "kernel_weights": params.cellrank_kernel_weights,
+                "n_states": params.cellrank_n_states,
+            }
+        )
+    elif method_used == "palantir":
+        parameters_dict.update(
+            {
+                "n_diffusion_components": params.palantir_n_diffusion_components,
+                "num_waypoints": params.palantir_num_waypoints,
+            }
+        )
+
+    if params.root_cells:
+        parameters_dict["root_cells"] = params.root_cells
+
+    # Prepare statistics dict
+    statistics_dict = {
+        "velocity_computed": has_velocity,
+        "pseudotime_key": pseudotime_key,
+    }
+
+    # Store metadata
+    store_analysis_metadata(
+        adata,
+        analysis_name=f"trajectory_{method_used}",
+        method=method_used,
+        parameters=parameters_dict,
+        results_keys=results_keys_dict,
+        statistics=statistics_dict,
+    )
 
     # Return result with metadata only (no visualization)
     return TrajectoryResult(

@@ -1876,6 +1876,74 @@ async def annotate_cell_types(
             f"Use visualize_data tool with feature='{output_key}' to visualize results"
         )
 
+    # Store scientific metadata for reproducibility
+    from ..utils.metadata_storage import store_analysis_metadata
+
+    # Extract results keys
+    results_keys_dict = {"obs": [output_key], "obsm": [], "uns": []}
+    if confidence_key:
+        results_keys_dict["obs"].append(confidence_key)
+
+    # Add method-specific result keys
+    if params.method == "tangram":
+        results_keys_dict["obsm"].extend(
+            ["tangram_ct_pred", "tangram_gene_predictions"]
+        )
+
+    # Prepare parameters dict (only scientifically important ones)
+    parameters_dict = {}
+    if params.method == "tangram":
+        parameters_dict = {
+            "device": params.tangram_device,
+            "n_epochs": params.tangram_num_epochs,
+            "learning_rate": params.tangram_learning_rate,
+        }
+    elif params.method == "scanvi":
+        parameters_dict = {
+            "n_latent": params.scanvi_n_latent,
+            "n_hidden": params.scanvi_n_hidden,
+            "dropout_rate": params.scanvi_dropout_rate,
+            "use_scvi_pretrain": params.scanvi_use_scvi_pretrain,
+        }
+    elif params.method == "mllmcelltype":
+        parameters_dict = {
+            "n_marker_genes": params.mllm_n_marker_genes,
+            "species": params.mllm_species,
+            "provider": params.mllm_provider,
+            "model": params.mllm_model,
+            "use_consensus": params.mllm_use_consensus,
+        }
+    elif params.method == "sctype":
+        parameters_dict = {
+            "tissue": params.sctype_tissue,
+            "scaled": params.sctype_scaled,
+        }
+    elif params.method == "singler":
+        parameters_dict = {
+            "fine_tune": params.singler_fine_tune,
+        }
+
+    # Prepare statistics dict
+    statistics_dict = {"n_cell_types": len(cell_types)}
+    if tangram_mapping_score is not None:
+        statistics_dict["mapping_score"] = tangram_mapping_score
+
+    # Prepare reference info if applicable
+    reference_info_dict = None
+    if params.method in ["tangram", "scanvi", "singler"] and params.reference_data_id:
+        reference_info_dict = {"reference_data_id": params.reference_data_id}
+
+    # Store metadata
+    store_analysis_metadata(
+        adata,
+        analysis_name=f"annotation_{params.method}",
+        method=params.method,
+        parameters=parameters_dict,
+        results_keys=results_keys_dict,
+        statistics=statistics_dict,
+        reference_info=reference_info_dict,
+    )
+
     # Return result
     return AnnotationResult(
         data_id=data_id,

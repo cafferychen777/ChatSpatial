@@ -173,9 +173,14 @@ async def _identify_spatial_genes_gaston(
     if GASTON_AVAILABLE is None:
         try:
             import gaston  # noqa: F401
-            from gaston import (binning_and_plotting, dp_related,  # noqa: F401
-                                neural_net, process_NN_output, segmented_fit,
-                                spatial_gene_classification)
+            from gaston import (
+                binning_and_plotting,
+                dp_related,  # noqa: F401
+                neural_net,
+                process_NN_output,
+                segmented_fit,
+                spatial_gene_classification,
+            )
 
             GASTON_AVAILABLE = True
             GASTON_IMPORT_ERROR = None
@@ -467,6 +472,31 @@ async def _identify_spatial_genes_spatialde(
     adata.var["spatialde_qval"] = results.set_index("g")["qval"]
     adata.var["spatialde_l"] = results.set_index("g")["l"]
 
+    # Store scientific metadata for reproducibility
+    from ..utils.metadata_storage import store_analysis_metadata
+
+    store_analysis_metadata(
+        adata,
+        analysis_name="spatial_genes_spatialde",
+        method="spatialde",
+        parameters={
+            "kernel": params.spatialde_kernel,
+            "normalized": params.spatialde_normalized,
+        },
+        results_keys={
+            "var": ["spatialde_pval", "spatialde_qval", "spatialde_l"],
+            "obs": [],
+            "obsm": [],
+            "uns": [],
+        },
+        statistics={
+            "n_genes_analyzed": len(results),
+            "n_significant_genes": len(
+                results[results["qval"] < params.pvalue_threshold]
+            ),
+        },
+    )
+
     # Create gene statistics dictionaries
     gene_statistics = dict(zip(results["g"], results["LLR"]))  # Log-likelihood ratio
     p_values = dict(zip(results["g"], results["pval"]))
@@ -733,8 +763,12 @@ async def _analyze_spatial_patterns(
     import numpy as np
     import pandas as pd
     import torch
-    from gaston import (binning_and_plotting, dp_related, segmented_fit,
-                        spatial_gene_classification)
+    from gaston import (
+        binning_and_plotting,
+        dp_related,
+        segmented_fit,
+        spatial_gene_classification,
+    )
 
     if context:
         await context.info("Processing neural network output following GASTON tutorial")
@@ -1103,7 +1137,7 @@ async def _identify_spatial_genes_sparkx(
                 raise ImportError(
                     f"SPARK not installed in R. Install with: install.packages('SPARK'). Error: {e}"
                 )
-            
+
             # Convert to R format (already in context)
             # Count matrix: genes × spots
             r_counts = ro.r.matrix(
@@ -1124,7 +1158,9 @@ async def _identify_spatial_genes_sparkx(
             )
 
             if context:
-                await context.info("Running SPARK-X analysis using sparkx function (output suppressed for MCP compatibility)")
+                await context.info(
+                    "Running SPARK-X analysis using sparkx function (output suppressed for MCP compatibility)"
+                )
 
             try:
                 # Execute SPARK-X analysis inside context (FIX for contextvars issue)
@@ -1183,7 +1219,9 @@ async def _identify_spatial_genes_sparkx(
                         )
 
                         if context:
-                            await context.info(f"Extracted results for {len(results_df)} genes")
+                            await context.info(
+                                f"Extracted results for {len(results_df)} genes"
+                            )
                     else:
                         # SPARK-X results format not recognized - fail honestly instead of fake results
                         error_msg = (
@@ -1234,6 +1272,31 @@ async def _identify_spatial_genes_sparkx(
         dict(zip(results_df["gene"], results_df["adjusted_pvalue"])), name="sparkx_qval"
     ).reindex(adata.var_names, fill_value=1.0)
 
+    # Store scientific metadata for reproducibility
+    from ..utils.metadata_storage import store_analysis_metadata
+
+    store_analysis_metadata(
+        adata,
+        analysis_name="spatial_genes_sparkx",
+        method="sparkx",
+        parameters={
+            "num_core": params.sparkx_num_core,
+            "percentage": params.sparkx_percentage,
+            "min_total_counts": params.sparkx_min_total_counts,
+            "option": params.sparkx_option,
+        },
+        results_keys={
+            "var": ["sparkx_pval", "sparkx_qval"],
+            "obs": [],
+            "obsm": [],
+            "uns": [],
+        },
+        statistics={
+            "n_genes_analyzed": len(results_df),
+            "n_significant_genes": len(significant_genes),
+        },
+    )
+
     # Create gene statistics dictionaries
     gene_statistics = dict(zip(results_df["gene"], results_df["pvalue"]))
     p_values = dict(zip(results_df["gene"], results_df["pvalue"]))
@@ -1247,7 +1310,11 @@ async def _identify_spatial_genes_sparkx(
             "genes": top_results["gene"].tolist(),
             "pvalues": top_results["pvalue"].tolist(),
             "adjusted_pvalues": top_results["adjusted_pvalue"].tolist(),
-            "combined_pvalues": top_results["combined_pvalue"].tolist() if "combined_pvalue" in top_results.columns else None,
+            "combined_pvalues": (
+                top_results["combined_pvalue"].tolist()
+                if "combined_pvalue" in top_results.columns
+                else None
+            ),
         },
         "method": "sparkx",
         "num_core": params.sparkx_num_core,

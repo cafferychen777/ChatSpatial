@@ -11,6 +11,7 @@ from mcp.server.fastmcp import Context
 
 from ..models.analysis import IntegrationResult
 from ..models.data import IntegrationParameters
+from ..utils.metadata_storage import store_analysis_metadata
 
 
 def validate_data_quality(adata, min_cells=10, min_genes=10):
@@ -245,6 +246,31 @@ def integrate_multiple_samples(
 
         # Calculate UMAP embedding to visualize integration effect
         sc.tl.umap(combined)
+
+        # Store metadata for scientific provenance tracking
+        n_batches = combined.obs[batch_key].nunique()
+        batch_sizes = combined.obs[batch_key].value_counts().to_dict()
+
+        store_analysis_metadata(
+            combined,
+            analysis_name="integration_scvi",
+            method="scvi",
+            parameters={
+                "batch_key": batch_key,
+                "n_hidden": 128,
+                "n_latent": 10,
+                "n_layers": 1,
+                "dropout_rate": 0.1,
+                "gene_likelihood": "zinb",
+            },
+            results_keys={"obsm": ["X_scVI"], "uns": ["neighbors"]},
+            statistics={
+                "n_batches": n_batches,
+                "batch_sizes": batch_sizes,
+                "n_cells_total": combined.n_obs,
+                "n_genes": combined.n_vars,
+            },
+        )
 
         return combined
 
@@ -516,6 +542,42 @@ def integrate_multiple_samples(
     # Calculate UMAP embedding to visualize integration effect
     sc.tl.umap(combined)
 
+    # Store metadata for scientific provenance tracking
+    # Determine which representation was used
+    if method == "harmony":
+        if "X_pca_harmony" in combined.obsm:
+            results_keys = {"obsm": ["X_pca_harmony"], "uns": ["neighbors"]}
+        else:
+            results_keys = {"obsm": ["X_harmony"], "uns": ["neighbors"]}
+    elif method == "bbknn":
+        results_keys = {"uns": ["neighbors"]}
+    elif method == "scanorama":
+        results_keys = {"obsm": ["X_scanorama"], "uns": ["neighbors"]}
+    else:
+        results_keys = {"obsm": ["X_pca"], "uns": ["neighbors"]}
+
+    # Get batch statistics
+    n_batches = combined.obs[batch_key].nunique()
+    batch_sizes = combined.obs[batch_key].value_counts().to_dict()
+
+    store_analysis_metadata(
+        combined,
+        analysis_name=f"integration_{method}",
+        method=method,
+        parameters={
+            "batch_key": batch_key,
+            "n_pcs": n_pcs,
+            "n_batches": n_batches,
+        },
+        results_keys=results_keys,
+        statistics={
+            "n_batches": n_batches,
+            "batch_sizes": batch_sizes,
+            "n_cells_total": combined.n_obs,
+            "n_genes": combined.n_vars,
+        },
+    )
+
     return combined
 
 
@@ -585,6 +647,28 @@ def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch
         n_cells = np.sum(batch_idx)
         combined_adata.obsm["spatial_aligned"][start_idx : start_idx + n_cells] = coords
         start_idx += n_cells
+
+    # Store metadata for scientific provenance tracking
+    n_batches = len(batches)
+    batch_sizes = {
+        batch: np.sum(combined_adata.obs[batch_key] == batch) for batch in batches
+    }
+
+    store_analysis_metadata(
+        combined_adata,
+        analysis_name="spatial_alignment",
+        method="standardization",
+        parameters={
+            "batch_key": batch_key,
+            "reference_batch": reference_batch,
+        },
+        results_keys={"obsm": ["spatial_aligned"]},
+        statistics={
+            "n_batches": n_batches,
+            "batch_sizes": batch_sizes,
+            "reference_batch": reference_batch,
+        },
+    )
 
     return combined_adata
 

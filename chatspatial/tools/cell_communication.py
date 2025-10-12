@@ -22,8 +22,10 @@ except ImportError:
 
 # Import CellPhoneDB for cell communication analysis
 try:
-    from cellphonedb.src.core.methods import (cpdb_degs_analysis_method,
-                                              cpdb_statistical_analysis_method)
+    from cellphonedb.src.core.methods import (
+        cpdb_degs_analysis_method,
+        cpdb_statistical_analysis_method,
+    )
 
     CELLPHONEDB_AVAILABLE = True
 except ImportError:
@@ -421,6 +423,70 @@ async def analyze_cell_communication(
 
         # ✅ COW FIX: No need to update data_store - changes already reflected via direct reference
         # All modifications to adata.obs/uns/obsm are in-place and preserved
+
+        # Store scientific metadata for reproducibility
+        from ..utils.metadata_storage import store_analysis_metadata
+
+        # Determine database used
+        if params.method == "liana":
+            database = params.liana_resource
+        elif params.method == "cellphonedb":
+            database = "cellphonedb"
+        elif params.method == "cellchat_liana":
+            database = "cellchat"
+        else:
+            database = "unknown"
+
+        # Extract results keys
+        results_keys_dict = {"obs": [], "obsm": [], "uns": []}
+
+        if result_data.get("liana_results_key"):
+            results_keys_dict["uns"].append(result_data["liana_results_key"])
+        if result_data.get("liana_spatial_results_key"):
+            results_keys_dict["uns"].append(result_data["liana_spatial_results_key"])
+        if result_data.get("liana_spatial_scores_key"):
+            results_keys_dict["obsm"].append(result_data["liana_spatial_scores_key"])
+        if result_data.get("cellphonedb_results_key"):
+            results_keys_dict["uns"].append(result_data["cellphonedb_results_key"])
+
+        # Store metadata
+        store_analysis_metadata(
+            adata,
+            analysis_name=f"cell_communication_{params.method}",
+            method=params.method,
+            parameters={
+                "cell_type_column": params.cell_type_column,
+                "n_perms": (
+                    params.liana_n_perms
+                    if params.method in ["liana", "cellchat_liana"]
+                    else None
+                ),
+                "nz_prop": (
+                    params.liana_nz_prop
+                    if params.method in ["liana", "cellchat_liana"]
+                    else None
+                ),
+                "min_cells": params.min_cells,
+                "iterations": (
+                    params.cellphonedb_iterations
+                    if params.method == "cellphonedb"
+                    else None
+                ),
+                "threshold": (
+                    params.cellphonedb_threshold
+                    if params.method == "cellphonedb"
+                    else None
+                ),
+            },
+            results_keys=results_keys_dict,
+            statistics={
+                "n_lr_pairs": result_data["n_lr_pairs"],
+                "n_significant_pairs": result_data["n_significant_pairs"],
+                "analysis_type": result_data.get("analysis_type"),
+            },
+            species=params.species,
+            database=database,
+        )
 
         # Create result
         result = CellCommunicationResult(
@@ -992,7 +1058,6 @@ def _identify_problematic_genes(adata: Any, database_version: str = "5.0.1") -> 
     Returns:
         Dict with problematic gene information
     """
-    from typing import List, Set
 
     # Core problematic genes (must be removed for ICAM3_integrin_aDb2_complex error)
     core_problematic = {
@@ -1054,7 +1119,6 @@ def _smart_gene_filtering(
     Returns:
         Filtered AnnData object
     """
-    import asyncio
     from datetime import datetime
 
     # 1. Identify problematic genes
@@ -1147,8 +1211,7 @@ async def _analyze_communication_cellphonedb(
         import os
         import tempfile
 
-        from cellphonedb.src.core.methods import \
-            cpdb_statistical_analysis_method
+        from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
     except ImportError:
         raise ImportError(
             "CellPhoneDB is not installed. Please install it with: pip install cellphonedb"

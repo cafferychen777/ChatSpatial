@@ -31,13 +31,15 @@ import numpy as np
 import pandas as pd
 import squidpy as sq
 from mcp.server.fastmcp import Context
-from scipy.sparse import csr_matrix
-from sklearn.neighbors import NearestNeighbors
 
 from ..models.analysis import SpatialAnalysisResult
 from ..models.data import SpatialAnalysisParameters
-from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,
-                                    InvalidParameterError, ProcessingError)
+from ..utils.error_handling import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    InvalidParameterError,
+    ProcessingError,
+)
 
 # Import standardized utilities
 
@@ -199,10 +201,63 @@ async def analyze_spatial_statistics(
         # Add metadata
         result.update(
             {
-                "analysis_date": pd.Timestamp.now().isoformat(),
                 "n_cells": adata.n_obs,
                 "n_neighbors": params.n_neighbors,
             }
+        )
+
+        # Store scientific metadata for reproducibility
+        from ..utils.metadata_storage import store_analysis_metadata
+
+        # Determine results keys based on analysis type
+        results_keys_dict = {"obs": [], "var": [], "obsm": [], "uns": []}
+        if params.analysis_type in ["moran", "geary"]:
+            results_keys_dict["uns"].append(f"{params.analysis_type}s_i")
+        elif params.analysis_type == "local_moran":
+            results_keys_dict["obs"].extend(
+                [f"{params.genes}_local_moran" for params.genes in (params.genes or [])]
+            )
+        elif params.analysis_type == "getis_ord":
+            if params.genes:
+                for gene in params.genes:
+                    results_keys_dict["obs"].extend(
+                        [f"{gene}_getis_ord_z", f"{gene}_getis_ord_p"]
+                    )
+        elif params.analysis_type in ["neighborhood", "co_occurrence"]:
+            results_keys_dict["uns"].append(params.analysis_type)
+        elif params.analysis_type == "ripley":
+            results_keys_dict["uns"].append("ripley")
+        elif params.analysis_type == "centrality":
+            results_keys_dict["uns"].append("centrality_scores")
+
+        # Prepare parameters dict
+        parameters_dict = {
+            "n_neighbors": params.n_neighbors,
+        }
+        if cluster_key:
+            parameters_dict["cluster_key"] = cluster_key
+        if params.genes:
+            parameters_dict["genes"] = params.genes
+        if params.n_perms:
+            parameters_dict["n_perms"] = params.n_perms
+
+        # Extract statistics for metadata
+        statistics_dict = {
+            "n_cells": adata.n_obs,
+        }
+        if "n_significant" in result:
+            statistics_dict["n_significant"] = result["n_significant"]
+        if "mean_score" in result:
+            statistics_dict["mean_score"] = result["mean_score"]
+
+        # Store metadata
+        store_analysis_metadata(
+            adata,
+            analysis_name=f"spatial_stats_{params.analysis_type}",
+            method=params.analysis_type,
+            parameters=parameters_dict,
+            results_keys=results_keys_dict,
+            statistics=statistics_dict,
         )
 
         if context:

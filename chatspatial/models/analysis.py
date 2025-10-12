@@ -280,7 +280,6 @@ class EnrichmentResult(BaseModel):
 
     # Additional metadata
     parameters_used: Dict[str, Any]  # Parameters used for analysis
-    computation_time: float  # Time taken for computation
 
     class Config:
         arbitrary_types_allowed = True
@@ -320,7 +319,6 @@ class SpatialStatisticsIntegrationResult(BaseModel):
 
     data_id: str
     analysis_name: str
-    timestamp: str
     integration_key: str  # Key prefix used for storing integrated results
 
     # Dataset information
@@ -337,10 +335,6 @@ class SpatialStatisticsIntegrationResult(BaseModel):
     local_statistics: Dict[str, Any]  # Information about local spatial statistics
     global_statistics: Dict[str, Any]  # Information about global spatial statistics
     result_keys: Dict[str, str]  # Mapping of method names to their result keys in adata
-
-    # Performance metrics (if from batch analysis)
-    analysis_times: Optional[Dict[str, float]] = None  # Time taken for each analysis
-    total_analysis_time: Optional[float] = None  # Total time for batch analysis
 
     # Visualization readiness
     visualization_features: Optional[Dict[str, List[str]]] = (
@@ -390,7 +384,6 @@ class SpatialAnalysisSummary(BaseModel):
 
     result_key: str
     analysis_name: str
-    timestamp: str
 
     # Overview information
     dataset_info: Dict[str, int]  # n_observations, n_variables

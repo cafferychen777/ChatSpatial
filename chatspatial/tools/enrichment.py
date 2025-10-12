@@ -17,6 +17,7 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 from ..utils.error_handling import ProcessingError
+from ..utils.metadata_storage import store_analysis_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -665,6 +666,8 @@ async def perform_gsea(
     permutation_num: int = 1000,
     min_size: int = 10,
     max_size: int = 500,
+    species: Optional[str] = None,
+    database: Optional[str] = None,
     context=None,
 ) -> EnrichmentInternalResult:
     """
@@ -686,6 +689,10 @@ async def perform_gsea(
         Minimum gene set size
     max_size : int
         Maximum gene set size
+    species : Optional[str]
+        Species for the analysis (e.g., 'mouse', 'human')
+    database : Optional[str]
+        Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
     context : Optional
         MCP context
 
@@ -807,6 +814,30 @@ async def perform_gsea(
         # Store full results DataFrame for visualization
         adata.uns["gsea_results"] = results_df
 
+        # Store gene set membership for validation
+        adata.uns["enrichment_gene_sets"] = gene_sets
+
+        # Store metadata for scientific provenance tracking
+        store_analysis_metadata(
+            adata,
+            analysis_name="enrichment_gsea",
+            method="gsea",
+            parameters={
+                "permutation_num": permutation_num,
+                "ranking_method": method,
+                "min_size": min_size,
+                "max_size": max_size,
+                "ranking_key": ranking_key,
+            },
+            results_keys={"uns": ["gsea_results", "enrichment_gene_sets"]},
+            statistics={
+                "n_gene_sets": len(gene_sets),
+                "n_significant": len(results_df[results_df["FDR q-val"] < 0.05]),
+            },
+            species=species,
+            database=database,
+        )
+
         # Inform user about visualization options
         if context:
             await context.info(
@@ -846,6 +877,8 @@ async def perform_ora(
     logfc_threshold: float = 1.0,
     min_size: int = 10,
     max_size: int = 500,
+    species: Optional[str] = None,
+    database: Optional[str] = None,
     context=None,
 ) -> EnrichmentInternalResult:
     """
@@ -867,6 +900,10 @@ async def perform_ora(
         Minimum gene set size
     max_size : int
         Maximum gene set size
+    species : Optional[str]
+        Species for the analysis (e.g., 'mouse', 'human')
+    database : Optional[str]
+        Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
     context : Optional
         MCP context
 
@@ -1008,6 +1045,33 @@ async def perform_ora(
         ora_df  # Also save as gsea_results for visualization compatibility
     )
 
+    # Store gene set membership for validation
+    adata.uns["enrichment_gene_sets"] = gene_sets
+
+    # Store metadata for scientific provenance tracking
+    store_analysis_metadata(
+        adata,
+        analysis_name="enrichment_ora",
+        method="ora",
+        parameters={
+            "pvalue_threshold": pvalue_threshold,
+            "logfc_threshold": logfc_threshold,
+            "min_size": min_size,
+            "max_size": max_size,
+            "n_query_genes": len(query_genes),
+        },
+        results_keys={"uns": ["ora_results", "enrichment_gene_sets"]},
+        statistics={
+            "n_gene_sets": len(gene_sets),
+            "n_significant": sum(
+                1 for p in adjusted_pvalues.values() if p is not None and p < 0.05
+            ),
+            "n_query_genes": len(query_genes),
+        },
+        species=species,
+        database=database,
+    )
+
     # Inform user about visualization options
     if context:
         await context.info(
@@ -1041,6 +1105,8 @@ async def perform_ssgsea(
     gene_sets: Dict[str, List[str]],
     min_size: int = 10,
     max_size: int = 500,
+    species: Optional[str] = None,
+    database: Optional[str] = None,
     context=None,
 ) -> SSGSEAResult:
     """
@@ -1058,6 +1124,10 @@ async def perform_ssgsea(
         Minimum gene set size
     max_size : int
         Maximum gene set size
+    species : Optional[str]
+        Species for the analysis (e.g., 'mouse', 'human')
+    database : Optional[str]
+        Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
     context : Optional
         MCP context
 
@@ -1158,6 +1228,28 @@ async def perform_ssgsea(
             # Add scores to adata
             for gs_name in scores_df.index:
                 adata.obs[f"ssgsea_{gs_name}"] = scores_df.loc[gs_name].values
+
+            # Store gene set membership for validation
+            adata.uns["enrichment_gene_sets"] = gene_sets
+
+            # Store metadata for scientific provenance tracking
+            obs_keys = [f"ssgsea_{gs_name}" for gs_name in scores_df.index]
+            store_analysis_metadata(
+                adata,
+                analysis_name="enrichment_ssgsea",
+                method="ssgsea",
+                parameters={
+                    "min_size": min_size,
+                    "max_size": max_size,
+                },
+                results_keys={"obs": obs_keys, "uns": ["enrichment_gene_sets"]},
+                statistics={
+                    "n_gene_sets": len(gene_sets),
+                    "n_samples": adata.n_obs,
+                },
+                species=species,
+                database=database,
+            )
 
         # Get top gene sets by mean enrichment
         sorted_by_mean = sorted(
@@ -1380,6 +1472,7 @@ async def perform_spatial_enrichment(
     batch_key: Optional[str] = None,
     gene_weights: Optional[Dict[str, Dict[str, float]]] = None,
     species: str = "unknown",
+    database: Optional[str] = None,
     context: Optional[Context] = None,
 ) -> EnrichmentInsights:
     """
@@ -1409,6 +1502,10 @@ async def perform_spatial_enrichment(
         Column in adata.obs for batch-wise normalization
     gene_weights : Optional[Dict[str, Dict[str, float]]]
         Pre-computed gene weights for each signature
+    species : str
+        Species for the analysis (e.g., 'mouse', 'human')
+    database : Optional[str]
+        Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
     context : Optional[Context]
         Execution context
 
@@ -1584,6 +1681,34 @@ async def perform_spatial_enrichment(
             sig: {gene: float(contrib.mean()) for gene, contrib in contribs.items()}
             for sig, contribs in adata.uns["gene_contributions"].items()
         }
+
+    # Store gene set membership for validation
+    adata.uns["enrichment_gene_sets"] = validated_gene_sets
+
+    # Store metadata for scientific provenance tracking
+    store_analysis_metadata(
+        adata,
+        analysis_name="enrichment_spatial",
+        method="spatial_enrichmap",
+        parameters={
+            "spatial_key": spatial_key,
+            "n_neighbors": n_neighbors,
+            "smoothing": smoothing,
+            "correct_spatial_covariates": correct_spatial_covariates,
+            "batch_key": batch_key,
+        },
+        results_keys={
+            "obs": score_columns,
+            "uns": ["gene_contributions", "enrichment_gene_sets"],
+        },
+        statistics={
+            "n_gene_sets": len(validated_gene_sets),
+            "n_successful_signatures": len(successful_signatures),
+            "n_failed_signatures": len(failed_signatures),
+        },
+        species=species,
+        database=database,
+    )
 
     # Inform user about visualization options
     if context:
