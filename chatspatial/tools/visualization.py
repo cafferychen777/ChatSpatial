@@ -14,6 +14,7 @@ import matplotlib
 
 matplotlib.use("Agg")  # Non-interactive backend - prevents Dock popup
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 plt.ioff()  # Turn off interactive mode
 import numpy as np
@@ -62,7 +63,7 @@ from functools import wraps
 
 
 def setup_multi_panel_figure(
-    n_panels: int, params: VisualizationParameters, default_title: str
+    n_panels: int, params: VisualizationParameters, default_title: str, use_tight_layout: bool = False
 ) -> Tuple[plt.Figure, np.ndarray]:
     """Sets up a multi-panel matplotlib figure.
 
@@ -70,6 +71,7 @@ def setup_multi_panel_figure(
         n_panels: The total number of panels required.
         params: VisualizationParameters object.
         default_title: Default title for the figure if not provided in params.
+        use_tight_layout: If True, skip subplots_adjust and use tight_layout later (for plots with colorbars).
 
     Returns:
         A tuple of (matplotlib.Figure, flattened numpy.ndarray of Axes).
@@ -93,8 +95,13 @@ def setup_multi_panel_figure(
 
     title = params.title or default_title
     fig.suptitle(title, fontsize=16)
-    # Adjust subplot to make room for suptitle
-    plt.subplots_adjust(top=0.92, hspace=0.4, wspace=0.3)
+
+    # Only use subplots_adjust if not using tight_layout
+    # tight_layout is better for plots with colorbars (L-R pairs, multi-gene spatial)
+    if not use_tight_layout:
+        # Adjust subplot to make room for suptitle
+        # Reduced spacing for tighter layout: hspace=0.3 (was 0.4), wspace=0.2 (was 0.3)
+        plt.subplots_adjust(top=0.92, hspace=0.3, wspace=0.2)
 
     # Hide empty axes from the start
     for i in range(n_panels, len(axes)):
@@ -163,12 +170,21 @@ def plot_spatial_feature(
     feature: Optional[str],
     ax: plt.Axes,
     params: VisualizationParameters,
+    force_no_colorbar: bool = False,
 ):
     """Plots a feature on spatial coordinates, handling background images.
 
     Note: This function sets the title to an empty string. Callers should
     manually set ax.set_title() after calling this function if a specific
     title is desired.
+
+    Args:
+        adata: AnnData object
+        feature: Feature to plot
+        ax: Matplotlib axes
+        params: Visualization parameters
+        force_no_colorbar: If True, disable colorbar even if params.show_colorbar is True.
+                          Used when caller wants to manually add colorbar with make_axes_locatable.
     """
     has_image = "spatial" in adata.uns and "images" in adata.uns["spatial"]
 
@@ -180,7 +196,7 @@ def plot_spatial_feature(
         "cmap": params.colormap,
         "alpha": params.alpha,
         "frameon": params.show_axes,
-        "colorbar_loc": "right" if params.show_colorbar else None,
+        "colorbar_loc": None if force_no_colorbar else ("right" if params.show_colorbar else None),
         "title": "",  # We will set the title manually
     }
 
@@ -2506,10 +2522,12 @@ async def create_multi_gene_visualization(
         )
 
     # USE THE NEW PANEL HELPER
+    # Use tight_layout for better handling of colorbars in spatial plots
     fig, axes = setup_multi_panel_figure(
         n_panels=len(available_genes),
         params=params,
         default_title=f"Multi-Gene Expression ({len(available_genes)} genes)",
+        use_tight_layout=True,
     )
 
     # Plot each gene
@@ -2540,9 +2558,10 @@ async def create_multi_gene_visualization(
 
                 # Create spatial plot
                 if "spatial" in adata.obsm:
-                    # USE THE NEW SPATIAL PLOT HELPER (but we'll override the title)
+                    # USE THE NEW SPATIAL PLOT HELPER (disable colorbar for manual control)
                     plot_spatial_feature(
-                        adata, feature=temp_feature_key, ax=ax, params=params
+                        adata, feature=temp_feature_key, ax=ax, params=params,
+                        force_no_colorbar=True
                     )
 
                     # Set color limits manually for better visualization
@@ -2561,6 +2580,12 @@ async def create_multi_gene_visualization(
                     scatter = ax.collections[0] if ax.collections else None
                     if scatter:
                         scatter.set_clim(vmin, vmax)
+
+                        # Add colorbar with exact height matching using make_axes_locatable
+                        if params.show_colorbar:
+                            divider = make_axes_locatable(ax)
+                            cax = divider.append_axes("right", size="5%", pad=0.05)
+                            plt.colorbar(scatter, cax=cax)
 
                     ax.invert_yaxis()
                     # Manually set title to show actual gene name
@@ -2591,7 +2616,9 @@ async def create_multi_gene_visualization(
     if temp_feature_key in adata.obs:
         del adata.obs[temp_feature_key]
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    # Adjust spacing for compact layout with proper colorbar spacing
+    # Using subplots_adjust directly (no tight_layout to avoid conflicts)
+    fig.subplots_adjust(top=0.92, wspace=0.2, hspace=0.3, right=0.98)
     return fig
 
 
@@ -2709,10 +2736,12 @@ async def create_lr_pairs_visualization(
     n_panels = len(available_pairs) * 3
 
     # USE THE NEW PANEL HELPER
+    # Use tight_layout for better handling of colorbars in spatial plots
     fig, axes = setup_multi_panel_figure(
         n_panels=n_panels,
         params=params,
         default_title=f"Ligand-Receptor Pairs ({len(available_pairs)} pairs)",
+        use_tight_layout=True,
     )
 
     # Plot each LR pair
@@ -2749,10 +2778,18 @@ async def create_lr_pairs_visualization(
                 ax = axes[ax_idx]
                 # Add temporary column for ligand expression
                 adata.obs[temp_feature_key] = ligand_expr
-                # USE THE NEW SPATIAL PLOT HELPER (but we'll override the title)
+                # USE THE NEW SPATIAL PLOT HELPER (disable colorbar for manual control)
                 plot_spatial_feature(
-                    adata, feature=temp_feature_key, ax=ax, params=params
+                    adata, feature=temp_feature_key, ax=ax, params=params,
+                    force_no_colorbar=True
                 )
+
+                # Add colorbar with exact height matching using make_axes_locatable
+                if params.show_colorbar and ax.collections:
+                    divider = make_axes_locatable(ax)
+                    cax = divider.append_axes("right", size="5%", pad=0.05)
+                    plt.colorbar(ax.collections[-1], cax=cax)
+
                 ax.invert_yaxis()
                 # Manually set the title to show actual ligand name
                 if params.add_gene_labels:
@@ -2764,10 +2801,18 @@ async def create_lr_pairs_visualization(
                 ax = axes[ax_idx]
                 # Add temporary column for receptor expression
                 adata.obs[temp_feature_key] = receptor_expr
-                # USE THE NEW SPATIAL PLOT HELPER (but we'll override the title)
+                # USE THE NEW SPATIAL PLOT HELPER (disable colorbar for manual control)
                 plot_spatial_feature(
-                    adata, feature=temp_feature_key, ax=ax, params=params
+                    adata, feature=temp_feature_key, ax=ax, params=params,
+                    force_no_colorbar=True
                 )
+
+                # Add colorbar with exact height matching using make_axes_locatable
+                if params.show_colorbar and ax.collections:
+                    divider = make_axes_locatable(ax)
+                    cax = divider.append_axes("right", size="5%", pad=0.05)
+                    plt.colorbar(ax.collections[-1], cax=cax)
+
                 ax.invert_yaxis()
                 # Manually set the title to show actual receptor name
                 if params.add_gene_labels:
@@ -2826,7 +2871,9 @@ async def create_lr_pairs_visualization(
     if temp_feature_key in adata.obs:
         del adata.obs[temp_feature_key]
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    # Adjust spacing for compact layout with proper colorbar spacing
+    # Using subplots_adjust directly (no tight_layout to avoid conflicts)
+    fig.subplots_adjust(top=0.92, wspace=0.2, hspace=0.3, right=0.98)
     return fig
 
 
