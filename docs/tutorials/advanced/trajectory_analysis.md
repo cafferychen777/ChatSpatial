@@ -76,8 +76,8 @@ First, let me examine what type of velocity data you have available..."
 
 **Available Velocity Methods:**
 1. **scVelo (recommended)** - Fast and reliable, suitable for most analyses
-2. **VELOVI** - Deep learning approach for velocity computation, more accurate but slower
-3. **SIRV** - If you have paired scRNA-seq data
+   - Three modes: stochastic (default), deterministic, dynamical
+2. **VeloVI** - Deep learning approach for velocity computation, more accurate but slower
 
 **Note**: These methods compute RNA velocity. For trajectory inference, use CellRank, Palantir, or DPT with the computed velocity.
 
@@ -385,23 +385,6 @@ This uncertainty information helps you prioritize which findings to pursue exper
 - Higher computational requirements
 - Newer (less established)
 
-#### **SIRV** 🔬
-**Best for:**
-- Spatial data WITHOUT velocity layers
-- Have paired scRNA-seq reference
-- Cross-dataset integration
-- Validation studies
-
-**Advantages:**
-- Works without spliced/unspliced data
-- Leverages reference datasets
-- Good for data integration
-
-**Limitations:**
-- Requires reference scRNA-seq data
-- More complex setup
-- Dependent on reference quality
-
 ### **Trajectory Inference Methods**
 
 #### **CellRank** 🎯
@@ -462,9 +445,8 @@ This uncertainty information helps you prioritize which findings to pursue exper
 
 ### **Typical Workflow:**
 1. **Velocity Computation** (choose one):
-   - scVelo (quick standard method)
-   - VELOVI (accurate deep learning method)
-   - SIRV (when no spliced/unspliced data)
+   - scVelo (quick standard method, 3 modes available)
+   - VeloVI (accurate deep learning method)
 2. **Trajectory Inference** (choose one):
    - CellRank (best with velocity data from step 1)
    - Palantir (general-purpose, works without velocity)
@@ -485,8 +467,8 @@ This uncertainty information helps you prioritize which findings to pursue exper
 - **Velocity**: Try **both scVelo and VELOVI** and compare
 - **Trajectory**: Compare **CellRank and Palantir** results
 
-**For Integration:** 
-- **Velocity**: Consider **SIRV** if you have references
+**For Integration:**
+- **Velocity**: Use **scVelo** or **VeloVI** based on your accuracy needs
 - **Trajectory**: Use **Palantir** for robust inference
 
 **Your dataset** (brain development) would benefit from:
@@ -620,24 +602,18 @@ Would you like detailed protocols for any of these experiments?"
 
 ### 💬 "My data does not have spliced/unspliced layers. Can I still do velocity analysis?"
 
-**🤖 ChatSpatial:** "Yes! You have several options:
+**🤖 ChatSpatial:** "Yes! You have two options:
 
-**Option 1: SIRV Method**
-- Use a reference scRNA-seq dataset with velocity layers
-- ChatSpatial can transfer velocity from reference to your spatial data
-- Works well for similar tissue types
-
-**Option 2: Trajectory Without Velocity**
-- Focus on trajectory analysis using expression patterns only  
+**Option 1: Trajectory Without Velocity**
+- Focus on trajectory analysis using expression patterns only
 - Methods like Palantir and DPT work without velocity
 - Still provides pseudotime and developmental insights
+- Just ask: 'Can you analyze trajectories without velocity data?'
 
-**Option 3: Expression Dynamics**
+**Option 2: Expression Dynamics**
 - Analyze temporal patterns in gene expression
 - Use spatial patterns to infer developmental processes
-- Less direct but still informative
-
-Just ask: 'Can you analyze trajectories without velocity data?'"
+- Less direct but still informative"
 
 ### 💬 "The velocity patterns look noisy. How can I improve them?"
 
@@ -741,9 +717,9 @@ Note: After VELOVI computes velocities, use trajectory methods:
 ### 🔄 Complete Velocity + Trajectory Pipeline
 
 **Step 1: Choose Velocity Method (Optional but Recommended)**
-- **Quick exploration**: "Compute RNA velocity with scVelo"
-- **High accuracy**: "Compute RNA velocity with VELOVI" (deep learning velocity)
-- **No velocity layers**: "Use SIRV with reference data"
+- **Quick exploration**: "Compute RNA velocity with scVelo" (3 modes available)
+- **High accuracy**: "Compute RNA velocity with VeloVI" (deep learning velocity)
+- **Note**: Both methods require spliced/unspliced RNA layers in your data
 
 **Step 2: Trajectory Inference (Required)** 
 - **With velocity from Step 1**: "Infer trajectories with CellRank using the velocity data"
