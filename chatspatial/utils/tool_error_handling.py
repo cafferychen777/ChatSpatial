@@ -190,8 +190,9 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 # MCP 1.10+ can handle Pydantic models directly - don't wrap them!
                 if isinstance(result, BaseModel):
                     return result  # Let FastMCP serialize Pydantic models
-                # Otherwise, wrap the result
-                return create_success_result(result).to_dict()
+                # MCP 1.17+ can handle simple types (str, int, list, dict) directly
+                # Return them without wrapping to avoid validation errors
+                return result
             except Exception as e:
                 # Handle errors based on return type category
                 if return_type_category == "image":
@@ -238,8 +239,9 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 # MCP 1.10+ can handle Pydantic models directly - don't wrap them!
                 if isinstance(result, BaseModel):
                     return result  # Let FastMCP serialize Pydantic models
-                # Otherwise, wrap the result
-                return create_success_result(result).to_dict()
+                # MCP 1.17+ can handle simple types (str, int, list, dict) directly
+                # Return them without wrapping to avoid validation errors
+                return result
             except Exception as e:
                 # Handle errors based on return type category
                 if return_type_category == "image":
