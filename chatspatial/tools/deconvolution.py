@@ -169,8 +169,8 @@ def _get_device(use_gpu: bool, method: str) -> str:
         # Cell2location has issues with MPS
         warnings.warn(
             f"MPS acceleration is available but disabled for {method} due to numerical instability issues "
-            f"with cell2location 0.1.4. Using CPU instead. Consider upgrading cell2location "
-            f"or PyTorch for better MPS support in the future."
+            f"with cell2location 0.1.4. This issue persists even with PyTorch 2.10.0 (tested 2025-10-12). "
+            f"Using CPU instead. See PyTorch Issue #132605 for status."
         )
         # Using CPU (MPS disabled due to compatibility issues)
         return "cpu"
