@@ -1243,7 +1243,34 @@ async def _annotate_with_scanvi(
 async def _annotate_with_mllmcelltype(
     adata, params: AnnotationParameters, context: Optional[Context] = None
 ):
-    """Annotate cell types using mLLMCellType (LLM-based) method"""
+    """Annotate cell types using mLLMCellType (LLM-based) method.
+
+    Supports both single-model and multi-model consensus annotation.
+
+    Single Model Mode (default):
+        - Uses one LLM for annotation
+        - Fast and cost-effective
+        - Providers: openai, anthropic, gemini, deepseek, qwen, zhipu, stepfun, minimax, grok, openrouter
+        - Default models: openai="gpt-5", anthropic="claude-sonnet-4-20250514", gemini="gemini-2.5-pro-preview-03-25"
+        - Latest recommended: "gpt-5", "claude-sonnet-4-5-20250929", "claude-opus-4-1-20250805", "gemini-2.5-pro"
+
+    Multi-Model Consensus Mode (set mllm_use_consensus=True):
+        - Uses multiple LLMs for collaborative annotation
+        - Higher accuracy through consensus
+        - Provides uncertainty metrics (consensus proportion, entropy)
+        - Structured deliberation for controversial clusters
+
+    Parameters (via AnnotationParameters):
+        - cluster_label: Required. Cluster column in adata.obs
+        - mllm_species: "human" or "mouse"
+        - mllm_tissue: Tissue context (optional but recommended)
+        - mllm_provider: LLM provider (single model mode)
+        - mllm_model: Model name (None = use default for provider)
+        - mllm_use_consensus: Enable multi-model consensus
+        - mllm_models: List of models for consensus (e.g., ["gpt-5", "claude-sonnet-4-5-20250929"])
+        - mllm_additional_context: Additional context for better annotation
+        - mllm_base_urls: Custom API endpoints (useful for proxies)
+    """
     try:
         if context:
             await context.info("Using mLLMCellType (LLM-based) method for annotation")
@@ -1312,28 +1339,91 @@ async def _annotate_with_mllmcelltype(
         # Prepare parameters for mllmcelltype
         species = params.mllm_species if hasattr(params, "mllm_species") else "human"
         tissue = params.mllm_tissue if hasattr(params, "mllm_tissue") else None
-        provider = (
-            params.mllm_provider if hasattr(params, "mllm_provider") else "openai"
-        )
-        model = params.mllm_model if hasattr(params, "mllm_model") else None
-        api_key = params.mllm_api_key if hasattr(params, "mllm_api_key") else None
+        additional_context = params.mllm_additional_context if hasattr(params, "mllm_additional_context") else None
+        use_cache = params.mllm_use_cache if hasattr(params, "mllm_use_cache") else True
+        base_urls = params.mllm_base_urls if hasattr(params, "mllm_base_urls") else None
+        verbose = params.mllm_verbose if hasattr(params, "mllm_verbose") else False
+        force_rerun = params.mllm_force_rerun if hasattr(params, "mllm_force_rerun") else False
+        clusters_to_analyze = params.mllm_clusters_to_analyze if hasattr(params, "mllm_clusters_to_analyze") else None
 
-        # Call mllmcelltype to annotate clusters
-        if context:
-            await context.info(
-                f"Calling LLM ({provider}/{model or 'default'}) for cell type annotation"
-            )
+        # Check if using multi-model consensus or single model
+        use_consensus = params.mllm_use_consensus if hasattr(params, "mllm_use_consensus") else False
 
         try:
-            annotations = mllmcelltype.annotate_clusters(
-                marker_genes=marker_genes_dict,
-                species=species,
-                provider=provider,
-                model=model,
-                api_key=api_key,
-                tissue=tissue,
-                use_cache=True,
-            )
+            if use_consensus:
+                # Use interactive_consensus_annotation with multiple models
+                models = params.mllm_models if hasattr(params, "mllm_models") else None
+                if not models:
+                    raise ValueError(
+                        "mllm_models parameter is required when mllm_use_consensus=True. "
+                        "Provide a list of model names, e.g., ['gpt-5', 'claude-sonnet-4-5-20250929', 'gemini-2.5-pro']"
+                    )
+
+                api_keys = params.mllm_api_keys if hasattr(params, "mllm_api_keys") else None
+                consensus_threshold = params.mllm_consensus_threshold if hasattr(params, "mllm_consensus_threshold") else 0.7
+                entropy_threshold = params.mllm_entropy_threshold if hasattr(params, "mllm_entropy_threshold") else 1.0
+                max_discussion_rounds = params.mllm_max_discussion_rounds if hasattr(params, "mllm_max_discussion_rounds") else 3
+                consensus_model = params.mllm_consensus_model if hasattr(params, "mllm_consensus_model") else None
+
+                if context:
+                    await context.info(
+                        f"Calling interactive consensus annotation with {len(models)} models"
+                    )
+
+                # Call interactive_consensus_annotation
+                consensus_results = mllmcelltype.interactive_consensus_annotation(
+                    marker_genes=marker_genes_dict,
+                    species=species,
+                    models=models,
+                    api_keys=api_keys,
+                    tissue=tissue,
+                    additional_context=additional_context,
+                    consensus_threshold=consensus_threshold,
+                    entropy_threshold=entropy_threshold,
+                    max_discussion_rounds=max_discussion_rounds,
+                    use_cache=use_cache,
+                    verbose=verbose,
+                    consensus_model=consensus_model,
+                    base_urls=base_urls,
+                    clusters_to_analyze=clusters_to_analyze,
+                    force_rerun=force_rerun,
+                )
+
+                # Extract consensus annotations
+                annotations = consensus_results.get("consensus", {})
+
+                # Store additional metadata for reporting
+                consensus_proportions = consensus_results.get("consensus_proportions", {})
+                entropy = consensus_results.get("entropy", {})
+
+                if context:
+                    await context.info(
+                        f"Consensus reached for {len(annotations)} clusters. "
+                        f"Mean consensus proportion: {sum(consensus_proportions.values()) / len(consensus_proportions):.2f}"
+                    )
+            else:
+                # Use single model annotation
+                provider = params.mllm_provider if hasattr(params, "mllm_provider") else "openai"
+                model = params.mllm_model if hasattr(params, "mllm_model") else None
+                api_key = params.mllm_api_key if hasattr(params, "mllm_api_key") else None
+
+                if context:
+                    await context.info(
+                        f"Calling LLM ({provider}/{model or 'default'}) for cell type annotation"
+                    )
+
+                # Call annotate_clusters (single model)
+                annotations = mllmcelltype.annotate_clusters(
+                    marker_genes=marker_genes_dict,
+                    species=species,
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    tissue=tissue,
+                    additional_context=additional_context,
+                    use_cache=use_cache,
+                    base_urls=base_urls,
+                )
         except Exception as e:
             if context:
                 await context.error(f"mLLMCellType annotation failed: {str(e)}")

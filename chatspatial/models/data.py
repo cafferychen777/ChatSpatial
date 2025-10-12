@@ -510,12 +510,29 @@ class AnnotationParameters(BaseModel):
     mllm_species: Literal["human", "mouse"] = "human"  # Species
     mllm_tissue: Optional[str] = None  # Tissue type (e.g., "brain", "liver")
     mllm_provider: Literal[
-        "openai", "anthropic", "deepseek", "kimi", "glm", "qianfan", "ollama"
-    ] = "openai"  # LLM provider
+        "openai", "anthropic", "gemini", "deepseek", "qwen", "zhipu", "stepfun",
+        "minimax", "grok", "openrouter"
+    ] = "openai"  # LLM provider (use 'gemini' not 'google')
     mllm_model: Optional[str] = (
-        None  # Model name (e.g., "gpt-5", "claude-sonnet-4-20250514")
+        None  # Model name. Defaults: openai="gpt-5", anthropic="claude-sonnet-4-20250514", gemini="gemini-2.5-pro-preview-03-25"
+        # Examples: "gpt-5", "claude-sonnet-4-5-20250929", "claude-opus-4-1-20250805", "gemini-2.5-pro", "qwen-max-2025-01-25"
     )
     mllm_api_key: Optional[str] = None  # API key for the LLM provider
+    mllm_additional_context: Optional[str] = None  # Additional context for annotation
+    mllm_use_cache: bool = True  # Whether to use caching for API calls
+    mllm_base_urls: Optional[Union[str, Dict[str, str]]] = None  # Custom API endpoints
+    mllm_verbose: bool = False  # Whether to print detailed logs
+    mllm_force_rerun: bool = False  # Force reanalysis bypassing cache
+
+    # Multi-model consensus parameters (interactive_consensus_annotation)
+    mllm_use_consensus: bool = False  # Whether to use multi-model consensus
+    mllm_models: Optional[List[Union[str, Dict[str, str]]]] = None  # List of models for consensus
+    mllm_api_keys: Optional[Dict[str, str]] = None  # Dict mapping provider to API key
+    mllm_consensus_threshold: float = 0.7  # Agreement threshold for consensus
+    mllm_entropy_threshold: float = 1.0  # Entropy threshold for controversy detection
+    mllm_max_discussion_rounds: int = 3  # Maximum discussion rounds
+    mllm_consensus_model: Optional[Union[str, Dict[str, str]]] = None  # Model for consensus checking
+    mllm_clusters_to_analyze: Optional[List[str]] = None  # Specific clusters to analyze
 
     # ScType parameters
     sctype_tissue: Optional[str] = (
