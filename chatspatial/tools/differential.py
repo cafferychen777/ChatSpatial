@@ -9,6 +9,7 @@ import scanpy as sc
 from mcp.server.fastmcp import Context
 
 from ..models.analysis import DifferentialExpressionResult
+from ..utils.metadata_storage import store_analysis_metadata
 
 
 async def differential_expression(
@@ -126,6 +127,29 @@ async def differential_expression(
 
         # Limit to n_top_genes
         top_genes = top_genes[:n_top_genes]
+
+        # Copy results back to original adata for persistence
+        adata.uns["rank_genes_groups"] = adata_filtered.uns["rank_genes_groups"]
+
+        # Store metadata for scientific provenance tracking
+        store_analysis_metadata(
+            adata,
+            analysis_name="differential_expression",
+            method=method,
+            parameters={
+                "group_key": group_key,
+                "comparison_type": "all_groups",
+                "n_top_genes": n_top_genes,
+            },
+            results_keys={"uns": ["rank_genes_groups"]},
+            statistics={
+                "method": method,
+                "n_groups": len(groups),
+                "groups": list(map(str, groups)),
+                "n_cells_analyzed": adata_filtered.n_obs,
+                "n_genes_analyzed": adata_filtered.n_vars,
+            },
+        )
 
         return DifferentialExpressionResult(
             data_id=data_id,
@@ -248,6 +272,34 @@ async def differential_expression(
 
     # Create comparison string
     comparison = f"{group1} vs {group2}"
+
+    # Copy results back to original adata for persistence
+    adata.uns["rank_genes_groups"] = temp_adata.uns["rank_genes_groups"]
+
+    # Store metadata for scientific provenance tracking
+    store_analysis_metadata(
+        adata,
+        analysis_name="differential_expression",
+        method=method,
+        parameters={
+            "group_key": group_key,
+            "group1": group1,
+            "group2": group2,
+            "comparison_type": "specific_groups",
+            "n_top_genes": n_top_genes,
+        },
+        results_keys={"uns": ["rank_genes_groups"]},
+        statistics={
+            "method": method,
+            "group1": group1,
+            "group2": group2,
+            "n_cells_group1": int(n_cells_group1),
+            "n_cells_group2": int(n_cells_group2),
+            "n_genes_analyzed": temp_adata.n_vars,
+            "mean_log2fc": float(mean_log2fc) if mean_log2fc is not None else None,
+            "median_pvalue": float(median_pvalue) if median_pvalue is not None else None,
+        },
+    )
 
     return DifferentialExpressionResult(
         data_id=data_id,

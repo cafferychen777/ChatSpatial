@@ -182,32 +182,35 @@ def _get_device(use_gpu: bool, method: str) -> str:
     return "cpu"
 
 
-def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str, context=None) -> ad.AnnData:
+def _prepare_anndata_for_counts(
+    adata: ad.AnnData, data_name: str, context=None
+) -> ad.AnnData:
     """Ensure AnnData object has raw integer counts in .X
-    
+
     Checks for raw counts in the following order:
     1. layers["counts"] - explicitly saved raw counts
     2. .raw.X - data saved before preprocessing
     3. current .X - only if already integer counts
-    
+
     Args:
         adata: AnnData object to prepare
         data_name: Name of the data for logging purposes
         context: Optional MCP context for logging
-    
+
     Returns:
         AnnData object with integer counts in .X
-    
+
     Raises:
         ValueError: If no raw integer counts can be found
     """
     import logging
+
     logger = logging.getLogger(__name__)
-    
+
     # Create a copy to avoid modifying original
     adata_copy = adata.copy()
     data_source = None
-    
+
     # Step 1: Check layers["counts"]
     if "counts" in adata_copy.layers:
         logger.info(f"{data_name}: Found counts layer, using as raw counts")
@@ -215,13 +218,13 @@ def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str, context=None)
             context.info(f"✅ Using counts layer for {data_name} data")
         adata_copy.X = adata_copy.layers["counts"].copy()
         data_source = "counts_layer"
-    
+
     # Step 2: Check .raw data
     elif adata_copy.raw is not None:
         logger.info(f"{data_name}: Found .raw data, checking compatibility")
         try:
             raw_adata = adata_copy.raw.to_adata()
-            
+
             # Check if genes match
             if set(adata_copy.var_names).issubset(set(raw_adata.var_names)):
                 # Extract matching genes from raw
@@ -231,57 +234,69 @@ def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str, context=None)
                 if context:
                     context.info(f"✅ Using .raw data for {data_name} data")
             else:
-                logger.warning(f"{data_name}: .raw genes don't match current genes, checking current X")
+                logger.warning(
+                    f"{data_name}: .raw genes don't match current genes, checking current X"
+                )
                 if context:
-                    context.warning(f"⚠️ .raw data genes don't match for {data_name}, checking current X")
+                    context.warning(
+                        f"⚠️ .raw data genes don't match for {data_name}, checking current X"
+                    )
                 data_source = "current"
         except Exception as e:
             logger.warning(f"{data_name}: Error accessing .raw data: {e}")
             data_source = "current"
-    
+
     # Step 3: Use current X
     else:
         logger.info(f"{data_name}: No counts layer or .raw found, checking current X")
         data_source = "current"
-    
+
     # Convert to dense for validation
     if hasattr(adata_copy.X, "toarray"):
         X_dense = adata_copy.X.toarray()
     else:
         X_dense = adata_copy.X.copy()
-    
+
     # Validate data
     data_min = X_dense.min()
     data_max = X_dense.max()
     has_negatives = data_min < 0
     has_decimals = not np.allclose(X_dense, np.round(X_dense), atol=1e-6)
-    
+
     logger.info(
         f"{data_name} data: source={data_source}, "
         f"range=[{data_min:.2f}, {data_max:.2f}], "
         f"has_negatives={has_negatives}, has_decimals={has_decimals}"
     )
-    
+
     # Handle float32/64 with integer values (R compatibility fix)
-    if (not has_negatives and not has_decimals and 
-        adata_copy.X.dtype in [np.float32, np.float64]):
-        logger.info(f"{data_name}: Converting float32/64 integers to int32 for R compatibility")
+    if (
+        not has_negatives
+        and not has_decimals
+        and adata_copy.X.dtype in [np.float32, np.float64]
+    ):
+        logger.info(
+            f"{data_name}: Converting float32/64 integers to int32 for R compatibility"
+        )
         if context:
-            context.info(f"🔄 Converting {data_name} from {adata_copy.X.dtype} to int32 for R compatibility")
-        
+            context.info(
+                f"🔄 Converting {data_name} from {adata_copy.X.dtype} to int32 for R compatibility"
+            )
+
         # Convert to int32 for R compatibility
         X_int32 = np.round(X_dense).astype(np.int32)
-        
+
         # Preserve sparsity if original was sparse
         if hasattr(adata_copy.X, "toarray"):
             import scipy.sparse as sp
+
             adata_copy.X = sp.csr_matrix(X_int32, dtype=np.int32)
         else:
             adata_copy.X = X_int32
-        
+
         # Update X_dense for subsequent validation
         X_dense = X_int32
-    
+
     # Check if data is valid integer counts
     if has_negatives or has_decimals:
         error_msg = (
@@ -291,14 +306,16 @@ def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str, context=None)
             f"  • Has negative values: {has_negatives}\n"
             f"  • Has decimal values: {has_decimals}\n\n"
         )
-        
+
         if has_negatives:
-            error_msg += "  ⚠️ Data appears to be z-score normalized (contains negative values)\n"
+            error_msg += (
+                "  ⚠️ Data appears to be z-score normalized (contains negative values)\n"
+            )
         elif has_decimals and data_max < 20:
             error_msg += "  ⚠️ Data appears to be log-transformed\n"
         elif has_decimals:
             error_msg += "  ⚠️ Data appears to be normalized (contains decimals)\n"
-        
+
         error_msg += (
             "\n🚫 IMPORTANT: Deconvolution methods (Cell2location, DestVI, RCTD, Stereoscope) "
             "require raw integer counts and CANNOT work with preprocessed data.\n\n"
@@ -318,29 +335,29 @@ def _prepare_anndata_for_counts(adata: ad.AnnData, data_name: str, context=None)
             "     • Load fresh data that hasn't been preprocessed\n"
             "     • Ensure the data contains only non-negative integers\n"
         )
-        
+
         if context:
             context.error(error_msg)
         raise ValueError(error_msg)
-    
+
     # Ensure integer dtype
     if X_dense.dtype not in [np.int32, np.int64]:
         X_dense = X_dense.astype(np.int32)
-    
+
     adata_copy.X = X_dense
-    
+
     # Add processing info to uns for tracking
     adata_copy.uns[f"{data_name}_data_source"] = {
         "source": data_source,
-        "range": [int(data_min), int(data_max)]
+        "range": [int(data_min), int(data_max)],
     }
-    
+
     if context:
         context.info(
             f"✅ {data_name} data validated: "
             f"source={data_source}, range=[{int(data_min)}, {int(data_max)}]"
         )
-    
+
     return adata_copy
 
 
@@ -387,25 +404,25 @@ def _process_deconvolution_results_transparently(
 ) -> pd.DataFrame:
     """
     Transparently process deconvolution results while preserving data integrity.
-    
+
     DESIGN NOTE: This function is synchronous (not async) because it needs to be called
     from both sync and async deconvolution methods. The context object supports sync calls,
     so we use sync mode for maximum compatibility.
-    
+
     SCIENTIFIC INTEGRITY: This function respects the real meaning of special values:
     - NaN means "computation failed" - NOT "zero cells"
     - Negative values indicate algorithm errors - NOT to be silently fixed
     - Non-normalized sums may indicate issues - NOT to be forced to 1
-    
+
     Args:
         proportions: Raw deconvolution output
         method: Deconvolution method name
         normalize: Whether to normalize to sum to 1 (user must explicitly request)
         context: MCP context for logging
-        
+
     Returns:
         Processed proportions with transparency
-        
+
     Raises:
         ValueError: If negative values detected (algorithm error)
     """
@@ -416,7 +433,7 @@ def _process_deconvolution_results_transparently(
         nan_spots = nan_mask.any(axis=1).sum()
         total_values = proportions.shape[0] * proportions.shape[1]
         nan_percentage = (nan_count / total_values) * 100
-        
+
         if context:
             context.warning(
                 f"⚠️ Deconvolution produced {nan_count} NaN values ({nan_percentage:.1f}%) "
@@ -429,17 +446,17 @@ def _process_deconvolution_results_transparently(
                 "• Numerical instability\n\n"
                 "Consider:\n"
                 "1. Checking input data quality\n"
-                "2. Adjusting algorithm parameters\n" 
+                "2. Adjusting algorithm parameters\n"
                 "3. Using a different deconvolution method"
             )
-    
+
     # 2. Check for negative values - this is a critical error
     if (proportions < 0).any().any():
         neg_mask = proportions < 0
         neg_count = neg_mask.sum().sum()
         neg_spots = neg_mask.any(axis=1).sum()
         min_value = proportions.min().min()
-        
+
         error_msg = (
             f"❌ CRITICAL: {method} produced {neg_count} negative values "
             f"(minimum: {min_value:.4f}) in {neg_spots} spots.\n\n"
@@ -454,25 +471,25 @@ def _process_deconvolution_results_transparently(
             "2. Check reference data quality\n"
             "3. Report this as a bug if using standard data"
         )
-        
+
         if context:
             context.error(error_msg)
-        
+
         raise ValueError(error_msg)
-    
+
     # 3. Analyze sum deviation - inform but don't force normalization
     row_sums = proportions.sum(axis=1, skipna=True)
-    
+
     # Different methods have different expected outputs
-    if method.lower() in ['rctd', 'spotlight', 'tangram']:
+    if method.lower() in ["rctd", "spotlight", "tangram"]:
         # These methods should output proportions that sum to ~1
         expected_sum = 1.0
         sum_deviation = abs(row_sums - expected_sum)
         max_deviation = sum_deviation.max()
-        
+
         if max_deviation > 0.1:  # More than 10% deviation
             spots_affected = (sum_deviation > 0.1).sum()
-            
+
             if context:
                 context.warning(
                     f"⚠️ {method} proportions deviate from expected sum of 1.0:\n"
@@ -485,8 +502,8 @@ def _process_deconvolution_results_transparently(
                     "• Algorithm convergence issues\n\n"
                     "Original sums are preserved."
                 )
-    
-    elif method.lower() in ['cell2location', 'destvi', 'stereoscope']:
+
+    elif method.lower() in ["cell2location", "destvi", "stereoscope"]:
         # These methods may output absolute abundances
         if context:
             context.info(
@@ -496,7 +513,7 @@ def _process_deconvolution_results_transparently(
                 f"• Zero spots: {(row_sums == 0).sum()}\n\n"
                 "Note: These may represent absolute abundances, not proportions."
             )
-    
+
     # 4. Handle normalization if explicitly requested
     if normalize:
         # Check for zero sums that would cause division errors
@@ -507,31 +524,31 @@ def _process_deconvolution_results_transparently(
                     f"⚠️ Cannot normalize {zero_sum_spots} spots with zero total abundance.\n"
                     "These spots will remain as zeros."
                 )
-        
+
         if context:
             context.info(
                 "🔄 Normalizing proportions to sum to 1 as requested.\n"
                 "Note: This converts absolute abundances to relative proportions."
             )
-        
+
         # Perform normalization, preserving zeros and NaN
         proportions_normalized = proportions.div(row_sums, axis=0)
-        
+
         # Don't fill NaN - preserve them
         # proportions_normalized = proportions_normalized.fillna(0)  # REMOVED
-        
+
         # Store original sums as metadata
         proportions_normalized.attrs = proportions_normalized.attrs or {}
-        proportions_normalized.attrs['original_sums'] = row_sums
-        proportions_normalized.attrs['normalization_applied'] = True
-        
+        proportions_normalized.attrs["original_sums"] = row_sums
+        proportions_normalized.attrs["normalization_applied"] = True
+
         return proportions_normalized
-    
+
     # Return unmodified data with metadata
     proportions.attrs = proportions.attrs or {}
-    proportions.attrs['original_sums'] = row_sums
-    proportions.attrs['normalization_applied'] = False
-    
+    proportions.attrs["original_sums"] = row_sums
+    proportions.attrs["normalization_applied"] = False
+
     return proportions
 
 
@@ -737,7 +754,7 @@ def deconvolve_cell2location(
             proportions=proportions,
             method="cell2location",
             normalize=False,  # Cell2location outputs absolute counts, not proportions
-            context=context
+            context=context,
         )
 
         # Create standardized statistics using helper function
@@ -876,7 +893,9 @@ def deconvolve_rctd(
 
         # Ensure data is in the right format (raw counts)
         spatial_data = _prepare_anndata_for_counts(spatial_data, "Spatial", context)
-        reference_data = _prepare_anndata_for_counts(reference_data, "Reference", context)
+        reference_data = _prepare_anndata_for_counts(
+            reference_data, "Reference", context
+        )
 
         # Get spatial coordinates if available
         if "spatial" in spatial_adata.obsm:
@@ -1138,55 +1157,55 @@ def deconvolve_rctd(
 
         # SCIENTIFIC INTEGRITY: Process results transparently
         # RCTD should output proportions that sum to ~1, but we won't force it
-        
-        # Check for NaN values - preserve them for transparency  
+
+        # Check for NaN values - preserve them for transparency
         nan_mask = proportions.isna()
         if nan_mask.any().any():
             nan_count = nan_mask.sum().sum()
             nan_spots = nan_mask.any(axis=1).sum()
-            
+
             if context:
                 warnings.warn(
                     f"RCTD produced {nan_count} NaN values in {nan_spots} spots. "
                     "NaN indicates computation failure, NOT absence of cell types. "
                     "These values are preserved for transparency."
                 )
-        
+
         # Check for negative values - this would be a critical error
         if (proportions < 0).any().any():
             neg_count = (proportions < 0).sum().sum()
             min_value = proportions.min().min()
-            
+
             error_msg = (
                 f"CRITICAL: RCTD produced {neg_count} negative values (min: {min_value:.4f}). "
                 "This indicates a serious algorithm error. Negative proportions are impossible."
             )
             raise ValueError(error_msg)
-        
+
         # Analyze sum deviation but don't force normalization
         row_sums = proportions.sum(axis=1, skipna=True)
         sum_deviation = abs(row_sums - 1.0)
         max_deviation = sum_deviation.max()
-        
+
         if max_deviation > 0.1:  # More than 10% deviation
             spots_affected = (sum_deviation > 0.1).sum()
-            
+
             if context:
                 warnings.warn(
                     f"RCTD proportions deviate from expected sum of 1.0: "
                     f"max deviation {max_deviation:.3f} in {spots_affected} spots. "
                     f"This may indicate incomplete deconvolution or convergence issues."
                 )
-        
+
         # Don't force normalization or fill NaN with 0
         # Users can request normalization if needed
         # Original: proportions = proportions.div(row_sums, axis=0).fillna(0)
-        
+
         # Store metadata about the results
-        proportions.attrs = getattr(proportions, 'attrs', {}) or {}
-        proportions.attrs['method'] = f'RCTD-{mode}'
-        proportions.attrs['original_sums'] = row_sums
-        proportions.attrs['has_nan'] = nan_mask.any().any()
+        proportions.attrs = getattr(proportions, "attrs", {}) or {}
+        proportions.attrs["method"] = f"RCTD-{mode}"
+        proportions.attrs["original_sums"] = row_sums
+        proportions.attrs["has_nan"] = nan_mask.any().any()
 
         # Create statistics
         stats = _create_deconvolution_stats(
@@ -1325,14 +1344,18 @@ async def deconvolve_spatial_data(
             "cell2location": ["cell2location", "torch"],
             "destvi": ["scvi", "torch"],  # Fixed: scvi not scvi-tools
             "stereoscope": ["scvi", "torch"],  # Fixed: scvi not scvi-tools
-            "tangram": ["scvi", "torch", "tangram"],  # Fixed: check for both scvi and tangram
+            "tangram": [
+                "scvi",
+                "torch",
+                "tangram",
+            ],  # Fixed: check for both scvi and tangram
             "rctd": ["rpy2"],  # R-based method
             "spotlight": ["rpy2"],  # R-based method
         }
 
         # Get available methods
         import importlib.util
-        
+
         available_methods = []
         for method, deps in method_deps.items():
             # Special handling for package names with different import names
@@ -1342,8 +1365,8 @@ async def deconvolve_spatial_data(
                     # scvi-tools package imports as 'scvi'
                     dep_specs.append(importlib.util.find_spec("scvi"))
                 else:
-                    dep_specs.append(importlib.util.find_spec(d.replace('-', '_')))
-            
+                    dep_specs.append(importlib.util.find_spec(d.replace("-", "_")))
+
             if all(spec is not None for spec in dep_specs):
                 available_methods.append(method)
 
@@ -1492,7 +1515,6 @@ async def deconvolve_spatial_data(
                     context=context,
                 )
 
-
             else:
                 raise ValueError(
                     f"Unsupported deconvolution method: {params.method}. "
@@ -1576,9 +1598,9 @@ async def deconvolve_spatial_data(
         spatial_adata.obs[dominant_type_key] = dominant_cell_types
 
         # Make it categorical
-        spatial_adata.obs[dominant_type_key] = spatial_adata.obs[dominant_type_key].astype(
-            "category"
-        )
+        spatial_adata.obs[dominant_type_key] = spatial_adata.obs[
+            dominant_type_key
+        ].astype("category")
 
         if context:
             await context.info(
@@ -1587,6 +1609,71 @@ async def deconvolve_spatial_data(
             await context.info(
                 f"Most common cell type: {spatial_adata.obs[dominant_type_key].value_counts().index[0]}"
             )
+
+        # Store scientific metadata for reproducibility
+        from ..utils.metadata_storage import store_analysis_metadata
+
+        # Extract results keys
+        results_keys_dict = {
+            "obs": [dominant_type_key],
+            "obsm": [proportions_key],
+            "uns": [cell_types_key],
+        }
+        # Add individual cell type proportion columns
+        for cell_type in proportions.columns:
+            results_keys_dict["obs"].append(f"{proportions_key}_{cell_type}")
+
+        # Prepare parameters dict (only scientifically important ones)
+        parameters_dict = {}
+        if params.method == "cell2location":
+            parameters_dict = {
+                "n_cells_per_spot": params.n_cells_per_spot,
+                "detection_alpha": params.detection_alpha,
+            }
+        elif params.method == "rctd":
+            parameters_dict = {
+                "mode": params.rctd_mode,
+                "max_cores": params.max_cores,
+            }
+        elif params.method == "destvi":
+            parameters_dict = {
+                "n_latent": params.destvi_n_latent,
+                "n_hidden": params.destvi_n_hidden,
+                "learning_rate": params.destvi_learning_rate,
+            }
+        elif params.method == "stereoscope":
+            parameters_dict = {
+                "n_epochs": params.stereoscope_n_epochs,
+                "learning_rate": params.stereoscope_learning_rate,
+            }
+        elif params.method == "spotlight":
+            parameters_dict = {
+                "hvg": params.hvg,
+            }
+        elif params.method == "tangram":
+            parameters_dict = {
+                "device": params.device,
+                "num_epochs": params.num_epochs,
+            }
+
+        # Prepare reference info
+        reference_info_dict = None
+        if params.reference_data_id:
+            reference_info_dict = {
+                "reference_data_id": params.reference_data_id,
+                "cell_type_key": params.cell_type_key,
+            }
+
+        # Store metadata
+        store_analysis_metadata(
+            spatial_adata,
+            analysis_name=f"deconvolution_{params.method}",
+            method=params.method,
+            parameters=parameters_dict,
+            results_keys=results_keys_dict,
+            statistics=stats,
+            reference_info=reference_info_dict,
+        )
 
         # Return result
         result = DeconvolutionResult(
@@ -1785,13 +1872,13 @@ async def deconvolve_destvi(
         # Validate proportions
         if proportions_df.empty or proportions_df.shape[0] != spatial_data.n_obs:
             raise RuntimeError("Failed to extract valid proportions from DestVI model")
-        
+
         # Process results transparently - DestVI outputs proportions
         proportions_df = _process_deconvolution_results_transparently(
             proportions=proportions_df,
             method="DestVI",
             normalize=False,  # DestVI already outputs proportions
-            context=context
+            context=context,
         )
 
         cell_types_result = list(proportions_df.columns)
@@ -1943,13 +2030,13 @@ async def deconvolve_stereoscope(
         proportions = pd.DataFrame(
             proportions_array, index=spatial_data.obs_names, columns=cell_types
         )
-        
+
         # Process results transparently - Stereoscope outputs proportions
         proportions = _process_deconvolution_results_transparently(
             proportions=proportions,
             method="Stereoscope",
             normalize=False,  # Stereoscope already outputs proportions
-            context=context
+            context=context,
         )
 
         # Create statistics
@@ -2058,8 +2145,12 @@ def deconvolve_spotlight(
 
         # Prepare data for R using proper counts
         # SPOTlight can handle normalized data, but we still try to get raw counts if available
-        spatial_counts = _prepare_anndata_for_counts(spatial_subset, "Spatial", context).X
-        reference_counts = _prepare_anndata_for_counts(reference_subset, "Reference", context).X
+        spatial_counts = _prepare_anndata_for_counts(
+            spatial_subset, "Spatial", context
+        ).X
+        reference_counts = _prepare_anndata_for_counts(
+            reference_subset, "Reference", context
+        ).X
 
         # Convert to dense if sparse
         if hasattr(spatial_counts, "toarray"):
@@ -2232,7 +2323,7 @@ def deconvolve_spotlight(
             proportions=proportions,
             method="SPOTlight",
             normalize=False,  # SPOTlight should already output proportions
-            context=context
+            context=context,
         )
 
         # Add results to spatial adata
@@ -2315,18 +2406,28 @@ async def deconvolve_tangram(
 
         # Check data format - Tangram can work with normalized data but prefers raw counts
         import numpy as np
-        
+
         # Check spatial data
-        sp_data = spatial_data.X.toarray() if hasattr(spatial_data.X, "toarray") else spatial_data.X
+        sp_data = (
+            spatial_data.X.toarray()
+            if hasattr(spatial_data.X, "toarray")
+            else spatial_data.X
+        )
         sp_has_negatives = sp_data.min() < 0
         sp_has_decimals = not np.allclose(sp_data, np.round(sp_data), atol=1e-6)
-        
-        # Check reference data  
-        ref_data_arr = ref_data.X.toarray() if hasattr(ref_data.X, "toarray") else ref_data.X
+
+        # Check reference data
+        ref_data_arr = (
+            ref_data.X.toarray() if hasattr(ref_data.X, "toarray") else ref_data.X
+        )
         ref_has_negatives = ref_data_arr.min() < 0
-        ref_has_decimals = not np.allclose(ref_data_arr, np.round(ref_data_arr), atol=1e-6)
-        
-        if (sp_has_negatives or sp_has_decimals or ref_has_negatives or ref_has_decimals) and context:
+        ref_has_decimals = not np.allclose(
+            ref_data_arr, np.round(ref_data_arr), atol=1e-6
+        )
+
+        if (
+            sp_has_negatives or sp_has_decimals or ref_has_negatives or ref_has_decimals
+        ) and context:
             await context.warning(
                 "Tangram is using normalized data. While Tangram can handle normalized data, "
                 "it performs optimally with raw counts. Consider using raw count data for best results."
@@ -2405,14 +2506,14 @@ async def deconvolve_tangram(
         proportions = pd.DataFrame(
             proportions_array, index=spatial_data.obs_names, columns=cell_types
         )
-        
+
         # Process results transparently - Tangram weights should naturally sum to 1
         # but we check and report if they don't
         proportions = _process_deconvolution_results_transparently(
             proportions=proportions,
             method="Tangram",
             normalize=False,  # Don't force normalization
-            context=context
+            context=context,
         )
 
         # Create statistics dictionary
@@ -2432,5 +2533,3 @@ async def deconvolve_tangram(
         error_msg = f"Tangram deconvolution failed: {str(e)}"
         # SPOTlight error occurred
         raise RuntimeError(error_msg) from e
-
-

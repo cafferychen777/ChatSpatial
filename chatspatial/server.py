@@ -1324,6 +1324,7 @@ async def analyze_enrichment(
                 batch_key=params.batch_key,
                 gene_weights=params.gene_weights,
                 species=params.species,
+                database=params.gene_set_database,
                 context=context,
             )
         ).to_dict()
@@ -1349,6 +1350,8 @@ async def analyze_enrichment(
                     permutation_num=params.n_permutations,
                     min_size=params.min_genes,
                     max_size=params.max_genes,
+                    species=params.species,
+                    database=params.gene_set_database,
                     context=context,
                 )
             ).to_dict()
@@ -1364,6 +1367,8 @@ async def analyze_enrichment(
                     pvalue_threshold=params.pvalue_cutoff,
                     min_size=params.min_genes,
                     max_size=params.max_genes,
+                    species=params.species,
+                    database=params.gene_set_database,
                     context=context,
                 )
             ).to_dict()
@@ -1378,6 +1383,8 @@ async def analyze_enrichment(
                     gene_sets=gene_sets,
                     min_size=params.min_genes,
                     max_size=params.max_genes,
+                    species=params.species,
+                    database=params.gene_set_database,
                     context=context,
                 )
             ).to_dict()
@@ -1830,6 +1837,75 @@ async def batch_export_all_figures(
         return summary
     except Exception as e:
         error_msg = f"Failed to batch export: {str(e)}"
+        if context:
+            await context.error(error_msg)
+        raise
+
+
+@mcp.tool()
+@mcp_tool_error_handler()
+async def save_data(
+    data_id: str,
+    output_path: Optional[str] = None,
+    context: Context = None,
+) -> str:
+    """Manually save dataset to disk
+
+    Saves the current state of the dataset including all analysis results
+    and metadata to a compressed H5AD file.
+
+    Args:
+        data_id: Dataset ID to save
+        output_path: Optional custom save path. If not provided, saves to:
+                    - CHATSPATIAL_DATA_DIR environment variable location, or
+                    - .chatspatial_saved/ directory next to original data
+
+    Returns:
+        Path where data was saved
+
+    Examples:
+        # Save to default location
+        save_data("data1")
+
+        # Save to custom location
+        save_data("data1", output_path="/path/to/save/my_analysis.h5ad")
+
+    Note:
+        Saved files include all preprocessing, analysis results, and metadata.
+        Use CHATSPATIAL_DATA_DIR environment variable for centralized storage.
+    """
+    from .utils.adata_persistence import save_adata
+
+    # Validate dataset exists
+    validate_dataset(data_id)
+
+    if context:
+        await context.info(f"Saving dataset '{data_id}'...")
+
+    # Get dataset info
+    dataset_info = data_manager.data_store[data_id]
+    adata = dataset_info["adata"]
+    original_path = dataset_info.get("path", "")
+
+    try:
+        if output_path:
+            # User specified custom path
+            from pathlib import Path
+
+            save_path = Path(output_path)
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            adata.write_h5ad(save_path, compression="gzip", compression_opts=4)
+        else:
+            # Use default location
+            save_path = save_adata(data_id, adata, original_path)
+
+        if context:
+            await context.info(f"✅ Dataset saved to: {save_path}")
+
+        return f"Dataset '{data_id}' saved to: {save_path}"
+
+    except Exception as e:
+        error_msg = f"Failed to save dataset: {str(e)}"
         if context:
             await context.error(error_msg)
         raise
