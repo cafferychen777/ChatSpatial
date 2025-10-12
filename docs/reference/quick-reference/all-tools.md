@@ -281,23 +281,26 @@
 ---
 
 ### `register_spatial_data`
-**Purpose**: Align spatial sections or time points  
+**Purpose**: Align spatial sections or time points
 **Difficulty**: 🔴 Advanced
+**Status**: ⚠️ **IN DEVELOPMENT** - Core registration methods not yet implemented
 
 **Key Parameters**:
 - `source_id`: Source dataset ID
 - `target_id`: Target dataset ID
-- `method`: `"paste"`, `"stalign"`
+- `method`: `"paste"`, `"stalign"` _(planned, not yet available)_
 - `landmarks`: Optional alignment landmarks
 
 **Example Queries**:
 ```
 "Align consecutive tissue sections"
-"Register brain slices for 3D reconstruction"  
+"Register brain slices for 3D reconstruction"
 "Align samples to reference coordinates"
 ```
 
-**Returns**: Transformation matrix and aligned coordinates
+**Note**: While the tool interface exists, PASTE and STalign implementations are pending. Use alternative alignment tools or manual registration for now.
+
+**Returns**: Transformation matrix and aligned coordinates _(when implemented)_
 
 ---
 

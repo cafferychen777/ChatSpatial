@@ -278,21 +278,22 @@ pip install -e ".[dev]"
 </details>
 
 <details>
-<summary><strong>🔬 Analysis Methods (11 Categories, 56 Methods)</strong></summary>
+<summary><strong>🔬 Analysis Methods (12 Categories, 74+ Methods)</strong></summary>
 
 | Category | Methods |
 |----------|---------|
 | **Cell Type Annotation** | Tangram, scANVI, CellAssign, mLLMCellType, sc-type, SingleR |
 | **Spatial Domains** | SpaGCN, STAGATE, Leiden/Louvain clustering |
-| **Cell Communication** | LIANA, CellPhoneDB, CellChat (via LIANA) |
-| **Deconvolution** | Cell2location, DestVI, RCTD, Tangram, Stereoscope, Spotlight |
+| **Cell Communication** | LIANA+, CellPhoneDB, CellChat (via LIANA) |
+| **Deconvolution** | Cell2location, DestVI, RCTD, Tangram, Stereoscope, SPOTlight |
+| **CNV Analysis** | infercnvpy (chromosome-based CNV inference) |
 | **Spatial Variable Genes** | GASTON, SpatialDE, SPARK-X |
-| **Trajectory & Velocity** | CellRank, Palantir, DPT (Diffusion Pseudotime), scVelo/VeloVI |
+| **Trajectory & Velocity** | CellRank, Palantir, DPT, scVelo, VeloVI, SIRV |
 | **Sample Integration** | Harmony, BBKNN, Scanorama, scVI |
-| **Differential Expression** | Wilcoxon, t-test, rank_genes_groups (scanpy methods) |
+| **Differential Expression** | Wilcoxon, t-test, Logistic Regression (scanpy methods) |
 | **Gene Set Enrichment** | GSEA, ORA, ssGSEA, Enrichr, Spatial EnrichMap |
 | **Spatial Statistics** | Moran's I, Local Moran's I (LISA), Geary's C, Getis-Ord Gi*, Neighborhood Enrichment, Co-occurrence, Ripley's K/L, Bivariate Moran's I, Join Count, Network Properties, Spatial Centrality |
-| **Spatial Registration** | PASTE (optimal transport), STalign (diffeomorphic) |
+| **Spatial Registration** | _Planned: PASTE, STalign (in development)_ |
 
 </details>
 
