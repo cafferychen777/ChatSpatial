@@ -480,23 +480,66 @@ class AnnotationParameters(BaseModel):
     batch_key: Optional[str] = None  # For batch effect correction
     layer: Optional[str] = None  # Which layer to use for analysis
 
-    # scANVI parameters
-    scanvi_n_hidden: int = 128
-    scanvi_n_latent: int = 10
-    scanvi_n_layers: int = 1
-    scanvi_dropout_rate: float = 0.1
-    scanvi_unlabeled_category: str = "Unknown"
-
-    # SCVI pretraining parameters (official best practice - enabled by default)
-    scanvi_use_scvi_pretrain: bool = True  # Default: True (official best practice)
-    scanvi_scvi_epochs: int = (
-        200  # SCVI pretraining epochs (reduced for faster training)
+    # scANVI parameters (scvi-tools semi-supervised label transfer)
+    scanvi_n_hidden: int = Field(
+        default=128,
+        description="Number of hidden units per layer. Official default: 128",
     )
-    scanvi_n_samples_per_label: int = 100  # For semi-supervised training
+    scanvi_n_latent: int = Field(
+        default=10,
+        description=(
+            "Dimensionality of latent space. Official default: 10\n"
+            "scvi-tools recommendation for large integration: 30\n"
+            "⚠️  Empirical (not official): Small datasets may need 3-5 to avoid NaN"
+        ),
+    )
+    scanvi_n_layers: int = Field(
+        default=1,
+        description=(
+            "Number of hidden layers. Official default: 1\n"
+            "scvi-tools recommendation for large integration: 2"
+        ),
+    )
+    scanvi_dropout_rate: float = Field(
+        default=0.1,
+        description=(
+            "Dropout rate for regularization. Official default: 0.1\n"
+            "⚠️  Empirical (not official): 0.2-0.3 may help small datasets"
+        ),
+    )
+    scanvi_unlabeled_category: str = Field(
+        default="Unknown",
+        description="Label for unlabeled cells in semi-supervised learning",
+    )
+
+    # SCVI pretraining parameters (official best practice)
+    scanvi_use_scvi_pretrain: bool = Field(
+        default=True,
+        description=(
+            "Whether to pretrain with SCVI before SCANVI training. Default: True\n"
+            "Official scvi-tools best practice: SCVI pretraining improves stability\n"
+            "⚠️  For small datasets: Set to False if encountering NaN errors"
+        ),
+    )
+    scanvi_scvi_epochs: int = Field(
+        default=200, description="Number of epochs for SCVI pretraining. Default: 200"
+    )
+    scanvi_n_samples_per_label: int = Field(
+        default=100,
+        description="Number of samples per label for semi-supervised training",
+    )
 
     # Query training parameters
-    scanvi_query_epochs: int = 100  # Epochs for query data (official recommendation)
-    scanvi_check_val_every_n_epoch: int = 10  # Validation frequency
+    scanvi_query_epochs: int = Field(
+        default=100,
+        description=(
+            "Number of epochs for training on query data. Default: 100\n"
+            "⚠️  For small datasets: Recommend 50 to prevent overfitting"
+        ),
+    )
+    scanvi_check_val_every_n_epoch: int = Field(
+        default=10, description="Validation check frequency during training"
+    )
 
     # CellAssign parameters
     cellassign_n_hidden: int = 100
@@ -510,8 +553,16 @@ class AnnotationParameters(BaseModel):
     mllm_species: Literal["human", "mouse"] = "human"  # Species
     mllm_tissue: Optional[str] = None  # Tissue type (e.g., "brain", "liver")
     mllm_provider: Literal[
-        "openai", "anthropic", "gemini", "deepseek", "qwen", "zhipu", "stepfun",
-        "minimax", "grok", "openrouter"
+        "openai",
+        "anthropic",
+        "gemini",
+        "deepseek",
+        "qwen",
+        "zhipu",
+        "stepfun",
+        "minimax",
+        "grok",
+        "openrouter",
     ] = "openai"  # LLM provider (use 'gemini' not 'google')
     mllm_model: Optional[str] = (
         None  # Model name. Defaults: openai="gpt-5", anthropic="claude-sonnet-4-20250514", gemini="gemini-2.5-pro-preview-03-25"
@@ -526,12 +577,16 @@ class AnnotationParameters(BaseModel):
 
     # Multi-model consensus parameters (interactive_consensus_annotation)
     mllm_use_consensus: bool = False  # Whether to use multi-model consensus
-    mllm_models: Optional[List[Union[str, Dict[str, str]]]] = None  # List of models for consensus
+    mllm_models: Optional[List[Union[str, Dict[str, str]]]] = (
+        None  # List of models for consensus
+    )
     mllm_api_keys: Optional[Dict[str, str]] = None  # Dict mapping provider to API key
     mllm_consensus_threshold: float = 0.7  # Agreement threshold for consensus
     mllm_entropy_threshold: float = 1.0  # Entropy threshold for controversy detection
     mllm_max_discussion_rounds: int = 3  # Maximum discussion rounds
-    mllm_consensus_model: Optional[Union[str, Dict[str, str]]] = None  # Model for consensus checking
+    mllm_consensus_model: Optional[Union[str, Dict[str, str]]] = (
+        None  # Model for consensus checking
+    )
     mllm_clusters_to_analyze: Optional[List[str]] = None  # Specific clusters to analyze
 
     # ScType parameters
@@ -713,9 +768,7 @@ class TrajectoryParameters(BaseModel):
 class IntegrationParameters(BaseModel):
     """Sample integration parameters model"""
 
-    method: Literal[
-        "harmony", "bbknn", "scanorama", "scvi"
-    ] = "harmony"
+    method: Literal["harmony", "bbknn", "scanorama", "scvi"] = "harmony"
     batch_key: str = "batch"  # Batch information key
     n_pcs: Annotated[int, Field(gt=0, le=100)] = (
         30  # Number of principal components for integration

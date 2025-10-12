@@ -27,35 +27,53 @@ except ImportError:
 from mcp.server.fastmcp import Context
 from mcp.types import EmbeddedResource, ImageContent
 
-from .models.analysis import (AnnotationResult, CellCommunicationResult,
-                              CNVResult, DeconvolutionResult,
-                              DifferentialExpressionResult, EnrichmentResult,
-                              IntegrationResult, PreprocessingResult,
-                              RNAVelocityResult, SpatialAnalysisResult,
-                              SpatialDomainResult, SpatialVariableGenesResult,
-                              TrajectoryResult)
-from .models.data import (CellCommunicationParameters, CNVParameters,
-                          ColumnInfo, DeconvolutionParameters,
-                          EnrichmentParameters, IntegrationParameters,
-                          RNAVelocityParameters, SpatialDataset,
-                          SpatialDomainParameters,
-                          SpatialVariableGenesParameters, TrajectoryParameters)
+from .models.analysis import (
+    AnnotationResult,
+    CellCommunicationResult,
+    CNVResult,
+    DeconvolutionResult,
+    DifferentialExpressionResult,
+    EnrichmentResult,
+    IntegrationResult,
+    PreprocessingResult,
+    RNAVelocityResult,
+    SpatialAnalysisResult,
+    SpatialDomainResult,
+    SpatialVariableGenesResult,
+    TrajectoryResult,
+)
+from .models.data import (
+    CellCommunicationParameters,
+    CNVParameters,
+    ColumnInfo,
+    DeconvolutionParameters,
+    EnrichmentParameters,
+    IntegrationParameters,
+    RNAVelocityParameters,
+    SpatialDataset,
+    SpatialDomainParameters,
+    SpatialVariableGenesParameters,
+    TrajectoryParameters,
+)
 from .spatial_mcp_adapter import MCPToolMetadata, create_spatial_mcp_server
 from .tools.annotation import annotate_cell_types
 from .tools.cnv_analysis import infer_cnv
 from .tools.deconvolution import deconvolve_spatial_data
 from .tools.differential import differential_expression
 from .tools.spatial_genes import identify_spatial_genes
-from .tools.spatial_statistics import \
-    analyze_spatial_statistics as _analyze_spatial_statistics
+from .tools.spatial_statistics import (
+    analyze_spatial_statistics as _analyze_spatial_statistics,
+)
 from .tools.trajectory import analyze_rna_velocity
 from .utils.error_handling import ProcessingError
-from .utils.mcp_parameter_handler import (manual_parameter_validation,
-                                          validate_analysis_params,
-                                          validate_annotation_params,
-                                          validate_cell_communication_params,
-                                          validate_spatial_analysis_params,
-                                          validate_visualization_params)
+from .utils.mcp_parameter_handler import (
+    manual_parameter_validation,
+    validate_analysis_params,
+    validate_annotation_params,
+    validate_cell_communication_params,
+    validate_spatial_analysis_params,
+    validate_visualization_params,
+)
 from .utils.tool_error_handling import mcp_tool_error_handler
 
 logger = logging.getLogger(__name__)
@@ -516,7 +534,7 @@ async def annotate_cells(
     Notes:
         Annotation methods (status):
         - tangram: Implemented (requires reference_data_id and PREPROCESSED reference data with HVGs)
-        - scanvi: Implemented (requires scvi-tools and reference_data_id)
+        - scanvi: Implemented (deep learning label transfer via scvi-tools, requires reference_data_id)
         - cellassign: Implemented (via scvi-tools, requires marker_genes parameter)
         - mllmcelltype: Implemented (multimodal LLM classifier)
         - sctype: Implemented (requires R and rpy2)
@@ -527,6 +545,15 @@ async def annotate_cells(
         - IMPORTANT: Reference data MUST be preprocessed with preprocess_data() before use!
         - cell_type_key: Leave as None for auto-detection. Only set if you know the exact column name in reference data
         - Common cell type column names: 'cell_type', 'cell_types', 'celltype'
+
+        scANVI-specific notes:
+        - Method: Semi-supervised variational inference for label transfer
+        - Requires: Both datasets must have 'counts' layer (raw counts)
+        - Architecture: Configurable via scanvi_n_latent, scanvi_n_hidden, scanvi_dropout_rate
+        - Small datasets (<1000 genes/cells): Use scanvi_n_latent=3-5, scanvi_dropout_rate=0.2,
+          scanvi_use_scvi_pretrain=False, num_epochs=50 to prevent NaN errors
+        - Returns probabilistic cell type predictions with confidence scores
+        - GPU acceleration available (set tangram_device='cuda:0' if available)
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -989,8 +1016,7 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import \
-        identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1073,8 +1099,9 @@ async def analyze_cell_communication(
         }
     """
     # Import cell communication function
-    from .tools.cell_communication import \
-        analyze_cell_communication as analyze_comm_func
+    from .tools.cell_communication import (
+        analyze_cell_communication as analyze_comm_func,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1159,8 +1186,9 @@ async def analyze_enrichment(
     # Import enrichment analysis function
     import time
 
-    from .tools.enrichment import \
-        perform_spatial_enrichment as perform_enrichment_analysis
+    from .tools.enrichment import (
+        perform_spatial_enrichment as perform_enrichment_analysis,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1305,8 +1333,12 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (perform_enrichr, perform_gsea,
-                                       perform_ora, perform_ssgsea)
+        from .tools.enrichment import (
+            perform_enrichr,
+            perform_gsea,
+            perform_ora,
+            perform_ssgsea,
+        )
 
         if params.method == "pathway_gsea":
             result_dict = (

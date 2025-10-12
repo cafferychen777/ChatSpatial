@@ -292,9 +292,8 @@ async def _annotate_with_singler(
 
             # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
             if not reference_adata.var_names.is_unique:
-                n_duplicates = (
-                    len(reference_adata.var_names)
-                    - len(set(reference_adata.var_names))
+                n_duplicates = len(reference_adata.var_names) - len(
+                    set(reference_adata.var_names)
                 )
                 if context:
                     await context.warning(
@@ -583,9 +582,8 @@ async def _annotate_with_tangram(
 
         # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
         if not adata_sc_original.var_names.is_unique:
-            n_duplicates = (
-                len(adata_sc_original.var_names)
-                - len(set(adata_sc_original.var_names))
+            n_duplicates = len(adata_sc_original.var_names) - len(
+                set(adata_sc_original.var_names)
             )
             if context:
                 await context.warning(
@@ -952,7 +950,86 @@ async def _annotate_with_scanvi(
     data_store: Dict[str, Any],
     context: Optional[Context] = None,
 ):
-    """Annotate cell types using scANVI method with official best practices"""
+    """Annotate cell types using scANVI (semi-supervised variational inference).
+
+    scANVI (single-cell ANnotation using Variational Inference) is a deep learning
+    method for transferring cell type labels from reference to query data using
+    semi-supervised learning with variational autoencoders.
+
+    Official Implementation: scvi-tools (https://scvi-tools.org)
+    Reference: Xu et al. (2021) "Probabilistic harmonization and annotation of
+               single-cell transcriptomics data with deep generative models"
+
+    Method Overview:
+        1. Trains on reference data with known cell type labels
+        2. Learns shared latent representation between reference and query
+        3. Transfers labels to query data via probabilistic predictions
+        4. Supports batch correction and semi-supervised training
+
+    Requirements:
+        - reference_data_id: Must point to preprocessed single-cell reference data
+        - cell_type_key: Column in reference data containing cell type labels
+        - Both datasets must have 'counts' layer (raw counts, not normalized)
+        - Sufficient gene overlap between reference and query data
+
+    Parameters (via AnnotationParameters):
+        Core Architecture:
+            - scanvi_n_latent (default: 10): Latent space dimensions
+            - scanvi_n_hidden (default: 128): Hidden layer units
+            - scanvi_n_layers (default: 1): Number of layers
+            - scanvi_dropout_rate (default: 0.1): Dropout for regularization
+
+        Training Strategy:
+            - scanvi_use_scvi_pretrain (default: True): Use SCVI pretraining
+            - scanvi_scvi_epochs (default: 200): SCVI pretraining epochs
+            - num_epochs (default: 100): SCANVI training epochs
+            - scanvi_query_epochs (default: 100): Query data training epochs
+
+        Advanced:
+            - scanvi_unlabeled_category (default: "Unknown"): Label for unlabeled cells
+            - scanvi_n_samples_per_label (default: 100): Samples per label
+            - batch_key: For batch correction (optional)
+
+    Official Recommendations (scvi-tools):
+        For large integration tasks:
+        - scanvi_n_layers: 2
+        - scanvi_n_latent: 30
+        - scanvi_scvi_epochs: 300 (SCVI pretraining)
+        - num_epochs: 100 (SCANVI training)
+        - scanvi_query_epochs: 100
+        - Gene selection: 1000-10000 HVGs recommended
+
+    Empirical Adjustments (not official):
+        For small datasets (<1000 genes or <1000 cells):
+        - scanvi_n_latent: 3-5 (may prevent NaN/gradient explosion)
+        - scanvi_dropout_rate: 0.2-0.3 (may improve regularization)
+        - scanvi_use_scvi_pretrain: False (may reduce complexity)
+        - num_epochs: 50 (may prevent overfitting)
+        - scanvi_query_epochs: 50
+
+    Common Issues:
+        - NaN errors during training: Try reducing n_latent or increasing dropout_rate
+        - Low confidence scores: Try increasing training epochs or check gene overlap
+        - Memory issues: Reduce batch size or use GPU
+
+    Returns:
+        Tuple of (cell_types, counts, confidence_scores, None):
+        - cell_types: List of predicted cell type categories
+        - counts: Dict mapping cell types to number of cells
+        - confidence_scores: Dict mapping cell types to mean prediction probability
+        - None: (compatibility placeholder)
+
+    Example:
+        params = AnnotationParameters(
+            method="scanvi",
+            reference_data_id="reference_sc",
+            cell_type_key="cell_types",
+            scanvi_n_latent=5,              # For small dataset
+            scanvi_dropout_rate=0.2,        # Better regularization
+            scanvi_use_scvi_pretrain=False, # Simpler training
+            num_epochs=50,                  # Prevent overfitting
+        )
+    """
     try:
         if context:
             await context.info("Using scANVI method for annotation")
@@ -976,15 +1053,16 @@ async def _annotate_with_scanvi(
 
         # Fix duplicate gene names in reference data
         if not adata_ref_original.var_names.is_unique:
-            n_duplicates_ref = (
-                len(adata_ref_original.var_names)
-                - len(set(adata_ref_original.var_names))
+            n_duplicates_ref = len(adata_ref_original.var_names) - len(
+                set(adata_ref_original.var_names)
             )
             if context:
                 await context.warning(
                     f"⚠️  Found {n_duplicates_ref} duplicate gene names in reference data"
                 )
-                await context.info("Fixing duplicate gene names with unique suffixes...")
+                await context.info(
+                    "Fixing duplicate gene names with unique suffixes..."
+                )
             adata_ref_original.var_names_make_unique()
             if context:
                 await context.info("✓ Reference gene names fixed")
@@ -996,7 +1074,9 @@ async def _annotate_with_scanvi(
                 await context.warning(
                     f"⚠️  Found {n_duplicates_query} duplicate gene names in query data"
                 )
-                await context.info("Fixing duplicate gene names with unique suffixes...")
+                await context.info(
+                    "Fixing duplicate gene names with unique suffixes..."
+                )
             adata.var_names_make_unique()
             if context:
                 await context.info("✓ Query gene names fixed")
@@ -1038,12 +1118,20 @@ async def _annotate_with_scanvi(
 
         # ✅ DEBUG: Check for counts layer existence
         if context:
-            await context.info(f"Reference data has 'counts' layer: {'counts' in adata_ref.layers}")
-            await context.info(f"Query data has 'counts' layer: {'counts' in adata_subset.layers}")
-            if 'counts' in adata_ref.layers:
-                await context.info(f"  Reference counts max: {adata_ref.layers['counts'].max():.2f}")
-            if 'counts' in adata_subset.layers:
-                await context.info(f"  Query counts max: {adata_subset.layers['counts'].max():.2f}")
+            await context.info(
+                f"Reference data has 'counts' layer: {'counts' in adata_ref.layers}"
+            )
+            await context.info(
+                f"Query data has 'counts' layer: {'counts' in adata_subset.layers}"
+            )
+            if "counts" in adata_ref.layers:
+                await context.info(
+                    f"  Reference counts max: {adata_ref.layers['counts'].max():.2f}"
+                )
+            if "counts" in adata_subset.layers:
+                await context.info(
+                    f"  Query counts max: {adata_subset.layers['counts'].max():.2f}"
+                )
 
         # Check if reference data is normalized
         if "log1p" not in adata_ref.uns:
@@ -1339,15 +1427,29 @@ async def _annotate_with_mllmcelltype(
         # Prepare parameters for mllmcelltype
         species = params.mllm_species if hasattr(params, "mllm_species") else "human"
         tissue = params.mllm_tissue if hasattr(params, "mllm_tissue") else None
-        additional_context = params.mllm_additional_context if hasattr(params, "mllm_additional_context") else None
+        additional_context = (
+            params.mllm_additional_context
+            if hasattr(params, "mllm_additional_context")
+            else None
+        )
         use_cache = params.mllm_use_cache if hasattr(params, "mllm_use_cache") else True
         base_urls = params.mllm_base_urls if hasattr(params, "mllm_base_urls") else None
         verbose = params.mllm_verbose if hasattr(params, "mllm_verbose") else False
-        force_rerun = params.mllm_force_rerun if hasattr(params, "mllm_force_rerun") else False
-        clusters_to_analyze = params.mllm_clusters_to_analyze if hasattr(params, "mllm_clusters_to_analyze") else None
+        force_rerun = (
+            params.mllm_force_rerun if hasattr(params, "mllm_force_rerun") else False
+        )
+        clusters_to_analyze = (
+            params.mllm_clusters_to_analyze
+            if hasattr(params, "mllm_clusters_to_analyze")
+            else None
+        )
 
         # Check if using multi-model consensus or single model
-        use_consensus = params.mllm_use_consensus if hasattr(params, "mllm_use_consensus") else False
+        use_consensus = (
+            params.mllm_use_consensus
+            if hasattr(params, "mllm_use_consensus")
+            else False
+        )
 
         try:
             if use_consensus:
@@ -1359,11 +1461,29 @@ async def _annotate_with_mllmcelltype(
                         "Provide a list of model names, e.g., ['gpt-5', 'claude-sonnet-4-5-20250929', 'gemini-2.5-pro']"
                     )
 
-                api_keys = params.mllm_api_keys if hasattr(params, "mllm_api_keys") else None
-                consensus_threshold = params.mllm_consensus_threshold if hasattr(params, "mllm_consensus_threshold") else 0.7
-                entropy_threshold = params.mllm_entropy_threshold if hasattr(params, "mllm_entropy_threshold") else 1.0
-                max_discussion_rounds = params.mllm_max_discussion_rounds if hasattr(params, "mllm_max_discussion_rounds") else 3
-                consensus_model = params.mllm_consensus_model if hasattr(params, "mllm_consensus_model") else None
+                api_keys = (
+                    params.mllm_api_keys if hasattr(params, "mllm_api_keys") else None
+                )
+                consensus_threshold = (
+                    params.mllm_consensus_threshold
+                    if hasattr(params, "mllm_consensus_threshold")
+                    else 0.7
+                )
+                entropy_threshold = (
+                    params.mllm_entropy_threshold
+                    if hasattr(params, "mllm_entropy_threshold")
+                    else 1.0
+                )
+                max_discussion_rounds = (
+                    params.mllm_max_discussion_rounds
+                    if hasattr(params, "mllm_max_discussion_rounds")
+                    else 3
+                )
+                consensus_model = (
+                    params.mllm_consensus_model
+                    if hasattr(params, "mllm_consensus_model")
+                    else None
+                )
 
                 if context:
                     await context.info(
@@ -1393,7 +1513,9 @@ async def _annotate_with_mllmcelltype(
                 annotations = consensus_results.get("consensus", {})
 
                 # Store additional metadata for reporting
-                consensus_proportions = consensus_results.get("consensus_proportions", {})
+                consensus_proportions = consensus_results.get(
+                    "consensus_proportions", {}
+                )
                 entropy = consensus_results.get("entropy", {})
 
                 if context:
@@ -1403,9 +1525,15 @@ async def _annotate_with_mllmcelltype(
                     )
             else:
                 # Use single model annotation
-                provider = params.mllm_provider if hasattr(params, "mllm_provider") else "openai"
+                provider = (
+                    params.mllm_provider
+                    if hasattr(params, "mllm_provider")
+                    else "openai"
+                )
                 model = params.mllm_model if hasattr(params, "mllm_model") else None
-                api_key = params.mllm_api_key if hasattr(params, "mllm_api_key") else None
+                api_key = (
+                    params.mllm_api_key if hasattr(params, "mllm_api_key") else None
+                )
 
                 if context:
                     await context.info(
