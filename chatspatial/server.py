@@ -25,51 +25,37 @@ except ImportError:
     pass
 
 from mcp.server.fastmcp import Context
-from mcp.server.fastmcp.utilities.types import Image
-from mcp.types import EmbeddedResource
+from mcp.types import EmbeddedResource, ImageContent
 
-from .models.analysis import (
-    AnnotationResult,
-    CellCommunicationResult,
-    DeconvolutionResult,
-    DifferentialExpressionResult,
-    EnrichmentResult,
-    IntegrationResult,
-    PreprocessingResult,
-    RNAVelocityResult,
-    SpatialAnalysisResult,
-    SpatialDomainResult,
-    SpatialVariableGenesResult,
-    TrajectoryResult,
-)
-from .models.data import (
-    CellCommunicationParameters,
-    ColumnInfo,
-    DeconvolutionParameters,
-    EnrichmentParameters,
-    IntegrationParameters,
-    RNAVelocityParameters,
-    SpatialDataset,
-    SpatialDomainParameters,
-    SpatialVariableGenesParameters,
-    TrajectoryParameters,
-)
+from .models.analysis import (AnnotationResult, CellCommunicationResult,
+                              CNVResult, DeconvolutionResult,
+                              DifferentialExpressionResult, EnrichmentResult,
+                              IntegrationResult, PreprocessingResult,
+                              RNAVelocityResult, SpatialAnalysisResult,
+                              SpatialDomainResult, SpatialVariableGenesResult,
+                              TrajectoryResult)
+from .models.data import (CellCommunicationParameters, CNVParameters,
+                          ColumnInfo, DeconvolutionParameters,
+                          EnrichmentParameters, IntegrationParameters,
+                          RNAVelocityParameters, SpatialDataset,
+                          SpatialDomainParameters,
+                          SpatialVariableGenesParameters, TrajectoryParameters)
 from .spatial_mcp_adapter import MCPToolMetadata, create_spatial_mcp_server
 from .tools.annotation import annotate_cell_types
+from .tools.cnv_analysis import infer_cnv
 from .tools.deconvolution import deconvolve_spatial_data
 from .tools.differential import differential_expression
 from .tools.spatial_genes import identify_spatial_genes
-from .tools.spatial_statistics import analyze_spatial_statistics as _analyze_spatial_statistics
+from .tools.spatial_statistics import \
+    analyze_spatial_statistics as _analyze_spatial_statistics
 from .tools.trajectory import analyze_rna_velocity
 from .utils.error_handling import ProcessingError
-from .utils.mcp_parameter_handler import (
-    manual_parameter_validation,
-    validate_analysis_params,
-    validate_annotation_params,
-    validate_cell_communication_params,
-    validate_spatial_analysis_params,
-    validate_visualization_params,
-)
+from .utils.mcp_parameter_handler import (manual_parameter_validation,
+                                          validate_analysis_params,
+                                          validate_annotation_params,
+                                          validate_cell_communication_params,
+                                          validate_spatial_analysis_params,
+                                          validate_visualization_params)
 from .utils.tool_error_handling import mcp_tool_error_handler
 
 logger = logging.getLogger(__name__)
@@ -233,7 +219,7 @@ async def preprocess_data(
 async def visualize_data(
     data_id: str, params: Any = None, context: Context = None
 ) -> Union[
-    Image, Tuple[Image, EmbeddedResource]
+    ImageContent, Tuple[ImageContent, EmbeddedResource]
 ]:  # Now supports Tuple for token optimization!
     """Visualize spatial transcriptomics data
 
@@ -687,6 +673,83 @@ async def find_markers(
 
 @mcp.tool()
 @mcp_tool_error_handler()
+async def analyze_cnv(
+    data_id: str,
+    reference_key: str,
+    reference_categories: List[str],
+    window_size: int = 100,
+    step: int = 10,
+    exclude_chromosomes: Optional[List[str]] = None,
+    dynamic_threshold: Optional[float] = 1.5,
+    cluster_cells: bool = False,
+    dendrogram: bool = False,
+    context: Context = None,
+) -> CNVResult:
+    """Analyze copy number variations (CNVs) in spatial transcriptomics data
+
+    Uses infercnvpy to detect chromosomal copy number alterations by comparing
+    gene expression patterns across chromosomes between tumor and reference cells.
+
+    Args:
+        data_id: Dataset identifier
+        reference_key: Column name in adata.obs for cell type labels
+        reference_categories: List of cell types to use as reference (normal cells)
+        window_size: Number of genes for CNV averaging window (default: 100)
+        step: Step size for sliding window (default: 10)
+        exclude_chromosomes: Chromosomes to exclude (e.g., ['chrX', 'chrY'])
+        dynamic_threshold: Threshold for dynamic CNV calling (default: 1.5)
+        cluster_cells: Whether to cluster cells by CNV pattern
+        dendrogram: Whether to compute hierarchical clustering dendrogram
+        context: MCP context
+
+    Returns:
+        CNV analysis result with statistics and visualization availability
+
+    Examples:
+        # Basic CNV analysis
+        analyze_cnv("data1", "cell_type", ["T cells", "B cells"])
+
+        # With clustering
+        analyze_cnv("data1", "leiden", ["0", "1"], cluster_cells=True)
+    """
+    # Validate dataset
+    validate_dataset(data_id)
+
+    # Get dataset from data manager
+    dataset_info = await data_manager.get_dataset(data_id)
+    data_store = {data_id: dataset_info}
+
+    # Create CNVParameters object
+    params = CNVParameters(
+        reference_key=reference_key,
+        reference_categories=reference_categories,
+        window_size=window_size,
+        step=step,
+        exclude_chromosomes=exclude_chromosomes,
+        dynamic_threshold=dynamic_threshold,
+        cluster_cells=cluster_cells,
+        dendrogram=dendrogram,
+    )
+
+    # Call CNV inference function
+    result = await infer_cnv(
+        data_id=data_id, data_store=data_store, params=params, context=context
+    )
+
+    # Update dataset in data manager
+    data_manager.data_store[data_id] = data_store[data_id]
+
+    # Save CNV result
+    await data_manager.save_result(data_id, "cnv_analysis", result)
+
+    # Create result resource
+    await adapter.resource_manager.create_result_resource(data_id, "cnv", result)
+
+    return result
+
+
+@mcp.tool()
+@mcp_tool_error_handler()
 async def analyze_velocity_data(
     data_id: str,
     params: RNAVelocityParameters = RNAVelocityParameters(),
@@ -913,7 +976,8 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import \
+        identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -996,9 +1060,8 @@ async def analyze_cell_communication(
         }
     """
     # Import cell communication function
-    from .tools.cell_communication import (
-        analyze_cell_communication as analyze_comm_func,
-    )
+    from .tools.cell_communication import \
+        analyze_cell_communication as analyze_comm_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1083,9 +1146,8 @@ async def analyze_enrichment(
     # Import enrichment analysis function
     import time
 
-    from .tools.enrichment import (
-        perform_spatial_enrichment as perform_enrichment_analysis,
-    )
+    from .tools.enrichment import \
+        perform_spatial_enrichment as perform_enrichment_analysis
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1230,12 +1292,8 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (
-            perform_enrichr,
-            perform_gsea,
-            perform_ora,
-            perform_ssgsea,
-        )
+        from .tools.enrichment import (perform_enrichr, perform_gsea,
+                                       perform_ora, perform_ssgsea)
 
         if params.method == "pathway_gsea":
             result_dict = (

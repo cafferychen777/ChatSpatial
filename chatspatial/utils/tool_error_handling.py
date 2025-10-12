@@ -13,10 +13,11 @@ A bug in this code caused images to display as object strings for 2 WEEKS!
 """
 
 import asyncio
+import inspect
 import traceback
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, get_type_hints
 
 
 @dataclass
@@ -74,6 +75,82 @@ def create_success_result(content: Union[str, Dict[str, Any], Any]) -> ToolResul
         return create_success_result(data)
 
 
+def _check_return_type_category(func) -> str:
+    """Check what category of type a function returns
+
+    Args:
+        func: Function to check
+
+    Returns:
+        One of: "image", "basemodel", "simple", "unknown"
+        - "image": Returns ImageContent
+        - "basemodel": Returns Pydantic BaseModel (but not ImageContent)
+        - "simple": Returns simple types (str, int, dict, list)
+        - "unknown": Cannot determine type
+    """
+    try:
+        # Get type hints
+        hints = get_type_hints(func)
+        return_type = hints.get('return', None)
+
+        if return_type is None:
+            return "unknown"
+
+        # Convert to string for easier checking
+        type_str = str(return_type)
+
+        # Check if ImageContent is in the return type
+        if 'ImageContent' in type_str:
+            return "image"
+
+        # Check if it's a Pydantic BaseModel (common result types)
+        # These are defined in models/analysis.py and models/data.py
+        basemodel_types = [
+            'SpatialDataset', 'PreprocessingResult', 'AnnotationResult',
+            'SpatialAnalysisResult', 'DifferentialExpressionResult',
+            'CNVResult', 'DeconvolutionResult', 'CellCommunicationResult',
+            'EnrichmentResult', 'RNAVelocityResult', 'TrajectoryResult',
+            'IntegrationResult', 'SpatialDomainResult', 'SpatialVariableGenesResult'
+        ]
+
+        for model_type in basemodel_types:
+            if model_type in type_str:
+                return "basemodel"
+
+        # Otherwise it's a simple type
+        return "simple"
+
+    except Exception:
+        return "unknown"
+
+
+def _create_error_placeholder_image(error: Exception):
+    """Create a placeholder image displaying error information
+
+    Args:
+        error: The exception that occurred
+
+    Returns:
+        ImageContent object with error message
+    """
+    try:
+        from ..utils.image_utils import create_placeholder_image
+
+        # Format error message
+        error_msg = f"❌ Error: {str(error)}"
+
+        # Truncate if too long
+        if len(error_msg) > 200:
+            error_msg = error_msg[:197] + "..."
+
+        # Create placeholder image
+        return create_placeholder_image(message=error_msg, figsize=(8, 4))
+
+    except Exception as e:
+        # If we can't create placeholder image, return None and fall back to error dict
+        return None
+
+
 def mcp_tool_error_handler(include_traceback: bool = True):
     """
     Decorator for MCP tools to handle errors according to specification.
@@ -83,6 +160,9 @@ def mcp_tool_error_handler(include_traceback: bool = True):
     """
 
     def decorator(func):
+        # Check what category of type the function returns
+        return_type_category = _check_return_type_category(func)
+
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
             try:
@@ -91,25 +171,44 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 if isinstance(result, ToolResult):
                     return result.to_dict()
                 # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
-                # Image objects MUST be returned directly without any wrapping!
-                # FastMCP needs to see the raw Image object to convert it properly.
-                # If you wrap Image objects in dictionaries or ToolResult,
-                # Claude Desktop will show "<Image object at 0x...>" instead of the actual image.
+                # ImageContent objects MUST be returned directly without any wrapping!
+                # FastMCP needs to see the raw ImageContent object to convert it properly.
+                # If you wrap ImageContent objects in dictionaries or ToolResult,
+                # Claude Desktop will show "<ImageContent object at 0x...>" instead of the actual image.
                 # This bug took 2 WEEKS to find and fix. DO NOT CHANGE THIS!
                 # See /docs/CRITICAL_IMAGE_DISPLAY_BUG.md for full details.
                 # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
-                from mcp.server.fastmcp.utilities.types import Image
+                from mcp.types import ImageContent
+                from pydantic import BaseModel
 
-                if isinstance(result, Image):
-                    return result  # MUST return raw Image object!
-                # Support for Tuple[Image, EmbeddedResource] returns
+                if isinstance(result, ImageContent):
+                    return result  # MUST return raw ImageContent object!
+                # Support for Tuple[ImageContent, EmbeddedResource] returns
                 if isinstance(result, tuple) and len(result) >= 1:
-                    if isinstance(result[0], Image):
+                    if isinstance(result[0], ImageContent):
                         return result  # Let FastMCP handle the tuple!
+                # MCP 1.10+ can handle Pydantic models directly - don't wrap them!
+                if isinstance(result, BaseModel):
+                    return result  # Let FastMCP serialize Pydantic models
                 # Otherwise, wrap the result
                 return create_success_result(result).to_dict()
             except Exception as e:
-                # Return error in the result object
+                # Handle errors based on return type category
+                if return_type_category == "image":
+                    # For ImageContent, return error as placeholder image
+                    # This ensures type consistency - MCP expects ImageContent, not error dict
+                    error_image = _create_error_placeholder_image(e)
+                    if error_image is not None:
+                        return error_image  # Return placeholder ImageContent
+                    # Fall through to re-raise if placeholder creation fails
+
+                elif return_type_category == "basemodel":
+                    # For BaseModel types, re-raise the exception
+                    # Let FastMCP handle it at a higher level
+                    # This prevents MCP schema validation errors
+                    raise
+
+                # For simple types or unknown, return error in the result object
                 return create_error_result(e, include_traceback).to_dict()
 
         @wraps(func)
@@ -120,25 +219,44 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 if isinstance(result, ToolResult):
                     return result.to_dict()
                 # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
-                # Image objects MUST be returned directly without any wrapping!
-                # FastMCP needs to see the raw Image object to convert it properly.
-                # If you wrap Image objects in dictionaries or ToolResult,
-                # Claude Desktop will show "<Image object at 0x...>" instead of the actual image.
+                # ImageContent objects MUST be returned directly without any wrapping!
+                # FastMCP needs to see the raw ImageContent object to convert it properly.
+                # If you wrap ImageContent objects in dictionaries or ToolResult,
+                # Claude Desktop will show "<ImageContent object at 0x...>" instead of the actual image.
                 # This bug took 2 WEEKS to find and fix. DO NOT CHANGE THIS!
                 # See /docs/CRITICAL_IMAGE_DISPLAY_BUG.md for full details.
                 # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
-                from mcp.server.fastmcp.utilities.types import Image
+                from mcp.types import ImageContent
+                from pydantic import BaseModel
 
-                if isinstance(result, Image):
-                    return result  # MUST return raw Image object!
-                # Support for Tuple[Image, EmbeddedResource] returns
+                if isinstance(result, ImageContent):
+                    return result  # MUST return raw ImageContent object!
+                # Support for Tuple[ImageContent, EmbeddedResource] returns
                 if isinstance(result, tuple) and len(result) >= 1:
-                    if isinstance(result[0], Image):
+                    if isinstance(result[0], ImageContent):
                         return result  # Let FastMCP handle the tuple!
+                # MCP 1.10+ can handle Pydantic models directly - don't wrap them!
+                if isinstance(result, BaseModel):
+                    return result  # Let FastMCP serialize Pydantic models
                 # Otherwise, wrap the result
                 return create_success_result(result).to_dict()
             except Exception as e:
-                # Return error in the result object
+                # Handle errors based on return type category
+                if return_type_category == "image":
+                    # For ImageContent, return error as placeholder image
+                    # This ensures type consistency - MCP expects ImageContent, not error dict
+                    error_image = _create_error_placeholder_image(e)
+                    if error_image is not None:
+                        return error_image  # Return placeholder ImageContent
+                    # Fall through to re-raise if placeholder creation fails
+
+                elif return_type_category == "basemodel":
+                    # For BaseModel types, re-raise the exception
+                    # Let FastMCP handle it at a higher level
+                    # This prevents MCP schema validation errors
+                    raise
+
+                # For simple types or unknown, return error in the result object
                 return create_error_result(e, include_traceback).to_dict()
 
         # Return appropriate wrapper based on function type

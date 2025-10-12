@@ -208,6 +208,19 @@ async def preprocess_data(
                 f"Detected data type: {data_type} ({adata.n_obs} cells, {adata.n_vars} genes)"
             )
 
+        # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
+        # Must be done BEFORE any gene-based operations (QC, HVG selection, etc.)
+        if not adata.var_names.is_unique:
+            n_duplicates = len(adata.var_names) - len(set(adata.var_names))
+            if context:
+                await context.warning(
+                    f"⚠️  Found {n_duplicates} duplicate gene names in data"
+                )
+                await context.info("Fixing duplicate gene names with unique suffixes...")
+            adata.var_names_make_unique()
+            if context:
+                await context.info(f"✓ Fixed {n_duplicates} duplicate gene names")
+
         # 1. Calculate QC metrics
         if context:
             await context.info("Calculating QC metrics...")

@@ -46,6 +46,17 @@ async def differential_expression(
     if group_key not in adata.obs.columns:
         raise ValueError(f"Group key '{group_key}' not found in adata.obs")
 
+    # IMPORTANT: Handle float16 data type (numba doesn't support float16)
+    # Convert to float32 if needed for differential expression analysis
+    if hasattr(adata.X, 'dtype') and adata.X.dtype == np.float16:
+        if context:
+            await context.info(
+                "⚙️ Converting data from float16 to float32 for compatibility with rank_genes_groups"
+            )
+        # Create a copy to avoid modifying the original data
+        adata = adata.copy()
+        adata.X = adata.X.astype(np.float32)
+
     # If group1 is None, find markers for all groups
     if group1 is None:
         if context:
