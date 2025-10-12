@@ -858,8 +858,13 @@ async def integrate_samples(
 
     Notes:
         Integration methods (status):
-        - harmony, bbknn, scanorama, mnn: Implemented in tools/integration.py
-        - scvi / multivi / totalvi / contrastivevi: Implemented when scvi-tools available
+        - harmony, bbknn, scanorama: Classical methods (implemented)
+        - scvi: Deep learning method (implemented, requires scvi-tools)
+
+        Removed methods:
+        - multivi: Requires MuData format (not compatible with current workflow)
+        - totalvi: PyTorch Lightning dependency conflicts
+        - contrastivevi: Not integrated (designed for Perturb-seq use cases)
     """
     # Import integration function
     from .tools.integration import integrate_samples

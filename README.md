@@ -288,7 +288,7 @@ pip install -e ".[dev]"
 | **Deconvolution** | Cell2location, DestVI, RCTD, Tangram, Stereoscope, Spotlight |
 | **Spatial Variable Genes** | GASTON, SpatialDE, SPARK-X |
 | **Trajectory & Velocity** | CellRank, Palantir, DPT (Diffusion Pseudotime), scVelo/VeloVI |
-| **Sample Integration** | Harmony, BBKNN, Scanorama, scVI, MultiVI, TotalVI |
+| **Sample Integration** | Harmony, BBKNN, Scanorama, scVI |
 | **Differential Expression** | Wilcoxon, t-test, rank_genes_groups (scanpy methods) |
 | **Gene Set Enrichment** | GSEA, ORA, ssGSEA, Enrichr, Spatial EnrichMap |
 | **Spatial Statistics** | Moran's I, Local Moran's I (LISA), Geary's C, Getis-Ord Gi*, Neighborhood Enrichment, Co-occurrence, Ripley's K/L, Bivariate Moran's I, Join Count, Network Properties, Spatial Centrality |

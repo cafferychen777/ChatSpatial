@@ -65,7 +65,9 @@ def validate_data_quality(adata, min_cells=10, min_genes=10):
     )
 
 
-def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pcs=30):
+def integrate_multiple_samples(
+    adatas, batch_key="batch", method="harmony", n_pcs=30
+):
     """Integrate multiple spatial transcriptomics samples
 
     This function expects preprocessed data (normalized, log-transformed, with HVGs marked).
@@ -74,7 +76,7 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
     Args:
         adatas: List of preprocessed AnnData objects or a single combined AnnData object
         batch_key: Batch information key
-        method: Integration method, options: 'harmony', 'bbknn', 'scanorama', 'mnn'
+        method: Integration method, options: 'harmony', 'bbknn', 'scanorama', 'scvi'
         n_pcs: Number of principal components for integration
 
     Returns:
@@ -203,7 +205,54 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
     if combined.raw is None:
         combined.raw = combined
 
-    # Filter to highly variable genes
+    # ========================================================================
+    # EARLY BRANCH FOR scVI-TOOLS METHODS
+    # scVI requires normalized+log data WITHOUT scaling/PCA
+    # It generates its own latent representation
+    # NOTE: scVI-tools methods work better with ALL genes, not just HVGs
+    # ========================================================================
+    if method == "scvi":
+        logging.info(f"Using scVI method - skipping scale and PCA")
+        logging.info(f"Gene count before scVI processing: {combined.n_vars}")
+
+        try:
+            combined = integrate_with_scvi(
+                combined,
+                batch_key=batch_key,
+                n_hidden=128,
+                n_latent=10,
+                n_layers=1,
+                dropout_rate=0.1,
+                gene_likelihood="zinb",
+                n_epochs=None,
+                use_gpu=False
+            )
+            logging.info("scVI integration completed successfully")
+        except ImportError as e:
+            raise ImportError(
+                "scVI integration requires 'scvi-tools' package. "
+                "Install with: pip install scvi-tools"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(
+                f"scVI integration failed: {e}\n"
+                f"Common causes:\n"
+                f"1. Data not preprocessed (needs normalize + log transform)\n"
+                f"2. Insufficient batch diversity (need at least 2 batches)\n"
+                f"3. Data quality issues\n"
+                f"Consider using method='harmony' or 'scanorama' if scVI is not appropriate."
+            ) from e
+
+        # Calculate UMAP embedding to visualize integration effect
+        sc.tl.umap(combined)
+
+        return combined
+
+    # ========================================================================
+    # CLASSICAL METHODS: Continue with scale → PCA → integration
+    # ========================================================================
+
+    # Filter to highly variable genes for classical methods
     if "highly_variable" in combined.var.columns:
         n_hvg = combined.var["highly_variable"].sum()
         if n_hvg == 0:
@@ -458,6 +507,10 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
 
     else:
         # Default: use uncorrected PCA result
+        logging.warning(
+            f"Integration method '{method}' not recognized. "
+            f"Using uncorrected PCA embedding."
+        )
         sc.pp.neighbors(combined)
 
     # Calculate UMAP embedding to visualize integration effect
@@ -536,6 +589,442 @@ def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch
     return combined_adata
 
 
+def integrate_with_scvi(
+    combined: sc.AnnData,
+    batch_key: str = "batch",
+    n_hidden: int = 128,
+    n_latent: int = 10,
+    n_layers: int = 1,
+    dropout_rate: float = 0.1,
+    gene_likelihood: str = "zinb",
+    n_epochs: Optional[int] = None,
+    use_gpu: bool = False,
+) -> sc.AnnData:
+    """Integrate data using scVI for batch correction
+
+    scVI is a deep generative model for single-cell RNA-seq that can perform
+    batch correction by learning a low-dimensional latent representation.
+
+    Args:
+        combined: Combined AnnData object with multiple batches
+        batch_key: Column name in obs containing batch labels
+        n_hidden: Number of nodes per hidden layer (default: 128)
+        n_latent: Dimensionality of the latent space (default: 10)
+        n_layers: Number of hidden layers (default: 1)
+        dropout_rate: Dropout rate for neural networks (default: 0.1)
+        gene_likelihood: Distribution for gene expression (default: "zinb")
+        n_epochs: Number of training epochs (None = auto-determine)
+        use_gpu: Whether to use GPU acceleration (default: False)
+
+    Returns:
+        AnnData object with scVI latent representation in obsm['X_scvi']
+
+    Raises:
+        ImportError: If scvi-tools is not installed
+        ValueError: If data is not preprocessed or invalid
+
+    Reference:
+        Lopez et al. (2018) "Deep generative modeling for single-cell transcriptomics"
+        Nature Methods 15, 1053–1058
+    """
+    import numpy as np
+
+    try:
+        import scvi
+    except ImportError:
+        raise ImportError(
+            "scVI integration requires scvi-tools package. "
+            "Install with: pip install scvi-tools"
+        )
+
+    # Validate data is preprocessed
+    max_val = combined.X.max() if hasattr(combined.X, "max") else np.max(combined.X)
+    if max_val > 50:
+        raise ValueError(
+            "scVI requires preprocessed data (normalized + log-transformed). "
+            f"Current max value: {max_val:.1f}\n"
+            "Please run: sc.pp.normalize_total(adata); sc.pp.log1p(adata)"
+        )
+
+    # Validate batch key
+    if batch_key not in combined.obs:
+        raise ValueError(
+            f"Batch key '{batch_key}' not found in adata.obs. "
+            f"Available columns: {list(combined.obs.columns)}"
+        )
+
+    # Check for batch diversity
+    n_batches = combined.obs[batch_key].nunique()
+    if n_batches < 2:
+        raise ValueError(
+            f"scVI requires at least 2 batches, found {n_batches}. "
+            "Check your batch labels."
+        )
+
+    logging.info(f"Setting up scVI model with {n_batches} batches")
+
+    # Setup AnnData for scVI
+    scvi.model.SCVI.setup_anndata(
+        combined,
+        batch_key=batch_key,
+        layer=None  # Use .X (should be preprocessed)
+    )
+
+    # Initialize scVI model
+    model = scvi.model.SCVI(
+        combined,
+        n_hidden=n_hidden,
+        n_latent=n_latent,
+        n_layers=n_layers,
+        dropout_rate=dropout_rate,
+        gene_likelihood=gene_likelihood
+    )
+
+    # Auto-determine epochs based on dataset size if not specified
+    if n_epochs is None:
+        n_cells = combined.n_obs
+        if n_cells < 1000:
+            n_epochs = 400
+        elif n_cells < 10000:
+            n_epochs = 200
+        else:
+            n_epochs = 100
+        logging.info(
+            f"Auto-determined {n_epochs} epochs for {n_cells} cells"
+        )
+
+    # Train model
+    logging.info(f"Training scVI model for {n_epochs} epochs...")
+    # Note: scvi-tools 1.x uses accelerator instead of use_gpu
+    accelerator = "gpu" if use_gpu else "cpu"
+    model.train(
+        max_epochs=n_epochs,
+        early_stopping=True,
+        accelerator=accelerator
+    )
+
+    # Get latent representation
+    logging.info("Extracting scVI latent representation...")
+    combined.obsm["X_scvi"] = model.get_latent_representation()
+
+    # Compute neighbors using scVI embedding
+    sc.pp.neighbors(combined, use_rep="X_scvi")
+
+    logging.info(
+        f"scVI integration complete: {combined.n_obs} cells, "
+        f"{n_latent}-dimensional latent space"
+    )
+
+    return combined
+
+
+# ============================================================================
+# MultiVI - DISABLED (Requires MuData Format)
+# ============================================================================
+# MultiVI has been removed from the integration workflow because it requires
+# MuData format (setup_mudata) not AnnData+obsm format (setup_anndata).
+#
+# For multiome data (RNA + ATAC):
+#   - Use the official scvi-tools tutorial with MuData objects
+#   - Requires separate implementation with setup_mudata()
+#
+# For CITE-seq data (RNA + protein):
+#   - Use TotalVI instead (designed for this use case)
+#
+# See: test_reports/MULTIVI_INVESTIGATION_FINAL.md for details
+# ============================================================================
+
+
+def _integrate_with_multivi_disabled(
+    combined: sc.AnnData,
+    batch_key: str = "batch",
+    protein_expression_obsm_key: str = "protein_expression",
+    n_hidden: int = 128,
+    n_latent: int = 10,
+    n_layers: int = 1,
+    dropout_rate: float = 0.1,
+    n_epochs: Optional[int] = None,
+    use_gpu: bool = False,
+) -> sc.AnnData:
+    """DISABLED - MultiVI integration (requires MuData format, not implemented)
+
+    This function is kept for reference but is not functional with AnnData format.
+    MultiVI requires MuData format with setup_mudata() API.
+
+    Args:
+        combined: Combined AnnData object with RNA and protein/ATAC data
+        batch_key: Column name in obs containing batch labels
+        protein_expression_obsm_key: Key in obsm for protein/accessibility data
+        n_hidden: Number of nodes per hidden layer (default: 128)
+        n_latent: Dimensionality of the latent space (default: 10)
+        n_layers: Number of hidden layers (default: 1)
+        dropout_rate: Dropout rate for neural networks (default: 0.1)
+        n_epochs: Number of training epochs (None = auto-determine)
+        use_gpu: Whether to use GPU acceleration (default: False)
+
+    Returns:
+        AnnData object with MultiVI latent representation in obsm['X_multivi']
+
+    Raises:
+        ImportError: If scvi-tools is not installed
+        ValueError: If protein data is missing or invalid
+
+    Reference:
+        Ashuach et al. (2023) "MultiVI: deep generative model for the
+        integration of multimodal data" Nature Methods 20, 1222–1231
+    """
+    import numpy as np
+
+    try:
+        import scvi
+    except ImportError:
+        raise ImportError(
+            "MultiVI integration requires scvi-tools package. "
+            "Install with: pip install scvi-tools"
+        )
+
+    # Validate protein/modality data exists
+    if protein_expression_obsm_key not in combined.obsm:
+        raise ValueError(
+            f"MultiVI requires protein expression data in obsm['{protein_expression_obsm_key}']. "
+            f"Available keys: {list(combined.obsm.keys())}\n"
+            "For CITE-seq data, protein data should be in obsm['protein_expression']."
+        )
+
+    # Check protein data shape and quality
+    protein_data = combined.obsm[protein_expression_obsm_key]
+    n_proteins = protein_data.shape[1]
+    logging.info(f"Found {n_proteins} protein/accessibility features")
+
+    if n_proteins < 5:
+        raise ValueError(
+            f"Only {n_proteins} protein features found. MultiVI requires at least 5. "
+            "Check if protein data is correctly stored in obsm."
+        )
+
+    # Validate batch key
+    if batch_key not in combined.obs:
+        raise ValueError(
+            f"Batch key '{batch_key}' not found in adata.obs. "
+            f"Available columns: {list(combined.obs.columns)}"
+        )
+
+    logging.info(f"Setting up MultiVI model with {n_proteins} proteins")
+    logging.info(f"Before setup: combined.n_vars={combined.n_vars}, n_proteins={n_proteins}")
+
+    # Setup AnnData for MultiVI
+    scvi.model.MULTIVI.setup_anndata(
+        combined,
+        batch_key=batch_key,
+        protein_expression_obsm_key=protein_expression_obsm_key
+    )
+
+    logging.info(f"After setup: combined.n_vars={combined.n_vars}")
+
+    # Initialize MultiVI model
+    # Must explicitly provide n_genes and n_regions
+    model = scvi.model.MULTIVI(
+        combined,
+        n_genes=combined.n_vars,
+        n_regions=n_proteins,
+        n_hidden=n_hidden,
+        n_latent=n_latent,
+        n_layers_encoder=n_layers,
+        dropout_rate=dropout_rate
+    )
+
+    logging.info(f"Model initialized successfully")
+
+    # Auto-determine epochs (MultiVI typically needs more than scVI)
+    if n_epochs is None:
+        n_cells = combined.n_obs
+        if n_cells < 1000:
+            n_epochs = 500
+        elif n_cells < 10000:
+            n_epochs = 300
+        else:
+            n_epochs = 150
+        logging.info(
+            f"Auto-determined {n_epochs} epochs for {n_cells} cells"
+        )
+
+    # Train model
+    logging.info(f"Training MultiVI model for {n_epochs} epochs...")
+    logging.info(f"Data shape at training: combined.shape={combined.shape}")
+    logging.info(f"Protein shape: {combined.obsm[protein_expression_obsm_key].shape}")
+    # Note: scvi-tools 1.x uses accelerator instead of use_gpu
+    accelerator = "gpu" if use_gpu else "cpu"
+    model.train(
+        max_epochs=n_epochs,
+        early_stopping=True,
+        accelerator=accelerator
+    )
+
+    # Get latent representation (shared across modalities)
+    logging.info("Extracting MultiVI latent representation...")
+    combined.obsm["X_multivi"] = model.get_latent_representation()
+
+    # Compute neighbors using MultiVI embedding
+    sc.pp.neighbors(combined, use_rep="X_multivi")
+
+    logging.info(
+        f"MultiVI integration complete: {combined.n_obs} cells, "
+        f"{n_latent}-dimensional shared latent space"
+    )
+
+    return combined
+
+
+def integrate_with_totalvi(
+    combined: sc.AnnData,
+    batch_key: str = "batch",
+    protein_expression_obsm_key: str = "protein_expression",
+    n_hidden: int = 128,
+    n_latent: int = 10,
+    n_layers: int = 1,
+    dropout_rate: float = 0.1,
+    protein_dispersion: str = "gene",
+    n_epochs: Optional[int] = None,
+    use_gpu: bool = False,
+) -> sc.AnnData:
+    """Integrate CITE-seq data using TotalVI
+
+    TotalVI is specifically designed for CITE-seq data (RNA + surface protein)
+    and performs joint probabilistic analysis of both modalities.
+
+    Args:
+        combined: Combined AnnData object with RNA and protein data
+        batch_key: Column name in obs containing batch labels
+        protein_expression_obsm_key: Key in obsm for protein expression
+        n_hidden: Number of nodes per hidden layer (default: 128)
+        n_latent: Dimensionality of the latent space (default: 10)
+        n_layers: Number of hidden layers (default: 1)
+        dropout_rate: Dropout rate for neural networks (default: 0.1)
+        protein_dispersion: Protein dispersion model (default: "gene")
+        n_epochs: Number of training epochs (None = auto-determine)
+        use_gpu: Whether to use GPU acceleration (default: False)
+
+    Returns:
+        AnnData object with TotalVI latent representation in obsm['X_totalvi']
+        Also adds denoised RNA and protein in layers
+
+    Raises:
+        ImportError: If scvi-tools is not installed
+        ValueError: If CITE-seq protein data is missing or invalid
+
+    Reference:
+        Gayoso et al. (2021) "Joint probabilistic modeling of single-cell
+        multi-omic data with totalVI" Nature Methods 18, 272–282
+    """
+    import numpy as np
+
+    try:
+        import scvi
+    except ImportError:
+        raise ImportError(
+            "TotalVI integration requires scvi-tools package. "
+            "Install with: pip install scvi-tools"
+        )
+
+    # Validate CITE-seq protein data exists
+    if protein_expression_obsm_key not in combined.obsm:
+        raise ValueError(
+            f"TotalVI requires CITE-seq protein expression data in obsm['{protein_expression_obsm_key}']. "
+            f"Available keys: {list(combined.obsm.keys())}\n"
+            "For CITE-seq data, protein data should be in obsm['protein_expression']."
+        )
+
+    # Check protein data
+    protein_data = combined.obsm[protein_expression_obsm_key]
+    n_proteins = protein_data.shape[1]
+    logging.info(f"Found {n_proteins} protein features for TotalVI")
+
+    if n_proteins < 10:
+        logging.warning(
+            f"Only {n_proteins} proteins found. TotalVI works best with 50+ proteins (CITE-seq). "
+            "Results may be suboptimal with few proteins."
+        )
+
+    # Validate batch key
+    if batch_key not in combined.obs:
+        raise ValueError(
+            f"Batch key '{batch_key}' not found in adata.obs. "
+            f"Available columns: {list(combined.obs.columns)}"
+        )
+
+    logging.info(f"Setting up TotalVI model with {n_proteins} proteins")
+
+    # Setup AnnData for TotalVI
+    scvi.model.TOTALVI.setup_anndata(
+        combined,
+        batch_key=batch_key,
+        protein_expression_obsm_key=protein_expression_obsm_key,
+        layer=None  # Use .X for RNA
+    )
+
+    # Initialize TotalVI model
+    # Note: TotalVI API is simpler - doesn't accept n_hidden, n_layers, dropout_rate
+    model = scvi.model.TOTALVI(
+        combined,
+        n_latent=n_latent,
+        protein_dispersion=protein_dispersion
+        # gene_dispersion can be added if needed (default: 'gene')
+        # gene_likelihood can be added if needed (default: 'nb')
+    )
+
+    # Auto-determine epochs
+    if n_epochs is None:
+        n_cells = combined.n_obs
+        if n_cells < 1000:
+            n_epochs = 400
+        elif n_cells < 10000:
+            n_epochs = 200
+        else:
+            n_epochs = 100
+        logging.info(
+            f"Auto-determined {n_epochs} epochs for {n_cells} cells"
+        )
+
+    # Train model
+    logging.info(f"Training TotalVI model for {n_epochs} epochs...")
+    # Note: scvi-tools 1.x uses accelerator instead of use_gpu
+    accelerator = "gpu" if use_gpu else "cpu"
+    model.train(
+        max_epochs=n_epochs,
+        early_stopping=True,
+        accelerator=accelerator
+    )
+
+    # Get latent representation
+    logging.info("Extracting TotalVI latent representation...")
+    combined.obsm["X_totalvi"] = model.get_latent_representation()
+
+    # Get denoised expression for both RNA and protein
+    logging.info("Computing denoised expression...")
+    try:
+        rna_denoised, protein_denoised = model.get_normalized_expression(
+            n_samples=25,
+            return_mean=True,
+            transform_batch=None  # No batch transformation
+        )
+
+        # Store denoised data in layers
+        combined.layers["totalvi_rna_denoised"] = rna_denoised
+        combined.layers["totalvi_protein_denoised"] = protein_denoised
+
+        logging.info("Stored denoised RNA and protein expression in layers")
+    except Exception as e:
+        logging.warning(f"Could not compute denoised expression: {e}")
+
+    # Compute neighbors using TotalVI embedding
+    sc.pp.neighbors(combined, use_rep="X_totalvi")
+
+    logging.info(
+        f"TotalVI integration complete: {combined.n_obs} cells, "
+        f"{n_latent}-dimensional latent space"
+    )
+
+    return combined
 
 
 # Import scvi-tools for advanced integration methods
@@ -545,6 +1034,32 @@ try:
 except ImportError:
     scvi = None
     ContrastiveVI = None
+
+
+# ============================================================================
+# ContrastiveVI - NOT INTEGRATED (Perturb-seq Specific Use Case)
+# ============================================================================
+# This function exists but is NOT integrated into the main integration workflow.
+#
+# WHY NOT INTEGRATED:
+# 1. Use case mismatch: Designed for Perturb-seq/CRISPR screens (treatment vs control)
+# 2. Spatial transcriptomics: Usually lacks clear treatment/control grouping
+# 3. Low expected usage: Main focus is spatial pattern analysis, not perturbation
+# 4. Existing alternatives: scVI for batch correction, DE analysis for contrasts
+#
+# TYPICAL USE CASES (not spatial transcriptomics):
+# - Drug perturbation screens
+# - CRISPR gene knockdown/knockout experiments
+# - Disease vs healthy comparisons
+# - Treated vs control cell populations
+#
+# IF YOU NEED ContrastiveVI:
+# - Use this function directly (not exposed as MCP tool)
+# - Requires clear condition_key in adata.obs (e.g., "treatment", "disease_state")
+# - Requires at least 2 conditions (e.g., "control" and "treated")
+#
+# See: test_reports/CONTRASTIVEVI_INVESTIGATION_REPORT.md for details
+# ============================================================================
 
 
 async def integrate_with_contrastive_vi(
@@ -558,11 +1073,16 @@ async def integrate_with_contrastive_vi(
     use_gpu: bool = False,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
-    """Integrate data using ContrastiveVI for identifying condition-specific variations
+    """NOT INTEGRATED - ContrastiveVI for identifying condition-specific variations
 
-    ContrastiveVI is particularly useful for identifying variations that are
-    specific to certain conditions (e.g., disease vs. healthy) while accounting
-    for batch effects.
+    NOTE: This function is NOT integrated into the main workflow.
+    It is designed for Perturb-seq/CRISPR screens, not spatial transcriptomics.
+
+    ContrastiveVI separates two types of variations:
+    1. Background variations (shared): batch effects, cell cycle, cell type
+    2. Salient variations (condition-specific): perturbation effects, disease signals
+
+    Designed for perturbation experiments with clear treatment/control groups.
 
     Args:
         adata: AnnData object with batch information
