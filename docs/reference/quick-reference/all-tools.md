@@ -265,7 +265,7 @@
 
 **Key Parameters**:
 - `data_ids`: List of dataset IDs
-- `params.method`: `"harmony"`, `"bbknn"`, `"scanorama"`, `"mnn"`, `"scvi"`
+- `params.method`: `"harmony"`, `"bbknn"`, `"scanorama"`, `"scvi"`, `"multivi"`, `"totalvi"`
 - `params.batch_key`: Batch identifier column
 - `params.n_pcs`: Principal components to use
 

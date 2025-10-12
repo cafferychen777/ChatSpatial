@@ -456,57 +456,6 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
                 f"Consider using method='harmony' or 'bbknn' if Scanorama is not appropriate for your data."
             ) from e
 
-    elif method == "mnn":
-        # Use proper MNN (Mutual Nearest Neighbors) algorithm
-        # IMPORTANT: MNN ≠ Combat - they are fundamentally different algorithms:
-        # - MNN: Graph-based method that finds matching cell pairs across batches
-        # - Combat: Empirical Bayes method that adjusts expression distributions
-        # Using Combat here was a scientific accuracy error (results labeled "MNN" were actually Combat)
-        try:
-            import scanpy.external as sce
-
-            # MNN requires separate batches as input (cannot work on pre-merged data)
-            batches = []
-            for batch_label in combined.obs[batch_key].unique():
-                batch_data = combined[combined.obs[batch_key] == batch_label].copy()
-                batches.append(batch_data)
-
-            logging.info(f"Applying proper MNN correction to {len(batches)} batches")
-
-            # Apply MNN correction using scanpy.external
-            corrected = sce.pp.mnn_correct(
-                *batches,
-                batch_key=batch_key,
-                # index_unique=None allows automatic handling of index
-            )
-
-            # mnn_correct returns tuple (corrected_adata, mnn_dict)
-            if isinstance(corrected, tuple):
-                combined = corrected[0]
-                logging.info("MNN correction completed, using corrected AnnData")
-            else:
-                combined = corrected
-                logging.info("MNN correction completed")
-
-            # Continue with neighbor graph calculation
-            sc.pp.neighbors(combined)
-
-        except ImportError as e:
-            raise ImportError(
-                "MNN correction requires 'mnnpy' package. Install with: pip install mnnpy\n"
-                "Note: This is different from Combat. MNN finds cell correspondences across batches."
-            ) from e
-        except Exception as e:
-            # MNN failed - provide clear error without fallback
-            raise RuntimeError(
-                f"MNN integration failed: {e}\n"
-                f"MNN requires:\n"
-                f"1. Compatible batches with sufficient cell type overlap\n"
-                f"2. Good quality data preprocessing\n"
-                f"3. At least 2 batches with similar cell populations\n"
-                f"Consider using method='harmony' or 'bbknn' if MNN is not appropriate for your data."
-            ) from e
-
     else:
         # Default: use uncorrected PCA result
         sc.pp.neighbors(combined)
