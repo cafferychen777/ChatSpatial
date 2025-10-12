@@ -238,8 +238,9 @@ async def analyze_spatial_statistics(
             parameters_dict["cluster_key"] = cluster_key
         if params.genes:
             parameters_dict["genes"] = params.genes
-        if params.n_perms:
-            parameters_dict["n_perms"] = params.n_perms
+        # Add n_perms based on analysis type
+        if params.analysis_type in ["moran", "local_moran", "geary"]:
+            parameters_dict["n_perms"] = params.moran_n_perms
 
         # Extract statistics for metadata
         statistics_dict = {
