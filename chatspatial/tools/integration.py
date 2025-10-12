@@ -106,6 +106,18 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
             batch_key=batch_key,
             join="outer",  # Use outer join to keep all genes
         )
+
+        # FIX: Remove incomplete diffmap artifacts created by concatenation (scanpy issue #1021)
+        # Problem: concatenate() copies obsm['X_diffmap'] but NOT uns['diffmap_evals']
+        # This creates incomplete state that causes KeyError in sc.tl.umap()
+        # Solution: Delete incomplete artifacts to allow UMAP to use default initialization
+        if 'X_diffmap' in combined.obsm:
+            del combined.obsm['X_diffmap']
+            logging.info("Removed incomplete X_diffmap from concatenated data (scanpy issue #1021)")
+        if 'diffmap_evals' in combined.uns:
+            del combined.uns['diffmap_evals']
+            logging.info("Removed incomplete diffmap_evals from concatenated data (scanpy issue #1021)")
+
     else:
         # If already a merged dataset, ensure it has batch information
         combined = adatas
@@ -295,57 +307,66 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
     # Apply batch correction based on selected method
     if method == "harmony":
         # Use Harmony for batch correction
+        # BEST PRACTICE: Use scanpy.external wrapper for better integration with scanpy workflow
         try:
-            import harmonypy
+            import scanpy.external as sce
 
-            # Get PCA result
-            X_pca = combined.obsm["X_pca"]
-
-            # Run Harmony - need to pass the DataFrame with batch info, not just the labels
-            # Create a temporary DataFrame with batch information
-            import pandas as pd
-
-            meta_data = pd.DataFrame({batch_key: combined.obs[batch_key]})
-
-            # Run Harmony with proper parameters
-            harmony_out = harmonypy.run_harmony(
-                data_mat=X_pca,  # PCA matrix
-                meta_data=meta_data,  # DataFrame with batch info
-                vars_use=[batch_key],  # Column name in meta_data
-                sigma=0.1,  # Default parameter
-                nclust=None,  # Let harmony determine the number of clusters
-                max_iter_harmony=10,  # Default number of iterations
-                verbose=True,  # Show progress
-            )
-
-            # Save Harmony corrected result
-            combined.obsm["X_harmony"] = harmony_out.Z_corr.T
-
-            # Use corrected result to calculate neighbor graph
-            sc.pp.neighbors(combined, use_rep="X_harmony")
-        except ImportError:
-            raise ImportError(
-                "harmonypy package is required for harmony integration. Install with 'pip install harmonypy'"
-            )
-        except Exception as e:
-            # Provide clear error message instead of silent fallback
-            logging.error(f"Harmony integration failed: {e}")
-
-            # Check if it's an import error (harmonypy not installed)
-            if "harmonypy" in str(e).lower():
-                raise ImportError(
-                    "Harmony integration failed due to missing harmonypy package. "
-                    "Please install with: pip install harmonypy"
+            # Check if harmony_integrate is available in scanpy.external
+            if hasattr(sce.pp, 'harmony_integrate'):
+                # Use scanpy.external wrapper (preferred method)
+                logging.info("Using scanpy.external.pp.harmony_integrate (recommended)")
+                sce.pp.harmony_integrate(
+                    combined,
+                    key=batch_key,
+                    basis='X_pca',  # Use PCA representation
+                    adjusted_basis='X_pca_harmony'  # Store corrected embedding
                 )
+                # Use corrected embedding for downstream analysis
+                sc.pp.neighbors(combined, use_rep='X_pca_harmony')
             else:
-                raise RuntimeError(
-                    f"Harmony integration failed with error: {e}. "
-                    f"This may be due to: \n"
-                    f"1. Insufficient batch diversity (need at least 2 different batches)\n"
-                    f"2. Batch key '{batch_key}' contains invalid values\n"
-                    f"3. PCA result is corrupted or has NaN values\n"
-                    f"Consider using method='mnn' or checking your batch labels."
+                # Fallback to raw harmonypy (same algorithm, different interface)
+                logging.info("scanpy.external.pp.harmony_integrate not available, using raw harmonypy")
+                import harmonypy
+                import pandas as pd
+
+                # Get PCA result
+                X_pca = combined.obsm["X_pca"]
+
+                # Create DataFrame with batch information
+                meta_data = pd.DataFrame({batch_key: combined.obs[batch_key]})
+
+                # Run Harmony
+                harmony_out = harmonypy.run_harmony(
+                    data_mat=X_pca,
+                    meta_data=meta_data,
+                    vars_use=[batch_key],
+                    sigma=0.1,
+                    nclust=None,
+                    max_iter_harmony=10,
+                    verbose=True,
                 )
+
+                # Save Harmony corrected result
+                combined.obsm["X_harmony"] = harmony_out.Z_corr.T
+
+                # Use corrected result to calculate neighbor graph
+                sc.pp.neighbors(combined, use_rep="X_harmony")
+
+        except ImportError as e:
+            raise ImportError(
+                "Harmony integration requires 'harmonypy' package. Install with: pip install harmonypy\n"
+                "For best integration with scanpy, also ensure scanpy.external is available."
+            ) from e
+        except Exception as e:
+            # Provide clear error message without fallback to different algorithms
+            raise RuntimeError(
+                f"Harmony integration failed: {e}\n"
+                f"Common causes:\n"
+                f"1. Insufficient batch diversity (need at least 2 different batches)\n"
+                f"2. Batch key '{batch_key}' contains invalid values\n"
+                f"3. PCA result is corrupted or has NaN values\n"
+                f"Consider using method='bbknn' or 'mnn' if Harmony is not appropriate for your data."
+            ) from e
 
     elif method == "bbknn":
         # Use BBKNN for batch correction
@@ -360,66 +381,131 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
 
     elif method == "scanorama":
         # Use Scanorama for batch correction
+        # BEST PRACTICE: Use scanpy.external wrapper for better integration with scanpy workflow
         try:
-            import numpy as np
-            import scanorama
+            import scanpy.external as sce
 
-            # Separate data by batch
-            datasets = []
-            genes_list = []
-            batch_order = []
+            # Check if scanorama_integrate is available in scanpy.external
+            if hasattr(sce.pp, 'scanorama_integrate'):
+                # Use scanpy.external wrapper (preferred method)
+                logging.info("Using scanpy.external.pp.scanorama_integrate (recommended)")
+                sce.pp.scanorama_integrate(
+                    combined,
+                    key=batch_key,
+                    basis='X_pca',
+                    adjusted_basis='X_scanorama'
+                )
+                # Use integrated representation for neighbor graph
+                sc.pp.neighbors(combined, use_rep='X_scanorama')
+            else:
+                # Fallback to raw scanorama (same algorithm, different interface)
+                logging.info("scanpy.external.pp.scanorama_integrate not available, using raw scanorama")
+                import scanorama
+                import numpy as np
 
-            for batch in combined.obs[batch_key].unique():
-                batch_mask = combined.obs[batch_key] == batch
-                batch_data = combined[batch_mask]
+                # Separate data by batch
+                datasets = []
+                genes_list = []
+                batch_order = []
 
-                # Convert to dense array if sparse
-                if hasattr(batch_data.X, "toarray"):
-                    X_batch = batch_data.X.toarray()
-                else:
-                    X_batch = batch_data.X
+                for batch in combined.obs[batch_key].unique():
+                    batch_mask = combined.obs[batch_key] == batch
+                    batch_data = combined[batch_mask]
 
-                datasets.append(X_batch)
-                genes_list.append(batch_data.var_names.tolist())
-                batch_order.append(batch)
+                    # Convert to dense array if sparse
+                    if hasattr(batch_data.X, "toarray"):
+                        X_batch = batch_data.X.toarray()
+                    else:
+                        X_batch = batch_data.X
 
-                logging.info(f"Prepared batch '{batch}': {X_batch.shape}")
+                    datasets.append(X_batch)
+                    genes_list.append(batch_data.var_names.tolist())
+                    batch_order.append(batch)
 
-            # Run Scanorama integration (returns low-dimensional embeddings)
-            logging.info("Running Scanorama integration...")
-            integrated, corrected_genes = scanorama.integrate(
-                datasets, genes_list, dimred=100
-            )
+                    logging.info(f"Prepared batch '{batch}': {X_batch.shape}")
 
-            # Stack integrated results back together
-            integrated_X = np.vstack(integrated)
-            logging.info(f"Scanorama integration completed: {integrated_X.shape}")
+                # Run Scanorama integration
+                logging.info("Running Scanorama integration...")
+                integrated, corrected_genes = scanorama.integrate(
+                    datasets, genes_list, dimred=100
+                )
 
-            # Store integrated representation in obsm
-            combined.obsm["X_scanorama"] = integrated_X
+                # Stack integrated results back together
+                integrated_X = np.vstack(integrated)
+                logging.info(f"Scanorama integration completed: {integrated_X.shape}")
 
-            # Use integrated representation for neighbor graph
-            sc.pp.neighbors(combined, use_rep="X_scanorama")
+                # Store integrated representation in obsm
+                combined.obsm["X_scanorama"] = integrated_X
 
-        except ImportError:
+                # Use integrated representation for neighbor graph
+                sc.pp.neighbors(combined, use_rep="X_scanorama")
+
+        except ImportError as e:
             raise ImportError(
-                "scanorama package is required for Scanorama integration. Install with 'pip install scanorama'"
-            )
+                "Scanorama integration requires 'scanorama' package. Install with: pip install scanorama\n"
+                "For best integration with scanpy, also ensure scanpy.external is available."
+            ) from e
         except Exception as e:
-            # Scanorama failed - do not fallback to inferior methods
-            error_msg = (
-                f"Scanorama integration failed: {e}. "
-                f"Scanorama requires compatible data and proper preprocessing. "
-                f"Please check: 1) Data quality and batch structure, 2) Gene overlap between batches, "
-                f"or 3) Consider using method='harmony' or 'mnn' for more robust integration."
-            )
-            logging.error(error_msg)
-            raise RuntimeError(error_msg)
+            # Scanorama failed - provide clear error without fallback to different algorithms
+            raise RuntimeError(
+                f"Scanorama integration failed: {e}\n"
+                f"Common causes:\n"
+                f"1. Insufficient gene overlap between batches\n"
+                f"2. Batch structure incompatibility\n"
+                f"3. Data quality issues\n"
+                f"Consider using method='harmony' or 'bbknn' if Scanorama is not appropriate for your data."
+            ) from e
 
     elif method == "mnn":
-        # Use MNN for batch correction
-        sc.pp.combat(combined, key=batch_key)
-        sc.pp.neighbors(combined)
+        # Use proper MNN (Mutual Nearest Neighbors) algorithm
+        # IMPORTANT: MNN ≠ Combat - they are fundamentally different algorithms:
+        # - MNN: Graph-based method that finds matching cell pairs across batches
+        # - Combat: Empirical Bayes method that adjusts expression distributions
+        # Using Combat here was a scientific accuracy error (results labeled "MNN" were actually Combat)
+        try:
+            import scanpy.external as sce
+
+            # MNN requires separate batches as input (cannot work on pre-merged data)
+            batches = []
+            for batch_label in combined.obs[batch_key].unique():
+                batch_data = combined[combined.obs[batch_key] == batch_label].copy()
+                batches.append(batch_data)
+
+            logging.info(f"Applying proper MNN correction to {len(batches)} batches")
+
+            # Apply MNN correction using scanpy.external
+            corrected = sce.pp.mnn_correct(
+                *batches,
+                batch_key=batch_key,
+                # index_unique=None allows automatic handling of index
+            )
+
+            # mnn_correct returns tuple (corrected_adata, mnn_dict)
+            if isinstance(corrected, tuple):
+                combined = corrected[0]
+                logging.info("MNN correction completed, using corrected AnnData")
+            else:
+                combined = corrected
+                logging.info("MNN correction completed")
+
+            # Continue with neighbor graph calculation
+            sc.pp.neighbors(combined)
+
+        except ImportError as e:
+            raise ImportError(
+                "MNN correction requires 'mnnpy' package. Install with: pip install mnnpy\n"
+                "Note: This is different from Combat. MNN finds cell correspondences across batches."
+            ) from e
+        except Exception as e:
+            # MNN failed - provide clear error without fallback
+            raise RuntimeError(
+                f"MNN integration failed: {e}\n"
+                f"MNN requires:\n"
+                f"1. Compatible batches with sufficient cell type overlap\n"
+                f"2. Good quality data preprocessing\n"
+                f"3. At least 2 batches with similar cell populations\n"
+                f"Consider using method='harmony' or 'bbknn' if MNN is not appropriate for your data."
+            ) from e
 
     else:
         # Default: use uncorrected PCA result
@@ -773,14 +859,28 @@ async def integrate_samples(
         )
 
     # Align spatial coordinates
+    # NOTE: Spatial alignment is OPTIONAL and only needed for spatial data
+    # Methods like BBKNN, Harmony, MNN, Scanorama work on gene expression/PCA space
+    # and do NOT require spatial coordinates for batch correction
     if params.align_spatial:
-        if context:
-            await context.info("Aligning spatial coordinates")
-        combined_adata = align_spatial_coordinates(
-            combined_adata,
-            batch_key=params.batch_key,
-            reference_batch=params.reference_batch,
-        )
+        # Check if data actually has spatial coordinates
+        if "spatial" not in combined_adata.obsm:
+            if context:
+                await context.info(
+                    f"Skipping spatial coordinate alignment: Data has no spatial coordinates.\n"
+                    f"Note: {params.method} integration works on gene expression/PCA space "
+                    f"and does not require spatial coordinates for batch correction."
+                )
+            # Skip alignment for non-spatial data - this is scientifically correct
+            # BBKNN, Harmony, MNN, Scanorama are designed for scRNA-seq data without spatial info
+        else:
+            if context:
+                await context.info("Aligning spatial coordinates")
+            combined_adata = align_spatial_coordinates(
+                combined_adata,
+                batch_key=params.batch_key,
+                reference_batch=params.reference_batch,
+            )
 
     # Note: Visualizations should be created using the separate visualize_data tool
     # This maintains clean separation between analysis and visualization
