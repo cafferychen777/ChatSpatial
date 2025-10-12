@@ -45,7 +45,7 @@ dependencies = [
     
     # Multi-tool dependency (24 references in codebase)
     "scvi-tools>=1.0.0,<2.0",
-    "mudata>=0.2.0",  # Required by scvi-tools
+    "mudata>=0.2.0",  # Core dependency of scvi-tools (not optional)
     
     # RNA velocity (7 references)
     "scvelo>=0.2.5",  # Removed upper bound for better compatibility
