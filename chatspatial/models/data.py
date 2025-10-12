@@ -697,7 +697,7 @@ class IntegrationParameters(BaseModel):
     """Sample integration parameters model"""
 
     method: Literal[
-        "harmony", "bbknn", "scanorama", "scvi", "multivi", "totalvi"
+        "harmony", "bbknn", "scanorama", "scvi"
     ] = "harmony"
     batch_key: str = "batch"  # Batch information key
     n_pcs: Annotated[int, Field(gt=0, le=100)] = (
@@ -706,27 +706,16 @@ class IntegrationParameters(BaseModel):
     align_spatial: bool = True  # Whether to align spatial coordinates
     reference_batch: Optional[str] = None  # Reference batch for spatial alignment
 
+    # Common scvi-tools parameters
+    use_gpu: bool = False  # Whether to use GPU acceleration for scvi-tools methods
+    n_epochs: Optional[int] = None  # Number of training epochs (None = auto-determine)
+
     # scVI integration parameters
     scvi_n_hidden: int = 128
     scvi_n_latent: int = 10
     scvi_n_layers: int = 1
     scvi_dropout_rate: float = 0.1
     scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
-
-    # MultiVI parameters
-    multivi_n_hidden: int = 128
-    multivi_n_latent: int = 10
-    multivi_n_layers: int = 1
-    multivi_dropout_rate: float = 0.1
-
-    # TotalVI parameters
-    totalvi_n_hidden: int = 128
-    totalvi_n_latent: int = 10
-    totalvi_n_layers: int = 1
-    totalvi_dropout_rate: float = 0.1
-    totalvi_protein_dispersion: Literal[
-        "gene", "gene-batch", "gene-label", "gene-cell"
-    ] = "gene"
 
 
 class DeconvolutionParameters(BaseModel):
