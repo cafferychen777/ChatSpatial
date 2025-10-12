@@ -5,6 +5,95 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.1] - 2025-10-11 - Critical Bug Fixes and MCP 1.17 Compatibility
+
+### 🐛 **Critical Bug Fixes**
+
+#### **float16 Data Type Compatibility**
+- **FIXED**: `find_markers` now handles float16 data automatically
+  - **Issue**: numba (used by scanpy) doesn't support float16, causing `NotImplementedError: float16`
+  - **Solution**: Auto-detect and convert float16 → float32 during differential expression analysis
+  - **Impact**: All datasets with float16 storage now work correctly
+  - **Files Modified**: `tools/differential.py`
+  - **Tested**: 3 datasets (1.6M - 50M) all passing
+
+#### **BaseModel Error Handling**
+- **FIXED**: MCP schema validation errors for tools returning Pydantic BaseModel
+  - **Issue**: 9 tools (find_markers, annotate_cells, etc.) failed with validation errors when exceptions occurred
+  - **Solution**: Detect return type and re-raise exceptions for BaseModel tools, letting FastMCP handle at higher level
+  - **Impact**: All BaseModel tools now show clear, actionable error messages instead of cryptic validation failures
+  - **Files Modified**: `utils/tool_error_handling.py`
+  - **Affected Tools**:
+    - `find_markers` (DifferentialExpressionResult)
+    - `annotate_cells` (AnnotationResult)
+    - `analyze_spatial_statistics` (SpatialAnalysisResult)
+    - `deconvolve_data` (DeconvolutionResult)
+    - `analyze_cnv` (CNVResult)
+    - `analyze_enrichment` (EnrichmentResult)
+    - `analyze_cell_communication` (CellCommunicationResult)
+    - `load_data` (SpatialDataset)
+    - `preprocess_data` (PreprocessingResult)
+
+### 🔄 **MCP Protocol Updates**
+
+#### **Image → ImageContent Migration**
+- **COMPLETED**: Full migration from deprecated Image helper to ImageContent
+  - **Impact**: Compatible with MCP 1.10+ and future versions
+  - **Files Modified**:
+    - `utils/image_utils.py` - Added `bytes_to_image_content()` unified conversion
+    - `server.py` - Updated type annotations
+    - `tools/visualization.py` - Updated return types
+    - `spatial_mcp_adapter.py` - Updated helper functions
+    - `models/analysis.py` - Updated imports
+  - **Tested**: UMAP, Heatmap, Violin plot, Multi-gene visualization all working
+
+#### **Error Handling Enhancement**
+- **ADDED**: Type-aware error handling with 3-tier strategy:
+  - **ImageContent tools**: Return placeholder image with error message (visual feedback)
+  - **BaseModel tools**: Re-raise exceptions for FastMCP handling (proper error messages)
+  - **Simple types**: Return error dict (traditional approach)
+- **ADDED**: `_check_return_type_category()` function for automatic type detection
+- **ADDED**: `_create_error_placeholder_image()` for user-friendly error display
+
+### 📦 **Dependencies**
+
+#### **MCP SDK Upgrade**
+- **UPGRADED**: `mcp>=0.1.0` → `mcp>=1.17.0`
+  - Full Pydantic v2 support
+  - Native ImageContent handling
+  - Improved BaseModel serialization
+  - Better error reporting
+
+### ✅ **Testing & Validation**
+
+#### **Comprehensive Test Coverage**
+- **Tested**: 15+ tools across 3 datasets (300-3000 cells, 500-55K genes)
+- **Verified**:
+  - Data loading (float16, float32)
+  - Preprocessing (normalization, HVG selection)
+  - Visualization (5+ plot types)
+  - Differential expression (Wilcoxon test)
+  - Cell type annotation (scType)
+  - Spatial statistics (Moran's I)
+  - Spatial variable genes (SPARK-X)
+  - Cell communication (LIANA+)
+  - CNV analysis (infercnvpy)
+  - Enrichment analysis (GO pathways)
+
+#### **Test Results**
+- ✅ All core tools functional
+- ✅ Error handling consistent across tool types
+- ✅ Clear, actionable error messages
+- ✅ No MCP schema validation failures
+
+### 🎯 **Migration Notes**
+
+For users upgrading from v0.2.0:
+1. **No breaking changes** - All APIs remain compatible
+2. **Automatic upgrades** - float16 handling is automatic
+3. **Better errors** - More informative error messages
+4. **MCP compatibility** - Works with MCP 1.17.0+
+
 ## [v0.2.0] - 2024-08-26 - Documentation and CI Fixes
 
 ### 📚 **Documentation Fixes**
