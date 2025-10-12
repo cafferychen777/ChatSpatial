@@ -379,6 +379,26 @@ async def preprocess_data(
 
             if params.normalization == "log":
                 # Standard log normalization
+                # Check if data appears to be already normalized
+                if scipy.sparse.issparse(adata.X):
+                    X_sample = adata.X.data[:min(1000, len(adata.X.data))] if hasattr(adata.X, 'data') else adata.X[:1000].toarray().flatten()
+                else:
+                    X_sample = adata.X.flatten()[:min(1000, adata.X.size)]
+
+                # Check for negative values (indicates already log-normalized data)
+                if np.any(X_sample < 0):
+                    error_msg = (
+                        "Log normalization requires non-negative data (raw or normalized counts). "
+                        "Data contains negative values, suggesting it has already been log-normalized. "
+                        "Options:\n"
+                        "• Use normalization='none' if data is already pre-processed\n"
+                        "• Load raw count data instead of processed data\n"
+                        "• Remove the log transformation from your data before re-processing"
+                    )
+                    if context:
+                        await context.error(error_msg)
+                    raise ValueError(error_msg)
+
                 if params.normalize_target_sum is not None:
                     sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
                     logger.info(f"✓ Normalized to target_sum={params.normalize_target_sum:.0f}")
