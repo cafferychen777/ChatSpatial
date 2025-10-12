@@ -1444,6 +1444,17 @@ async def visualize_data(
             )  # Scale violins to same width
             fig = plt.gcf()  # Get the current figure
 
+            # Fix overlapping x-axis labels
+            for ax_item in fig.get_axes():
+                # Rotate x-axis labels 45 degrees for better readability
+                ax_item.tick_params(axis='x', labelrotation=45)
+                # Align labels to the right for better appearance
+                for label in ax_item.get_xticklabels():
+                    label.set_horizontalalignment('right')
+
+            # Adjust layout to prevent label cutoff
+            plt.tight_layout()
+
         elif params.plot_type == "deconvolution":
             if context:
                 await context.info("Creating deconvolution visualization")
@@ -4140,6 +4151,9 @@ async def create_enrichment_visualization(
             ax.set_xlabel(group_by, fontsize=10)
             ax.set_ylabel("Enrichment Score", fontsize=10)
             ax.tick_params(axis="x", rotation=45)
+            # Align rotated labels to the right for better readability
+            for label in ax.get_xticklabels():
+                label.set_horizontalalignment('right')
 
         plt.tight_layout()
         return fig
