@@ -697,7 +697,7 @@ class IntegrationParameters(BaseModel):
     """Sample integration parameters model"""
 
     method: Literal[
-        "harmony", "bbknn", "scanorama", "mnn", "scvi", "multivi", "totalvi"
+        "harmony", "bbknn", "scanorama", "scvi", "multivi", "totalvi"
     ] = "harmony"
     batch_key: str = "batch"  # Batch information key
     n_pcs: Annotated[int, Field(gt=0, le=100)] = (

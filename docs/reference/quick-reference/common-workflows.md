@@ -472,7 +472,7 @@ What type of batch effect?
 │   ├── Strong differences → scVI (deep learning correction)
 │   └── Very strong → BBKNN (k-nearest neighbors)
 ├── BIOLOGICAL (tissue, patient, condition)
-│   ├── Keep biology → Light correction with MNN
+│   ├── Keep biology → Light correction with Scanorama
 │   ├── Remove biology → Harmony with strong parameters
 │   └── Unclear → Try multiple methods and compare
 └── SPATIAL registration needed?
