@@ -763,6 +763,14 @@ async def analyze_velocity_data(
 
     Returns:
         RNA velocity analysis result
+
+    Notes:
+        Velocity methods (status):
+        - scvelo: scVelo with three modes (implemented, tested)
+          - deterministic: Deterministic rate model
+          - stochastic: Stochastic rate model (default)
+          - dynamical: Dynamical model with ODE fitting
+        - velovi: VeloVI deep learning method (implemented, requires scvi-tools, tested)
     """
     # Validate dataset
     validate_dataset(data_id)

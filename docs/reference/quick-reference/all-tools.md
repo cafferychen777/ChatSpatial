@@ -174,10 +174,10 @@
 
 **Key Parameters**:
 - `data_id`: Dataset ID
-- `params.method`: `"scvelo"` (standard), `"velovi"` (deep learning), `"sirv"` (reference-based)
-- `params.mode`: `"dynamical"`, `"stochastic"` (for scVelo)
+- `params.method`: `"scvelo"` (standard, tested ✅), `"velovi"` (deep learning, tested ✅)
+- `params.mode`: `"dynamical"`, `"stochastic"`, `"deterministic"` (for scVelo)
 - `params.n_top_genes`: Velocity genes to use
-- `params.velovi_n_epochs`: Training epochs (for VELOVI)
+- `params.velovi_n_epochs`: Training epochs (for VeloVI)
 
 **Example Queries**:
 ```

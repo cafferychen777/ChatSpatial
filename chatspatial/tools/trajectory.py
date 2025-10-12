@@ -632,13 +632,6 @@ async def analyze_rna_velocity(
                 await context.error(error_msg)
             raise ProcessingError(error_msg) from e
 
-    elif params.method == "sirv":
-        # Placeholder for SIRV implementation
-        raise NotImplementedError(
-            "SIRV velocity method is not yet implemented. "
-            "Please use 'scvelo' or 'velovi' instead."
-        )
-
     else:
         raise ValueError(f"Unknown velocity method: {params.method}")
 

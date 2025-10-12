@@ -636,7 +636,7 @@ class RNAVelocityParameters(BaseModel):
     }  # Strict validation - no extra parameters allowed
 
     # Velocity computation method selection
-    method: Literal["scvelo", "velovi", "sirv"] = "scvelo"
+    method: Literal["scvelo", "velovi"] = "scvelo"
 
     # scVelo specific parameters
     mode: Literal["deterministic", "stochastic", "dynamical"] = "stochastic"

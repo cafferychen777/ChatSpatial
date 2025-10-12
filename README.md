@@ -278,7 +278,7 @@ pip install -e ".[dev]"
 </details>
 
 <details>
-<summary><strong>🔬 Analysis Methods (12 Categories, 76+ Methods)</strong></summary>
+<summary><strong>🔬 Analysis Methods (12 Categories, 75+ Methods)</strong></summary>
 
 | Category | Methods |
 |----------|---------|
@@ -288,7 +288,7 @@ pip install -e ".[dev]"
 | **Deconvolution** | Cell2location, DestVI, RCTD, Tangram, Stereoscope, SPOTlight |
 | **CNV Analysis** | infercnvpy (chromosome-based CNV inference) |
 | **Spatial Variable Genes** | GASTON, SpatialDE, SPARK-X |
-| **Trajectory & Velocity** | CellRank, Palantir, DPT, scVelo, VeloVI, SIRV |
+| **Trajectory & Velocity** | CellRank, Palantir, DPT, scVelo, VeloVI |
 | **Sample Integration** | Harmony, BBKNN, Scanorama, scVI |
 | **Differential Expression** | Wilcoxon, t-test, Logistic Regression (scanpy methods) |
 | **Gene Set Enrichment** | GSEA, ORA, ssGSEA, Enrichr, Spatial EnrichMap |
