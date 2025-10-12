@@ -27,53 +27,35 @@ except ImportError:
 from mcp.server.fastmcp import Context
 from mcp.types import EmbeddedResource, ImageContent
 
-from .models.analysis import (
-    AnnotationResult,
-    CellCommunicationResult,
-    CNVResult,
-    DeconvolutionResult,
-    DifferentialExpressionResult,
-    EnrichmentResult,
-    IntegrationResult,
-    PreprocessingResult,
-    RNAVelocityResult,
-    SpatialAnalysisResult,
-    SpatialDomainResult,
-    SpatialVariableGenesResult,
-    TrajectoryResult,
-)
-from .models.data import (
-    CellCommunicationParameters,
-    CNVParameters,
-    ColumnInfo,
-    DeconvolutionParameters,
-    EnrichmentParameters,
-    IntegrationParameters,
-    RNAVelocityParameters,
-    SpatialDataset,
-    SpatialDomainParameters,
-    SpatialVariableGenesParameters,
-    TrajectoryParameters,
-)
+from .models.analysis import (AnnotationResult, CellCommunicationResult,
+                              CNVResult, DeconvolutionResult,
+                              DifferentialExpressionResult, EnrichmentResult,
+                              IntegrationResult, PreprocessingResult,
+                              RNAVelocityResult, SpatialAnalysisResult,
+                              SpatialDomainResult, SpatialVariableGenesResult,
+                              TrajectoryResult)
+from .models.data import (CellCommunicationParameters, CNVParameters,
+                          ColumnInfo, DeconvolutionParameters,
+                          EnrichmentParameters, IntegrationParameters,
+                          RNAVelocityParameters, SpatialDataset,
+                          SpatialDomainParameters,
+                          SpatialVariableGenesParameters, TrajectoryParameters)
 from .spatial_mcp_adapter import MCPToolMetadata, create_spatial_mcp_server
 from .tools.annotation import annotate_cell_types
 from .tools.cnv_analysis import infer_cnv
 from .tools.deconvolution import deconvolve_spatial_data
 from .tools.differential import differential_expression
 from .tools.spatial_genes import identify_spatial_genes
-from .tools.spatial_statistics import (
-    analyze_spatial_statistics as _analyze_spatial_statistics,
-)
+from .tools.spatial_statistics import \
+    analyze_spatial_statistics as _analyze_spatial_statistics
 from .tools.trajectory import analyze_rna_velocity
 from .utils.error_handling import ProcessingError
-from .utils.mcp_parameter_handler import (
-    manual_parameter_validation,
-    validate_analysis_params,
-    validate_annotation_params,
-    validate_cell_communication_params,
-    validate_spatial_analysis_params,
-    validate_visualization_params,
-)
+from .utils.mcp_parameter_handler import (manual_parameter_validation,
+                                          validate_analysis_params,
+                                          validate_annotation_params,
+                                          validate_cell_communication_params,
+                                          validate_spatial_analysis_params,
+                                          validate_visualization_params)
 from .utils.tool_error_handling import mcp_tool_error_handler
 
 logger = logging.getLogger(__name__)
@@ -330,15 +312,24 @@ async def visualize_data(
             "description": f"Visualization of {data_id}",
         }
 
+        # Handle both ImageContent and Tuple[ImageContent, EmbeddedResource] returns
+        if isinstance(image, tuple):
+            # Large image with preview+resource optimization
+            preview_image, _resource = image
+            image_data = preview_image.data
+        else:
+            # Direct ImageContent
+            image_data = image.data
+
         # Store in cache with simple key for easy retrieval
-        adapter.resource_manager._visualization_cache[cache_key] = image.data
+        adapter.resource_manager._visualization_cache[cache_key] = image_data
 
         # Also create resource with timestamped ID for uniqueness
         await adapter.resource_manager.create_visualization_resource(
-            viz_id, image.data, metadata
+            viz_id, image_data, metadata
         )
 
-        file_size_kb = len(image.data) / 1024
+        file_size_kb = len(image_data) / 1024
 
         if context:
             await context.info(
@@ -1016,7 +1007,8 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import \
+        identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1099,9 +1091,8 @@ async def analyze_cell_communication(
         }
     """
     # Import cell communication function
-    from .tools.cell_communication import (
-        analyze_cell_communication as analyze_comm_func,
-    )
+    from .tools.cell_communication import \
+        analyze_cell_communication as analyze_comm_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1186,9 +1177,8 @@ async def analyze_enrichment(
     # Import enrichment analysis function
     import time
 
-    from .tools.enrichment import (
-        perform_spatial_enrichment as perform_enrichment_analysis,
-    )
+    from .tools.enrichment import \
+        perform_spatial_enrichment as perform_enrichment_analysis
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1334,12 +1324,8 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (
-            perform_enrichr,
-            perform_gsea,
-            perform_ora,
-            perform_ssgsea,
-        )
+        from .tools.enrichment import (perform_enrichr, perform_gsea,
+                                       perform_ora, perform_ssgsea)
 
         if params.method == "pathway_gsea":
             result_dict = (

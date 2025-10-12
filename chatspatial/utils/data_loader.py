@@ -261,11 +261,13 @@ async def load_spatial_data(
     )
 
     # Check if tissue image is available (for Visium data)
-    tissue_image_available = (
-        data_type == "10x_visium"
-        and "spatial" in adata.uns
-        and "images" in adata.uns["spatial"]
-    )
+    # Check actual data structure instead of relying on data_type
+    tissue_image_available = False
+    if "spatial" in adata.uns:
+        for sample_key in adata.uns["spatial"].keys():
+            if "images" in adata.uns["spatial"][sample_key]:
+                tissue_image_available = True
+                break
 
     # Make variable names unique to avoid reindexing issues
     if hasattr(adata, "var_names_make_unique"):
