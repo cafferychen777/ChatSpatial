@@ -2,13 +2,13 @@
 Visualization tools for spatial transcriptomics data.
 """
 
+import os
 import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
-
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
 
@@ -21,40 +21,36 @@ import pandas as pd
 import scanpy as sc
 import seaborn as sns
 from mcp.server.fastmcp import Context
-from mcp.server.fastmcp.utilities.types import Image
-from mcp.types import EmbeddedResource
+from mcp.types import EmbeddedResource, ImageContent
 from scipy.stats import pearsonr, spearmanr
 
+# Optional CNV analysis visualization
+try:
+    import infercnvpy as cnv
+
+    INFERCNVPY_AVAILABLE = True
+except ImportError:
+    INFERCNVPY_AVAILABLE = False
+
 from ..models.data import VisualizationParameters
-
+# Import spatial coordinates helper from data adapter
+from ..utils.data_adapter import get_spatial_coordinates
 # Import error handling utilities
-from ..utils.error_handling import (
-    DataCompatibilityError,
-    DataNotFoundError,
-    InvalidParameterError,
-    ProcessingError,
-)
-
+from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,
+                                    InvalidParameterError, ProcessingError)
 # Import standardized image utilities
-from ..utils.image_utils import (
-    create_placeholder_image,
-    optimize_fig_to_image_with_cache,
-)
-
-# Import publication export utilities
-
+from ..utils.image_utils import (create_placeholder_image,
+                                 optimize_fig_to_image_with_cache)
+# Import path utilities for safe file operations
+from ..utils.path_utils import (get_output_dir_from_config,
+                                get_safe_output_path, is_safe_output_path)
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors
 
-# Import spatial coordinates helper from data adapter
-from ..utils.data_adapter import get_spatial_coordinates
+# Import publication export utilities
 
-# Import path utilities for safe file operations
-from ..utils.path_utils import (
-    get_safe_output_path,
-    is_safe_output_path,
-    get_output_dir_from_config,
-)
+
+
 
 
 # Helper function to create a figure with the right size
@@ -461,7 +457,7 @@ async def visualize_data(
     data_store: Dict[str, Any],
     params: VisualizationParameters = VisualizationParameters(),
     context: Optional[Context] = None,
-) -> Union[Image, Tuple[Image, EmbeddedResource]]:
+) -> Union[ImageContent, Tuple[ImageContent, EmbeddedResource]]:
     """Visualize spatial transcriptomics data
 
     Args:
@@ -471,9 +467,9 @@ async def visualize_data(
         context: MCP context
 
     Returns:
-        Union[Image, Tuple[Image, EmbeddedResource]]:
-            - Small images (<100KB): Image object
-            - Large images (>=100KB): Tuple[Preview Image, High-quality Resource]
+        Union[ImageContent, Tuple[ImageContent, EmbeddedResource]]:
+            - Small images (<100KB): ImageContent object
+            - Large images (>=100KB): Tuple[Preview ImageContent, High-quality Resource]
 
     Raises:
         DataNotFoundError: If the dataset is not found
@@ -503,6 +499,7 @@ async def visualize_data(
         "spatial_enrichment",
         "spatial_interaction",
         "batch_integration",  # Batch integration quality assessment
+        "cnv_heatmap",  # Copy number variation heatmap
     ]
     if params.plot_type not in valid_plot_types:
         error_msg = (
@@ -808,8 +805,9 @@ async def visualize_data(
                 # REQUIRE explicit feature specification - no automatic defaults
                 if not feature_list:
                     categorical_cols = [
-                        col for col in adata.obs.columns
-                        if adata.obs[col].dtype.name in ['object', 'category']
+                        col
+                        for col in adata.obs.columns
+                        if adata.obs[col].dtype.name in ["object", "category"]
                     ]
                     raise ValueError(
                         "❌ UMAP visualization requires 'feature' parameter.\n\n"
@@ -1033,12 +1031,18 @@ async def visualize_data(
             if not hvg_exists or not hvg_any:
                 # Provide detailed diagnostic information
                 diagnostic_info = f"\n📋 DIAGNOSTIC INFO:\n"
-                diagnostic_info += f"  - 'highly_variable' column exists: {hvg_exists}\n"
+                diagnostic_info += (
+                    f"  - 'highly_variable' column exists: {hvg_exists}\n"
+                )
                 if hvg_exists:
                     diagnostic_info += f"  - Number of HVGs marked: {adata.var['highly_variable'].sum()}\n"
                     diagnostic_info += f"  - Total genes in dataset: {adata.n_vars}\n"
-                    diagnostic_info += f"  - HVG column dtype: {adata.var['highly_variable'].dtype}\n"
-                diagnostic_info += f"  - Available var columns: {list(adata.var.columns)[:10]}\n"
+                    diagnostic_info += (
+                        f"  - HVG column dtype: {adata.var['highly_variable'].dtype}\n"
+                    )
+                diagnostic_info += (
+                    f"  - Available var columns: {list(adata.var.columns)[:10]}\n"
+                )
 
                 raise ValueError(
                     "❌ Heatmap requires highly variable genes but none found.\n\n"
@@ -1053,8 +1057,9 @@ async def visualize_data(
             # REQUIRE explicit cluster_key specification for grouping
             if not params.cluster_key:
                 categorical_cols = [
-                    col for col in adata.obs.columns
-                    if adata.obs[col].dtype.name in ['object', 'category']
+                    col
+                    for col in adata.obs.columns
+                    if adata.obs[col].dtype.name in ["object", "category"]
                 ]
                 raise ValueError(
                     "❌ Heatmap visualization requires 'cluster_key' parameter for grouping.\n\n"
@@ -1359,8 +1364,9 @@ async def visualize_data(
             # REQUIRE explicit cluster_key specification for grouping
             if not params.cluster_key:
                 categorical_cols = [
-                    col for col in adata.obs.columns
-                    if adata.obs[col].dtype.name in ['object', 'category']
+                    col
+                    for col in adata.obs.columns
+                    if adata.obs[col].dtype.name in ["object", "category"]
                 ]
                 raise ValueError(
                     "❌ Violin plot requires 'cluster_key' parameter for grouping.\n\n"
@@ -1484,6 +1490,62 @@ async def visualize_data(
             if context:
                 await context.info("Creating batch integration quality visualization")
             fig = await create_batch_integration_visualization(adata, params, context)
+
+        elif params.plot_type == "cnv_heatmap":
+            if context:
+                await context.info("Creating CNV heatmap visualization")
+
+            # Check if infercnvpy is available
+            if not INFERCNVPY_AVAILABLE:
+                error_msg = (
+                    "infercnvpy is not installed. Please install it with:\n"
+                    "  pip install 'chatspatial[cnv]'\n"
+                    "or:\n"
+                    "  pip install infercnvpy>=0.4.0"
+                )
+                if context:
+                    await context.warning(error_msg)
+                raise DataCompatibilityError(error_msg)
+
+            # Check if CNV data exists
+            if "X_cnv" not in adata.obsm:
+                error_msg = (
+                    "CNV data not found in adata.obsm['X_cnv']. "
+                    "Please run CNV analysis first using analyze_cnv()."
+                )
+                if context:
+                    await context.warning(error_msg)
+                raise DataNotFoundError(error_msg)
+
+            # Check if CNV metadata exists
+            if "cnv" not in adata.uns:
+                error_msg = (
+                    "CNV metadata not found in adata.uns['cnv']. "
+                    "The CNV analysis may not have completed properly. "
+                    "Please re-run analyze_cnv()."
+                )
+                if context:
+                    await context.warning(error_msg)
+                raise DataNotFoundError(error_msg)
+
+            # Create CNV heatmap using infercnvpy
+            if context:
+                await context.info("Generating CNV chromosome heatmap...")
+
+            # Create figure
+            figsize = params.figure_size if params.figure_size else (12, 8)
+            cnv.pl.chromosome_heatmap(
+                adata,
+                groupby=params.feature if params.feature else None,
+                dendrogram=True,
+                show=False,
+                figsize=figsize,
+            )
+            # Get current figure
+            fig = plt.gcf()
+
+            if context:
+                await context.info("CNV heatmap created successfully")
 
         else:
             # This should never happen due to parameter validation at the beginning
@@ -1702,10 +1764,13 @@ async def create_spatial_domains_visualization(
     if not domain_keys:
         # Find categorical columns (potential clustering/domain results)
         categorical_cols = [
-            col for col in adata.obs.columns
-            if adata.obs[col].dtype.name in ['object', 'category']
+            col
+            for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ["object", "category"]
         ]
-        domain_keys = categorical_cols[:5]  # Take first 5 categorical columns as potential domains
+        domain_keys = categorical_cols[
+            :5
+        ]  # Take first 5 categorical columns as potential domains
 
     if not domain_keys:
         # No spatial domains found, suggest running domain identification first
@@ -2789,8 +2854,9 @@ async def create_rna_velocity_visualization(
     default_feature = None
     if not params.feature:
         categorical_cols = [
-            col for col in adata.obs.columns
-            if adata.obs[col].dtype.name in ['object', 'category']
+            col
+            for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ["object", "category"]
         ]
         default_feature = categorical_cols[0] if categorical_cols else None
 
@@ -2878,16 +2944,26 @@ async def create_neighborhood_enrichment_visualization(
     cluster_key = params.cluster_key
     if not cluster_key:
         # Try to infer from adata.uns keys
-        enrichment_keys = [k for k in adata.uns.keys() if k.endswith("_nhood_enrichment")]
+        enrichment_keys = [
+            k for k in adata.uns.keys() if k.endswith("_nhood_enrichment")
+        ]
         if enrichment_keys:
             cluster_key = enrichment_keys[0].replace("_nhood_enrichment", "")
             if context:
-                await context.info(f"Inferred cluster_key: '{cluster_key}' from existing results")
+                await context.info(
+                    f"Inferred cluster_key: '{cluster_key}' from existing results"
+                )
         else:
             raise ValueError(
                 "cluster_key parameter is required but not provided.\n\n"
                 "Available categorical columns in data:\n  "
-                + ", ".join([col for col in adata.obs.columns if adata.obs[col].dtype.name in ['object', 'category']][:10])
+                + ", ".join(
+                    [
+                        col
+                        for col in adata.obs.columns
+                        if adata.obs[col].dtype.name in ["object", "category"]
+                    ][:10]
+                )
                 + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
             )
 
@@ -3059,16 +3135,26 @@ async def create_co_occurrence_visualization(
     cluster_key = params.cluster_key
     if not cluster_key:
         # Try to infer from adata.uns keys
-        co_occurrence_keys = [k for k in adata.uns.keys() if k.endswith("_co_occurrence")]
+        co_occurrence_keys = [
+            k for k in adata.uns.keys() if k.endswith("_co_occurrence")
+        ]
         if co_occurrence_keys:
             cluster_key = co_occurrence_keys[0].replace("_co_occurrence", "")
             if context:
-                await context.info(f"Inferred cluster_key: '{cluster_key}' from existing results")
+                await context.info(
+                    f"Inferred cluster_key: '{cluster_key}' from existing results"
+                )
         else:
             raise ValueError(
                 "cluster_key parameter is required but not provided.\n\n"
                 "Available categorical columns in data:\n  "
-                + ", ".join([col for col in adata.obs.columns if adata.obs[col].dtype.name in ['object', 'category']][:10])
+                + ", ".join(
+                    [
+                        col
+                        for col in adata.obs.columns
+                        if adata.obs[col].dtype.name in ["object", "category"]
+                    ][:10]
+                )
                 + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
             )
 
@@ -3149,12 +3235,20 @@ async def create_ripley_visualization(
         if ripley_keys:
             cluster_key = ripley_keys[0].replace("_ripley_L", "")
             if context:
-                await context.info(f"Inferred cluster_key: '{cluster_key}' from existing results")
+                await context.info(
+                    f"Inferred cluster_key: '{cluster_key}' from existing results"
+                )
         else:
             raise ValueError(
                 "cluster_key parameter is required but not provided.\n\n"
                 "Available categorical columns in data:\n  "
-                + ", ".join([col for col in adata.obs.columns if adata.obs[col].dtype.name in ['object', 'category']][:10])
+                + ", ".join(
+                    [
+                        col
+                        for col in adata.obs.columns
+                        if adata.obs[col].dtype.name in ["object", "category"]
+                    ][:10]
+                )
                 + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
             )
 
@@ -3170,9 +3264,7 @@ async def create_ripley_visualization(
         figsize = params.figure_size or (10, 8)
         fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
 
-        sq.pl.ripley(
-            adata, cluster_key=cluster_key, mode="L", plot_sims=True, ax=ax
-        )
+        sq.pl.ripley(adata, cluster_key=cluster_key, mode="L", plot_sims=True, ax=ax)
 
         title = params.title or f"Ripley's L Function ({cluster_key})"
         ax.set_title(title)
@@ -3257,16 +3349,26 @@ async def create_centrality_visualization(
     cluster_key = params.cluster_key
     if not cluster_key:
         # Try to infer from adata.uns keys
-        centrality_keys = [k for k in adata.uns.keys() if k.endswith("_centrality_scores")]
+        centrality_keys = [
+            k for k in adata.uns.keys() if k.endswith("_centrality_scores")
+        ]
         if centrality_keys:
             cluster_key = centrality_keys[0].replace("_centrality_scores", "")
             if context:
-                await context.info(f"Inferred cluster_key: '{cluster_key}' from existing results")
+                await context.info(
+                    f"Inferred cluster_key: '{cluster_key}' from existing results"
+                )
         else:
             raise ValueError(
                 "cluster_key parameter is required but not provided.\n\n"
                 "Available categorical columns in data:\n  "
-                + ", ".join([col for col in adata.obs.columns if adata.obs[col].dtype.name in ['object', 'category']][:10])
+                + ", ".join(
+                    [
+                        col
+                        for col in adata.obs.columns
+                        if adata.obs[col].dtype.name in ["object", "category"]
+                    ][:10]
+                )
                 + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
             )
 
@@ -3943,8 +4045,9 @@ async def create_enrichment_visualization(
         else:
             # No cluster_key provided - show error with available options
             categorical_cols = [
-                col for col in adata.obs.columns
-                if adata.obs[col].dtype.name in ['object', 'category']
+                col
+                for col in adata.obs.columns
+                if adata.obs[col].dtype.name in ["object", "category"]
             ]
             raise ValueError(
                 "❌ Enrichment violin plot requires 'cluster_key' parameter.\n\n"
@@ -5004,34 +5107,75 @@ async def save_visualization(
         # Full path for the file
         file_path = output_path / filename
 
-        # Check if we should regenerate at high quality
-        if (
-            (dpi > 100 or format.lower() in ["pdf", "svg"])
-            and regenerate_high_quality
-            and data_store
-        ):
+        # Try to get cached figure object for high-quality export
+        from ..utils.image_utils import get_cached_figure, load_figure_pickle
+        import matplotlib.pyplot as plt
+
+        cached_fig = None
+
+        # 1. Try to get figure from in-memory cache
+        if dpi > 100 or format.lower() in ["pdf", "svg"]:
+            cached_fig = get_cached_figure(cache_key)
+
+            # 2. If not in memory, try pickle file
+            if cached_fig is None:
+                pickle_path = f"/tmp/chatspatial/figures/{cache_key}.pkl"
+                if os.path.exists(pickle_path):
+                    try:
+                        cached_fig = load_figure_pickle(pickle_path)
+                        if context:
+                            await context.info(f"Loaded figure from pickle cache for high-quality export")
+                    except Exception as e:
+                        if context:
+                            await context.warning(f"Failed to load figure from pickle: {str(e)}")
+
+        # If we have the original figure, regenerate at high quality
+        if cached_fig is not None:
             if context:
                 await context.info(
-                    f"Regenerating visualization at {dpi} DPI for {format} format..."
+                    f"Regenerating visualization at {dpi} DPI for {format} format from cached figure..."
                 )
 
-            # This would require re-running the visualization with higher DPI
-            # For now, we'll note this as a limitation
-            if context:
+            try:
+                cached_fig.savefig(
+                    str(file_path),
+                    format=format,
+                    dpi=dpi,
+                    bbox_inches='tight',
+                    facecolor='white'
+                )
+
+                # Get file size
+                file_size_kb = os.path.getsize(file_path) / 1024
+
+                if context:
+                    await context.info(
+                        f"✅ Saved high-quality visualization to {file_path} ({file_size_kb:.1f} KB at {dpi} DPI)"
+                    )
+
+                return str(file_path)
+
+            except Exception as e:
+                if context:
+                    await context.warning(
+                        f"Failed to regenerate from figure: {str(e)}. Falling back to cached version."
+                    )
+
+        # Fallback: Save cached compressed version
+        if context:
+            await context.warning(
+                f"⚠️  Original figure not found in cache. Saving compressed version from MCP transmission."
+            )
+            if dpi > 100:
                 await context.warning(
-                    "High-quality regeneration not yet implemented. "
-                    "Saving cached version. For publication quality, "
-                    "regenerate the plot with higher DPI parameters."
+                    f"⚠️  Requested {dpi} DPI but saving at lower quality (~80 DPI). "
+                    f"To save at {dpi} DPI, regenerate the visualization immediately before saving."
                 )
 
-        # Get visualization data from cache
         viz_data = visualization_cache[cache_key]
         if not viz_data:
             raise ProcessingError("Visualization data is empty")
 
-        # Save the file
-        # Note: For true high-DPI support, we need to regenerate the matplotlib figure
-        # with the specified DPI, not just save the cached PNG data
         with open(file_path, "wb") as f:
             f.write(viz_data)
 
@@ -5040,11 +5184,9 @@ async def save_visualization(
             await context.info(
                 f"Saved visualization to {file_path} ({file_size_kb:.1f} KB)"
             )
-            if dpi >= 300:
-                await context.info(
-                    "Note: For true publication quality, regenerate the plot with "
-                    "visualization parameters: dpi=300 or higher"
-                )
+            await context.info(
+                "💡 Tip: For publication-quality exports, save immediately after generating the visualization."
+            )
 
         return str(file_path)
 

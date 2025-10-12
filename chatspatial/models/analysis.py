@@ -7,10 +7,10 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 try:
-    from mcp.server.fastmcp.utilities.types import Image
+    from mcp.types import ImageContent
 except ImportError:
     # Fallback for when MCP is not available
-    Image = Any
+    ImageContent = Any
 
 
 class PreprocessingResult(BaseModel):
@@ -53,7 +53,9 @@ class AnnotationResult(BaseModel):
     data_id: str
     method: str
     output_key: str  # Column name where cell types are stored
-    confidence_key: Optional[str] = None  # Column name where confidence scores are stored
+    confidence_key: Optional[str] = (
+        None  # Column name where confidence scores are stored
+    )
     cell_types: List[str]
     counts: Dict[str, int]
     confidence_scores: Optional[Dict[str, float]] = None
@@ -256,7 +258,9 @@ class EnrichmentResult(BaseModel):
     # Enrichment scores and statistics
     enrichment_scores: Dict[str, float]  # Enrichment scores for each gene set
     pvalues: Dict[str, Optional[float]]  # Raw p-values (None for spatial enrichment)
-    adjusted_pvalues: Dict[str, Optional[float]]  # Adjusted p-values (None for spatial enrichment)
+    adjusted_pvalues: Dict[
+        str, Optional[float]
+    ]  # Adjusted p-values (None for spatial enrichment)
     gene_set_statistics: Dict[str, Dict[str, Any]]  # Additional statistics per gene set
 
     # Spatial metrics (for enrichmap)
@@ -266,7 +270,9 @@ class EnrichmentResult(BaseModel):
     )
 
     # Gene set information (optimized for token efficiency)
-    gene_set_summaries: Dict[str, Dict[str, Any]]  # Compact summaries with gene counts and sample genes
+    gene_set_summaries: Dict[
+        str, Dict[str, Any]
+    ]  # Compact summaries with gene counts and sample genes
 
     # Top results
     top_gene_sets: List[str]  # Top enriched gene sets
@@ -275,6 +281,35 @@ class EnrichmentResult(BaseModel):
     # Additional metadata
     parameters_used: Dict[str, Any]  # Parameters used for analysis
     computation_time: float  # Time taken for computation
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class CNVResult(BaseModel):
+    """Result of Copy Number Variation (CNV) analysis
+
+    Attributes:
+        data_id: Dataset identifier
+        method: CNV inference method used (e.g., "infercnvpy")
+        reference_key: Column name in adata.obs used for reference cell types
+        reference_categories: List of cell types/clusters used as normal reference
+        n_chromosomes: Number of chromosomes analyzed
+        n_genes_analyzed: Number of genes included in CNV analysis
+        cnv_score_key: Key in adata.obsm where CNV scores are stored (e.g., "X_cnv")
+        statistics: Statistics about CNV detection (e.g., mean CNV, cell counts)
+        visualization_available: Whether CNV heatmap visualization data is available
+    """
+
+    data_id: str
+    method: str  # Method used (e.g., "infercnvpy")
+    reference_key: str  # Column used for reference cells
+    reference_categories: List[str]  # Categories used as reference
+    n_chromosomes: int  # Number of chromosomes analyzed
+    n_genes_analyzed: int  # Number of genes analyzed
+    cnv_score_key: Optional[str] = None  # Key in adata.obsm (e.g., "X_cnv")
+    statistics: Optional[Dict[str, Any]] = None  # CNV statistics
+    visualization_available: bool = False  # Whether visualization is available
 
     class Config:
         arbitrary_types_allowed = True

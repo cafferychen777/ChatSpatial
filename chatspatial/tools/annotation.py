@@ -290,6 +290,28 @@ async def _annotate_with_singler(
                 await context.info("Using provided reference data")
             reference_adata = data_store[reference_data_id]["adata"]
 
+            # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
+            if not reference_adata.var_names.is_unique:
+                n_duplicates = (
+                    len(reference_adata.var_names)
+                    - len(set(reference_adata.var_names))
+                )
+                if context:
+                    await context.warning(
+                        f"⚠️  Found {n_duplicates} duplicate gene names in reference data, fixing..."
+                    )
+                reference_adata.var_names_make_unique()
+
+            if not adata.var_names.is_unique:
+                n_duplicates = len(adata.var_names) - len(set(adata.var_names))
+                if context:
+                    await context.warning(
+                        f"⚠️  Found {n_duplicates} duplicate gene names in query data, fixing..."
+                    )
+                adata.var_names_make_unique()
+                # Update test_features after fixing
+                test_features = [str(x) for x in adata.var_names]
+
             # Get reference expression matrix
             if "X_normalized" in reference_adata.layers:
                 ref_mat = reference_adata.layers["X_normalized"]
@@ -558,6 +580,26 @@ async def _annotate_with_tangram(
         # Get reference single-cell data
         adata_sc_original = data_store[params.reference_data_id]["adata"]
         adata_sp = adata  # Spatial data (will be modified in-place for results)
+
+        # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
+        if not adata_sc_original.var_names.is_unique:
+            n_duplicates = (
+                len(adata_sc_original.var_names)
+                - len(set(adata_sc_original.var_names))
+            )
+            if context:
+                await context.warning(
+                    f"⚠️  Found {n_duplicates} duplicate gene names in reference data, fixing..."
+                )
+            adata_sc_original.var_names_make_unique()
+
+        if not adata_sp.var_names.is_unique:
+            n_duplicates = len(adata_sp.var_names) - len(set(adata_sp.var_names))
+            if context:
+                await context.warning(
+                    f"⚠️  Found {n_duplicates} duplicate gene names in spatial data, fixing..."
+                )
+            adata_sp.var_names_make_unique()
 
         if context:
             await context.info(
@@ -928,6 +970,37 @@ async def _annotate_with_scanvi(
         # Get reference single-cell data
         adata_ref_original = data_store[params.reference_data_id]["adata"]
 
+        # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
+        if context:
+            await context.info("Checking for duplicate gene names...")
+
+        # Fix duplicate gene names in reference data
+        if not adata_ref_original.var_names.is_unique:
+            n_duplicates_ref = (
+                len(adata_ref_original.var_names)
+                - len(set(adata_ref_original.var_names))
+            )
+            if context:
+                await context.warning(
+                    f"⚠️  Found {n_duplicates_ref} duplicate gene names in reference data"
+                )
+                await context.info("Fixing duplicate gene names with unique suffixes...")
+            adata_ref_original.var_names_make_unique()
+            if context:
+                await context.info("✓ Reference gene names fixed")
+
+        # Fix duplicate gene names in query data
+        if not adata.var_names.is_unique:
+            n_duplicates_query = len(adata.var_names) - len(set(adata.var_names))
+            if context:
+                await context.warning(
+                    f"⚠️  Found {n_duplicates_query} duplicate gene names in query data"
+                )
+                await context.info("Fixing duplicate gene names with unique suffixes...")
+            adata.var_names_make_unique()
+            if context:
+                await context.info("✓ Query gene names fixed")
+
         # ===== Gene Alignment (NEW) =====
         if context:
             await context.info("Aligning genes between reference and query data...")
@@ -962,6 +1035,15 @@ async def _annotate_with_scanvi(
         # ===== Data Validation (NEW) =====
         if context:
             await context.info("Validating data preprocessing...")
+
+        # ✅ DEBUG: Check for counts layer existence
+        if context:
+            await context.info(f"Reference data has 'counts' layer: {'counts' in adata_ref.layers}")
+            await context.info(f"Query data has 'counts' layer: {'counts' in adata_subset.layers}")
+            if 'counts' in adata_ref.layers:
+                await context.info(f"  Reference counts max: {adata_ref.layers['counts'].max():.2f}")
+            if 'counts' in adata_subset.layers:
+                await context.info(f"  Query counts max: {adata_subset.layers['counts'].max():.2f}")
 
         # Check if reference data is normalized
         if "log1p" not in adata_ref.uns:
@@ -1033,11 +1115,13 @@ async def _annotate_with_scanvi(
                 await context.info("Training SCANVI model directly...")
 
             # Setup AnnData for scANVI
+            # ✅ FIX: Use raw counts from layers['counts'] instead of normalized adata.X
             scvi.model.SCANVI.setup_anndata(
                 adata_ref,
                 labels_key=cell_type_key,
                 unlabeled_category=params.scanvi_unlabeled_category,
                 batch_key=batch_key,
+                layer="counts",  # CRITICAL: Use raw counts, not normalized data
             )
 
             # Create scANVI model
@@ -1075,11 +1159,13 @@ async def _annotate_with_scanvi(
                     f"   ScANVI algorithm requires batch labels to function properly."
                 )
 
+        # ✅ FIX: Use raw counts for query data as well
         scvi.model.SCANVI.setup_anndata(
             adata_subset,
             labels_key=cell_type_key,
             unlabeled_category=params.scanvi_unlabeled_category,
             batch_key=batch_key,
+            layer="counts",  # CRITICAL: Use raw counts, not normalized data
         )
 
         # Transfer model to spatial data with proper parameters

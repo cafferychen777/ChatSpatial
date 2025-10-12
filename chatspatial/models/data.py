@@ -259,6 +259,7 @@ class VisualizationParameters(BaseModel):
         "spatial_enrichment",  # Clear enrichment types
         "spatial_interaction",
         "batch_integration",  # Batch integration quality assessment
+        "cnv_heatmap",  # CNV analysis heatmap
     ] = "spatial"
     colormap: str = "viridis"
 
@@ -393,8 +394,7 @@ class VisualizationParameters(BaseModel):
         # Spatial analysis validation
         if self.plot_type == "spatial_analysis":
             if not self.analysis_type or (
-                isinstance(self.analysis_type, str)
-                and not self.analysis_type.strip()
+                isinstance(self.analysis_type, str) and not self.analysis_type.strip()
             ):
                 available_types = [
                     "neighborhood",
@@ -462,7 +462,7 @@ class AnnotationParameters(BaseModel):
             "Common column names in reference data: 'cell_type', 'cell_types', 'celltype', 'annotation', 'label', 'cell_type_original'\n"
             "\n"
             "The LLM will auto-detect from metadata if not specified, but explicit specification is recommended."
-        )
+        ),
     )
 
     # Tangram-specific parameters (aligned with official API)
@@ -581,7 +581,7 @@ class SpatialAnalysisParameters(BaseModel):
             "Common column names: 'leiden', 'louvain', 'cell_type', 'cell_type_tangram', 'seurat_clusters', 'clusters'\n"
             "\n"
             "The LLM will auto-detect from metadata if not specified for required analyses."
-        )
+        ),
     )
     n_neighbors: Annotated[int, Field(gt=0)] = 15
 
@@ -1125,6 +1125,57 @@ class EnrichmentParameters(BaseModel):
     # Result filtering parameters
     plot_top_terms: Annotated[int, Field(gt=0, le=30)] = (
         10  # Number of top terms to include in results
+    )
+
+
+class CNVParameters(BaseModel):
+    """Copy Number Variation (CNV) analysis parameters model"""
+
+    # Reference cell specification
+    reference_key: str = Field(
+        ...,
+        description=(
+            "Column name in adata.obs containing cell type or cluster labels "
+            "for identifying reference (normal) cells. Common values: "
+            "'cell_type', 'leiden', 'louvain', 'seurat_clusters'"
+        ),
+    )
+    reference_categories: List[str] = Field(
+        ...,
+        description=(
+            "List of cell types/clusters to use as reference (normal) cells. "
+            "These should be non-malignant cells like immune cells, fibroblasts, etc. "
+            "Example: ['T cells', 'B cells', 'Macrophages']"
+        ),
+    )
+
+    # CNV detection parameters
+    window_size: Annotated[int, Field(gt=0, le=500)] = Field(
+        100, description="Number of genes for CNV averaging window (default: 100)"
+    )
+    step: Annotated[int, Field(gt=0, le=100)] = Field(
+        10, description="Step size for sliding window (default: 10)"
+    )
+
+    # Analysis options
+    exclude_chromosomes: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Chromosomes to exclude from analysis (e.g., ['chrX', 'chrY', 'chrM'])"
+        ),
+    )
+    dynamic_threshold: Optional[float] = Field(
+        1.5,
+        gt=0.0,
+        description="Threshold for dynamic CNV calling (default: 1.5)",
+    )
+
+    # Clustering and visualization options
+    cluster_cells: bool = Field(
+        False, description="Whether to cluster cells by CNV pattern"
+    )
+    dendrogram: bool = Field(
+        False, description="Whether to compute hierarchical clustering dendrogram"
     )
 
 

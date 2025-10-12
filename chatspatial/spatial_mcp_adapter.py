@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.fastmcp.utilities.types import Image
+from mcp.types import EmbeddedResource, ImageContent
 
 # Import MCP improvements
 from .models.data import (VisualizationParameters)
@@ -589,7 +589,7 @@ class SpatialMCPAdapter:
         plot_type: str,
         result: Any,
         context: Optional[Context] = None,
-    ) -> Optional[Image]:
+    ) -> Optional[Union[ImageContent, tuple[ImageContent, EmbeddedResource]]]:
         """Create visualization from analysis result"""
         try:
             # Import visualization function

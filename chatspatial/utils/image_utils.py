@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Tuple, Optional, Union, Dict, Any
 
 from mcp.server.fastmcp.utilities.types import Image
-from mcp.types import EmbeddedResource, TextResourceContents
+from mcp.types import EmbeddedResource, ImageContent, TextResourceContents
 
 # Function to ensure matplotlib uses non-interactive backend
 def _ensure_non_interactive_backend():
@@ -33,14 +33,56 @@ if TYPE_CHECKING:
     import matplotlib.pyplot as plt
 
 
+def bytes_to_image_content(
+    data: bytes,
+    format: str = "png"
+) -> ImageContent:
+    """Convert raw image bytes to MCP ImageContent.
+
+    This unified utility function handles the conversion from raw image bytes
+    to the MCP-compatible ImageContent type with proper MIME type mapping.
+
+    Args:
+        data: Raw image bytes
+        format: Image format (png, jpg, jpeg, gif, webp)
+
+    Returns:
+        ImageContent object ready for MCP tool return
+
+    Examples:
+        >>> img_bytes = fig.savefig(buf, format='png')
+        >>> content = bytes_to_image_content(img_bytes, format='png')
+    """
+    # MIME type mapping for common image formats
+    format_to_mime = {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "gif": "image/gif",
+        "webp": "image/webp",
+    }
+
+    # Get MIME type, default to PNG if format is unknown
+    mime_type = format_to_mime.get(format.lower(), "image/png")
+
+    # Encode to base64 string as required by ImageContent
+    encoded_data = base64.b64encode(data).decode('utf-8')
+
+    return ImageContent(
+        type="image",
+        data=encoded_data,
+        mimeType=mime_type
+    )
+
+
 def fig_to_image(
     fig: "plt.Figure",
     dpi: int = 100,
     format: str = "png",
     max_size_kb: int = 900,
     close_fig: bool = True,
-) -> Image:
-    """Convert matplotlib figure to Image object with size control
+) -> ImageContent:
+    """Convert matplotlib figure to ImageContent with size control
 
     Args:
         fig: Matplotlib figure
@@ -50,7 +92,7 @@ def fig_to_image(
         close_fig: Whether to close the figure after conversion
 
     Returns:
-        Image object
+        ImageContent object ready for MCP tool return
     """
     _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
     import matplotlib.pyplot as plt
@@ -122,8 +164,8 @@ def fig_to_image(
             ):
                 if close_fig:
                     plt.close(fig)
-                # Return Image object with bytes data
-                return Image(data=img_data, format=current_format)
+                # Convert to ImageContent using unified utility
+                return bytes_to_image_content(img_data, format=current_format)
 
             # Try different strategies to reduce size
             if current_format == "png" and attempt == 1:
@@ -165,15 +207,15 @@ def fig_to_image(
     img_data = buf.read()
     plt.close(simple_fig)
 
-    # Return Image object with bytes data
-    return Image(data=img_data, format="png")
+    # Convert to ImageContent using unified utility
+    return bytes_to_image_content(img_data, format="png")
 
 
 def create_placeholder_image(
     message: str = "No visualization available",
     figsize: Tuple[int, int] = (6, 6),
     format: str = "png",
-) -> Image:
+) -> ImageContent:
     """Create a placeholder image with a message
 
     Args:
@@ -182,7 +224,7 @@ def create_placeholder_image(
         format: Image format (png, jpg)
 
     Returns:
-        Image object
+        ImageContent object ready for MCP tool return
     """
     _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
     import matplotlib.pyplot as plt
@@ -266,9 +308,9 @@ async def optimize_fig_to_image_with_cache(
     data_id: str = None,
     plot_type: str = None,
     mode: str = "auto"
-) -> Union[Image, Tuple[Image, EmbeddedResource]]:
+) -> Union[ImageContent, Tuple[ImageContent, EmbeddedResource]]:
     """Optimized image conversion with Figure caching for high-quality export
-    
+
     This function implements the token optimization strategy:
     - Small images (<100KB): Direct embedding
     - Large images (>=100KB): Preview + resource reference
@@ -283,8 +325,8 @@ async def optimize_fig_to_image_with_cache(
         mode: Optimization mode - "auto", "preview", or "direct"
         
     Returns:
-        Small images: Image object
-        Large images: Tuple[Image preview, EmbeddedResource with high quality]
+        Small images: ImageContent object
+        Large images: Tuple[ImageContent preview, EmbeddedResource with high quality]
     """
     _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
     import matplotlib.pyplot as plt
@@ -346,13 +388,17 @@ async def optimize_fig_to_image_with_cache(
                 facecolor='white'
             )
         preview_buf.seek(0)
-        preview_image = Image(data=preview_buf.read(), format="jpeg")
-        
+        preview_bytes = preview_buf.read()
+        preview_size_kb = len(preview_bytes) // 1024
+
+        # Convert preview bytes to ImageContent
+        preview_image = bytes_to_image_content(preview_bytes, format="jpeg")
+
         # 2. Save high-quality version
         os.makedirs("/tmp/chatspatial/visualizations", exist_ok=True)
         hq_filename = f"{plot_type}_{uuid.uuid4().hex[:8]}.png" if plot_type else f"viz_{uuid.uuid4().hex[:8]}.png"
         hq_path = f"/tmp/chatspatial/visualizations/{hq_filename}"
-        
+
         fig.savefig(
             hq_path,
             dpi=target_dpi if target_dpi else 300,
@@ -360,7 +406,7 @@ async def optimize_fig_to_image_with_cache(
             bbox_inches='tight',
             facecolor='white'
         )
-        
+
         # 3. Create resource reference with metadata
         metadata = {
             "description": f"High-quality {plot_type if plot_type else 'visualization'} at {target_dpi} DPI",
@@ -369,7 +415,7 @@ async def optimize_fig_to_image_with_cache(
             "can_export_svg": True,
             "cache_key": cache_key if data_id and plot_type else None
         }
-        
+
         resource = EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
@@ -378,15 +424,15 @@ async def optimize_fig_to_image_with_cache(
                 text=json.dumps(metadata)
             )
         )
-        
+
         if context:
             await context.info(
-                f"✅ Preview: {len(preview_image.data)//1024}KB | "
+                f"✅ Preview: {preview_size_kb}KB | "
                 f"High-quality: {hq_path} | "
                 f"Figure cached for PDF/SVG export"
             )
-        
-        return preview_image, resource
+
+        return (preview_image, resource)
     
     # Mode: auto with medium size - compress but don't use preview
     if context:
