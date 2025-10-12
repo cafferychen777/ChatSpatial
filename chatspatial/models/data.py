@@ -858,6 +858,9 @@ class SpatialDomainParameters(BaseModel):
     refine_domains: bool = (
         True  # Whether to refine spatial domains using spatial smoothing
     )
+    refinement_threshold: Annotated[float, Field(ge=0.0, le=1.0)] = (
+        0.5  # Threshold for refinement: only relabel if >=threshold of neighbors differ (0.5 = 50%, following SpaGCN)
+    )
 
     # Clustering-specific parameters for leiden/louvain methods
     cluster_n_neighbors: Optional[Annotated[int, Field(gt=0)]] = (

@@ -311,7 +311,7 @@ async def identify_spatial_domains(
             try:
                 refined_domain_key = f"{domain_key}_refined"
                 refined_labels = _refine_spatial_domains(
-                    adata, domain_key, refined_domain_key
+                    adata, domain_key, refined_domain_key, threshold=params.refinement_threshold
                 )
                 adata.obs[refined_domain_key] = refined_labels
                 adata.obs[refined_domain_key] = adata.obs[refined_domain_key].astype(
@@ -730,14 +730,30 @@ async def _identify_domains_clustering(
         raise RuntimeError(f"{params.method} clustering failed: {str(e)}")
 
 
-def _refine_spatial_domains(adata: Any, domain_key: str, refined_key: str) -> pd.Series:
+def _refine_spatial_domains(
+    adata: Any, domain_key: str, refined_key: str, threshold: float = 0.5
+) -> pd.Series:
     """
     Refines spatial domain assignments using a spatial smoothing algorithm.
 
     This post-processing step aims to create more spatially coherent domains by
     reducing noise. It iterates through each spot and re-assigns its domain label
-    to the majority label of its k-nearest spatial neighbors. This process helps
-    to remove small, isolated spots and smooth the boundaries between domains.
+    to the majority label of its k-nearest spatial neighbors, but ONLY if a
+    sufficient proportion of neighbors differ from the current label.
+
+    This threshold-based approach follows SpaGCN (Hu et al., Nature Methods 2021),
+    which only relabels spots when more than half of their neighbors are assigned
+    to a different domain, preventing over-smoothing while still reducing noise.
+
+    Args:
+        adata: AnnData object containing spatial data
+        domain_key: Column in adata.obs containing domain labels to refine
+        refined_key: Name for the refined domain key
+        threshold: Minimum proportion of neighbors that must differ to trigger
+                  relabeling (default: 0.5, i.e., 50%, following SpaGCN)
+
+    Returns:
+        pd.Series: Refined domain labels
     """
     try:
         # Get spatial coordinates - REQUIRED for spatial domain refinement
@@ -783,13 +799,25 @@ def _refine_spatial_domains(adata: Any, domain_key: str, refined_key: str) -> pd
 
         refined_labels = []
         for i, neighbors in enumerate(indices):
+            original_label = labels.iloc[i]
             neighbor_labels = labels.iloc[neighbors]
-            # Get most common label among neighbors
-            most_common = neighbor_labels.mode()
-            if len(most_common) > 0:
-                refined_labels.append(most_common.iloc[0])
+
+            # Calculate proportion of neighbors that differ from current label
+            different_ratio = (neighbor_labels != original_label).sum() / len(
+                neighbor_labels
+            )
+
+            # Only relabel if sufficient proportion of neighbors differ (SpaGCN approach)
+            if different_ratio >= threshold:
+                # Get most common label among neighbors
+                most_common = neighbor_labels.mode()
+                if len(most_common) > 0:
+                    refined_labels.append(most_common.iloc[0])
+                else:
+                    refined_labels.append(original_label)
             else:
-                refined_labels.append(labels.iloc[i])
+                # Keep original label if not enough neighbors differ
+                refined_labels.append(original_label)
 
         return pd.Series(refined_labels, index=labels.index)
 
