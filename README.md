@@ -278,7 +278,7 @@ pip install -e ".[dev]"
 </details>
 
 <details>
-<summary><strong>🔬 Analysis Methods (12 Categories, 74+ Methods)</strong></summary>
+<summary><strong>🔬 Analysis Methods (12 Categories, 76+ Methods)</strong></summary>
 
 | Category | Methods |
 |----------|---------|
@@ -293,7 +293,7 @@ pip install -e ".[dev]"
 | **Differential Expression** | Wilcoxon, t-test, Logistic Regression (scanpy methods) |
 | **Gene Set Enrichment** | GSEA, ORA, ssGSEA, Enrichr, Spatial EnrichMap |
 | **Spatial Statistics** | Moran's I, Local Moran's I (LISA), Geary's C, Getis-Ord Gi*, Neighborhood Enrichment, Co-occurrence, Ripley's K/L, Bivariate Moran's I, Join Count, Network Properties, Spatial Centrality |
-| **Spatial Registration** | _Planned: PASTE, STalign (in development)_ |
+| **Spatial Registration** | PASTE, STalign |
 
 </details>
 

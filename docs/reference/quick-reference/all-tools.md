@@ -283,12 +283,11 @@
 ### `register_spatial_data`
 **Purpose**: Align spatial sections or time points
 **Difficulty**: 🔴 Advanced
-**Status**: ⚠️ **IN DEVELOPMENT** - Core registration methods not yet implemented
 
 **Key Parameters**:
 - `source_id`: Source dataset ID
 - `target_id`: Target dataset ID
-- `method`: `"paste"`, `"stalign"` _(planned, not yet available)_
+- `method`: `"paste"`, `"stalign"`
 - `landmarks`: Optional alignment landmarks
 
 **Example Queries**:
@@ -298,9 +297,11 @@
 "Align samples to reference coordinates"
 ```
 
-**Note**: While the tool interface exists, PASTE and STalign implementations are pending. Use alternative alignment tools or manual registration for now.
+**Returns**: Transformation matrix and aligned coordinates in `obsm['spatial_registered']`
 
-**Returns**: Transformation matrix and aligned coordinates _(when implemented)_
+**Note**:
+- **PASTE**: Optimal transport-based alignment, supports multi-slice registration
+- **STalign**: Diffeomorphic LDDMM registration, pairwise only
 
 ---
 
