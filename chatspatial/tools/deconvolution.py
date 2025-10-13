@@ -2616,12 +2616,12 @@ async def deconvolve_tangram(
             proportions_array, index=spatial_data.obs_names, columns=cell_types
         )
 
-        # Process results transparently - Tangram weights should naturally sum to 1
-        # but we check and report if they don't
+        # Process results transparently - Tangram mapper matrix returns "equivalent
+        # cell counts" (not proportions), so we must normalize to get proportions
         proportions = _process_deconvolution_results_transparently(
             proportions=proportions,
             method="Tangram",
-            normalize=False,  # Don't force normalization
+            normalize=True,  # Convert counts to proportions
             context=context,
         )
 
