@@ -814,14 +814,15 @@ class DeconvolutionParameters(BaseModel):
         2000  # Number of top genes to use
     )
     use_gpu: bool = False  # Whether to use GPU for cell2location
-    n_epochs: Annotated[int, Field(gt=0)] = 10000  # Number of epochs for cell2location
-    n_cells_per_spot: Optional[int] = None  # Expected number of cells per spot
+    ref_model_epochs: Annotated[int, Field(gt=0)] = 250  # Number of epochs for reference model training (NB regression). Official recommendation: 250
+    n_epochs: Annotated[int, Field(gt=0)] = 30000  # Number of epochs for Cell2location spatial mapping model training. Official recommendation: 30000
+    n_cells_per_spot: int = 30  # Expected number of cells per spatial location (tissue-dependent). Official recommendation: 30
     reference_profiles: Optional[Dict[str, List[float]]] = (
         None  # Reference expression profiles
     )
 
     # Cell2location specific parameters
-    detection_alpha: Annotated[float, Field(gt=0)] = 20.0  # Detection sensitivity parameter for cell2location
+    detection_alpha: Annotated[float, Field(gt=0)] = 200.0  # RNA detection sensitivity parameter for cell2location. Higher values = less sensitivity correction. Official recommendation: 200
 
     # SPOTlight specific parameters
     hvg: Optional[int] = None  # Number of highly variable genes to use (None = use all)
