@@ -820,6 +820,12 @@ class DeconvolutionParameters(BaseModel):
         None  # Reference expression profiles
     )
 
+    # Cell2location specific parameters
+    detection_alpha: Annotated[float, Field(gt=0)] = 20.0  # Detection sensitivity parameter for cell2location
+
+    # SPOTlight specific parameters
+    hvg: Optional[int] = None  # Number of highly variable genes to use (None = use all)
+
     # DestVI parameters
     destvi_n_hidden: int = 128
     destvi_n_latent: int = 10

@@ -185,12 +185,17 @@ def _get_device(use_gpu: bool, method: str) -> str:
 def _prepare_anndata_for_counts(
     adata: ad.AnnData, data_name: str, context=None
 ) -> ad.AnnData:
-    """Ensure AnnData object has raw integer counts in .X
+    """Ensure AnnData object has raw integer counts in .X with complete gene set
 
     Checks for raw counts in the following order:
-    1. layers["counts"] - explicitly saved raw counts
-    2. .raw.X - data saved before preprocessing
-    3. current .X - only if already integer counts
+    1. .raw - Returns complete raw data to maximize gene overlap (preferred for deconvolution)
+    2. layers["counts"] - Uses counts layer if raw not available
+    3. current .X - Only if already integer counts
+
+    IMPORTANT: This function prioritizes returning complete gene sets from .raw
+    to ensure maximum gene overlap between spatial and reference datasets during
+    deconvolution. This prevents "0 genes in common" errors when datasets have
+    different HVG selections after preprocessing.
 
     Args:
         adata: AnnData object to prepare
@@ -198,7 +203,7 @@ def _prepare_anndata_for_counts(
         context: Optional MCP context for logging
 
     Returns:
-        AnnData object with integer counts in .X
+        AnnData object with integer counts in .X and complete gene set if available
 
     Raises:
         ValueError: If no raw integer counts can be found
@@ -211,43 +216,49 @@ def _prepare_anndata_for_counts(
     adata_copy = adata.copy()
     data_source = None
 
-    # Step 1: Check layers["counts"]
-    if "counts" in adata_copy.layers:
+    # Step 1: Check .raw data first (prefer complete gene set for deconvolution)
+    if adata_copy.raw is not None:
+        logger.info(f"{data_name}: Found .raw data, checking if it contains counts")
+        try:
+            # Get raw data to check if it contains counts
+            raw_adata = adata_copy.raw.to_adata()
+
+            # Validate if raw contains counts (not normalized)
+            raw_X = raw_adata.X.toarray() if hasattr(raw_adata.X, 'toarray') else raw_adata.X
+            sample_size = min(100, raw_X.shape[0])
+            sample_X = raw_X[:sample_size, :min(100, raw_X.shape[1])]
+            has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
+            has_negatives = sample_X.min() < 0
+
+            if not has_decimals and not has_negatives:
+                # Raw contains counts, use complete gene set
+                logger.info(f"{data_name}: .raw contains counts, using complete gene set ({raw_adata.n_vars} genes)")
+                if context:
+                    context.info(f"✅ Using .raw counts for {data_name} ({raw_adata.n_vars} genes)")
+                adata_copy = raw_adata
+                data_source = "raw"
+            else:
+                # Raw is normalized/transformed, skip to layers['counts']
+                logger.info(
+                    f"{data_name}: .raw is normalized (has_decimals={has_decimals}, "
+                    f"has_negatives={has_negatives}), trying counts layer"
+                )
+                if context:
+                    context.info(f"⚠️ .raw for {data_name} is normalized, checking counts layer")
+        except Exception as e:
+            logger.warning(f"{data_name}: Error accessing .raw data: {e}, trying counts layer")
+            data_source = None
+
+    # Step 2: Check layers["counts"] if raw not available or not counts
+    if data_source is None and "counts" in adata_copy.layers:
         logger.info(f"{data_name}: Found counts layer, using as raw counts")
         if context:
             context.info(f"✅ Using counts layer for {data_name} data")
         adata_copy.X = adata_copy.layers["counts"].copy()
         data_source = "counts_layer"
 
-    # Step 2: Check .raw data
-    elif adata_copy.raw is not None:
-        logger.info(f"{data_name}: Found .raw data, checking compatibility")
-        try:
-            raw_adata = adata_copy.raw.to_adata()
-
-            # Check if genes match
-            if set(adata_copy.var_names).issubset(set(raw_adata.var_names)):
-                # Extract matching genes from raw
-                adata_copy.X = raw_adata[:, adata_copy.var_names].X.copy()
-                data_source = "raw"
-                logger.info(f"{data_name}: Using .raw data")
-                if context:
-                    context.info(f"✅ Using .raw data for {data_name} data")
-            else:
-                logger.warning(
-                    f"{data_name}: .raw genes don't match current genes, checking current X"
-                )
-                if context:
-                    context.warning(
-                        f"⚠️ .raw data genes don't match for {data_name}, checking current X"
-                    )
-                data_source = "current"
-        except Exception as e:
-            logger.warning(f"{data_name}: Error accessing .raw data: {e}")
-            data_source = "current"
-
-    # Step 3: Use current X
-    else:
+    # Step 3: Use current X as fallback
+    if data_source is None:
         logger.info(f"{data_name}: No counts layer or .raw found, checking current X")
         data_source = "current"
 
@@ -558,6 +569,7 @@ def deconvolve_cell2location(
     cell_type_key: str,  # REQUIRED - LLM will infer from metadata
     n_epochs: int = 10000,
     n_cells_per_spot: int = 10,
+    detection_alpha: float = 20.0,  # Detection sensitivity parameter
     use_gpu: bool = False,
     min_common_genes: int = 100,
     context=None,
@@ -581,11 +593,6 @@ def deconvolve_cell2location(
         ValueError: If input data is invalid or insufficient common genes
         RuntimeError: If cell2location computation fails
     """
-    # Unified validation and gene finding
-    common_genes = _validate_deconvolution_inputs(
-        spatial_adata, reference_adata, cell_type_key, min_common_genes
-    )
-
     # Import cell2location
     try:
         # Apply compatibility fix for cell2location + scvi-tools version mismatch
@@ -602,12 +609,33 @@ def deconvolve_cell2location(
         ) from e
 
     try:
+        # Validate cell type key exists
+        if cell_type_key not in reference_adata.obs:
+            raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
+
         # Unified device selection
         device = _get_device(use_gpu, "Cell2location")
 
         # Prepare data using helper functions - Cell2location expects raw count data
         ref = _prepare_anndata_for_counts(reference_adata.copy(), "Reference", context)
         sp = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial", context)
+
+        # Find common genes AFTER data preparation (uses actual gene set that will be used)
+        common_genes = list(set(ref.var_names) & set(sp.var_names))
+
+        if len(common_genes) < min_common_genes:
+            raise ValueError(
+                f"Insufficient common genes after data preparation.\n"
+                f"  Found: {len(common_genes)} genes\n"
+                f"  Required: {min_common_genes} genes\n"
+                f"  Reference data: {ref.n_vars} genes\n"
+                f"  Spatial data: {sp.n_vars} genes\n\n"
+                f"💡 TIPS:\n"
+                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
+                f"2. Ensure both datasets are from the same species\n"
+                f"3. Try using different reference dataset\n"
+                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
+            )
 
         # Subset to common genes
         ref = ref[:, common_genes]
@@ -695,7 +723,7 @@ def deconvolve_cell2location(
                 sp,
                 cell_state_df=ref_signatures,
                 N_cells_per_location=n_cells_per_spot,
-                detection_alpha=20.0,
+                detection_alpha=detection_alpha,
             )
 
             # Use the suppress_output context manager
@@ -863,10 +891,9 @@ def deconvolve_rctd(
         ValueError: If input data is invalid or insufficient common genes
         RuntimeError: If RCTD computation fails
     """
-    # Unified validation and gene finding
-    common_genes = _validate_deconvolution_inputs(
-        spatial_adata, reference_adata, cell_type_key, min_common_genes
-    )
+    # Validate cell type key exists
+    if cell_type_key not in reference_adata.obs:
+        raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
 
     # Check if RCTD is available
     is_available, error_message = is_rctd_available()
@@ -887,15 +914,30 @@ def deconvolve_rctd(
 
         # Running RCTD deconvolution
 
-        # Prepare data - subset to common genes
-        spatial_data = spatial_adata[:, common_genes].copy()
-        reference_data = reference_adata[:, common_genes].copy()
+        # Prepare data first (restore raw counts)
+        spatial_data = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial", context)
+        reference_data = _prepare_anndata_for_counts(reference_adata.copy(), "Reference", context)
 
-        # Ensure data is in the right format (raw counts)
-        spatial_data = _prepare_anndata_for_counts(spatial_data, "Spatial", context)
-        reference_data = _prepare_anndata_for_counts(
-            reference_data, "Reference", context
-        )
+        # Find common genes AFTER data preparation
+        common_genes = list(set(spatial_data.var_names) & set(reference_data.var_names))
+
+        if len(common_genes) < min_common_genes:
+            raise ValueError(
+                f"Insufficient common genes after data preparation.\n"
+                f"  Found: {len(common_genes)} genes\n"
+                f"  Required: {min_common_genes} genes\n"
+                f"  Reference data: {reference_data.n_vars} genes\n"
+                f"  Spatial data: {spatial_data.n_vars} genes\n\n"
+                f"💡 TIPS:\n"
+                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
+                f"2. Ensure both datasets are from the same species\n"
+                f"3. Try using different reference dataset\n"
+                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
+            )
+
+        # Subset to common genes
+        spatial_data = spatial_data[:, common_genes].copy()
+        reference_data = reference_data[:, common_genes].copy()
 
         # Get spatial coordinates if available
         if "spatial" in spatial_adata.obsm:
@@ -1399,6 +1441,7 @@ async def deconvolve_spatial_data(
                     cell_type_key=params.cell_type_key,
                     n_epochs=params.n_epochs,
                     n_cells_per_spot=params.n_cells_per_spot or 10,
+                    detection_alpha=params.detection_alpha,
                     use_gpu=params.use_gpu,
                     context=context,
                 )
@@ -1652,8 +1695,8 @@ async def deconvolve_spatial_data(
             }
         elif params.method == "tangram":
             parameters_dict = {
-                "device": params.device,
-                "num_epochs": params.num_epochs,
+                "use_gpu": params.use_gpu,
+                "n_epochs": params.n_epochs,
             }
 
         # Prepare reference info
@@ -1767,18 +1810,35 @@ async def deconvolve_destvi(
                 "scvi-tools package is not installed. Please install it with 'pip install scvi-tools'"
             )
 
-        # Validate inputs
-        common_genes = _validate_deconvolution_inputs(
-            spatial_adata, reference_adata, cell_type_key, 100
-        )
+        # Validate cell type key exists
+        if cell_type_key not in reference_adata.obs:
+            raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
 
-        # Prepare data with proper count preprocessing
-        ref_data = reference_adata[:, common_genes].copy()
-        spatial_data = spatial_adata[:, common_genes].copy()
+        # Prepare data first (DestVI requires integer counts)
+        ref_data = _prepare_anndata_for_counts(reference_adata.copy(), "reference", context)
+        spatial_data = _prepare_anndata_for_counts(spatial_adata.copy(), "spatial", context)
 
-        # Critical: Prepare count data (DestVI requires integer counts)
-        ref_data = _prepare_anndata_for_counts(ref_data, "reference", context)
-        spatial_data = _prepare_anndata_for_counts(spatial_data, "spatial", context)
+        # Find common genes AFTER data preparation
+        common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
+        min_common_genes = 100
+
+        if len(common_genes) < min_common_genes:
+            raise ValueError(
+                f"Insufficient common genes after data preparation.\n"
+                f"  Found: {len(common_genes)} genes\n"
+                f"  Required: {min_common_genes} genes\n"
+                f"  Reference data: {ref_data.n_vars} genes\n"
+                f"  Spatial data: {spatial_data.n_vars} genes\n\n"
+                f"💡 TIPS:\n"
+                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
+                f"2. Ensure both datasets are from the same species\n"
+                f"3. Try using different reference dataset\n"
+                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
+            )
+
+        # Subset to common genes
+        ref_data = ref_data[:, common_genes].copy()
+        spatial_data = spatial_data[:, common_genes].copy()
 
         # Validate cell type information
         cell_types = ref_data.obs[cell_type_key].unique()
@@ -1945,18 +2005,35 @@ async def deconvolve_stereoscope(
         Tuple of (proportions DataFrame, statistics dictionary)
     """
     try:
-        # Validate inputs
-        common_genes = _validate_deconvolution_inputs(
-            spatial_adata, reference_adata, cell_type_key, 100
-        )
+        # Validate cell type key exists
+        if cell_type_key not in reference_adata.obs:
+            raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
 
-        # Prepare data - subset to common genes and ensure raw count data
-        ref_data = reference_adata[:, common_genes].copy()
-        spatial_data = spatial_adata[:, common_genes].copy()
+        # Prepare data first - Stereoscope requires raw counts
+        ref_data = _prepare_anndata_for_counts(reference_adata.copy(), "Reference", context)
+        spatial_data = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial", context)
 
-        # Use unified data preparation function - Stereoscope requires raw counts like other methods
-        ref_data = _prepare_anndata_for_counts(ref_data, "Reference", context)
-        spatial_data = _prepare_anndata_for_counts(spatial_data, "Spatial", context)
+        # Find common genes AFTER data preparation
+        common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
+        min_common_genes = 100
+
+        if len(common_genes) < min_common_genes:
+            raise ValueError(
+                f"Insufficient common genes after data preparation.\n"
+                f"  Found: {len(common_genes)} genes\n"
+                f"  Required: {min_common_genes} genes\n"
+                f"  Reference data: {ref_data.n_vars} genes\n"
+                f"  Spatial data: {spatial_data.n_vars} genes\n\n"
+                f"💡 TIPS:\n"
+                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
+                f"2. Ensure both datasets are from the same species\n"
+                f"3. Try using different reference dataset\n"
+                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
+            )
+
+        # Subset to common genes
+        ref_data = ref_data[:, common_genes].copy()
+        spatial_data = spatial_data[:, common_genes].copy()
 
         # Ensure cell type key is categorical
         if not ref_data.obs[cell_type_key].dtype.name == "category":
@@ -2127,30 +2204,45 @@ def deconvolve_spotlight(
         from rpy2.robjects.conversion import localconverter
 
         # Running SPOTlight deconvolution
-        # Validate inputs
-        common_genes = _validate_deconvolution_inputs(
-            spatial_adata, reference_adata, cell_type_key, min_common_genes
-        )
-
-        # Subset to common genes
-        spatial_subset = spatial_adata[:, common_genes].copy()
-        reference_subset = reference_adata[:, common_genes].copy()
+        # Validate cell type key exists
+        if cell_type_key not in reference_adata.obs:
+            raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
 
         # Check for spatial coordinates
-        if "spatial" not in spatial_subset.obsm:
+        if "spatial" not in spatial_adata.obsm:
             raise ValueError(
                 "No spatial coordinates found in spatial_adata.obsm['spatial']. "
                 "SPOTlight requires spatial coordinates for proper analysis."
             )
 
-        # Prepare data for R using proper counts
-        # SPOTlight can handle normalized data, but we still try to get raw counts if available
-        spatial_counts = _prepare_anndata_for_counts(
-            spatial_subset, "Spatial", context
-        ).X
-        reference_counts = _prepare_anndata_for_counts(
-            reference_subset, "Reference", context
-        ).X
+        # Prepare full datasets first
+        spatial_prepared = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial", context)
+        reference_prepared = _prepare_anndata_for_counts(reference_adata.copy(), "Reference", context)
+
+        # Find common genes AFTER data preparation
+        common_genes = list(set(spatial_prepared.var_names) & set(reference_prepared.var_names))
+
+        if len(common_genes) < min_common_genes:
+            raise ValueError(
+                f"Insufficient common genes after data preparation.\n"
+                f"  Found: {len(common_genes)} genes\n"
+                f"  Required: {min_common_genes} genes\n"
+                f"  Reference data: {reference_prepared.n_vars} genes\n"
+                f"  Spatial data: {spatial_prepared.n_vars} genes\n\n"
+                f"💡 TIPS:\n"
+                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
+                f"2. Ensure both datasets are from the same species\n"
+                f"3. Try using different reference dataset\n"
+                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
+            )
+
+        # Subset to common genes
+        spatial_subset = spatial_prepared[:, common_genes].copy()
+        reference_subset = reference_prepared[:, common_genes].copy()
+
+        # Extract count matrices
+        spatial_counts = spatial_subset.X
+        reference_counts = reference_subset.X
 
         # Convert to dense if sparse
         if hasattr(spatial_counts, "toarray"):
@@ -2390,12 +2482,29 @@ async def deconvolve_tangram(
                 "mudata package is required for Tangram. Install with 'pip install mudata'"
             )
 
-        # Validate inputs
-        common_genes = _validate_deconvolution_inputs(
-            spatial_adata, reference_adata, cell_type_key, 100
-        )
+        # Validate cell type key exists
+        if cell_type_key not in reference_adata.obs:
+            raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
 
-        # Prepare data
+        # Find common genes between datasets
+        common_genes = list(set(spatial_adata.var_names) & set(reference_adata.var_names))
+        min_common_genes = 100
+
+        if len(common_genes) < min_common_genes:
+            raise ValueError(
+                f"Insufficient common genes.\n"
+                f"  Found: {len(common_genes)} genes\n"
+                f"  Required: {min_common_genes} genes\n"
+                f"  Reference data: {reference_adata.n_vars} genes\n"
+                f"  Spatial data: {spatial_adata.n_vars} genes\n\n"
+                f"💡 TIPS:\n"
+                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
+                f"2. Ensure both datasets are from the same species\n"
+                f"3. Try using different reference dataset\n"
+                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
+            )
+
+        # Prepare data - subset to common genes
         ref_data = reference_adata[:, common_genes].copy()
         spatial_data = spatial_adata[:, common_genes].copy()
 

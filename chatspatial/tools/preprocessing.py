@@ -311,7 +311,15 @@ async def preprocess_data(
             await context.info("Saving raw data for downstream analysis...")
         # Save counts layer for deconvolution methods that require raw counts
         adata.layers["counts"] = adata.X.copy()
-        adata.raw = adata
+
+        # IMPORTANT: Create a proper frozen copy for .raw to preserve counts
+        # Using `adata.raw = adata` creates a view that gets modified during normalization
+        # We need to create an independent AnnData object to truly preserve counts
+        import anndata as ad_module
+
+        adata.raw = ad_module.AnnData(
+            X=adata.X.copy(), var=adata.var.copy(), obs=adata.obs.copy(), uns=adata.uns.copy()
+        )
 
         # Update QC metrics after filtering
         qc_metrics.update(
