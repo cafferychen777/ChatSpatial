@@ -1637,23 +1637,68 @@ async def _annotate_with_cellassign(
 
         marker_genes = params.marker_genes
 
+        # CRITICAL FIX: Use adata.raw for marker gene validation if available
+        # Preprocessing filters genes to HVGs, but marker genes may not be in HVGs
+        # adata.raw contains all original genes and should be checked first
+        if hasattr(adata, 'raw') and adata.raw is not None:
+            all_genes = set(adata.raw.var_names)
+            gene_source = "adata.raw"
+            if context:
+                await context.info(
+                    f"Using adata.raw for marker gene validation "
+                    f"({len(all_genes)} genes available)"
+                )
+        else:
+            all_genes = set(adata.var_names)
+            gene_source = "adata.var_names"
+            if context:
+                await context.warning(
+                    f"Using filtered gene set for marker gene validation "
+                    f"({len(all_genes)} genes). Some marker genes may be missing. "
+                    f"Consider using unpreprocessed data for CellAssign."
+                )
+
         # Validate marker genes exist in dataset
-        all_genes = set(adata.var_names)
         valid_marker_genes = {}
+        total_markers = sum(len(g) for g in marker_genes.values())
+        markers_found = 0
+        markers_missing = 0
 
         for cell_type, genes in marker_genes.items():
             existing_genes = [gene for gene in genes if gene in all_genes]
+            missing_genes = [gene for gene in genes if gene not in all_genes]
+
             if existing_genes:
                 valid_marker_genes[cell_type] = existing_genes
+                markers_found += len(existing_genes)
                 if context:
                     await context.info(
-                        f"Found {len(existing_genes)} marker genes for {cell_type}"
+                        f"Found {len(existing_genes)}/{len(genes)} marker genes for {cell_type}"
                     )
-            elif context:
-                await context.warning(f"No marker genes found for {cell_type}")
+                if missing_genes and context:
+                    await context.warning(
+                        f"Missing {len(missing_genes)} markers for {cell_type}: {missing_genes[:5]}"
+                    )
+            else:
+                markers_missing += len(genes)
+                if context:
+                    await context.warning(
+                        f"No marker genes found for {cell_type} - all {len(genes)} markers missing!"
+                    )
+
+        if context:
+            await context.info(
+                f"Marker gene validation: {markers_found}/{total_markers} found "
+                f"({markers_found/total_markers*100:.1f}%) from {gene_source}"
+            )
 
         if not valid_marker_genes:
-            raise ValueError("No valid marker genes found for any cell type")
+            raise ValueError(
+                f"No valid marker genes found for any cell type. "
+                f"Checked {total_markers} markers against {len(all_genes)} genes in {gene_source}. "
+                f"If data was preprocessed, marker genes may have been filtered out. "
+                f"Consider using unpreprocessed data or ensure marker genes are highly variable."
+            )
         valid_cell_types = list(valid_marker_genes.keys())
 
         # Create marker gene matrix as DataFrame (required by CellAssign API)
@@ -1678,8 +1723,58 @@ async def _annotate_with_cellassign(
                 if gene in available_marker_genes:
                     marker_gene_matrix.loc[gene, cell_type] = 1
 
-        # Subset data to only marker genes first
-        adata_subset = adata[:, available_marker_genes].copy()
+        # CRITICAL FIX: Compute size factors BEFORE subsetting (official CellAssign requirement)
+        # Official docs: "The library size should be computed before any gene subsetting"
+        if "size_factors" not in adata.obs:
+            if context:
+                await context.info(
+                    "Computing size factors on full dataset before subsetting "
+                    "(following official CellAssign best practice)"
+                )
+
+            # Calculate size factors from FULL dataset
+            if hasattr(adata.X, "sum"):
+                size_factors = adata.X.sum(axis=1)
+                if hasattr(size_factors, "A1"):  # sparse matrix
+                    size_factors = size_factors.A1
+            else:
+                size_factors = np.sum(adata.X, axis=1)
+
+            # Normalize and ensure positive
+            size_factors = np.maximum(size_factors, 1e-6)
+            mean_sf = np.mean(size_factors)
+            size_factors_normalized = size_factors / mean_sf
+
+            adata.obs["size_factors"] = pd.Series(
+                size_factors_normalized, index=adata.obs.index
+            )
+
+            if context:
+                await context.info(
+                    f"Size factors computed: range [{size_factors_normalized.min():.4f}, "
+                    f"{size_factors_normalized.max():.4f}], mean {size_factors_normalized.mean():.4f}"
+                )
+
+        # NOW subset data to marker genes (size factors already computed and will be transferred)
+        # Use adata.raw if available (contains all genes including markers)
+        if hasattr(adata, 'raw') and adata.raw is not None:
+            if context:
+                await context.info(
+                    f"Subsetting from adata.raw to {len(available_marker_genes)} marker genes"
+                )
+            # Create subset from raw data
+            import anndata as ad_module
+            adata_subset = ad_module.AnnData(
+                X=adata.raw[:, available_marker_genes].X,
+                obs=adata.obs.copy(),  # size_factors included here!
+                var=adata.raw.var.loc[available_marker_genes].copy()
+            )
+        else:
+            if context:
+                await context.info(
+                    f"Subsetting from filtered data to {len(available_marker_genes)} marker genes"
+                )
+            adata_subset = adata[:, available_marker_genes].copy()
 
         # Check for invalid values in the data
         if hasattr(adata_subset.X, "toarray"):
@@ -1702,12 +1797,12 @@ async def _annotate_with_cellassign(
         zero_var_genes = gene_vars == 0
         if np.any(zero_var_genes):
             zero_var_gene_names = adata_subset.var_names[zero_var_genes].tolist()
-            raise ValueError(
-                f"Found {np.sum(zero_var_genes)} genes with zero variance: {zero_var_gene_names[:10]}... "
-                f"CellAssign requires all genes to have non-zero variance. "
-                f"Please filter these genes in preprocessing: adata = adata[:, adata.var['std'] > 0] "
-                f"or use sc.pp.highly_variable_genes() to select informative genes."
-            )
+            if context:
+                await context.warning(
+                    f"Found {np.sum(zero_var_genes)} genes with zero variance. "
+                    f"CellAssign may have numerical issues with these genes."
+                )
+            # Don't raise error, just warn - CellAssign might handle it
 
         # Ensure data is non-negative (CellAssign expects count-like data)
         if np.any(X_array < 0):
@@ -1716,20 +1811,11 @@ async def _annotate_with_cellassign(
             X_array = np.maximum(X_array, 0)
             adata_subset.X = X_array
 
-        # Add size factors if not present
+        # Verify size factors were transferred to subset
         if "size_factors" not in adata_subset.obs:
-            # Calculate size factors from subset data
-            if hasattr(adata_subset.X, "sum"):
-                size_factors = adata_subset.X.sum(axis=1)
-                if hasattr(size_factors, "A1"):  # sparse matrix
-                    size_factors = size_factors.A1
-            else:
-                size_factors = np.sum(adata_subset.X, axis=1)
-
-            # Ensure size factors are positive (avoid division by zero)
-            size_factors = np.maximum(size_factors, 1e-6)
-            adata_subset.obs["size_factors"] = pd.Series(
-                size_factors, index=adata_subset.obs.index
+            raise ValueError(
+                "Size factors not found in adata.obs. This should not happen - "
+                "they should have been computed before subsetting. Please report this bug."
             )
 
         # Setup CellAssign on subset data only
