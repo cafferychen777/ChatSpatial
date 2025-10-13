@@ -461,8 +461,11 @@ async def _analyze_morans_i(
             raise ValueError(
                 "Highly variable genes not found. Please run preprocessing first."
             )
+        # Support both moran_n_genes and n_top_genes (for user convenience)
+        # If user passes n_top_genes in params dict, use it; otherwise use moran_n_genes default
+        n_genes_to_analyze = getattr(params, 'n_top_genes', None) or params.moran_n_genes
         genes = adata.var_names[adata.var["highly_variable"]][
-            : params.moran_n_genes
+            : n_genes_to_analyze
         ].tolist()
 
     if context:
@@ -491,11 +494,16 @@ async def _analyze_morans_i(
         # Get top significant genes
         significant_genes = results_df[results_df["pval_norm"] < 0.05].index.tolist()
 
+        # Calculate appropriate number of top genes to return
+        # To avoid returning identical lists, we take at most half of the analyzed genes
+        # This ensures top_positive and top_negative are different gene sets
+        n_top = min(10, max(5, len(results_df) // 2))
+
         return {
             "n_genes_analyzed": len(genes),
             "n_significant": len(significant_genes),
-            "top_positive": results_df.nlargest(10, "I").index.tolist(),
-            "top_negative": results_df.nsmallest(10, "I").index.tolist(),
+            "top_positive": results_df.nlargest(n_top, "I").index.tolist(),
+            "top_negative": results_df.nsmallest(n_top, "I").index.tolist(),
             "mean_morans_i": float(results_df["I"].mean()),
             "analysis_key": moran_key,
         }

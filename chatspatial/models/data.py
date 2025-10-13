@@ -279,8 +279,12 @@ class VisualizationParameters(BaseModel):
     )
     cluster_key: Optional[str] = Field(
         None,
-        description="Cluster key for spatial analysis visualization (e.g., 'leiden')",
-    )  # For spatial analysis visualization
+        description=(
+            "Column name in adata.obs for grouping (e.g., 'leiden', 'louvain', 'cell_type'). "
+            "REQUIRED for plot_type='heatmap'. "
+            "Optional for other plot types."
+        ),
+    )
 
     # Multi-gene visualization parameters
     multi_panel: bool = False  # Whether to create multi-panel plots
@@ -683,7 +687,7 @@ class SpatialAnalysisParameters(BaseModel):
 
     # Moran's I specific parameters
     moran_n_genes: Annotated[int, Field(gt=0, le=100)] = Field(
-        10, description="Number of HVG for Moran's I (default 10 for speed)"
+        20, description="Number of HVG for Moran's I (default 20, increase for comprehensive analysis)"
     )
     moran_n_perms: Annotated[int, Field(gt=0, le=10000)] = Field(
         10,
