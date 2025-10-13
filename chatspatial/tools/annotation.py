@@ -1895,7 +1895,7 @@ async def annotate_cell_types(
     if params.method == "tangram":
         parameters_dict = {
             "device": params.tangram_device,
-            "n_epochs": params.tangram_num_epochs,
+            "n_epochs": params.num_epochs,  # Fixed: use num_epochs instead of tangram_num_epochs
             "learning_rate": params.tangram_learning_rate,
         }
     elif params.method == "scanvi":

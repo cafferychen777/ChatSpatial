@@ -579,6 +579,23 @@ async def visualize_data(
                     adata, single_feature, context, default_feature=None
                 )
 
+                # If user explicitly requested a feature but it wasn't found, raise error
+                if single_feature and not feature:
+                    # Provide helpful error message
+                    examples = list(adata.var_names[:10])
+                    obs_examples = list(adata.obs.columns[:10])
+                    raise DataNotFoundError(
+                        f"❌ Feature '{single_feature}' not found in dataset.\n\n"
+                        f"🔧 SOLUTIONS:\n"
+                        f"1. Check spelling and case (gene names are case-sensitive)\n"
+                        f"   - Mouse genes: First letter uppercase (e.g., 'Cd5l', 'Gbp2b')\n"
+                        f"   - Human genes: All uppercase (e.g., 'CD5L', 'GBP2B')\n"
+                        f"2. Available genes (first 10): {examples}\n"
+                        f"3. Available annotations (first 10): {obs_examples}\n\n"
+                        f"📋 CONTEXT: Dataset has {adata.n_vars:,} genes and "
+                        f"{len(adata.obs.columns)} annotations."
+                    )
+
                 # Create spatial plot
                 # For 10x Visium data - check if any sample has tissue images
                 has_tissue_image = False

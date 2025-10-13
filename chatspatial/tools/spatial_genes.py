@@ -1122,6 +1122,9 @@ async def _identify_spatial_genes_sparkx(
         await context.info(
             f"Count matrix shape: {counts_transposed.shape} (genes × spots)"
         )
+        await context.info(
+            f"Passing {n_genes} genes to SPARK-X for analysis"
+        )
 
     # Create spot names
     spot_names = [str(name) for name in adata.obs_names]
@@ -1182,46 +1185,76 @@ async def _identify_spatial_genes_sparkx(
                 try:
                     pvals = results.rx2("res_mtest")
                     if pvals:
-                        # Convert R vector to Python list
-                        pval_list = []
+                        # SPARK-X returns res_mtest as a data.frame with columns:
+                        # - combinedPval: combined p-values across kernels
+                        # - adjustedPval: adjusted p-values
+                        # We need to extract the combinedPval column
 
-                        # First, ensure it's numeric in R
-                        try:
-                            pvals_numeric = ro.r["as.numeric"](pvals)
-                        except:
-                            pvals_numeric = pvals
+                        # Check if it's a data.frame (which it should be for SPARK-X)
+                        is_dataframe = ro.r["is.data.frame"](pvals)[0]
 
-                        # Extract each value properly
-                        for i in range(len(pvals_numeric)):
-                            val = pvals_numeric[i]
-                            # Check if it's a nested R object (FloatVector with one element)
-                            if hasattr(val, "__len__") and hasattr(val, "__getitem__"):
-                                try:
-                                    # It's an R vector, get first element
-                                    pval_list.append(float(val[0]))
-                                except:
-                                    # Try direct conversion
+                        if is_dataframe:
+                            # Extract combinedPval column
+                            combined_pvals = ro.r["$"](pvals, "combinedPval")
+                            pval_list = [float(p) for p in combined_pvals]
+
+                            # Also extract adjustedPval if available
+                            adjusted_pvals = ro.r["$"](pvals, "adjustedPval")
+                            adjusted_pval_list = [float(p) for p in adjusted_pvals]
+
+                            # Create results dataframe
+                            results_df = pd.DataFrame(
+                                {
+                                    "gene": gene_names[: len(pval_list)],
+                                    "pvalue": pval_list,
+                                    "adjusted_pvalue": adjusted_pval_list,
+                                }
+                            )
+                        else:
+                            # Fallback for older format (numeric vector)
+                            pval_list = []
+                            try:
+                                pvals_numeric = ro.r["as.numeric"](pvals)
+                            except:
+                                pvals_numeric = pvals
+
+                            for i in range(len(pvals_numeric)):
+                                val = pvals_numeric[i]
+                                if hasattr(val, "__len__") and hasattr(
+                                    val, "__getitem__"
+                                ):
+                                    try:
+                                        pval_list.append(float(val[0]))
+                                    except:
+                                        pval_list.append(float(val))
+                                else:
                                     pval_list.append(float(val))
-                            else:
-                                # Direct numeric value
-                                pval_list.append(float(val))
 
-                        # Create results dataframe (can be outside context, it's pure Python)
-                        results_df = pd.DataFrame(
-                            {"gene": gene_names[: len(pval_list)], "pvalue": pval_list}
-                        )
+                            # Create results dataframe
+                            results_df = pd.DataFrame(
+                                {
+                                    "gene": gene_names[: len(pval_list)],
+                                    "pvalue": pval_list,
+                                }
+                            )
 
-                        # Add adjusted p-values (simple Bonferroni correction)
-                        # Use apply to ensure compatibility
-                        n_tests = len(pval_list)
-                        results_df["adjusted_pvalue"] = results_df["pvalue"].apply(
-                            lambda p: min(p * n_tests, 1.0)
-                        )
+                            # Add adjusted p-values (Bonferroni correction)
+                            n_tests = len(pval_list)
+                            results_df["adjusted_pvalue"] = results_df[
+                                "pvalue"
+                            ].apply(lambda p: min(p * n_tests, 1.0))
 
                         if context:
                             await context.info(
                                 f"Extracted results for {len(results_df)} genes"
                             )
+                            # Warn if returned genes much fewer than input genes
+                            if len(results_df) < n_genes * 0.5:
+                                await context.warning(
+                                    f"SPARK-X returned results for only {len(results_df)}/{n_genes} genes. "
+                                    f"This may indicate a problem with the R environment, SPARK package, or input data. "
+                                    f"Consider checking R logs or trying alternative methods (GASTON, SpatialDE)."
+                                )
                     else:
                         # SPARK-X results format not recognized - fail honestly instead of fake results
                         error_msg = (
