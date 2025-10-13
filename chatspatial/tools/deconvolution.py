@@ -1903,10 +1903,12 @@ async def deconvolve_destvi(
         )
 
         # Train CondSCVI model (scvi-tools 1.3.x compatible syntax)
+        plan_kwargs = {"lr": learning_rate}
         condscvi_model.train(
             max_epochs=condscvi_epochs,
             accelerator="gpu" if use_gpu else "cpu",  # Correct parameter name for 1.3.x
             train_size=0.9,
+            plan_kwargs=plan_kwargs,
         )
 
         if context:
@@ -1940,6 +1942,7 @@ async def deconvolve_destvi(
             max_epochs=destvi_epochs,
             accelerator="gpu" if use_gpu else "cpu",  # Correct parameter name for 1.3.x
             train_size=0.9,
+            plan_kwargs=plan_kwargs,
         )
 
         if context:
@@ -2003,7 +2006,7 @@ async def deconvolve_stereoscope(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
     cell_type_key: str,  # REQUIRED - LLM will infer from metadata
-    n_epochs: int = 10000,
+    n_epochs: int = 150000,
     learning_rate: float = 0.01,
     batch_size: int = 128,
     use_gpu: bool = False,
@@ -2012,21 +2015,30 @@ async def deconvolve_stereoscope(
     """Deconvolve spatial data using official Stereoscope API from scvi-tools
 
     This implementation follows the official two-stage Stereoscope workflow:
-    1. Train RNAStereoscope model on single-cell reference data
-    2. Train SpatialStereoscope model on spatial data using the RNA model
+    1. Train RNAStereoscope model on single-cell reference data (75K epochs)
+    2. Train SpatialStereoscope model on spatial data using RNA model (75K epochs)
 
     Args:
         spatial_adata: Spatial transcriptomics AnnData object
         reference_adata: Reference single-cell RNA-seq AnnData object
         cell_type_key: Key in reference_adata.obs for cell type information
-        n_epochs: Number of epochs for training (split between RNA and spatial models)
-        learning_rate: Learning rate for optimization
-        batch_size: Batch size for training
+        n_epochs: Total training epochs (default: 150000, matches original Stereoscope)
+                  For default 150K: uses fixed 75K RNA + 75K spatial
+                  For custom values: splits 50-50 between RNA and spatial models
+                  Minimum recommended: 50000 for acceptable results
+        learning_rate: Learning rate for optimization (default: 0.01)
+                      Matches original Stereoscope default
+        batch_size: Minibatch size for training (default: 128)
+                   Original Stereoscope used 100
         use_gpu: Whether to use GPU for training
         context: MCP context for logging
 
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
+
+    Note:
+        Training with fewer than 50000 total epochs may result in uniform
+        distribution across cell types. Use 150000 epochs (default) for best results.
     """
     try:
         # Validate cell type key exists
@@ -2084,12 +2096,32 @@ async def deconvolve_stereoscope(
 
         # Create and train RNA model
         rna_model = RNAStereoscope(ref_data)
-        rna_epochs = n_epochs // 2  # Split epochs between RNA and spatial training
+
+        # Use fixed epoch values matching original Stereoscope (75K + 75K)
+        if n_epochs == 150000:
+            rna_epochs = 75000
+            spatial_epochs = 75000
+        else:
+            # Custom n_epochs: split 50-50
+            rna_epochs = n_epochs // 2
+            spatial_epochs = n_epochs - rna_epochs
+
+        # Prepare training parameters
+        plan_kwargs = {"lr": learning_rate}
 
         if use_gpu:
-            rna_model.train(max_epochs=rna_epochs, accelerator="gpu")
+            rna_model.train(
+                max_epochs=rna_epochs,
+                batch_size=batch_size,
+                accelerator="gpu",
+                plan_kwargs=plan_kwargs
+            )
         else:
-            rna_model.train(max_epochs=rna_epochs)
+            rna_model.train(
+                max_epochs=rna_epochs,
+                batch_size=batch_size,
+                plan_kwargs=plan_kwargs
+            )
 
         if context:
             await context.info(
@@ -2108,13 +2140,20 @@ async def deconvolve_stereoscope(
         # Create spatial model from the trained RNA model
         spatial_model = SpatialStereoscope.from_rna_model(spatial_data, rna_model)
 
-        # Train spatial model
-        spatial_epochs = n_epochs - rna_epochs
-
+        # Train spatial model (spatial_epochs already calculated above)
         if use_gpu:
-            spatial_model.train(max_epochs=spatial_epochs, accelerator="gpu")
+            spatial_model.train(
+                max_epochs=spatial_epochs,
+                batch_size=batch_size,
+                accelerator="gpu",
+                plan_kwargs=plan_kwargs
+            )
         else:
-            spatial_model.train(max_epochs=spatial_epochs)
+            spatial_model.train(
+                max_epochs=spatial_epochs,
+                batch_size=batch_size,
+                plan_kwargs=plan_kwargs
+            )
 
         if context:
             await context.info(

@@ -835,7 +835,7 @@ class DeconvolutionParameters(BaseModel):
     destvi_learning_rate: float = 1e-3
 
     # Stereoscope parameters
-    stereoscope_n_epochs: int = 10000
+    stereoscope_n_epochs: int = 150000
     stereoscope_learning_rate: float = 0.01
     stereoscope_batch_size: int = 128
 
