@@ -567,23 +567,36 @@ def deconvolve_cell2location(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
     cell_type_key: str,  # REQUIRED - LLM will infer from metadata
-    n_epochs: int = 10000,
-    n_cells_per_spot: int = 10,
-    detection_alpha: float = 20.0,  # Detection sensitivity parameter
+    ref_model_epochs: int = 250,
+    n_epochs: int = 30000,
+    n_cells_per_spot: int = 30,
+    detection_alpha: float = 200.0,
     use_gpu: bool = False,
     min_common_genes: int = 100,
     context=None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using Cell2location
 
+    Cell2location uses a two-stage training process:
+    1. Reference model (NB regression) learns cell type gene expression signatures
+    2. Cell2location model performs spatial mapping using these signatures
+
     Args:
-        spatial_adata: Spatial transcriptomics AnnData object
-        reference_adata: Reference single-cell RNA-seq AnnData object
-        cell_type_key: REQUIRED - Key in reference_adata.obs for cell type information. Common values: 'cell_type', 'celltype', 'annotation'
-        n_epochs: Number of epochs for training
-        n_cells_per_spot: Expected number of cells per spot
-        use_gpu: Whether to use GPU for training
-        min_common_genes: Minimum number of common genes required
+        spatial_adata: Spatial transcriptomics AnnData object with raw counts
+        reference_adata: Reference single-cell RNA-seq AnnData object with raw counts
+        cell_type_key: REQUIRED - Key in reference_adata.obs for cell type information.
+                      Common values: 'cell_type', 'celltype', 'annotation'
+        ref_model_epochs: Number of training epochs for reference model (NB regression).
+                         Default: 250 (recommended by official scvi-tools tutorial)
+        n_epochs: Number of training epochs for Cell2location spatial mapping model.
+                 Default: 30000 (recommended by official scvi-tools tutorial)
+        n_cells_per_spot: Expected number of cells per spatial location.
+                         Tissue-dependent hyperparameter. Default: 30
+        detection_alpha: Controls platform/technology-specific RNA detection sensitivity.
+                        Higher values = less sensitivity variation correction.
+                        Default: 200 (recommended by official tutorial)
+        use_gpu: Whether to use GPU acceleration for training
+        min_common_genes: Minimum number of common genes required between datasets
 
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
@@ -592,6 +605,13 @@ def deconvolve_cell2location(
         ImportError: If cell2location package is not installed
         ValueError: If input data is invalid or insufficient common genes
         RuntimeError: If cell2location computation fails
+
+    Note:
+        Official parameters from scvi-tools tutorial:
+        - Reference model: 250 epochs, batch_size=2500
+        - Cell2location: 30000 epochs, batch_size=2500
+        - N_cells_per_location: 30 (tissue-dependent)
+        - detection_alpha: 200
     """
     # Import cell2location
     try:
@@ -671,11 +691,14 @@ def deconvolve_cell2location(
 
             # Use the suppress_output context manager
             with suppress_output():
-                # Train with appropriate accelerator
+                # Train Reference Model with official recommended parameters
+                # Official tutorial: 250 epochs, batch_size=2500
                 if device == "cuda":
-                    mod.train(max_epochs=n_epochs, accelerator="gpu")
+                    mod.train(
+                        max_epochs=ref_model_epochs, batch_size=2500, accelerator="gpu"
+                    )
                 else:
-                    mod.train(max_epochs=n_epochs)
+                    mod.train(max_epochs=ref_model_epochs, batch_size=2500)
 
         except Exception as e:
             error_msg = str(e)
@@ -728,7 +751,8 @@ def deconvolve_cell2location(
 
             # Use the suppress_output context manager
             with suppress_output():
-                # Train with appropriate accelerator
+                # Train Cell2location Model with official recommended parameters
+                # Official tutorial: 30000 epochs, batch_size=2500
                 if device == "cuda":
                     mod.train(max_epochs=n_epochs, batch_size=2500, accelerator="gpu")
                 else:

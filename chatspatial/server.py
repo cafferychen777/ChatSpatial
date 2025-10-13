@@ -940,7 +940,16 @@ async def deconvolve_data(
 
     Args:
         data_id: Dataset ID
-        params: Deconvolution parameters
+        params: Deconvolution parameters including:
+                - method: Deconvolution method to use
+                - cell_type_key: Key in reference data for cell types (REQUIRED)
+                - reference_data_id: Reference single-cell dataset ID (required for most methods)
+
+                Cell2location-specific parameters (official scvi-tools recommendations):
+                - ref_model_epochs: Reference model training epochs (default: 250)
+                - n_epochs: Cell2location model training epochs (default: 30000)
+                - n_cells_per_spot: Expected cells per location (default: 30, tissue-dependent)
+                - detection_alpha: RNA detection sensitivity (default: 200)
 
     Returns:
         Deconvolution result with cell type proportions
@@ -949,6 +958,10 @@ async def deconvolve_data(
         Deconvolution methods (status):
         - cell2location, destvi, stereoscope, tangram: Implemented when scvi-tools available
         - rctd, spotlight: Implemented via rpy2/R when R packages are installed
+
+        Cell2location uses two-stage training:
+        1. Reference model (NB regression): Learns cell type signatures (250 epochs)
+        2. Cell2location model: Maps cell types to spatial locations (30000 epochs)
     """
     # Validate dataset
     validate_dataset(data_id)
