@@ -1878,17 +1878,21 @@ async def save_data(
             # User specified custom path
             from pathlib import Path
 
-            save_path = Path(output_path)
+            # Resolve to absolute path to avoid confusion about save location
+            save_path = Path(output_path).resolve()
             save_path.parent.mkdir(parents=True, exist_ok=True)
             adata.write_h5ad(save_path, compression="gzip", compression_opts=4)
         else:
             # Use default location
             save_path = save_adata(data_id, adata, original_path)
 
-        if context:
-            await context.info(f"✅ Dataset saved to: {save_path}")
+        # Always return absolute path so user knows exact location
+        absolute_path = save_path.resolve()
 
-        return f"Dataset '{data_id}' saved to: {save_path}"
+        if context:
+            await context.info(f"✅ Dataset saved to: {absolute_path}")
+
+        return f"Dataset '{data_id}' saved to: {absolute_path}"
 
     except Exception as e:
         error_msg = f"Failed to save dataset: {str(e)}"
