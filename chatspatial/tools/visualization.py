@@ -518,6 +518,7 @@ async def visualize_data(
         "spatial_interaction",
         "batch_integration",  # Batch integration quality assessment
         "cnv_heatmap",  # Copy number variation heatmap
+        "card_imputation",  # CARD imputation high-resolution results
     ]
     if params.plot_type not in valid_plot_types:
         error_msg = (
@@ -1624,6 +1625,121 @@ async def visualize_data(
             if context:
                 await context.info("CNV heatmap created successfully")
 
+        elif params.plot_type == "card_imputation":
+            if context:
+                await context.info("Creating CARD imputation visualization")
+
+            # Check if CARD imputation data exists
+            if "card_imputation" not in adata.uns:
+                error_msg = (
+                    "CARD imputation data not found in adata.uns['card_imputation']. "
+                    "Please run CARD deconvolution with card_imputation=True first."
+                )
+                if context:
+                    await context.warning(error_msg)
+                raise DataNotFoundError(error_msg)
+
+            # Extract imputation data
+            impute_data = adata.uns["card_imputation"]
+            imputed_proportions = impute_data["proportions"]
+            imputed_coords = impute_data["coordinates"]
+
+            # Determine what to visualize
+            feature = params.feature
+            if not feature:
+                # Default: show dominant cell types
+                feature = "dominant"
+
+            figsize = params.figure_size if params.figure_size else (12, 10)
+            fig, ax = plt.subplots(figsize=figsize)
+
+            if feature == "dominant":
+                # Show dominant cell types
+                dominant_types = imputed_proportions.idxmax(axis=1)
+                unique_types = dominant_types.unique()
+
+                # Create color map
+                import seaborn as sns
+
+                colors = sns.color_palette("tab20", n_colors=len(unique_types))
+                color_map = {ct: colors[i] for i, ct in enumerate(unique_types)}
+                point_colors = [color_map[ct] for ct in dominant_types]
+
+                scatter = ax.scatter(
+                    imputed_coords["x"],
+                    imputed_coords["y"],
+                    c=point_colors,
+                    s=25,
+                    edgecolors="none",
+                    alpha=0.7,
+                )
+
+                ax.set_title(
+                    f"CARD Imputation: Dominant Cell Types\n"
+                    f"({len(imputed_coords)} locations, "
+                    f"{impute_data['resolution_increase']:.1f}x resolution)",
+                    fontsize=14,
+                    fontweight="bold",
+                )
+
+                # Create legend
+                from matplotlib.patches import Patch
+
+                legend_elements = [
+                    Patch(facecolor=color_map[ct], label=ct)
+                    for ct in sorted(unique_types)
+                ]
+                ax.legend(
+                    handles=legend_elements,
+                    bbox_to_anchor=(1.05, 1),
+                    loc="upper left",
+                    fontsize=9,
+                )
+
+            elif feature in imputed_proportions.columns:
+                # Show specific cell type proportion
+                scatter = ax.scatter(
+                    imputed_coords["x"],
+                    imputed_coords["y"],
+                    c=imputed_proportions[feature],
+                    s=30,
+                    cmap=params.colormap or "viridis",
+                    vmin=0,
+                    vmax=imputed_proportions[feature].quantile(0.95),
+                    edgecolors="none",
+                    alpha=0.8,
+                )
+
+                ax.set_title(
+                    f"CARD Imputation: {feature}\n"
+                    f"(Mean: {imputed_proportions[feature].mean():.3f}, "
+                    f"{len(imputed_coords)} locations)",
+                    fontsize=14,
+                    fontweight="bold",
+                )
+
+                # Add colorbar
+                cbar = plt.colorbar(scatter, ax=ax)
+                cbar.set_label("Proportion", fontsize=12)
+
+            else:
+                error_msg = (
+                    f"Feature '{feature}' not found in imputation results. "
+                    f"Available cell types: {list(imputed_proportions.columns)}\n"
+                    f"Use feature='dominant' to show dominant cell types."
+                )
+                if context:
+                    await context.warning(error_msg)
+                raise DataNotFoundError(error_msg)
+
+            ax.set_xlabel("X coordinate", fontsize=12)
+            ax.set_ylabel("Y coordinate", fontsize=12)
+            ax.set_aspect("equal")
+            plt.tight_layout()
+
+            if context:
+                await context.info("CARD imputation visualization created successfully")
+
         else:
             # This should never happen due to parameter validation at the beginning
             error_msg = f"Unsupported plot type: {params.plot_type}"
@@ -1701,15 +1817,27 @@ async def create_deconvolution_visualization(
 
     if not deconv_keys:
         # Look for individual cell type proportions in obs
+        # Support all deconvolution methods
+        deconv_methods = [
+            "cell2location",
+            "rctd",
+            "destvi",
+            "stereoscope",
+            "spotlight",
+            "tangram",
+            "card",
+        ]
         cell_type_cols = [
             col
             for col in adata.obs.columns
-            if any(method in col.lower() for method in ["cell2location"])
+            if any(method in col.lower() for method in deconv_methods)
         ]
 
         if not cell_type_cols:
             raise DataNotFoundError(
-                "No deconvolution results found in adata.obsm or adata.obs"
+                f"No deconvolution results found in adata.obsm or adata.obs.\n"
+                f"Looking for columns containing: {', '.join(deconv_methods)}\n"
+                f"Available columns: {list(adata.obs.columns[:10])}"
             )
 
         # Create proportions DataFrame from obs columns

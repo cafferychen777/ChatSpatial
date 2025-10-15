@@ -224,17 +224,25 @@ def _prepare_anndata_for_counts(
             raw_adata = adata_copy.raw.to_adata()
 
             # Validate if raw contains counts (not normalized)
-            raw_X = raw_adata.X.toarray() if hasattr(raw_adata.X, 'toarray') else raw_adata.X
+            raw_X = (
+                raw_adata.X.toarray()
+                if hasattr(raw_adata.X, "toarray")
+                else raw_adata.X
+            )
             sample_size = min(100, raw_X.shape[0])
-            sample_X = raw_X[:sample_size, :min(100, raw_X.shape[1])]
+            sample_X = raw_X[:sample_size, : min(100, raw_X.shape[1])]
             has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
             has_negatives = sample_X.min() < 0
 
             if not has_decimals and not has_negatives:
                 # Raw contains counts, use complete gene set
-                logger.info(f"{data_name}: .raw contains counts, using complete gene set ({raw_adata.n_vars} genes)")
+                logger.info(
+                    f"{data_name}: .raw contains counts, using complete gene set ({raw_adata.n_vars} genes)"
+                )
                 if context:
-                    context.info(f"✅ Using .raw counts for {data_name} ({raw_adata.n_vars} genes)")
+                    context.info(
+                        f"✅ Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
+                    )
                 adata_copy = raw_adata
                 data_source = "raw"
             else:
@@ -244,9 +252,13 @@ def _prepare_anndata_for_counts(
                     f"has_negatives={has_negatives}), trying counts layer"
                 )
                 if context:
-                    context.info(f"⚠️ .raw for {data_name} is normalized, checking counts layer")
+                    context.info(
+                        f"⚠️ .raw for {data_name} is normalized, checking counts layer"
+                    )
         except Exception as e:
-            logger.warning(f"{data_name}: Error accessing .raw data: {e}, trying counts layer")
+            logger.warning(
+                f"{data_name}: Error accessing .raw data: {e}, trying counts layer"
+            )
             data_source = None
 
     # Step 2: Check layers["counts"] if raw not available or not counts
@@ -367,6 +379,118 @@ def _prepare_anndata_for_counts(
         context.info(
             f"✅ {data_name} data validated: "
             f"source={data_source}, range=[{int(data_min)}, {int(data_max)}]"
+        )
+
+    return adata_copy
+
+
+def _prepare_reference_for_card(
+    adata: ad.AnnData, data_name: str, context=None
+) -> ad.AnnData:
+    """Prepare reference AnnData for CARD with relaxed validation.
+
+    CARD can accept normalized reference data (e.g., from Smart-seq2 which provides
+    TPM/FPKM instead of raw UMI counts). This function tries to get raw counts if
+    available, but accepts normalized data if raw counts are not found.
+
+    This matches real-world usage where reference datasets often come from different
+    sequencing technologies that don't provide raw UMI counts (e.g., Arora et al. 2023
+    used SCTransform-normalized reference data with CARD).
+
+    Args:
+        adata: AnnData object to prepare
+        data_name: Name of the data for logging purposes
+        context: Optional MCP context for logging
+
+    Returns:
+        AnnData object prepared for CARD (raw counts if available, normalized otherwise)
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Create a copy to avoid modifying original
+    adata_copy = adata.copy()
+
+    # Step 1: Try to get raw counts from .raw or layers['counts']
+    data_source = None
+
+    if adata_copy.raw is not None:
+        try:
+            raw_adata = adata_copy.raw.to_adata()
+            raw_X = (
+                raw_adata.X.toarray()
+                if hasattr(raw_adata.X, "toarray")
+                else raw_adata.X
+            )
+            sample_X = raw_X[:min(100, raw_X.shape[0]), :min(100, raw_X.shape[1])]
+            has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
+            has_negatives = sample_X.min() < 0
+
+            if not has_decimals and not has_negatives:
+                logger.info(
+                    f"{data_name}: Using raw counts from .raw ({raw_adata.n_vars} genes)"
+                )
+                if context:
+                    context.info(
+                        f"✅ Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
+                    )
+                adata_copy = raw_adata
+                data_source = "raw"
+        except Exception as e:
+            logger.warning(f"{data_name}: Error accessing .raw data: {e}")
+
+    if data_source is None and "counts" in adata_copy.layers:
+        logger.info(f"{data_name}: Using counts from layers['counts']")
+        if context:
+            context.info(f"✅ Using counts layer for {data_name}")
+        adata_copy.X = adata_copy.layers["counts"].copy()
+        data_source = "counts_layer"
+
+    # Step 2: If no raw counts found, use current data (may be normalized)
+    if data_source is None:
+        if hasattr(adata_copy.X, "toarray"):
+            X_dense = adata_copy.X.toarray()
+        else:
+            X_dense = adata_copy.X.copy()
+
+        sample_X = X_dense[:min(100, X_dense.shape[0]), :min(100, X_dense.shape[1])]
+        has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
+
+        if has_decimals:
+            logger.warning(
+                f"{data_name}: No raw counts found, using current data (appears normalized). "
+                f"Range: [{X_dense.min():.2f}, {X_dense.max():.2f}]"
+            )
+            if context:
+                context.warning(
+                    f"⚠️  {data_name}: Using normalized data (no raw counts available). "
+                    f"This is acceptable for CARD reference data from technologies like Smart-seq2."
+                )
+            data_source = "normalized"
+        else:
+            logger.info(f"{data_name}: Using current data as counts")
+            data_source = "current"
+
+    # Log final data info
+    if hasattr(adata_copy.X, "toarray"):
+        X_check = adata_copy.X.toarray()
+    else:
+        X_check = adata_copy.X.copy()
+
+    data_min = X_check.min()
+    data_max = X_check.max()
+
+    logger.info(
+        f"{data_name} prepared: source={data_source}, "
+        f"range=[{data_min:.2f}, {data_max:.2f}], "
+        f"n_genes={adata_copy.n_vars}"
+    )
+
+    if context:
+        context.info(
+            f"✅ {data_name} prepared: source={data_source}, "
+            f"range=[{data_min:.2f}, {data_max:.2f}]"
         )
 
     return adata_copy
@@ -631,7 +755,9 @@ def deconvolve_cell2location(
     try:
         # Validate cell type key exists
         if cell_type_key not in reference_adata.obs:
-            raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
+            raise ValueError(
+                f"Cell type key '{cell_type_key}' not found in reference data"
+            )
 
         # Unified device selection
         device = _get_device(use_gpu, "Cell2location")
@@ -939,8 +1065,12 @@ def deconvolve_rctd(
         # Running RCTD deconvolution
 
         # Prepare data first (restore raw counts)
-        spatial_data = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial", context)
-        reference_data = _prepare_anndata_for_counts(reference_adata.copy(), "Reference", context)
+        spatial_data = _prepare_anndata_for_counts(
+            spatial_adata.copy(), "Spatial", context
+        )
+        reference_data = _prepare_anndata_for_counts(
+            reference_adata.copy(), "Reference", context
+        )
 
         # Find common genes AFTER data preparation
         common_genes = list(set(spatial_data.var_names) & set(reference_data.var_names))
@@ -1360,6 +1490,7 @@ async def deconvolve_spatial_data(
             "stereoscope",
             "tangram",
             "spotlight",
+            "card",
         ]:
             if not params.reference_data_id:
                 raise ValueError(
@@ -1417,6 +1548,7 @@ async def deconvolve_spatial_data(
             ],  # Fixed: check for both scvi and tangram
             "rctd": ["rpy2"],  # R-based method
             "spotlight": ["rpy2"],  # R-based method
+            "card": ["rpy2"],  # R-based method
         }
 
         # Get available methods
@@ -1582,10 +1714,42 @@ async def deconvolve_spatial_data(
                     context=context,
                 )
 
+            elif params.method == "card":
+                if context:
+                    await context.info("Running CARD deconvolution")
+
+                # Check availability
+                is_available, error_message = is_card_available()
+                if not is_available:
+                    if context:
+                        await context.warning(f"CARD is not available: {error_message}")
+                    raise ImportError(f"CARD is not available: {error_message}")
+
+                # Get CARD-specific parameters
+                minCountGene = getattr(params, "card_minCountGene", 100)
+                minCountSpot = getattr(params, "card_minCountSpot", 5)
+                sample_key = getattr(params, "card_sample_key", None)
+                imputation = getattr(params, "card_imputation", False)
+                NumGrids = getattr(params, "card_NumGrids", 2000)
+                ineibor = getattr(params, "card_ineibor", 10)
+
+                proportions, stats = deconvolve_card(
+                    spatial_adata,
+                    reference_adata,
+                    cell_type_key=params.cell_type_key,
+                    sample_key=sample_key,
+                    minCountGene=minCountGene,
+                    minCountSpot=minCountSpot,
+                    imputation=imputation,
+                    NumGrids=NumGrids,
+                    ineibor=ineibor,
+                    context=context,
+                )
+
             else:
                 raise ValueError(
                     f"Unsupported deconvolution method: {params.method}. "
-                    f"Supported methods are: cell2location, rctd, destvi, stereoscope, spotlight, tangram"
+                    f"Supported methods are: cell2location, rctd, destvi, stereoscope, spotlight, tangram, card"
                 )
 
         except Exception as e:
@@ -1836,11 +2000,17 @@ async def deconvolve_destvi(
 
         # Validate cell type key exists
         if cell_type_key not in reference_adata.obs:
-            raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
+            raise ValueError(
+                f"Cell type key '{cell_type_key}' not found in reference data"
+            )
 
         # Prepare data first (DestVI requires integer counts)
-        ref_data = _prepare_anndata_for_counts(reference_adata.copy(), "reference", context)
-        spatial_data = _prepare_anndata_for_counts(spatial_adata.copy(), "spatial", context)
+        ref_data = _prepare_anndata_for_counts(
+            reference_adata.copy(), "reference", context
+        )
+        spatial_data = _prepare_anndata_for_counts(
+            spatial_adata.copy(), "spatial", context
+        )
 
         # Find common genes AFTER data preparation
         common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
@@ -2043,11 +2213,17 @@ async def deconvolve_stereoscope(
     try:
         # Validate cell type key exists
         if cell_type_key not in reference_adata.obs:
-            raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
+            raise ValueError(
+                f"Cell type key '{cell_type_key}' not found in reference data"
+            )
 
         # Prepare data first - Stereoscope requires raw counts
-        ref_data = _prepare_anndata_for_counts(reference_adata.copy(), "Reference", context)
-        spatial_data = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial", context)
+        ref_data = _prepare_anndata_for_counts(
+            reference_adata.copy(), "Reference", context
+        )
+        spatial_data = _prepare_anndata_for_counts(
+            spatial_adata.copy(), "Spatial", context
+        )
 
         # Find common genes AFTER data preparation
         common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
@@ -2114,13 +2290,11 @@ async def deconvolve_stereoscope(
                 max_epochs=rna_epochs,
                 batch_size=batch_size,
                 accelerator="gpu",
-                plan_kwargs=plan_kwargs
+                plan_kwargs=plan_kwargs,
             )
         else:
             rna_model.train(
-                max_epochs=rna_epochs,
-                batch_size=batch_size,
-                plan_kwargs=plan_kwargs
+                max_epochs=rna_epochs, batch_size=batch_size, plan_kwargs=plan_kwargs
             )
 
         if context:
@@ -2146,13 +2320,13 @@ async def deconvolve_stereoscope(
                 max_epochs=spatial_epochs,
                 batch_size=batch_size,
                 accelerator="gpu",
-                plan_kwargs=plan_kwargs
+                plan_kwargs=plan_kwargs,
             )
         else:
             spatial_model.train(
                 max_epochs=spatial_epochs,
                 batch_size=batch_size,
-                plan_kwargs=plan_kwargs
+                plan_kwargs=plan_kwargs,
             )
 
         if context:
@@ -2238,6 +2412,44 @@ def is_spotlight_available() -> Tuple[bool, str]:
         )
 
 
+def is_card_available() -> Tuple[bool, str]:
+    """Check if CARD R package is available through rpy2
+
+    Returns:
+        Tuple of (is_available, error_message)
+    """
+    try:
+        import rpy2.robjects as ro
+        from rpy2.robjects import pandas2ri
+        from rpy2.robjects.conversion import localconverter
+
+        # Test R connection
+        try:
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                ro.r("R.version.string")
+        except Exception as e:
+            return False, f"R is not accessible: {str(e)}"
+
+        # Check if CARD is installed in R
+        try:
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                ro.r("library(CARD)")
+        except Exception as e:
+            return (
+                False,
+                f"CARD R package is not installed: {str(e)}. "
+                "Install with: devtools::install_github('YingMa0107/CARD')",
+            )
+
+        return True, ""
+
+    except ImportError:
+        return (
+            False,
+            "rpy2 is not installed. Install with 'pip install rpy2' to use CARD",
+        )
+
+
 def deconvolve_spotlight(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
@@ -2269,7 +2481,9 @@ def deconvolve_spotlight(
         # Running SPOTlight deconvolution
         # Validate cell type key exists
         if cell_type_key not in reference_adata.obs:
-            raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
+            raise ValueError(
+                f"Cell type key '{cell_type_key}' not found in reference data"
+            )
 
         # Check for spatial coordinates
         if "spatial" not in spatial_adata.obsm:
@@ -2279,11 +2493,17 @@ def deconvolve_spotlight(
             )
 
         # Prepare full datasets first
-        spatial_prepared = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial", context)
-        reference_prepared = _prepare_anndata_for_counts(reference_adata.copy(), "Reference", context)
+        spatial_prepared = _prepare_anndata_for_counts(
+            spatial_adata.copy(), "Spatial", context
+        )
+        reference_prepared = _prepare_anndata_for_counts(
+            reference_adata.copy(), "Reference", context
+        )
 
         # Find common genes AFTER data preparation
-        common_genes = list(set(spatial_prepared.var_names) & set(reference_prepared.var_names))
+        common_genes = list(
+            set(spatial_prepared.var_names) & set(reference_prepared.var_names)
+        )
 
         if len(common_genes) < min_common_genes:
             raise ValueError(
@@ -2502,6 +2722,328 @@ def deconvolve_spotlight(
         raise RuntimeError(error_msg) from e
 
 
+def deconvolve_card(
+    spatial_adata: ad.AnnData,
+    reference_adata: ad.AnnData,
+    cell_type_key: str,  # REQUIRED - LLM will infer from metadata
+    sample_key: Optional[str] = None,  # Optional sample/batch info in reference
+    minCountGene: int = 100,
+    minCountSpot: int = 5,
+    min_common_genes: int = 100,
+    imputation: bool = False,  # Enable spatial imputation
+    NumGrids: int = 2000,  # Number of grids for imputation
+    ineibor: int = 10,  # Number of neighbors for imputation
+    context=None,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Deconvolve spatial data using CARD (CAncer Research Deconvolution)
+
+    CARD is a reference-based deconvolution method that accommodates spatial
+    correlation in cell type composition across tissue locations. This is a
+    unique feature not present in other methods like Cell2location, RCTD, etc.
+
+    Key features of CARD:
+    - Models spatial correlation between tissue locations
+    - Can create refined high-resolution spatial maps via imputation
+    - Designed for cancer tissue analysis but works for all spatial data
+
+    Args:
+        spatial_adata: Spatial transcriptomics AnnData object
+        reference_adata: Reference single-cell RNA-seq AnnData object
+        cell_type_key: Key in reference_adata.obs for cell type information
+        sample_key: Optional key for sample/subject information in reference data
+        minCountGene: Include genes with at least this many counts (default: 100)
+        minCountSpot: Include genes expressed in at least this many spots (default: 5)
+        min_common_genes: Minimum common genes required (default: 100)
+        imputation: Whether to perform spatial imputation for higher resolution (default: False)
+        NumGrids: Number of grids for CARD imputation (default: 2000)
+        ineibor: Number of neighbors for CARD imputation (default: 10)
+        context: MCP context for logging
+
+    Returns:
+        Tuple of (proportions DataFrame, statistics dictionary)
+
+    Raises:
+        ImportError: If rpy2 or CARD package is not available
+        ValueError: If input data is invalid or insufficient common genes
+        RuntimeError: If CARD computation fails
+    """
+    # Validate cell type key exists
+    if cell_type_key not in reference_adata.obs:
+        raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
+
+    # Check availability
+    is_available, error_message = is_card_available()
+    if not is_available:
+        raise ImportError(f"CARD is not available: {error_message}")
+
+    # Import rpy2
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri
+    from rpy2.robjects.conversion import localconverter
+
+    try:
+        # Load CARD package
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            ro.r("library(CARD)")
+
+        # Running CARD deconvolution
+
+        # 1. Prepare data
+        # IMPORTANT: CARD requires raw counts for spatial data, but can accept
+        # normalized reference data (e.g., from Smart-seq2 which doesn't provide raw UMI counts).
+        # This matches how Arora et al. 2023 used CARD with SCTransform-normalized reference.
+
+        spatial_data = _prepare_anndata_for_counts(
+            spatial_adata.copy(), "Spatial", context
+        )
+
+        # For reference data: try to get raw counts if available, but accept normalized if not
+        reference_data = _prepare_reference_for_card(
+            reference_adata.copy(), "Reference", context
+        )
+
+        # 2. Find common genes AFTER data preparation
+        common_genes = list(set(spatial_data.var_names) & set(reference_data.var_names))
+
+        if len(common_genes) < min_common_genes:
+            raise ValueError(
+                f"Insufficient common genes after data preparation.\n"
+                f"  Found: {len(common_genes)} genes\n"
+                f"  Required: {min_common_genes} genes\n"
+                f"  Reference data: {reference_data.n_vars} genes\n"
+                f"  Spatial data: {spatial_data.n_vars} genes\n\n"
+                f"💡 TIPS:\n"
+                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
+                f"2. Ensure both datasets are from the same species\n"
+                f"3. Try using different reference dataset\n"
+                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
+            )
+
+        # 3. Subset to common genes
+        spatial_data = spatial_data[:, common_genes].copy()
+        reference_data = reference_data[:, common_genes].copy()
+
+        # 4. Get spatial coordinates
+        if "spatial" in spatial_adata.obsm:
+            spatial_location = pd.DataFrame(
+                spatial_adata.obsm["spatial"],
+                index=spatial_adata.obs_names,
+                columns=["x", "y"],
+            )
+        else:
+            # Create dummy coordinates if not available
+            spatial_location = pd.DataFrame(
+                {"x": range(spatial_adata.n_obs), "y": [0] * spatial_adata.n_obs},
+                index=spatial_adata.obs_names,
+            )
+
+        # 5. Prepare count matrices (genes x cells/spots as required by CARD)
+        spatial_X = (
+            spatial_data.X.toarray()
+            if hasattr(spatial_data.X, "toarray")
+            else spatial_data.X
+        )
+        reference_X = (
+            reference_data.X.toarray()
+            if hasattr(reference_data.X, "toarray")
+            else reference_data.X
+        )
+
+        spatial_count = pd.DataFrame(
+            spatial_X.T, index=spatial_data.var_names, columns=spatial_data.obs_names
+        )
+
+        sc_count = pd.DataFrame(
+            reference_X.T,
+            index=reference_data.var_names,
+            columns=reference_data.obs_names,
+        )
+
+        # 6. Prepare metadata
+        sc_meta = reference_data.obs[[cell_type_key]].copy()
+        sc_meta.columns = ["cellType"]  # CARD expects 'cellType' column
+
+        # Add sample information
+        if sample_key and sample_key in reference_data.obs:
+            sc_meta["sampleInfo"] = reference_data.obs[sample_key]
+        else:
+            sc_meta["sampleInfo"] = "sample1"  # Default single sample
+
+        # 7. Convert to R format and run CARD
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            # Convert data to R
+            r_sc_count = ro.conversion.py2rpy(sc_count)
+            r_sc_meta = ro.conversion.py2rpy(sc_meta)
+            r_spatial_count = ro.conversion.py2rpy(spatial_count)
+            r_spatial_location = ro.conversion.py2rpy(spatial_location)
+
+            # Assign to R environment
+            ro.globalenv["sc_count"] = r_sc_count
+            ro.globalenv["sc_meta"] = r_sc_meta
+            ro.globalenv["spatial_count"] = r_spatial_count
+            ro.globalenv["spatial_location"] = r_spatial_location
+            ro.globalenv["minCountGene"] = minCountGene
+            ro.globalenv["minCountSpot"] = minCountSpot
+
+            # Convert DataFrames to matrices in R (CARD requires matrix format)
+            # Converting count DataFrames to R matrices
+            ro.r("sc_count <- as.matrix(sc_count)")
+            ro.r("spatial_count <- as.matrix(spatial_count)")
+
+            # Create CARD object
+            # Creating CARD object
+
+            ro.r(
+                """
+            CARD_obj = createCARDObject(
+                sc_count = sc_count,
+                sc_meta = sc_meta,
+                spatial_count = spatial_count,
+                spatial_location = spatial_location,
+                ct.varname = "cellType",
+                ct.select = unique(sc_meta$cellType),
+                sample.varname = "sampleInfo",
+                minCountGene = minCountGene,
+                minCountSpot = minCountSpot
+            )
+            """
+            )
+
+            # Run deconvolution
+            # Running CARD deconvolution
+
+            ro.r(
+                """
+            CARD_obj = CARD_deconvolution(CARD_object = CARD_obj)
+            """
+            )
+
+            # Extract results
+            # Extracting CARD results
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                # Get row and column names in R
+                row_names = list(ro.r("rownames(CARD_obj@Proportion_CARD)"))
+                col_names = list(ro.r("colnames(CARD_obj@Proportion_CARD)"))
+
+                # Get proportions matrix
+                proportions_r = ro.r("CARD_obj@Proportion_CARD")
+                proportions_array = np.array(proportions_r)
+
+                # Create DataFrame
+                proportions = pd.DataFrame(
+                    proportions_array, index=row_names, columns=col_names
+                )
+
+            # Optional: Run CARD imputation for higher resolution
+            imputed_proportions = None
+            imputed_coordinates = None
+
+            if imputation:
+                # Running CARD spatial imputation
+
+                ro.r(
+                    f"""
+                CARD_impute = CARD.imputation(
+                    CARD_object = CARD_obj,
+                    NumGrids = {NumGrids},
+                    ineibor = {ineibor}
+                )
+                """
+                )
+
+                with localconverter(ro.default_converter + pandas2ri.converter):
+                    # Extract imputed proportions
+                    imputed_row_names = list(ro.r("rownames(CARD_impute@refined_prop)"))
+                    imputed_col_names = list(ro.r("colnames(CARD_impute@refined_prop)"))
+                    imputed_proportions_r = ro.r("CARD_impute@refined_prop")
+                    imputed_proportions_array = np.array(imputed_proportions_r)
+
+                    # Parse coordinates from rownames (format: "x.valuex y.value")
+                    # Example: "4.1x8.3" -> x=4.1, y=8.3
+                    coords_list = []
+                    for name in imputed_row_names:
+                        parts = name.split("x")
+                        x_val = float(parts[0])
+                        y_val = float(parts[1])
+                        coords_list.append([x_val, y_val])
+
+                    imputed_coords_array = np.array(coords_list)
+
+                    # Store imputed results separately (don't replace original proportions)
+                    imputed_proportions = pd.DataFrame(
+                        imputed_proportions_array,
+                        index=imputed_row_names,
+                        columns=imputed_col_names,
+                    )
+
+                    imputed_coordinates = pd.DataFrame(
+                        imputed_coords_array,
+                        index=imputed_row_names,
+                        columns=["x", "y"],
+                    )
+
+                    # CARD imputation completed: original {len(row_names)} -> imputed {len(imputed_row_names)} locations
+                    # Imputed results stored in spatial_adata.uns['card_imputation']
+
+        # 8. Process results - CARD outputs proportions that sum to 1
+        proportions = _process_deconvolution_results_transparently(
+            proportions=proportions,
+            method="CARD",
+            normalize=False,  # CARD already outputs proportions
+            context=context,
+        )
+
+        # 9. Add results to spatial adata
+        # CARD may filter spots during QC, so we need to align results properly
+        # Reindex to match spatial_adata.obs, filling missing spots with NaN
+        proportions_aligned = proportions.reindex(spatial_adata.obs_names, fill_value=np.nan)
+
+        for cell_type in proportions.columns:
+            col_name = f"CARD_{cell_type}"
+            spatial_adata.obs[col_name] = proportions_aligned[cell_type].values
+
+        # Store imputed results if available
+        if imputed_proportions is not None and imputed_coordinates is not None:
+            spatial_adata.uns["card_imputation"] = {
+                "proportions": imputed_proportions,
+                "coordinates": imputed_coordinates,
+                "n_original_spots": len(row_names),
+                "n_imputed_locations": len(imputed_proportions),
+                "resolution_increase": len(imputed_proportions) / len(row_names),
+                "NumGrids": NumGrids,
+                "ineibor": ineibor,
+            }
+            # CARD imputation stored in uns['card_imputation']
+
+        # CARD completed successfully
+
+        # 10. Create statistics
+        stats = _create_deconvolution_stats(
+            proportions,
+            common_genes,
+            "CARD",
+            "cpu",
+            minCountGene=minCountGene,
+            minCountSpot=minCountSpot,
+        )
+
+        # Add imputation info to stats if available
+        if imputed_proportions is not None:
+            stats["imputation"] = {
+                "enabled": True,
+                "n_imputed_locations": len(imputed_proportions),
+                "resolution_increase": f"{len(imputed_proportions) / len(row_names):.1f}x",
+            }
+
+        return proportions, stats
+
+    except Exception as e:
+        tb = traceback.format_exc()
+        error_msg = f"CARD deconvolution failed: {str(e)}\n{tb}"
+        # CARD error occurred
+        raise RuntimeError(error_msg) from e
+
+
 async def deconvolve_tangram(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
@@ -2547,10 +3089,14 @@ async def deconvolve_tangram(
 
         # Validate cell type key exists
         if cell_type_key not in reference_adata.obs:
-            raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
+            raise ValueError(
+                f"Cell type key '{cell_type_key}' not found in reference data"
+            )
 
         # Find common genes between datasets
-        common_genes = list(set(spatial_adata.var_names) & set(reference_adata.var_names))
+        common_genes = list(
+            set(spatial_adata.var_names) & set(reference_adata.var_names)
+        )
         min_common_genes = 100
 
         if len(common_genes) < min_common_genes:
