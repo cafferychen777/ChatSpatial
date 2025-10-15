@@ -260,6 +260,7 @@ class VisualizationParameters(BaseModel):
         "spatial_interaction",
         "batch_integration",  # Batch integration quality assessment
         "cnv_heatmap",  # CNV analysis heatmap
+        "card_imputation",  # CARD imputation high-resolution results
     ] = "spatial"
     colormap: str = "viridis"
 
@@ -395,9 +396,11 @@ class VisualizationParameters(BaseModel):
     ] = Field("spring", description="Network layout algorithm")
 
     # Deconvolution visualization parameters
-    n_cell_types: Annotated[int, Field(gt=0, le=10)] = (
-        4  # Number of top cell types to show in deconvolution visualization
-    )
+    n_cell_types: Annotated[int, Field(
+        gt=0,
+        le=10,
+        description="Number of top cell types to show in deconvolution visualization. Must be between 1-10. Default: 4"
+    )] = 4
 
     @model_validator(mode="after")
     def validate_conditional_parameters(self) -> Self:
@@ -687,7 +690,8 @@ class SpatialAnalysisParameters(BaseModel):
 
     # Moran's I specific parameters
     moran_n_genes: Annotated[int, Field(gt=0, le=100)] = Field(
-        20, description="Number of HVG for Moran's I (default 20, increase for comprehensive analysis)"
+        20,
+        description="Number of HVG for Moran's I (default 20, increase for comprehensive analysis)",
     )
     moran_n_perms: Annotated[int, Field(gt=0, le=10000)] = Field(
         10,
@@ -804,7 +808,7 @@ class DeconvolutionParameters(BaseModel):
     """Spatial deconvolution parameters model"""
 
     method: Literal[
-        "cell2location", "rctd", "destvi", "stereoscope", "spotlight", "tangram"
+        "cell2location", "rctd", "destvi", "stereoscope", "spotlight", "tangram", "card"
     ] = "cell2location"
     reference_data_id: Optional[str] = (
         None  # Reference single-cell data for deconvolution
@@ -814,15 +818,23 @@ class DeconvolutionParameters(BaseModel):
         2000  # Number of top genes to use
     )
     use_gpu: bool = False  # Whether to use GPU for cell2location
-    ref_model_epochs: Annotated[int, Field(gt=0)] = 250  # Number of epochs for reference model training (NB regression). Official recommendation: 250
-    n_epochs: Annotated[int, Field(gt=0)] = 30000  # Number of epochs for Cell2location spatial mapping model training. Official recommendation: 30000
-    n_cells_per_spot: int = 30  # Expected number of cells per spatial location (tissue-dependent). Official recommendation: 30
+    ref_model_epochs: Annotated[int, Field(gt=0)] = (
+        250  # Number of epochs for reference model training (NB regression). Official recommendation: 250
+    )
+    n_epochs: Annotated[int, Field(gt=0)] = (
+        30000  # Number of epochs for Cell2location spatial mapping model training. Official recommendation: 30000
+    )
+    n_cells_per_spot: int = (
+        30  # Expected number of cells per spatial location (tissue-dependent). Official recommendation: 30
+    )
     reference_profiles: Optional[Dict[str, List[float]]] = (
         None  # Reference expression profiles
     )
 
     # Cell2location specific parameters
-    detection_alpha: Annotated[float, Field(gt=0)] = 200.0  # RNA detection sensitivity parameter for cell2location. Higher values = less sensitivity correction. Official recommendation: 200
+    detection_alpha: Annotated[float, Field(gt=0)] = (
+        200.0  # RNA detection sensitivity parameter for cell2location. Higher values = less sensitivity correction. Official recommendation: 200
+    )
 
     # SPOTlight specific parameters
     hvg: Optional[int] = None  # Number of highly variable genes to use (None = use all)
@@ -847,6 +859,26 @@ class DeconvolutionParameters(BaseModel):
     )
     rctd_doublet_threshold: Annotated[float, Field(gt=0)] = (
         25.0  # Threshold for doublet detection
+    )
+
+    # CARD specific parameters
+    card_minCountGene: Annotated[int, Field(gt=0)] = (
+        100  # Minimum gene counts for CARD QC
+    )
+    card_minCountSpot: Annotated[int, Field(gt=0)] = (
+        5  # Minimum spots per gene for CARD QC
+    )
+    card_sample_key: Optional[str] = (
+        None  # Optional sample/batch column in reference data for CARD
+    )
+    card_imputation: bool = (
+        False  # Whether to perform CARD spatial imputation for higher resolution
+    )
+    card_NumGrids: Annotated[int, Field(gt=0)] = (
+        2000  # Number of grids for CARD imputation (default: 2000, higher = finer resolution)
+    )
+    card_ineibor: Annotated[int, Field(gt=0)] = (
+        10  # Number of neighbors for CARD imputation (default: 10)
     )
 
 
