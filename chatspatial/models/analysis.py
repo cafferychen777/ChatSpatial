@@ -66,12 +66,15 @@ class AnnotationResult(BaseModel):
 
 
 class SpatialAnalysisResult(BaseModel):
-    """Result of spatial analysis"""
+    """Result of spatial analysis
+
+    Note: Visualization is handled separately via the visualize_data tool.
+    This model only contains statistical results and metadata.
+    """
 
     data_id: str
     analysis_type: str
     statistics: Optional[Dict[str, Any]] = None
-    result_image: Optional[str] = None  # Base64 encoded image
 
 
 class RNAVelocityResult(BaseModel):
