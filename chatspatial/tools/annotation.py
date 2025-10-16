@@ -884,21 +884,50 @@ async def _annotate_with_tangram(
             # Get cell types and counts
             cell_types = list(cell_type_df.columns)
 
-            # Assign cell type based on highest probability
-            adata_sp.obs[output_key] = cell_type_df.idxmax(axis=1)
+            # ===== CRITICAL FIX: Row normalization for proper probability calculation =====
+            # tangram_ct_pred contains unnormalized density/abundance values, NOT probabilities
+            # Row sums can be != 1.0 and values can exceed 1.0
+            # We normalize to convert densities → probability distributions
+            cell_type_prob = cell_type_df.div(cell_type_df.sum(axis=1), axis=0)
+
+            # Validation: Ensure normalized values are valid probabilities
+            if not (cell_type_prob.values >= 0).all():
+                if context:
+                    await context.warning(
+                        "⚠️  Some normalized probabilities are negative - data quality issue"
+                    )
+            if not (cell_type_prob.values <= 1.0).all():
+                if context:
+                    await context.warning(
+                        "⚠️  Some normalized probabilities exceed 1.0 - normalization failed"
+                    )
+            if not np.allclose(cell_type_prob.sum(axis=1), 1.0):
+                if context:
+                    await context.warning(
+                        "⚠️  Row sums don't equal 1.0 after normalization - numerical issue"
+                    )
+
+            if context:
+                await context.info(
+                    f"Normalized tangram_ct_pred: converted densities to probabilities (range: [{cell_type_prob.values.min():.3f}, {cell_type_prob.values.max():.3f}])"
+                )
+            # =============================================================================
+
+            # Assign cell type based on highest probability (argmax is same before/after normalization)
+            adata_sp.obs[output_key] = cell_type_prob.idxmax(axis=1)
             adata_sp.obs[output_key] = adata_sp.obs[output_key].astype("category")
 
             # Get counts
             counts = adata_sp.obs[output_key].value_counts().to_dict()
 
-            # Calculate confidence scores (use max probability as confidence)
+            # Calculate confidence scores from NORMALIZED probabilities
             confidence_scores = {}
             for cell_type in cell_types:
                 cells_of_type = adata_sp.obs[output_key] == cell_type
                 if np.sum(cells_of_type) > 0:
-                    # Use mean probability as confidence
-                    mean_prob = cell_type_df.loc[cells_of_type, cell_type].mean()
-                    confidence_scores[cell_type] = round(float(mean_prob), 2)
+                    # Use mean PROBABILITY as confidence (now guaranteed to be in [0, 1])
+                    mean_prob = cell_type_prob.loc[cells_of_type, cell_type].mean()
+                    confidence_scores[cell_type] = round(float(mean_prob), 3)
                 # Note: If no cells assigned to this type, we don't report a confidence
                 # This is more scientifically honest than assigning an arbitrary value
 
