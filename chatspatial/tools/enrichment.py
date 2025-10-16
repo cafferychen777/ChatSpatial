@@ -874,7 +874,6 @@ async def perform_ora(
     gene_sets: Dict[str, List[str]],
     gene_list: Optional[List[str]] = None,
     pvalue_threshold: float = 0.05,
-    logfc_threshold: float = 1.0,
     min_size: int = 10,
     max_size: int = 500,
     species: Optional[str] = None,
@@ -891,11 +890,9 @@ async def perform_ora(
     gene_sets : Dict[str, List[str]]
         Gene sets to test
     gene_list : Optional[List[str]]
-        List of genes to test. If None, use DEGs
+        List of genes to test. If None, use DEGs from rank_genes_groups
     pvalue_threshold : float
-        P-value threshold for selecting DEGs
-    logfc_threshold : float
-        Log fold change threshold for selecting DEGs
+        P-value threshold for selecting DEGs (only used if rank_genes_groups exists)
     min_size : int
         Minimum gene set size
     max_size : int
@@ -910,6 +907,13 @@ async def perform_ora(
     Returns
     -------
     Dict containing enrichment results
+
+    Notes
+    -----
+    LogFC filtering removed: ORA should use genes pre-filtered by find_markers.
+    Different statistical methods (Wilcoxon, t-test) produce different logFC scales,
+    making a fixed threshold inappropriate. Gene filtering is the responsibility of
+    differential expression analysis, not enrichment analysis.
     """
     if context:
         await context.info("Running Over-Representation Analysis...")
@@ -929,31 +933,42 @@ async def perform_ora(
             elif "pvals" in result:
                 pvals = result["pvals"]
 
-            # Check if logfcs exist
-            logfcs = result.get("logfoldchanges", None)
-
-            # Get first group's DEGs
+            # Get DEGs from all groups and merge
+            # IMPORTANT: names is a numpy recarray with shape (n_genes,)
+            # and dtype.names contains group names as fields
+            # Access genes by group name: names[group_name][i]
             degs = []
-            for i in range(len(names[0])):
-                # If pvals and logfcs exist, filter by thresholds
-                if pvals is not None and logfcs is not None:
-                    if (
-                        pvals[0][i] < pvalue_threshold
-                        and abs(logfcs[0][i]) > logfc_threshold
-                    ):
-                        degs.append(names[0][i])
-                else:
-                    # If no pvals/logfcs, just use top N genes (e.g., top 100)
-                    if i < 100:
-                        degs.append(names[0][i])
+
+            # Iterate over all groups
+            for group_name in names.dtype.names:
+                for i in range(len(names)):
+                    # If pvals exist, filter by p-value threshold only
+                    # LogFC filtering removed - see docstring Notes
+                    if pvals is not None:
+                        if pvals[group_name][i] < pvalue_threshold:
+                            gene = names[group_name][i]
+                            if gene not in degs:  # Avoid duplicates
+                                degs.append(gene)
+                    else:
+                        # If no pvals, use top N genes per group
+                        if i < 100:
+                            gene = names[group_name][i]
+                            if gene not in degs:
+                                degs.append(gene)
 
             gene_list = degs
 
             if context:
                 if pvals is not None:
-                    await context.info(f"Using {len(gene_list)} DEGs for ORA (filtered by p-value and log2FC)")
+                    await context.info(
+                        f"Using {len(gene_list)} DEGs for ORA "
+                        f"(filtered by p-value < {pvalue_threshold})"
+                    )
                 else:
-                    await context.info(f"Using top {len(gene_list)} ranked genes for ORA (no p-values available)")
+                    await context.info(
+                        f"Using top {len(gene_list)} ranked genes for ORA "
+                        "(no p-values available)"
+                    )
         else:
             # Use highly variable genes
             if "highly_variable" in adata.var:
@@ -1055,7 +1070,6 @@ async def perform_ora(
         method="ora",
         parameters={
             "pvalue_threshold": pvalue_threshold,
-            "logfc_threshold": logfc_threshold,
             "min_size": min_size,
             "max_size": max_size,
             "n_query_genes": len(query_genes),
@@ -1093,7 +1107,6 @@ async def perform_ora(
             "query_genes": list(query_genes),
             "gene_sets_size_summary": {k: len(v) for k, v in gene_sets.items()},
             "pvalue_threshold": pvalue_threshold,
-            "logfc_threshold": logfc_threshold,
             "min_size": min_size,
             "max_size": max_size,
         }
