@@ -984,8 +984,32 @@ async def perform_ora(
                 gene_list = adata.var_names[top_indices].tolist()
 
     # Background genes
-    background_genes = set(adata.var_names)
+    # IMPORTANT: Use adata.raw if available, as rank_genes_groups may have been
+    # run on raw data with different gene name casing (e.g., uppercase)
+    # while filtered adata.var_names may be lowercase
+    if adata.raw is not None:
+        background_genes = set(adata.raw.var_names)
+    else:
+        background_genes = set(adata.var_names)
+
+    # Case-insensitive matching as fallback for gene name format differences
+    # (e.g., MT.CO1 vs MT-CO1, uppercase vs lowercase)
     query_genes = set(gene_list) & background_genes
+
+    # If no direct matches, try case-insensitive matching
+    if len(query_genes) == 0 and len(gene_list) > 0:
+        # Create case-insensitive lookup
+        gene_name_map = {g.upper(): g for g in background_genes}
+        query_genes = set()
+        for gene in gene_list:
+            if gene.upper() in gene_name_map:
+                query_genes.add(gene_name_map[gene.upper()])
+
+        if context and len(query_genes) > 0:
+            await context.info(
+                f"Applied case-insensitive gene matching: "
+                f"{len(gene_list)} query genes → {len(query_genes)} matched"
+            )
 
     # Perform hypergeometric test for each gene set
     enrichment_scores = {}
