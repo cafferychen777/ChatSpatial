@@ -2893,18 +2893,23 @@ def deconvolve_card(
             # Create CARD object
             # Creating CARD object
 
+            # MCP Protocol: Redirect R stdout to /dev/null to prevent non-JSON output
+            # CARD prints progress messages (## QC, ## create) that break MCP JSON-RPC
             ro.r(
                 """
-            CARD_obj = createCARDObject(
-                sc_count = sc_count,
-                sc_meta = sc_meta,
-                spatial_count = spatial_count,
-                spatial_location = spatial_location,
-                ct.varname = "cellType",
-                ct.select = unique(sc_meta$cellType),
-                sample.varname = "sampleInfo",
-                minCountGene = minCountGene,
-                minCountSpot = minCountSpot
+            capture.output(
+                CARD_obj <- createCARDObject(
+                    sc_count = sc_count,
+                    sc_meta = sc_meta,
+                    spatial_count = spatial_count,
+                    spatial_location = spatial_location,
+                    ct.varname = "cellType",
+                    ct.select = unique(sc_meta$cellType),
+                    sample.varname = "sampleInfo",
+                    minCountGene = minCountGene,
+                    minCountSpot = minCountSpot
+                ),
+                file = "/dev/null"
             )
             """
             )
@@ -2912,9 +2917,13 @@ def deconvolve_card(
             # Run deconvolution
             # Running CARD deconvolution
 
+            # MCP Protocol: Suppress stdout to prevent protocol pollution
             ro.r(
                 """
-            CARD_obj = CARD_deconvolution(CARD_object = CARD_obj)
+            capture.output(
+                CARD_obj <- CARD_deconvolution(CARD_object = CARD_obj),
+                file = "/dev/null"
+            )
             """
             )
 
@@ -2941,12 +2950,16 @@ def deconvolve_card(
             if imputation:
                 # Running CARD spatial imputation
 
+                # MCP Protocol: Suppress stdout
                 ro.r(
                     f"""
-                CARD_impute = CARD.imputation(
-                    CARD_object = CARD_obj,
-                    NumGrids = {NumGrids},
-                    ineibor = {ineibor}
+                capture.output(
+                    CARD_impute <- CARD.imputation(
+                        CARD_object = CARD_obj,
+                        NumGrids = {NumGrids},
+                        ineibor = {ineibor}
+                    ),
+                    file = "/dev/null"
                 )
                 """
                 )

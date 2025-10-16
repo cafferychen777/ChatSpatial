@@ -41,14 +41,17 @@ from .models.data import (CellCommunicationParameters, CNVParameters,
                           SpatialDomainParameters,
                           SpatialVariableGenesParameters, TrajectoryParameters)
 from .spatial_mcp_adapter import MCPToolMetadata, create_spatial_mcp_server
-from .tools.annotation import annotate_cell_types
-from .tools.cnv_analysis import infer_cnv
-from .tools.deconvolution import deconvolve_spatial_data
-from .tools.differential import differential_expression
-from .tools.spatial_genes import identify_spatial_genes
-from .tools.spatial_statistics import \
-    analyze_spatial_statistics as _analyze_spatial_statistics
-from .tools.trajectory import analyze_rna_velocity
+
+# Lazy imports for heavy dependencies - imported when first used
+# This significantly speeds up server startup time
+# from .tools.annotation import annotate_cell_types  # Lazy loaded
+# from .tools.cnv_analysis import infer_cnv  # Lazy loaded
+# from .tools.deconvolution import deconvolve_spatial_data  # Lazy loaded
+# from .tools.differential import differential_expression  # Lazy loaded
+# from .tools.spatial_genes import identify_spatial_genes  # Lazy loaded
+# from .tools.spatial_statistics import analyze_spatial_statistics  # Lazy loaded (squidpy is slow)
+# from .tools.trajectory import analyze_rna_velocity  # Lazy loaded
+
 from .utils.error_handling import ProcessingError
 from .utils.mcp_parameter_handler import (manual_parameter_validation,
                                           validate_analysis_params,
@@ -560,6 +563,9 @@ async def annotate_cells(
         ref_info = await data_manager.get_dataset(params.reference_data_id)
         data_store[params.reference_data_id] = ref_info
 
+    # Lazy import annotation tool (avoids slow startup)
+    from .tools.annotation import annotate_cell_types
+
     # Call annotation function
     result = await annotate_cell_types(data_id, data_store, params, context)
 
@@ -614,6 +620,9 @@ async def analyze_spatial_statistics(
     dataset_info = await data_manager.get_dataset(data_id)
     data_store = {data_id: dataset_info}
 
+    # Lazy import spatial_statistics (squidpy is slow to import)
+    from .tools.spatial_statistics import analyze_spatial_statistics as _analyze_spatial_statistics
+
     # Call spatial statistics analysis function
     result = await _analyze_spatial_statistics(data_id, data_store, params, context)
 
@@ -664,6 +673,9 @@ async def find_markers(
     # Get dataset from data manager
     dataset_info = await data_manager.get_dataset(data_id)
     data_store = {data_id: dataset_info}
+
+    # Lazy import differential expression tool
+    from .tools.differential import differential_expression
 
     # Call differential expression function
     result = await differential_expression(
@@ -749,6 +761,9 @@ async def analyze_cnv(
         dendrogram=dendrogram,
     )
 
+    # Lazy import CNV analysis tool
+    from .tools.cnv_analysis import infer_cnv
+
     # Call CNV inference function
     result = await infer_cnv(
         data_id=data_id, data_store=data_store, params=params, context=context
@@ -796,6 +811,9 @@ async def analyze_velocity_data(
     # Get dataset from data manager
     dataset_info = await data_manager.get_dataset(data_id)
     data_store = {data_id: dataset_info}
+
+    # Lazy import trajectory analysis tool
+    from .tools.trajectory import analyze_rna_velocity
 
     # Call RNA velocity function
     result = await analyze_rna_velocity(data_id, data_store, params, context)
@@ -976,6 +994,9 @@ async def deconvolve_data(
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
         ref_info = await data_manager.get_dataset(params.reference_data_id)
         data_store[params.reference_data_id] = ref_info
+
+    # Lazy import deconvolution tool
+    from .tools.deconvolution import deconvolve_spatial_data
 
     # Call deconvolution function
     result = await deconvolve_spatial_data(data_id, data_store, params, context)
@@ -1537,6 +1558,9 @@ async def find_spatial_genes(
     # Get dataset from data manager
     dataset_info = await data_manager.get_dataset(data_id)
     data_store = {data_id: dataset_info}
+
+    # Lazy import spatial genes tool
+    from .tools.spatial_genes import identify_spatial_genes
 
     # Call spatial genes function
     result = await identify_spatial_genes(data_id, data_store, params, context)
