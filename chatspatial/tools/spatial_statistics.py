@@ -268,7 +268,6 @@ async def analyze_spatial_statistics(
             data_id=data_id,
             analysis_type=params.analysis_type,
             statistics=result,
-            result_image=None,  # Visualization handled separately
         )
 
     except Exception as e:
@@ -577,10 +576,12 @@ async def _analyze_neighborhood_enrichment(
     if analysis_key in adata.uns:
         z_scores = adata.uns[analysis_key]["zscore"]
 
+        # Use nanmax/nanmin to handle NaN values from sparse cell type distributions
+        # NaN can occur when certain cell type pairs have insufficient neighborhoods
         return {
             "n_clusters": len(z_scores),
-            "max_enrichment": float(np.max(z_scores)),
-            "min_enrichment": float(np.min(z_scores)),
+            "max_enrichment": float(np.nanmax(z_scores)),
+            "min_enrichment": float(np.nanmin(z_scores)),
             "analysis_key": analysis_key,
         }
 
