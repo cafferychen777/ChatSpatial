@@ -540,6 +540,24 @@ async def annotate_cells(
         - cell_type_key: Leave as None for auto-detection. Only set if you know the exact column name in reference data
         - Common cell type column names: 'cell_type', 'cell_types', 'celltype'
 
+        Tangram-specific notes:
+        - Method: Deep learning-based spatial mapping of single-cell to spatial transcriptomics
+        - Requires: reference_data_id with PREPROCESSED single-cell data
+        - Mapping modes (mode parameter):
+          * mode="cells" (default): Maps individual cells to spatial locations
+            - Preserves single-cell heterogeneity and fine-grained resolution
+            - More computationally intensive (GPU recommended for large datasets)
+            - Best for: Same specimen data, when cell-level detail is critical
+          * mode="clusters" (recommended for cross-specimen): Aggregates cells by type before mapping
+            - Dramatically improves performance, runs on standard laptop
+            - Official recommendation: "Our choice when scRNAseq and spatial data come from different specimens"
+            - Requires: cluster_label parameter (e.g., "cell_type")
+            - Best for: Different specimens, limited resources, cell type distributions
+            - Trades single-cell resolution for stability and speed
+        - Confidence scores: Automatically normalized to [0, 1] probability range
+        - GPU acceleration: Set tangram_device='cuda:0' if GPU available
+        - Other parameters: tangram_density_prior, tangram_learning_rate, tangram_lambda_r
+
         scANVI-specific notes:
         - Method: Semi-supervised variational inference for label transfer
         - Requires: Both datasets must have 'counts' layer (raw counts)
