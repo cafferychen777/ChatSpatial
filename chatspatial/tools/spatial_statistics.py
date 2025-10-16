@@ -460,11 +460,9 @@ async def _analyze_morans_i(
             raise ValueError(
                 "Highly variable genes not found. Please run preprocessing first."
             )
-        # Support both moran_n_genes and n_top_genes (for user convenience)
-        # If user passes n_top_genes in params dict, use it; otherwise use moran_n_genes default
-        n_genes_to_analyze = getattr(params, 'n_top_genes', None) or params.moran_n_genes
+        # Use n_top_genes for gene selection
         genes = adata.var_names[adata.var["highly_variable"]][
-            : n_genes_to_analyze
+            : params.n_top_genes
         ].tolist()
 
     if context:
@@ -529,11 +527,11 @@ async def _analyze_gearys_c(
         # Use highly variable genes
         if "highly_variable" in adata.var and adata.var["highly_variable"].any():
             genes = adata.var_names[adata.var["highly_variable"]][
-                : params.moran_n_genes
+                : params.n_top_genes
             ].tolist()
         else:
             # Fallback to top genes
-            genes = adata.var_names[: params.moran_n_genes].tolist()
+            genes = adata.var_names[: params.n_top_genes].tolist()
 
     sq.gr.spatial_autocorr(
         adata,
@@ -666,7 +664,7 @@ async def _analyze_getis_ord(
         if "highly_variable" not in adata.var:
             raise ValueError("Highly variable genes required for Getis-Ord analysis")
         genes = adata.var_names[adata.var["highly_variable"]][
-            : params.getis_ord_n_genes
+            : params.n_top_genes
         ].tolist()
 
     getis_ord_results = {}
