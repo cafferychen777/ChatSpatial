@@ -578,7 +578,26 @@ async def _annotate_with_tangram(
 
         # Get reference single-cell data
         adata_sc_original = data_store[params.reference_data_id]["adata"]
-        adata_sp = adata  # Spatial data (will be modified in-place for results)
+
+        # ===== CRITICAL FIX: Use raw data for Tangram to preserve gene name case =====
+        # Issue: Preprocessed data may have lowercase gene names, while reference has uppercase
+        # This causes 0 overlapping genes and Tangram mapping failure (all NaN results)
+        # Solution: Use adata.raw which preserves original gene names
+        if adata.raw is not None:
+            adata_sp = adata.raw.to_adata()
+            # Preserve spatial coordinates from preprocessed data
+            adata_sp.obsm['spatial'] = adata.obsm['spatial'].copy()
+            if context:
+                await context.info(
+                    "Using raw data for Tangram (preserves original gene names and counts)"
+                )
+        else:
+            adata_sp = adata
+            if context:
+                await context.warning(
+                    "No raw data available - using preprocessed data (may have gene name mismatches)"
+                )
+        # =============================================================================
 
         # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
         if not adata_sc_original.var_names.is_unique:
@@ -958,6 +977,30 @@ async def _annotate_with_tangram(
                 await context.warning(
                     f"Tangram mapping score is suspiciously low: {tangram_mapping_score}"
                 )
+
+        # ===== Copy results from adata_sp back to original adata =====
+        # Since adata_sp was created from adata.raw (different object), we need to
+        # transfer the Tangram results back to the original adata for downstream use
+        if adata_sp is not adata:
+            # Copy cell type assignments
+            if output_key in adata_sp.obs:
+                adata.obs[output_key] = adata_sp.obs[output_key]
+
+            # Copy confidence scores if they exist
+            if confidence_key and confidence_key in adata_sp.obs:
+                adata.obs[confidence_key] = adata_sp.obs[confidence_key]
+
+            # Copy tangram_ct_pred from obsm
+            if "tangram_ct_pred" in adata_sp.obsm:
+                adata.obsm["tangram_ct_pred"] = adata_sp.obsm["tangram_ct_pred"]
+
+            # Copy tangram_gene_predictions if they exist
+            if "tangram_gene_predictions" in adata_sp.obsm:
+                adata.obsm["tangram_gene_predictions"] = adata_sp.obsm["tangram_gene_predictions"]
+
+            if context:
+                await context.info("Transferred Tangram results to original adata object")
+        # =============================================================================
 
         if context:
             await context.info(

@@ -677,6 +677,10 @@ class SpatialAnalysisParameters(BaseModel):
         None,
         description="Specific genes to analyze. If None, uses HVG or defaults based on analysis type",
     )
+    n_top_genes: Annotated[int, Field(gt=0, le=500)] = Field(
+        20,
+        description="Number of top HVGs to analyze (default 20, up to 500 for comprehensive analysis)",
+    )
 
     # Parallel processing parameters
     n_jobs: Optional[int] = Field(
@@ -689,10 +693,6 @@ class SpatialAnalysisParameters(BaseModel):
     )
 
     # Moran's I specific parameters
-    moran_n_genes: Annotated[int, Field(gt=0, le=100)] = Field(
-        20,
-        description="Number of HVG for Moran's I (default 20, increase for comprehensive analysis)",
-    )
     moran_n_perms: Annotated[int, Field(gt=0, le=10000)] = Field(
         10,
         description="Number of permutations (default 10 for speed, use 100+ for publication)",
@@ -700,9 +700,6 @@ class SpatialAnalysisParameters(BaseModel):
     moran_two_tailed: bool = Field(False, description="Use two-tailed test")
 
     # Getis-Ord Gi* specific parameters
-    getis_ord_n_genes: Annotated[int, Field(gt=0, le=100)] = (
-        20  # Number of top highly variable genes to analyze
-    )
     getis_ord_correction: Literal["bonferroni", "fdr_bh", "none"] = (
         "fdr_bh"  # Multiple testing correction
     )
