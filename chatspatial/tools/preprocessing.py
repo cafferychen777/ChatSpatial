@@ -47,7 +47,6 @@ MIN_KMEANS_CLUSTERS = 2
 MAX_TSNE_PCA_COMPONENTS = 50
 
 
-
 def _detect_data_type(adata) -> str:
     """Detect the type of spatial transcriptomics data"""
     if adata.n_vars < MERFISH_GENE_THRESHOLD:
@@ -61,7 +60,7 @@ def _detect_data_type(adata) -> str:
 def _should_use_all_genes_for_hvg(adata) -> bool:
     """
     Check if we should use all genes for HVG selection.
-    
+
     Only applies to very small gene sets (e.g., MERFISH with <100 genes)
     where statistical HVG selection is not meaningful.
     """
@@ -71,39 +70,45 @@ def _should_use_all_genes_for_hvg(adata) -> bool:
 def _diagnose_hvg_failure(adata, n_hvgs: int) -> str:
     """Provide diagnostic information for HVG selection failures."""
     diagnostics = []
-    
+
     # Check data characteristics
     try:
-        if hasattr(adata.X, 'toarray'):
+        if hasattr(adata.X, "toarray"):
             # Sample sparse matrix safely
             if adata.X.nnz > 0:
-                X_sample = adata.X[:min(100, adata.n_obs), :min(100, adata.n_vars)].toarray()
+                X_sample = adata.X[
+                    : min(100, adata.n_obs), : min(100, adata.n_vars)
+                ].toarray()
             else:
                 X_sample = np.array([[0]])
         else:
             # Dense matrix
-            X_sample = adata.X[:min(100, adata.n_obs), :min(100, adata.n_vars)]
-        
+            X_sample = adata.X[: min(100, adata.n_obs), : min(100, adata.n_vars)]
+
         # Check if data is normalized
         if np.any(X_sample < 0):
             diagnostics.append("✓ Data appears normalized (contains negative values)")
         elif np.all(X_sample >= 0) and np.any((X_sample % 1) != 0):
-            diagnostics.append("✓ Data appears normalized (contains non-integer values)")
+            diagnostics.append(
+                "✓ Data appears normalized (contains non-integer values)"
+            )
         else:
             diagnostics.append("⚠ Data may be raw counts (consider normalization)")
-        
+
         # Check data range
         data_min, data_max = float(adata.X.min()), float(adata.X.max())
         diagnostics.append(f"Data range: {data_min:.3f} to {data_max:.3f}")
-        
+
     except Exception as e:
         diagnostics.append(f"Could not analyze data characteristics: {e}")
-    
+
     # Check if requested HVGs is too high
     if n_hvgs >= adata.n_vars:
-        diagnostics.append(f"⚠ Requested {n_hvgs} HVGs but only {adata.n_vars} genes available")
+        diagnostics.append(
+            f"⚠ Requested {n_hvgs} HVGs but only {adata.n_vars} genes available"
+        )
         diagnostics.append(f"Suggested: Use n_hvgs={min(adata.n_vars // 2, 2000)}")
-    
+
     # Check for constant genes
     try:
         gene_var = _safe_matrix_operation(adata, "variance")
@@ -115,7 +120,7 @@ def _diagnose_hvg_failure(adata, n_hvgs: int) -> str:
             diagnostics.append("Could not compute gene variance for diagnosis")
     except Exception:
         diagnostics.append("Could not compute gene variance for diagnosis")
-    
+
     return "\n".join(diagnostics)
 
 
@@ -216,7 +221,9 @@ async def preprocess_data(
                 await context.warning(
                     f"⚠️  Found {n_duplicates} duplicate gene names in data"
                 )
-                await context.info("Fixing duplicate gene names with unique suffixes...")
+                await context.info(
+                    "Fixing duplicate gene names with unique suffixes..."
+                )
             adata.var_names_make_unique()
             if context:
                 await context.info(f"✓ Fixed {n_duplicates} duplicate gene names")
@@ -318,7 +325,10 @@ async def preprocess_data(
         import anndata as ad_module
 
         adata.raw = ad_module.AnnData(
-            X=adata.X.copy(), var=adata.var.copy(), obs=adata.obs.copy(), uns=adata.uns.copy()
+            X=adata.X.copy(),
+            var=adata.var.copy(),
+            obs=adata.obs.copy(),
+            uns=adata.uns.copy(),
         )
 
         # Update QC metrics after filtering
@@ -333,27 +343,29 @@ async def preprocess_data(
         resolvi_used = False
         if params.use_resolvi_preprocessing and params.resolvi_params:
             if context:
-                await context.info("Using ResolVI for advanced molecular reassignment correction...")
-            
+                await context.info(
+                    "Using ResolVI for advanced molecular reassignment correction..."
+                )
+
             try:
                 # Run ResolVI preprocessing
-                await preprocess_with_resolvi(
-                    adata, params.resolvi_params, context
-                )
-                
+                await preprocess_with_resolvi(adata, params.resolvi_params, context)
+
                 # Verify that ResolVI actually created the expected outputs
                 if "X_resolvi" not in adata.obsm:
                     raise RuntimeError(
                         "ResolVI preprocessing completed but did not create X_resolvi. "
                         "This indicates a critical error in ResolVI execution."
                     )
-                
+
                 # ResolVI creates a latent representation in adata.obsm['X_resolvi']
                 # and corrected counts in adata.layers['resolvi_corrected']
                 if context:
                     await context.info("ResolVI preprocessing completed successfully")
-                    await context.info(f"Created latent representation with shape {adata.obsm['X_resolvi'].shape}")
-                
+                    await context.info(
+                        f"Created latent representation with shape {adata.obsm['X_resolvi'].shape}"
+                    )
+
                 # Skip standard normalization since ResolVI handles it
                 resolvi_used = True
             except Exception as e:
@@ -362,7 +374,7 @@ async def preprocess_data(
                         f"ResolVI preprocessing failed: {e}. Falling back to standard normalization."
                     )
                 resolvi_used = False
-        
+
         # 3. Normalize data (skip if ResolVI was used)
         if not resolvi_used:
             # Log normalization configuration
@@ -379,7 +391,7 @@ async def preprocess_data(
                 else:
                     logger.info(f"  Scale clipping: NONE (preserving all outliers)")
             logger.info("=" * 50)
-            
+
             if context:
                 await context.info(
                     f"Normalizing data using {params.normalization} method..."
@@ -389,9 +401,13 @@ async def preprocess_data(
                 # Standard log normalization
                 # Check if data appears to be already normalized
                 if scipy.sparse.issparse(adata.X):
-                    X_sample = adata.X.data[:min(1000, len(adata.X.data))] if hasattr(adata.X, 'data') else adata.X[:1000].toarray().flatten()
+                    X_sample = (
+                        adata.X.data[: min(1000, len(adata.X.data))]
+                        if hasattr(adata.X, "data")
+                        else adata.X[:1000].toarray().flatten()
+                    )
                 else:
-                    X_sample = adata.X.flatten()[:min(1000, adata.X.size)]
+                    X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
 
                 # Check for negative values (indicates already log-normalized data)
                 if np.any(X_sample < 0):
@@ -409,10 +425,14 @@ async def preprocess_data(
 
                 if params.normalize_target_sum is not None:
                     sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
-                    logger.info(f"✓ Normalized to target_sum={params.normalize_target_sum:.0f}")
+                    logger.info(
+                        f"✓ Normalized to target_sum={params.normalize_target_sum:.0f}"
+                    )
                 else:
                     # Calculate median and inform user transparently
-                    calculated_median = np.median(np.array(adata.X.sum(axis=1)).flatten())
+                    calculated_median = np.median(
+                        np.array(adata.X.sum(axis=1)).flatten()
+                    )
                     if context:
                         await context.info(
                             f"🔧 normalize_target_sum not specified. Using adaptive normalization:\n"
@@ -421,7 +441,9 @@ async def preprocess_data(
                             f"   • For reproducible results, use: normalize_target_sum={calculated_median:.0f}"
                         )
                     sc.pp.normalize_total(adata, target_sum=calculated_median)
-                    logger.info(f"✓ Normalized to adaptive target_sum={calculated_median:.0f}")
+                    logger.info(
+                        f"✓ Normalized to adaptive target_sum={calculated_median:.0f}"
+                    )
                 sc.pp.log1p(adata)
                 logger.info("✓ Applied log1p transformation")
             elif params.normalization == "sct":
@@ -441,7 +463,7 @@ async def preprocess_data(
                 # Modern Pearson residuals normalization (recommended for UMI data)
                 if context:
                     await context.info("Using Pearson residuals normalization...")
-                
+
                 # Check if method is available
                 if not hasattr(sc.experimental.pp, "normalize_pearson_residuals"):
                     error_msg = (
@@ -454,14 +476,18 @@ async def preprocess_data(
                     if context:
                         await context.error(error_msg)
                     raise ValueError(error_msg)
-                
+
                 # Check if data appears to be raw counts
                 if scipy.sparse.issparse(adata.X):
                     # Sample first 1000 values for efficiency
-                    X_sample = adata.X.data[:min(1000, len(adata.X.data))] if hasattr(adata.X, 'data') else adata.X[:1000].toarray().flatten()
+                    X_sample = (
+                        adata.X.data[: min(1000, len(adata.X.data))]
+                        if hasattr(adata.X, "data")
+                        else adata.X[:1000].toarray().flatten()
+                    )
                 else:
-                    X_sample = adata.X.flatten()[:min(1000, adata.X.size)]
-                
+                    X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+
                 # Check for non-integer values (indicates normalized data)
                 if np.any((X_sample % 1) != 0):
                     error_msg = (
@@ -473,7 +499,7 @@ async def preprocess_data(
                     if context:
                         await context.error(error_msg)
                     raise ValueError(error_msg)
-                
+
                 # Execute normalization
                 try:
                     # Apply Pearson residuals normalization (to all genes)
@@ -493,22 +519,41 @@ async def preprocess_data(
             elif params.normalization == "none":
                 # Explicitly skip normalization
                 if context:
-                    await context.info("Skipping normalization (data assumed to be pre-normalized)")
+                    await context.info(
+                        "Skipping normalization (data assumed to be pre-normalized)"
+                    )
                 logger.info("✓ Normalization skipped (using pre-normalized data)")
-                
-                # Optional: warn if data appears to be raw counts
+
+                # CRITICAL: Check if data appears to be raw counts
+                # HVG selection requires normalized data for statistical validity
                 if scipy.sparse.issparse(adata.X):
-                    X_sample = adata.X.data[:min(1000, len(adata.X.data))] if hasattr(adata.X, 'data') else adata.X[:1000].toarray().flatten()
+                    X_sample = (
+                        adata.X.data[: min(1000, len(adata.X.data))]
+                        if hasattr(adata.X, "data")
+                        else adata.X[:1000].toarray().flatten()
+                    )
                 else:
-                    X_sample = adata.X.flatten()[:min(1000, adata.X.size)]
-                
+                    X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+
                 # Check if data looks raw (all integers and high values)
                 if np.all((X_sample % 1) == 0) and np.max(X_sample) > 100:
+                    error_msg = (
+                        "❌ STATISTICAL ERROR: Cannot perform HVG selection on raw counts with normalization='none'\n\n"
+                        "Your data appears to be raw counts (integer values with max > 100), but you specified "
+                        "normalization='none'. Highly variable gene (HVG) selection requires normalized data "
+                        "for statistical validity because:\n"
+                        "• Raw count variance scales non-linearly with expression level\n"
+                        "• This prevents accurate comparison of variability across genes\n"
+                        "• Scanpy's HVG algorithm will fail with 'infinity' errors\n\n"
+                        "📊 REQUIRED ACTIONS:\n"
+                        "Option 1 (Recommended): Use normalization='log' for standard log-normalization\n"
+                        "Option 2: Use normalization='pearson_residuals' for variance-stabilizing normalization\n"
+                        "Option 3: Pre-normalize your data externally, then reload with normalized values\n\n"
+                        "⚠️  If your data is already normalized but appears raw, verify data integrity."
+                    )
                     if context:
-                        await context.warning(
-                            "Data appears to be raw counts (integer values with max > 100). "
-                            "Consider using normalization='log' or 'pearson_residuals'"
-                        )
+                        await context.error(error_msg)
+                    raise ValueError(error_msg)
             elif params.normalization == "scvi":
                 # scVI normalization is not implemented in basic preprocessing
                 error_msg = (
@@ -560,7 +605,7 @@ async def preprocess_data(
             except Exception as e:
                 # Provide detailed error information with diagnostics
                 diagnostics = _diagnose_hvg_failure(adata, n_hvgs)
-                
+
                 error_msg = (
                     f"Highly variable gene selection failed: {e}\n\n"
                     "This is a critical step for downstream analysis. Possible causes:\n"
@@ -590,7 +635,7 @@ async def preprocess_data(
                 if context:
                     await context.error(error_msg)
                 raise RuntimeError(error_msg)
-            
+
             if not adata.var["highly_variable"].any():
                 error_msg = (
                     "Gene subsampling requested but no genes were marked as highly variable. "
@@ -599,7 +644,7 @@ async def preprocess_data(
                 if context:
                     await context.error(error_msg)
                 raise RuntimeError(error_msg)
-            
+
             # Use properly identified HVGs
             adata = adata[:, adata.var["highly_variable"]].copy()
             if context:
@@ -641,12 +686,16 @@ async def preprocess_data(
             try:
                 # Trust scanpy's internal zero-variance handling and sparse matrix optimization
                 sc.pp.scale(adata, max_value=params.scale_max_value)
-                
+
                 # Log scaling results
                 if params.scale_max_value is not None:
-                    logger.info(f"✓ Scaled to unit variance with clipping at ±{params.scale_max_value} SD")
+                    logger.info(
+                        f"✓ Scaled to unit variance with clipping at ±{params.scale_max_value} SD"
+                    )
                 else:
-                    logger.info("✓ Scaled to unit variance without clipping (preserving all outliers)")
+                    logger.info(
+                        "✓ Scaled to unit variance without clipping (preserving all outliers)"
+                    )
 
                 # Clean up any NaN/Inf values that might remain (sparse-matrix safe)
                 # Only apply if we have a max_value for clipping
@@ -680,7 +729,11 @@ async def preprocess_data(
             if context:
                 await context.info("Skipping PCA (using ResolVI latent representation)")
             # Use ResolVI latent dimensions for downstream analysis
-            n_pcs = params.resolvi_params.n_latent if params.resolvi_params else params.n_pcs
+            n_pcs = (
+                params.resolvi_params.n_latent
+                if params.resolvi_params
+                else params.n_pcs
+            )
         else:
             if context:
                 await context.info("Running PCA...")
@@ -717,15 +770,17 @@ async def preprocess_data(
 
         # Use scientifically-informed n_neighbors with validation
         n_neighbors = params.n_neighbors
-        
+
         # Validate n_neighbors against dataset constraints
         if n_neighbors >= adata.n_obs:
             raise ValueError(
                 f"n_neighbors ({n_neighbors}) must be less than dataset size ({adata.n_obs})"
             )
-        
+
         if context:
-            await context.info(f"Using n_neighbors: {n_neighbors} (Scanpy industry standard)")
+            await context.info(
+                f"Using n_neighbors: {n_neighbors} (Scanpy industry standard)"
+            )
 
         if context:
             if resolvi_used:
@@ -740,7 +795,7 @@ async def preprocess_data(
         try:
             if resolvi_used:
                 # Use ResolVI latent representation for neighbors
-                sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep='X_resolvi')
+                sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep="X_resolvi")
             else:
                 sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
 
@@ -756,9 +811,7 @@ async def preprocess_data(
             # Use explicit clustering resolution
             resolution = params.clustering_resolution
             if context:
-                await context.info(
-                    f"Using clustering resolution: {resolution}"
-                )
+                await context.info(f"Using clustering resolution: {resolution}")
 
             if context:
                 await context.info(
@@ -800,7 +853,7 @@ async def preprocess_data(
 
                     # Use velocity_params or create with defaults - TRANSPARENT
                     velocity_params = params.velocity_params or RNAVelocityParameters()
-                    
+
                     if params.velocity_params is None and context:
                         default_params = RNAVelocityParameters()
                         await context.info(
@@ -881,8 +934,8 @@ async def preprocess_data(
 
         # 14. For spatial data, compute spatial neighbors if not already done
         if params.spatial_key and (
-            params.spatial_key in adata.uns or 
-            any(params.spatial_key in key for key in adata.obsm.keys())
+            params.spatial_key in adata.uns
+            or any(params.spatial_key in key for key in adata.obsm.keys())
         ):
             if context:
                 await context.info("Computing spatial neighbors...")
@@ -937,22 +990,19 @@ async def preprocess_data(
         raise RuntimeError(f"{error_msg}\n{tb}")
 
 
-def detect_spatial_key(
-    adata: AnnData, 
-    user_key: Optional[str] = None
-) -> Optional[str]:
+def detect_spatial_key(adata: AnnData, user_key: Optional[str] = None) -> Optional[str]:
     """
     Intelligently detect spatial coordinate key in the AnnData object
-    
+
     Priority:
     1. User-specified key (if exists)
     2. Common spatial key names in obsm
     3. Create from obs columns if x,y coordinates exist
-    
+
     Args:
         adata: AnnData object
         user_key: User-specified spatial key name
-    
+
     Returns:
         Spatial key name if found, None otherwise
     """
@@ -965,17 +1015,17 @@ def detect_spatial_key(
                 return user_key
         else:
             logger.warning(f"User-specified spatial key '{user_key}' not found in obsm")
-    
+
     # Auto-detect common spatial key names
     common_keys = [
-        "X_spatial",       # ResolVI standard
-        "spatial",         # Common default
-        "coordinates",     # Some formats
+        "X_spatial",  # ResolVI standard
+        "spatial",  # Common default
+        "coordinates",  # Some formats
         "spatial_coords",  # Variant
-        "X_coordinates",   # Another variant
-        "xy_coords",       # Additional variant
+        "X_coordinates",  # Another variant
+        "xy_coords",  # Additional variant
     ]
-    
+
     for key in common_keys:
         if key in adata.obsm:
             coords = adata.obsm[key]
@@ -983,24 +1033,26 @@ def detect_spatial_key(
             if coords.shape[1] >= 2:
                 logger.info(f"Auto-detected spatial coordinates in '{key}'")
                 return key
-    
+
     # Check if coordinates exist in obs columns and create obsm entry
     if "x" in adata.obs.columns and "y" in adata.obs.columns:
         adata.obsm["X_spatial"] = adata.obs[["x", "y"]].values.astype(np.float32)
         logger.info("Created X_spatial from x,y columns in obs")
         return "X_spatial"
-    
+
     if "x_centroid" in adata.obs.columns and "y_centroid" in adata.obs.columns:
-        adata.obsm["X_spatial"] = adata.obs[["x_centroid", "y_centroid"]].values.astype(np.float32)
+        adata.obsm["X_spatial"] = adata.obs[["x_centroid", "y_centroid"]].values.astype(
+            np.float32
+        )
         logger.info("Created X_spatial from x_centroid,y_centroid columns in obs")
         return "X_spatial"
-    
+
     # Check for other coordinate column naming conventions
     if "X" in adata.obs.columns and "Y" in adata.obs.columns:
         adata.obsm["X_spatial"] = adata.obs[["X", "Y"]].values.astype(np.float32)
         logger.info("Created X_spatial from X,Y columns in obs")
         return "X_spatial"
-    
+
     return None
 
 
@@ -1013,7 +1065,7 @@ async def preprocess_with_resolvi(
 
     ResolVI addresses noise and bias in single-cell resolved spatial
     transcriptomics data through molecular reassignment correction.
-    
+
     Scientific Requirements:
     - High-resolution cellular-resolved spatial data (Xenium, MERFISH, etc.)
     - Real spatial coordinates (cannot work without spatial information)
@@ -1035,7 +1087,7 @@ async def preprocess_with_resolvi(
     try:
         # Import the parameter model if needed
         from ..models.data import ResolVIPreprocessingParameters
-        
+
         if scvi is None or RESOLVI is None:
             raise ImportError(
                 "scvi-tools package is required for ResolVI preprocessing. "
@@ -1059,7 +1111,7 @@ async def preprocess_with_resolvi(
 
         # 2. Detect and validate spatial coordinates (CRITICAL)
         spatial_key = detect_spatial_key(adata, params.spatial_key)
-        
+
         if spatial_key is None:
             if params.require_spatial:
                 # No spatial coordinates found - this is a critical error for ResolVI
@@ -1083,7 +1135,7 @@ async def preprocess_with_resolvi(
                     "ResolVI requires spatial information. "
                     "Please check that your data has spatial coordinates in adata.obsm."
                 )
-        
+
         if context:
             await context.info(f"Using spatial coordinates from '{spatial_key}'")
 
@@ -1120,7 +1172,7 @@ async def preprocess_with_resolvi(
                 f"Available keys: {list(adata.obsm.keys())}. "
                 "This should not happen - please report this issue."
             )
-        
+
         # Ensure spatial coordinates are in the correct format for RESOLVI
         spatial_coords = adata.obsm[spatial_key]
         if spatial_coords.shape[1] != 2:
@@ -1128,7 +1180,7 @@ async def preprocess_with_resolvi(
                 f"ResolVI requires 2D spatial coordinates, but got shape {spatial_coords.shape}. "
                 "Expected (n_cells, 2) for x,y coordinates."
             )
-        
+
         # Add spatial coordinates as X_spatial for RESOLVI (required by the model)
         adata.obsm["X_spatial"] = spatial_coords
 
@@ -1199,7 +1251,9 @@ async def preprocess_with_resolvi(
             "latent_shape": latent.shape,
             "denoised_shape": denoised_expression.shape,
             "training_completed": True,
-            "device": "GPU" if (params.use_gpu and torch.cuda.is_available()) else "CPU",
+            "device": (
+                "GPU" if (params.use_gpu and torch.cuda.is_available()) else "CPU"
+            ),
         }
 
         if context:
