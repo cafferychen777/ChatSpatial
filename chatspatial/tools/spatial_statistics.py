@@ -983,15 +983,23 @@ async def _analyze_spatial_centrality(
         # Convert to networkx
         G = nx.from_scipy_sparse_array(conn_matrix)
 
-        # Compute centrality measures
+        # Compute centrality measures (returns dict with integer keys)
         degree_centrality = nx.degree_centrality(G)
         closeness_centrality = nx.closeness_centrality(G)
         betweenness_centrality = nx.betweenness_centrality(G)
 
-        # Store in adata.obs
-        adata.obs["degree_centrality"] = pd.Series(degree_centrality)
-        adata.obs["closeness_centrality"] = pd.Series(closeness_centrality)
-        adata.obs["betweenness_centrality"] = pd.Series(betweenness_centrality)
+        # ✅ FIX: NetworkX returns {0: val0, 1: val1, ...} with integer keys,
+        # but adata.obs_names are strings. We need to extract values in order.
+        # Bug: pd.Series(dict) cannot align integer keys to string obs_names
+        n_nodes = adata.n_obs
+        degree_vals = np.array([degree_centrality[i] for i in range(n_nodes)])
+        closeness_vals = np.array([closeness_centrality[i] for i in range(n_nodes)])
+        betweenness_vals = np.array([betweenness_centrality[i] for i in range(n_nodes)])
+
+        # Store in adata.obs (directly as numpy array)
+        adata.obs["degree_centrality"] = degree_vals
+        adata.obs["closeness_centrality"] = closeness_vals
+        adata.obs["betweenness_centrality"] = betweenness_vals
 
         # Compute statistics by cluster
         centrality_stats = {}
