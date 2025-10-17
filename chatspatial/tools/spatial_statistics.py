@@ -103,7 +103,8 @@ async def analyze_spatial_statistics(
         "centrality",
         "getis_ord",
         "bivariate_moran",
-        "join_count",
+        "join_count",  # Traditional Join Count for binary data (2 categories)
+        "local_join_count",  # Local Join Count for multi-category data (>2 categories)
         "network_properties",
         "spatial_centrality",
     ]
@@ -140,6 +141,7 @@ async def analyze_spatial_statistics(
             "co_occurrence",
             "ripley",
             "join_count",
+            "local_join_count",
             "centrality",
             "network_properties",
             "spatial_centrality",
@@ -176,6 +178,10 @@ async def analyze_spatial_statistics(
             result = await _analyze_bivariate_moran(adata, params, context)
         elif params.analysis_type == "join_count":
             result = await _analyze_join_count(adata, cluster_key, params, context)
+        elif params.analysis_type == "local_join_count":
+            result = await _analyze_local_join_count(
+                adata, cluster_key, params, context
+            )
         elif params.analysis_type == "network_properties":
             result = await _analyze_network_properties(
                 adata, cluster_key, params, context
@@ -647,8 +653,18 @@ async def _analyze_getis_ord(
     This method identifies statistically significant hot spots (clusters of high
     gene expression) and cold spots (clusters of low gene expression). It computes
     a Z-score for each spot, where high positive Z-scores indicate hot spots and
-    low negative Z-scores indicate cold spots. This analysis requires the `esda`
-    and `libpysal` libraries.
+    low negative Z-scores indicate cold spots.
+
+    The significance threshold is determined by params.getis_ord_alpha, and
+    multiple testing correction is applied according to params.getis_ord_correction.
+
+    References
+    ----------
+    Getis, A. & Ord, J.K. (1992). The Analysis of Spatial Association by Use of
+    Distance Statistics. Geographical Analysis, 24(3), 189-206.
+
+    Ord, J.K. & Getis, A. (1995). Local Spatial Autocorrelation Statistics:
+    Distributional Issues and an Application. Geographical Analysis, 27(4), 286-306.
     """
     if context:
         await context.info("Running Getis-Ord Gi* analysis...")
@@ -672,10 +688,17 @@ async def _analyze_getis_ord(
     try:
         from esda.getisord import G_Local
         from pysal.lib import weights
+        from scipy.stats import norm
+
+        # Calculate Z-score threshold from alpha level (two-tailed test)
+        z_threshold = norm.ppf(1 - params.getis_ord_alpha / 2)
 
         coords = adata.obsm["spatial"]
         w = weights.KNN.from_array(coords, k=params.n_neighbors)
         w.transform = "r"
+
+        # Collect all p-values for multiple testing correction
+        all_pvalues = {}
 
         for gene in genes:
             if context:
@@ -692,18 +715,68 @@ async def _analyze_getis_ord(
 
             local_g = G_Local(y, w, transform="R", star=True)
 
-            # Store results in adata.obs
+            # Store raw results in adata.obs
             adata.obs[f"{gene}_getis_ord_z"] = local_g.Zs
             adata.obs[f"{gene}_getis_ord_p"] = local_g.p_sim
 
+            # Store p-values for correction
+            all_pvalues[gene] = local_g.p_sim
+
+            # Count hotspots/coldspots using Z-threshold
             getis_ord_results[gene] = {
                 "mean_z": float(np.mean(local_g.Zs)),
-                "n_hot_spots": int(np.sum(local_g.Zs > 1.96)),
-                "n_cold_spots": int(np.sum(local_g.Zs < -1.96)),
+                "std_z": float(np.std(local_g.Zs)),
+                "n_hot_spots": int(np.sum(local_g.Zs > z_threshold)),
+                "n_cold_spots": int(np.sum(local_g.Zs < -z_threshold)),
+                "n_significant_raw": int(
+                    np.sum(local_g.p_sim < params.getis_ord_alpha)
+                ),
             }
 
+        # Apply multiple testing correction if requested
+        if params.getis_ord_correction != "none" and len(genes) > 1:
+            if params.getis_ord_correction == "bonferroni":
+                corrected_alpha = params.getis_ord_alpha / len(genes)
+                corrected_z_threshold = norm.ppf(1 - corrected_alpha / 2)
+
+                for gene in genes:
+                    p_values = all_pvalues[gene]
+                    adata.obs[f"{gene}_getis_ord_p_corrected"] = np.minimum(
+                        p_values * len(genes), 1.0
+                    )
+
+                    z_scores = adata.obs[f"{gene}_getis_ord_z"].values
+                    getis_ord_results[gene]["n_hot_spots_corrected"] = int(
+                        np.sum(z_scores > corrected_z_threshold)
+                    )
+                    getis_ord_results[gene]["n_cold_spots_corrected"] = int(
+                        np.sum(z_scores < -corrected_z_threshold)
+                    )
+
+            elif params.getis_ord_correction == "fdr_bh":
+                from statsmodels.stats.multitest import multipletests
+
+                for gene in genes:
+                    p_values = all_pvalues[gene]
+                    _, p_corrected, _, _ = multipletests(
+                        p_values, alpha=params.getis_ord_alpha, method="fdr_bh"
+                    )
+                    adata.obs[f"{gene}_getis_ord_p_corrected"] = p_corrected
+
+                    getis_ord_results[gene]["n_significant_corrected"] = int(
+                        np.sum(p_corrected < params.getis_ord_alpha)
+                    )
+
+                    z_scores = adata.obs[f"{gene}_getis_ord_z"].values
+                    significant_mask = p_corrected < params.getis_ord_alpha
+                    getis_ord_results[gene]["n_hot_spots_corrected"] = int(
+                        np.sum((z_scores > z_threshold) & significant_mask)
+                    )
+                    getis_ord_results[gene]["n_cold_spots_corrected"] = int(
+                        np.sum((z_scores < -z_threshold) & significant_mask)
+                    )
+
     except ImportError:
-        # PySAL dependency missing - fail honestly
         raise ImportError(
             "PySAL (Python Spatial Analysis Library) is required for Getis-Ord analysis but is not installed. "
             "Please install it with: pip install 'libpysal' 'esda'. "
@@ -711,8 +784,15 @@ async def _analyze_getis_ord(
         )
 
     return {
+        "method": "Getis-Ord Gi* (star=True)",
         "n_genes_analyzed": len(getis_ord_results),
         "genes_analyzed": list(getis_ord_results.keys()),
+        "parameters": {
+            "n_neighbors": params.n_neighbors,
+            "alpha": params.getis_ord_alpha,
+            "z_threshold": float(z_threshold),
+            "correction": params.getis_ord_correction,
+        },
         "results": getis_ord_results,
     }
 
@@ -839,9 +919,48 @@ async def _analyze_join_count(
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
-    Compute Join Count statistics for categorical spatial data.
+    Compute traditional Join Count statistics for BINARY categorical spatial data.
 
-    Migrated from spatial_statistics.py
+    IMPORTANT: This method only works for binary data (exactly 2 categories).
+    For multi-category data (>2 categories), use 'local_join_count' instead.
+
+    Join Count statistics (Cliff & Ord 1981) measure spatial autocorrelation in
+    binary categorical data by counting the number of joins between neighboring
+    spatial units of the same or different categories.
+
+    Returns three types of joins:
+    - BB (Black-Black): Both neighbors are category 1
+    - WW (White-White): Both neighbors are category 0
+    - BW (Black-White): Neighbors are different categories
+
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data object with spatial coordinates in .obsm['spatial']
+    cluster_key : str
+        Column in adata.obs containing the categorical variable (must have exactly 2 categories)
+    params : SpatialAnalysisParameters
+        Analysis parameters including n_neighbors
+    context : Optional[Context]
+        MCP context for logging
+
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary containing:
+        - bb: Number of Black-Black joins
+        - ww: Number of White-White joins
+        - bw: Number of Black-White joins
+        - J: Total number of joins
+        - p_value: Significance level from permutation test
+
+    References
+    ----------
+    Cliff, A.D. & Ord, J.K. (1981). Spatial Processes. Pion, London.
+
+    See Also
+    --------
+    _analyze_local_join_count : For multi-category data (>2 categories)
     """
     if context:
         await context.info("Running Join Count analysis...")
@@ -873,6 +992,174 @@ async def _analyze_join_count(
         return {"error": "esda package not installed"}
     except Exception as e:
         return {"error": str(e)}
+
+
+async def _analyze_local_join_count(
+    adata: ad.AnnData,
+    cluster_key: str,
+    params: SpatialAnalysisParameters,
+    context: Optional[Context] = None,
+) -> Dict[str, Any]:
+    """
+    Compute Local Join Count statistics for MULTI-CATEGORY categorical spatial data.
+
+    This method extends traditional Join Count statistics to handle data with more than
+    2 categories by using Local Join Count Statistics (Anselin & Li 2019). Each category
+    is converted to a binary indicator variable, and local statistics are computed to
+    identify spatial clusters of each category.
+
+    WHEN TO USE:
+    - Data has MORE THAN 2 categories (e.g., cell types, tissue domains)
+    - Want to identify WHERE each category spatially clusters
+    - Need category-specific clustering patterns
+
+    For binary data (exactly 2 categories), use 'join_count' instead for traditional
+    global statistics.
+
+    METHOD:
+    1. One-hot encode: Convert multi-category variable to binary indicators
+    2. For each category: Compute local join count (# of same-category neighbors)
+    3. Permutation test: Assess statistical significance
+    4. Store results: Local statistics in adata.obs, summary in return value
+
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data object with spatial coordinates in .obsm['spatial']
+    cluster_key : str
+        Column in adata.obs containing the categorical variable (can have any number of categories)
+    params : SpatialAnalysisParameters
+        Analysis parameters including n_neighbors
+    context : Optional[Context]
+        MCP context for logging
+
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary containing:
+        - method: Method name and reference
+        - n_categories: Number of categories analyzed
+        - categories: List of category names
+        - per_category_stats: Statistics for each category
+          - total_joins: Sum of local join counts across all locations
+          - mean_local_joins: Average local join count per location
+          - n_significant: Number of locations with significant clustering (p < 0.05)
+          - n_hotspots: Number of locations with positive significant clustering
+        - interpretation: How to interpret the results
+
+    Notes
+    -----
+    Results are stored in adata.obs as:
+    - 'ljc_{category}': Local join count values for each category
+    - 'ljc_{category}_pvalue': Significance levels (from permutation test)
+
+    High local join count values indicate locations where category members cluster together.
+    P-values < 0.05 indicate statistically significant local clustering.
+
+    References
+    ----------
+    Anselin, L., & Li, X. (2019). Operational Local Join Count Statistics for Cluster Detection.
+    Journal of geographical systems, 21(2), 189–210.
+    https://doi.org/10.1007/s10109-019-00299-x
+
+    See Also
+    --------
+    _analyze_join_count : For binary data (2 categories) using traditional Join Count
+
+    Examples
+    --------
+    For a dataset with 7 cell type categories:
+    >>> result = await _analyze_local_join_count(adata, 'leiden', params, context)
+    >>> # Check which cell types show significant clustering
+    >>> for cat, stats in result['per_category_stats'].items():
+    ...     print(f"{cat}: {stats['n_hotspots']} significant hotspots")
+    """
+    if context:
+        await context.info(
+            "Running Local Join Count analysis for multi-category data..."
+        )
+
+    try:
+        from esda.join_counts_local import Join_Counts_Local
+        from libpysal.weights import KNN
+
+        # Get spatial coordinates
+        coords = adata.obsm["spatial"]
+
+        # Create PySAL W object directly from coordinates using KNN
+        # This ensures compatibility with Join_Counts_Local
+        w = KNN.from_array(coords, k=params.n_neighbors)
+
+        # Get unique categories
+        categories = adata.obs[cluster_key].unique()
+        n_categories = len(categories)
+
+        if context:
+            await context.info(
+                f"Analyzing {n_categories} categories: {', '.join(map(str, categories))}"
+            )
+
+        results = {}
+
+        # Analyze each category separately
+        for category in categories:
+            # Create binary indicator: 1 if cell is this category, 0 otherwise
+            y = (adata.obs[cluster_key] == category).astype(int).values
+
+            # Compute Local Join Count statistics
+            ljc = Join_Counts_Local(connectivity=w).fit(y)
+
+            # Store local statistics in adata.obs
+            adata.obs[f"ljc_{category}"] = ljc.LJC
+            adata.obs[f"ljc_{category}_pvalue"] = ljc.p_sim
+
+            # Compute summary statistics
+            results[str(category)] = {
+                "total_joins": float(ljc.LJC.sum()),
+                "mean_local_joins": float(ljc.LJC.mean()),
+                "std_local_joins": float(ljc.LJC.std()),
+                "n_significant": int((ljc.p_sim < 0.05).sum()),
+                "n_hotspots": int(((ljc.LJC > 0) & (ljc.p_sim < 0.05)).sum()),
+            }
+
+        # Store summary in adata.uns
+        adata.uns["local_join_count"] = {
+            "method": "Local Join Count Statistics (Anselin & Li 2019)",
+            "cluster_key": cluster_key,
+            "n_categories": n_categories,
+            "categories": [str(c) for c in categories],
+            "n_neighbors": params.n_neighbors,
+            "per_category_stats": results,
+        }
+
+        if context:
+            await context.info(
+                f"Local Join Count analysis complete for {n_categories} categories"
+            )
+
+        return {
+            "method": "Local Join Count Statistics (Anselin & Li 2019)",
+            "n_categories": n_categories,
+            "categories": [str(c) for c in categories],
+            "per_category_stats": results,
+            "interpretation": (
+                "Local Join Count statistics identify spatial clusters for each category. "
+                "High LJC values indicate locations where category members cluster together. "
+                "P-values < 0.05 indicate statistically significant local clustering. "
+                "Results stored in adata.obs as 'ljc_{category}' and 'ljc_{category}_pvalue'."
+            ),
+        }
+
+    except ImportError as e:
+        if context:
+            await context.warning(f"Local Join Count requires esda package: {e}")
+        return {
+            "error": "esda package not installed or outdated (requires esda >= 2.4.0)"
+        }
+    except Exception as e:
+        if context:
+            await context.warning(f"Local Join Count analysis failed: {str(e)}")
+        return {"error": f"Local Join Count analysis failed: {str(e)}"}
 
 
 async def _analyze_network_properties(

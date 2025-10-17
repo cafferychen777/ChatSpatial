@@ -27,19 +27,34 @@ except ImportError:
 from mcp.server.fastmcp import Context
 from mcp.types import EmbeddedResource, ImageContent
 
-from .models.analysis import (AnnotationResult, CellCommunicationResult,
-                              CNVResult, DeconvolutionResult,
-                              DifferentialExpressionResult, EnrichmentResult,
-                              IntegrationResult, PreprocessingResult,
-                              RNAVelocityResult, SpatialAnalysisResult,
-                              SpatialDomainResult, SpatialVariableGenesResult,
-                              TrajectoryResult)
-from .models.data import (CellCommunicationParameters, CNVParameters,
-                          ColumnInfo, DeconvolutionParameters,
-                          EnrichmentParameters, IntegrationParameters,
-                          RNAVelocityParameters, SpatialDataset,
-                          SpatialDomainParameters,
-                          SpatialVariableGenesParameters, TrajectoryParameters)
+from .models.analysis import (
+    AnnotationResult,
+    CellCommunicationResult,
+    CNVResult,
+    DeconvolutionResult,
+    DifferentialExpressionResult,
+    EnrichmentResult,
+    IntegrationResult,
+    PreprocessingResult,
+    RNAVelocityResult,
+    SpatialAnalysisResult,
+    SpatialDomainResult,
+    SpatialVariableGenesResult,
+    TrajectoryResult,
+)
+from .models.data import (
+    CellCommunicationParameters,
+    CNVParameters,
+    ColumnInfo,
+    DeconvolutionParameters,
+    EnrichmentParameters,
+    IntegrationParameters,
+    RNAVelocityParameters,
+    SpatialDataset,
+    SpatialDomainParameters,
+    SpatialVariableGenesParameters,
+    TrajectoryParameters,
+)
 from .spatial_mcp_adapter import MCPToolMetadata, create_spatial_mcp_server
 
 # Lazy imports for heavy dependencies - imported when first used
@@ -53,12 +68,14 @@ from .spatial_mcp_adapter import MCPToolMetadata, create_spatial_mcp_server
 # from .tools.trajectory import analyze_rna_velocity  # Lazy loaded
 
 from .utils.error_handling import ProcessingError
-from .utils.mcp_parameter_handler import (manual_parameter_validation,
-                                          validate_analysis_params,
-                                          validate_annotation_params,
-                                          validate_cell_communication_params,
-                                          validate_spatial_analysis_params,
-                                          validate_visualization_params)
+from .utils.mcp_parameter_handler import (
+    manual_parameter_validation,
+    validate_analysis_params,
+    validate_annotation_params,
+    validate_cell_communication_params,
+    validate_spatial_analysis_params,
+    validate_visualization_params,
+)
 from .utils.tool_error_handling import mcp_tool_error_handler
 
 logger = logging.getLogger(__name__)
@@ -622,12 +639,27 @@ async def analyze_spatial_statistics(
         - local_moran: Local Moran's I (LISA) for spatial clustering detection
         - geary: Geary's C spatial autocorrelation (squidpy)
         - getis_ord: Getis-Ord Gi* hot/cold spot detection (esda/PySAL)
+          * Detects statistically significant spatial clusters of high/low values
+          * Parameters: getis_ord_alpha (significance level), getis_ord_correction (FDR/Bonferroni)
+          * Returns raw and corrected hotspot/coldspot counts
         - neighborhood: Neighborhood enrichment (squidpy)
         - co_occurrence: Co-occurrence analysis (squidpy)
         - centrality: Graph centrality scores (squidpy)
         - ripley: Ripley's K/L spatial point patterns
         - bivariate_moran: Bivariate Moran's I for gene pair correlation
-        - join_count: Join count statistics for categorical data
+
+        **Categorical Data Analysis (Choose based on number of categories):**
+        - join_count: Traditional Join Count for BINARY data (exactly 2 categories)
+          * Use for: Binary presence/absence, case/control, treated/untreated
+          * Returns: Global statistics (BB/WW/BW joins, p-value)
+          * Reference: Cliff & Ord (1981)
+
+        - local_join_count: Local Join Count for MULTI-CATEGORY data (>2 categories)
+          * Use for: Cell types, tissue domains, multi-class categorical variables
+          * Returns: Per-category local clustering statistics with p-values
+          * Identifies WHERE each category spatially clusters
+          * Reference: Anselin & Li (2019)
+
         - network_properties: Spatial network analysis
         - spatial_centrality: Spatial-specific centrality measures
     """
@@ -639,7 +671,9 @@ async def analyze_spatial_statistics(
     data_store = {data_id: dataset_info}
 
     # Lazy import spatial_statistics (squidpy is slow to import)
-    from .tools.spatial_statistics import analyze_spatial_statistics as _analyze_spatial_statistics
+    from .tools.spatial_statistics import (
+        analyze_spatial_statistics as _analyze_spatial_statistics,
+    )
 
     # Call spatial statistics analysis function
     result = await _analyze_spatial_statistics(data_id, data_store, params, context)
@@ -1059,8 +1093,7 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import \
-        identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1143,8 +1176,9 @@ async def analyze_cell_communication(
         }
     """
     # Import cell communication function
-    from .tools.cell_communication import \
-        analyze_cell_communication as analyze_comm_func
+    from .tools.cell_communication import (
+        analyze_cell_communication as analyze_comm_func,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1229,8 +1263,9 @@ async def analyze_enrichment(
     # Import enrichment analysis function
     import time
 
-    from .tools.enrichment import \
-        perform_spatial_enrichment as perform_enrichment_analysis
+    from .tools.enrichment import (
+        perform_spatial_enrichment as perform_enrichment_analysis,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1376,8 +1411,12 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (perform_enrichr, perform_gsea,
-                                       perform_ora, perform_ssgsea)
+        from .tools.enrichment import (
+            perform_enrichr,
+            perform_gsea,
+            perform_ora,
+            perform_ssgsea,
+        )
 
         if params.method == "pathway_gsea":
             result_dict = (
