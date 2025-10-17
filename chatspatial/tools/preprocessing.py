@@ -590,6 +590,20 @@ async def preprocess_data(
             if context:
                 await context.info(f"Using {n_hvgs} highly variable genes...")
 
+        # Statistical warning: Very low HVG count may lead to unstable clustering
+        # Based on literature consensus: 500-5000 genes recommended, 1000-2000 typical
+        # References:
+        # - Bioconductor OSCA: "any value from 500 to 5000 is reasonable"
+        # - Single-cell best practices: typical range 1000-2000
+        if n_hvgs < 500 and context:
+            await context.warning(
+                f"⚠️  Using only {n_hvgs} HVGs is below the recommended minimum of 500 genes.\n"
+                f"   • Literature consensus: 500-5000 genes (typical: 1000-2000)\n"
+                f"   • Low gene counts may lead to unstable clustering results\n"
+                f"   • Recommended: Use n_hvgs=1000-2000 for most analyses\n"
+                f"   • Current dataset: {adata.n_obs} cells × {adata.n_vars} total genes"
+            )
+
         # Check if we should use all genes (for very small gene sets)
         if _should_use_all_genes_for_hvg(adata):
             if context:
@@ -775,6 +789,22 @@ async def preprocess_data(
         if n_neighbors >= adata.n_obs:
             raise ValueError(
                 f"n_neighbors ({n_neighbors}) must be less than dataset size ({adata.n_obs})"
+            )
+
+        # Statistical warning: n_neighbors > sqrt(N) may reduce clustering resolution
+        # Based on:
+        # - KNN rule of thumb: k ≈ sqrt(N) or sqrt(N)/2
+        # - UMAP developers: "range 5 to 50, with a choice of 10 to 15 being sensible default"
+        # - GitHub discussion (scverse/scanpy#223): small datasets (~1000 cells) use n_neighbors=5
+        # Examples: 100 cells → k≈10, 50 cells → k≈7, 20 cells → k≈4-5
+        recommended_max = int(np.sqrt(adata.n_obs))
+        if n_neighbors > recommended_max and context:
+            await context.warning(
+                f"⚠️  n_neighbors={n_neighbors} exceeds the sqrt(N) rule of thumb (√{adata.n_obs} ≈ {recommended_max}).\n"
+                f"   • High neighbor counts may reduce clustering resolution for small datasets\n"
+                f"   • Rule of thumb: k ≈ √N (based on KNN literature)\n"
+                f"   • Recommended: n_neighbors={recommended_max} or lower for this dataset\n"
+                f"   • General guidelines: 5-50 (UMAP), 10-15 default (Scanpy)"
             )
 
         if context:
