@@ -423,7 +423,7 @@ def _prepare_reference_for_card(
                 if hasattr(raw_adata.X, "toarray")
                 else raw_adata.X
             )
-            sample_X = raw_X[:min(100, raw_X.shape[0]), :min(100, raw_X.shape[1])]
+            sample_X = raw_X[: min(100, raw_X.shape[0]), : min(100, raw_X.shape[1])]
             has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
             has_negatives = sample_X.min() < 0
 
@@ -454,7 +454,7 @@ def _prepare_reference_for_card(
         else:
             X_dense = adata_copy.X.copy()
 
-        sample_X = X_dense[:min(100, X_dense.shape[0]), :min(100, X_dense.shape[1])]
+        sample_X = X_dense[: min(100, X_dense.shape[0]), : min(100, X_dense.shape[1])]
         has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
 
         if has_decimals:
@@ -1010,6 +1010,168 @@ def is_rctd_available() -> Tuple[bool, str]:
         return False, "rpy2 package is not installed. Install with 'pip install rpy2'"
 
 
+def _detect_gene_format(var_names: pd.Index) -> str:
+    """
+    Detect gene naming format from var_names.
+
+    Scientific basis: Human/mouse genes have standardized naming conventions:
+    - Ensembl IDs: ENSG/ENSMUSG followed by 11 digits
+    - Gene symbols: Capitalized names (human) or Title case (mouse)
+
+    Args:
+        var_names: Gene names from AnnData.var_names
+
+    Returns:
+        'ensembl', 'symbols', or 'mixed'
+    """
+    import re
+
+    sample_size = min(100, len(var_names))
+    sample = var_names[:sample_size]
+
+    ensembl_pattern = re.compile(r"^ENS(G|MUSG)\d{11}$")
+    ensembl_count = sum(1 for g in sample if ensembl_pattern.match(str(g)))
+
+    ensembl_ratio = ensembl_count / sample_size
+
+    if ensembl_ratio > 0.9:
+        return "ensembl"
+    elif ensembl_ratio < 0.1:
+        return "symbols"
+    else:
+        return "mixed"
+
+
+def _validate_gene_format_compatibility(
+    spatial_adata: ad.AnnData, reference_adata: ad.AnnData, context=None
+) -> Tuple[bool, str]:
+    """
+    Validate that spatial and reference data have compatible gene naming.
+
+    Scientific rationale:
+    - Gene expression quantification relies on gene ID matching
+    - Mismatched formats lead to poor overlap and data loss
+    - Statistical power is compromised with <50% gene overlap
+
+    Args:
+        spatial_adata: Spatial data
+        reference_adata: Reference data
+        context: Logging context
+
+    Returns:
+        (is_valid, error_message)
+    """
+    spatial_format = _detect_gene_format(spatial_adata.var_names)
+    reference_format = _detect_gene_format(reference_adata.var_names)
+
+    if context:
+        context.info("📊 Gene format detection:")
+        context.info(
+            f"   Spatial: {spatial_format} ({len(spatial_adata.var_names)} genes)"
+        )
+        context.info(
+            f"   Reference: {reference_format} ({len(reference_adata.var_names)} genes)"
+        )
+
+    # Check overlap
+    common_genes = set(spatial_adata.var_names) & set(reference_adata.var_names)
+    overlap_pct = len(common_genes) / len(reference_adata.var_names)
+
+    if overlap_pct < 0.3:  # Statistical threshold: <30% overlap is problematic
+        return False, (
+            f"❌ Insufficient gene overlap: {overlap_pct:.1%}\n"
+            f"   This indicates gene naming format mismatch.\n\n"
+            f"   Detected formats:\n"
+            f"   - Spatial: {spatial_format}\n"
+            f"   - Reference: {reference_format}\n\n"
+            f"   💡 SOLUTION:\n"
+            f"   If reference uses Ensembl IDs, reload spatial data with:\n"
+            f"   sc.read_10x_mtx(path, var_names='gene_ids')\n\n"
+            f"   Reference genes (first 5): {list(reference_adata.var_names[:5])}\n"
+            f"   Spatial genes (first 5): {list(spatial_adata.var_names[:5])}"
+        )
+
+    if reference_format == "mixed" and spatial_format != "mixed":
+        if context:
+            context.warning(
+                "⚠️ Reference has mixed gene naming (symbols + Ensembl IDs).\n"
+                "   Using order-preserving gene matching to avoid expression mismatch."
+            )
+
+    return True, ""
+
+
+def _validate_subset_quality(
+    original_adata: ad.AnnData, subset_adata: ad.AnnData, data_label: str, context=None
+) -> None:
+    """
+    Validate that gene subsetting preserved data quality.
+
+    Statistical rationale:
+    - nUMI (UMI counts) is a key quality metric
+    - >50% nUMI loss suggests gene name mismatch
+    - This is evidence of systematic error, not biological variation
+
+    Args:
+        original_adata: Original AnnData before subsetting
+        subset_adata: Subsetted AnnData
+        data_label: Label for logging (e.g., "Reference")
+        context: Logging context
+
+    Raises:
+        ValueError: If data quality loss exceeds statistical threshold
+    """
+    import numpy as np
+
+    # Calculate nUMI statistics
+    if hasattr(original_adata.X, "toarray"):
+        original_numi = np.array(original_adata.X.sum(axis=1)).flatten()
+        subset_numi = np.array(subset_adata.X.sum(axis=1)).flatten()
+    else:
+        original_numi = original_adata.X.sum(axis=1)
+        subset_numi = subset_adata.X.sum(axis=1)
+
+    # Statistical metrics
+    original_median = np.median(original_numi)
+    subset_median = np.median(subset_numi)
+    loss_ratio = 1 - (subset_median / original_median) if original_median > 0 else 0
+
+    # Count cells with very low UMI (< 5 is RCTD's threshold)
+    low_umi_count = (subset_numi < 5).sum()
+    low_umi_pct = low_umi_count / len(subset_numi)
+
+    if context:
+        context.info(f"📈 {data_label} subset quality check:")
+        context.info(f"   Genes: {original_adata.n_vars} → {subset_adata.n_vars}")
+        context.info(f"   Median nUMI: {original_median:.0f} → {subset_median:.0f}")
+        context.info(f"   nUMI loss: {loss_ratio:.1%}")
+        context.info(f"   Cells with nUMI < 5: {low_umi_count} ({low_umi_pct:.1%})")
+
+    # Statistical threshold: >50% median nUMI loss is pathological
+    if loss_ratio > 0.5:
+        raise ValueError(
+            f"❌ {data_label} data quality compromised after gene subsetting!\n\n"
+            f"   Statistical evidence of gene name mismatch:\n"
+            f"   - Median nUMI loss: {loss_ratio:.1%} (threshold: 50%)\n"
+            f"   - Before subsetting: {original_median:.0f} UMI/cell\n"
+            f"   - After subsetting: {subset_median:.0f} UMI/cell\n"
+            f"   - Cells with nUMI < 5: {low_umi_count}/{len(subset_numi)} ({low_umi_pct:.1%})\n\n"
+            f"   This indicates that gene names in var_names don't match\n"
+            f"   the actual genes in the expression matrix.\n\n"
+            f"   💡 SOLUTION:\n"
+            f"   Reload data with matching gene ID format (Ensembl IDs recommended):\n"
+            f"   sc.read_10x_mtx(path, var_names='gene_ids')"
+        )
+
+    # Warning threshold: >20% loss or >10% low-UMI cells
+    if loss_ratio > 0.2 or low_umi_pct > 0.1:
+        if context:
+            context.warning(
+                f"⚠️ Moderate {data_label} data quality loss detected.\n"
+                f"   This may impact deconvolution accuracy."
+            )
+
+
 def deconvolve_rctd(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
@@ -1023,23 +1185,46 @@ def deconvolve_rctd(
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using RCTD (Robust Cell Type Decomposition)
 
+    IMPORTANT: Gene Naming Convention
+    ----------------------------------
+    Reference and spatial data MUST use the SAME gene identifier format:
+    - If reference uses Ensembl IDs (ENSG...), spatial data must too
+    - If reference uses gene symbols (Cd5l, CD5L), spatial data must too
+
+    For 10x Visium data, specify gene format when loading:
+        # Use Ensembl IDs (recommended - includes all genes)
+        adata = sc.read_10x_mtx(path, var_names='gene_ids')
+
+        # Use gene symbols (default - protein-coding genes only)
+        adata = sc.read_10x_mtx(path, var_names='gene_symbols')
+
+    Scientific Rationale:
+    - Gene expression quantification relies on accurate gene ID matching
+    - Mismatched formats cause systematic data loss (>50% nUMI loss)
+    - Statistical power is compromised with poor gene overlap (<30%)
+
     Args:
         spatial_adata: Spatial transcriptomics AnnData object
         reference_adata: Reference single-cell RNA-seq AnnData object
         cell_type_key: Key in reference_adata.obs for cell type information
         mode: RCTD mode - 'full', 'doublet', or 'multi'
-        max_cores: Maximum number of cores to use
-        confidence_threshold: Confidence threshold for cell type assignment
-        doublet_threshold: Threshold for doublet detection
-        min_common_genes: Minimum number of common genes required
+        max_cores: Maximum number of CPU cores to use (default: 4)
+        confidence_threshold: Confidence threshold for cell type assignment (default: 10.0)
+        doublet_threshold: Threshold for doublet detection (default: 25.0)
+        min_common_genes: Minimum number of common genes required (default: 100)
+        context: Logging context for transparent progress tracking
 
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
 
     Raises:
         ImportError: If rpy2 or spacexr package is not available
-        ValueError: If input data is invalid or insufficient common genes
+        ValueError: If gene format mismatch or insufficient data quality
         RuntimeError: If RCTD computation fails
+
+    References:
+        Cable et al. (2022) Nat. Biotechnol. "Robust decomposition of cell type
+        mixtures in spatial transcriptomics"
     """
     # Validate cell type key exists
     if cell_type_key not in reference_adata.obs:
@@ -1072,8 +1257,28 @@ def deconvolve_rctd(
             reference_adata.copy(), "Reference", context
         )
 
-        # Find common genes AFTER data preparation
-        common_genes = list(set(spatial_data.var_names) & set(reference_data.var_names))
+        # === SCIENTIFIC VALIDATION: Gene Format Compatibility ===
+        # Validate gene naming format compatibility BEFORE subsetting
+        # This prevents systematic data loss from gene name mismatch
+        is_valid, error_msg = _validate_gene_format_compatibility(
+            spatial_data, reference_data, context
+        )
+        if not is_valid:
+            raise ValueError(error_msg)
+
+        # === SCIENTIFICALLY RIGOROUS GENE MATCHING ===
+        # Use order-preserving matching to avoid expression matrix misalignment
+        # Rationale: For datasets with mixed gene naming (symbols + Ensembl IDs),
+        # set intersection may match symbols while expression is in Ensembl genes
+        # This preserves the reference gene order to ensure var_names match expression data
+        spatial_genes_set = set(spatial_data.var_names)
+        common_genes = [g for g in reference_data.var_names if g in spatial_genes_set]
+
+        if context:
+            context.info(
+                f"🔬 Gene matching: {len(common_genes)} common genes "
+                f"({len(common_genes)/len(reference_data.var_names)*100:.1f}% of reference)"
+            )
 
         if len(common_genes) < min_common_genes:
             raise ValueError(
@@ -1090,8 +1295,31 @@ def deconvolve_rctd(
             )
 
         # Subset to common genes
+        spatial_data_before = spatial_data.copy()  # Keep for validation
+        reference_data_before = reference_data.copy()  # Keep for validation
+
         spatial_data = spatial_data[:, common_genes].copy()
         reference_data = reference_data[:, common_genes].copy()
+
+        # === STATISTICAL VALIDATION: Subset Quality ===
+        # Validate that gene subsetting preserved data quality
+        # This catches gene name format mismatches that passed initial checks
+        _validate_subset_quality(
+            reference_data_before, reference_data, "Reference", context
+        )
+        _validate_subset_quality(spatial_data_before, spatial_data, "Spatial", context)
+
+        # DEBUG: Check data after subsetting to common genes
+        if context and cell_type_key in reference_data.obs:
+            ref_ct_counts = reference_data.obs[cell_type_key].value_counts()
+            context.info(
+                f"🧬 After subsetting: {len(common_genes)} common genes, {len(ref_ct_counts)} cell types"
+            )
+            min_count = ref_ct_counts.min()
+            if min_count < 25:
+                context.warning(
+                    f"⚠️ Minimum cells per type: {min_count} (< 25 required)"
+                )
 
         # Get spatial coordinates if available
         if "spatial" in spatial_adata.obsm:
@@ -1136,6 +1364,21 @@ def deconvolve_rctd(
         cell_types_series = pd.Series(
             cell_types.values, index=reference_data.obs_names, name="cell_type"
         )
+
+        # DEBUG: Check cell type distribution before passing to R
+        cell_type_counts = cell_types_series.value_counts()
+        if context:
+            context.info(
+                f"📊 Reference: {len(cell_type_counts)} cell types, {len(cell_types_series)} total cells"
+            )
+            min_count = cell_type_counts.min()
+            if min_count < 25:
+                context.warning(
+                    f"⚠️ WARNING: Minimum cells per type = {min_count} (< 25 required)"
+                )
+                # List types below threshold
+                low_types = [ct for ct, count in cell_type_counts.items() if count < 25]
+                context.warning(f"   Types below threshold: {', '.join(low_types)}")
 
         # Calculate nUMI for both datasets
         spatial_numi = pd.Series(
@@ -1182,11 +1425,27 @@ def deconvolve_rctd(
             ro.globalenv["cell_types_vec"] = r_cell_types
             ro.globalenv["numi_ref"] = r_reference_numi
 
+            # DEBUG: Print cell type counts before creating Reference
+            print("\n" + "=" * 60)
+            print("DEBUG: Cell type counts BEFORE creating R Reference object")
+            print("=" * 60)
+            ct_counts_debug = cell_types_series.value_counts().sort_index()
+            for ct, count in ct_counts_debug.items():
+                status = "✓" if count >= 25 else "❌"
+                print(f"{status} {ct}: {count} cells")
+            print(
+                f"\nTotal: {len(cell_types_series)} cells, {len(ct_counts_debug)} types"
+            )
+            print(f"Min count: {ct_counts_debug.min()}")
+            print("=" * 60 + "\n")
+
             # Convert cell_types to factor as required by RCTD, and set min_UMI lower for testing
             reference = ro.r(
                 """
             cell_types_factor <- as.factor(cell_types_vec)
             names(cell_types_factor) <- names(cell_types_vec)
+            print("DEBUG: Cell type table in R:")
+            print(table(cell_types_factor))
             Reference(reference_counts, cell_types_factor, numi_ref, min_UMI = 5)
             """
             )
@@ -1197,9 +1456,12 @@ def deconvolve_rctd(
             ro.globalenv["reference"] = reference
             ro.globalenv["max_cores_val"] = max_cores
 
+            # Use f-string to properly pass max_cores parameter
+            # Scientific rationale: Parallel processing improves computational efficiency
+            # while maintaining statistical validity (order of computation doesn't matter)
             myRCTD = ro.r(
-                """
-            create.RCTD(puck, reference, max_cores = 1, UMI_min_sigma = 10)
+                f"""
+            create.RCTD(puck, reference, max_cores = {max_cores}, UMI_min_sigma = 10)
             """
             )
 
@@ -3009,7 +3271,9 @@ def deconvolve_card(
         # 9. Add results to spatial adata
         # CARD may filter spots during QC, so we need to align results properly
         # Reindex to match spatial_adata.obs, filling missing spots with NaN
-        proportions_aligned = proportions.reindex(spatial_adata.obs_names, fill_value=np.nan)
+        proportions_aligned = proportions.reindex(
+            spatial_adata.obs_names, fill_value=np.nan
+        )
 
         for cell_type in proportions.columns:
             col_name = f"CARD_{cell_type}"
