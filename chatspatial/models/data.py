@@ -396,11 +396,14 @@ class VisualizationParameters(BaseModel):
     ] = Field("spring", description="Network layout algorithm")
 
     # Deconvolution visualization parameters
-    n_cell_types: Annotated[int, Field(
-        gt=0,
-        le=10,
-        description="Number of top cell types to show in deconvolution visualization. Must be between 1-10. Default: 4"
-    )] = 4
+    n_cell_types: Annotated[
+        int,
+        Field(
+            gt=0,
+            le=10,
+            description="Number of top cell types to show in deconvolution visualization. Must be between 1-10. Default: 4",
+        ),
+    ] = 4
 
     @model_validator(mode="after")
     def validate_conditional_parameters(self) -> Self:
@@ -640,7 +643,8 @@ class SpatialAnalysisParameters(BaseModel):
         "centrality",
         "getis_ord",
         "bivariate_moran",
-        "join_count",
+        "join_count",  # Traditional Join Count for binary data (2 categories)
+        "local_join_count",  # Local Join Count for multi-category data (>2 categories)
         "network_properties",
         "spatial_centrality",
     ] = "neighborhood"
@@ -653,7 +657,8 @@ class SpatialAnalysisParameters(BaseModel):
             "  • neighborhood: REQUIRED - analyzes enrichment between cell type groups\n"
             "  • co_occurrence: REQUIRED - measures spatial co-occurrence of groups\n"
             "  • ripley: REQUIRED - analyzes spatial point patterns by group\n"
-            "  • join_count: REQUIRED - tests spatial autocorrelation of categorical groups\n"
+            "  • join_count: REQUIRED - for BINARY categorical data (2 categories)\n"
+            "  • local_join_count: REQUIRED - for MULTI-CATEGORY data (>2 categories)\n"
             "\n"
             "OPTIONAL/NOT REQUIRED FOR GENE-BASED ANALYSES:\n"
             "  • moran: Not required - analyzes gene expression spatial patterns\n"
@@ -670,7 +675,14 @@ class SpatialAnalysisParameters(BaseModel):
             "The LLM will auto-detect from metadata if not specified for required analyses."
         ),
     )
-    n_neighbors: Annotated[int, Field(gt=0)] = 15
+    n_neighbors: Annotated[int, Field(gt=0)] = Field(
+        8,
+        description=(
+            "Number of nearest neighbors for spatial graph construction. "
+            "Default: 8 (recommended by ArcGIS for Getis-Ord analysis). "
+            "Adjust based on dataset density and spatial scale."
+        ),
+    )
 
     # Unified gene selection parameter (NEW)
     genes: Optional[List[str]] = Field(
@@ -700,11 +712,21 @@ class SpatialAnalysisParameters(BaseModel):
     moran_two_tailed: bool = Field(False, description="Use two-tailed test")
 
     # Getis-Ord Gi* specific parameters
-    getis_ord_correction: Literal["bonferroni", "fdr_bh", "none"] = (
-        "fdr_bh"  # Multiple testing correction
+    getis_ord_correction: Literal["bonferroni", "fdr_bh", "none"] = Field(
+        "fdr_bh",
+        description=(
+            "Multiple testing correction method for Getis-Ord analysis. "
+            "Options: 'fdr_bh' (Benjamini-Hochberg FDR, recommended for multi-gene), "
+            "'bonferroni' (conservative), 'none' (no correction)"
+        ),
     )
-    getis_ord_alpha: Annotated[float, Field(gt=0.0, le=1.0)] = (
-        0.05  # Significance threshold
+    getis_ord_alpha: Annotated[float, Field(gt=0.0, le=1.0)] = Field(
+        0.05,
+        description=(
+            "Significance level (alpha) for Getis-Ord hotspot detection. "
+            "Determines Z-score threshold via norm.ppf(1 - alpha/2). "
+            "Common values: 0.05 (z=1.96), 0.01 (z=2.576), 0.10 (z=1.645)"
+        ),
     )
 
     # Bivariate Moran's I specific parameters
