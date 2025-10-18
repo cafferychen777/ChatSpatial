@@ -585,14 +585,16 @@ async def _identify_spatial_genes_spatialde(
     )
 
     # Create gene statistics dictionaries
-    # IMPORTANT: Only include significant genes to avoid exceeding MCP token limits
-    # Full results are stored in adata.var for user access
-    significant_results = results[results["g"].isin(significant_genes)]
+    # IMPORTANT: Only include top genes to avoid exceeding MCP token limits
+    # Return detailed statistics for top 100 genes only (full results in adata.var)
+    MAX_STATS_TO_RETURN = 100
+    top_stats_genes = significant_genes[:MAX_STATS_TO_RETURN]
+    top_stats_results = results[results["g"].isin(top_stats_genes)]
     gene_statistics = dict(
-        zip(significant_results["g"], significant_results["LLR"])
+        zip(top_stats_results["g"], top_stats_results["LLR"])
     )  # Log-likelihood ratio
-    p_values = dict(zip(significant_results["g"], significant_results["pval"]))
-    q_values = dict(zip(significant_results["g"], significant_results["qval"]))
+    p_values = dict(zip(top_stats_results["g"], top_stats_results["pval"]))
+    q_values = dict(zip(top_stats_results["g"], top_stats_results["qval"]))
 
     # Create SpatialDE-specific results
     # Only return summary statistics (top 10 genes) to avoid exceeding MCP token limit
@@ -1578,15 +1580,15 @@ async def _identify_spatial_genes_sparkx(
     )
 
     # Create gene statistics dictionaries
-    # IMPORTANT: Only include significant genes to avoid exceeding MCP token limits
-    # Full results are stored in adata.var for user access
-    significant_results = results_df[results_df["gene"].isin(significant_genes)]
-    gene_statistics = dict(
-        zip(significant_results["gene"], significant_results["pvalue"])
-    )
-    p_values = dict(zip(significant_results["gene"], significant_results["pvalue"]))
+    # IMPORTANT: Only include top genes to avoid exceeding MCP token limits
+    # Return detailed statistics for top 100 genes only (full results in adata.var)
+    MAX_STATS_TO_RETURN = 100
+    top_stats_genes = significant_genes[:MAX_STATS_TO_RETURN]
+    top_stats_results = results_df[results_df["gene"].isin(top_stats_genes)]
+    gene_statistics = dict(zip(top_stats_results["gene"], top_stats_results["pvalue"]))
+    p_values = dict(zip(top_stats_results["gene"], top_stats_results["pvalue"]))
     q_values = dict(
-        zip(significant_results["gene"], significant_results["adjusted_pvalue"])
+        zip(top_stats_results["gene"], top_stats_results["adjusted_pvalue"])
     )
 
     # Create SPARK-X specific results
