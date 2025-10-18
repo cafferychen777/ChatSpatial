@@ -972,12 +972,24 @@ class SpatialVariableGenesParameters(BaseModel):
     spatial_key: str = "spatial"  # Key in obsm containing spatial coordinates
 
     # GASTON-specific parameters
-    # Preprocessing parameters
-    preprocessing_method: Literal["glmpca", "pearson_residuals"] = (
-        "glmpca"  # Official default: GLM-PCA
-    )
+    # Preprocessing: GASTON uses GLM-PCA on raw counts (official method from tutorial)
+    # preprocessing_method parameter removed - GLM-PCA is the only supported method
     n_components: Annotated[int, Field(gt=0, le=50)] = (
-        10  # Number of components for dimensionality reduction
+        10  # Number of components for GLM-PCA dimensionality reduction
+    )
+
+    # GLM-PCA optimization parameters (from official tutorial)
+    glmpca_penalty: Annotated[float, Field(gt=0, le=100)] = (
+        10.0  # GLM-PCA L2 penalty for numerical stability (official default: 10)
+    )
+    glmpca_num_iters: Annotated[int, Field(gt=0, le=100)] = (
+        30  # Maximum GLM-PCA optimization iterations (official default: 30)
+    )
+    glmpca_eps: Annotated[float, Field(gt=0, le=0.1)] = (
+        1e-4  # GLM-PCA convergence threshold (official default: 1e-4)
+    )
+    glmpca_num_genes: Annotated[int, Field(gt=0, le=50000)] = (
+        30000  # Top genes by total count for GLM-PCA (official default: 30000)
     )
 
     # Neural network architecture parameters
@@ -1064,6 +1076,19 @@ class SpatialVariableGenesParameters(BaseModel):
         "mixture"  # Kernel testing: "single" (faster) or "mixture" (11 kernels)
     )
     sparkx_verbose: bool = False  # Whether to print detailed R output
+
+    # SPARK-X gene filtering parameters (based on SPARK-X paper & best practices)
+    filter_mt_genes: bool = (
+        True  # Filter mitochondrial genes (MT-*) - SPARK-X paper standard practice
+    )
+    filter_ribo_genes: bool = (
+        False  # Filter ribosomal genes (RPS*, RPL*) - optional, may remove housekeeping
+    )
+    test_only_hvg: bool = (
+        True  # Test only highly variable genes - 2024 best practice for reducing housekeeping dominance
+        # Requires preprocessing with HVG detection first; set to False to test all genes (not recommended)
+    )
+    warn_housekeeping: bool = True  # Warn if >30% of top genes are housekeeping genes
 
 
 class CellCommunicationParameters(BaseModel):
