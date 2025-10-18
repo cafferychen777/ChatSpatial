@@ -538,7 +538,12 @@ async def _identify_spatial_genes_spatialde(
     results = results.sort_values("qval")
 
     # Filter significant genes
-    significant_genes = results[results["qval"] < 0.05]["g"].tolist()
+    significant_genes_all = results[results["qval"] < 0.05]["g"].tolist()
+
+    # IMPORTANT: Limit returned gene list to avoid MCP token overflow
+    # Return top 500 significant genes by default (full list stored in adata.var)
+    MAX_GENES_TO_RETURN = 500
+    significant_genes = significant_genes_all[:MAX_GENES_TO_RETURN]
 
     # Get top genes if requested
     if params.n_top_genes is not None:
@@ -603,8 +608,9 @@ async def _identify_spatial_genes_spatialde(
         "preprocessing_workflow": "Official: NaiveDE.stabilize + NaiveDE.regress_out",
         "n_genes_tested": n_genes,
         "n_spots": n_spots,
-        "n_significant_genes": len(significant_genes),
-        "note": "Full results stored in adata.var['spatialde_pval', 'spatialde_qval', 'spatialde_l']",
+        "n_significant_genes_total": len(significant_genes_all),
+        "n_significant_genes_returned": len(significant_genes),
+        "note": "Full results stored in adata.var['spatialde_pval', 'spatialde_qval', 'spatialde_l']. Top 500 significant genes returned to avoid MCP token limits.",
     }
 
     result = SpatialVariableGenesResult(
@@ -622,7 +628,13 @@ async def _identify_spatial_genes_spatialde(
 
     if context:
         await context.info("SpatialDE analysis completed")
-        await context.info(f"Found {len(significant_genes)} significant spatial genes")
+        await context.info(
+            f"Found {len(significant_genes_all)} significant spatial genes"
+        )
+        if len(significant_genes_all) > MAX_GENES_TO_RETURN:
+            await context.info(
+                f"Returning top {MAX_GENES_TO_RETURN} genes (full results in adata.var)"
+            )
 
     return result
 
@@ -1465,9 +1477,14 @@ async def _identify_spatial_genes_sparkx(
     results_df = results_df.sort_values("adjusted_pvalue")
 
     # Filter significant genes
-    significant_genes = results_df[results_df["adjusted_pvalue"] < 0.05][
+    significant_genes_all = results_df[results_df["adjusted_pvalue"] < 0.05][
         "gene"
     ].tolist()
+
+    # IMPORTANT: Limit returned gene list to avoid MCP token overflow
+    # Return top 500 significant genes by default (full list stored in adata.var)
+    MAX_GENES_TO_RETURN = 500
+    significant_genes = significant_genes_all[:MAX_GENES_TO_RETURN]
 
     # Get top genes if requested
     if params.n_top_genes is not None:
@@ -1556,7 +1573,7 @@ async def _identify_spatial_genes_sparkx(
         },
         statistics={
             "n_genes_analyzed": len(results_df),
-            "n_significant_genes": len(significant_genes),
+            "n_significant_genes": len(significant_genes_all),
         },
     )
 
@@ -1589,9 +1606,10 @@ async def _identify_spatial_genes_sparkx(
         "method": "sparkx",
         "num_core": params.sparkx_num_core,
         "option": params.sparkx_option,
-        "n_significant_genes": len(significant_genes),
+        "n_significant_genes_total": len(significant_genes_all),
+        "n_significant_genes_returned": len(significant_genes),
         "data_format": "genes_x_spots",
-        "note": "Full results stored in adata.var['sparkx_pval', 'sparkx_qval']",
+        "note": "Full results stored in adata.var['sparkx_pval', 'sparkx_qval']. Top 500 significant genes returned to avoid MCP token limits.",
     }
 
     result = SpatialVariableGenesResult(
@@ -1611,7 +1629,11 @@ async def _identify_spatial_genes_sparkx(
         await context.info("SPARK-X analysis completed successfully")
         await context.info(f"Analyzed {len(results_df)} genes")
         await context.info(
-            f"Found {len(significant_genes)} significant spatial genes (q < 0.05)"
+            f"Found {len(significant_genes_all)} significant spatial genes (q < 0.05)"
         )
+        if len(significant_genes_all) > MAX_GENES_TO_RETURN:
+            await context.info(
+                f"Returning top {MAX_GENES_TO_RETURN} genes (full results in adata.var)"
+            )
 
     return result
