@@ -162,8 +162,19 @@ async def _identify_spatial_genes_gaston(
 
     Requirements:
         - gaston-spatial package installed
-        - Normalized, log-transformed data (validates automatically)
+        - Raw UMI counts preserved in adata.raw (for GLM-PCA preprocessing)
         - PyTorch for neural network operations
+
+    Note:
+        GASTON's GLM-PCA preprocessing requires raw count data (Poisson family).
+        The raw counts must be available in adata.raw. If you've preprocessed
+        your data (normalized/log-transformed), ensure adata.raw was preserved.
+
+        Example workflow:
+            adata.raw = adata  # Save raw counts before preprocessing
+            sc.pp.normalize_total(adata, target_sum=1e4)
+            sc.pp.log1p(adata)
+            sc.pp.highly_variable_genes(adata, n_top_genes=2000)
     """
     # Import dependencies at runtime
     import numpy as np
@@ -173,14 +184,10 @@ async def _identify_spatial_genes_gaston(
     if GASTON_AVAILABLE is None:
         try:
             import gaston  # noqa: F401
-            from gaston import (
-                binning_and_plotting,
-                dp_related,  # noqa: F401
-                neural_net,
-                process_NN_output,
-                segmented_fit,
-                spatial_gene_classification,
-            )
+            from gaston import dp_related  # noqa: F401
+            from gaston import (binning_and_plotting, neural_net,
+                                process_NN_output, segmented_fit,
+                                spatial_gene_classification)
 
             GASTON_AVAILABLE = True
             GASTON_IMPORT_ERROR = None
@@ -204,30 +211,15 @@ async def _identify_spatial_genes_gaston(
     adata = data_store[data_id]["adata"]
     spatial_coords = adata.obsm[params.spatial_key]
 
-    # Validate data preprocessing state
-    data_max = adata.X.max() if hasattr(adata.X, "max") else np.max(adata.X)
-    if data_max > 100:
-        raise ValueError(
-            "GASTON requires preprocessed data but raw counts detected. "
-            "Please run basic preprocessing in preprocessing.py: "
-            "1) sc.pp.normalize_total(adata, target_sum=1e4) "
-            "2) sc.pp.log1p(adata)"
-        )
-
-    # GASTON-specific feature engineering (algorithm requirement)
+    # GASTON official preprocessing: GLM-PCA on raw counts
     if context:
         await context.info(
-            f"Applying GASTON-specific feature engineering using {params.preprocessing_method}"
+            "Applying GASTON GLM-PCA preprocessing (official method from tutorial)"
         )
 
-    if params.preprocessing_method == "glmpca":
-        expression_features = await _gaston_feature_engineering_glmpca(
-            adata, params.n_components, context
-        )
-    else:
-        expression_features = await _gaston_feature_engineering_pearson(
-            adata, params.n_components, context
-        )
+    expression_features = await _gaston_feature_engineering_glmpca(
+        adata, params.n_components, params, context
+    )
 
     # Create temporary directory for GASTON outputs
     temp_dir = tempfile.mkdtemp(prefix="gaston_")
@@ -283,7 +275,7 @@ async def _identify_spatial_genes_gaston(
 
         # Create GASTON-specific results
         gaston_results = {
-            "preprocessing_method": params.preprocessing_method,
+            "preprocessing_method": "glmpca",  # Official GASTON method
             "n_components": params.n_components,
             "n_epochs_trained": params.epochs,
             "final_loss": final_loss,
@@ -342,6 +334,14 @@ async def _identify_spatial_genes_spatialde(
     rigorous statistical testing for spatial expression patterns with multiple
     testing correction.
 
+    Official Preprocessing Workflow (Implemented):
+        This implementation follows the official SpatialDE best practices:
+        1. Filter low-expression genes (total_counts >= 3)
+        2. Variance stabilization (NaiveDE.stabilize)
+        3. Regress out library size effects (NaiveDE.regress_out)
+        4. Run SpatialDE spatial covariance test
+        5. Apply FDR correction (Storey q-value)
+
     Method Details:
         - Models spatial correlation using squared exponential kernel
         - Tests significance via likelihood ratio test
@@ -349,13 +349,21 @@ async def _identify_spatial_genes_spatialde(
         - Returns both raw and adjusted p-values
 
     Key Parameters:
-        - spatialde_normalized: Whether input is pre-normalized (default: True)
-        - spatialde_kernel: Kernel type for spatial modeling (default: 'SE')
-        - n_top_genes: Return only top N significant genes (optional)
+        - n_top_genes: Limit analysis to top N genes (for performance)
+            * If provided, preferentially uses HVGs if available
+            * Recommended: 1000-3000 for quick analysis
+            * None (default): Test all genes (may take 15-30 min for large datasets)
 
-    Data Handling:
-        - If normalized=True: Expects log-transformed normalized data
-        - If normalized=False: Applies SpatialDE-specific normalization to raw counts
+    Performance Notes:
+        - ~10 minutes for 14,000 genes (official benchmark)
+        - Scales approximately linearly with gene count
+        - Performance warning issued when n_genes > 5000
+        - Tip: Use n_top_genes parameter to reduce runtime
+
+    Data Requirements:
+        - Raw count data (from adata.raw or adata.X)
+        - 2D spatial coordinates in adata.obsm['spatial']
+        - Data will be automatically preprocessed using official workflow
 
     Returns:
         Results including:
@@ -365,15 +373,21 @@ async def _identify_spatial_genes_spatialde(
             - Spatial correlation length scale per gene
 
     Requirements:
-        - SpatialDE package installed
+        - SpatialDE package with NaiveDE module
         - 2D spatial coordinates
-        - Expression data (raw counts or normalized)
+        - Raw count data (not normalized)
+
+    References:
+        Svensson et al. (2018) "SpatialDE: identification of spatially variable genes"
+        Nature Methods, DOI: 10.1038/nmeth.4636
+        Official tutorial: https://github.com/Teichlab/SpatialDE
     """
     # Import dependencies at runtime
     import numpy as np
     import pandas as pd
 
     try:
+        import NaiveDE
         import SpatialDE
         from SpatialDE.util import qvalue
     except ImportError:
@@ -393,15 +407,25 @@ async def _identify_spatial_genes_spatialde(
         index=adata.obs_names,
     )
 
-    # Validate and get expression data for SpatialDE
-    if params.spatialde_normalized:
-        # Use pre-normalized data
-        if "log1p" not in adata.uns_keys():
+    # Get raw count data for SpatialDE preprocessing
+    if context:
+        await context.info("Preparing count data for SpatialDE")
+
+    if adata.raw is not None:
+        counts = pd.DataFrame(
+            (adata.raw.X.toarray() if hasattr(adata.raw.X, "toarray") else adata.raw.X),
+            columns=adata.raw.var_names,
+            index=adata.obs_names,
+        )
+        if context:
+            await context.info("Using raw count matrix from adata.raw")
+    else:
+        # Check if current data appears to be raw counts
+        data_max = adata.X.max() if hasattr(adata.X, "max") else np.max(adata.X)
+        if data_max <= 10:  # Likely already normalized
             raise ValueError(
-                "SpatialDE normalized mode requires log-transformed data but log1p not found. "
-                "Please run preprocessing in preprocessing.py: "
-                "1) sc.pp.normalize_total(adata, target_sum=1e4) "
-                "2) sc.pp.log1p(adata)"
+                "SpatialDE requires raw count data but normalized data detected in adata.X. "
+                "Please ensure adata.raw contains raw counts, or reload data before preprocessing."
             )
 
         counts = pd.DataFrame(
@@ -409,48 +433,103 @@ async def _identify_spatial_genes_spatialde(
             columns=adata.var_names,
             index=adata.obs_names,
         )
-
         if context:
-            await context.info("Using pre-normalized data for SpatialDE")
-    else:
-        # SpatialDE-specific normalization (algorithm requirement)
+            await context.info("Using current count matrix from adata.X")
+
+    # Step 0: Filter low-expression genes (Official recommendation)
+    # SpatialDE README: "Filter practically unobserved genes" with total_counts >= 3
+    gene_totals = counts.sum(axis=0)
+    keep_genes = gene_totals >= 3
+    n_filtered = keep_genes.sum()
+    n_total = len(keep_genes)
+
+    if n_filtered < n_total:
+        counts = counts.loc[:, keep_genes]
         if context:
             await context.info(
-                "Applying SpatialDE-specific normalization (algorithm requirement)"
+                f"Filtered to {n_filtered}/{n_total} genes (total counts ≥ 3, official threshold)"
             )
 
-        if adata.raw is not None:
-            raw_counts = pd.DataFrame(
-                (
-                    adata.raw.X.toarray()
-                    if hasattr(adata.raw.X, "toarray")
-                    else adata.raw.X
-                ),
-                columns=adata.raw.var_names,
-                index=adata.obs_names,
-            )
+    # Optional: Test only HVGs for performance (if requested via n_top_genes)
+    # This is done BEFORE expensive preprocessing to save time
+    if params.n_top_genes is not None and params.n_top_genes < counts.shape[1]:
+        if "highly_variable" in adata.var.columns:
+            # Prioritize HVGs if available
+            hvg_mask = adata.var.loc[counts.columns, "highly_variable"]
+            hvg_genes = counts.columns[hvg_mask]
+
+            if len(hvg_genes) >= params.n_top_genes:
+                # Use HVGs
+                selected_genes = hvg_genes[: params.n_top_genes]
+                counts = counts[selected_genes]
+                if context:
+                    await context.info(
+                        f"Testing {params.n_top_genes} highly variable genes only (for performance)"
+                    )
+            else:
+                # Not enough HVGs, select by expression
+                top_genes = gene_totals.nlargest(params.n_top_genes).index
+                counts = counts[top_genes]
+                if context:
+                    await context.info(
+                        f"Testing top {params.n_top_genes} expressed genes (performance optimization)"
+                    )
         else:
-            # Check if current data appears to be raw counts
-            data_max = adata.X.max() if hasattr(adata.X, "max") else np.max(adata.X)
-            if data_max <= 10:  # Likely already normalized
-                raise ValueError(
-                    "SpatialDE raw mode requires raw count data but normalized data detected. "
-                    "Either switch to normalized mode or provide raw count data."
+            # Select by expression
+            top_genes = gene_totals.nlargest(params.n_top_genes).index
+            counts = counts[top_genes]
+            if context:
+                await context.info(
+                    f"Testing top {params.n_top_genes} expressed genes (performance optimization)"
                 )
 
-            raw_counts = pd.DataFrame(
-                adata.X.toarray() if hasattr(adata.X, "toarray") else adata.X,
-                columns=adata.var_names,
-                index=adata.obs_names,
-            )
+    # Performance warning for large gene sets
+    n_genes = counts.shape[1]
+    n_spots = counts.shape[0]
+    if n_genes > 5000 and context:
+        estimated_time = int(n_genes / 14000 * 10)  # Based on 14k genes = 10 min
+        await context.warning(
+            f"⚠️  Running SpatialDE on {n_genes} genes × {n_spots} spots may take {estimated_time}-{estimated_time*2} minutes.\n"
+            f"   • Official benchmark: ~10 min for 14,000 genes\n"
+            f"   • Tip: Use n_top_genes=1000-3000 to test fewer genes\n"
+            f"   • Or use method='sparkx' for faster analysis (2-5 min)"
+        )
 
-        # SpatialDE-specific normalization and log transformation (algorithm requirement)
-        total_counts = raw_counts.sum(axis=1)
-        norm_counts = raw_counts.div(total_counts, axis=0) * np.median(total_counts)
-        counts = np.log1p(norm_counts)
+    # Calculate total counts per spot for regress_out
+    total_counts = pd.DataFrame(
+        {"total_counts": counts.sum(axis=1)}, index=counts.index
+    )
 
-    # Run SpatialDE
-    results = SpatialDE.run(coords.values, counts)
+    if context:
+        await context.info(
+            "Applying SpatialDE official preprocessing workflow (variance stabilization + regress_out)"
+        )
+
+    # Step 1: Variance stabilization (Official: NaiveDE.stabilize)
+    # This transforms count data to approximately normal distribution
+    if context:
+        await context.info("Step 1/3: Variance stabilization (NaiveDE.stabilize)")
+
+    norm_expr = NaiveDE.stabilize(counts.T).T
+
+    # Step 2: Regress out library size effects (Official: NaiveDE.regress_out)
+    # This removes technical variation from sequencing depth differences
+    if context:
+        await context.info(
+            "Step 2/3: Regressing out library size effects (NaiveDE.regress_out)"
+        )
+
+    resid_expr = NaiveDE.regress_out(
+        total_counts, norm_expr.T, "np.log(total_counts)"
+    ).T
+
+    # Step 3: Run SpatialDE with preprocessed data
+    if context:
+        await context.info(
+            f"Step 3/3: Running SpatialDE on {n_genes} genes × {n_spots} spots"
+        )
+
+    results = SpatialDE.run(coords.values, resid_expr)
 
     # Multiple testing correction
     results["qval"] = qvalue(results["pval"].values, pi0=0.1)
@@ -478,10 +557,13 @@ async def _identify_spatial_genes_spatialde(
     store_analysis_metadata(
         adata,
         analysis_name="spatial_genes_spatialde",
-        method="spatialde",
+        method="spatialde_official_workflow",
         parameters={
             "kernel": params.spatialde_kernel,
-            "normalized": params.spatialde_normalized,
+            "preprocessing": "NaiveDE.stabilize + NaiveDE.regress_out",
+            "gene_filter_threshold": 3,
+            "n_genes_tested": n_genes,
+            "n_spots": n_spots,
         },
         results_keys={
             "var": ["spatialde_pval", "spatialde_qval", "spatialde_l"],
@@ -498,9 +580,14 @@ async def _identify_spatial_genes_spatialde(
     )
 
     # Create gene statistics dictionaries
-    gene_statistics = dict(zip(results["g"], results["LLR"]))  # Log-likelihood ratio
-    p_values = dict(zip(results["g"], results["pval"]))
-    q_values = dict(zip(results["g"], results["qval"]))
+    # IMPORTANT: Only include significant genes to avoid exceeding MCP token limits
+    # Full results are stored in adata.var for user access
+    significant_results = results[results["g"].isin(significant_genes)]
+    gene_statistics = dict(
+        zip(significant_results["g"], significant_results["LLR"])
+    )  # Log-likelihood ratio
+    p_values = dict(zip(significant_results["g"], significant_results["pval"]))
+    q_values = dict(zip(significant_results["g"], significant_results["qval"]))
 
     # Create SpatialDE-specific results
     # Only return summary statistics (top 10 genes) to avoid exceeding MCP token limit
@@ -513,7 +600,9 @@ async def _identify_spatial_genes_spatialde(
             "log_likelihood_ratios": top_results["LLR"].tolist(),
         },
         "kernel": params.spatialde_kernel,
-        "normalized": params.spatialde_normalized,
+        "preprocessing_workflow": "Official: NaiveDE.stabilize + NaiveDE.regress_out",
+        "n_genes_tested": n_genes,
+        "n_spots": n_spots,
         "n_significant_genes": len(significant_genes),
         "note": "Full results stored in adata.var['spatialde_pval', 'spatialde_qval', 'spatialde_l']",
     }
@@ -538,7 +627,7 @@ async def _identify_spatial_genes_spatialde(
     return result
 
 
-async def _gaston_feature_engineering_glmpca(adata, n_components: int, context):
+async def _gaston_feature_engineering_glmpca(adata, n_components: int, params, context):
     """
     Perform GASTON-specific feature engineering using GLM-PCA.
 
@@ -555,6 +644,7 @@ async def _gaston_feature_engineering_glmpca(adata, n_components: int, context):
     Args:
         adata: AnnData object with count matrix
         n_components: Number of latent dimensions (typically 10-20)
+        params: SpatialVariableGenesParameters with GLM-PCA settings
         context: MCP context for logging
 
     Returns:
@@ -581,66 +671,60 @@ async def _gaston_feature_engineering_glmpca(adata, n_components: int, context):
             "Running GASTON GLM-PCA feature engineering (algorithm requirement)"
         )
 
-    # Get count matrix
-    if hasattr(adata.X, "toarray"):
-        counts = adata.X.toarray()
-    else:
-        counts = adata.X.copy()
+    # GASTON requires raw UMI counts for GLM-PCA (Poisson family)
+    if adata.raw is None:
+        raise ValueError(
+            "GASTON requires raw UMI counts stored in adata.raw for GLM-PCA preprocessing. "
+            "Please ensure adata.raw is preserved during preprocessing. "
+            "Raw counts are needed because GLM-PCA uses Poisson family model.\n\n"
+            "Example workflow:\n"
+            "  adata.raw = adata  # Save raw counts before preprocessing\n"
+            "  sc.pp.normalize_total(adata, target_sum=1e4)\n"
+            "  sc.pp.log1p(adata)"
+        )
 
-    # Ensure counts are integers and non-negative
-    counts = np.round(np.maximum(counts, 0)).astype(int)
+    # Extract raw counts from adata.raw
+    if hasattr(adata.raw.X, "toarray"):
+        counts = adata.raw.X.toarray()
+    else:
+        counts = np.array(adata.raw.X)
+
+    # Raw counts should already be integers, ensure non-negative
+    counts = np.maximum(counts, 0).astype(int)
+
+    # Select top genes by total count (matching official tutorial approach)
+    # Get GLM-PCA parameters from params object
+    num_genes = min(params.glmpca_num_genes, counts.shape[1])
+    if counts.shape[1] > num_genes:
+        gene_totals = np.sum(counts, axis=0)
+        top_gene_idx = np.argsort(gene_totals)[-num_genes:]
+        counts = counts[:, top_gene_idx]
+
+        if context:
+            await context.info(
+                f"Selected top {num_genes} genes by total count for GLM-PCA (official GASTON approach)"
+            )
 
     if context:
         await context.info(
             f"Running GLM-PCA with {n_components} components on {counts.shape[0]} spots and {counts.shape[1]} genes"
         )
+        await context.info(
+            f"GLM-PCA parameters: penalty={params.glmpca_penalty}, num_iters={params.glmpca_num_iters}, eps={params.glmpca_eps}"
+        )
 
-    # Run GLM-PCA
-    glmpca_result = glmpca(counts.T, L=n_components, fam="poi")
+    # Run GLM-PCA with configurable parameters (from official tutorial)
+    # Note: maxIter and eps are passed via ctl dictionary
+    glmpca_result = glmpca(
+        counts.T,
+        L=n_components,
+        fam="poi",
+        penalty=params.glmpca_penalty,
+        ctl={"maxIter": params.glmpca_num_iters, "eps": params.glmpca_eps},
+    )
 
     # Return the factors (PCs)
     return glmpca_result["factors"]
-
-
-async def _gaston_feature_engineering_pearson(adata, n_components: int, context):
-    """
-    Perform GASTON-specific feature engineering using Pearson residuals.
-
-    This alternative preprocessing computes Pearson residuals to normalize for
-    technical variation, then applies PCA for dimensionality reduction. This
-    approach is recommended for data that has already undergone quality control.
-
-    Why Pearson Residuals:
-        - Variance stabilization across expression levels
-        - Removes mean-variance relationship
-        - Better handles overdispersion in count data
-
-    Args:
-        adata: AnnData object (will be modified in-place)
-        n_components: Number of principal components
-        context: MCP context for logging
-
-    Returns:
-        numpy.ndarray: PCA coordinates of shape (n_obs, n_components)
-
-    Note:
-        Modifies adata in-place by adding normalized values
-    """
-    # Import dependencies at runtime
-    import scanpy as sc
-
-    if context:
-        await context.info(
-            "Computing GASTON Pearson residuals feature engineering (algorithm requirement)"
-        )
-
-    # GASTON-specific Pearson residuals computation (algorithm requirement)
-    sc.experimental.pp.normalize_pearson_residuals(adata)
-
-    # GASTON-specific PCA on residuals (algorithm requirement)
-    sc.tl.pca(adata, n_comps=n_components)
-
-    return adata.obsm["X_pca"]
 
 
 async def _train_gaston_model(
@@ -763,12 +847,8 @@ async def _analyze_spatial_patterns(
     import numpy as np
     import pandas as pd
     import torch
-    from gaston import (
-        binning_and_plotting,
-        dp_related,
-        segmented_fit,
-        spatial_gene_classification,
-    )
+    from gaston import (binning_and_plotting, dp_related, segmented_fit,
+                        spatial_gene_classification)
 
     if context:
         await context.info("Processing neural network output following GASTON tutorial")
@@ -986,11 +1066,30 @@ async def _identify_spatial_genes_sparkx(
         - Robust: Handles various spatial patterns effectively
         - Flexible: Works with both single and mixture spatial kernels
 
+    Gene Filtering Pipeline (based on SPARK-X paper + 2024 best practices):
+        TIER 1 - Standard Filtering (SPARK-X paper):
+            - filter_mt_genes: Remove mitochondrial genes (MT-*, mt-*) [default: True]
+            - filter_ribo_genes: Remove ribosomal genes (RPS*, RPL*) [default: False]
+            - Expression filtering: Min percentage + total counts
+
+        TIER 2 - Advanced Options (2024 best practice from PMC11537352):
+            - test_only_hvg: Test only highly variable genes [default: False]
+              * Reduces housekeeping gene dominance
+              * Requires prior HVG computation in preprocessing
+
+        TIER 3 - Quality Warnings:
+            - warn_housekeeping: Warn if >30% top genes are housekeeping [default: True]
+              * Alerts about potential biological interpretation issues
+
     Key Parameters:
         - sparkx_option: 'single' or 'mixture' kernel (default: 'mixture')
         - sparkx_percentage: Min percentage of cells expressing gene (default: 0.1)
         - sparkx_min_total_counts: Min total counts per gene (default: 10)
         - sparkx_num_core: Number of CPU cores for parallel processing
+        - filter_mt_genes: Filter mitochondrial genes (default: True)
+        - filter_ribo_genes: Filter ribosomal genes (default: False)
+        - test_only_hvg: Test only HVGs (default: False)
+        - warn_housekeeping: Warn about housekeeping dominance (default: True)
 
     Data Processing:
         - Automatically filters low-expression genes based on parameters
@@ -1003,6 +1102,7 @@ async def _identify_spatial_genes_sparkx(
             - Raw p-values from spatial covariance test
             - Bonferroni-adjusted p-values
             - Results dataframe with all tested genes
+            - Quality warnings if housekeeping genes dominate
 
     Requirements:
         - R installation with SPARK package
@@ -1013,6 +1113,10 @@ async def _identify_spatial_genes_sparkx(
         - Fastest among the three methods
         - ~2-5 minutes for typical datasets (3000 spots × 20000 genes)
         - Memory efficient through gene filtering
+
+    References:
+        - SPARK-X paper: Sun et al. (2021) Genome Biology
+        - HVG+SVG best practice: PMC11537352 (2024)
     """
     # Import dependencies at runtime
     import numpy as np
@@ -1020,9 +1124,9 @@ async def _identify_spatial_genes_sparkx(
 
     try:
         from rpy2 import robjects as ro
+        from rpy2.rinterface_lib import openrlib  # For thread safety
         from rpy2.robjects import conversion, default_converter
         from rpy2.robjects.packages import importr
-        from rpy2.rinterface_lib import openrlib  # For thread safety
     except ImportError:
         raise ImportError("rpy2 not installed. Install with: pip install rpy2")
 
@@ -1089,6 +1193,83 @@ async def _identify_spatial_genes_sparkx(
             f"Using {'raw' if adata.raw is not None else 'current'} count matrix"
         )
 
+    # ==================== Gene Filtering Pipeline ====================
+    # Following SPARK-X paper best practices + 2024 literature recommendations
+
+    # TIER 1: Mitochondrial gene filtering (SPARK-X paper standard practice)
+    if params.filter_mt_genes:
+        mt_mask = np.array([gene.startswith(("MT-", "mt-")) for gene in gene_names])
+        n_mt_genes = mt_mask.sum()
+        if n_mt_genes > 0:
+            counts_matrix = counts_matrix[:, ~mt_mask]
+            gene_names = [gene for gene, is_mt in zip(gene_names, mt_mask) if not is_mt]
+            if context:
+                await context.info(
+                    f"Filtered {n_mt_genes} mitochondrial genes (SPARK-X paper standard)"
+                )
+
+    # TIER 1: Ribosomal gene filtering (optional)
+    if params.filter_ribo_genes:
+        ribo_mask = np.array(
+            [gene.startswith(("RPS", "RPL", "Rps", "Rpl")) for gene in gene_names]
+        )
+        n_ribo_genes = ribo_mask.sum()
+        if n_ribo_genes > 0:
+            counts_matrix = counts_matrix[:, ~ribo_mask]
+            gene_names = [
+                gene for gene, is_ribo in zip(gene_names, ribo_mask) if not is_ribo
+            ]
+            if context:
+                await context.info(
+                    f"Filtered {n_ribo_genes} ribosomal genes (reduces housekeeping dominance)"
+                )
+
+    # TIER 2: HVG-only testing (2024 best practice from PMC11537352)
+    if params.test_only_hvg:
+        # Check if HVGs are available in adata.var (the preprocessed data)
+        if "highly_variable" not in adata.var.columns:
+            raise ValueError(
+                "test_only_hvg=True but 'highly_variable' column not found in adata.var. "
+                "Please run preprocessing with n_top_genes parameter first to compute HVGs, "
+                "or set test_only_hvg=False to test all genes."
+            )
+
+        # Get HVG list from preprocessed data (adata.var)
+        hvg_genes_set = set(adata.var_names[adata.var["highly_variable"]])
+
+        if len(hvg_genes_set) == 0:
+            raise ValueError(
+                "test_only_hvg=True but no highly variable genes found. "
+                "Please run preprocessing with n_top_genes parameter first."
+            )
+
+        # Filter gene_names to only include HVGs
+        # gene_names comes from adata.raw if it exists, otherwise from adata.var
+        hvg_mask = np.array([gene in hvg_genes_set for gene in gene_names])
+        n_hvg = hvg_mask.sum()
+
+        if n_hvg == 0:
+            # No overlap between current gene list and HVGs
+            # This can happen if adata.raw has different genes than adata.var
+            raise ValueError(
+                f"test_only_hvg=True but no overlap found between current gene list ({len(gene_names)} genes) "
+                f"and HVGs ({len(hvg_genes_set)} genes). "
+                "This may occur if adata.raw contains different genes than the preprocessed data. "
+                "Try setting test_only_hvg=False or ensure adata.raw is None."
+            )
+
+        counts_matrix = counts_matrix[:, hvg_mask]
+        gene_names = [gene for gene, is_hvg in zip(gene_names, hvg_mask) if is_hvg]
+
+        if context:
+            await context.info(
+                f"Testing only {n_hvg} highly variable genes (2024 best practice - PMC11537352)"
+            )
+
+    # Update gene count after filtering
+    n_genes = len(gene_names)
+
+    # TIER 1: Apply SPARK-X standard filtering (expression-based)
     # Apply gene filtering based on SPARK-X parameters (like CreateSPARKObject in R)
     percentage = params.sparkx_percentage
     min_total_counts = params.sparkx_min_total_counts
@@ -1122,9 +1303,7 @@ async def _identify_spatial_genes_sparkx(
         await context.info(
             f"Count matrix shape: {counts_transposed.shape} (genes × spots)"
         )
-        await context.info(
-            f"Passing {n_genes} genes to SPARK-X for analysis"
-        )
+        await context.info(f"Passing {n_genes} genes to SPARK-X for analysis")
 
     # Create spot names
     spot_names = [str(name) for name in adata.obs_names]
@@ -1240,9 +1419,9 @@ async def _identify_spatial_genes_sparkx(
 
                             # Add adjusted p-values (Bonferroni correction)
                             n_tests = len(pval_list)
-                            results_df["adjusted_pvalue"] = results_df[
-                                "pvalue"
-                            ].apply(lambda p: min(p * n_tests, 1.0))
+                            results_df["adjusted_pvalue"] = results_df["pvalue"].apply(
+                                lambda p: min(p * n_tests, 1.0)
+                            )
 
                         if context:
                             await context.info(
@@ -1295,6 +1474,53 @@ async def _identify_spatial_genes_sparkx(
         results_df = results_df.head(params.n_top_genes)
         significant_genes = results_df["gene"].tolist()
 
+    # TIER 3: Housekeeping gene warnings (post-processing quality check)
+    if params.warn_housekeeping and len(results_df) > 0:
+        # Define housekeeping gene patterns (based on literature)
+        housekeeping_patterns = [
+            "RPS",  # Ribosomal protein small subunit
+            "RPL",  # Ribosomal protein large subunit
+            "Rps",  # Mouse ribosomal small
+            "Rpl",  # Mouse ribosomal large
+            "MT-",  # Mitochondrial (human)
+            "mt-",  # Mitochondrial (mouse)
+            "ACTB",  # Beta-actin
+            "GAPDH",  # Glyceraldehyde-3-phosphate dehydrogenase
+            "EEF1A1",  # Eukaryotic translation elongation factor 1 alpha 1
+            "TUBA1B",  # Tubulin alpha 1b
+            "B2M",  # Beta-2-microglobulin
+        ]
+
+        # Check top significant genes (up to 50)
+        top_genes_to_check = results_df.head(50)["gene"].tolist()
+
+        # Mark housekeeping genes
+        housekeeping_genes = [
+            gene
+            for gene in top_genes_to_check
+            if any(
+                gene.startswith(pattern) or gene == pattern
+                for pattern in housekeeping_patterns
+            )
+        ]
+
+        n_housekeeping = len(housekeeping_genes)
+        n_top = len(top_genes_to_check)
+        housekeeping_ratio = n_housekeeping / n_top if n_top > 0 else 0
+
+        # Warn if >30% are housekeeping genes
+        if housekeeping_ratio > 0.3 and context:
+            await context.warning(
+                f"⚠️  Housekeeping gene dominance detected: {n_housekeeping}/{n_top} ({housekeeping_ratio*100:.1f}%) of top genes are housekeeping genes.\n"
+                f"   • Housekeeping genes found: {', '.join(housekeeping_genes[:10])}{'...' if len(housekeeping_genes) > 10 else ''}\n"
+                f"   • These genes may not represent true spatial patterns\n"
+                f"   • Recommendations:\n"
+                f"     1. Use test_only_hvg=True to reduce housekeeping dominance (2024 best practice)\n"
+                f"     2. Use filter_ribo_genes=True to filter ribosomal genes\n"
+                f"     3. Focus on genes with clear biological relevance\n"
+                f"   • Note: This is a quality warning, not an error"
+            )
+
     # Store results in adata
     results_key = f"sparkx_results_{data_id}"
     adata.var["sparkx_pval"] = pd.Series(
@@ -1317,6 +1543,10 @@ async def _identify_spatial_genes_sparkx(
             "percentage": params.sparkx_percentage,
             "min_total_counts": params.sparkx_min_total_counts,
             "option": params.sparkx_option,
+            "filter_mt_genes": params.filter_mt_genes,
+            "filter_ribo_genes": params.filter_ribo_genes,
+            "test_only_hvg": params.test_only_hvg,
+            "warn_housekeeping": params.warn_housekeeping,
         },
         results_keys={
             "var": ["sparkx_pval", "sparkx_qval"],
@@ -1331,9 +1561,16 @@ async def _identify_spatial_genes_sparkx(
     )
 
     # Create gene statistics dictionaries
-    gene_statistics = dict(zip(results_df["gene"], results_df["pvalue"]))
-    p_values = dict(zip(results_df["gene"], results_df["pvalue"]))
-    q_values = dict(zip(results_df["gene"], results_df["adjusted_pvalue"]))
+    # IMPORTANT: Only include significant genes to avoid exceeding MCP token limits
+    # Full results are stored in adata.var for user access
+    significant_results = results_df[results_df["gene"].isin(significant_genes)]
+    gene_statistics = dict(
+        zip(significant_results["gene"], significant_results["pvalue"])
+    )
+    p_values = dict(zip(significant_results["gene"], significant_results["pvalue"]))
+    q_values = dict(
+        zip(significant_results["gene"], significant_results["adjusted_pvalue"])
+    )
 
     # Create SPARK-X specific results
     # Only return summary statistics (top 10 genes) to avoid exceeding MCP token limit
