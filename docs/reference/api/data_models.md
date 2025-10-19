@@ -212,7 +212,7 @@ Spatial coordinate information.
       "enum": [
         "spatial", "heatmap", "violin", "umap",
         "spatial_domains", "cell_communication", "deconvolution", "trajectory",
-        "rna_velocity", "spatial_analysis", "multi_gene", "lr_pairs",
+        "rna_velocity", "spatial_statistics", "multi_gene", "lr_pairs",
         "gene_correlation", "pathway_enrichment", "spatial_enrichment",
         "spatial_interaction", "batch_integration", "cnv_heatmap",
         "spatial_cnv", "card_imputation"

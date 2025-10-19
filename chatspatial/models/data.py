@@ -248,7 +248,7 @@ class VisualizationParameters(BaseModel):
         "deconvolution",
         "trajectory",
         "rna_velocity",
-        "spatial_analysis",
+        "spatial_statistics",
         "multi_gene",
         "lr_pairs",
         "gene_correlation",
@@ -407,8 +407,8 @@ class VisualizationParameters(BaseModel):
     def validate_conditional_parameters(self) -> Self:
         """Validate parameter dependencies and provide helpful error messages."""
 
-        # Spatial analysis validation
-        if self.plot_type == "spatial_analysis":
+        # Spatial statistics validation
+        if self.plot_type == "spatial_statistics":
             if not self.analysis_type or (
                 isinstance(self.analysis_type, str) and not self.analysis_type.strip()
             ):
@@ -421,10 +421,10 @@ class VisualizationParameters(BaseModel):
                     "getis_ord",
                 ]
                 raise ValueError(
-                    f"Parameter dependency error: analysis_type is required when plot_type='spatial_analysis'.\n"
+                    f"Parameter dependency error: analysis_type is required when plot_type='spatial_statistics'.\n"
                     f"Available analysis types: {', '.join(available_types)}\n"
-                    f"Example usage: VisualizationParameters(plot_type='spatial_analysis', analysis_type='neighborhood')\n"
-                    f"For more details, see spatial analysis documentation."
+                    f"Example usage: VisualizationParameters(plot_type='spatial_statistics', analysis_type='neighborhood')\n"
+                    f"For more details, see spatial statistics documentation."
                 )
 
         # Future: Add other conditional validations here

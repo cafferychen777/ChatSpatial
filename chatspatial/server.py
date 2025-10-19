@@ -252,7 +252,7 @@ async def visualize_data(
             - plot_type: Type of visualization. Available types:
                         * Basic plots: spatial, heatmap, violin, umap
                         * Analysis results: spatial_domains, cell_communication, deconvolution,
-                          trajectory, rna_velocity, spatial_analysis
+                          trajectory, rna_velocity, spatial_statistics
                         * Multi-gene/correlation: multi_gene, lr_pairs, gene_correlation
                         * Enrichment: pathway_enrichment, spatial_enrichment
                         * Integration/QC: spatial_interaction, batch_integration
@@ -300,9 +300,9 @@ async def visualize_data(
             "feature": ["Fn1^Cd79a", "Vegfa^Nrp2"]  # Will be parsed automatically
         }
 
-        # Visualize spatial analysis results (Ripley, neighborhood enrichment, etc.)
+        # Visualize spatial statistics results (Ripley, neighborhood enrichment, etc.)
         params = {
-            "plot_type": "spatial_analysis",
+            "plot_type": "spatial_statistics",
             "analysis_type": "ripley",  # neighborhood, co_occurrence, ripley, moran, centrality, getis_ord
             "cluster_key": "leiden"
         }
@@ -693,12 +693,12 @@ async def analyze_spatial_statistics(
     # Update dataset in data manager
     data_manager.data_store[data_id] = data_store[data_id]
 
-    # Save spatial analysis result
-    await data_manager.save_result(data_id, "spatial_analysis", result)
+    # Save spatial statistics result
+    await data_manager.save_result(data_id, "spatial_statistics", result)
 
     # Create result resource
     await adapter.resource_manager.create_result_resource(
-        data_id, "spatial_analysis", result
+        data_id, "spatial_statistics", result
     )
 
     # Note: Visualization should be created separately using create_visualization tool

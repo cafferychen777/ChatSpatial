@@ -484,7 +484,7 @@ class DataValidator:
             # Deconvolution has different requirements handled elsewhere
             pass
 
-        elif analysis_type.lower() == "spatial_analysis":
+        elif analysis_type.lower() == "spatial_statistics":
             # Spatial analysis requires cluster labels
             if not self._find_field_in_obs(adata, ALTERNATIVE_CLUSTER_KEYS):
                 result.add_error("Spatial analysis requires cluster annotations")
@@ -621,14 +621,14 @@ def validate_for_deconvolution(
     return result
 
 
-def validate_for_spatial_analysis(
+def validate_for_spatial_statistics(
     adata: "ad.AnnData", strict: bool = False
 ) -> DataValidationResult:
     """Validate data for spatial analysis."""
     validator = DataValidator(strict_mode=strict)
     return validator.validate_adata(
         adata,
-        analysis_type="spatial_analysis",
+        analysis_type="spatial_statistics",
         require_spatial=True,
         require_cell_types=False,
     )
@@ -647,8 +647,8 @@ def check_data_compatibility(adata: "ad.AnnData", tool_name: str) -> Dict[str, A
         result = validate_for_cell_communication(adata)
     elif tool_name.lower() in ["deconvolution", "cell2location", "rctd"]:
         result = validate_for_deconvolution(adata)
-    elif tool_name.lower() in ["spatial_analysis", "neighborhood", "cooccurrence"]:
-        result = validate_for_spatial_analysis(adata)
+    elif tool_name.lower() in ["spatial_statistics", "neighborhood", "cooccurrence"]:
+        result = validate_for_spatial_statistics(adata)
     else:
         result = validate_spatial_data(adata)
 
@@ -677,8 +677,8 @@ def raise_if_invalid(
         result = validate_for_cell_communication(adata, strict=True)
     elif analysis_type == "deconvolution":
         result = validate_for_deconvolution(adata, strict=True)
-    elif analysis_type == "spatial_analysis":
-        result = validate_for_spatial_analysis(adata, strict=True)
+    elif analysis_type == "spatial_statistics":
+        result = validate_for_spatial_statistics(adata, strict=True)
     else:
         result = validate_spatial_data(adata, strict=True)
 

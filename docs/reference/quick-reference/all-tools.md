@@ -446,7 +446,7 @@
 - `params.feature`: Gene(s) or metadata column to visualize (str or List[str])
 - `params.colormap`: Color scheme (default: `"viridis"`)
 - `params.dpi`: Image resolution (default: 300 for publication quality)
-- `params.analysis_type`: **REQUIRED** for `plot_type="spatial_analysis"` - see spatial analysis types
+- `params.analysis_type`: **REQUIRED** for `plot_type="spatial_statistics"` - see spatial analysis types
 - `params.cluster_key`: **REQUIRED** for `plot_type="heatmap"` - grouping column in adata.obs
 
 #### Complete List of 20 Plot Types:
@@ -489,7 +489,7 @@
 - `"card_imputation"` - CARD high-resolution imputation results
 
 **Spatial Statistics** (1 type):
-- `"spatial_analysis"` - Spatial statistics visualization (requires `analysis_type`)
+- `"spatial_statistics"` - Spatial statistics visualization (requires `analysis_type`)
   - Available `analysis_type` values: `"neighborhood"`, `"co_occurrence"`, `"ripley"`, `"moran"`, `"centrality"`, `"getis_ord"`
 
 #### Parameter Requirements by Plot Type:

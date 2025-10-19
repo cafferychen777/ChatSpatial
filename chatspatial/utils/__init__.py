@@ -8,7 +8,7 @@ from .data_adapter import (ensure_spatial_neighbors, get_cell_types,
 from .data_validator import (check_data_compatibility, raise_if_invalid,
                              validate_for_cell_communication,
                              validate_for_deconvolution,
-                             validate_for_spatial_analysis,
+                             validate_for_spatial_statistics,
                              validate_spatial_data)
 from .error_handling import ProcessingError, suppress_output
 from .tool_error_handling import (ToolResult, create_error_result,
@@ -31,7 +31,7 @@ __all__ = [
     "validate_spatial_data",
     "validate_for_cell_communication",
     "validate_for_deconvolution",
-    "validate_for_spatial_analysis",
+    "validate_for_spatial_statistics",
     "check_data_compatibility",
     "raise_if_invalid",
 ]
