@@ -466,32 +466,51 @@ async def _identify_domains_spagcn(
 
         if params.spagcn_use_histology:
             # Try to get histology image from adata.uns
-            if "spatial" in adata.uns and "images" in adata.uns["spatial"]:
+            if "spatial" in adata.uns:
                 # This is for 10x Visium data
-                img_key = list(adata.uns["spatial"].keys())[0]
-                if "images" in adata.uns["spatial"][img_key]:
-                    img_dict = adata.uns["spatial"][img_key]["images"]
-                    # Check for scalefactors
-                    if "scalefactors" in adata.uns["spatial"][img_key]:
-                        scalefactors = adata.uns["spatial"][img_key]["scalefactors"]
-                        if (
-                            "hires" in img_dict
-                            and "tissue_hires_scalef" in scalefactors
-                        ):
+                # Get the first available library ID
+                library_ids = list(adata.uns["spatial"].keys())
+
+                if library_ids:
+                    lib_id = library_ids[0]
+                    spatial_data = adata.uns["spatial"][lib_id]
+
+                    # Try to get image from spatial data
+                    if "images" in spatial_data:
+                        img_dict = spatial_data["images"]
+
+                        # Try to get scalefactors
+                        scalefactors = spatial_data.get("scalefactors", {})
+
+                        # Prefer high-res image, fall back to low-res
+                        if "hires" in img_dict and "tissue_hires_scalef" in scalefactors:
                             img = img_dict["hires"]
                             scale_factor = scalefactors["tissue_hires_scalef"]
-                        elif (
-                            "lowres" in img_dict
-                            and "tissue_lowres_scalef" in scalefactors
-                        ):
+                            if context:
+                                await context.info(
+                                    f"Using high-resolution histology image from library '{lib_id}'"
+                                )
+                        elif "lowres" in img_dict and "tissue_lowres_scalef" in scalefactors:
                             img = img_dict["lowres"]
                             scale_factor = scalefactors["tissue_lowres_scalef"]
-                    else:
-                        # No scalefactors, try to get image anyway
-                        if "hires" in img_dict:
+                            if context:
+                                await context.info(
+                                    f"Using low-resolution histology image from library '{lib_id}'"
+                                )
+                        elif "hires" in img_dict:
+                            # Try without scalefactor
                             img = img_dict["hires"]
+                            if context:
+                                await context.info(
+                                    f"Using high-resolution image from '{lib_id}' (no scalefactor, using default)"
+                                )
                         elif "lowres" in img_dict:
+                            # Try without scalefactor
                             img = img_dict["lowres"]
+                            if context:
+                                await context.info(
+                                    f"Using low-resolution image from '{lib_id}' (no scalefactor, using default)"
+                                )
 
         if img is None:
             # Create dummy image or disable histology
