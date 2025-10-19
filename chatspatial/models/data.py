@@ -904,7 +904,7 @@ class DeconvolutionParameters(BaseModel):
 class SpatialDomainParameters(BaseModel):
     """Spatial domain identification parameters model"""
 
-    method: Literal["spagcn", "leiden", "louvain", "stagate"] = "spagcn"
+    method: Literal["spagcn", "leiden", "louvain", "stagate", "graphst"] = "spagcn"
     n_domains: Annotated[int, Field(gt=0, le=50)] = (
         7  # Number of spatial domains to identify
     )
@@ -952,6 +952,18 @@ class SpatialDomainParameters(BaseModel):
         None  # Dimension of output representation (default: 15)
     )
     stagate_random_seed: Optional[int] = None  # Random seed (default: 42)
+
+    # GraphST specific parameters
+    graphst_use_gpu: bool = False  # Whether to use GPU acceleration
+    graphst_clustering_method: Literal["mclust", "leiden", "louvain"] = (
+        "leiden"  # Clustering method for GraphST
+    )
+    graphst_refinement: bool = True  # Whether to refine domains using spatial info
+    graphst_radius: int = 50  # Radius for spatial refinement
+    graphst_random_seed: int = 42  # Random seed for GraphST
+    graphst_n_clusters: Optional[int] = (
+        None  # Number of clusters (if None, uses n_domains)
+    )
 
     # Simple timeout configuration
     timeout: Optional[int] = None  # Timeout in seconds (default: 600)

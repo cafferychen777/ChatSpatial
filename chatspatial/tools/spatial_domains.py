@@ -43,8 +43,16 @@ try:
 except ImportError:
     STAGATE_AVAILABLE = False
 
+try:
+    from GraphST.GraphST import GraphST
+    from GraphST.utils import clustering as graphst_clustering
+
+    GRAPHST_AVAILABLE = True
+except ImportError:
+    GRAPHST_AVAILABLE = False
+
 # BANKSY support has been completely removed
-# Use alternative methods: spagcn, leiden, louvain, or stagate
+# Use alternative methods: spagcn, leiden, louvain, stagate, or graphst
 
 
 def _check_environment_compatibility():
@@ -287,9 +295,13 @@ async def identify_spatial_domains(
             domain_labels, embeddings_key, statistics = await _identify_domains_stagate(
                 adata_subset, params, context
             )
+        elif params.method == "graphst":
+            domain_labels, embeddings_key, statistics = await _identify_domains_graphst(
+                adata_subset, params, context
+            )
         else:
             raise ValueError(
-                f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain, stagate"
+                f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain, stagate, graphst"
             )
 
         # Store domain labels in original adata
@@ -311,7 +323,10 @@ async def identify_spatial_domains(
             try:
                 refined_domain_key = f"{domain_key}_refined"
                 refined_labels = _refine_spatial_domains(
-                    adata, domain_key, refined_domain_key, threshold=params.refinement_threshold
+                    adata,
+                    domain_key,
+                    refined_domain_key,
+                    threshold=params.refinement_threshold,
                 )
                 adata.obs[refined_domain_key] = refined_labels
                 adata.obs[refined_domain_key] = adata.obs[refined_domain_key].astype(
@@ -918,6 +933,142 @@ async def _identify_domains_stagate(
 
     except Exception as e:
         error_msg = f"STAGATE execution failed: {str(e)}"
+        if context:
+            await context.warning(error_msg)
+        raise RuntimeError(error_msg) from e
+
+
+async def _identify_domains_graphst(
+    adata: Any, params: SpatialDomainParameters, context: Optional[Context] = None
+) -> tuple:
+    """
+    Identifies spatial domains using the GraphST algorithm.
+
+    GraphST (Graph Self-supervised Contrastive Learning) learns spatial domain
+    representations by combining graph neural networks with self-supervised
+    contrastive learning. It constructs a spatial graph based on spot locations
+    and learns embeddings that preserve both gene expression patterns and spatial
+    relationships. The learned embeddings are then clustered to define spatial
+    domains. This method requires the `GraphST` package.
+    """
+    if not GRAPHST_AVAILABLE:
+        raise ImportError(
+            "GraphST is not installed. Please install it with: pip install GraphST"
+        )
+
+    if context:
+        await context.info("Running GraphST for spatial domain identification...")
+
+    try:
+        import asyncio
+        import concurrent.futures
+
+        import torch
+
+        # GraphST works with preprocessed data
+        adata_graphst = adata.copy()
+
+        # Set device (support CUDA, MPS, and CPU)
+        if params.graphst_use_gpu:
+            if torch.cuda.is_available():
+                device = torch.device("cuda:0")
+            elif torch.backends.mps.is_available():
+                device = torch.device("mps")
+            else:
+                device = torch.device("cpu")
+                if context:
+                    await context.warning(
+                        "GPU requested but not available. Using CPU instead."
+                    )
+        else:
+            device = torch.device("cpu")
+        if context:
+            await context.info(f"Using device: {device}")
+
+        # Initialize GraphST model
+        if context:
+            await context.info("Initializing GraphST model...")
+
+        # Determine number of clusters
+        n_clusters = params.graphst_n_clusters or params.n_domains
+
+        # Initialize model (this is fast, no need for async)
+        model = GraphST(
+            adata_graphst,
+            device=device,
+            random_seed=params.graphst_random_seed,
+        )
+
+        # Train model (this is blocking, run in executor)
+        if context:
+            await context.info(
+                "Training GraphST model (this may take a few minutes)..."
+            )
+
+        # Run training in thread pool to avoid blocking
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # Set timeout
+            timeout_seconds = params.timeout or 600
+
+            adata_graphst = await asyncio.wait_for(
+                loop.run_in_executor(executor, lambda: model.train()),
+                timeout=timeout_seconds,
+            )
+
+        if context:
+            await context.info("GraphST training completed successfully")
+
+        # Get embeddings key
+        embeddings_key = "emb"  # GraphST stores embeddings in adata.obsm['emb']
+
+        # Perform clustering on GraphST embeddings
+        if context:
+            await context.info(
+                f"Performing {params.graphst_clustering_method} clustering on GraphST embeddings..."
+            )
+
+        # Run clustering in thread pool
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+
+            def run_clustering():
+                graphst_clustering(
+                    adata_graphst,
+                    n_clusters=n_clusters,
+                    radius=params.graphst_radius if params.graphst_refinement else None,
+                    method=params.graphst_clustering_method,
+                    refinement=params.graphst_refinement,
+                )
+
+            await loop.run_in_executor(executor, run_clustering)
+
+        # Get domain labels
+        domain_labels = adata_graphst.obs["domain"].astype(str)
+
+        # Copy embeddings to original adata
+        adata.obsm[embeddings_key] = adata_graphst.obsm["emb"]
+
+        statistics = {
+            "method": "graphst",
+            "n_clusters": len(domain_labels.unique()),
+            "clustering_method": params.graphst_clustering_method,
+            "refinement": params.graphst_refinement,
+            "device": str(device),
+            "framework": "PyTorch",
+        }
+
+        if params.graphst_refinement:
+            statistics["refinement_radius"] = params.graphst_radius
+
+        return domain_labels, embeddings_key, statistics
+
+    except asyncio.TimeoutError:
+        error_msg = f"GraphST training timeout after {params.timeout or 600} seconds"
+        if context:
+            await context.warning(error_msg)
+        raise RuntimeError(error_msg)
+    except Exception as e:
+        error_msg = f"GraphST execution failed: {str(e)}"
         if context:
             await context.warning(error_msg)
         raise RuntimeError(error_msg) from e
