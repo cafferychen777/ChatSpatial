@@ -1130,11 +1130,13 @@ async def visualize_data(
                     if adata.obs[col].dtype.name in ["object", "category"]
                 ]
                 raise ValueError(
-                    "❌ Heatmap visualization requires 'cluster_key' parameter for grouping.\n\n"
+                    "❌ Heatmap visualization requires 'cluster_key' parameter.\n\n"
                     f"Available categorical columns ({len(categorical_cols)} total):\n"
                     f"  {', '.join(categorical_cols[:15])}\n\n"
                     "🔧 SOLUTION: Specify cluster_key explicitly:\n"
-                    "  visualize_data(data_id, params={'plot_type': 'heatmap', 'cluster_key': 'your_column_name'})"
+                    "  visualize_data(data_id, params={'plot_type': 'heatmap', 'cluster_key': 'your_column_name'})\n\n"
+                    "💡 NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
+                    "   This maintains consistency with Squidpy spatial analysis functions."
                 )
 
             if params.cluster_key not in adata.obs.columns:
@@ -1437,11 +1439,13 @@ async def visualize_data(
                     if adata.obs[col].dtype.name in ["object", "category"]
                 ]
                 raise ValueError(
-                    "❌ Violin plot requires 'cluster_key' parameter for grouping.\n\n"
+                    "❌ Violin plot requires 'cluster_key' parameter.\n\n"
                     f"Available categorical columns ({len(categorical_cols)} total):\n"
                     f"  {', '.join(categorical_cols[:15])}\n\n"
                     "🔧 SOLUTION: Specify cluster_key explicitly:\n"
-                    "  visualize_data(data_id, params={'plot_type': 'violin', 'cluster_key': 'your_column_name'})"
+                    "  visualize_data(data_id, params={'plot_type': 'violin', 'cluster_key': 'your_column_name'})\n\n"
+                    "💡 NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
+                    "   This maintains consistency with Squidpy spatial analysis functions."
                 )
 
             if params.cluster_key not in adata.obs.columns:

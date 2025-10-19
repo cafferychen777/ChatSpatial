@@ -61,7 +61,7 @@ Add to Claude Desktop config file:
   "mcpServers": {
     "chatspatial": {
       "command": "/path/to/your/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial"]
+      "args": ["-m", "chatspatial", "server"]
     }
   }
 }
@@ -73,7 +73,7 @@ Add to Claude Desktop config file:
   "mcpServers": {
     "chatspatial": {
       "command": "/Users/apple/Research/SpatialTrans_MCP/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial"]
+      "args": ["-m", "chatspatial", "server"]
     }
   }
 }
@@ -97,10 +97,10 @@ claude --version
 which python  # Should show: /path/to/chatspatial_env/bin/python
 
 # Add ChatSpatial (local scope - current project only)
-claude mcp add chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial
+claude mcp add chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial server
 
 # OR add globally (all projects)
-claude mcp add --scope user chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial
+claude mcp add --scope user chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial server
 ```
 
 **Step 3: Verify Configuration**
@@ -258,13 +258,13 @@ Claude Code supports three configuration scopes:
 **Examples:**
 ```bash
 # Local scope (default)
-claude mcp add chatspatial /path/to/venv/bin/python -- -m chatspatial
+claude mcp add chatspatial /path/to/venv/bin/python -- -m chatspatial server
 
 # Project scope (creates .mcp.json for team sharing)
-claude mcp add --scope project chatspatial /path/to/venv/bin/python -- -m chatspatial
+claude mcp add --scope project chatspatial /path/to/venv/bin/python -- -m chatspatial server
 
 # User scope (available in all projects)
-claude mcp add --scope user chatspatial /path/to/venv/bin/python -- -m chatspatial
+claude mcp add --scope user chatspatial /path/to/venv/bin/python -- -m chatspatial server
 ```
 
 ### Managing MCP Servers
@@ -290,7 +290,7 @@ claude mcp get chatspatial
 claude mcp add chatspatial \
   --env CHATSPATIAL_DATA_DIR=/path/to/data \
   --env CHATSPATIAL_CACHE_DIR=/path/to/cache \
-  /path/to/venv/bin/python -- -m chatspatial
+  /path/to/venv/bin/python -- -m chatspatial server
 ```
 
 ### Windows-Specific Notes
@@ -300,5 +300,5 @@ For Windows users not using WSL:
 # Native Windows path example
 claude mcp add chatspatial ^
   C:\Users\user\chatspatial_env\Scripts\python.exe ^
-  -- -m chatspatial
+  -- -m chatspatial server
 ```

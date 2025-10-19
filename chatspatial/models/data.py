@@ -279,9 +279,11 @@ class VisualizationParameters(BaseModel):
     cluster_key: Optional[str] = Field(
         None,
         description=(
-            "Column name in adata.obs for grouping (e.g., 'leiden', 'louvain', 'cell_type'). "
-            "REQUIRED for plot_type='heatmap'. "
-            "Optional for other plot types."
+            "Column name in adata.obs containing cluster or cell type labels "
+            "(e.g., 'leiden', 'louvain', 'cell_type'). "
+            "REQUIRED for plot_type='heatmap' and 'violin'. "
+            "NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy) "
+            "for consistency with Squidpy spatial analysis functions."
         ),
     )
 
