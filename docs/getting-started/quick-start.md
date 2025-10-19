@@ -140,7 +140,7 @@ This will generate spatial plots of your data.
 ### Identify Spatial Domains
 
 ```
-Identify spatial domains using SpaGCN and visualize the results
+Identify spatial domains using spagcn method and visualize the results
 ```
 
 ChatSpatial will perform spatial domain identification and create visualization plots.
@@ -177,7 +177,7 @@ Create spatial plots colored by clusters
 Find marker genes for each cluster
 
 # 7. Spatial domains
-Identify spatial domains using SpaGCN
+Identify spatial domains using spagcn method
 ```
 
 ### Advanced Analysis Workflow
@@ -193,10 +193,10 @@ Annotate cell types using the marker gene approach
 Identify spatial domains and visualize them
 
 # 4. Cell communication
-Analyze cell-cell communication patterns using LIANA
+Analyze cell-cell communication patterns using liana method
 
 # 5. Spatial variable genes
-Find spatially variable genes using SPARK
+Find spatially variable genes using sparkx method
 
 # 6. Trajectory analysis
 Perform RNA velocity analysis for developmental trajectories

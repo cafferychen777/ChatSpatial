@@ -32,9 +32,9 @@ Advanced analysis in ChatSpatial involves:
 ```python
 # Load different spatial datasets
 visium_result = load_data(
-    data_path="data/mouse_brain_visium.h5ad", 
+    data_path="data/mouse_brain_visium.h5ad",
     name="visium_brain",
-    data_type="visium"
+    data_type="10x_visium"
 )
 
 merfish_result = load_data(
@@ -51,7 +51,7 @@ merfish_result = load_data(
 for data_id in [visium_result.id, merfish_result.id]:
     preprocess_data(
         data_id=data_id,
-        normalization_method="sctransform",
+        normalization="log",  # Use "log" or "pearson_residuals" (sct requires use_scvi_preprocessing=True)
         filter_genes=True,
         min_cells=5
     )

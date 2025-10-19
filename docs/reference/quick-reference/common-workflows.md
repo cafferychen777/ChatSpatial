@@ -196,30 +196,30 @@ graph TD
 ### 🤔 "Which Spatial Domain Method?"
 ```
 Do you have histology images?
-├── YES → Use SpaGCN (gold standard with morphology)
+├── YES → Use spagcn (gold standard with morphology)
 ├── NO → Do you need high resolution?
-    ├── YES → Use STAGATE (graph attention networks)
-    ├── NO → Use Leiden clustering (fast, robust)
-    └── UNSURE → Try Louvain clustering
+    ├── YES → Use stagate or graphst (graph-based methods)
+    ├── NO → Use leiden clustering (fast, robust)
+    └── UNSURE → Try louvain clustering
 ```
 
 ### 🧬 "Which Cell Type Method?"
 ```
 Do you have single-cell reference data?
 ├── YES → Is it high quality (>10K cells, well-annotated)?
-│   ├── YES → Use Tangram or Cell2location
-│   └── NO → Use scType + marker gene validation
+│   ├── YES → Use tangram or scanvi for annotation, cell2location for deconvolution
+│   └── NO → Use sctype + marker gene validation
 ├── NO → Do you have custom marker genes?
 │   ├── YES → Use cellassign method
-│   └── NO → Use scType (automatic) + manual curation
+│   └── NO → Use sctype (automatic) + manual curation
 ```
 
 ### 📊 "Which Communication Method?"
 ```
 What's your focus?
-├── SPATIAL patterns → LIANA with spatial analysis  
-├── STATISTICAL significance → CellPhoneDB
-├── PATHWAY networks → CellChat via LIANA
+├── SPATIAL patterns → liana with spatial analysis
+├── STATISTICAL significance → cellphonedb
+├── PATHWAY networks → cellchat_liana
 └── COMPARATIVE studies → Run multiple methods
 ```
 
@@ -230,8 +230,8 @@ What's your focus?
 ### 🧠 **Neuroscience Applications**
 ```
 Brain Atlas Mapping:
-load_data → preprocess_data → identify_spatial_domains (SpaGCN) → 
-annotate_cells (scType) → find_spatial_genes (GASTON) → visualize_data
+load_data → preprocess_data → identify_spatial_domains (spagcn) →
+annotate_cells (sctype) → find_spatial_genes (sparkx) → visualize_data
 
 Neurodegeneration Study:  
 Multi-sample integration → comparative domain analysis → 
@@ -468,12 +468,12 @@ graph TD
 ```
 What type of batch effect?
 ├── TECHNICAL (sequencing, prep date)
-│   ├── Mild differences → Harmony (fast, effective)
-│   ├── Strong differences → scVI (deep learning correction)
-│   └── Very strong → BBKNN (k-nearest neighbors)
+│   ├── Mild differences → harmony (fast, effective)
+│   ├── Strong differences → scvi (deep learning correction)
+│   └── Very strong → bbknn (k-nearest neighbors)
 ├── BIOLOGICAL (tissue, patient, condition)
-│   ├── Keep biology → Light correction with Scanorama
-│   ├── Remove biology → Harmony with strong parameters
+│   ├── Keep biology → Light correction with scanorama
+│   ├── Remove biology → harmony with strong parameters
 │   └── Unclear → Try multiple methods and compare
 └── SPATIAL registration needed?
     ├── YES → Use register_spatial_data first
@@ -536,8 +536,8 @@ What are you comparing?
 
 2. **Method Selection**:
    ```text
-   "Use Leiden clustering for large datasets (fastest spatial domains)"
-   "Skip GASTON for >20K cells (very slow)"
+   "Use leiden clustering for large datasets (fastest spatial domains)"
+   "Use sparkx for spatial genes (spatialde slower for large datasets)"
    "Use basic visualization for initial exploration"
    ```
 
