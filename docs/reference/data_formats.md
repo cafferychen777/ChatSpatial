@@ -16,20 +16,22 @@ Comprehensive guide to supported data formats and how to prepare your spatial tr
 
 | Format | Extension | Description | Recommended Use |
 |--------|-----------|-------------|-----------------|
-| **AnnData** | `.h5ad` | HDF5-based format with spatial coordinates | **Primary format** - Best performance |
-| **CSV** | `.csv` | Comma-separated values with coordinate file | Simple data exchange |
-| **HDF5** | `.h5` | Hierarchical data format | Large datasets |
-| **Zarr** | `.zarr` | Cloud-optimized arrays | Distributed computing |
+| **AnnData** | `.h5ad` | HDF5-based format with spatial coordinates | **Primary and ONLY directly supported format** - Best performance |
+| **10x H5** | `.h5` | 10x Genomics HDF5 format | 10x Visium data (auto-converts to AnnData) |
+| **CSV** | `.csv` | Comma-separated values | **Requires manual conversion to .h5ad first** (see examples below) |
 
-### Platform-Specific Formats
+**Note**: All spatial data types (slide_seq, merfish, seqfish, other) ultimately load `.h5ad` files using scanpy's `read_h5ad()`. The `data_type` parameter only affects metadata labeling, not the underlying file format.
 
-| Platform | Format | Auto-Detection | Notes |
-|----------|--------|----------------|-------|
-| **10x Visium** | Space Ranger outputs | ✅ | Includes spatial coordinates |
-| **MERFISH** | Custom HDF5/CSV | ✅ | High-resolution spatial data |
-| **Slide-seq** | Custom formats | ✅ | Subcellular resolution |
-| **STARmap** | Custom HDF5 | ✅ | 3D spatial coordinates |
-| **seqFISH+** | Custom formats | ✅ | Single-cell resolution |
+### Platform-Specific Data Types
+
+| Platform | Required Format | Auto-Detection | Implementation |
+|----------|----------------|----------------|----------------|
+| **10x Visium** | Space Ranger directory or `.h5` file | ✅ | Native support via `sc.read_visium()` / `sc.read_10x_h5()` |
+| **MERFISH** | `.h5ad` (pre-converted) | ✅ | Loads via `sc.read_h5ad()` |
+| **Slide-seq** | `.h5ad` (pre-converted) | ✅ | Loads via `sc.read_h5ad()` |
+| **seqFISH+** | `.h5ad` (pre-converted) | ✅ | Loads via `sc.read_h5ad()` |
+
+**Important**: MERFISH, Slide-seq, and seqFISH+ data must be pre-converted to `.h5ad` format using scanpy/squidpy before loading into ChatSpatial. The `data_type` parameter only labels the technology type in metadata.
 
 ## Data Requirements
 
@@ -146,7 +148,7 @@ adata.write('converted_data.h5ad')
 # Then load with ChatSpatial
 result = load_data(
     data_path="converted_data.h5ad",
-    data_type="h5ad", 
+    data_type="auto",  # or "other" for generic h5ad files
     name="my_data"
 )
 ```

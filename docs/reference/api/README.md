@@ -108,7 +108,7 @@ load_data(
 ```python
 result = load_data(
     data_path="data/mouse_brain_visium.h5ad",
-    data_type="h5ad",
+    data_type="auto",  # or "other" for generic h5ad files
     name="mouse_brain"
 )
 print(f"Loaded dataset: {result.id}")

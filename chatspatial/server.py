@@ -201,10 +201,10 @@ async def preprocess_data(
         including denoising and batch effect correction.
 
         Advanced configuration options:
-        - n_neighbors: Number of neighbors for graph construction (None = adaptive based on dataset size)
+        - n_neighbors: Number of neighbors for graph construction (default: 15)
         - clustering_resolution: Leiden clustering resolution (default: 1.0)
         - clustering_key: Key name for storing clustering results (default: "leiden")
-        - spatial_key: Key name for spatial coordinates in obsm (default: "spatial")
+        - spatial_key: Key name for spatial coordinates in obsm (default: None, auto-detected)
         - batch_key: Key name for batch information in obs (default: "batch")
 
         IMPORTANT: This preprocessing creates a filtered gene set for analysis efficiency.
@@ -1075,6 +1075,7 @@ async def deconvolve_data(
         Deconvolution methods (status):
         - cell2location, destvi, stereoscope, tangram: Implemented when scvi-tools available
         - rctd, spotlight: Implemented via rpy2/R when R packages are installed
+        - card: Implemented (CARD deconvolution method)
 
         Cell2location uses two-stage training:
         1. Reference model (NB regression): Learns cell type signatures (250 epochs)

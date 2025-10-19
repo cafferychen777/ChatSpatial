@@ -81,7 +81,7 @@ Load the mouse brain Visium dataset and show me a spatial plot of the top variab
 ```
 
 ```
-Identify spatial domains in my data using SpaGCN and visualize the results
+Identify spatial domains in my data using spagcn method and visualize the results
 ```
 
 ```
