@@ -4,13 +4,13 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![MCP Protocol](https://img.shields.io/badge/MCP-v2024.11.05-green.svg)](https://modelcontextprotocol.io) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Docs](https://img.shields.io/badge/docs-available-blue)](https://cafferychen777.github.io/ChatSpatial/)
 
-## Analyze Spatial Transcriptomics Data Through Natural Language Conversation
+## Agentic Workflow Orchestration for Spatial Transcriptomics Analysis
 
 </div>
 
-**Stop writing code. Start having conversations with your data.**
+**Eliminate the implementation tax. Focus on biological insight.**
 
-ChatSpatial transforms complex spatial transcriptomics analysis into simple, natural language conversations. Ask questions in plain English, get publication-ready results instantly.
+ChatSpatial is an agentic workflow orchestration platform that integrates 60 state-of-the-art methods from fragmented Python and R ecosystems into a unified conversational interface. Built on the Model Context Protocol (MCP), it enables human-steered discovery through natural language, eliminating the need for manual data conversion and complex programming.
 
 ```text
 👤 "Load my 10x Visium dataset and identify spatial domains"
@@ -60,11 +60,11 @@ sc.pp.filter_genes(adata, min_cells=3)
  spatially variable genes"
 ```
 
-✅ **5 seconds to results**  
-✅ **Plain English queries**  
-✅ **Zero programming required**  
-✅ **Publication-ready output**  
-✅ **16 advanced methods included**  
+✅ **5 seconds to results**
+✅ **Plain English queries**
+✅ **Zero programming required**
+✅ **Publication-ready output**
+✅ **60 methods across 15 categories**  
 
 </td>
 </tr>

@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
-title: "ChatSpatial: Interactive AI Assistant for Spatial Transcriptomics Analysis"
-version: "0.2.0"
+title: "ChatSpatial: Agentic Workflow Orchestration for Spatial Transcriptomics Analysis"
+version: "0.2.1"
 date-released: "2025-08-26"
 url: "https://github.com/cafferychen777/ChatSpatial"
 repository-code: "https://github.com/cafferychen777/ChatSpatial"
@@ -14,33 +14,35 @@ authors:
     affiliation: "Texas A&M University"
     email: "cafferychen777@tamu.edu"
 abstract: >-
-  ChatSpatial is an interactive AI assistant for spatial transcriptomics analysis 
-  built on the Model Context Protocol (MCP). It provides a natural language interface 
-  for comprehensive spatial data analysis, including visualization, cell communication 
-  analysis, deconvolution, and spatial domain identification. The tool integrates 
-  state-of-the-art methods like GASTON, SpaGCN, LIANA, and Cell2location through 
-  an intuitive conversational interface.
+  ChatSpatial is an agentic workflow orchestration platform that eliminates the
+  "implementation tax" in spatial transcriptomics analysis. Built on the Model
+  Context Protocol (MCP), it integrates 60 state-of-the-art methods from fragmented
+  Python and R ecosystems into a unified conversational interface, enabling researchers
+  to execute complex multi-tool workflows through natural language without writing code.
+  Unlike autonomous agents, ChatSpatial prioritizes human-steered discovery through
+  schema-enforced tool-calling that ensures reproducibility and analytical fidelity.
+  The platform eliminates cross-platform data conversion barriers, allowing researchers
+  to focus on biological insight rather than software engineering.
 keywords:
   - spatial transcriptomics
-  - bioinformatics
-  - single-cell analysis
   - artificial intelligence
-  - model context protocol
+  - bioinformatics integration
+  - natural language processing
   - computational biology
-  - spatial analysis
-  - cell communication
-  - deconvolution
-  - machine learning
+  - software platform
+  - cancer research
+  - model context protocol
+  - agentic workflow
 preferred-citation:
   type: software
-  title: "ChatSpatial: Interactive AI Assistant for Spatial Transcriptomics Analysis"
+  title: "ChatSpatial: Agentic Workflow Orchestration for Spatial Transcriptomics Analysis"
   authors:
     - family-names: "Chen"
       given-names: "Caffery"
       orcid: "https://orcid.org/0000-0000-0000-0000"
       affiliation: "Texas A&M University"
       email: "cafferychen777@tamu.edu"
-  version: "0.2.0"
+  version: "0.2.1"
   date-released: "2025-08-26"
   url: "https://github.com/cafferychen777/ChatSpatial"
   repository-code: "https://github.com/cafferychen777/ChatSpatial"

@@ -2,14 +2,14 @@
 layout: default
 title: Home
 nav_order: 1
-description: "ChatSpatial is an MCP server for spatial transcriptomics analysis through natural language interaction with Claude and other LLMs."
+description: "ChatSpatial is an agentic workflow orchestration platform that integrates 60 methods from Python and R ecosystems for spatial transcriptomics analysis via Model Context Protocol."
 permalink: /
 ---
 
 # ChatSpatial Documentation
 {: .fs-9 }
 
-AI-Powered Spatial Transcriptomics Analysis via Model Context Protocol
+Agentic Workflow Orchestration for Spatial Transcriptomics Analysis
 {: .fs-6 .fw-300 }
 
 [Get started now](#getting-started){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
@@ -28,7 +28,7 @@ AI-Powered Spatial Transcriptomics Analysis via Model Context Protocol
 
 ## What is ChatSpatial?
 
-ChatSpatial is a Model Context Protocol (MCP) server that enables spatial transcriptomics analysis through natural language interaction. It integrates with Claude and other LLMs to perform complex spatial genomics analysis through simple conversational commands.
+ChatSpatial is an agentic workflow orchestration platform that eliminates the "implementation tax" in spatial transcriptomics research. Built on the Model Context Protocol (MCP), it integrates 60 state-of-the-art methods from fragmented Python and R ecosystems into a unified conversational interface. Unlike autonomous agents, ChatSpatial prioritizes human-steered discovery through schema-enforced tool-calling that ensures reproducibility and analytical fidelity.
 
 ### Advanced Capabilities
 
