@@ -108,7 +108,7 @@ Edit Claude Desktop configuration file:
   "mcpServers": {
     "chatspatial": {
       "command": "/path/to/your/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial"]
+      "args": ["-m", "chatspatial", "server"]
     }
   }
 }
@@ -120,7 +120,7 @@ Edit Claude Desktop configuration file:
   "mcpServers": {
     "chatspatial": {
       "command": "/Users/apple/Research/SpatialTrans_MCP/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial"]
+      "args": ["-m", "chatspatial", "server"]
     }
   }
 }
@@ -135,7 +135,7 @@ Install Claude Code CLI and add ChatSpatial:
 npm install -g @anthropic-ai/claude-code
 
 # Add ChatSpatial MCP server
-claude mcp add chatspatial /path/to/your/chatspatial_env/bin/python -- -m chatspatial
+claude mcp add chatspatial /path/to/your/chatspatial_env/bin/python -- -m chatspatial server
 
 # Verify installation
 claude mcp list
