@@ -7,9 +7,7 @@ import logging
 import traceback
 import warnings
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
-from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
-
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     import scanpy as sc
@@ -175,7 +173,6 @@ def handle_error(error: Exception, context: Optional[Any] = None) -> None:
         else:
             context.error(f"Unexpected error: {str(error)}")
             context.debug(traceback.format_exc())
-
 
 
 @contextmanager

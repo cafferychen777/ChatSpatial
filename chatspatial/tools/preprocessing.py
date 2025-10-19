@@ -20,8 +20,8 @@ from ..utils.tool_error_handling import mcp_tool_error_handler
 
 # Import scvi-tools for advanced preprocessing
 try:
-    import torch
     import scvi
+    import torch
     from scvi.external import RESOLVI
 except ImportError:
     torch = None
@@ -384,12 +384,12 @@ async def preprocess_data(
             if params.normalize_target_sum is not None:
                 logger.info(f"  Target sum: {params.normalize_target_sum:.0f}")
             else:
-                logger.info(f"  Target sum: ADAPTIVE (using median counts)")
+                logger.info("  Target sum: ADAPTIVE (using median counts)")
             if params.scale:
                 if params.scale_max_value is not None:
                     logger.info(f"  Scale clipping: ±{params.scale_max_value} SD")
                 else:
-                    logger.info(f"  Scale clipping: NONE (preserving all outliers)")
+                    logger.info("  Scale clipping: NONE (preserving all outliers)")
             logger.info("=" * 50)
 
             if context:

@@ -6,7 +6,7 @@ including hints about their behavior and resource usage.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 @dataclass
@@ -161,5 +161,3 @@ def get_tool_with_annotations(tool_info: Dict[str, Any]) -> Dict[str, Any]:
         tool_info["annotations"] = annotation.to_dict()
 
     return tool_info
-
-

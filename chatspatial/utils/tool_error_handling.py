@@ -13,7 +13,6 @@ A bug in this code caused images to display as object strings for 2 WEEKS!
 """
 
 import asyncio
-import inspect
 import traceback
 from dataclasses import dataclass
 from functools import wraps
@@ -92,7 +91,7 @@ def _check_return_type_category(func) -> str:
     try:
         # Get type hints
         hints = get_type_hints(func)
-        return_type = hints.get('return', None)
+        return_type = hints.get("return", None)
 
         if return_type is None:
             return "unknown"
@@ -101,17 +100,26 @@ def _check_return_type_category(func) -> str:
         type_str = str(return_type)
 
         # Check if ImageContent is in the return type
-        if 'ImageContent' in type_str:
+        if "ImageContent" in type_str:
             return "image"
 
         # Check if it's a Pydantic BaseModel (common result types)
         # These are defined in models/analysis.py and models/data.py
         basemodel_types = [
-            'SpatialDataset', 'PreprocessingResult', 'AnnotationResult',
-            'SpatialAnalysisResult', 'DifferentialExpressionResult',
-            'CNVResult', 'DeconvolutionResult', 'CellCommunicationResult',
-            'EnrichmentResult', 'RNAVelocityResult', 'TrajectoryResult',
-            'IntegrationResult', 'SpatialDomainResult', 'SpatialVariableGenesResult'
+            "SpatialDataset",
+            "PreprocessingResult",
+            "AnnotationResult",
+            "SpatialAnalysisResult",
+            "DifferentialExpressionResult",
+            "CNVResult",
+            "DeconvolutionResult",
+            "CellCommunicationResult",
+            "EnrichmentResult",
+            "RNAVelocityResult",
+            "TrajectoryResult",
+            "IntegrationResult",
+            "SpatialDomainResult",
+            "SpatialVariableGenesResult",
         ]
 
         for model_type in basemodel_types:
@@ -151,7 +159,7 @@ def _create_error_placeholder_image(error: Exception):
         # Create placeholder image
         return create_placeholder_image(message=error_msg, figsize=(8, 4))
 
-    except Exception as e:
+    except Exception:
         # If we can't create placeholder image, return None and fall back to error dict
         return None
 

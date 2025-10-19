@@ -10,7 +10,6 @@ from typing import Any, Dict, Union
 from pydantic import BaseModel, ValidationError
 
 
-
 def validate_parameters_manually(
     params_dict: Union[Dict[str, Any], BaseModel, None],
     model_class: type,

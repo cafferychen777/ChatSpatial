@@ -12,7 +12,6 @@ Key features:
 import os
 import warnings
 from pathlib import Path
-from typing import Optional
 
 # Project root directory (based on utils module location)
 # This is always correct regardless of cwd
@@ -107,8 +106,7 @@ def get_safe_output_path(
             return fallback_path
         else:
             raise PermissionError(
-                f"Cannot write to output directory: {target_path}. "
-                f"Error: {e}"
+                f"Cannot write to output directory: {target_path}. " f"Error: {e}"
             ) from e
 
 

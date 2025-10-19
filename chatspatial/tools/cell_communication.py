@@ -14,7 +14,7 @@ from ..models.data import CellCommunicationParameters
 
 # Import LIANA+ for cell communication analysis
 try:
-    import liana as li
+    import liana as li  # noqa: F401
 
     LIANA_AVAILABLE = True
 except ImportError:
@@ -22,10 +22,8 @@ except ImportError:
 
 # Import CellPhoneDB for cell communication analysis
 try:
-    from cellphonedb.src.core.methods import (
-        cpdb_degs_analysis_method,
-        cpdb_statistical_analysis_method,
-    )
+    from cellphonedb.src.core.methods import (cpdb_degs_analysis_method,  # noqa: F401
+                                              cpdb_statistical_analysis_method)  # noqa: F401
 
     CELLPHONEDB_AVAILABLE = True
 except ImportError:
@@ -534,7 +532,7 @@ async def _analyze_communication_liana(
 ) -> Dict[str, Any]:
     """Analyze cell communication using LIANA+"""
     try:
-        import liana as li
+        import liana as li  # noqa: F401
     except ImportError:
         raise ImportError(
             "LIANA+ is not installed. Please install it with: pip install liana"
@@ -546,7 +544,7 @@ async def _analyze_communication_liana(
     try:
         import time
 
-        start_time = time.time()
+        time.time()
 
         # Ensure spatial connectivity is computed
         if "spatial_connectivities" not in adata.obsp:
@@ -1211,7 +1209,8 @@ async def _analyze_communication_cellphonedb(
         import os
         import tempfile
 
-        from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
+        from cellphonedb.src.core.methods import \
+            cpdb_statistical_analysis_method
     except ImportError:
         raise ImportError(
             "CellPhoneDB is not installed. Please install it with: pip install cellphonedb"

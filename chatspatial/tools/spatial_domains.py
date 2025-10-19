@@ -37,7 +37,7 @@ except ImportError:
     SPAGCN_AVAILABLE = False
 
 try:
-    import STAGATE_pyG
+    import STAGATE_pyG  # noqa: F401
 
     STAGATE_AVAILABLE = True
 except ImportError:
@@ -421,7 +421,7 @@ async def _identify_domains_spagcn(
 
         # Adjust parameters based on dataset size and spatial spread
         n_spots = len(x_array)
-        spatial_spread = np.std(x_array) + np.std(y_array)
+        np.std(x_array) + np.std(y_array)
 
         # Report dataset characteristics for LLM awareness
         if n_spots > 2000:
@@ -881,7 +881,7 @@ async def _identify_domains_stagate(
         if context:
             try:
                 STAGATE_pyG.Stats_Spatial_Net(adata_stagate)
-            except:
+            except Exception:
                 pass  # Stats display is optional
 
         # Run STAGATE_pyG

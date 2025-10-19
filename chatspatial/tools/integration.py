@@ -13,6 +13,8 @@ from ..models.analysis import IntegrationResult
 from ..models.data import IntegrationParameters
 from ..utils.metadata_storage import store_analysis_metadata
 
+logger = logging.getLogger(__name__)
+
 
 def validate_data_quality(adata, min_cells=10, min_genes=10):
     """Validate data quality before integration
@@ -66,9 +68,7 @@ def validate_data_quality(adata, min_cells=10, min_genes=10):
     )
 
 
-def integrate_multiple_samples(
-    adatas, batch_key="batch", method="harmony", n_pcs=30
-):
+def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pcs=30):
     """Integrate multiple spatial transcriptomics samples
 
     This function expects preprocessed data (normalized, log-transformed, with HVGs marked).
@@ -114,12 +114,16 @@ def integrate_multiple_samples(
         # Problem: concatenate() copies obsm['X_diffmap'] but NOT uns['diffmap_evals']
         # This creates incomplete state that causes KeyError in sc.tl.umap()
         # Solution: Delete incomplete artifacts to allow UMAP to use default initialization
-        if 'X_diffmap' in combined.obsm:
-            del combined.obsm['X_diffmap']
-            logging.info("Removed incomplete X_diffmap from concatenated data (scanpy issue #1021)")
-        if 'diffmap_evals' in combined.uns:
-            del combined.uns['diffmap_evals']
-            logging.info("Removed incomplete diffmap_evals from concatenated data (scanpy issue #1021)")
+        if "X_diffmap" in combined.obsm:
+            del combined.obsm["X_diffmap"]
+            logging.info(
+                "Removed incomplete X_diffmap from concatenated data (scanpy issue #1021)"
+            )
+        if "diffmap_evals" in combined.uns:
+            del combined.uns["diffmap_evals"]
+            logging.info(
+                "Removed incomplete diffmap_evals from concatenated data (scanpy issue #1021)"
+            )
 
     else:
         # If already a merged dataset, ensure it has batch information
@@ -213,7 +217,7 @@ def integrate_multiple_samples(
     # NOTE: scVI-tools methods work better with ALL genes, not just HVGs
     # ========================================================================
     if method == "scvi":
-        logging.info(f"Using scVI method - skipping scale and PCA")
+        logging.info("Using scVI method - skipping scale and PCA")
         logging.info(f"Gene count before scVI processing: {combined.n_vars}")
 
         try:
@@ -226,7 +230,7 @@ def integrate_multiple_samples(
                 dropout_rate=0.1,
                 gene_likelihood="zinb",
                 n_epochs=None,
-                use_gpu=False
+                use_gpu=False,
             )
             logging.info("scVI integration completed successfully")
         except ImportError as e:
@@ -387,20 +391,22 @@ def integrate_multiple_samples(
             import scanpy.external as sce
 
             # Check if harmony_integrate is available in scanpy.external
-            if hasattr(sce.pp, 'harmony_integrate'):
+            if hasattr(sce.pp, "harmony_integrate"):
                 # Use scanpy.external wrapper (preferred method)
                 logging.info("Using scanpy.external.pp.harmony_integrate (recommended)")
                 sce.pp.harmony_integrate(
                     combined,
                     key=batch_key,
-                    basis='X_pca',  # Use PCA representation
-                    adjusted_basis='X_pca_harmony'  # Store corrected embedding
+                    basis="X_pca",  # Use PCA representation
+                    adjusted_basis="X_pca_harmony",  # Store corrected embedding
                 )
                 # Use corrected embedding for downstream analysis
-                sc.pp.neighbors(combined, use_rep='X_pca_harmony')
+                sc.pp.neighbors(combined, use_rep="X_pca_harmony")
             else:
                 # Fallback to raw harmonypy (same algorithm, different interface)
-                logging.info("scanpy.external.pp.harmony_integrate not available, using raw harmonypy")
+                logging.info(
+                    "scanpy.external.pp.harmony_integrate not available, using raw harmonypy"
+                )
                 import harmonypy
                 import pandas as pd
 
@@ -461,22 +467,23 @@ def integrate_multiple_samples(
             import scanpy.external as sce
 
             # Check if scanorama_integrate is available in scanpy.external
-            if hasattr(sce.pp, 'scanorama_integrate'):
+            if hasattr(sce.pp, "scanorama_integrate"):
                 # Use scanpy.external wrapper (preferred method)
-                logging.info("Using scanpy.external.pp.scanorama_integrate (recommended)")
+                logging.info(
+                    "Using scanpy.external.pp.scanorama_integrate (recommended)"
+                )
                 sce.pp.scanorama_integrate(
-                    combined,
-                    key=batch_key,
-                    basis='X_pca',
-                    adjusted_basis='X_scanorama'
+                    combined, key=batch_key, basis="X_pca", adjusted_basis="X_scanorama"
                 )
                 # Use integrated representation for neighbor graph
-                sc.pp.neighbors(combined, use_rep='X_scanorama')
+                sc.pp.neighbors(combined, use_rep="X_scanorama")
             else:
                 # Fallback to raw scanorama (same algorithm, different interface)
-                logging.info("scanpy.external.pp.scanorama_integrate not available, using raw scanorama")
-                import scanorama
+                logging.info(
+                    "scanpy.external.pp.scanorama_integrate not available, using raw scanorama"
+                )
                 import numpy as np
+                import scanorama
 
                 # Separate data by batch
                 datasets = []
@@ -749,9 +756,7 @@ def integrate_with_scvi(
 
     # Setup AnnData for scVI
     scvi.model.SCVI.setup_anndata(
-        combined,
-        batch_key=batch_key,
-        layer=None  # Use .X (should be preprocessed)
+        combined, batch_key=batch_key, layer=None  # Use .X (should be preprocessed)
     )
 
     # Initialize scVI model
@@ -761,7 +766,7 @@ def integrate_with_scvi(
         n_latent=n_latent,
         n_layers=n_layers,
         dropout_rate=dropout_rate,
-        gene_likelihood=gene_likelihood
+        gene_likelihood=gene_likelihood,
     )
 
     # Auto-determine epochs based on dataset size if not specified
@@ -773,19 +778,13 @@ def integrate_with_scvi(
             n_epochs = 200
         else:
             n_epochs = 100
-        logging.info(
-            f"Auto-determined {n_epochs} epochs for {n_cells} cells"
-        )
+        logging.info(f"Auto-determined {n_epochs} epochs for {n_cells} cells")
 
     # Train model
     logging.info(f"Training scVI model for {n_epochs} epochs...")
     # Note: scvi-tools 1.x uses accelerator instead of use_gpu
     accelerator = "gpu" if use_gpu else "cpu"
-    model.train(
-        max_epochs=n_epochs,
-        early_stopping=True,
-        accelerator=accelerator
-    )
+    model.train(max_epochs=n_epochs, early_stopping=True, accelerator=accelerator)
 
     # Get latent representation
     logging.info("Extracting scVI latent representation...")
@@ -857,7 +856,6 @@ def _integrate_with_multivi_disabled(
         Ashuach et al. (2023) "MultiVI: deep generative model for the
         integration of multimodal data" Nature Methods 20, 1222–1231
     """
-    import numpy as np
 
     try:
         import scvi
@@ -894,13 +892,15 @@ def _integrate_with_multivi_disabled(
         )
 
     logging.info(f"Setting up MultiVI model with {n_proteins} proteins")
-    logging.info(f"Before setup: combined.n_vars={combined.n_vars}, n_proteins={n_proteins}")
+    logging.info(
+        f"Before setup: combined.n_vars={combined.n_vars}, n_proteins={n_proteins}"
+    )
 
     # Setup AnnData for MultiVI
     scvi.model.MULTIVI.setup_anndata(
         combined,
         batch_key=batch_key,
-        protein_expression_obsm_key=protein_expression_obsm_key
+        protein_expression_obsm_key=protein_expression_obsm_key,
     )
 
     logging.info(f"After setup: combined.n_vars={combined.n_vars}")
@@ -914,10 +914,10 @@ def _integrate_with_multivi_disabled(
         n_hidden=n_hidden,
         n_latent=n_latent,
         n_layers_encoder=n_layers,
-        dropout_rate=dropout_rate
+        dropout_rate=dropout_rate,
     )
 
-    logging.info(f"Model initialized successfully")
+    logging.info("Model initialized successfully")
 
     # Auto-determine epochs (MultiVI typically needs more than scVI)
     if n_epochs is None:
@@ -928,9 +928,7 @@ def _integrate_with_multivi_disabled(
             n_epochs = 300
         else:
             n_epochs = 150
-        logging.info(
-            f"Auto-determined {n_epochs} epochs for {n_cells} cells"
-        )
+        logging.info(f"Auto-determined {n_epochs} epochs for {n_cells} cells")
 
     # Train model
     logging.info(f"Training MultiVI model for {n_epochs} epochs...")
@@ -938,11 +936,7 @@ def _integrate_with_multivi_disabled(
     logging.info(f"Protein shape: {combined.obsm[protein_expression_obsm_key].shape}")
     # Note: scvi-tools 1.x uses accelerator instead of use_gpu
     accelerator = "gpu" if use_gpu else "cpu"
-    model.train(
-        max_epochs=n_epochs,
-        early_stopping=True,
-        accelerator=accelerator
-    )
+    model.train(max_epochs=n_epochs, early_stopping=True, accelerator=accelerator)
 
     # Get latent representation (shared across modalities)
     logging.info("Extracting MultiVI latent representation...")
@@ -1000,7 +994,6 @@ def integrate_with_totalvi(
         Gayoso et al. (2021) "Joint probabilistic modeling of single-cell
         multi-omic data with totalVI" Nature Methods 18, 272–282
     """
-    import numpy as np
 
     try:
         import scvi
@@ -1043,7 +1036,7 @@ def integrate_with_totalvi(
         combined,
         batch_key=batch_key,
         protein_expression_obsm_key=protein_expression_obsm_key,
-        layer=None  # Use .X for RNA
+        layer=None,  # Use .X for RNA
     )
 
     # Initialize TotalVI model
@@ -1051,7 +1044,7 @@ def integrate_with_totalvi(
     model = scvi.model.TOTALVI(
         combined,
         n_latent=n_latent,
-        protein_dispersion=protein_dispersion
+        protein_dispersion=protein_dispersion,
         # gene_dispersion can be added if needed (default: 'gene')
         # gene_likelihood can be added if needed (default: 'nb')
     )
@@ -1065,19 +1058,13 @@ def integrate_with_totalvi(
             n_epochs = 200
         else:
             n_epochs = 100
-        logging.info(
-            f"Auto-determined {n_epochs} epochs for {n_cells} cells"
-        )
+        logging.info(f"Auto-determined {n_epochs} epochs for {n_cells} cells")
 
     # Train model
     logging.info(f"Training TotalVI model for {n_epochs} epochs...")
     # Note: scvi-tools 1.x uses accelerator instead of use_gpu
     accelerator = "gpu" if use_gpu else "cpu"
-    model.train(
-        max_epochs=n_epochs,
-        early_stopping=True,
-        accelerator=accelerator
-    )
+    model.train(max_epochs=n_epochs, early_stopping=True, accelerator=accelerator)
 
     # Get latent representation
     logging.info("Extracting TotalVI latent representation...")
@@ -1089,7 +1076,7 @@ def integrate_with_totalvi(
         rna_denoised, protein_denoised = model.get_normalized_expression(
             n_samples=25,
             return_mean=True,
-            transform_batch=None  # No batch transformation
+            transform_batch=None,  # No batch transformation
         )
 
         # Store denoised data in layers
