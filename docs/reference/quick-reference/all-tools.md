@@ -21,13 +21,19 @@
 ## 🔵 Data Management Tools
 
 ### `load_data`
-**Purpose**: Load spatial transcriptomics data from various formats  
+**Purpose**: Load spatial transcriptomics data from various formats
 **Difficulty**: 🟢 Beginner
 
 **Key Parameters**:
 - `data_path`: Path to data file/directory
-- `data_type`: `"auto"`, `"10x_visium"`, `"slide_seq"`, `"merfish"`, `"seqfish"`, `"h5ad"`
+- `data_type`: `"auto"` (default), `"10x_visium"`, `"slide_seq"`, `"merfish"`, `"seqfish"`, `"h5ad"`, `"other"`
 - `name`: Optional dataset name
+
+**Supported Formats**:
+- **10x Visium**: Spatial Gene Expression directories (with `spatial/` folder)
+- **H5AD**: Pre-processed AnnData files with spatial coordinates in `obsm['spatial']`
+- **Slide-seq/MERFISH/seqFISH**: Custom formats with coordinate files
+- **Other**: Generic spatial data (requires manual spatial coordinate specification)
 
 **Example Queries**:
 ```
@@ -83,21 +89,24 @@
 
 **Key Parameters**:
 - `data_id`: Dataset ID
-- `params.analysis_type`: 
-  - `"moran"` - Global Moran's I
-  - `"local_moran"` - Local Moran's I (LISA) 
-  - `"geary"` - Geary's C
-  - `"getis_ord"` - Getis-Ord Gi*
-  - `"neighborhood"` - Neighborhood enrichment
-  - `"co_occurrence"` - Co-occurrence patterns
-  - `"ripley"` - Ripley's K/L
-  - `"centrality"` - Graph centrality
-  - `"bivariate_moran"` - Gene pair correlation
-  - `"join_count"` - Categorical autocorrelation
-  - `"network_properties"` - Network analysis
-  - `"spatial_centrality"` - Spatial centrality
-- `params.genes`: List of genes to analyze (unified parameter)
-- `params.n_neighbors`: Number of spatial neighbors (default: 6)
+- `params.analysis_type`: **13 spatial analysis types** (default: `"neighborhood"`)
+  - `"moran"` - Global Moran's I (gene-based)
+  - `"local_moran"` - Local Moran's I / LISA (gene-based)
+  - `"geary"` - Geary's C autocorrelation (gene-based)
+  - `"getis_ord"` - Getis-Ord Gi* hotspot detection (gene-based)
+  - `"neighborhood"` ⭐ - Neighborhood enrichment (requires `cluster_key`)
+  - `"co_occurrence"` - Co-occurrence patterns (requires `cluster_key`)
+  - `"ripley"` - Ripley's K/L point patterns (requires `cluster_key`)
+  - `"centrality"` - Graph centrality (optional `cluster_key`)
+  - `"bivariate_moran"` - Gene pair spatial correlation (gene-based)
+  - `"join_count"` - Binary categorical autocorrelation (requires `cluster_key` with 2 categories)
+  - `"local_join_count"` - Multi-category local join count (requires `cluster_key` with >2 categories)
+  - `"network_properties"` - Network structure analysis (optional `cluster_key`)
+  - `"spatial_centrality"` - Spatial importance measures (optional `cluster_key`)
+- `params.cluster_key`: **REQUIRED** for group-based analyses (neighborhood, co_occurrence, ripley, join_count, local_join_count)
+- `params.genes`: List of specific genes to analyze (for gene-based analyses)
+- `params.n_neighbors`: Number of spatial neighbors (default: 8)
+- `params.n_top_genes`: Top HVGs to analyze if genes not specified (default: 20)
 
 **Example Queries**:
 ```
@@ -544,10 +553,16 @@
 - Use `context.info()` messages to understand what's happening
 - Check return values for quality metrics and suggestions
 
-### Memory Management  
+### Memory Management
 - Large datasets (>50K spots): Consider subsampling for exploration
-- GPU acceleration available for: scVI methods, STAGATE, deep learning tools
-- Use sparse matrices automatically handled by the tools
+- **GPU acceleration available for:**
+  - **Annotation**: Tangram (tangram_device='cuda:0')
+  - **Spatial Domains**: STAGATE, GraphST
+  - **Deconvolution**: Cell2location ⭐, CARD
+  - **Integration**: All scVI-based methods (scVI, scANVI)
+  - **Velocity**: VeloVI, scVelo (partial)
+  - **CNV**: inferCNVpy (GPU-friendly)
+- Sparse matrices automatically handled by the tools
 
 ### Result Resources
 All analysis results are automatically saved as MCP resources:

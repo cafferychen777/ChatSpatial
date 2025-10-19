@@ -249,11 +249,21 @@ async def visualize_data(
     Args:
         data_id: Dataset ID
         params: Visualization parameters including:
-            - plot_type: Type of visualization (spatial, heatmap, violin, umap,
-                        spatial_domains, cell_communication, deconvolution, trajectory,
-                        spatial_analysis, multi_gene, lr_pairs, gene_correlation)
+            - plot_type: Type of visualization. Available types:
+                        * Basic plots: spatial, heatmap, violin, umap
+                        * Analysis results: spatial_domains, cell_communication, deconvolution,
+                          trajectory, rna_velocity, spatial_analysis
+                        * Multi-gene/correlation: multi_gene, lr_pairs, gene_correlation
+                        * Enrichment: pathway_enrichment, spatial_enrichment
+                        * Integration/QC: spatial_interaction, batch_integration
+                        * CNV analysis: cnv_heatmap, spatial_cnv
+                        * High-resolution: card_imputation
             - feature: Gene or feature to visualize (single gene as string or multiple genes as list)
-                      IMPORTANT: For cell types use 'cell_type', NOT 'tangram_cell_types' or method-specific names!
+                      For cell types, use the actual column name created by annotation methods:
+                      - After Tangram: 'cell_type_tangram'
+                      - After scANVI: 'cell_type_scanvi'
+                      - After CellAssign: 'cell_type_cellassign'
+                      - Or use clustering results: 'leiden', 'louvain', etc.
                       For lr_pairs plot_type: Can pass L-R pairs as ["Ligand^Receptor"] format
             - lr_pairs: (Optional) For lr_pairs plot_type, explicit list of (ligand, receptor) tuples
                        Example: [("Fn1", "Cd79a"), ("Vegfa", "Nrp2")]
@@ -267,7 +277,7 @@ async def visualize_data(
         # Visualize cell types after annotation
         params = {
             "plot_type": "spatial",
-            "feature": "cell_type",  # Always use 'cell_type', regardless of annotation method
+            "feature": "cell_type_tangram",  # Use method-specific column name (e.g., cell_type_tangram, cell_type_scanvi)
             "colormap": "tab20"
         }
 
