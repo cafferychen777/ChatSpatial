@@ -619,11 +619,23 @@ class AnnotationParameters(BaseModel):
     sctype_use_cache: bool = True  # Whether to cache results to avoid repeated R calls
 
     # SingleR parameters (for enhanced marker_genes method)
-    singler_reference: Optional[str] = (
-        None  # Reference name from celldex (e.g., "blueprint_encode", "dice", "hpca")
+    singler_reference: Optional[str] = Field(
+        default=None,
+        description=(
+            "Reference dataset name from celldex package (Python naming convention).\n\n"
+            "Valid references:\n"
+            "  Human: 'hpca' (Human Primary Cell Atlas, recommended), 'blueprint_encode', "
+            "'dice', 'monaco_immune', 'novershtern_hematopoietic'\n"
+            "  Mouse: 'immgen' (ImmGen, recommended), 'mouse_rnaseq'\n\n"
+            "Common mistakes:\n"
+            "  ✗ 'HumanPrimaryCellAtlasData' → ✓ use 'hpca'\n"
+            "  ✗ 'ImmGenData' → ✓ use 'immgen'\n\n"
+            "If None, uses species-appropriate default ('hpca' for human, 'immgen' for mouse)."
+        ),
     )
-    singler_integrated: bool = (
-        False  # Whether to use integrated annotation with multiple references
+    singler_integrated: bool = Field(
+        default=False,
+        description="Whether to use integrated annotation with multiple references",
     )
     num_threads: int = 4  # Number of threads for parallel processing
 

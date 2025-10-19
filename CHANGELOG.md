@@ -83,12 +83,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📚 **Documentation**
 
+#### **SingleR Parameter Documentation Improvements**
+- **UPDATED**: Corrected and enhanced SingleR annotation parameter documentation
+  - **Issue**: Users receiving 404 errors when using Bioconductor R naming conventions (`HumanPrimaryCellAtlasData`, `ImmGenData`)
+  - **Root Cause**: Python celldex package uses simplified reference names (`hpca`, `immgen`)
+  - **Solution**: Updated parameter documentation with correct reference names and common mistake warnings
+  - **Files Modified**:
+    - `chatspatial/models/data.py:622-639` - Enhanced singler_reference Field documentation with valid reference list
+    - `chatspatial/server.py:564, 600-611` - Corrected dependency info (Python-based, not R), added SingleR-specific notes
+  - **Impact**: Users now have clear guidance on valid reference names, preventing 404 errors
+  - **Investigation**: See `outputs/SINGLER_404_INVESTIGATION_SUMMARY.md` for full analysis
+  - **Verification Scripts**:
+    - `outputs/reproduce_singler_404_error.py` - Reproduces the 404 bug
+    - `outputs/solution_singler_404_fix.py` - Verifies correct reference names work
+
 #### **Bug Report Documentation**
 - **ADDED**: Comprehensive bug report from comprehensive MCP testing
   - **File**: `BUG_REPORT_2025_01_19.md`
   - **Coverage**: 11 core functions, 5 spatial statistics methods, 6 visualization types
   - **Identified**: 5 bugs (1 critical, 2 high, 1 medium, 1 low severity)
   - **Dataset**: V1_Adult_Mouse_Brain (10x Visium, 2,702 spots × 32,285 genes)
+
+#### **Comprehensive Testing Documentation**
+- **ADDED**: Human Lymph Node dataset comprehensive testing report
+  - **File**: `outputs/HUMAN_LYMPH_NODE_COMPREHENSIVE_TESTING.md`
+  - **Coverage**: 18 tests across all ChatSpatial features
+  - **Cell Annotation Methods Tested**: CellAssign (original + improved), scType, SingleR, mllmcelltype
+  - **Dataset**: V1_Human_Lymph_Node (4,034 spots × 22,411 genes)
+  - **Findings**: All core features functional and scientifically rigorous, SingleR 404 issue documented
 
 ---
 

@@ -561,13 +561,14 @@ async def annotate_cell_types(
         - cellassign: Implemented (via scvi-tools, requires marker_genes parameter)
         - mllmcelltype: Implemented (multimodal LLM classifier)
         - sctype: Implemented (requires R and rpy2)
-        - singler: Implemented (requires R and rpy2)
+        - singler: Implemented (Python-based via singler/celldex packages, requires singler_reference parameter)
 
-        For methods requiring reference data (tangram, scanvi):
-        - reference_data_id must point to a loaded AND PREPROCESSED single-cell dataset
+        For methods requiring reference data (tangram, scanvi, singler):
+        - tangram/scanvi: reference_data_id must point to a loaded AND PREPROCESSED single-cell dataset
         - IMPORTANT: Reference data MUST be preprocessed with preprocess_data() before use!
         - cell_type_key: Leave as None for auto-detection. Only set if you know the exact column name in reference data
         - Common cell type column names: 'cell_type', 'cell_types', 'celltype'
+        - singler: Can use either reference_data_id OR singler_reference (celldex built-in references)
 
         Tangram-specific notes:
         - Method: Deep learning-based spatial mapping of single-cell to spatial transcriptomics
@@ -595,6 +596,19 @@ async def annotate_cell_types(
           scanvi_use_scvi_pretrain=False, num_epochs=50 to prevent NaN errors
         - Returns probabilistic cell type predictions with confidence scores
         - GPU acceleration available (set tangram_device='cuda:0' if available)
+
+        SingleR-specific notes:
+        - Method: Reference-based correlation matching for cell type annotation
+        - Reference options:
+          * Built-in celldex references (via singler_reference parameter):
+            - Human: 'hpca' (recommended), 'blueprint_encode', 'dice', 'monaco_immune', 'novershtern_hematopoietic'
+            - Mouse: 'immgen' (recommended), 'mouse_rnaseq'
+          * Custom reference (via reference_data_id parameter)
+        - Common mistakes:
+          * ✗ 'HumanPrimaryCellAtlasData' → ✓ use 'hpca'
+          * ✗ 'ImmGenData' → ✓ use 'immgen'
+        - Returns correlation-based confidence scores for cell type assignments
+        - No GPU required (Python-based implementation via singler/celldex packages)
     """
     # Validate dataset
     validate_dataset(data_id)
