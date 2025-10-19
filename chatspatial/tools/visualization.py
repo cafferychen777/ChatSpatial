@@ -518,6 +518,7 @@ async def visualize_data(
         "spatial_interaction",
         "batch_integration",  # Batch integration quality assessment
         "cnv_heatmap",  # Copy number variation heatmap
+        "spatial_cnv",  # Spatial CNV projection
         "card_imputation",  # CARD imputation high-resolution results
     ]
     if params.plot_type not in valid_plot_types:
@@ -1573,7 +1574,30 @@ async def visualize_data(
             if context:
                 await context.info("Creating CNV heatmap visualization")
 
-            # Check if infercnvpy is available
+            # Auto-detect CNV data source (infercnvpy or Numbat)
+            cnv_key = None
+            cnv_method = None
+
+            if "X_cnv" in adata.obsm:
+                cnv_key = "X_cnv"
+                cnv_method = "infercnvpy"
+            elif "X_cnv_numbat" in adata.obsm:
+                cnv_key = "X_cnv_numbat"
+                cnv_method = "numbat"
+            else:
+                error_msg = (
+                    "CNV data not found. Expected 'X_cnv' (infercnvpy) or "
+                    "'X_cnv_numbat' (Numbat) in adata.obsm. "
+                    "Please run CNV analysis first using analyze_cnv()."
+                )
+                if context:
+                    await context.warning(error_msg)
+                raise DataNotFoundError(error_msg)
+
+            if context:
+                await context.info(f"Detected CNV data from {cnv_method} method")
+
+            # Check if infercnvpy is available (needed for visualization)
             if not INFERCNVPY_AVAILABLE:
                 error_msg = (
                     "infercnvpy is not installed. Please install it with:\n"
@@ -1585,15 +1609,25 @@ async def visualize_data(
                     await context.warning(error_msg)
                 raise DataCompatibilityError(error_msg)
 
-            # Check if CNV data exists
-            if "X_cnv" not in adata.obsm:
-                error_msg = (
-                    "CNV data not found in adata.obsm['X_cnv']. "
-                    "Please run CNV analysis first using analyze_cnv()."
-                )
+            # For Numbat data, temporarily copy to X_cnv for visualization
+            if cnv_method == "numbat":
                 if context:
-                    await context.warning(error_msg)
-                raise DataNotFoundError(error_msg)
+                    await context.info(
+                        "Converting Numbat CNV data to infercnvpy format for visualization"
+                    )
+                adata.obsm["X_cnv"] = adata.obsm["X_cnv_numbat"]
+                # Also ensure cnv metadata exists for infercnvpy plotting
+                # If chromosome info is not available, infercnvpy will still plot but without chromosome labels
+                if "cnv" not in adata.uns:
+                    # Create minimal metadata structure for infercnvpy
+                    adata.uns["cnv"] = {
+                        "genomic_positions": False,  # No genomic position info available
+                    }
+                    if context:
+                        await context.info(
+                            "Note: Chromosome labels not available for Numbat heatmap. "
+                            "Install R packages for full chromosome annotation."
+                        )
 
             # Check if CNV metadata exists
             if "cnv" not in adata.uns:
@@ -1606,24 +1640,257 @@ async def visualize_data(
                     await context.warning(error_msg)
                 raise DataNotFoundError(error_msg)
 
-            # Create CNV heatmap using infercnvpy
+            # Create CNV heatmap
             if context:
-                await context.info("Generating CNV chromosome heatmap...")
+                await context.info("Generating CNV heatmap...")
 
-            # Create figure
             figsize = params.figure_size if params.figure_size else (12, 8)
-            cnv.pl.chromosome_heatmap(
-                adata,
-                groupby=params.feature if params.feature else None,
-                dendrogram=True,
-                show=False,
-                figsize=figsize,
-            )
-            # Get current figure
-            fig = plt.gcf()
+
+            # For Numbat data without chromosome info, use aggregated heatmap by group
+            if cnv_method == "numbat" and "chromosome" not in adata.var.columns:
+                if context:
+                    await context.info(
+                        "Creating aggregated CNV heatmap by group (chromosome positions not available)"
+                    )
+
+                # Create aggregated heatmap of CNV matrix
+                import seaborn as sns
+                import pandas as pd
+
+                # Get CNV matrix
+                cnv_matrix = adata.obsm["X_cnv"]
+
+                # Aggregate by feature (e.g., clone) for cleaner visualization
+                if params.feature and params.feature in adata.obs.columns:
+                    # Group cells by feature and compute mean CNV per group
+                    feature_values = adata.obs[params.feature]
+                    unique_groups = sorted(feature_values.unique())
+
+                    # Compute mean CNV for each group
+                    aggregated_cnv = []
+                    group_labels = []
+                    group_sizes = []
+
+                    for group in unique_groups:
+                        group_mask = feature_values == group
+                        group_cnv = cnv_matrix[group_mask, :].mean(axis=0)
+                        aggregated_cnv.append(group_cnv)
+                        group_labels.append(str(group))
+                        group_sizes.append(group_mask.sum())
+
+                    aggregated_cnv = np.array(aggregated_cnv)
+
+                    # Adjust figure size for aggregated view
+                    fig, ax = plt.subplots(figsize=(14, max(6, len(unique_groups) * 1.5)))
+
+                    # Plot aggregated heatmap
+                    im = ax.imshow(
+                        aggregated_cnv,
+                        cmap="RdBu_r",
+                        aspect="auto",
+                        vmin=-1,
+                        vmax=1,
+                        interpolation="nearest",
+                    )
+
+                    # Add colorbar
+                    cbar = plt.colorbar(im, ax=ax, label="Mean CNV state")
+
+                    # Set y-axis labels with group names and cell counts
+                    ax.set_yticks(range(len(group_labels)))
+                    ax.set_yticklabels([f"{label} (n={size})" for label, size in zip(group_labels, group_sizes)])
+                    ax.set_ylabel(params.feature, fontsize=12, fontweight='bold')
+
+                    # Set x-axis
+                    ax.set_xlabel("Genomic position (binned)", fontsize=12)
+                    ax.set_xticks([])  # Hide x-axis ticks for cleaner look
+
+                    # Add title
+                    ax.set_title(
+                        f"CNV Profile by {params.feature}\n(Numbat analysis, aggregated by group)",
+                        fontsize=14,
+                        fontweight='bold'
+                    )
+
+                    # Add gridlines between groups
+                    for i in range(len(group_labels) + 1):
+                        ax.axhline(i - 0.5, color='white', linewidth=2)
+
+                else:
+                    # No grouping - show warning and plot all cells (not recommended)
+                    fig, ax = plt.subplots(figsize=figsize)
+
+                    sns.heatmap(
+                        cnv_matrix,
+                        cmap="RdBu_r",
+                        center=0,
+                        cbar_kws={"label": "CNV state"},
+                        yticklabels=False,
+                        xticklabels=False,
+                        ax=ax,
+                        vmin=-1,
+                        vmax=1,
+                    )
+
+                    ax.set_xlabel("Genomic position (binned)")
+                    ax.set_ylabel("Cells")
+                    ax.set_title(f"CNV Heatmap (Numbat)\nAll cells (ungrouped)")
+
+                plt.tight_layout()
+
+            else:
+                # Use infercnvpy chromosome_heatmap for infercnvpy data or Numbat with chr info
+                if context:
+                    await context.info("Creating chromosome-organized CNV heatmap...")
+
+                cnv.pl.chromosome_heatmap(
+                    adata,
+                    groupby=params.feature if params.feature else None,
+                    dendrogram=True,
+                    show=False,
+                    figsize=figsize,
+                )
+                # Get current figure
+                fig = plt.gcf()
 
             if context:
                 await context.info("CNV heatmap created successfully")
+
+        elif params.plot_type == "spatial_cnv":
+            if context:
+                await context.info("Creating spatial CNV projection visualization")
+
+            # Check if spatial coordinates exist
+            if "spatial" not in adata.obsm:
+                error_msg = (
+                    "Spatial coordinates not found in adata.obsm['spatial']. "
+                    "This plot type requires spatial transcriptomics data."
+                )
+                if context:
+                    await context.warning(error_msg)
+                raise DataNotFoundError(error_msg)
+
+            # Determine feature to visualize
+            feature_to_plot = params.feature
+
+            # Auto-detect CNV-related features if none specified
+            if not feature_to_plot:
+                if "numbat_clone" in adata.obs:
+                    feature_to_plot = "numbat_clone"
+                    if context:
+                        await context.info(
+                            "No feature specified, using 'numbat_clone' (Numbat clone assignment)"
+                        )
+                elif "cnv_score" in adata.obs:
+                    feature_to_plot = "cnv_score"
+                    if context:
+                        await context.info(
+                            "No feature specified, using 'cnv_score' (CNV score)"
+                        )
+                elif "numbat_p_cnv" in adata.obs:
+                    feature_to_plot = "numbat_p_cnv"
+                    if context:
+                        await context.info(
+                            "No feature specified, using 'numbat_p_cnv' (Numbat CNV probability)"
+                        )
+                else:
+                    error_msg = (
+                        "No CNV-related features found in adata.obs. "
+                        "Expected one of: 'numbat_clone', 'cnv_score', 'numbat_p_cnv'. "
+                        "Please run CNV analysis first using analyze_cnv()."
+                    )
+                    if context:
+                        await context.warning(error_msg)
+                    raise DataNotFoundError(error_msg)
+
+            # Validate feature exists
+            if feature_to_plot not in adata.obs.columns:
+                error_msg = (
+                    f"Feature '{feature_to_plot}' not found in adata.obs. "
+                    f"Available CNV features: {[col for col in adata.obs.columns if 'cnv' in col.lower() or 'numbat' in col.lower()]}"
+                )
+                if context:
+                    await context.warning(error_msg)
+                raise DataNotFoundError(error_msg)
+
+            if context:
+                await context.info(f"Visualizing {feature_to_plot} on spatial coordinates")
+
+            # Reuse spatial plot logic
+            # Check for tissue images
+            has_tissue_image = False
+            if "spatial" in adata.uns:
+                for key in adata.uns["spatial"].keys():
+                    if "images" in adata.uns["spatial"][key]:
+                        has_tissue_image = True
+                        break
+
+            if has_tissue_image:
+                # With tissue image background
+                sample_key = (
+                    list(adata.uns["spatial"].keys())[0]
+                    if "spatial" in adata.uns
+                    else None
+                )
+
+                spatial_kwargs = {
+                    "img_key": "hires",
+                    "show": False,
+                    "alpha": params.alpha,
+                    "alpha_img": params.alpha_img,
+                    "frameon": params.show_axes,
+                }
+
+                if params.spot_size is not None:
+                    spatial_kwargs["spot_size"] = params.spot_size
+
+                if sample_key:
+                    spatial_kwargs["library_id"] = sample_key
+
+                # Determine if categorical or continuous
+                if pd.api.types.is_categorical_dtype(
+                    adata.obs[feature_to_plot]
+                ) or adata.obs[feature_to_plot].dtype == 'object':
+                    # Categorical data (e.g., clone assignments)
+                    _ensure_categorical_colors(adata, feature_to_plot)
+                    spatial_kwargs["palette"] = params.colormap or "tab20"
+                else:
+                    # Continuous data (e.g., CNV scores, probabilities)
+                    spatial_kwargs["cmap"] = params.colormap or "RdBu_r"
+
+                sc.pl.spatial(adata, color=feature_to_plot, **spatial_kwargs)
+                fig = plt.gcf()
+
+            else:
+                # Without tissue image - use embedding plot
+                figsize = params.figure_size if params.figure_size else (10, 8)
+                fig, ax = plt.subplots(figsize=figsize)
+
+                if pd.api.types.is_categorical_dtype(
+                    adata.obs[feature_to_plot]
+                ) or adata.obs[feature_to_plot].dtype == 'object':
+                    # Categorical
+                    sc.pl.embedding(
+                        adata,
+                        basis="spatial",
+                        color=feature_to_plot,
+                        palette=params.colormap or "tab20",
+                        show=False,
+                        ax=ax,
+                    )
+                else:
+                    # Continuous
+                    sc.pl.embedding(
+                        adata,
+                        basis="spatial",
+                        color=feature_to_plot,
+                        cmap=params.colormap or "RdBu_r",
+                        show=False,
+                        ax=ax,
+                    )
+
+            if context:
+                await context.info(f"Spatial CNV projection created for {feature_to_plot}")
 
         elif params.plot_type == "card_imputation":
             if context:

@@ -22,7 +22,8 @@ except ImportError:
 # Dependency checking for Numbat (via rpy2)
 try:
     import rpy2.robjects as ro
-    from rpy2.robjects import numpy2ri, pandas2ri
+    from rpy2.rinterface_lib import openrlib  # For thread safety
+    from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
 
     # Test if Numbat R package is available
     ro.r("library(numbat)")
@@ -431,10 +432,6 @@ async def _infer_cnv_numbat(
             f"  - Genome: {params.numbat_genome}"
         )
 
-    # Activate rpy2 converters
-    pandas2ri.activate()
-    numpy2ri.activate()
-
     # Create temporary directory for Numbat output
     import tempfile
     import os
@@ -443,80 +440,84 @@ async def _infer_cnv_numbat(
     out_dir = tempfile.mkdtemp(prefix="numbat_", dir=tempfile.gettempdir())
 
     try:
-        # Transfer data to R environment
-        if context:
-            await context.info("Transferring data to R environment...")
+        # Use sparkx-style context management for ALL R operations
+        # This prevents "Conversion rules missing" errors in multithreaded/async environments
+        with openrlib.rlock:  # Thread safety lock
+            with conversion.localconverter(default_converter + pandas2ri.converter + numpy2ri.converter):
+                # Transfer data to R environment (inside context!)
+                if context:
+                    await context.info("Transferring data to R environment...")
 
-        ro.globalenv["count_mat"] = count_mat.T  # R expects genes × cells
-        ro.globalenv["df_allele_python"] = df_allele  # Transfer allele dataframe
-        ro.globalenv["gene_names"] = gene_names
-        ro.globalenv["cell_barcodes"] = cell_barcodes
-        ro.globalenv["ref_indices"] = ref_indices_r
-        ro.globalenv["out_dir"] = out_dir  # Output directory
+                ro.globalenv["count_mat"] = count_mat.T  # R expects genes × cells
+                ro.globalenv["df_allele_python"] = df_allele  # Transfer allele dataframe
+                ro.globalenv["gene_names"] = gene_names
+                ro.globalenv["cell_barcodes"] = cell_barcodes
+                ro.globalenv["ref_indices"] = ref_indices_r
+                ro.globalenv["out_dir"] = out_dir  # Output directory
 
-        # Set Numbat parameters
-        ro.globalenv["genome"] = params.numbat_genome
-        ro.globalenv["t_param"] = params.numbat_t
-        ro.globalenv["max_entropy"] = params.numbat_max_entropy
-        ro.globalenv["min_cells"] = params.numbat_min_cells
-        ro.globalenv["ncores"] = params.numbat_ncores
-        ro.globalenv["skip_nj"] = params.numbat_skip_nj
+                # Set Numbat parameters (inside context!)
+                ro.globalenv["genome"] = params.numbat_genome
+                ro.globalenv["t_param"] = params.numbat_t
+                ro.globalenv["max_entropy"] = params.numbat_max_entropy
+                ro.globalenv["min_cells"] = params.numbat_min_cells
+                ro.globalenv["ncores"] = params.numbat_ncores
+                ro.globalenv["skip_nj"] = params.numbat_skip_nj
 
-        if context:
-            await context.info(
-                "Running Numbat analysis (this may take several minutes)..."
-            )
+                if context:
+                    await context.info(
+                        "Running Numbat analysis (this may take several minutes)..."
+                    )
 
-        # Run Numbat via R
-        ro.r(
-            """
-            library(numbat)
-            library(dplyr)
+                # Run Numbat via R (inside context!)
+                ro.r(
+                    """
+                    library(numbat)
+                    library(dplyr)
 
-            # Keep count matrix in dgCMatrix/matrix format (do NOT convert to dataframe!)
-            # run_numbat requires dgCMatrix or matrix, not data.frame
-            # Ensure proper row/column names are set
-            rownames(count_mat) = gene_names
-            colnames(count_mat) = cell_barcodes
+                    # Keep count matrix in dgCMatrix/matrix format (do NOT convert to dataframe!)
+                    # run_numbat requires dgCMatrix or matrix, not data.frame
+                    # Ensure proper row/column names are set
+                    rownames(count_mat) = gene_names
+                    colnames(count_mat) = cell_barcodes
 
-            # Use allele dataframe from Python (already in correct format)
-            df_allele = df_allele_python
+                    # Use allele dataframe from Python (already in correct format)
+                    df_allele = df_allele_python
 
-            # Create cell annotation for reference cells
-            # Convert cell_barcodes to character vector (rpy2 may pass it as list)
-            cell_vec = as.character(unlist(cell_barcodes))
-            cell_annot = data.frame(
-                cell = cell_vec,
-                group = ifelse(1:length(cell_vec) %in% ref_indices, "normal", "tumor"),
-                stringsAsFactors = FALSE
-            )
+                    # Create cell annotation for reference cells
+                    # Convert cell_barcodes to character vector (rpy2 may pass it as list)
+                    cell_vec = as.character(unlist(cell_barcodes))
+                    cell_annot = data.frame(
+                        cell = cell_vec,
+                        group = ifelse(1:length(cell_vec) %in% ref_indices, "normal", "tumor"),
+                        stringsAsFactors = FALSE
+                    )
 
-            # Aggregate reference expression profile from count matrix
-            ref_profile = aggregate_counts(count_mat, cell_annot, verbose = FALSE)
+                    # Aggregate reference expression profile from count matrix
+                    ref_profile = aggregate_counts(count_mat, cell_annot, verbose = FALSE)
 
-            # Run Numbat with reference profile
-            # Note: run_numbat returns "Success" string, not results object!
-            # Results are saved to out_dir as TSV/RDS files
-            tryCatch({
-                result_status = run_numbat(
-                    count_mat,         # gene x cell count matrix (dgCMatrix or matrix)
-                    ref_profile,       # reference expression profile (lambdas_ref)
-                    df_allele,         # allele dataframe
-                    genome = genome,
-                    t = t_param,
-                    max_entropy = max_entropy,
-                    min_cells = min_cells,
-                    ncores = ncores,
-                    skip_nj = skip_nj,
-                    plot = FALSE,
-                    out_dir = out_dir,  # Output directory for results
-                    verbose = FALSE
+                    # Run Numbat with reference profile
+                    # Note: run_numbat returns "Success" string, not results object!
+                    # Results are saved to out_dir as TSV/RDS files
+                    tryCatch({
+                        result_status = run_numbat(
+                            count_mat,         # gene x cell count matrix (dgCMatrix or matrix)
+                            ref_profile,       # reference expression profile (lambdas_ref)
+                            df_allele,         # allele dataframe
+                            genome = genome,
+                            t = t_param,
+                            max_entropy = max_entropy,
+                            min_cells = min_cells,
+                            ncores = ncores,
+                            skip_nj = skip_nj,
+                            plot = FALSE,
+                            out_dir = out_dir,  # Output directory for results
+                            verbose = FALSE
+                        )
+                    }, error = function(e) {
+                        stop(paste("Numbat execution failed:", e$message))
+                    })
+                    """
                 )
-            }, error = function(e) {
-                stop(paste("Numbat execution failed:", e$message))
-            })
-            """
-        )
 
         if context:
             await context.info("Numbat analysis complete. Reading output files...")
