@@ -61,8 +61,9 @@ Spatial coordinate information.
     },
     "data_type": {
       "type": "string",
-      "enum": ["visium", "merfish", "slide_seq", "starmap", "seqfish", "xenium"],
-      "description": "Type of spatial transcriptomics technology"
+      "enum": ["10x_visium", "slide_seq", "merfish", "seqfish", "other", "h5ad", "auto"],
+      "default": "auto",
+      "description": "Type of spatial transcriptomics technology or file format"
     }
   },
   "required": ["data_path", "name"]
@@ -79,10 +80,11 @@ Spatial coordinate information.
       "type": "string",
       "description": "Dataset identifier"
     },
-    "normalization_method": {
+    "normalization": {
       "type": "string",
-      "enum": ["log", "sctransform", "pearson_residuals"],
-      "default": "log"
+      "enum": ["log", "sct", "pearson_residuals", "none", "scvi"],
+      "default": "log",
+      "description": "Normalization method (sct/scvi require use_scvi_preprocessing=True)"
     },
     "filter_genes": {
       "type": "boolean",
@@ -115,7 +117,8 @@ Spatial coordinate information.
     },
     "method": {
       "type": "string",
-      "enum": ["marker_based", "tangram", "sctype", "cell2location", "scanvi", "cellassign", "mllmcelltype"],
+      "enum": ["tangram", "scanvi", "cellassign", "mllmcelltype", "sctype", "singler"],
+      "default": "tangram",
       "description": "Cell type annotation method"
     },
     "reference_path": {
@@ -143,7 +146,8 @@ Spatial coordinate information.
     },
     "method": {
       "type": "string",
-      "enum": ["spagcn", "stagate", "leiden", "louvain"],
+      "enum": ["spagcn", "leiden", "louvain", "stagate", "graphst"],
+      "default": "spagcn",
       "description": "Spatial domain identification method"
     },
     "n_domains": {
@@ -174,7 +178,8 @@ Spatial coordinate information.
     },
     "method": {
       "type": "string",
-      "enum": ["liana", "cellphonedb", "cellchat"],
+      "enum": ["liana", "cellphonedb", "cellchat_liana"],
+      "default": "liana",
       "description": "Cell communication analysis method"
     },
     "cell_type_column": {
@@ -205,11 +210,15 @@ Spatial coordinate information.
     "plot_type": {
       "type": "string",
       "enum": [
-        "spatial", "umap", "tsne", "pca", "heatmap", "violin", 
-        "spatial_domains", "cell_communication", "trajectory",
-        "gene_expression", "marker_genes", "qc_metrics"
+        "spatial", "heatmap", "violin", "umap",
+        "spatial_domains", "cell_communication", "deconvolution", "trajectory",
+        "rna_velocity", "spatial_analysis", "multi_gene", "lr_pairs",
+        "gene_correlation", "pathway_enrichment", "spatial_enrichment",
+        "spatial_interaction", "batch_integration", "cnv_heatmap",
+        "spatial_cnv", "card_imputation"
       ],
-      "description": "Type of plot to generate"
+      "default": "spatial",
+      "description": "Type of plot to generate (20 plot types available)"
     },
     "genes": {
       "type": "array",
