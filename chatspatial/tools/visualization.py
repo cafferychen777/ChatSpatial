@@ -1680,10 +1680,15 @@ async def visualize_data(
 
                     aggregated_cnv = np.array(aggregated_cnv)
 
-                    # Adjust figure size for aggregated view
-                    fig, ax = plt.subplots(figsize=(14, max(6, len(unique_groups) * 1.5)))
+                    # Calculate appropriate figure width based on number of bins
+                    # Use narrower bins for better visualization (0.004 inches per bin)
+                    n_bins = aggregated_cnv.shape[1]
+                    fig_width = min(max(6, n_bins * 0.004), 12)  # Between 6-12 inches
+                    fig_height = max(4, len(unique_groups) * 1.2)
 
-                    # Plot aggregated heatmap
+                    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+                    # Plot aggregated heatmap with fixed aspect ratio
                     im = ax.imshow(
                         aggregated_cnv,
                         cmap="RdBu_r",
