@@ -19,14 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### **BaseModel Error Handling**
 - **FIXED**: MCP schema validation errors for tools returning Pydantic BaseModel
-  - **Issue**: 9 tools (find_markers, annotate_cells, etc.) failed with validation errors when exceptions occurred
+  - **Issue**: 9 tools (find_markers, annotate_cell_types, etc.) failed with validation errors when exceptions occurred
   - **Solution**: Detect return type and re-raise exceptions for BaseModel tools, letting FastMCP handle at higher level
   - **Impact**: All BaseModel tools now show clear, actionable error messages instead of cryptic validation failures
   - **Files Modified**: `utils/tool_error_handling.py`
   - **Affected Tools**:
     - `find_markers` (DifferentialExpressionResult)
-    - `annotate_cells` (AnnotationResult)
-    - `analyze_spatial_statistics` (SpatialAnalysisResult)
+    - `annotate_cell_types` (AnnotationResult)
+    - `analyze_spatial_statistics` (SpatialStatisticsResult)
     - `deconvolve_data` (DeconvolutionResult)
     - `analyze_cnv` (CNVResult)
     - `analyze_enrichment` (EnrichmentResult)

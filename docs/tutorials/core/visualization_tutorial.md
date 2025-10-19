@@ -315,25 +315,25 @@ These patterns suggest well-preserved tissue architecture!"
 
 **Spatial Analysis Suite (6 types available):**
 
-**1. Neighborhood Enrichment (`spatial_analysis: neighborhood`):**
+**1. Neighborhood Enrichment (`spatial_statistics: neighborhood`):**
 - Z-scores showing cell type co-occurrence
 - Red = enriched interactions (avoid each other)
 - Blue = depleted interactions (cluster together)
 - Network-style visualization available
 
-**2. Moran's I Autocorrelation (`spatial_analysis: moran`):**
+**2. Moran's I Autocorrelation (`spatial_statistics: moran`):**
 - Measures spatial clustering of gene expression
 - Values near +1 = strong clustering
 - Values near -1 = checkerboard pattern  
 - Values near 0 = random distribution
 
-**3. Ripley's K Function (`spatial_analysis: ripley`):**
+**3. Ripley's K Function (`spatial_statistics: ripley`):**
 - Tests for clustering vs. dispersion
 - K(r) above expected = clustering at distance r
 - K(r) below expected = regular spacing
 - Multiple distance scales analyzed
 
-**4. Getis-Ord Statistics (`spatial_analysis: getis_ord`):**
+**4. Getis-Ord Statistics (`spatial_statistics: getis_ord`):**
 - Identifies local hotspots and coldspots
 - Red areas = significant hotspots (high-high clusters)
 - Blue areas = coldspots (low-low clusters)
@@ -591,7 +591,7 @@ These specialized plots reveal patterns that basic visualizations might miss!"
 
 ### 📚 Learn More
 
-- [Basic Spatial Analysis](basic_spatial_analysis.md) - Generate data to visualize
+- [Basic Spatial Analysis](basic_spatial_statistics.md) - Generate data to visualize
 - [Cell Type Annotation](../analysis/cell_type_annotation.md) - Create cell type plots
 - [Cell Communication Analysis](../analysis/cell_communication_analysis.md) - Visualize interactions
 - [Spatial Statistics](spatial_statistics.md) - Explore spatial statistics and pattern analysis
@@ -612,7 +612,7 @@ ChatSpatial provides comprehensive visualization capabilities:
 **Statistical Analysis (4 types):**
 5. `violin` - Distribution comparisons
 6. `gene_correlation` - Co-expression analysis
-7. `spatial_analysis` - 12 statistical sub-types (neighborhood, Moran's I, Ripley's K, etc.)
+7. `spatial_statistics` - 12 statistical sub-types (neighborhood, Moran's I, Ripley's K, etc.)
 8. `spatial_enrichment` - Functional enrichment mapping
 
 **Cell Communication (4 types):**
@@ -640,11 +640,11 @@ ChatSpatial provides comprehensive visualization capabilities:
 **For Publications:**
 - Start with `spatial` overview, then zoom into specific analyses
 - Use `find_spatial_genes` (SPARK-X/SpatialDE) for novel spatial gene discovery
-- Include statistical plots (`spatial_analysis`) for rigor
+- Include statistical plots (`spatial_statistics`) for rigor
 
 **For Exploration:**
 - Try `gene_correlation` to find co-expressed modules
 - Use `spatial_interaction` to discover communication hotspots
-- Experiment with different `spatial_analysis` sub-types
+- Experiment with different `spatial_statistics` sub-types
 
 **Remember**: Great visualizations don't just show data - they reveal insights and tell compelling stories about your tissue's biology!

@@ -509,7 +509,7 @@ async def visualize_data(
         "cell_communication",
         "trajectory",
         "rna_velocity",
-        "spatial_analysis",
+        "spatial_statistics",
         "multi_gene",
         "lr_pairs",
         "gene_correlation",
@@ -1530,10 +1530,10 @@ async def visualize_data(
                 await context.info("Creating trajectory visualization")
             fig = await create_trajectory_visualization(adata, params, context)
 
-        elif params.plot_type == "spatial_analysis":
+        elif params.plot_type == "spatial_statistics":
             if context:
-                await context.info("Creating spatial analysis visualization")
-            fig = await create_spatial_analysis_visualization(adata, params, context)
+                await context.info("Creating spatial statistics visualization")
+            fig = await create_spatial_statistics_visualization(adata, params, context)
 
         elif params.plot_type == "spatial_enrichment":
             if context:
@@ -3405,23 +3405,23 @@ async def create_rna_velocity_visualization(
     return fig
 
 
-@handle_visualization_errors("Spatial Analysis")
-async def create_spatial_analysis_visualization(
+@handle_visualization_errors("Spatial Statistics")
+async def create_spatial_statistics_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create spatial analysis visualization based on analysis_type
+    """Create spatial statistics visualization based on analysis_type
 
     Args:
-        adata: AnnData object with spatial analysis results
+        adata: AnnData object with spatial statistics results
         params: Visualization parameters including analysis_type
         context: MCP context
 
     Returns:
-        Matplotlib figure with spatial analysis visualization
+        Matplotlib figure with spatial statistics visualization
     """
     if context:
         await context.info(
-            f"Creating {params.analysis_type} spatial analysis visualization"
+            f"Creating {params.analysis_type} spatial statistics visualization"
         )
 
     if params.analysis_type == "neighborhood":

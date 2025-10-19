@@ -236,7 +236,7 @@ analyze_spatial_data(
     analysis_type: str = "autocorrelation",
     genes: Optional[List[str]] = None,
     method: str = "moran"
-) -> SpatialAnalysisResult
+) -> SpatialStatisticsResult
 ```
 
 **Analysis Types:**
@@ -298,7 +298,7 @@ Unified spatial statistics analysis with support for 12 different analysis types
 analyze_spatial_data(
     data_id: str,
     params: Dict[str, Any]
-) -> SpatialAnalysisResult
+) -> SpatialStatisticsResult
 ```
 
 **Available Analysis Types:**
