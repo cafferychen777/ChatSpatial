@@ -8,9 +8,9 @@ url: "https://github.com/cafferychen777/ChatSpatial"
 repository-code: "https://github.com/cafferychen777/ChatSpatial"
 license: MIT
 authors:
-  - family-names: "Chen"
-    given-names: "Caffery"
-    orcid: "https://orcid.org/0000-0000-0000-0000"  # Replace with actual ORCID
+  - family-names: "Yang"
+    given-names: "Caffery(Chen)"
+    orcid: "https://orcid.org/0009-0009-9151-2901"  
     affiliation: "Texas A&M University"
     email: "cafferychen777@tamu.edu"
 abstract: >-
@@ -37,9 +37,9 @@ preferred-citation:
   type: software
   title: "ChatSpatial: Agentic Workflow Orchestration for Spatial Transcriptomics Analysis"
   authors:
-    - family-names: "Chen"
-      given-names: "Caffery"
-      orcid: "https://orcid.org/0000-0000-0000-0000"
+    - family-names: "Yang"
+      given-names: "Caffery(Chen)"
+      orcid: "https://orcid.org/0009-0009-9151-2901"
       affiliation: "Texas A&M University"
       email: "cafferychen777@tamu.edu"
   version: "0.2.1"
