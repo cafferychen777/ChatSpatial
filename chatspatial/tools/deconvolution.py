@@ -37,7 +37,7 @@ if scvi:
     try:
         from scvi.external import SpatialStereoscope as Stereoscope
         from scvi.external import Tangram
-        from scvi.model import DestVI
+        from scvi.model import DestVI  # noqa: F401
     except ImportError as e:
         # scvi-tools version compatibility issue
         warnings.warn(f"scvi-tools import issue: {e}. Some methods may be unavailable.")
@@ -48,8 +48,8 @@ try:
 except ImportError:
     cell2location = None
 
-from ..models.analysis import DeconvolutionResult
-from ..models.data import DeconvolutionParameters
+from ..models.analysis import DeconvolutionResult  # noqa: E402
+from ..models.data import DeconvolutionParameters  # noqa: E402
 
 # No longer need local context manager utilities - using centralized version
 
@@ -742,7 +742,7 @@ def deconvolve_cell2location(
         # Apply compatibility fix for cell2location + scvi-tools version mismatch
         _apply_cell2location_compatibility_fix()
 
-        import cell2location as cell2location_mod
+        import cell2location as cell2location_mod  # noqa: F401
         from cell2location.models import Cell2location, RegressionModel
     except ImportError as e:
         # Provide specific installation guidance
@@ -2654,14 +2654,14 @@ def is_spotlight_available() -> Tuple[bool, str]:
         Tuple of (is_available, error_message)
     """
     try:
-        import rpy2.robjects as ro
+        import rpy2.robjects as ro  # noqa: F401
         from rpy2.robjects.packages import importr
 
         # Check if SPOTlight is installed in R
         try:
-            spotlight = importr("SPOTlight")
+            importr("SPOTlight")
             return True, ""
-        except:
+        except Exception:
             return (
                 False,
                 "SPOTlight R package is not installed. Install in R with: BiocManager::install('SPOTlight')",
@@ -2978,7 +2978,7 @@ def deconvolve_spotlight(
         return proportions, stats
 
     except Exception as e:
-        tb = traceback.format_exc()
+        traceback.format_exc()
         error_msg = f"SPOTlight deconvolution failed: {str(e)}"
         # SPOTlight error occurred
         raise RuntimeError(error_msg) from e
@@ -3524,7 +3524,7 @@ async def deconvolve_tangram(
         return proportions, stats
 
     except Exception as e:
-        tb = traceback.format_exc()
+        traceback.format_exc()
         error_msg = f"Tangram deconvolution failed: {str(e)}"
         # SPOTlight error occurred
         raise RuntimeError(error_msg) from e

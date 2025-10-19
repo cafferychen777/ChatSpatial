@@ -28,12 +28,8 @@ from mcp.server.fastmcp import Context
 
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
-from ..utils.error_handling import (
-    DataNotFoundError,
-    ProcessingError,
-    suppress_output,
-    validate_adata,
-)
+from ..utils.error_handling import (DataNotFoundError, ProcessingError,
+                                    suppress_output, validate_adata)
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +248,7 @@ def infer_spatial_trajectory_cellrank(
             try:
                 g.compute_macrostates(n_states=alt_n_states)
                 break
-            except:
+            except Exception:
                 continue
         else:
             raise RuntimeError(
@@ -543,7 +539,7 @@ async def analyze_rna_velocity(
         DataNotFoundError: If the input data lacks the required 'spliced'/'unspliced' layers.
     """
     try:
-        import scvelo as scv
+        import scvelo as scv  # noqa: F401
     except ImportError:
         raise ProcessingError(
             "scvelo package not found. Install it with: pip install scvelo>=0.2.5"
@@ -701,7 +697,7 @@ async def analyze_trajectory(
             await context.info("Attempting trajectory inference with CellRank...")
 
         try:
-            import cellrank as cr
+            import cellrank as cr  # noqa: F401
         except ImportError:
             raise ProcessingError(
                 "cellrank package not found. Install it with: pip install cellrank>=2.0.0"

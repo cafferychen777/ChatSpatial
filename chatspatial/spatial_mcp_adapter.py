@@ -15,7 +15,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import EmbeddedResource, ImageContent
 
 # Import MCP improvements
-from .models.data import (VisualizationParameters)
+from .models.data import VisualizationParameters
 from .utils.tool_error_handling import mcp_tool_error_handler
 
 logger = logging.getLogger(__name__)
@@ -171,38 +171,43 @@ class SpatialResourceManager:
         """Serialize analysis results for JSON output with size control"""
         if hasattr(result, "dict"):
             result_dict = result.dict()
-            
+
             # Size control for CellCommunicationResult to prevent token overflow
-            if hasattr(result, 'method') and 'liana' in getattr(result, 'method', ''):
+            if hasattr(result, "method") and "liana" in getattr(result, "method", ""):
                 return self._safe_serialize_communication_result(result_dict)
-            
+
             return result_dict
         elif hasattr(result, "__dict__"):
             return {k: v for k, v in result.__dict__.items() if not k.startswith("_")}
         else:
             return {"result": str(result)}
 
-    def _safe_serialize_communication_result(self, result_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def _safe_serialize_communication_result(
+        self, result_dict: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Size-controlled serialization for cell communication results"""
         # ULTRATHINK: Prevent token overflow by applying truncation rules to large fields
         safe_dict = result_dict.copy()
-        
+
         # Rule 1: Limit top_lr_pairs to prevent overflow from large L-R pair lists
-        if 'top_lr_pairs' in safe_dict and len(safe_dict['top_lr_pairs']) > 10:
-            safe_dict['top_lr_pairs'] = safe_dict['top_lr_pairs'][:10]
-            safe_dict['top_lr_pairs_truncated'] = True
-        
+        if "top_lr_pairs" in safe_dict and len(safe_dict["top_lr_pairs"]) > 10:
+            safe_dict["top_lr_pairs"] = safe_dict["top_lr_pairs"][:10]
+            safe_dict["top_lr_pairs_truncated"] = True
+
         # Rule 2: Filter statistics to remove large objects while keeping basic metrics
-        if 'statistics' in safe_dict and isinstance(safe_dict['statistics'], dict):
-            stats = safe_dict['statistics']
+        if "statistics" in safe_dict and isinstance(safe_dict["statistics"], dict):
+            stats = safe_dict["statistics"]
             # Keep only simple key-value pairs, exclude complex objects
-            safe_stats = {k: v for k, v in stats.items() 
-                          if not isinstance(v, (list, dict)) or len(str(v)) < 1000}
-            safe_dict['statistics'] = safe_stats
-        
+            safe_stats = {
+                k: v
+                for k, v in stats.items()
+                if not isinstance(v, (list, dict)) or len(str(v)) < 1000
+            }
+            safe_dict["statistics"] = safe_stats
+
         # Rule 3: Add size control marker for debugging
-        safe_dict['_serialization_controlled'] = True
-        
+        safe_dict["_serialization_controlled"] = True
+
         return safe_dict
 
 

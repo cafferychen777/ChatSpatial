@@ -640,7 +640,7 @@ def check_data_compatibility(adata: "ad.AnnData", tool_name: str) -> Dict[str, A
 
     This replaces the scattered compatibility checking logic.
     """
-    validator = DataValidator()
+    DataValidator()
 
     # Tool-specific validation
     if tool_name.lower() in ["cell_communication", "cellchat", "liana"]:
@@ -671,7 +671,7 @@ def raise_if_invalid(
 
     Use this in tools that require valid data to proceed.
     """
-    validator = DataValidator(strict_mode=True)
+    DataValidator(strict_mode=True)
 
     if analysis_type == "cell_communication":
         result = validate_for_cell_communication(adata, strict=True)

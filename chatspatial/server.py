@@ -24,31 +24,31 @@ try:
 except ImportError:
     pass
 
-from mcp.server.fastmcp import Context
-from mcp.types import EmbeddedResource, ImageContent
+from mcp.server.fastmcp import Context  # noqa: E402
+from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
 
-from .models.analysis import (AnnotationResult, CellCommunicationResult,
+from .models.analysis import (AnnotationResult, CellCommunicationResult,  # noqa: E402
                               CNVResult, DeconvolutionResult,
                               DifferentialExpressionResult, EnrichmentResult,
                               IntegrationResult, PreprocessingResult,
                               RNAVelocityResult, SpatialAnalysisResult,
                               SpatialDomainResult, SpatialVariableGenesResult,
                               TrajectoryResult)
-from .models.data import (CellCommunicationParameters, CNVParameters,
+from .models.data import (CellCommunicationParameters, CNVParameters,  # noqa: E402
                           ColumnInfo, DeconvolutionParameters,
                           EnrichmentParameters, IntegrationParameters,
                           RNAVelocityParameters, SpatialDataset,
                           SpatialDomainParameters,
                           SpatialVariableGenesParameters, TrajectoryParameters)
-from .spatial_mcp_adapter import MCPToolMetadata, create_spatial_mcp_server
-from .utils.error_handling import ProcessingError
-from .utils.mcp_parameter_handler import (manual_parameter_validation,
+from .spatial_mcp_adapter import MCPToolMetadata, create_spatial_mcp_server  # noqa: E402
+from .utils.error_handling import ProcessingError  # noqa: E402
+from .utils.mcp_parameter_handler import (manual_parameter_validation,  # noqa: E402
                                           validate_analysis_params,
                                           validate_annotation_params,
                                           validate_cell_communication_params,
                                           validate_spatial_analysis_params,
                                           validate_visualization_params)
-from .utils.tool_error_handling import mcp_tool_error_handler
+from .utils.tool_error_handling import mcp_tool_error_handler  # noqa: E402
 
 # Lazy imports for heavy dependencies - imported when first used
 # This significantly speeds up server startup time

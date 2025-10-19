@@ -24,6 +24,7 @@ os.environ["TQDM_DISABLE"] = "1"  # Disable tqdm globally
 # Configure scientific libraries to suppress output
 try:
     import scanpy as sc
+
     sc.settings.verbosity = 0  # Suppress scanpy output
 except ImportError:
     pass  # scanpy may not be installed yet
@@ -35,24 +36,27 @@ user_cwd = Path.cwd()
 
 # Identify problematic working directories that should be changed
 problematic_cwds = [
-    Path("/"),                # Root directory
-    Path("/tmp"),             # Temp directory
-    Path("/var"),             # System directory
-    Path("/usr"),             # System directory
-    Path("/etc"),             # System directory
+    Path("/"),  # Root directory
+    Path("/tmp"),  # Temp directory
+    Path("/var"),  # System directory
+    Path("/usr"),  # System directory
+    Path("/etc"),  # System directory
 ]
 
 # Check if current cwd is problematic
 is_problematic = (
     # Check exact match
-    user_cwd in problematic_cwds or
+    user_cwd in problematic_cwds
+    or
     # Check if cwd is a parent of problematic directories
-    any(user_cwd == p.parent for p in problematic_cwds) or
+    any(user_cwd == p.parent for p in problematic_cwds)
+    or
     # Check if directory doesn't exist
-    not user_cwd.exists() or
+    not user_cwd.exists()
+    or
     # Check if it's a temporary npx directory (common MCP issue)
-    "_npx" in str(user_cwd) or
-    ".npm" in str(user_cwd)
+    "_npx" in str(user_cwd)
+    or ".npm" in str(user_cwd)
 )
 
 if is_problematic:
@@ -71,7 +75,7 @@ else:
     )
     # Keep user's configured cwd - don't change it!
 
-from .server import mcp
+from .server import mcp  # noqa: E402
 
 
 @click.group()

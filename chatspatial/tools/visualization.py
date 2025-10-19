@@ -5,6 +5,7 @@ Visualization tools for spatial transcriptomics data.
 import os
 import traceback
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -17,13 +18,13 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 plt.ioff()  # Turn off interactive mode
-import numpy as np
-import pandas as pd
-import scanpy as sc
-import seaborn as sns
-from mcp.server.fastmcp import Context
-from mcp.types import EmbeddedResource, ImageContent
-from scipy.stats import pearsonr, spearmanr
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+import scanpy as sc  # noqa: E402
+import seaborn as sns  # noqa: E402
+from mcp.server.fastmcp import Context  # noqa: E402
+from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
+from scipy.stats import pearsonr, spearmanr  # noqa: E402
 
 # Optional CNV analysis visualization
 try:
@@ -33,20 +34,20 @@ try:
 except ImportError:
     INFERCNVPY_AVAILABLE = False
 
-from ..models.data import VisualizationParameters
+from ..models.data import VisualizationParameters  # noqa: E402
 # Import spatial coordinates helper from data adapter
-from ..utils.data_adapter import get_spatial_coordinates
+from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
 # Import error handling utilities
-from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,
+from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,  # noqa: E402
                                     InvalidParameterError, ProcessingError)
 # Import standardized image utilities
-from ..utils.image_utils import (create_placeholder_image,
+from ..utils.image_utils import (create_placeholder_image,  # noqa: E402
                                  optimize_fig_to_image_with_cache)
 # Import path utilities for safe file operations
-from ..utils.path_utils import (get_output_dir_from_config,
+from ..utils.path_utils import (get_output_dir_from_config,  # noqa: E402
                                 get_safe_output_path, is_safe_output_path)
 # Import color utilities for categorical data
-from ._color_utils import _ensure_categorical_colors
+from ._color_utils import _ensure_categorical_colors  # noqa: E402
 
 # Import publication export utilities
 
@@ -59,11 +60,11 @@ def create_figure(figsize=(10, 8)):
 
 
 # New helper functions to reduce code duplication
-from functools import wraps
-
-
 def setup_multi_panel_figure(
-    n_panels: int, params: VisualizationParameters, default_title: str, use_tight_layout: bool = False
+    n_panels: int,
+    params: VisualizationParameters,
+    default_title: str,
+    use_tight_layout: bool = False,
 ) -> Tuple[plt.Figure, np.ndarray]:
     """Sets up a multi-panel matplotlib figure.
 
@@ -196,7 +197,9 @@ def plot_spatial_feature(
         "cmap": params.colormap,
         "alpha": params.alpha,
         "frameon": params.show_axes,
-        "colorbar_loc": None if force_no_colorbar else ("right" if params.show_colorbar else None),
+        "colorbar_loc": (
+            None if force_no_colorbar else ("right" if params.show_colorbar else None)
+        ),
         "title": "",  # We will set the title manually
     }
 
@@ -466,7 +469,7 @@ def get_deconvolution_dataframe(adata, deconv_key):
     else:
         try:
             return pd.DataFrame(deconv_results, index=adata.obs_names)
-        except:
+        except Exception:
             return None
 
 
@@ -1238,7 +1241,7 @@ async def visualize_data(
                                 f"Will add obs annotations: {available_obs_annotations}"
                             )
 
-                ax_dict = sc.pl.heatmap(adata, **heatmap_kwargs)
+                sc.pl.heatmap(adata, **heatmap_kwargs)
                 fig = plt.gcf()
 
                 # Add custom annotations if requested
@@ -1482,10 +1485,10 @@ async def visualize_data(
             # Fix overlapping x-axis labels
             for ax_item in fig.get_axes():
                 # Rotate x-axis labels 45 degrees for better readability
-                ax_item.tick_params(axis='x', labelrotation=45)
+                ax_item.tick_params(axis="x", labelrotation=45)
                 # Align labels to the right for better appearance
                 for label in ax_item.get_xticklabels():
-                    label.set_horizontalalignment('right')
+                    label.set_horizontalalignment("right")
 
             # Adjust layout to prevent label cutoff
             plt.tight_layout()
@@ -1575,14 +1578,11 @@ async def visualize_data(
                 await context.info("Creating CNV heatmap visualization")
 
             # Auto-detect CNV data source (infercnvpy or Numbat)
-            cnv_key = None
             cnv_method = None
 
             if "X_cnv" in adata.obsm:
-                cnv_key = "X_cnv"
                 cnv_method = "infercnvpy"
             elif "X_cnv_numbat" in adata.obsm:
-                cnv_key = "X_cnv_numbat"
                 cnv_method = "numbat"
             else:
                 error_msg = (
@@ -1702,8 +1702,13 @@ async def visualize_data(
 
                     # Set y-axis labels with group names and cell counts
                     ax.set_yticks(range(len(group_labels)))
-                    ax.set_yticklabels([f"{label} (n={size})" for label, size in zip(group_labels, group_sizes)])
-                    ax.set_ylabel(params.feature, fontsize=12, fontweight='bold')
+                    ax.set_yticklabels(
+                        [
+                            f"{label} (n={size})"
+                            for label, size in zip(group_labels, group_sizes)
+                        ]
+                    )
+                    ax.set_ylabel(params.feature, fontsize=12, fontweight="bold")
 
                     # Set x-axis
                     ax.set_xlabel("Genomic position (binned)", fontsize=12)
@@ -1713,12 +1718,12 @@ async def visualize_data(
                     ax.set_title(
                         f"CNV Profile by {params.feature}\n(Numbat analysis, aggregated by group)",
                         fontsize=14,
-                        fontweight='bold'
+                        fontweight="bold",
                     )
 
                     # Add gridlines between groups
                     for i in range(len(group_labels) + 1):
-                        ax.axhline(i - 0.5, color='white', linewidth=2)
+                        ax.axhline(i - 0.5, color="white", linewidth=2)
 
                 else:
                     # No grouping - show warning and plot all cells (not recommended)
@@ -1738,7 +1743,7 @@ async def visualize_data(
 
                     ax.set_xlabel("Genomic position (binned)")
                     ax.set_ylabel("Cells")
-                    ax.set_title(f"CNV Heatmap (Numbat)\nAll cells (ungrouped)")
+                    ax.set_title("CNV Heatmap (Numbat)\nAll cells (ungrouped)")
 
                 plt.tight_layout()
 
@@ -1818,7 +1823,9 @@ async def visualize_data(
                 raise DataNotFoundError(error_msg)
 
             if context:
-                await context.info(f"Visualizing {feature_to_plot} on spatial coordinates")
+                await context.info(
+                    f"Visualizing {feature_to_plot} on spatial coordinates"
+                )
 
             # Reuse spatial plot logic
             # Check for tissue images
@@ -1852,9 +1859,10 @@ async def visualize_data(
                     spatial_kwargs["library_id"] = sample_key
 
                 # Determine if categorical or continuous
-                if pd.api.types.is_categorical_dtype(
-                    adata.obs[feature_to_plot]
-                ) or adata.obs[feature_to_plot].dtype == 'object':
+                if (
+                    pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot])
+                    or adata.obs[feature_to_plot].dtype == "object"
+                ):
                     # Categorical data (e.g., clone assignments)
                     _ensure_categorical_colors(adata, feature_to_plot)
                     spatial_kwargs["palette"] = params.colormap or "tab20"
@@ -1870,9 +1878,10 @@ async def visualize_data(
                 figsize = params.figure_size if params.figure_size else (10, 8)
                 fig, ax = plt.subplots(figsize=figsize)
 
-                if pd.api.types.is_categorical_dtype(
-                    adata.obs[feature_to_plot]
-                ) or adata.obs[feature_to_plot].dtype == 'object':
+                if (
+                    pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot])
+                    or adata.obs[feature_to_plot].dtype == "object"
+                ):
                     # Categorical
                     sc.pl.embedding(
                         adata,
@@ -1894,7 +1903,9 @@ async def visualize_data(
                     )
 
             if context:
-                await context.info(f"Spatial CNV projection created for {feature_to_plot}")
+                await context.info(
+                    f"Spatial CNV projection created for {feature_to_plot}"
+                )
 
         elif params.plot_type == "card_imputation":
             if context:
@@ -2976,8 +2987,11 @@ async def create_multi_gene_visualization(
                 if "spatial" in adata.obsm:
                     # USE THE NEW SPATIAL PLOT HELPER (disable colorbar for manual control)
                     plot_spatial_feature(
-                        adata, feature=temp_feature_key, ax=ax, params=params,
-                        force_no_colorbar=True
+                        adata,
+                        feature=temp_feature_key,
+                        ax=ax,
+                        params=params,
+                        force_no_colorbar=True,
                     )
 
                     # Set color limits manually for better visualization
@@ -3196,8 +3210,11 @@ async def create_lr_pairs_visualization(
                 adata.obs[temp_feature_key] = ligand_expr
                 # USE THE NEW SPATIAL PLOT HELPER (disable colorbar for manual control)
                 plot_spatial_feature(
-                    adata, feature=temp_feature_key, ax=ax, params=params,
-                    force_no_colorbar=True
+                    adata,
+                    feature=temp_feature_key,
+                    ax=ax,
+                    params=params,
+                    force_no_colorbar=True,
                 )
 
                 # Add colorbar with exact height matching using make_axes_locatable
@@ -3219,8 +3236,11 @@ async def create_lr_pairs_visualization(
                 adata.obs[temp_feature_key] = receptor_expr
                 # USE THE NEW SPATIAL PLOT HELPER (disable colorbar for manual control)
                 plot_spatial_feature(
-                    adata, feature=temp_feature_key, ax=ax, params=params,
-                    force_no_colorbar=True
+                    adata,
+                    feature=temp_feature_key,
+                    ax=ax,
+                    params=params,
+                    force_no_colorbar=True,
                 )
 
                 # Add colorbar with exact height matching using make_axes_locatable
@@ -3533,7 +3553,7 @@ async def create_neighborhood_network_visualization(
         # Fallback to standard heatmap
         figsize = params.figure_size or (10, 8)
         fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
-        im = ax.imshow(enrichment_matrix, cmap=params.colormap)
+        ax.imshow(enrichment_matrix, cmap=params.colormap)
         ax.set_title("Neighborhood Enrichment (NetworkX not available)")
         return fig
 
@@ -4616,7 +4636,7 @@ async def create_enrichment_visualization(
             ax.tick_params(axis="x", rotation=45)
             # Align rotated labels to the right for better readability
             for label in ax.get_xticklabels():
-                label.set_horizontalalignment('right')
+                label.set_horizontalalignment("right")
 
         plt.tight_layout()
         return fig
@@ -4961,7 +4981,7 @@ def _create_gsea_barplot(adata, gsea_results, params, context):
         for s in scores
     ]
 
-    bars = ax.barh(y_pos, scores, color=colors, alpha=0.8)
+    ax.barh(y_pos, scores, color=colors, alpha=0.8)
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels(pathways, fontsize=10)
@@ -4991,7 +5011,6 @@ def _create_gsea_barplot(adata, gsea_results, params, context):
 
     # Add FDR info if available
     if "FDR" in df_sorted.columns or "fdr" in df_sorted.columns:
-        fdr_col = "FDR" if "FDR" in df_sorted.columns else "fdr"
         ax.text(
             0.95,
             0.05,
@@ -5070,7 +5089,7 @@ def _create_gsea_dotplot(adata, gsea_results, params, context):
     ax.set_title("Pathway Enrichment Across Conditions", fontsize=14, fontweight="bold")
 
     # Add colorbar
-    cbar = plt.colorbar(scatter, ax=ax, label="NES")
+    plt.colorbar(scatter, ax=ax, label="NES")
 
     # Add size legend
     for size, label in [(100, "p < 0.1"), (200, "p < 0.01"), (300, "p < 0.001")]:

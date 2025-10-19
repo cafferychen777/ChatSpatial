@@ -23,7 +23,8 @@ except ImportError:
 try:
     import rpy2.robjects as ro
     from rpy2.rinterface_lib import openrlib  # For thread safety
-    from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
+    from rpy2.robjects import (conversion, default_converter, numpy2ri,
+                               pandas2ri)
 
     # Test if Numbat R package is available
     ro.r("library(numbat)")
@@ -433,9 +434,9 @@ async def _infer_cnv_numbat(
         )
 
     # Create temporary directory for Numbat output
-    import tempfile
     import os
     import shutil
+    import tempfile
 
     out_dir = tempfile.mkdtemp(prefix="numbat_", dir=tempfile.gettempdir())
 
@@ -443,13 +444,17 @@ async def _infer_cnv_numbat(
         # Use sparkx-style context management for ALL R operations
         # This prevents "Conversion rules missing" errors in multithreaded/async environments
         with openrlib.rlock:  # Thread safety lock
-            with conversion.localconverter(default_converter + pandas2ri.converter + numpy2ri.converter):
+            with conversion.localconverter(
+                default_converter + pandas2ri.converter + numpy2ri.converter
+            ):
                 # Transfer data to R environment (inside context!)
                 if context:
                     await context.info("Transferring data to R environment...")
 
                 ro.globalenv["count_mat"] = count_mat.T  # R expects genes × cells
-                ro.globalenv["df_allele_python"] = df_allele  # Transfer allele dataframe
+                ro.globalenv["df_allele_python"] = (
+                    df_allele  # Transfer allele dataframe
+                )
                 ro.globalenv["gene_names"] = gene_names
                 ro.globalenv["cell_barcodes"] = cell_barcodes
                 ro.globalenv["ref_indices"] = ref_indices_r
@@ -596,7 +601,8 @@ async def _infer_cnv_numbat(
             float(clone_dict["p_cnv"].get(cell, 0.0)) for cell in cell_barcodes
         ]
         adata.obs["numbat_compartment"] = [
-            str(clone_dict["compartment_opt"].get(cell, "unknown")) for cell in cell_barcodes
+            str(clone_dict["compartment_opt"].get(cell, "unknown"))
+            for cell in cell_barcodes
         ]
 
         # Store segment information if available
@@ -606,8 +612,8 @@ async def _infer_cnv_numbat(
             # Fill NaN in object columns with empty string for H5AD compatibility
             segs_clean = segs.copy()
             for col in segs_clean.columns:
-                if segs_clean[col].dtype == 'object':
-                    segs_clean[col] = segs_clean[col].fillna('')
+                if segs_clean[col].dtype == "object":
+                    segs_clean[col] = segs_clean[col].fillna("")
             adata.uns["numbat_segments"] = segs_clean
 
         if has_phylo:

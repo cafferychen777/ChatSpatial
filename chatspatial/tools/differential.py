@@ -49,7 +49,7 @@ async def differential_expression(
 
     # IMPORTANT: Handle float16 data type (numba doesn't support float16)
     # Convert to float32 if needed for differential expression analysis
-    if hasattr(adata.X, 'dtype') and adata.X.dtype == np.float16:
+    if hasattr(adata.X, "dtype") and adata.X.dtype == np.float16:
         if context:
             await context.info(
                 "⚙️ Converting data from float16 to float32 for compatibility with rank_genes_groups"
@@ -297,7 +297,9 @@ async def differential_expression(
             "n_cells_group2": int(n_cells_group2),
             "n_genes_analyzed": temp_adata.n_vars,
             "mean_log2fc": float(mean_log2fc) if mean_log2fc is not None else None,
-            "median_pvalue": float(median_pvalue) if median_pvalue is not None else None,
+            "median_pvalue": (
+                float(median_pvalue) if median_pvalue is not None else None
+            ),
         },
     )
 

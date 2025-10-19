@@ -34,12 +34,8 @@ from mcp.server.fastmcp import Context
 
 from ..models.analysis import SpatialAnalysisResult
 from ..models.data import SpatialAnalysisParameters
-from ..utils.error_handling import (
-    DataCompatibilityError,
-    DataNotFoundError,
-    InvalidParameterError,
-    ProcessingError,
-)
+from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,
+                                    InvalidParameterError, ProcessingError)
 
 # Import standardized utilities
 
@@ -1178,7 +1174,7 @@ async def _analyze_network_properties(
 
     try:
         import networkx as nx
-        from scipy.sparse import csr_matrix
+        from scipy.sparse import csr_matrix  # noqa: F401
 
         # Get or create spatial connectivity
         if "spatial_connectivities" in adata.obsp:
@@ -1211,7 +1207,7 @@ async def _analyze_network_properties(
         else:
             # Analyze largest component
             largest_cc = max(nx.connected_components(G), key=len)
-            G_cc = G.subgraph(largest_cc)
+            G.subgraph(largest_cc)
             properties["largest_component_size"] = len(largest_cc)
             properties["largest_component_fraction"] = (
                 len(largest_cc) / G.number_of_nodes()
@@ -1220,7 +1216,7 @@ async def _analyze_network_properties(
         # Clustering coefficient
         try:
             properties["avg_clustering"] = float(nx.average_clustering(G))
-        except:
+        except Exception:
             properties["avg_clustering"] = None
 
         # Degree statistics

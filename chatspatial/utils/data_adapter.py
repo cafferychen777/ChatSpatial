@@ -11,7 +11,7 @@ different data formats, so the tools can work with clean, standardized data.
 
 import warnings
 from functools import wraps
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Tuple
 
 if TYPE_CHECKING:
     import numpy as np
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 from .data_validator import (  # Import the hardcoded standard keys; Import the alternative key sets
     ALTERNATIVE_BATCH_KEYS, ALTERNATIVE_CELL_TYPE_KEYS,
     ALTERNATIVE_CLUSTER_KEYS, ALTERNATIVE_SPATIAL_KEYS, BATCH_KEY,
-    CELL_TYPE_KEY, CLUSTER_KEY, SPATIAL_KEY, DataValidator, validate_spatial_data)
+    CELL_TYPE_KEY, CLUSTER_KEY, SPATIAL_KEY, DataValidator)
 
 
 class DataStandardizationError(Exception):
@@ -375,7 +375,7 @@ class DataAdapter:
 
     def _add_missing_standard_fields(self, adata: "ad.AnnData") -> None:
         """Add missing standard fields - NO AUTOMATIC DATA CREATION.
-        
+
         This function no longer creates fake batch information to preserve scientific integrity.
         Tools must handle missing batch information appropriately.
         """
@@ -383,7 +383,7 @@ class DataAdapter:
         # Previous code automatically created fake "batch1" labels for all data
         # This misled users into thinking their data had batch information
         # Scientific integrity requires honest handling of missing metadata
-        
+
         # ✅ PRESERVED: Don't create fake clustering or cell types
         # Add placeholder clustering if none exists
         if not any(key in adata.obs for key in ALTERNATIVE_CLUSTER_KEYS):
@@ -562,5 +562,3 @@ def ensure_spatial_neighbors(adata: "ad.AnnData") -> None:
             )
         except Exception as e:
             warnings.warn(f"Could not compute spatial neighbors: {e}")
-
-

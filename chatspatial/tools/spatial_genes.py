@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 GASTON_AVAILABLE = None
 GASTON_IMPORT_ERROR = None
 
-from ..models.analysis import SpatialVariableGenesResult
-from ..models.data import SpatialVariableGenesParameters
-from ..utils.error_handling import suppress_output
+from ..models.analysis import SpatialVariableGenesResult  # noqa: E402
+from ..models.data import SpatialVariableGenesParameters  # noqa: E402
+from ..utils.error_handling import suppress_output  # noqa: E402
 
 
 async def identify_spatial_genes(
@@ -185,9 +185,9 @@ async def _identify_spatial_genes_gaston(
         try:
             import gaston  # noqa: F401
             from gaston import dp_related  # noqa: F401
-            from gaston import (binning_and_plotting, neural_net,
-                                process_NN_output, segmented_fit,
-                                spatial_gene_classification)
+            from gaston import (binning_and_plotting, neural_net,  # noqa: F401
+                                process_NN_output, segmented_fit,  # noqa: F401
+                                spatial_gene_classification)  # noqa: F401
 
             GASTON_AVAILABLE = True
             GASTON_IMPORT_ERROR = None
@@ -1408,7 +1408,7 @@ async def _identify_spatial_genes_sparkx(
                             pval_list = []
                             try:
                                 pvals_numeric = ro.r["as.numeric"](pvals)
-                            except:
+                            except Exception:
                                 pvals_numeric = pvals
 
                             for i in range(len(pvals_numeric)):
@@ -1418,7 +1418,7 @@ async def _identify_spatial_genes_sparkx(
                                 ):
                                     try:
                                         pval_list.append(float(val[0]))
-                                    except:
+                                    except Exception:
                                         pval_list.append(float(val))
                                 else:
                                     pval_list.append(float(val))

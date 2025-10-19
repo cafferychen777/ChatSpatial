@@ -102,7 +102,8 @@ def _validate_rpy2_and_r(context: Optional[Context] = None):
         # First check rpy2
         import rpy2.robjects as robjects
         from rpy2.rinterface_lib import openrlib  # For thread safety
-        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
+        from rpy2.robjects import (conversion, default_converter, numpy2ri,
+                                   pandas2ri)
         from rpy2.robjects.conversion import localconverter
         from rpy2.robjects.packages import importr
 
@@ -130,7 +131,7 @@ def _validate_rpy2_and_r(context: Optional[Context] = None):
             "rpy2 is required for sc-type method. Install with: pip install rpy2 (requires R installation)"
         ) from e
     except Exception as e:
-        error_msg = f"""
+        f"""
 R environment setup failed: {str(e)}
 
 Common solutions:
@@ -278,7 +279,7 @@ async def _annotate_with_singler(
                 try:
                     ref_labels = ref.get_column_data().column(label_col)
                     break
-                except:
+                except Exception:
                     continue
             if ref_labels is None:
                 raise ValueError(f"Could not find labels in reference {reference_name}")
@@ -460,7 +461,7 @@ async def _annotate_with_singler(
                         await context.warning(
                             f"⚠️ {low_delta}/{len(delta_scores)} cells have low confidence scores (delta < 0.05)"
                         )
-            except:
+            except Exception:
                 delta_scores = None
 
         # Process results
@@ -494,7 +495,7 @@ async def _annotate_with_singler(
                     await context.info(
                         f"Using delta scores for confidence (avg: {np.mean(list(confidence_scores.values())):.3f})"
                     )
-            except:
+            except Exception:
                 pass  # Fall back to regular scores
 
         # Fall back to regular scores if delta not available
@@ -586,7 +587,7 @@ async def _annotate_with_tangram(
         if adata.raw is not None:
             adata_sp = adata.raw.to_adata()
             # Preserve spatial coordinates from preprocessed data
-            adata_sp.obsm['spatial'] = adata.obsm['spatial'].copy()
+            adata_sp.obsm["spatial"] = adata.obsm["spatial"].copy()
             if context:
                 await context.info(
                     "Using raw data for Tangram (preserves original gene names and counts)"
@@ -760,7 +761,7 @@ async def _annotate_with_tangram(
                             # Try direct conversion
                             try:
                                 tangram_mapping_score = float(last_value)
-                            except:
+                            except Exception:
                                 tangram_mapping_score = 0.0
                     else:
                         tangram_mapping_score = float(last_value)
@@ -996,10 +997,14 @@ async def _annotate_with_tangram(
 
             # Copy tangram_gene_predictions if they exist
             if "tangram_gene_predictions" in adata_sp.obsm:
-                adata.obsm["tangram_gene_predictions"] = adata_sp.obsm["tangram_gene_predictions"]
+                adata.obsm["tangram_gene_predictions"] = adata_sp.obsm[
+                    "tangram_gene_predictions"
+                ]
 
             if context:
-                await context.info("Transferred Tangram results to original adata object")
+                await context.info(
+                    "Transferred Tangram results to original adata object"
+                )
         # =============================================================================
 
         if context:
@@ -1588,7 +1593,7 @@ async def _annotate_with_mllmcelltype(
                 consensus_proportions = consensus_results.get(
                     "consensus_proportions", {}
                 )
-                entropy = consensus_results.get("entropy", {})
+                consensus_results.get("entropy", {})
 
                 if context:
                     await context.info(
@@ -1712,7 +1717,7 @@ async def _annotate_with_cellassign(
         # CRITICAL FIX: Use adata.raw for marker gene validation if available
         # Preprocessing filters genes to HVGs, but marker genes may not be in HVGs
         # adata.raw contains all original genes and should be checked first
-        if hasattr(adata, 'raw') and adata.raw is not None:
+        if hasattr(adata, "raw") and adata.raw is not None:
             all_genes = set(adata.raw.var_names)
             gene_source = "adata.raw"
             if context:
@@ -1829,17 +1834,18 @@ async def _annotate_with_cellassign(
 
         # NOW subset data to marker genes (size factors already computed and will be transferred)
         # Use adata.raw if available (contains all genes including markers)
-        if hasattr(adata, 'raw') and adata.raw is not None:
+        if hasattr(adata, "raw") and adata.raw is not None:
             if context:
                 await context.info(
                     f"Subsetting from adata.raw to {len(available_marker_genes)} marker genes"
                 )
             # Create subset from raw data
             import anndata as ad_module
+
             adata_subset = ad_module.AnnData(
                 X=adata.raw[:, available_marker_genes].X,
                 obs=adata.obs.copy(),  # size_factors included here!
-                var=adata.raw.var.loc[available_marker_genes].copy()
+                var=adata.raw.var.loc[available_marker_genes].copy(),
             )
         else:
             if context:
@@ -1868,7 +1874,7 @@ async def _annotate_with_cellassign(
         gene_vars = np.var(X_array, axis=0)
         zero_var_genes = gene_vars == 0
         if np.any(zero_var_genes):
-            zero_var_gene_names = adata_subset.var_names[zero_var_genes].tolist()
+            adata_subset.var_names[zero_var_genes].tolist()
             if context:
                 await context.warning(
                     f"Found {np.sum(zero_var_genes)} genes with zero variance. "
@@ -1905,7 +1911,6 @@ async def _annotate_with_cellassign(
 
         # Use method-prefixed output keys to avoid overwriting
         output_key = f"cell_type_{params.method}"
-        confidence_key = f"confidence_{params.method}"
 
         # Handle different prediction formats
         if isinstance(predictions, pd.DataFrame):
