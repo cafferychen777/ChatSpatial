@@ -1300,6 +1300,15 @@ class EnrichmentParameters(BaseModel):
 class CNVParameters(BaseModel):
     """Copy Number Variation (CNV) analysis parameters model"""
 
+    # Method selection
+    method: Literal["infercnvpy", "numbat"] = Field(
+        "infercnvpy",
+        description=(
+            "CNV analysis method. 'infercnvpy': expression-based (default), "
+            "'numbat': haplotype-aware (requires allele data)"
+        ),
+    )
+
     # Reference cell specification
     reference_key: str = Field(
         ...,
@@ -1318,7 +1327,7 @@ class CNVParameters(BaseModel):
         ),
     )
 
-    # CNV detection parameters
+    # infercnvpy parameters
     window_size: Annotated[int, Field(gt=0, le=500)] = Field(
         100, description="Number of genes for CNV averaging window (default: 100)"
     )
@@ -1339,12 +1348,40 @@ class CNVParameters(BaseModel):
         description="Threshold for dynamic CNV calling (default: 1.5)",
     )
 
-    # Clustering and visualization options
+    # Clustering and visualization options (infercnvpy)
     cluster_cells: bool = Field(
         False, description="Whether to cluster cells by CNV pattern"
     )
     dendrogram: bool = Field(
         False, description="Whether to compute hierarchical clustering dendrogram"
+    )
+
+    # Numbat-specific parameters
+    numbat_genome: Literal["hg38", "hg19", "mm10", "mm39"] = Field(
+        "hg38", description="Reference genome for Numbat (default: hg38)"
+    )
+    numbat_allele_data_key: str = Field(
+        "allele_counts",
+        description="Layer name in adata containing allele count data",
+    )
+    numbat_t: Annotated[float, Field(gt=0.0, le=1.0)] = Field(
+        0.15, description="Transition probability threshold (default: 0.15)"
+    )
+    numbat_max_entropy: Annotated[float, Field(gt=0.0, le=1.0)] = Field(
+        0.8,
+        description=(
+            "Maximum entropy threshold. Use 0.8 for spatial data, "
+            "0.5 for scRNA-seq (default: 0.8)"
+        ),
+    )
+    numbat_min_cells: Annotated[int, Field(gt=0)] = Field(
+        10, description="Minimum cells per CNV event (default: 10)"
+    )
+    numbat_ncores: Annotated[int, Field(gt=0, le=16)] = Field(
+        1, description="Number of cores for parallel processing (default: 1)"
+    )
+    numbat_skip_nj: bool = Field(
+        False, description="Skip neighbor-joining tree reconstruction (default: False)"
     )
 
 
