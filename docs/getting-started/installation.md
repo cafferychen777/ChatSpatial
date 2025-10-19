@@ -71,10 +71,11 @@ pip install -e ".[full]"
 ### Full Installation (Recommended)
 Everything in Standard, plus:
 - ✅ Deep learning methods (PyTorch)
-- ✅ Advanced deconvolution (Cell2location)
+- ✅ Advanced deconvolution (Cell2location, CARD)
 - ✅ Advanced trajectory (CellRank, Palantir)
-- ✅ Spatial domains (SpaGCN, STAGATE)
-- ✅ Spatial variable genes (GASTON, SpatialDE)
+- ✅ Spatial domains (SpaGCN, STAGATE, GraphST)
+- ✅ Spatial variable genes (SPARK-X, SpatialDE)
+- ✅ CNV analysis (inferCNVpy, Numbat)
 
 ## Requirements
 

@@ -179,19 +179,9 @@ class SpatialVariableGenesResult(BaseModel):
     results_key: str  # Base key for storing results in adata
 
     # Method-specific results (optional, only populated for respective methods)
-    gaston_results: Optional[Dict[str, Any]] = None  # GASTON-specific results
     spatialde_results: Optional[Dict[str, Any]] = None  # SpatialDE-specific results
     sparkx_results: Optional[Dict[str, Any]] = None  # SPARK-X specific results
     somde_results: Optional[Dict[str, Any]] = None  # SOMDE-specific results
-
-    # Visualization hints (optional)
-    isodepth_visualization: Optional[Dict[str, Any]] = None  # For GASTON isodepth plots
-    spatial_domains_visualization: Optional[Dict[str, Any]] = (
-        None  # For spatial domain plots
-    )
-    top_genes_visualization: Optional[Dict[str, Any]] = (
-        None  # For top genes visualization
-    )
 
     class Config:
         arbitrary_types_allowed = True

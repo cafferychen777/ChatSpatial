@@ -90,18 +90,6 @@ Uncover cellular dynamics, developmental trajectories, and temporal processes in
 - Inferring developmental trajectories and cell fate transitions
 - Exploring spatial-temporal patterns and biological significance
 
-### [GASTON: ML-Powered Spatial Gene Discovery](advanced/gaston_analysis.html)
-**Neural network approach for spatial pattern discovery.** Discover complex spatial patterns using machine learning analysis that goes beyond traditional statistical methods.
-
-**What you will learn:**
-
-- "Can you use GASTON to find ML-powered spatial patterns?"
-- Understanding neural network pattern recognition
-- Isodepth learning and topographic expression mapping
-- Gradient classification (continuous vs discontinuous patterns)
-- Advanced GLM-PCA feature engineering
-- Adversarial spatial domain discovery
-
 ### [Creating Beautiful Visualizations](core/visualization_tutorial.html)
 Make publication-ready figures through simple conversation.
 

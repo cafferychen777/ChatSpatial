@@ -27,27 +27,47 @@ except ImportError:
 from mcp.server.fastmcp import Context  # noqa: E402
 from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
 
-from .models.analysis import (AnnotationResult, CellCommunicationResult,  # noqa: E402
-                              CNVResult, DeconvolutionResult,
-                              DifferentialExpressionResult, EnrichmentResult,
-                              IntegrationResult, PreprocessingResult,
-                              RNAVelocityResult, SpatialAnalysisResult,
-                              SpatialDomainResult, SpatialVariableGenesResult,
-                              TrajectoryResult)
-from .models.data import (CellCommunicationParameters, CNVParameters,  # noqa: E402
-                          ColumnInfo, DeconvolutionParameters,
-                          EnrichmentParameters, IntegrationParameters,
-                          RNAVelocityParameters, SpatialDataset,
-                          SpatialDomainParameters,
-                          SpatialVariableGenesParameters, TrajectoryParameters)
-from .spatial_mcp_adapter import MCPToolMetadata, create_spatial_mcp_server  # noqa: E402
+from .models.analysis import (
+    AnnotationResult,
+    CellCommunicationResult,  # noqa: E402
+    CNVResult,
+    DeconvolutionResult,
+    DifferentialExpressionResult,
+    EnrichmentResult,
+    IntegrationResult,
+    PreprocessingResult,
+    RNAVelocityResult,
+    SpatialAnalysisResult,
+    SpatialDomainResult,
+    SpatialVariableGenesResult,
+    TrajectoryResult,
+)
+from .models.data import (
+    CellCommunicationParameters,
+    CNVParameters,  # noqa: E402
+    ColumnInfo,
+    DeconvolutionParameters,
+    EnrichmentParameters,
+    IntegrationParameters,
+    RNAVelocityParameters,
+    SpatialDataset,
+    SpatialDomainParameters,
+    SpatialVariableGenesParameters,
+    TrajectoryParameters,
+)
+from .spatial_mcp_adapter import (
+    MCPToolMetadata,
+    create_spatial_mcp_server,
+)  # noqa: E402
 from .utils.error_handling import ProcessingError  # noqa: E402
-from .utils.mcp_parameter_handler import (manual_parameter_validation,  # noqa: E402
-                                          validate_analysis_params,
-                                          validate_annotation_params,
-                                          validate_cell_communication_params,
-                                          validate_spatial_analysis_params,
-                                          validate_visualization_params)
+from .utils.mcp_parameter_handler import (
+    manual_parameter_validation,  # noqa: E402
+    validate_analysis_params,
+    validate_annotation_params,
+    validate_cell_communication_params,
+    validate_spatial_analysis_params,
+    validate_visualization_params,
+)
 from .utils.tool_error_handling import mcp_tool_error_handler  # noqa: E402
 
 # Lazy imports for heavy dependencies - imported when first used
@@ -231,8 +251,7 @@ async def visualize_data(
         params: Visualization parameters including:
             - plot_type: Type of visualization (spatial, heatmap, violin, umap,
                         spatial_domains, cell_communication, deconvolution, trajectory,
-                        spatial_analysis, multi_gene, lr_pairs, gene_correlation,
-                        gaston_isodepth, gaston_domains, gaston_genes)
+                        spatial_analysis, multi_gene, lr_pairs, gene_correlation)
             - feature: Gene or feature to visualize (single gene as string or multiple genes as list)
                       IMPORTANT: For cell types use 'cell_type', NOT 'tangram_cell_types' or method-specific names!
                       For lr_pairs plot_type: Can pass L-R pairs as ["Ligand^Receptor"] format
@@ -654,8 +673,9 @@ async def analyze_spatial_statistics(
     data_store = {data_id: dataset_info}
 
     # Lazy import spatial_statistics (squidpy is slow to import)
-    from .tools.spatial_statistics import \
-        analyze_spatial_statistics as _analyze_spatial_statistics
+    from .tools.spatial_statistics import (
+        analyze_spatial_statistics as _analyze_spatial_statistics,
+    )
 
     # Call spatial statistics analysis function
     result = await _analyze_spatial_statistics(data_id, data_store, params, context)
@@ -925,7 +945,6 @@ async def analyze_trajectory_data(
         - cellrank: RNA velocity-based trajectory inference (implemented when cellrank installed)
         - velovi: scvi-tools VeloVI (implemented when scvi-tools available)
         - paga: Not implemented in tools/trajectory.py (planned)
-        - gaston: Not implemented for trajectory in this server (GASTON integrated for spatial genes)
     """
     # Import trajectory function
     from .tools.trajectory import analyze_trajectory
@@ -1112,8 +1131,7 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import \
-        identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1196,8 +1214,9 @@ async def analyze_cell_communication(
         }
     """
     # Import cell communication function
-    from .tools.cell_communication import \
-        analyze_cell_communication as analyze_comm_func
+    from .tools.cell_communication import (
+        analyze_cell_communication as analyze_comm_func,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1282,8 +1301,9 @@ async def analyze_enrichment(
     # Import enrichment analysis function
     import time
 
-    from .tools.enrichment import \
-        perform_spatial_enrichment as perform_enrichment_analysis
+    from .tools.enrichment import (
+        perform_spatial_enrichment as perform_enrichment_analysis,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1429,8 +1449,12 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (perform_enrichr, perform_gsea,
-                                       perform_ora, perform_ssgsea)
+        from .tools.enrichment import (
+            perform_enrichr,
+            perform_gsea,
+            perform_ora,
+            perform_ssgsea,
+        )
 
         if params.method == "pathway_gsea":
             result_dict = (
@@ -1615,13 +1639,15 @@ async def find_spatial_genes(
 
     Notes:
         Available methods:
-        - gaston: GASTON neural network for spatial gene classification (default)
-        - spatialde: SpatialDE Gaussian process-based method
-        - spark: SPARK statistical model using R integration
-        - somde: SOMDE method (coming soon)
+        - sparkx: SPARK-X non-parametric method (default, best accuracy)
+        - spatialde: SpatialDE Gaussian process-based method (statistically rigorous)
 
         Method selection via params.method parameter.
         Each method has specific parameters - see SpatialVariableGenesParameters model.
+
+        Performance comparison (3000 spots × 20000 genes):
+        - SPARK-X: ~2-5 min (best accuracy)
+        - SpatialDE: ~15-30 min (best statistical rigor)
     """
     # Validate dataset
     validate_dataset(data_id)

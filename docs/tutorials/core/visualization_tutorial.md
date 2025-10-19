@@ -269,43 +269,43 @@ Ready for submission!"
 
 ---
 
-**👤 You:** "I've heard about GASTON analysis and spatial statistics. Can you show me what these advanced analyses look like?"
+**👤 You:** "I've heard about spatial statistics and spatially variable genes. Can you show me what these advanced analyses look like?"
 
-**🤖 ChatSpatial:** "Absolutely! GASTON and spatial statistics provide unique insights into spatial gene patterns. Let me create several specialized visualizations."
+**🤖 ChatSpatial:** "Absolutely! Spatial statistics provide unique insights into spatial gene patterns and cell type organization. Let me create several specialized visualizations."
 
-*[GASTON analysis plots appear]*
+*[Spatial statistics plots appear]*
 
-**🤖 ChatSpatial:** "Here are your GASTON analysis results! 🧬📊
+**🤖 ChatSpatial:** "Here are your spatial analysis results! 🧬📊
 
-**GASTON Visualization Suite:**
+**Spatial Statistics Suite:**
 
-**1. Isodepth Contours (`gaston_isodepth`):**
-- Shows expression gradients as topographic-style contours
-- Each line represents equal expression levels
-- Reveals smooth spatial transitions and boundaries
-- Perfect for identifying expression watersheds
+**1. Moran's I Autocorrelation:**
+- Measures spatial clustering of gene expression
+- High Moran's I indicates strong spatial patterns
+- Identifies genes with coordinated spatial expression
+- Statistical significance testing included
 
-**2. GASTON Domains (`gaston_domains`):**
-- Displays computationally identified spatial domains
-- Based on expression similarity and spatial proximity
-- More refined than standard clustering methods
-- Shows natural tissue architecture
-
-**3. Spatially Variable Genes (`gaston_genes`):**
+**2. Spatially Variable Genes (SPARK-X/SpatialDE):**
 - Highlights genes with significant spatial patterns
 - Statistical significance color-coded
 - Shows spatial correlation coefficients
 - Identifies genes driving spatial organization
 
+**3. Neighborhood Enrichment:**
+- Analyzes cell type spatial relationships
+- Shows which cell types prefer to co-localize
+- Identifies spatial avoidance patterns
+- Quantifies tissue architecture organization
+
 **Biological Insights:**
-- Your tissue has 7 distinct GASTON domains
 - 234 genes show significant spatial variability
+- Strong spatial autocorrelation indicates organized tissue architecture
+- Cell type distributions show non-random spatial patterns
 - Expression gradients follow anatomical boundaries
-- Domain transitions are sharp, not gradual
 
 These patterns suggest well-preserved tissue architecture!"
 
-**👤 You:** "That's fascinating! What about spatial statistics? I want to understand if my cell types are randomly distributed or if there are specific patterns."
+**👤 You:** "That's fascinating! Can you show me more spatial statistics? I want to understand if my cell types are randomly distributed or if there are specific patterns."
 
 **🤖 ChatSpatial:** "Great question! Spatial statistics can reveal whether cell distributions are random, clustered, or dispersed. Let me run several spatial analysis types."
 
@@ -460,7 +460,7 @@ Your tissue shows biologically relevant communication patterns that align with k
 
 This lets you explore your data dynamically and discover patterns that might not be obvious in static plots!"
 
-**👤 You:** "This is amazing for exploration! Can you show me some of the specialized analysis plots? I'm particularly interested in spatial statistics and GASTON analysis."
+**👤 You:** "This is amazing for exploration! Can you show me some of the specialized analysis plots? I'm particularly interested in spatial statistics and spatially variable genes."
 
 **🤖 ChatSpatial:** "Excellent choice! Let me demonstrate some of our advanced spatial analysis capabilities."
 
@@ -468,12 +468,12 @@ This lets you explore your data dynamically and discover patterns that might not
 
 **🤖 ChatSpatial:** "Here are several advanced spatial analysis visualizations! 📊🔬
 
-**1. GASTON Analysis Suite:**
-- **Isodepth contours**: Shows spatial gene expression gradients
-- **Domain visualization**: GASTON-identified spatial domains
-- **Gene analysis**: Spatially variable genes with statistical significance
+**1. Spatially Variable Genes (SPARK-X/SpatialDE):**
+- **Gene identification**: Statistical testing for spatial patterns
+- **Spatial correlation**: Quantifies spatial expression relationships
+- **Significance testing**: FDR-corrected p-values for reliability
 
-**2. Spatial Statistics (6 sub-types available):**
+**2. Spatial Statistics (12 sub-types available):**
 - **Neighborhood enrichment**: Cell type co-occurrence patterns
 - **Moran's I autocorrelation**: Spatial clustering of gene expression
 - **Ripley's K function**: Point pattern analysis for cell distributions
@@ -492,7 +492,7 @@ This lets you explore your data dynamically and discover patterns that might not
 
 **Key Insights from These Plots:**
 - Your tissue shows strong spatial organization (high Moran's I)
-- GASTON identified 5 distinct expression domains
+- 234 spatially variable genes identified (SPARK-X)
 - Cell communication is highest at domain boundaries
 - Integration successfully removed batch effects
 - Neuronal markers show expected spatial patterns
@@ -514,7 +514,7 @@ These specialized plots reveal patterns that basic visualizations might miss!"
 **Advanced Gene Analysis:**
 - **"I want to see correlations between different genes"** → Gene correlation matrices and scatter plots
 - **"Create a multi-gene panel showing key markers"** → Multi-panel spatial plots for gene comparison
-- **"Show me GASTON analysis results"** → Isodepth contours, domains, and spatially variable genes
+- **"Find spatially variable genes"** → SPARK-X or SpatialDE analysis with statistical significance
 
 **Cell Communication & Interactions:**
 - **"Visualize ligand-receptor interactions"** → LR pair analysis and interaction networks
@@ -525,7 +525,7 @@ These specialized plots reveal patterns that basic visualizations might miss!"
 - **"Show me RNA velocity patterns"** → Velocity field overlays and developmental arrows
 - **"Create trajectory plots for pseudotime"** → Developmental pathways and differentiation routes
 
-**Spatial Analysis (6 Sub-types):**
+**Spatial Analysis (12 Sub-types):**
 - **"Perform neighborhood enrichment analysis"** → Co-occurrence and spatial clustering patterns
 - **"Show me Moran's I spatial autocorrelation"** → Spatial statistics and pattern detection
 - **"Create Ripley's K function plots"** → Point pattern analysis
@@ -594,12 +594,12 @@ These specialized plots reveal patterns that basic visualizations might miss!"
 - [Basic Spatial Analysis](basic_spatial_analysis.md) - Generate data to visualize
 - [Cell Type Annotation](../analysis/cell_type_annotation.md) - Create cell type plots
 - [Cell Communication Analysis](../analysis/cell_communication_analysis.md) - Visualize interactions
-- [Advanced Analysis](../advanced_analysis.md) - Explore GASTON and spatial statistics
+- [Spatial Statistics](spatial_statistics.md) - Explore spatial statistics and pattern analysis
 - [API Reference](../../reference/api/README.md) - Complete visualization parameters
 
 ## The Complete Visualization Arsenal
 
-### 🎯 All 20 Plot Types at Your Fingertips
+### 🎯 All 17 Plot Types at Your Fingertips
 
 ChatSpatial provides comprehensive visualization capabilities:
 
@@ -609,29 +609,26 @@ ChatSpatial provides comprehensive visualization capabilities:
 3. `umap` - Dimensionality reduction with annotations
 4. `heatmap` - Multi-gene expression matrices
 
-**Statistical Analysis (7 types):**
+**Statistical Analysis (4 types):**
 5. `violin` - Distribution comparisons
 6. `gene_correlation` - Co-expression analysis
-7. `spatial_analysis` - 6 statistical sub-types (neighborhood, Moran's I, Ripley's K, etc.)
-8. `gaston_isodepth` - Spatial expression gradients
-9. `gaston_domains` - GASTON domain identification
-10. `gaston_genes` - Spatially variable genes
-11. `spatial_enrichment` - Functional enrichment mapping
+7. `spatial_analysis` - 12 statistical sub-types (neighborhood, Moran's I, Ripley's K, etc.)
+8. `spatial_enrichment` - Functional enrichment mapping
 
 **Cell Communication (4 types):**
-12. `cell_communication` - Interaction networks
-13. `lr_pairs` - Ligand-receptor analysis
-14. `spatial_interaction` - Distance-dependent communication
-15. `multi_gene` - Multi-panel gene comparisons
+9. `cell_communication` - Interaction networks
+10. `lr_pairs` - Ligand-receptor analysis
+11. `spatial_interaction` - Distance-dependent communication
+12. `multi_gene` - Multi-panel gene comparisons
 
 **Trajectory & Dynamics (2 types):**
-16. `rna_velocity` - Velocity field visualization
-17. `trajectory` - Developmental pathways
+13. `rna_velocity` - Velocity field visualization
+14. `trajectory` - Developmental pathways
 
 **Quality Control (3 types):**
-18. `deconvolution` - Cell type proportions
-19. `pathway_enrichment` - GSEA and pathway activity
-20. `batch_integration` - Batch correction assessment
+15. `deconvolution` - Cell type proportions
+16. `pathway_enrichment` - GSEA and pathway activity
+17. `batch_integration` - Batch correction assessment
 
 ### 🚀 Pro Tips for Maximum Impact
 
@@ -642,7 +639,7 @@ ChatSpatial provides comprehensive visualization capabilities:
 
 **For Publications:**
 - Start with `spatial` overview, then zoom into specific analyses
-- Use `gaston_*` plots for novel spatial gene discovery
+- Use `find_spatial_genes` (SPARK-X/SpatialDE) for novel spatial gene discovery
 - Include statistical plots (`spatial_analysis`) for rigor
 
 **For Exploration:**
