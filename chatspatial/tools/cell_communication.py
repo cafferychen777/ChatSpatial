@@ -142,7 +142,7 @@ async def _validate_liana_requirements(
                 f"  {'...' if len(categorical_cols) > 15 else ''}\n\n"
                 f"Options:\n"
                 f"  1. Set cell_type_handling='create_from_column' and cell_type_source_column='<your_column>'\n"
-                f"  2. Run cell type annotation first using annotate_cells()\n"
+                f"  2. Run cell type annotation first using annotate_cell_types()\n"
                 f"  3. Manually create cell type column from existing clustering\n\n"
                 f"Common cell type column names: cell_type, celltype, annotation, label\n"
                 f"Common cluster column names: leiden, louvain, seurat_clusters, phenograph"

@@ -26,7 +26,7 @@ ChatSpatial provides 16 MCP tools for spatial transcriptomics analysis. Each too
 | Category | Tools | Description |
 |----------|-------|-------------|
 | **[Data Management](#data-management)** | `load_data`, `preprocess_data` | Data loading, QC, and preprocessing |
-| **[Cell Annotation](#cell-annotation)** | `annotate_cells` | 7 annotation methods with reference data support |
+| **[Cell Annotation](#cell-annotation)** | `annotate_cell_types` | 7 annotation methods with reference data support |
 | **[Spatial Analysis](#spatial-analysis)** | `analyze_spatial_data`, `identify_spatial_domains`, `register_spatial_data` | Comprehensive spatial pattern analysis, domain identification, and registration |
 | **[Gene Analysis](#gene-analysis)** | `find_spatial_genes`, `find_markers`, `analyze_enrichment` | Spatial variable genes, differential expression, and enrichment |
 | **[Cell Communication](#cell-communication)** | `analyze_cell_communication` | Ligand-receptor interaction analysis |
@@ -46,7 +46,7 @@ preprocess_data(data_id="dataset", normalize_total=True, log1p=True)
 
 # Core analysis
 identify_spatial_domains(data_id="dataset", method="spagcn")
-annotate_cells(data_id="dataset", method="tangram")
+annotate_cell_types(data_id="dataset", method="tangram")
 analyze_cell_communication(data_id="dataset", method="liana")
 analyze_enrichment(data_id="dataset", method="spatial_enrichmap")
 
@@ -147,14 +147,14 @@ preprocess_data(
 
 ## Cell Annotation
 
-### annotate_cells
+### annotate_cell_types
 
 Cell type annotation with multiple methods.
 
 **Signature:**
 
 ```python
-annotate_cells(
+annotate_cell_types(
     data_id: str,
     method: str = "tangram",
     reference_data_id: Optional[str] = None,
@@ -177,7 +177,7 @@ annotate_cells(
 **Example:**
 ```python
 # Reference-based annotation with Tangram
-result = annotate_cells(
+result = annotate_cell_types(
     data_id="spatial_dataset",
     method="tangram",
     reference_data_id="reference_scRNA_dataset"
@@ -190,7 +190,7 @@ markers = {
     "Macrophages": ["CD68", "CD163", "CSF1R"]
 }
 
-result = annotate_cells(
+result = annotate_cell_types(
     data_id="dataset",
     method="cellassign",
     marker_genes=markers
@@ -671,7 +671,7 @@ ChatSpatial implements error handling:
 result = load_data(data_path="data.h5ad", name="sample")
 preprocess_data(data_id=result.id)
 identify_spatial_domains(data_id=result.id, method="spagcn")
-annotate_cells(data_id=result.id, method="tangram", reference_data_id="ref")
+annotate_cell_types(data_id=result.id, method="tangram", reference_data_id="ref")
 analyze_cell_communication(data_id=result.id, method="liana")
 analyze_enrichment(data_id=result.id, method="spatial_enrichmap")
 visualize_data(data_id=result.id, plot_type="spatial_domains")

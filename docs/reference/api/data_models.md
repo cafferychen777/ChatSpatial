@@ -105,7 +105,7 @@ Spatial coordinate information.
 }
 ```
 
-### annotate_cells Parameters
+### annotate_cell_types Parameters
 
 ```json
 {

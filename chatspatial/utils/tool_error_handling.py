@@ -109,7 +109,7 @@ def _check_return_type_category(func) -> str:
             "SpatialDataset",
             "PreprocessingResult",
             "AnnotationResult",
-            "SpatialAnalysisResult",
+            "SpatialStatisticsResult",
             "DifferentialExpressionResult",
             "CNVResult",
             "DeconvolutionResult",

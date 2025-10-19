@@ -37,7 +37,7 @@ from .models.analysis import (
     IntegrationResult,
     PreprocessingResult,
     RNAVelocityResult,
-    SpatialAnalysisResult,
+    SpatialStatisticsResult,
     SpatialDomainResult,
     SpatialVariableGenesResult,
     TrajectoryResult,
@@ -542,7 +542,7 @@ async def clear_visualization_cache(
 @mcp.tool()
 @mcp_tool_error_handler()
 @manual_parameter_validation(("params", validate_annotation_params))
-async def annotate_cells(
+async def annotate_cell_types(
     data_id: str, params: Any = None, context: Context = None
 ) -> AnnotationResult:
     """Annotate cell types in spatial transcriptomics data
@@ -635,7 +635,7 @@ async def annotate_cells(
 @manual_parameter_validation(("params", validate_spatial_analysis_params))
 async def analyze_spatial_statistics(
     data_id: str, params: Any = None, context: Context = None
-) -> SpatialAnalysisResult:
+) -> SpatialStatisticsResult:
     """Analyze spatial statistics and autocorrelation patterns
 
     Args:
@@ -1765,8 +1765,8 @@ tool_metadata = {
         read_only_hint=True,
         idempotent_hint=True,
     ),
-    "annotate_cells": MCPToolMetadata(
-        name="annotate_cells",
+    "annotate_cell_types": MCPToolMetadata(
+        name="annotate_cell_types",
         title="Annotate Cell Types",
         description="Identify cell types in spatial data",
         read_only_hint=False,

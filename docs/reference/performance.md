@@ -105,11 +105,12 @@ import os
 os.environ['NUMBA_NUM_THREADS'] = '8'
 os.environ['OMP_NUM_THREADS'] = '8'
 
-# Use all available cores
+# Preprocessing is automatically optimized
+# Note: Parallel processing controlled at system level (NUMBA_NUM_THREADS, OMP_NUM_THREADS)
 from chatspatial.tools import preprocess_data
 result = preprocess_data(
-    data_id="sample",
-    n_jobs=-1  # Use all cores
+    data_id="sample"
+    # Parallelization handled internally via environment variables
 )
 ```
 
@@ -122,16 +123,18 @@ from chatspatial.tools import identify_spatial_domains
 # Fast approximate clustering
 result = identify_spatial_domains(
     data_id="sample",
-    method="leiden",  # Faster than SpaGCN
-    resolution=1.0,
-    n_iterations=10  # Limit iterations
+    method="leiden",  # Faster than spagcn method
+    resolution=1.0
+    # Leiden is fast by design, no iteration limiting needed
 )
 
-# Use subsampling for initial exploration
+# For large datasets, subsample during preprocessing first
+# Then run spatial domain identification
+# preprocess_data(data_id="sample", subsample_spots=5000)
 result = identify_spatial_domains(
     data_id="sample",
-    method="spagcn",
-    subsample=5000  # Subsample to 5000 spots
+    method="spagcn"
+    # Note: Subsample data during preprocessing, not here
 )
 ```
 
@@ -162,22 +165,24 @@ python -c "import torch; print(torch.cuda.is_available())"
 ### GPU-Accelerated Methods
 
 ```python
-# Enable GPU for deep learning methods
-from chatspatial.tools import annotate_cells
+# Enable GPU for deep learning methods (deconvolution)
+from chatspatial.tools import deconvolve_data
 
-result = annotate_cells(
+result = deconvolve_data(
     data_id="sample",
     method="cell2location",
-    use_gpu=True,
-    device="cuda:0"
+    cell_type_key="cell_type",  # Required parameter
+    reference_data_id="reference",  # Required parameter
+    use_gpu=True
+    # Note: GPU device selection handled automatically by scvi-tools
 )
 
-# GPU-accelerated spatial analysis
+# GPU-accelerated spatial analysis (GraphST method)
 result = identify_spatial_domains(
     data_id="sample",
-    method="stagate",
-    use_gpu=True,
-    device="cuda:0"
+    method="graphst",  # GraphST supports GPU
+    graphst_use_gpu=True  # Enable GPU for GraphST
+    # Note: STAGATE does not have GPU support, use GraphST instead
 )
 ```
 
@@ -294,8 +299,8 @@ quick_result = identify_spatial_domains(
 final_result = identify_spatial_domains(
     data_id="sample",
     method="spagcn",  # More accurate
-    n_clusters=7,
-    refinement=True
+    n_domains=7,  # Number of spatial domains
+    refine_domains=True  # Enable domain refinement
 )
 ```
 
@@ -306,9 +311,10 @@ final_result = identify_spatial_domains(
 result = analyze_cell_communication(
     data_id="sample",
     method="liana",
-    spatial_mode="global",  # Faster than local
-    min_cells=50,  # Increase threshold
-    subsample=10000  # Subsample spots
+    cell_type_column="cell_type",  # Required parameter
+    perform_spatial_analysis=True,  # Spatial bivariate analysis
+    liana_n_perms=100  # Reduce permutations for speed
+    # Note: For speed, reduce n_perms or subsample data during preprocessing
 )
 ```
 

@@ -65,7 +65,7 @@ class AnnotationResult(BaseModel):
         arbitrary_types_allowed = True
 
 
-class SpatialAnalysisResult(BaseModel):
+class SpatialStatisticsResult(BaseModel):
     """Result of spatial analysis
 
     Note: Visualization is handled separately via the visualize_data tool.
