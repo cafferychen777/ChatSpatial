@@ -65,6 +65,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Validated against industry best practices (Space Ranger, DESeq2, edgeR)
     - Comprehensive research documented in `outputs/BUG3_BEST_PRACTICES_RESEARCH.md`
 
+#### **LIANA Parameter Override Removed**
+- **FIXED**: Cell communication analysis now respects user-specified permutation parameters
+  - **Issue**: User sets `liana_n_perms=100`, but only 50 permutations actually run
+  - **Root Cause**: Three auto-optimization blocks silently overrode user parameters for large datasets (>3000 cells)
+    - LIANA spatial: max 50 permutations (too aggressive)
+    - LIANA cluster: max 500 permutations
+    - CellChat via LIANA: max 500 permutations
+  - **Solution**: Removed all automatic parameter overrides - now respects user choice
+  - **Impact**: Users have full control over analysis parameters (especially important for publication-quality work)
+  - **Files Modified**: `chatspatial/tools/cell_communication.py:814, 897, 1614`
+  - **User Behavior Change**: None (users now get what they request)
+  - **Performance Note**: Users should be aware that high n_perms on large datasets will take longer
+    - 100 perms on 4000 cells: ~2-3 minutes
+    - 1000 perms on 4000 cells: ~20-30 minutes
+  - **Scientific Validity**: All permutation values (50-1000+) are scientifically valid; choice depends on analysis goals
+
 ### 📚 **Documentation**
 
 #### **Bug Report Documentation**
