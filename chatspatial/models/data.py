@@ -637,6 +637,10 @@ class AnnotationParameters(BaseModel):
         default=False,
         description="Whether to use integrated annotation with multiple references",
     )
+    singler_fine_tune: bool = Field(
+        default=True,
+        description="Whether to perform fine-tuning step in SingleR annotation (refines labels based on marker genes)",
+    )
     num_threads: int = 4  # Number of threads for parallel processing
 
 
