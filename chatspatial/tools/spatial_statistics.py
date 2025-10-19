@@ -495,16 +495,21 @@ async def _analyze_morans_i(
 
         # Calculate appropriate number of top genes to return
         # To avoid returning identical lists, we take at most half of the analyzed genes
-        # This ensures top_positive and top_negative are different gene sets
-        n_top = min(10, max(5, len(results_df) // 2))
+        # This ensures top_highest and top_lowest are different gene sets
+        n_analyzed = len(results_df)
+        n_top = min(10, max(3, n_analyzed // 2))
+
+        # Ensure we never return more than half the genes to avoid duplicates
+        n_top = min(n_top, n_analyzed // 2) if n_analyzed >= 6 else 0
 
         return {
             "n_genes_analyzed": len(genes),
             "n_significant": len(significant_genes),
-            "top_positive": results_df.nlargest(n_top, "I").index.tolist(),
-            "top_negative": results_df.nsmallest(n_top, "I").index.tolist(),
+            "top_highest_autocorrelation": results_df.nlargest(n_top, "I").index.tolist() if n_top > 0 else [],
+            "top_lowest_autocorrelation": results_df.nsmallest(n_top, "I").index.tolist() if n_top > 0 else [],
             "mean_morans_i": float(results_df["I"].mean()),
             "analysis_key": moran_key,
+            "note": "top_highest/top_lowest refer to autocorrelation strength, not positive/negative correlation",
         }
 
     return {"error": "Moran's I computation did not produce results"}

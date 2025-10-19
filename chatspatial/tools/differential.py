@@ -234,21 +234,9 @@ async def differential_expression(
     else:
         n_cells_group2 = np.sum(adata.obs[group_key] == group2)
 
-    # Get log fold changes and p-values if available
-    log2fc_values = []
+    # Get p-values from scanpy results
     pvals = []
     if hasattr(temp_adata, "uns") and "rank_genes_groups" in temp_adata.uns:
-        if (
-            "logfoldchanges" in temp_adata.uns["rank_genes_groups"]
-            and group1
-            in temp_adata.uns["rank_genes_groups"]["logfoldchanges"].dtype.names
-        ):
-            log2fc_values = list(
-                temp_adata.uns["rank_genes_groups"]["logfoldchanges"][group1][
-                    :n_top_genes
-                ]
-            )
-
         if (
             "pvals_adj" in temp_adata.uns["rank_genes_groups"]
             and group1 in temp_adata.uns["rank_genes_groups"]["pvals_adj"].dtype.names
@@ -257,9 +245,106 @@ async def differential_expression(
                 temp_adata.uns["rank_genes_groups"]["pvals_adj"][group1][:n_top_genes]
             )
 
-    # Calculate mean log2fc and median p-value
-    mean_log2fc = np.mean(log2fc_values) if log2fc_values else None
+    # Calculate TRUE fold change from raw counts (Bug #3 Fix)
+    # Issue: scanpy's logfoldchanges uses mean(log(counts)) which is mathematically incorrect
+    # Solution: Calculate log(mean(counts1) / mean(counts2)) from raw data
+
+    # Check if raw count data is available
+    if adata.raw is None:
+        raise ValueError(
+            "❌ CRITICAL: Raw count data required for accurate fold change calculation\n\n"
+            "Differential expression analysis requires raw counts (adata.raw) to calculate "
+            "scientifically accurate fold change values. Your data lacks this.\n\n"
+            "📊 WHY THIS MATTERS:\n"
+            "• Fold change from log-normalized data produces mathematically incorrect results\n"
+            "• Can lead to extreme overestimation (e.g., 1000× instead of 3×)\n"
+            "• Results would not be scientifically valid for publication\n\n"
+            "🔧 SOLUTION:\n"
+            "1. Reload your data and run preprocessing again:\n"
+            "   preprocess_data(data_id='your_data', params={'normalization': 'log'})\n"
+            "2. Preprocessing automatically saves raw counts to adata.raw\n"
+            "3. Then run differential expression analysis\n\n"
+            "⚠️  We refuse to return incorrect fold change values. "
+            "Scientific integrity requires accurate calculations."
+        )
+
+    # Get raw count data
+    raw_adata = adata.raw
+    log2fc_values = []
+
+    # Create masks for the two groups
+    if use_rest_as_reference:
+        group1_mask = adata.obs[group_key] == group1
+        group2_mask = ~group1_mask
+    else:
+        group1_mask = adata.obs[group_key] == group1
+        group2_mask = adata.obs[group_key] == group2
+
+    # CRITICAL: Normalize by library size to avoid composition bias
+    # Library size = total UMI counts per spot
+    if hasattr(raw_adata.X, "toarray"):
+        lib_sizes = np.array(raw_adata.X.sum(axis=1)).flatten()
+    else:
+        lib_sizes = raw_adata.X.sum(axis=1).flatten()
+
+    median_lib_size = float(np.median(lib_sizes))
+
+    if context:
+        await context.info(
+            f"Calculating fold changes with library size normalization "
+            f"(median library size: {median_lib_size:.0f} UMIs)"
+        )
+        await context.info(
+            f"Group 1: {np.sum(group1_mask)} cells, Group 2: {np.sum(group2_mask)} cells"
+        )
+
+    # Calculate fold change for each top gene
+    for gene in top_genes:
+        if gene in raw_adata.var_names:
+            gene_idx = raw_adata.var_names.get_loc(gene)
+
+            # Get raw counts for this gene
+            if hasattr(raw_adata.X, "toarray"):
+                gene_raw_counts = raw_adata.X[:, gene_idx].toarray().flatten()
+            else:
+                gene_raw_counts = raw_adata.X[:, gene_idx].flatten()
+
+            # Normalize by library size (CPM-like normalization)
+            # normalized_counts = raw_counts * (median_lib_size / spot_lib_size)
+            gene_norm_counts = gene_raw_counts * (median_lib_size / lib_sizes)
+
+            # Calculate mean normalized counts for each group
+            mean_group1 = float(gene_norm_counts[group1_mask].mean())
+            mean_group2 = float(gene_norm_counts[group2_mask].mean())
+
+            # Calculate true log2 fold change from normalized counts
+            # Add pseudocount of 1 to avoid log(0)
+            true_log2fc = np.log2((mean_group1 + 1) / (mean_group2 + 1))
+            log2fc_values.append(float(true_log2fc))
+        else:
+            # Gene not in raw data (should not happen, but handle gracefully)
+            if context:
+                await context.warning(f"Gene {gene} not found in raw data, skipping fold change calculation")
+            log2fc_values.append(None)
+
+    # Calculate mean log2fc (filtering out None values)
+    valid_log2fc = [fc for fc in log2fc_values if fc is not None]
+    mean_log2fc = np.mean(valid_log2fc) if valid_log2fc else None
     median_pvalue = np.median(pvals) if pvals else None
+
+    # Warn if fold change values are suspiciously high (indicating calculation errors)
+    if mean_log2fc is not None and abs(mean_log2fc) > 10:
+        if context:
+            await context.warning(
+                f"⚠️  EXTREME FOLD CHANGE DETECTED: mean log2FC = {mean_log2fc:.2f}\n"
+                f"   • This indicates fold change > 2^10 = 1024×\n"
+                f"   • Biologically plausible range: 2-32× (log2FC = 1-5)\n"
+                f"   • Possible causes:\n"
+                f"     - Very sparse gene expression in one group\n"
+                f"     - Low cell counts in comparison groups\n"
+                f"     - Data quality issues\n"
+                f"   • Consider filtering genes with low expression before DE analysis"
+            )
 
     # Create statistics dictionary
     statistics = {
