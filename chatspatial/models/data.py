@@ -260,6 +260,7 @@ class VisualizationParameters(BaseModel):
         "spatial_interaction",
         "batch_integration",  # Batch integration quality assessment
         "cnv_heatmap",  # CNV analysis heatmap
+        "spatial_cnv",  # CNV spatial projection
         "card_imputation",  # CARD imputation high-resolution results
     ] = "spatial"
     colormap: str = "viridis"
