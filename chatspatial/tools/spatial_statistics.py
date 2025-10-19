@@ -32,8 +32,8 @@ import pandas as pd
 import squidpy as sq
 from mcp.server.fastmcp import Context
 
-from ..models.analysis import SpatialAnalysisResult
-from ..models.data import SpatialAnalysisParameters
+from ..models.analysis import SpatialStatisticsResult
+from ..models.data import SpatialStatisticsParameters
 from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,
                                     InvalidParameterError, ProcessingError)
 
@@ -50,9 +50,9 @@ logger = logging.getLogger(__name__)
 async def analyze_spatial_statistics(
     data_id: str,
     data_store: Dict[str, Any],
-    params: SpatialAnalysisParameters,  # No default - must be provided by caller (LLM)
+    params: SpatialStatisticsParameters,  # No default - must be provided by caller (LLM)
     context: Optional[Context] = None,
-) -> SpatialAnalysisResult:
+) -> SpatialStatisticsResult:
     """
     Serves as the central dispatcher for executing various spatial analysis methods.
 
@@ -68,7 +68,7 @@ async def analyze_spatial_statistics(
         The identifier for the dataset.
     data_store : Dict[str, Any]
         A dictionary that stores the loaded datasets.
-    params : SpatialAnalysisParameters
+    params : SpatialStatisticsParameters
         An object containing the parameters for the analysis, including the
         specific `analysis_type` to perform.
     context : Optional[Context]
@@ -76,7 +76,7 @@ async def analyze_spatial_statistics(
 
     Returns
     -------
-    SpatialAnalysisResult
+    SpatialStatisticsResult
         An object containing the statistical results and metadata from the analysis.
 
     Raises
@@ -266,7 +266,7 @@ async def analyze_spatial_statistics(
         if context:
             await context.info(f"Analysis completed: {params.analysis_type}")
 
-        return SpatialAnalysisResult(
+        return SpatialStatisticsResult(
             data_id=data_id,
             analysis_type=params.analysis_type,
             statistics=result,
@@ -432,7 +432,7 @@ def _get_optimal_n_jobs(n_obs: int, requested_n_jobs: Optional[int] = None) -> i
 
 async def _analyze_morans_i(
     adata: ad.AnnData,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
@@ -512,7 +512,7 @@ async def _analyze_morans_i(
 
 async def _analyze_gearys_c(
     adata: ad.AnnData,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Compute Geary's C spatial autocorrelation."""
@@ -563,7 +563,7 @@ async def _analyze_gearys_c(
 async def _analyze_neighborhood_enrichment(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Compute neighborhood enrichment analysis."""
@@ -591,7 +591,7 @@ async def _analyze_neighborhood_enrichment(
 async def _analyze_co_occurrence(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Compute co-occurrence analysis."""
@@ -612,7 +612,7 @@ async def _analyze_co_occurrence(
 async def _analyze_ripleys_k(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Compute Ripley's K function."""
@@ -640,7 +640,7 @@ async def _analyze_ripleys_k(
 
 async def _analyze_getis_ord(
     adata: ad.AnnData,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
@@ -796,7 +796,7 @@ async def _analyze_getis_ord(
 async def _analyze_centrality(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Compute centrality scores."""
@@ -825,7 +825,7 @@ async def _analyze_centrality(
 
 async def _analyze_bivariate_moran(
     adata: ad.AnnData,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
@@ -911,7 +911,7 @@ async def _analyze_bivariate_moran(
 async def _analyze_join_count(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
@@ -935,7 +935,7 @@ async def _analyze_join_count(
         Annotated data object with spatial coordinates in .obsm['spatial']
     cluster_key : str
         Column in adata.obs containing the categorical variable (must have exactly 2 categories)
-    params : SpatialAnalysisParameters
+    params : SpatialStatisticsParameters
         Analysis parameters including n_neighbors
     context : Optional[Context]
         MCP context for logging
@@ -993,7 +993,7 @@ async def _analyze_join_count(
 async def _analyze_local_join_count(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
@@ -1024,7 +1024,7 @@ async def _analyze_local_join_count(
         Annotated data object with spatial coordinates in .obsm['spatial']
     cluster_key : str
         Column in adata.obs containing the categorical variable (can have any number of categories)
-    params : SpatialAnalysisParameters
+    params : SpatialStatisticsParameters
         Analysis parameters including n_neighbors
     context : Optional[Context]
         MCP context for logging
@@ -1161,7 +1161,7 @@ async def _analyze_local_join_count(
 async def _analyze_network_properties(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
@@ -1238,7 +1238,7 @@ async def _analyze_network_properties(
 async def _analyze_spatial_centrality(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
@@ -1318,7 +1318,7 @@ async def _analyze_spatial_centrality(
 
 async def _analyze_local_moran(
     adata: ad.AnnData,
-    params: SpatialAnalysisParameters,
+    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """
@@ -1331,7 +1331,7 @@ async def _analyze_local_moran(
     ----------
     adata : ad.AnnData
         Annotated data object
-    params : SpatialAnalysisParameters
+    params : SpatialStatisticsParameters
         Analysis parameters including genes to analyze
     context : Optional[Context]
         MCP context for logging

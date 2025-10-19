@@ -63,20 +63,20 @@ Use multiple annotation methods to cross-validate results:
 
 ```python
 # Method 1: Reference-based annotation
-annotate_cells(
+annotate_cell_types(
     data_id=visium_result.id,
     method="tangram",
     reference_path="reference/mouse_brain_sc.h5ad"
 )
 
-# Method 2: Marker-based annotation  
-annotate_cells(
+# Method 2: Marker-based annotation
+annotate_cell_types(
     data_id=visium_result.id,
     method="sctype",
 )
 
 # Method 3: Probabilistic deconvolution
-annotate_cells(
+annotate_cell_types(
     data_id=visium_result.id,
     method="cell2location",
     reference_path="reference/mouse_brain_sc.h5ad"
@@ -227,7 +227,7 @@ results = []
 for i, path in enumerate(sample_paths):
     result = load_data(path, f"sample_{i+1}")
     preprocess_data(result.id)
-    annotate_cells(result.id, method="sctype")
+    annotate_cell_types(result.id, method="sctype")
     results.append(result)
 ```
 
@@ -381,7 +381,6 @@ analyze_spatial_data(
 
 ## Next Steps
 
-- Explore [Visualization Gallery](visualization_gallery.md) for advanced plotting
 - Learn about [Cell Communication Analysis](analysis/cell_communication_analysis.md)
 - Check out [Case Studies](../case_studies/mouse_brain_visium.md) for real-world examples
 

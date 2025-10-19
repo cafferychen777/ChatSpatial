@@ -8,7 +8,7 @@
 |----------|-------|-----------|
 | **Data Management** | `load_data`, `preprocess_data` | Loading and preparing datasets |
 | **Analysis** | `analyze_spatial_data`, `find_markers`, `find_spatial_genes` | Core spatial analysis |
-| **Annotation** | `annotate_cells` | Cell type identification |
+| **Annotation** | `annotate_cell_types` | Cell type identification |
 | **Advanced Analysis** | `analyze_velocity_data`, `analyze_trajectory_data`, `analyze_cell_communication`, `analyze_enrichment` | RNA velocity, trajectories, communication |
 | **Integration** | `integrate_samples`, `register_spatial_data` | Multi-sample and alignment |
 | **Deconvolution** | `deconvolve_data`, `identify_spatial_domains` | Spot deconvolution and domain identification |
@@ -167,7 +167,7 @@
 
 ## 🟣 Cell Annotation Tools
 
-### `annotate_cells`
+### `annotate_cell_types`
 **Purpose**: Identify cell types using multiple methods
 **Difficulty**: 🟡 Intermediate
 
@@ -270,7 +270,7 @@
 
 **Returns**: Significant ligand-receptor pairs and spatial patterns
 
-**Note**: Requires cell type annotations. Run `annotate_cells` or ensure `cell_type_column` exists in your data before cell communication analysis.
+**Note**: Requires cell type annotations. Run `annotate_cell_types` or ensure `cell_type_column` exists in your data before cell communication analysis.
 
 ---
 
@@ -525,12 +525,12 @@
 
 ### Cell Type Analysis
 ```
-1. load_data → 2. preprocess_data → 3. annotate_cells → 4. find_markers → 5. visualize_data
+1. load_data → 2. preprocess_data → 3. annotate_cell_types → 4. find_markers → 5. visualize_data
 ```
 
 ### Communication Analysis  
 ```
-1. load_data → 2. preprocess_data → 3. annotate_cells → 4. analyze_cell_communication → 5. visualize_data
+1. load_data → 2. preprocess_data → 3. annotate_cell_types → 4. analyze_cell_communication → 5. visualize_data
 ```
 
 ### Multi-Sample Integration

@@ -441,8 +441,8 @@ class SpatialMCPAdapter:
                 idempotent_hint=True,
                 open_world_hint=False,
             ),
-            "annotate_cells": MCPToolMetadata(
-                name="annotate_cells",
+            "annotate_cell_types": MCPToolMetadata(
+                name="annotate_cell_types",
                 title="Annotate Cell Types",
                 description="Identify cell types in spatial data",
                 read_only_hint=False,

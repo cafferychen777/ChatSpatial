@@ -113,10 +113,10 @@ def format_pydantic_errors(errors: list) -> str:
 
 # Common parameter validation helpers
 def validate_analysis_params(params: Union[Dict[str, Any], BaseModel, None]):
-    """Validate AnalysisParameters with friendly error messages"""
-    from ..models.data import AnalysisParameters
+    """Validate PreprocessingParameters with friendly error messages"""
+    from ..models.data import PreprocessingParameters
 
-    return validate_parameters_manually(params, AnalysisParameters, "analysis_params")
+    return validate_parameters_manually(params, PreprocessingParameters, "analysis_params")
 
 
 def validate_visualization_params(params: Union[Dict[str, Any], BaseModel, None]):
@@ -167,11 +167,11 @@ def _preprocess_visualization_params(
 
 
 def validate_spatial_analysis_params(params: Union[Dict[str, Any], BaseModel, None]):
-    """Validate SpatialAnalysisParameters with friendly error messages"""
-    from ..models.data import SpatialAnalysisParameters
+    """Validate SpatialStatisticsParameters with friendly error messages"""
+    from ..models.data import SpatialStatisticsParameters
 
     return validate_parameters_manually(
-        params, SpatialAnalysisParameters, "spatial_analysis_params"
+        params, SpatialStatisticsParameters, "spatial_analysis_params"
     )
 
 

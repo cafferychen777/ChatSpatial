@@ -21,14 +21,14 @@
 ### 🧬 Cell Type Analysis  
 | **Goal** | **Workflow** | **Difficulty** | **Time** |
 |----------|-------------|----------------|----------|
-| Basic cell typing | `preprocess_data` → `annotate_cells` (scType) | 🟢 | 15 min |
-| Reference-based annotation | Add reference → `annotate_cells` (Tangram/scType) | 🟡 | 30 min |
-| Validate cell types | `annotate_cells` → `find_markers` → `visualize_data` | 🟡 | 25 min |
+| Basic cell typing | `preprocess_data` → `annotate_cell_types` (scType) | 🟢 | 15 min |
+| Reference-based annotation | Add reference → `annotate_cell_types` (Tangram/scType) | 🟡 | 30 min |
+| Validate cell types | `annotate_cell_types` → `find_markers` → `visualize_data` | 🟡 | 25 min |
 
 ### 🔬 Advanced Analysis
 | **Goal** | **Workflow** | **Difficulty** | **Time** |
 |----------|-------------|----------------|----------|
-| Cell communication | `annotate_cells` → `analyze_cell_communication` | 🔴 | 45 min |
+| Cell communication | `annotate_cell_types` → `analyze_cell_communication` | 🔴 | 45 min |
 | Pathway analysis | `find_markers` → `analyze_enrichment` | 🟡 | 20 min |
 | Developmental trajectories | `preprocess_data` → `analyze_trajectory_data` | 🔴 | 60 min |
 
@@ -44,7 +44,7 @@ graph TD
     A[load_data] --> B[preprocess_data]
     B --> C[visualize_data: spatial QC]
     C --> D[identify_spatial_domains]
-    D --> E[annotate_cells: scType]
+    D --> E[annotate_cell_types: scType]
     E --> F[find_markers]
     F --> G[visualize_data: results]
     
@@ -76,7 +76,7 @@ graph TD
     A[load_data: spatial] --> B[load_data: reference]
     B --> C[preprocess_data: both]
     C --> D[identify_spatial_domains]
-    D --> E[annotate_cells: Tangram/scType]
+    D --> E[annotate_cell_types: Tangram/scType]
     E --> F[deconvolve_data]
     F --> G[analyze_spatial_data]
     G --> H[analyze_enrichment]
@@ -114,7 +114,7 @@ graph TD
     C[load_data: sample3] --> D
     D --> E[preprocess_data: integrated]
     E --> F[identify_spatial_domains]
-    F --> G[annotate_cells]
+    F --> G[annotate_cell_types]
     G --> H[analyze_cell_communication]
     H --> I[find_markers: comparative]
     I --> J[analyze_enrichment: differential]
@@ -231,7 +231,7 @@ What's your focus?
 ```
 Brain Atlas Mapping:
 load_data → preprocess_data → identify_spatial_domains (spagcn) →
-annotate_cells (sctype) → find_spatial_genes (sparkx) → visualize_data
+annotate_cell_types (sctype) → find_spatial_genes (sparkx) → visualize_data
 
 Neurodegeneration Study:  
 Multi-sample integration → comparative domain analysis → 
@@ -242,7 +242,7 @@ differential communication → pathway enrichment → trajectory analysis
 ```
 Tumor Microenvironment:
 load_data → preprocess_data → identify_spatial_domains → 
-annotate_cells → analyze_cell_communication (immune-tumor interactions) → 
+annotate_cell_types → analyze_cell_communication (immune-tumor interactions) → 
 analyze_enrichment (immune pathways) → visualize_data
 
 Drug Response Analysis:
@@ -289,8 +289,8 @@ Choose your primary goal:
 
 #### 🧬 **"...cell types and their locations"** 
 **Recommended Path**:
-1. Basic: `annotate_cells` (scType) → `visualize_data` (spatial cell types)
-2. Advanced: Add reference data → `annotate_cells` (Tangram) → `deconvolve_data`
+1. Basic: `annotate_cell_types` (scType) → `visualize_data` (spatial cell types)
+2. Advanced: Add reference data → `annotate_cell_types` (Tangram) → `deconvolve_data`
 3. Validation: `find_markers` → cross-reference with literature
 
 #### 💬 **"...how cells communicate"**
@@ -342,7 +342,7 @@ Choose your primary goal:
 ### 🎯 **Quality Control Checkpoints**
 - After `preprocess_data`: Check QC metrics and spatial plots
 - After `identify_spatial_domains`: Validate domains against histology/literature
-- After `annotate_cells`: Cross-check with marker genes and proportions
+- After `annotate_cell_types`: Cross-check with marker genes and proportions
 - After `analyze_*`: Interpret statistical significance and effect sizes
 
 ### 📊 **Result Interpretation**
@@ -369,7 +369,7 @@ graph TD
     C1 --> D[Compare domain consistency]
     C2 --> D
     C3 --> D
-    D --> E[annotate_cells: multiple methods]
+    D --> E[annotate_cell_types: multiple methods]
     E --> F[Cross-validation analysis]
     F --> G[Statistical comparison]
     G --> H[visualize_data: method comparison]
@@ -402,7 +402,7 @@ graph TD
     D[load_data: T3] --> E
     E --> F[register_spatial_data: align timepoints]
     F --> G[identify_spatial_domains: consistent]
-    G --> H[annotate_cells: temporal tracking]
+    G --> H[annotate_cell_types: temporal tracking]
     H --> I[analyze_trajectory_data: pseudotime]
     I --> J[analyze_cell_communication: temporal]
     J --> K[find_markers: time-specific]
@@ -435,7 +435,7 @@ graph TD
     A[Multi-condition loading] --> B[Quality control comparison]
     B --> C[integrate_samples: condition-aware]
     C --> D[identify_spatial_domains: per condition]
-    D --> E[annotate_cells: consistent annotation]
+    D --> E[annotate_cell_types: consistent annotation]
     E --> F[find_markers: differential between conditions]
     F --> G[analyze_cell_communication: condition comparison]  
     G --> H[analyze_enrichment: pathway changes]

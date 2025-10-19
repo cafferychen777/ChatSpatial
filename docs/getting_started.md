@@ -366,7 +366,7 @@ python -m chatspatial server --transport stdio &
 - load_data
 - preprocess_data
 - identify_spatial_domains
-- annotate_cells
+- annotate_cell_types
 - visualize_data
 - And more!
 

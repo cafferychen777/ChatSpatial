@@ -47,8 +47,8 @@ class SpatialDataset(BaseModel):
     top_expressed_genes: Optional[List[str]] = None
 
 
-class AnalysisParameters(BaseModel):
-    """Analysis parameters model"""
+class PreprocessingParameters(BaseModel):
+    """Preprocessing parameters model"""
 
     # Data filtering and subsampling parameters (user controlled)
     filter_genes_min_cells: Optional[Annotated[int, Field(gt=0)]] = (
@@ -628,8 +628,8 @@ class AnnotationParameters(BaseModel):
     num_threads: int = 4  # Number of threads for parallel processing
 
 
-class SpatialAnalysisParameters(BaseModel):
-    """Spatial analysis parameters model"""
+class SpatialStatisticsParameters(BaseModel):
+    """Spatial statistics parameters model"""
 
     analysis_type: Literal[
         "neighborhood",

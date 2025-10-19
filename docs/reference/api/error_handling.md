@@ -314,7 +314,7 @@ DATA_MISSING_ANNOTATIONS: Cell type annotations required for communication analy
 
 **Solution**: Annotate cells first
 ```python
-annotate_cells(data_id="my_data", method="sctype")
+annotate_cell_types(data_id="my_data", method="sctype")
 ```
 
 ### Scenario 3: Incompatible Analysis Method
@@ -326,7 +326,7 @@ ANALYSIS_METHOD_INCOMPATIBLE: Tangram requires reference dataset
 
 **Solution**: Provide reference or use different method
 ```python
-annotate_cells(data_id="my_data", method="marker_based")
+annotate_cell_types(data_id="my_data", method="cellassign")  # CellAssign uses marker genes
 ```
 
 ## Best Practices

@@ -57,7 +57,7 @@ Problem-solving resources:
 | `load_data` | Load spatial transcriptomics data | `data_path`, `data_type` |
 | `preprocess_data` | Quality control and normalization | `normalization_method`, `n_top_genes` |
 | `visualize_data` | Create spatial visualizations | `plot_type`, `feature`, `colormap` |
-| `annotate_cells` | Cell type annotation | `method`, `reference_data_id` |
+| `annotate_cell_types` | Cell type annotation | `method`, `reference_data_id` |
 | `analyze_spatial_data` | Spatial pattern analysis | `analysis_type`, `n_neighbors` |
 
 ### Advanced Analysis Tools

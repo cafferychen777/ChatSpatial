@@ -14,7 +14,7 @@ from anndata import AnnData
 from mcp.server.fastmcp import Context
 
 from ..models.analysis import PreprocessingResult
-from ..models.data import AnalysisParameters, ResolVIPreprocessingParameters
+from ..models.data import PreprocessingParameters, ResolVIPreprocessingParameters
 from ..utils.data_adapter import standardize_adata
 from ..utils.tool_error_handling import mcp_tool_error_handler
 
@@ -155,7 +155,7 @@ def _safe_matrix_operation(adata, operation: str):
 async def preprocess_data(
     data_id: str,
     data_store: Dict[str, Any],
-    params: AnalysisParameters = AnalysisParameters(),
+    params: PreprocessingParameters = PreprocessingParameters(),
     context: Optional[Context] = None,
 ) -> PreprocessingResult:
     """Preprocess spatial transcriptomics data
