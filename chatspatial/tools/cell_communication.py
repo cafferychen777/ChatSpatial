@@ -810,14 +810,8 @@ async def _run_liana_cluster_analysis(
             f"Using LIANA+ resource: {resource_name} for species: {params.species}"
         )
 
-    # Use parameters from user or optimize for performance
+    # Use parameters from user (respect user choice)
     n_perms = params.liana_n_perms
-    if adata.n_obs > 3000 and n_perms > 500:
-        n_perms = 500
-        if context:
-            await context.info(
-                f"Large dataset detected, reducing permutations to {n_perms}"
-            )
 
     # Run LIANA+ rank aggregate
     li.mt.rank_aggregate(
@@ -899,19 +893,9 @@ async def _run_liana_spatial_analysis(
             f"Using LIANA+ resource: {resource_name} for species: {params.species}"
         )
 
-    # Use parameters from user or optimize for performance
+    # Use parameters from user (respect user choice)
     n_perms = params.liana_n_perms
     nz_prop = params.liana_nz_prop
-
-    if adata.n_obs > 3000:
-        if n_perms > 50:
-            n_perms = 50
-        if nz_prop < 0.3:
-            nz_prop = 0.3  # More stringent for large datasets
-        if context:
-            await context.info(
-                f"Large dataset detected, using n_perms={n_perms}, nz_prop={nz_prop}"
-            )
 
     # Run LIANA+ bivariate analysis
     lrdata = li.mt.bivariate(
@@ -1626,14 +1610,8 @@ async def _analyze_communication_cellchat_liana(
                 f"Using CellChat resource: {resource_name} for species: {params.species}"
             )
 
-        # Use parameters from user or optimize for performance
+        # Use parameters from user (respect user choice)
         n_perms = params.liana_n_perms
-        if adata.n_obs > 3000 and n_perms > 500:
-            n_perms = 500
-            if context:
-                await context.info(
-                    f"Large dataset detected, reducing permutations to {n_perms}"
-                )
 
         # Run LIANA with CellChat resource
         li.mt.rank_aggregate(
