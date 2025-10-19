@@ -40,81 +40,9 @@ By completing this advanced path, you will:
 
 ## Your Learning Journey
 
-### Phase 1: Machine Learning Foundations (Week 1-2)
+### Phase 1: Temporal Dynamics (Week 1-2)
 
-#### Step 1: GASTON Neural Network Analysis
-**Tutorial:** [GASTON Analysis](../advanced/gaston_analysis.md)  
-**Time:** 180-240 minutes across multiple sessions  
-**Difficulty:** ⭐⭐⭐⭐⭐
-
-**What you'll master:**
-- Understand neural network approaches to spatial gene discovery
-- Apply isodepth learning for topographic expression mapping
-- Use gradient classification for pattern characterization
-- Perform adversarial training for spatial domain discovery
-- Compare ML vs statistical approaches and when to use each
-
-**Deep Technical Concepts:**
-- **Neural Architecture:** Dual-encoder systems and adversarial training
-- **Feature Engineering:** GLM-PCA preprocessing and dimensionality reduction  
-- **Pattern Recognition:** Continuous vs discontinuous gradient detection
-- **Domain Discovery:** Unsupervised spatial region identification
-- **Validation:** Cross-validation and generalization assessment
-
-**Research-Level Skills:**
-- **Method Selection:** When GASTON outperforms traditional methods
-- **Parameter Tuning:** Optimizing neural network hyperparameters
-- **Result Interpretation:** Understanding neural network outputs biologically
-- **Computational Resources:** Managing GPU requirements and processing time
-
-**Advanced Conversation Skills:**
-- "Can you use GASTON to discover complex spatial patterns?"
-- "How do the ML results compare to traditional spatial statistics?"
-- "What does the gradient classification reveal about pattern continuity?"
-- "Can you validate these neural network predictions?"
-
-**Success Indicator:** You can apply GASTON appropriately, interpret neural network results, and understand when ML approaches provide advantages over statistical methods.
-
----
-
-#### Step 2: Advanced ML Integration
-**Time:** 90-120 minutes  
-**Difficulty:** ⭐⭐⭐⭐⭐
-
-**What you'll achieve:**
-- Combine GASTON results with other analysis methods
-- Understand ensemble approaches and consensus building
-- Validate ML predictions using orthogonal methods
-- Design ML-informed experimental validation strategies
-- Optimize computational workflows for large datasets
-
-**Integration Strategies:**
-- **ML + Statistics:** Using GASTON to guide statistical analysis
-- **Consensus Building:** Combining multiple ML approaches
-- **Validation Pipelines:** Statistical validation of ML discoveries
-- **Experimental Design:** ML-informed hypothesis generation
-
-**Practice Exercises:**
-
-**Exercise 1: Method Comparison Study**
-- Apply GASTON, spatial statistics, and enrichment analysis
-- Compare discovered patterns across all methods
-- Identify ML-specific insights vs consensus findings
-- Evaluate computational cost vs biological insight trade-offs
-
-**Exercise 2: Pattern Validation**
-- Use GASTON to identify complex spatial patterns
-- Validate patterns using independent statistical methods
-- Design experiments to test ML predictions
-- Assess pattern robustness across datasets
-
-**Success Indicator:** You can strategically integrate ML methods with traditional approaches and design comprehensive validation strategies.
-
----
-
-### Phase 2: Temporal Dynamics (Week 2-3)
-
-#### Step 3: RNA Velocity and Trajectory Analysis
+#### Step 1: RNA Velocity and Trajectory Analysis
 **Tutorial:** [Trajectory Analysis](../advanced/trajectory_analysis.md)  
 **Time:** 150-180 minutes  
 **Difficulty:** ⭐⭐⭐⭐⭐
@@ -149,7 +77,7 @@ By completing this advanced path, you will:
 
 ---
 
-#### Step 4: Multi-Temporal Integration
+#### Step 2: Multi-Temporal Integration
 **Time:** 90-120 minutes  
 **Difficulty:** ⭐⭐⭐⭐⭐
 
@@ -176,9 +104,9 @@ By completing this advanced path, you will:
 
 ---
 
-### Phase 3: Multi-Modal Integration (Week 3-4)
+### Phase 2: Multi-Modal Integration (Week 2-3)
 
-#### Step 5: Advanced Multi-Sample Integration  
+#### Step 3: Advanced Multi-Sample Integration  
 **Tutorial:** [Batch Integration](../advanced/batch_integration.md)  
 **Time:** 120-150 minutes  
 **Difficulty:** ⭐⭐⭐⭐⭐
@@ -213,7 +141,7 @@ By completing this advanced path, you will:
 
 ---
 
-#### Step 6: Research-Level Workflow Design
+#### Step 4: Research-Level Workflow Design
 **Time:** 120-180 minutes  
 **Difficulty:** ⭐⭐⭐⭐⭐
 
@@ -380,7 +308,7 @@ By completing this advanced path, you will:
 
 ---
 
-**Ready for research-level analysis?** Start with [GASTON Analysis](../advanced/gaston_analysis.md) and prepare for deep technical engagement.
+**Ready for research-level analysis?** Start with [Trajectory Analysis](../advanced/trajectory_analysis.md) and prepare for deep technical engagement.
 
 **Leading research projects?** Ask ChatSpatial "I need to design a comprehensive research workflow - can you help me plan the optimal combination of advanced methods for my specific research questions?"
 

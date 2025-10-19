@@ -1,13 +1,12 @@
 """
 Spatial Variable Genes (SVG) identification for ChatSpatial MCP.
 
-This module provides implementations for multiple SVG detection methods including GASTON,
-SpatialDE, and SPARK-X, enabling comprehensive spatial transcriptomics analysis. Each method
-offers distinct advantages for identifying genes with spatial expression patterns.
+This module provides implementations for SVG detection methods including SpatialDE and SPARK-X,
+enabling comprehensive spatial transcriptomics analysis. Each method offers distinct advantages
+for identifying genes with spatial expression patterns.
 
 Methods Overview:
-    - SPARK-X (default): Non-parametric statistical method, fastest execution, requires R
-    - GASTON: Deep learning topographic mapping with isodepth analysis, GPU-accelerated
+    - SPARK-X (default): Non-parametric statistical method, best accuracy, requires R
     - SpatialDE: Gaussian process-based kernel method, statistically rigorous
 
 The module integrates these tools into the ChatSpatial MCP framework, handling data preparation,
@@ -15,19 +14,12 @@ execution, result formatting, and error management across different computationa
 """
 
 import logging
-import os
-import shutil
-import tempfile
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict
 
 if TYPE_CHECKING:
-    pass
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
-
-# GASTON import will be done at runtime
-GASTON_AVAILABLE = None
-GASTON_IMPORT_ERROR = None
 
 from ..models.analysis import SpatialVariableGenesResult  # noqa: E402
 from ..models.data import SpatialVariableGenesParameters  # noqa: E402
@@ -41,20 +33,18 @@ async def identify_spatial_genes(
     context=None,
 ) -> SpatialVariableGenesResult:
     """
-    Identify spatial variable genes using various computational methods.
+    Identify spatial variable genes using statistical methods.
 
     This is the main entry point for spatial gene detection, routing to the appropriate
     method based on params.method. Each method has different strengths:
 
     Method Selection Guide:
-        - SPARK-X: Best for quick screening, handles large datasets efficiently
-        - GASTON: Best for discovering complex spatial patterns (gradients, domains)
+        - SPARK-X (default): Best for accuracy, handles large datasets efficiently
         - SpatialDE: Best for statistical rigor in publication-ready analyses
 
     Data Requirements:
         - SPARK-X: Works with raw counts or normalized data
-        - GASTON: Requires normalized log-transformed data (will validate)
-        - SpatialDE: Flexible, can handle both raw and normalized data
+        - SpatialDE: Works with raw count data
 
     Args:
         data_id: Dataset identifier in data store
@@ -66,7 +56,7 @@ async def identify_spatial_genes(
         SpatialVariableGenesResult containing:
             - List of significant spatial genes
             - Statistical metrics (p-values, q-values)
-            - Method-specific results (e.g., GASTON domains, isodepth)
+            - Method-specific results
 
     Raises:
         ValueError: If dataset not found or spatial coordinates missing
@@ -74,7 +64,6 @@ async def identify_spatial_genes(
 
     Performance Notes:
         - SPARK-X: ~2-5 min for 3000 spots × 20000 genes
-        - GASTON: ~10-20 min (GPU recommended for larger datasets)
         - SpatialDE: ~15-30 min (scales with spot count squared)
     """
     if context:
@@ -107,11 +96,7 @@ async def identify_spatial_genes(
         )
 
     # Route to appropriate method
-    if params.method == "gaston":
-        return await _identify_spatial_genes_gaston(
-            data_id, data_store, params, context
-        )
-    elif params.method == "spatialde":
+    if params.method == "spatialde":
         return await _identify_spatial_genes_spatialde(
             data_id, data_store, params, context
         )
@@ -121,203 +106,8 @@ async def identify_spatial_genes(
         )
     else:
         raise ValueError(
-            f"Unsupported method: {params.method}. Available methods: gaston, spatialde, sparkx"
+            f"Unsupported method: {params.method}. Available methods: spatialde, sparkx"
         )
-
-
-async def _identify_spatial_genes_gaston(
-    data_id: str,
-    data_store: Dict[str, Any],
-    params: SpatialVariableGenesParameters,
-    context=None,
-) -> SpatialVariableGenesResult:
-    """
-    Identify spatial variable genes using the GASTON deep learning method.
-
-    GASTON (Generative Adversarial Spatial Transcriptomics Optimization Network) uses
-    neural networks to learn topographic mappings from spatial coordinates to gene
-    expression patterns. The method discovers both continuous spatial gradients and
-    discrete spatial domains through isodepth analysis.
-
-    Workflow:
-        1. Feature engineering: Reduce expression to low-dimensional space (GLM-PCA/Pearson)
-        2. Neural network training: Learn mapping from coordinates to expression features
-        3. Isodepth extraction: Derive continuous depth values and discrete domains
-        4. Gene classification: Identify genes with continuous vs discontinuous patterns
-        5. Statistical analysis: Bin expression along isodepth and perform piecewise fitting
-
-    Key Parameters:
-        - preprocessing_method: 'glmpca' for count data, 'pearson_residuals' for normalized
-        - n_domains: Number of spatial domains to identify (default: 5)
-        - epochs: Training iterations (default: 10000)
-        - continuous_quantile: Threshold for continuous gene classification (default: 0.9)
-
-    Returns:
-        Results including:
-            - List of continuous gradient genes
-            - List of discontinuous (domain-specific) genes
-            - Isodepth values for visualization
-            - Spatial domain assignments
-            - Model performance metrics
-
-    Requirements:
-        - gaston-spatial package installed
-        - Raw UMI counts preserved in adata.raw (for GLM-PCA preprocessing)
-        - PyTorch for neural network operations
-
-    Note:
-        GASTON's GLM-PCA preprocessing requires raw count data (Poisson family).
-        The raw counts must be available in adata.raw. If you've preprocessed
-        your data (normalized/log-transformed), ensure adata.raw was preserved.
-
-        Example workflow:
-            adata.raw = adata  # Save raw counts before preprocessing
-            sc.pp.normalize_total(adata, target_sum=1e4)
-            sc.pp.log1p(adata)
-            sc.pp.highly_variable_genes(adata, n_top_genes=2000)
-    """
-    # Import dependencies at runtime
-    import numpy as np
-
-    # Check GASTON availability at runtime
-    global GASTON_AVAILABLE, GASTON_IMPORT_ERROR
-    if GASTON_AVAILABLE is None:
-        try:
-            import gaston  # noqa: F401
-            from gaston import dp_related  # noqa: F401
-            from gaston import (binning_and_plotting, neural_net,  # noqa: F401
-                                process_NN_output, segmented_fit,  # noqa: F401
-                                spatial_gene_classification)  # noqa: F401
-
-            GASTON_AVAILABLE = True
-            GASTON_IMPORT_ERROR = None
-        except ImportError as e:
-            GASTON_AVAILABLE = False
-            GASTON_IMPORT_ERROR = str(e)
-
-    if not GASTON_AVAILABLE:
-        error_msg = (
-            f"GASTON is not available: {GASTON_IMPORT_ERROR}\n\n"
-            "To use GASTON, please install it using one of these methods:\n"
-            "1. pip install gaston-spatial\n"
-            "2. Clone and install from source:\n"
-            "   git clone https://github.com/raphael-group/GASTON.git\n"
-            "   cd GASTON\n"
-            "   pip install -e .\n\n"
-            "Documentation: https://gaston.readthedocs.io/"
-        )
-        raise ImportError(error_msg)
-
-    adata = data_store[data_id]["adata"]
-    spatial_coords = adata.obsm[params.spatial_key]
-
-    # GASTON official preprocessing: GLM-PCA on raw counts
-    if context:
-        await context.info(
-            "Applying GASTON GLM-PCA preprocessing (official method from tutorial)"
-        )
-
-    expression_features = await _gaston_feature_engineering_glmpca(
-        adata, params.n_components, params, context
-    )
-
-    # Create temporary directory for GASTON outputs
-    temp_dir = tempfile.mkdtemp(prefix="gaston_")
-
-    try:
-        # Prepare data for GASTON
-        coords_file = os.path.join(temp_dir, "spatial_coords.npy")
-        expression_file = os.path.join(temp_dir, "expression_features.npy")
-
-        np.save(coords_file, spatial_coords)
-        np.save(expression_file, expression_features)
-
-        if context:
-            await context.info("Training GASTON neural network")
-
-        # Train GASTON model
-        model, loss_list, final_loss = await _train_gaston_model(
-            coords_file, expression_file, params, temp_dir, context
-        )
-
-        if context:
-            await context.info("Analyzing spatial patterns and gene classifications")
-
-        # Analyze spatial patterns
-        spatial_analysis = await _analyze_spatial_patterns(
-            model, spatial_coords, expression_features, adata, params, context
-        )
-
-        # Store results in adata
-        results_key = f"gaston_results_{params.random_seed}"
-        await _store_results_in_adata(adata, spatial_analysis, results_key, context)
-
-        # Create standardized result
-        continuous_genes = spatial_analysis["continuous_genes"]  # Already a list now
-        discontinuous_genes = spatial_analysis[
-            "discontinuous_genes"
-        ]  # Already a list now
-        all_spatial_genes = list(set(continuous_genes + discontinuous_genes))
-
-        # Create gene statistics (using isodepth correlation as primary statistic)
-        gene_statistics = {}
-        p_values = {}
-        q_values = {}
-
-        for gene in all_spatial_genes:
-            # GASTON provides spatial classifications but not traditional statistical metrics
-            # Be honest about unavailable statistics rather than using misleading placeholders
-            gene_statistics[gene] = (
-                None  # GASTON doesn't provide traditional statistics
-            )
-            p_values[gene] = None  # GASTON doesn't perform statistical testing
-            q_values[gene] = None  # GASTON doesn't provide adjusted p-values
-
-        # Create GASTON-specific results
-        gaston_results = {
-            "preprocessing_method": "glmpca",  # Official GASTON method
-            "n_components": params.n_components,
-            "n_epochs_trained": params.epochs,
-            "final_loss": final_loss,
-            "spatial_hidden_layers": params.spatial_hidden_layers,
-            "expression_hidden_layers": params.expression_hidden_layers,
-            "n_spatial_domains": spatial_analysis["n_domains"],
-            "continuous_gradient_genes": spatial_analysis["continuous_genes"],
-            "discontinuous_genes": spatial_analysis["discontinuous_genes"],
-            "model_performance": spatial_analysis["performance_metrics"],
-        }
-
-        result = SpatialVariableGenesResult(
-            data_id=data_id,
-            method="gaston",
-            n_genes_analyzed=adata.n_vars,
-            n_significant_genes=len(all_spatial_genes),
-            spatial_genes=all_spatial_genes,
-            gene_statistics=gene_statistics,
-            p_values=p_values,
-            q_values=q_values,
-            results_key=results_key,
-            gaston_results=gaston_results,
-            isodepth_visualization={"plot_type": "gaston_isodepth"},
-            spatial_domains_visualization={"plot_type": "gaston_domains"},
-            top_genes_visualization={"plot_type": "gaston_genes"},
-        )
-
-        if context:
-            await context.info("GASTON analysis completed successfully")
-            await context.info(
-                f"Found {len(continuous_genes)} genes with continuous gradients"
-            )
-            await context.info(
-                f"Found {len(discontinuous_genes)} genes with discontinuities"
-            )
-
-        return result
-
-    finally:
-        # Clean up temporary directory
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
 
 
 async def _identify_spatial_genes_spatialde(
@@ -639,425 +429,6 @@ async def _identify_spatial_genes_spatialde(
             )
 
     return result
-
-
-async def _gaston_feature_engineering_glmpca(adata, n_components: int, params, context):
-    """
-    Perform GASTON-specific feature engineering using GLM-PCA.
-
-    GLM-PCA (Generalized Linear Model PCA) is designed for count data and provides
-    a better low-dimensional representation than standard PCA for UMI-based data.
-    This preprocessing step is crucial for GASTON's neural network to learn
-    meaningful spatial-expression relationships.
-
-    Why GLM-PCA:
-        - Designed for count data (Poisson/negative binomial)
-        - Avoids log-transformation artifacts
-        - Preserves biological signal better than standard PCA
-
-    Args:
-        adata: AnnData object with count matrix
-        n_components: Number of latent dimensions (typically 10-20)
-        params: SpatialVariableGenesParameters with GLM-PCA settings
-        context: MCP context for logging
-
-    Returns:
-        numpy.ndarray: Factor loadings of shape (n_obs, n_components)
-
-    Note:
-        Requires glmpca package: pip install glmpca
-    """
-    # Import dependencies at runtime
-    import numpy as np
-
-    try:
-        from glmpca.glmpca import glmpca
-    except ImportError:
-        try:
-            from glmpca import glmpca
-        except ImportError:
-            raise ImportError(
-                "glmpca package is required for GASTON GLM-PCA feature engineering"
-            )
-
-    if context:
-        await context.info(
-            "Running GASTON GLM-PCA feature engineering (algorithm requirement)"
-        )
-
-    # GASTON requires raw UMI counts for GLM-PCA (Poisson family)
-    if adata.raw is None:
-        raise ValueError(
-            "GASTON requires raw UMI counts stored in adata.raw for GLM-PCA preprocessing. "
-            "Please ensure adata.raw is preserved during preprocessing. "
-            "Raw counts are needed because GLM-PCA uses Poisson family model.\n\n"
-            "Example workflow:\n"
-            "  adata.raw = adata  # Save raw counts before preprocessing\n"
-            "  sc.pp.normalize_total(adata, target_sum=1e4)\n"
-            "  sc.pp.log1p(adata)"
-        )
-
-    # Extract raw counts from adata.raw
-    if hasattr(adata.raw.X, "toarray"):
-        counts = adata.raw.X.toarray()
-    else:
-        counts = np.array(adata.raw.X)
-
-    # Raw counts should already be integers, ensure non-negative
-    counts = np.maximum(counts, 0).astype(int)
-
-    # Select top genes by total count (matching official tutorial approach)
-    # Get GLM-PCA parameters from params object
-    num_genes = min(params.glmpca_num_genes, counts.shape[1])
-    if counts.shape[1] > num_genes:
-        gene_totals = np.sum(counts, axis=0)
-        top_gene_idx = np.argsort(gene_totals)[-num_genes:]
-        counts = counts[:, top_gene_idx]
-
-        if context:
-            await context.info(
-                f"Selected top {num_genes} genes by total count for GLM-PCA (official GASTON approach)"
-            )
-
-    if context:
-        await context.info(
-            f"Running GLM-PCA with {n_components} components on {counts.shape[0]} spots and {counts.shape[1]} genes"
-        )
-        await context.info(
-            f"GLM-PCA parameters: penalty={params.glmpca_penalty}, num_iters={params.glmpca_num_iters}, eps={params.glmpca_eps}"
-        )
-
-    # Run GLM-PCA with configurable parameters (from official tutorial)
-    # Note: maxIter and eps are passed via ctl dictionary
-    glmpca_result = glmpca(
-        counts.T,
-        L=n_components,
-        fam="poi",
-        penalty=params.glmpca_penalty,
-        ctl={"maxIter": params.glmpca_num_iters, "eps": params.glmpca_eps},
-    )
-
-    # Return the factors (PCs)
-    return glmpca_result["factors"]
-
-
-async def _train_gaston_model(
-    coords_file: str,
-    expression_file: str,
-    params: SpatialVariableGenesParameters,
-    output_dir: str,
-    context,
-) -> Tuple[Any, List[float], float]:
-    """
-    Train the GASTON neural network model.
-
-    The model architecture consists of two branches:
-        - Spatial branch (f_S): Maps 2D coordinates to embedding space
-        - Expression branch (f_A): Maps embedding to expression features
-
-    Training optimizes the combined network to predict expression features
-    from spatial coordinates, learning the topographic organization of the tissue.
-
-    Args:
-        coords_file: Path to numpy file with spatial coordinates (n_spots × 2)
-        expression_file: Path to numpy file with expression features (n_spots × n_components)
-        params: Training configuration including architecture and hyperparameters
-        output_dir: Directory for saving model checkpoints
-        context: MCP context for logging
-
-    Returns:
-        Tuple of:
-            - Trained PyTorch model
-            - List of loss values per epoch
-            - Final training loss
-
-    Architecture Parameters:
-        - spatial_hidden_layers: Hidden units for spatial branch
-        - expression_hidden_layers: Hidden units for expression branch
-        - embedding_size: Dimension of latent space connecting branches
-    """
-    # Import dependencies at runtime
-    import numpy as np
-    from gaston import neural_net
-
-    # Load data
-    S = np.load(coords_file)
-    A = np.load(expression_file)
-
-    # Convert to torch tensors and rescale
-    S_torch, A_torch = neural_net.load_rescale_input_data(S, A)
-
-    # Train model using official parameters
-    checkpoint_interval = params.checkpoint_interval  # Official default: 500
-
-    model, loss_list = neural_net.train(
-        S_torch,
-        A_torch,
-        S_hidden_list=params.spatial_hidden_layers,
-        A_hidden_list=params.expression_hidden_layers,
-        epochs=params.epochs,
-        checkpoint=checkpoint_interval,
-        save_dir=output_dir,
-        optim=params.optimizer,
-        lr=params.learning_rate,
-        seed=params.random_seed,
-        save_final=True,
-        embed_size=params.embedding_size,
-        sigma=params.sigma,
-        batch_size=params.batch_size,
-    )
-
-    final_loss = float(loss_list[-1]) if len(loss_list) > 0 else 0.0
-
-    return model, loss_list, final_loss
-
-
-async def _analyze_spatial_patterns(
-    model,
-    spatial_coords,
-    expression_features,
-    adata,
-    params: SpatialVariableGenesParameters,
-    context,
-) -> Dict[str, Any]:
-    """
-    Analyze spatial patterns from trained GASTON model.
-
-    This executes the complete GASTON post-training analysis pipeline:
-
-    1. Isodepth Extraction:
-        - Derives continuous depth values representing position in expression manifold
-        - Identifies discrete spatial domains from depth discontinuities
-
-    2. Gene Binning:
-        - Bins gene expression along isodepth axis within each domain
-        - Applies UMI threshold filtering for reliable genes
-
-    3. Piecewise Linear Fitting:
-        - Fits segmented regression models to binned expression
-        - Tests for significant slopes and breakpoints
-
-    4. Gene Classification:
-        - Continuous: Genes with smooth gradients along isodepth
-        - Discontinuous: Genes with sharp transitions between domains
-
-    Args:
-        model: Trained GASTON PyTorch model
-        spatial_coords: Original spatial coordinates
-        expression_features: Low-dimensional expression features
-        adata: AnnData object for accessing gene expression
-        params: Analysis parameters including thresholds
-        context: MCP context for logging
-
-    Returns:
-        Dictionary with:
-            - isodepth: Continuous depth values per spot
-            - spatial_domains: Discrete domain labels
-            - continuous_genes: List of gradient genes
-            - discontinuous_genes: List of domain-specific genes
-            - performance_metrics: Model evaluation statistics
-    """
-    # Import dependencies at runtime
-    import numpy as np
-    import pandas as pd
-    import torch
-    from gaston import (binning_and_plotting, dp_related, segmented_fit,
-                        spatial_gene_classification)
-
-    if context:
-        await context.info("Processing neural network output following GASTON tutorial")
-
-    # Step 1: Use dp_related.get_isodepth_labels to get isodepth and labels
-    # This is the official GASTON way according to the tutorial
-    S_torch = torch.tensor(spatial_coords, dtype=torch.float32)
-    A_torch = torch.tensor(expression_features, dtype=torch.float32)
-
-    # Use GASTON's official method to get isodepth and labels
-    gaston_isodepth, gaston_labels = dp_related.get_isodepth_labels(
-        model, A_torch, S_torch, params.n_domains
-    )
-
-    if context:
-        actual_domains = len(np.unique(gaston_labels))
-        await context.info(f"GASTON identified {actual_domains} spatial domains")
-        await context.info(
-            f"Isodepth range: [{gaston_isodepth.min():.3f}, {gaston_isodepth.max():.3f}]"
-        )
-
-    # Step 2: Get model predictions for performance metrics
-    with torch.no_grad():
-        predictions = model(S_torch).numpy()
-
-    # Step 3: Prepare data for GASTON analysis
-    # Get original count matrix (need raw counts for Poisson regression)
-    if hasattr(adata.X, "toarray"):
-        counts_mat = adata.X.toarray()  # GASTON expects N x G matrix
-    else:
-        counts_mat = adata.X
-
-    # Ensure counts are non-negative integers
-    counts_mat = np.maximum(counts_mat, 0).astype(int)
-    gene_labels = adata.var_names.values
-
-    # Create dummy cell type dataframe (for all cell types analysis)
-    cell_type_df = pd.DataFrame(
-        {"All": np.ones(len(spatial_coords))}, index=adata.obs_names
-    )
-
-    # Step 4: Perform binning using GASTON's binning function
-    if context:
-        await context.info(f"Running GASTON binning with {len(gene_labels)} genes")
-        await context.info(f"UMI threshold: {params.umi_threshold}")
-
-    binning_output = binning_and_plotting.bin_data(
-        counts_mat=counts_mat,
-        gaston_labels=gaston_labels,
-        gaston_isodepth=gaston_isodepth,
-        cell_type_df=cell_type_df,
-        gene_labels=gene_labels,
-        num_bins=params.num_bins,
-        umi_threshold=params.umi_threshold,
-        pc=0,  # No pseudocount
-        pc_exposure=True,
-    )
-
-    if context:
-        await context.info(
-            f"Binning completed. Analyzing {len(binning_output['gene_labels_idx'])} genes"
-        )
-
-    # Step 5: Perform piecewise linear fitting using GASTON's segmented fit
-    if context:
-        await context.info("Running piecewise linear fitting")
-
-    pw_fit_dict = segmented_fit.pw_linear_fit(
-        counts_mat=counts_mat,
-        gaston_labels=gaston_labels,
-        gaston_isodepth=gaston_isodepth,
-        cell_type_df=cell_type_df,
-        ct_list=[],  # Empty list for all cell types analysis only
-        umi_threshold=params.umi_threshold,
-        t=params.pvalue_threshold,
-        isodepth_mult_factor=params.isodepth_mult_factor,
-        reg=params.regularization,
-        zero_fit_threshold=params.zero_fit_threshold,
-    )
-
-    if context:
-        await context.info("Piecewise linear fitting completed")
-        await context.info(
-            "Classifying genes into continuous and discontinuous patterns"
-        )
-
-    # Step 6: Classify genes using GASTON's classification functions
-    continuous_genes = spatial_gene_classification.get_cont_genes(
-        pw_fit_dict, binning_output, q=params.continuous_quantile
-    )
-
-    discontinuous_genes = spatial_gene_classification.get_discont_genes(
-        pw_fit_dict, binning_output, q=params.discontinuous_quantile
-    )
-
-    if context:
-        await context.info(
-            f"Found {len(continuous_genes)} genes with continuous gradients"
-        )
-        await context.info(
-            f"Found {len(discontinuous_genes)} genes with discontinuities"
-        )
-
-    # Performance metrics
-    mse = np.mean((predictions - expression_features) ** 2)
-    r2 = 1 - (
-        np.sum((expression_features - predictions) ** 2)
-        / np.sum((expression_features - np.mean(expression_features, axis=0)) ** 2)
-    )
-
-    performance_metrics = {
-        "mse": float(mse),
-        "r2": float(r2),
-        "isodepth_range": [float(gaston_isodepth.min()), float(gaston_isodepth.max())],
-        "isodepth_std": float(gaston_isodepth.std()),
-    }
-
-    # Convert complex structures to simple lists for MCP output
-    continuous_genes_list = []
-    discontinuous_genes_list = []
-
-    if continuous_genes:
-        continuous_genes_list = (
-            list(continuous_genes.keys()) if hasattr(continuous_genes, "keys") else []
-        )
-
-    if discontinuous_genes:
-        discontinuous_genes_list = (
-            list(discontinuous_genes.keys())
-            if hasattr(discontinuous_genes, "keys")
-            else []
-        )
-
-    return {
-        "isodepth": gaston_isodepth,
-        "spatial_domains": gaston_labels,
-        "n_domains": params.n_domains,
-        "continuous_genes": continuous_genes_list,
-        "discontinuous_genes": discontinuous_genes_list,
-        "performance_metrics": performance_metrics,
-    }
-
-
-# Note: Visualization functions have been moved to visualization.py
-# Use visualize_data tool with plot_type="gaston_isodepth", "gaston_domains", or "gaston_genes"
-
-
-async def _store_results_in_adata(
-    adata, spatial_analysis: Dict[str, Any], results_key: str, context
-):
-    """
-    Store GASTON analysis results in the AnnData object.
-
-    Persists key results for downstream analysis and visualization:
-
-    Stored Annotations:
-        - .obs[f'{results_key}_isodepth']: Continuous depth values
-        - .obs[f'{results_key}_spatial_domains']: Discrete domain labels
-        - .obsm[f'{results_key}_embedding']: Isodepth as 1D embedding
-        - .uns[f'{results_key}_metadata']: Analysis metadata and metrics
-
-    Args:
-        adata: AnnData object to annotate
-        spatial_analysis: Results from _analyze_spatial_patterns
-        results_key: Prefix for result keys (includes random seed)
-        context: MCP context for logging
-
-    Note:
-        Results are stored with unique keys to allow multiple GASTON runs
-        with different parameters on the same dataset.
-    """
-
-    # Store isodepth values
-    adata.obs[f"{results_key}_isodepth"] = spatial_analysis["isodepth"]
-
-    # Store spatial domains
-    adata.obs[f"{results_key}_spatial_domains"] = spatial_analysis[
-        "spatial_domains"
-    ].astype(str)
-
-    # Store predictions (if available - removed from spatial results to reduce MCP output size)
-    # adata.obsm[f"{results_key}_predictions"] = spatial_analysis.get('predictions', None)
-
-    # Store spatial embedding (isodepth as 1D embedding)
-    adata.obsm[f"{results_key}_embedding"] = spatial_analysis["isodepth"].reshape(-1, 1)
-
-    # Store metadata
-    adata.uns[f"{results_key}_metadata"] = {
-        "method": "GASTON",
-        "n_domains": spatial_analysis["n_domains"],
-        "performance_metrics": spatial_analysis["performance_metrics"],
-    }
-
-    if context:
-        await context.info(f"Results stored in adata with key prefix: {results_key}")
 
 
 async def _identify_spatial_genes_sparkx(
@@ -1446,7 +817,7 @@ async def _identify_spatial_genes_sparkx(
                                 await context.warning(
                                     f"SPARK-X returned results for only {len(results_df)}/{n_genes} genes. "
                                     f"This may indicate a problem with the R environment, SPARK package, or input data. "
-                                    f"Consider checking R logs or trying alternative methods (GASTON, SpatialDE)."
+                                    f"Consider checking R logs or trying SpatialDE as an alternative method."
                                 )
                     else:
                         # SPARK-X results format not recognized - fail honestly instead of fake results

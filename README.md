@@ -286,8 +286,8 @@ pip install -e ".[dev]"
 | **Spatial Domains** | SpaGCN, STAGATE, Leiden/Louvain clustering |
 | **Cell Communication** | LIANA+, CellPhoneDB, CellChat (via LIANA) |
 | **Deconvolution** | Cell2location, DestVI, RCTD, Tangram, Stereoscope, SPOTlight |
-| **CNV Analysis** | infercnvpy (chromosome-based CNV inference) |
-| **Spatial Variable Genes** | GASTON, SpatialDE, SPARK-X |
+| **CNV Analysis** | infercnvpy, Numbat (haplotype-aware CNV analysis) |
+| **Spatial Variable Genes** | SpatialDE, SPARK-X |
 | **Trajectory & Velocity** | CellRank, Palantir, DPT, scVelo, VeloVI |
 | **Sample Integration** | Harmony, BBKNN, Scanorama, scVI |
 | **Differential Expression** | Wilcoxon, t-test, Logistic Regression (scanpy methods) |

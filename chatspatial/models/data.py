@@ -252,9 +252,6 @@ class VisualizationParameters(BaseModel):
         "multi_gene",
         "lr_pairs",
         "gene_correlation",
-        "gaston_isodepth",
-        "gaston_domains",
-        "gaston_genes",
         "pathway_enrichment",
         "spatial_enrichment",  # Clear enrichment types
         "spatial_interaction",
@@ -974,8 +971,8 @@ class SpatialVariableGenesParameters(BaseModel):
     """Spatial variable genes identification parameters model"""
 
     # Method selection
-    method: Literal["gaston", "spatialde", "sparkx"] = (
-        "sparkx"  # Default to SPARK-X (fastest, no installation needed)
+    method: Literal["spatialde", "sparkx"] = (
+        "sparkx"  # Default to SPARK-X (best accuracy)
     )
 
     # Common parameters for all methods
@@ -983,93 +980,6 @@ class SpatialVariableGenesParameters(BaseModel):
         None  # Number of top spatial variable genes to return (None = all significant)
     )
     spatial_key: str = "spatial"  # Key in obsm containing spatial coordinates
-
-    # GASTON-specific parameters
-    # Preprocessing: GASTON uses GLM-PCA on raw counts (official method from tutorial)
-    # preprocessing_method parameter removed - GLM-PCA is the only supported method
-    n_components: Annotated[int, Field(gt=0, le=50)] = (
-        10  # Number of components for GLM-PCA dimensionality reduction
-    )
-
-    # GLM-PCA optimization parameters (from official tutorial)
-    glmpca_penalty: Annotated[float, Field(gt=0, le=100)] = (
-        10.0  # GLM-PCA L2 penalty for numerical stability (official default: 10)
-    )
-    glmpca_num_iters: Annotated[int, Field(gt=0, le=100)] = (
-        30  # Maximum GLM-PCA optimization iterations (official default: 30)
-    )
-    glmpca_eps: Annotated[float, Field(gt=0, le=0.1)] = (
-        1e-4  # GLM-PCA convergence threshold (official default: 1e-4)
-    )
-    glmpca_num_genes: Annotated[int, Field(gt=0, le=50000)] = (
-        30000  # Top genes by total count for GLM-PCA (official default: 30000)
-    )
-
-    # Neural network architecture parameters
-    spatial_hidden_layers: List[Annotated[int, Field(gt=0, le=1000)]] = [
-        20,
-        20,
-    ]  # Architecture for spatial embedding f_S
-    expression_hidden_layers: List[Annotated[int, Field(gt=0, le=1000)]] = [
-        20,
-        20,
-    ]  # Architecture for expression function f_A
-
-    # Training parameters
-    epochs: Annotated[int, Field(gt=0, le=50000)] = 10000  # Number of training epochs
-    learning_rate: Annotated[float, Field(gt=0.0, le=1.0)] = 0.001  # Learning rate
-    optimizer: Literal["adam", "sgd", "adagrad"] = "adam"  # Optimizer type
-    batch_size: Optional[Annotated[int, Field(gt=0, le=10000)]] = (
-        None  # Batch size (None for full batch)
-    )
-
-    # Positional encoding parameters
-    use_positional_encoding: bool = False  # Whether to use positional encoding
-    embedding_size: Annotated[int, Field(gt=0, le=20)] = (
-        4  # Positional encoding embedding size
-    )
-    sigma: Annotated[float, Field(gt=0.0, le=1.0)] = (
-        0.2  # Positional encoding sigma parameter
-    )
-
-    # Model saving parameters
-    checkpoint_interval: Annotated[int, Field(gt=0, le=5000)] = (
-        500  # Save model every N epochs (official tutorial: 500)
-    )
-    random_seed: Annotated[int, Field(ge=0, le=1000)] = (
-        0  # Random seed for reproducibility
-    )
-
-    # Analysis parameters
-    n_domains: Annotated[int, Field(gt=0, le=20)] = (
-        5  # Number of spatial domains to identify
-    )
-    num_bins: Annotated[int, Field(gt=10, le=200)] = (
-        70  # Number of bins for isodepth binning
-    )
-    umi_threshold: Annotated[int, Field(gt=0)] = (
-        500  # Minimum UMI count threshold for genes
-    )
-
-    # Gene classification parameters
-    continuous_quantile: Annotated[float, Field(gt=0.0, le=1.0)] = (
-        0.9  # Quantile threshold for continuous genes
-    )
-    discontinuous_quantile: Annotated[float, Field(gt=0.0, le=1.0)] = (
-        0.9  # Quantile threshold for discontinuous genes
-    )
-    pvalue_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = (
-        0.1  # P-value threshold for slope significance
-    )
-    zero_fit_threshold: Annotated[int, Field(ge=0)] = (
-        0  # Minimum non-zero count per domain
-    )
-
-    # Poisson regression parameters
-    isodepth_mult_factor: Annotated[float, Field(gt=0.0)] = (
-        1.0  # Scaling factor for isodepth values
-    )
-    regularization: Annotated[float, Field(ge=0.0)] = 0.0  # Regularization parameter
 
     # SpatialDE-specific parameters
     spatialde_normalized: bool = True  # Whether data is already normalized
@@ -1090,9 +1000,9 @@ class SpatialVariableGenesParameters(BaseModel):
     )
     sparkx_verbose: bool = False  # Whether to print detailed R output
 
-    # SPARK-X gene filtering parameters (based on SPARK-X paper & best practices)
+    # Gene filtering parameters
     filter_mt_genes: bool = (
-        True  # Filter mitochondrial genes (MT-*) - SPARK-X paper standard practice
+        True  # Filter mitochondrial genes (MT-*) - standard practice
     )
     filter_ribo_genes: bool = (
         False  # Filter ribosomal genes (RPS*, RPL*) - optional, may remove housekeeping

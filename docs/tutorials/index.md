@@ -40,7 +40,6 @@ In-depth guides for specific analysis techniques:
 Cutting-edge spatial analysis techniques:
 - [Trajectory Analysis](advanced/trajectory_analysis.html) - RNA velocity and pseudotime
 - [Spatial Registration](advanced/spatial_registration.html) - Multi-section alignment
-- [GASTON Analysis](advanced/gaston_analysis.html) - Deep learning spatial gene detection
 - [Batch Integration](advanced/batch_integration.html) - Multi-sample integration
 
 ### 📚 [Learning Paths](learning-paths/)
@@ -98,7 +97,6 @@ Jump to [Core Analysis](core/) tutorials to learn spatial-specific techniques:
 Explore [Advanced Methods](advanced/) for cutting-edge techniques:
 1. [Trajectory Analysis](advanced/trajectory_analysis.html)
 2. [Spatial Registration](advanced/spatial_registration.html)
-3. [GASTON Analysis](advanced/gaston_analysis.html)
 
 ## Tutorial Data
 
