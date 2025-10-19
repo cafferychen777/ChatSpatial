@@ -74,6 +74,7 @@ full = [
     
     # ========== Advanced Spatial Domains ==========
     "SpaGCN>=1.2.5,<2.0",  # Graph convolutional network for spatial domains
+    "GraphST>=1.1.0",  # Graph self-supervised contrastive learning for spatial domains
     # "STAGATE>=1.0.0",  # Spatial domain identification with graph attention
     
     # ========== Advanced Deconvolution ==========
@@ -94,6 +95,7 @@ full = [
     "spatialde>=1.1.3",  # Gaussian process-based method
     "gaston-spatial>=0.0.3",  # GASTON neural network for spatial genes
     "glmpca>=0.1.0",  # GLM-PCA for count data
+    "scikit-misc>=0.5.0",  # Required for Seurat v3 HVG selection (used by GraphST)
     
     # ========== Advanced Cell Type Annotation ==========
     "tangram-sc>=1.0.0",  # Spatial mapping of cell types
@@ -116,7 +118,10 @@ full = [
     "POT>=0.9.0",  # Python optimal transport
     # "STalign>=1.0.0",  # Spatial alignment tool (install from GitHub, not on PyPI)
     "paste-bio>=1.0.0",  # PASTE spatial registration
-    
+
+    # ========== CNV Analysis ==========
+    "infercnvpy>=0.4.0",  # Copy number variation inference from spatial transcriptomics
+
     # ========== Spatial Enrichment Extensions ==========
     "enrichmap",  # Enrichment map visualization (Python >=3.10)
     "statannotations>=0.2.0",  # Statistical annotations for plots
