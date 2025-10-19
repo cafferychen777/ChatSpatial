@@ -121,6 +121,7 @@ full = [
 
     # ========== CNV Analysis ==========
     "infercnvpy>=0.4.0",  # Copy number variation inference from spatial transcriptomics
+    # Note: Numbat CNV analysis also supported via rpy2 (requires R package: install.packages('numbat'))
 
     # ========== Spatial Enrichment Extensions ==========
     "enrichmap",  # Enrichment map visualization (Python >=3.10)

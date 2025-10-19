@@ -82,10 +82,11 @@ def _check_return_type_category(func) -> str:
         func: Function to check
 
     Returns:
-        One of: "image", "basemodel", "simple", "unknown"
+        One of: "image", "basemodel", "str", "simple", "unknown"
         - "image": Returns ImageContent
         - "basemodel": Returns Pydantic BaseModel (but not ImageContent)
-        - "simple": Returns simple types (str, int, dict, list)
+        - "str": Returns str (must return str even on error for MCP schema)
+        - "simple": Returns simple types (int, dict, list)
         - "unknown": Cannot determine type
     """
     try:
@@ -116,6 +117,10 @@ def _check_return_type_category(func) -> str:
         for model_type in basemodel_types:
             if model_type in type_str:
                 return "basemodel"
+
+        # Check if it returns str specifically (important for MCP schema compliance)
+        if type_str in ["<class 'str'>", "str", "typing.Optional[str]"]:
+            return "str"
 
         # Otherwise it's a simple type
         return "simple"
@@ -209,6 +214,11 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                     # This prevents MCP schema validation errors
                     raise
 
+                elif return_type_category == "str":
+                    # For str return type, must return str (not dict) for MCP schema
+                    # Simply return error message as string
+                    return f"❌ Error: {str(e)}"
+
                 # For simple types or unknown, return error in the result object
                 return create_error_result(e, include_traceback).to_dict()
 
@@ -257,6 +267,11 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                     # Let FastMCP handle it at a higher level
                     # This prevents MCP schema validation errors
                     raise
+
+                elif return_type_category == "str":
+                    # For str return type, must return str (not dict) for MCP schema
+                    # Simply return error message as string
+                    return f"❌ Error: {str(e)}"
 
                 # For simple types or unknown, return error in the result object
                 return create_error_result(e, include_traceback).to_dict()

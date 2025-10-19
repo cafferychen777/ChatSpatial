@@ -741,23 +741,33 @@ async def analyze_cnv(
     data_id: str,
     reference_key: str,
     reference_categories: List[str],
+    method: str = "infercnvpy",
     window_size: int = 100,
     step: int = 10,
     exclude_chromosomes: Optional[List[str]] = None,
     dynamic_threshold: Optional[float] = 1.5,
     cluster_cells: bool = False,
     dendrogram: bool = False,
+    numbat_genome: str = "hg38",
+    numbat_allele_data_key: str = "allele_counts",
+    numbat_t: float = 0.15,
+    numbat_max_entropy: float = 0.8,
+    numbat_min_cells: int = 10,
+    numbat_ncores: int = 1,
+    numbat_skip_nj: bool = False,
     context: Context = None,
 ) -> CNVResult:
     """Analyze copy number variations (CNVs) in spatial transcriptomics data
 
-    Uses infercnvpy to detect chromosomal copy number alterations by comparing
-    gene expression patterns across chromosomes between tumor and reference cells.
+    Supports two CNV analysis methods:
+    - infercnvpy: Expression-based CNV inference (default, fast)
+    - Numbat: Haplotype-aware CNV analysis (requires allele data, more accurate)
 
     Args:
         data_id: Dataset identifier
         reference_key: Column name in adata.obs for cell type labels
         reference_categories: List of cell types to use as reference (normal cells)
+        method: CNV analysis method ("infercnvpy" or "numbat", default: "infercnvpy")
         window_size: Number of genes for CNV averaging window (default: 100)
         step: Step size for sliding window (default: 10)
         exclude_chromosomes: Chromosomes to exclude (e.g., ['chrX', 'chrY'])
@@ -769,9 +779,26 @@ async def analyze_cnv(
     Returns:
         CNV analysis result with statistics and visualization availability
 
+    Notes:
+        CNV analysis methods:
+        - infercnvpy: Expression-based (implemented, no allele data required)
+        - numbat: Haplotype-aware (implemented when rpy2 installed, requires allele data)
+
+        Numbat-specific notes:
+        - Method: Haplotype-aware CNV analysis with phylogeny reconstruction
+        - Requires: Allele-specific counts in adata.layers or adata.obsm
+        - Allele data preparation: Use cellSNP-lite, pileup_and_phase, or similar tools
+        - Genome options: hg38, hg19, mm10, mm39
+        - Returns: CNV matrix, clone assignments, phylogeny tree
+        - GPU acceleration: Not applicable (R-based method)
+
     Examples:
-        # Basic CNV analysis
+        # Basic infercnvpy analysis
         analyze_cnv("data1", "cell_type", ["T cells", "B cells"])
+
+        # Numbat analysis (requires allele data)
+        analyze_cnv("data1", "cell_type", ["T cells", "B cells"],
+                   method="numbat", numbat_genome="hg38")
 
         # With clustering
         analyze_cnv("data1", "leiden", ["0", "1"], cluster_cells=True)
@@ -784,7 +811,9 @@ async def analyze_cnv(
     data_store = {data_id: dataset_info}
 
     # Create CNVParameters object
+    # Type: ignore needed for Literal parameters validated at runtime by Pydantic
     params = CNVParameters(
+        method=method,  # type: ignore[arg-type]
         reference_key=reference_key,
         reference_categories=reference_categories,
         window_size=window_size,
@@ -793,6 +822,13 @@ async def analyze_cnv(
         dynamic_threshold=dynamic_threshold,
         cluster_cells=cluster_cells,
         dendrogram=dendrogram,
+        numbat_genome=numbat_genome,  # type: ignore[arg-type]
+        numbat_allele_data_key=numbat_allele_data_key,
+        numbat_t=numbat_t,
+        numbat_max_entropy=numbat_max_entropy,
+        numbat_min_cells=numbat_min_cells,
+        numbat_ncores=numbat_ncores,
+        numbat_skip_nj=numbat_skip_nj,
     )
 
     # Lazy import CNV analysis tool
