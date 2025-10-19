@@ -1655,7 +1655,6 @@ async def visualize_data(
 
                 # Create aggregated heatmap of CNV matrix
                 import seaborn as sns
-                import pandas as pd
 
                 # Get CNV matrix
                 cnv_matrix = adata.obsm["X_cnv"]
