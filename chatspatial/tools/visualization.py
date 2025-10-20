@@ -1177,7 +1177,14 @@ async def visualize_data(
                 available_genes = [
                     gene for gene in feature_list if gene in adata.var_names
                 ]
+
+                # Check for missing genes
+                missing_genes = [
+                    gene for gene in feature_list if gene not in adata.var_names
+                ]
+
                 if not available_genes:
+                    # All genes missing - fall back to HVGs
                     if context:
                         await context.warning(
                             f"None of specified genes found: {feature_list}. Using highly variable genes."
@@ -1186,8 +1193,17 @@ async def visualize_data(
                     available_genes = adata.var_names[adata.var.highly_variable][
                         :n_genes
                     ].tolist()
-                else:
+                elif missing_genes:
+                    # Some genes missing - warn but continue
+                    if context:
+                        await context.warning(
+                            f"⚠️  {len(missing_genes)} gene(s) not found and will be skipped: {missing_genes}\n"
+                            f"Proceeding with {len(available_genes)} available gene(s): {available_genes}"
+                        )
                     # Limit to reasonable number for visualization
+                    available_genes = available_genes[:n_genes]
+                else:
+                    # All genes found - limit to reasonable number
                     available_genes = available_genes[:n_genes]
             else:
                 # Use highly variable genes
@@ -2020,13 +2036,18 @@ async def visualize_data(
             await context.info(
                 f"Converting {params.plot_type} figure with token optimization..."
             )
+
+        # Generate plot_type_key with subtype if applicable (for cache consistency)
+        subtype = params.subtype if hasattr(params, "subtype") and params.subtype else None
+        plot_type_key = f"{params.plot_type}_{subtype}" if subtype else params.plot_type
+
         # Use the optimized conversion function
         return await optimize_fig_to_image_with_cache(
             fig,
             params,
             context,
             data_id=data_id,
-            plot_type=params.plot_type,
+            plot_type=plot_type_key,
             mode="auto",
         )
 
@@ -2059,11 +2080,706 @@ async def visualize_data(
             ) from e
 
 
+def get_deconvolution_proportions(
+    adata: ad.AnnData,
+    method: Optional[str] = None
+) -> Tuple[pd.DataFrame, str]:
+    """
+    Get deconvolution proportions from AnnData
+
+    Args:
+        adata: AnnData object with deconvolution results
+        method: Specific method (e.g., "cell2location"). If None, auto-detect.
+
+    Returns:
+        (proportions_df, method_name)
+
+    Raises:
+        DataNotFoundError: If no deconvolution results found
+    """
+    # Auto-detect if method not specified
+    if method is None:
+        deconv_keys = [
+            key for key in adata.obsm.keys()
+            if key.startswith("deconvolution_")
+        ]
+        if not deconv_keys:
+            raise DataNotFoundError(
+                "No deconvolution results found in adata.obsm. "
+                f"Available keys: {list(adata.obsm.keys())}"
+            )
+        proportions_key = deconv_keys[0]
+        method = proportions_key.replace("deconvolution_", "")
+    else:
+        proportions_key = f"deconvolution_{method}"
+        if proportions_key not in adata.obsm:
+            raise DataNotFoundError(
+                f"Deconvolution results for {method} not found. "
+                f"Available: {[k for k in adata.obsm.keys() if 'deconv' in k]}"
+            )
+
+    # Get proportions
+    proportions_array = adata.obsm[proportions_key]
+
+    # Get cell type names
+    cell_types_key = f"{proportions_key}_cell_types"
+    if cell_types_key in adata.uns:
+        cell_types = adata.uns[cell_types_key]
+    else:
+        # Fallback: extract from obs columns
+        prefix = f"{proportions_key}_"
+        cell_type_cols = [
+            col.replace(prefix, "")
+            for col in adata.obs.columns
+            if col.startswith(prefix)
+        ]
+        cell_types = cell_type_cols if cell_type_cols else [f"CellType_{i}" for i in range(proportions_array.shape[1])]
+
+    # Create DataFrame
+    proportions = pd.DataFrame(
+        proportions_array,
+        index=adata.obs_names,
+        columns=cell_types
+    )
+
+    return proportions, method
+
+
+async def create_dominant_celltype_map(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context=None,
+) -> plt.Figure:
+    """
+    Create dominant cell type map (CARD-style)
+
+    Shows the dominant cell type at each spatial location, optionally
+    marking "pure" vs "mixed" spots based on proportion threshold.
+
+    Args:
+        adata: AnnData with deconvolution results
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure
+
+    Raises:
+        DataNotFoundError: If deconvolution results not found
+    """
+    # Get proportions
+    proportions, method = get_deconvolution_proportions(adata, params.deconv_method)
+
+    # Get dominant cell type
+    dominant_idx = proportions.values.argmax(axis=1)
+    dominant_types = proportions.columns[dominant_idx].values
+    dominant_proportions = proportions.values.max(axis=1)
+
+    # Mark pure vs mixed spots
+    if params.show_mixed_spots:
+        spot_categories = np.where(
+            dominant_proportions >= params.min_proportion_threshold,
+            dominant_types,
+            "Mixed",
+        )
+    else:
+        spot_categories = dominant_types
+
+    # Get spatial coordinates
+    if "spatial" not in adata.obsm:
+        raise DataNotFoundError(
+            "Spatial coordinates not found in adata.obsm['spatial']"
+        )
+    spatial_coords = adata.obsm["spatial"]
+
+    # Create figure
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+    # Get unique categories
+    unique_categories = np.unique(spot_categories)
+    n_categories = len(unique_categories)
+
+    # Create colormap
+    if params.show_mixed_spots and "Mixed" in unique_categories:
+        # Separate colors for Mixed
+        cell_type_categories = [c for c in unique_categories if c != "Mixed"]
+        n_cell_types = len(cell_type_categories)
+
+        # Use tab20 for cell types
+        if n_cell_types <= 20:
+            cell_type_cmap = plt.cm.get_cmap("tab20", n_cell_types)
+            cell_type_colors = {
+                ct: cell_type_cmap(i) for i, ct in enumerate(cell_type_categories)
+            }
+        else:
+            cell_type_colors = {
+                ct: plt.cm.get_cmap(params.colormap or "tab20", n_cell_types)(i)
+                for i, ct in enumerate(cell_type_categories)
+            }
+
+        # Gray for mixed
+        cell_type_colors["Mixed"] = (0.7, 0.7, 0.7, 1.0)
+
+        # Plot
+        for category in unique_categories:
+            mask = spot_categories == category
+            ax.scatter(
+                spatial_coords[mask, 0],
+                spatial_coords[mask, 1],
+                c=[cell_type_colors[category]],
+                s=params.spot_size or 10,
+                alpha=0.8 if category == "Mixed" else 1.0,
+                label=category,
+                edgecolors="none",
+            )
+    else:
+        # No mixed spots - standard categorical plot
+        from matplotlib.colors import ListedColormap
+
+        if n_categories <= 20:
+            cmap = plt.cm.get_cmap("tab20", n_categories)
+        else:
+            cmap = plt.cm.get_cmap(params.colormap or "tab20", n_categories)
+
+        colors = {cat: cmap(i) for i, cat in enumerate(unique_categories)}
+
+        for category in unique_categories:
+            mask = spot_categories == category
+            ax.scatter(
+                spatial_coords[mask, 0],
+                spatial_coords[mask, 1],
+                c=[colors[category]],
+                s=params.spot_size or 10,
+                alpha=1.0,
+                label=category,
+                edgecolors="none",
+            )
+
+    # Formatting
+    ax.set_xlabel("Spatial X")
+    ax.set_ylabel("Spatial Y")
+    ax.set_title(
+        f"Dominant Cell Type Map ({method})\n"
+        f"Threshold: {params.min_proportion_threshold:.2f}"
+        if params.show_mixed_spots
+        else f"Dominant Cell Type Map ({method})"
+    )
+    ax.legend(
+        bbox_to_anchor=(1.05, 1),
+        loc="upper left",
+        ncol=1 if n_categories <= 15 else 2,
+        fontsize=8,
+    )
+    ax.set_aspect("equal")
+
+    plt.tight_layout()
+
+    if context:
+        await context.info(
+            f"Created dominant cell type map with {n_categories} categories "
+            f"({len([c for c in unique_categories if c != 'Mixed'])} cell types"
+            + (", 1 mixed category)" if "Mixed" in unique_categories else ")")
+        )
+
+    return fig
+
+
+async def create_diversity_map(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context=None,
+) -> plt.Figure:
+    """
+    Create Shannon entropy diversity map
+
+    Shows cell type diversity at each spatial location using Shannon entropy.
+    Higher entropy = more diverse/mixed cell types.
+    Lower entropy = more homogeneous/dominated by single type.
+
+    Args:
+        adata: AnnData with deconvolution results
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure
+
+    Raises:
+        DataNotFoundError: If deconvolution results not found
+    """
+    from scipy.stats import entropy
+
+    # Get proportions
+    proportions, method = get_deconvolution_proportions(adata, params.deconv_method)
+
+    # Calculate Shannon entropy for each spot
+    # Add small epsilon to avoid log(0)
+    epsilon = 1e-10
+    proportions_safe = proportions.values + epsilon
+
+    # Shannon entropy: -sum(p * log(p))
+    spot_entropy = entropy(proportions_safe.T, base=2)  # Base 2 for bits
+
+    # Normalize to [0, 1] range
+    # Max entropy = log2(n_cell_types)
+    max_entropy = np.log2(proportions.shape[1])
+    normalized_entropy = spot_entropy / max_entropy
+
+    # Get spatial coordinates
+    if "spatial" not in adata.obsm:
+        raise DataNotFoundError(
+            "Spatial coordinates not found in adata.obsm['spatial']"
+        )
+    spatial_coords = adata.obsm["spatial"]
+
+    # Create figure
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+    # Plot entropy
+    scatter = ax.scatter(
+        spatial_coords[:, 0],
+        spatial_coords[:, 1],
+        c=normalized_entropy,
+        cmap=params.colormap or "viridis",
+        s=params.spot_size or 10,
+        alpha=1.0,
+        edgecolors="none",
+    )
+
+    # Colorbar
+    cbar = plt.colorbar(scatter, ax=ax)
+    cbar.set_label("Cell Type Diversity (Shannon Entropy)", rotation=270, labelpad=20)
+
+    # Formatting
+    ax.set_xlabel("Spatial X")
+    ax.set_ylabel("Spatial Y")
+    ax.set_title(
+        f"Cell Type Diversity Map ({method})\n"
+        f"Shannon Entropy (0=homogeneous, 1=maximally diverse)"
+    )
+    ax.set_aspect("equal")
+
+    plt.tight_layout()
+
+    if context:
+        # Calculate statistics
+        mean_entropy = normalized_entropy.mean()
+        std_entropy = normalized_entropy.std()
+        high_diversity_pct = (
+            (normalized_entropy > 0.7).sum() / len(normalized_entropy) * 100
+        )
+        low_diversity_pct = (
+            (normalized_entropy < 0.3).sum() / len(normalized_entropy) * 100
+        )
+
+        await context.info(
+            f"Created diversity map:\n"
+            f"  Mean entropy: {mean_entropy:.3f} ± {std_entropy:.3f}\n"
+            f"  High diversity (>0.7): {high_diversity_pct:.1f}% of spots\n"
+            f"  Low diversity (<0.3): {low_diversity_pct:.1f}% of spots"
+        )
+
+    return fig
+
+
+async def create_stacked_barplot(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context=None,
+) -> plt.Figure:
+    """
+    Create stacked barplot of cell type proportions
+
+    Shows cell type proportions for each spot as stacked bars.
+    Spots can be sorted by dominant cell type, spatial order, or cluster.
+
+    Args:
+        adata: AnnData with deconvolution results
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure
+
+    Raises:
+        DataNotFoundError: If deconvolution results not found
+    """
+    # Get proportions
+    proportions, method = get_deconvolution_proportions(adata, params.deconv_method)
+
+    # Limit number of spots for readability
+    n_spots = len(proportions)
+    if n_spots > params.max_spots:
+        # Sample spots
+        sample_indices = np.random.choice(
+            n_spots, size=params.max_spots, replace=False
+        )
+        proportions_plot = proportions.iloc[sample_indices]
+        if context:
+            await context.warning(
+                f"Sampled {params.max_spots} spots out of {n_spots} for readability. "
+                f"Adjust max_spots parameter to show more."
+            )
+    else:
+        proportions_plot = proportions
+
+    # Sort spots based on sort_by parameter
+    if params.sort_by == "dominant_type":
+        # Sort by dominant cell type
+        dominant_idx = proportions_plot.values.argmax(axis=1)
+        dominant_types = proportions_plot.columns[dominant_idx]
+        sort_order = np.argsort(dominant_types)
+    elif params.sort_by == "spatial":
+        # Sort by spatial distance (hierarchical clustering on coordinates)
+        if "spatial" in adata.obsm:
+            from scipy.cluster.hierarchy import dendrogram, linkage
+            from scipy.spatial.distance import pdist
+
+            spatial_coords = adata.obsm["spatial"][proportions_plot.index]
+            linkage_matrix = linkage(spatial_coords, method="ward")
+            dend = dendrogram(linkage_matrix, no_plot=True)
+            sort_order = dend["leaves"]
+        else:
+            sort_order = np.arange(len(proportions_plot))
+    elif params.sort_by == "cluster":
+        # Sort by cluster if available
+        cluster_key = params.cluster_key or "leiden"
+        if cluster_key in adata.obs.columns:
+            cluster_values = adata.obs.loc[proportions_plot.index, cluster_key]
+            sort_order = np.argsort(cluster_values.astype(str))
+        else:
+            if context:
+                await context.warning(
+                    f"Cluster key '{cluster_key}' not found. Using default order."
+                )
+            sort_order = np.arange(len(proportions_plot))
+    else:
+        sort_order = np.arange(len(proportions_plot))
+
+    proportions_sorted = proportions_plot.iloc[sort_order]
+
+    # Create figure
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+
+    # Get cell types
+    cell_types = proportions_sorted.columns.tolist()
+    n_cell_types = len(cell_types)
+
+    # Create colormap
+    if n_cell_types <= 20:
+        cmap = plt.cm.get_cmap("tab20", n_cell_types)
+    else:
+        cmap = plt.cm.get_cmap(params.colormap or "tab20", n_cell_types)
+    colors = [cmap(i) for i in range(n_cell_types)]
+
+    # Plot stacked bars
+    x_positions = np.arange(len(proportions_sorted))
+    bottom = np.zeros(len(proportions_sorted))
+
+    for i, cell_type in enumerate(cell_types):
+        values = proportions_sorted[cell_type].values
+        ax.bar(
+            x_positions,
+            values,
+            bottom=bottom,
+            color=colors[i],
+            label=cell_type,
+            width=1.0,
+            edgecolor="none",
+        )
+        bottom += values
+
+    # Formatting
+    ax.set_xlabel("Spot Index" if params.sort_by == "spatial" else params.sort_by.replace("_", " ").title())
+    ax.set_ylabel("Cell Type Proportion")
+    ax.set_title(
+        f"Cell Type Proportions ({method})\n"
+        f"Sorted by: {params.sort_by.replace('_', ' ').title()}"
+    )
+    ax.set_ylim([0, 1])
+    ax.set_xlim([0, len(proportions_sorted)])
+
+    # Legend
+    ax.legend(
+        bbox_to_anchor=(1.05, 1),
+        loc="upper left",
+        ncol=1 if n_cell_types <= 15 else 2,
+        fontsize=8,
+    )
+
+    # Remove x-tick labels for readability (too many spots)
+    ax.set_xticks([])
+
+    plt.tight_layout()
+
+    if context:
+        await context.info(
+            f"Created stacked barplot with {len(proportions_sorted)} spots and {n_cell_types} cell types"
+        )
+
+    return fig
+
+
+async def create_scatterpie_plot(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context=None,
+) -> plt.Figure:
+    """
+    Create spatial scatterpie plot (SPOTlight-style)
+
+    Shows cell type proportions as pie charts at each spatial location.
+    Each spot is represented as a pie chart showing the composition of
+    different cell types.
+
+    Args:
+        adata: AnnData with deconvolution results
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure
+
+    Raises:
+        DataNotFoundError: If deconvolution or spatial data not found
+    """
+    from matplotlib.patches import Wedge
+
+    # Get proportions
+    proportions, method = get_deconvolution_proportions(adata, params.deconv_method)
+
+    # Get spatial coordinates
+    if "spatial" not in adata.obsm:
+        raise DataNotFoundError(
+            "Spatial coordinates not found in adata.obsm['spatial']"
+        )
+    spatial_coords = adata.obsm["spatial"]
+
+    # Limit spots for performance (pie charts are expensive)
+    n_spots = len(proportions)
+    max_pie_spots = 500  # Hardcoded limit for performance
+    if n_spots > max_pie_spots:
+        sample_indices = np.random.choice(
+            n_spots, size=max_pie_spots, replace=False
+        )
+        proportions_plot = proportions.iloc[sample_indices]
+        coords_plot = spatial_coords[sample_indices]
+        if context:
+            await context.warning(
+                f"Sampled {max_pie_spots} spots out of {n_spots} for performance. "
+                f"Scatterpie plots are computationally intensive."
+            )
+    else:
+        proportions_plot = proportions
+        coords_plot = spatial_coords
+
+    # Get cell types
+    cell_types = proportions_plot.columns.tolist()
+    n_cell_types = len(cell_types)
+
+    # Create colormap
+    if n_cell_types <= 20:
+        cmap = plt.cm.get_cmap("tab20", n_cell_types)
+    else:
+        cmap = plt.cm.get_cmap(params.colormap or "tab20", n_cell_types)
+    colors = {cell_type: cmap(i) for i, cell_type in enumerate(cell_types)}
+
+    # Create figure
+    fig, ax = plt.subplots(1, 1, figsize=(12, 10))
+
+    # Calculate pie radius based on spatial scale
+    # Use params.pie_scale to adjust size
+    coord_range = np.ptp(coords_plot, axis=0).max()
+    base_radius = coord_range * 0.01  # 1% of coordinate range
+    pie_radius = base_radius * params.pie_scale
+
+    # Draw pie charts at each location
+    for idx in range(len(proportions_plot)):
+        x, y = coords_plot[idx]
+        prop_values = proportions_plot.iloc[idx].values
+
+        # Skip if all proportions are zero
+        if prop_values.sum() == 0:
+            continue
+
+        # Normalize proportions
+        prop_normalized = prop_values / prop_values.sum()
+
+        # Draw wedges
+        start_angle = 0
+        for cell_type, proportion in zip(cell_types, prop_normalized):
+            if proportion > 0.01:  # Only draw if >1%
+                angle = proportion * 360
+                wedge = Wedge(
+                    center=(x, y),
+                    r=pie_radius,
+                    theta1=start_angle,
+                    theta2=start_angle + angle,
+                    facecolor=colors[cell_type],
+                    edgecolor="white",
+                    linewidth=0.5,
+                    alpha=params.scatterpie_alpha,
+                )
+                ax.add_patch(wedge)
+                start_angle += angle
+
+    # Set axis limits with padding
+    x_min, x_max = coords_plot[:, 0].min(), coords_plot[:, 0].max()
+    y_min, y_max = coords_plot[:, 1].min(), coords_plot[:, 1].max()
+    padding = pie_radius * 2
+    ax.set_xlim([x_min - padding, x_max + padding])
+    ax.set_ylim([y_min - padding, y_max + padding])
+
+    # Formatting
+    ax.set_xlabel("Spatial X")
+    ax.set_ylabel("Spatial Y")
+    ax.set_title(
+        f"Spatial Scatterpie Plot ({method})\n"
+        f"Cell Type Composition (pie scale: {params.pie_scale:.2f})"
+    )
+    ax.set_aspect("equal")
+
+    # Create legend
+    from matplotlib.patches import Patch
+
+    legend_elements = [
+        Patch(facecolor=colors[ct], label=ct) for ct in cell_types
+    ]
+    ax.legend(
+        handles=legend_elements,
+        bbox_to_anchor=(1.05, 1),
+        loc="upper left",
+        ncol=1 if n_cell_types <= 15 else 2,
+        fontsize=8,
+    )
+
+    plt.tight_layout()
+
+    if context:
+        await context.info(
+            f"Created scatterpie plot with {len(proportions_plot)} spots and {n_cell_types} cell types"
+        )
+
+    return fig
+
+
+async def create_umap_proportions(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context=None,
+) -> plt.Figure:
+    """
+    Create UMAP colored by cell type proportions
+
+    Shows UMAP embeddings in multi-panel format, with each panel showing
+    the proportion of a specific cell type.
+
+    Args:
+        adata: AnnData with deconvolution results and UMAP
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure
+
+    Raises:
+        DataNotFoundError: If deconvolution or UMAP not found
+    """
+    # Get proportions
+    proportions, method = get_deconvolution_proportions(adata, params.deconv_method)
+
+    # Check for UMAP coordinates
+    if "X_umap" not in adata.obsm:
+        raise DataNotFoundError(
+            "UMAP coordinates not found in adata.obsm['X_umap']. "
+            "Run UMAP dimensionality reduction first."
+        )
+    umap_coords = adata.obsm["X_umap"]
+
+    # Get cell types (limit to n_cell_types)
+    cell_types = proportions.columns.tolist()
+    n_cell_types_total = len(cell_types)
+
+    # Select top cell types by mean proportion
+    mean_proportions = proportions.mean(axis=0).sort_values(ascending=False)
+    top_cell_types = mean_proportions.head(params.n_cell_types).index.tolist()
+
+    # Create multi-panel figure
+    n_panels = len(top_cell_types)
+    ncols = min(3, n_panels)
+    nrows = int(np.ceil(n_panels / ncols))
+
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(ncols * 4, nrows * 3.5), squeeze=False
+    )
+    axes = axes.flatten()
+
+    # Plot each cell type
+    for idx, cell_type in enumerate(top_cell_types):
+        ax = axes[idx]
+
+        # Get proportions for this cell type
+        prop_values = proportions[cell_type].values
+
+        # Create scatter plot
+        scatter = ax.scatter(
+            umap_coords[:, 0],
+            umap_coords[:, 1],
+            c=prop_values,
+            cmap=params.colormap or "viridis",
+            s=params.spot_size or 5,
+            alpha=0.8,
+            vmin=0,
+            vmax=1,
+            edgecolors="none",
+        )
+
+        # Formatting
+        ax.set_xlabel("UMAP 1")
+        ax.set_ylabel("UMAP 2")
+        ax.set_title(f"{cell_type}\n(mean: {mean_proportions[cell_type]:.3f})")
+        ax.set_aspect("equal")
+
+        # Colorbar
+        cbar = plt.colorbar(scatter, ax=ax)
+        cbar.set_label("Proportion", rotation=270, labelpad=15, fontsize=8)
+
+    # Hide extra axes
+    for idx in range(n_panels, len(axes)):
+        axes[idx].axis("off")
+
+    # Overall title
+    fig.suptitle(
+        f"UMAP Cell Type Proportions ({method})\n"
+        f"Top {n_panels} cell types (out of {n_cell_types_total})",
+        fontsize=12,
+        y=0.995,
+    )
+
+    plt.tight_layout()
+
+    if context:
+        await context.info(
+            f"Created UMAP proportions plot with {n_panels} cell types "
+            f"(showing top {n_panels}/{n_cell_types_total} by mean proportion)"
+        )
+
+    return fig
+
+
 @handle_visualization_errors("Deconvolution")
 async def create_deconvolution_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create deconvolution results visualization
+
+    Routes to appropriate visualization based on params.subtype:
+    - spatial_multi: Multi-panel spatial maps (default)
+    - dominant_type: Dominant cell type map (CARD-style)
+    - diversity: Shannon entropy diversity map
+    - stacked_bar: Stacked barplot
+    - scatterpie: Spatial scatterpie (SPOTlight-style)
+    - umap: UMAP colored by proportions
 
     Args:
         adata: AnnData object with deconvolution results
@@ -2072,6 +2788,42 @@ async def create_deconvolution_visualization(
 
     Returns:
         Matplotlib figure with deconvolution visualization
+    """
+    # Route to appropriate visualization
+    viz_type = params.subtype
+
+    if viz_type == "dominant_type":
+        return await create_dominant_celltype_map(adata, params, context)
+    elif viz_type == "diversity":
+        return await create_diversity_map(adata, params, context)
+    elif viz_type == "stacked_bar":
+        return await create_stacked_barplot(adata, params, context)
+    elif viz_type == "scatterpie":
+        return await create_scatterpie_plot(adata, params, context)
+    elif viz_type == "umap":
+        return await create_umap_proportions(adata, params, context)
+    elif viz_type == "spatial_multi":
+        # Original multi-panel spatial implementation
+        return await create_spatial_multi_deconvolution(adata, params, context)
+    else:
+        raise ValueError(
+            f"Unknown deconvolution visualization type: {viz_type}. "
+            f"Available: spatial_multi, dominant_type, diversity, stacked_bar, scatterpie, umap"
+        )
+
+
+async def create_spatial_multi_deconvolution(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Original multi-panel spatial deconvolution visualization
+
+    Args:
+        adata: AnnData object with deconvolution results
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with multi-panel spatial visualization
     """
     # Find deconvolution results in obsm
     deconv_keys = [
@@ -3413,11 +4165,11 @@ async def create_rna_velocity_visualization(
 async def create_spatial_statistics_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create spatial statistics visualization based on analysis_type
+    """Create spatial statistics visualization based on subtype
 
     Args:
         adata: AnnData object with spatial statistics results
-        params: Visualization parameters including analysis_type
+        params: Visualization parameters including subtype
         context: MCP context
 
     Returns:
@@ -3425,26 +4177,26 @@ async def create_spatial_statistics_visualization(
     """
     if context:
         await context.info(
-            f"Creating {params.analysis_type} spatial statistics visualization"
+            f"Creating {params.subtype} spatial statistics visualization"
         )
 
-    if params.analysis_type == "neighborhood":
+    if params.subtype == "neighborhood":
         return await create_neighborhood_enrichment_visualization(
             adata, params, context
         )
-    elif params.analysis_type == "co_occurrence":
+    elif params.subtype == "co_occurrence":
         return await create_co_occurrence_visualization(adata, params, context)
-    elif params.analysis_type == "ripley":
+    elif params.subtype == "ripley":
         return await create_ripley_visualization(adata, params, context)
-    elif params.analysis_type == "moran":
+    elif params.subtype == "moran":
         return await create_moran_visualization(adata, params, context)
-    elif params.analysis_type == "centrality":
+    elif params.subtype == "centrality":
         return await create_centrality_visualization(adata, params, context)
-    elif params.analysis_type == "getis_ord":
+    elif params.subtype == "getis_ord":
         return await create_getis_ord_visualization(adata, params, context)
     else:
         raise InvalidParameterError(
-            f"Unsupported analysis type: {params.analysis_type}"
+            f"Unsupported subtype for spatial_statistics: {params.subtype}"
         )
 
 
@@ -5385,16 +6137,20 @@ async def save_visualization(
     regenerate_high_quality: bool = False,
     context: Optional[Context] = None,
 ) -> str:
-    """Save a visualization from cache to disk
+    """Save a visualization from cache to disk at publication quality
+
+    This function exports cached visualizations using the original matplotlib figure
+    for high-quality output. Supports multiple formats including vector (PDF, SVG, EPS)
+    and raster (PNG, JPEG, TIFF) with publication-ready metadata.
 
     Args:
         data_id: Dataset ID
         plot_type: Type of plot to save
         output_dir: Directory to save the file (default: ./outputs)
         filename: Custom filename (optional, auto-generated if not provided)
-        format: Image format (png, jpg, pdf, svg)
-        dpi: DPI for saved image (default: 100 for png/jpg, 300 for pdf/svg)
-              For publication quality, use 300+ DPI
+        format: Image format (png, jpg, jpeg, pdf, svg, eps, ps, tiff)
+        dpi: DPI for raster formats (default: 300 for publication quality)
+              Vector formats (PDF, SVG, EPS, PS) ignore DPI
         visualization_cache: Cache dictionary containing visualizations
         data_store: Data store for regenerating visualization at higher quality
         regenerate_high_quality: If True, regenerate the plot at specified DPI
@@ -5405,14 +6161,20 @@ async def save_visualization(
 
     Raises:
         DataNotFoundError: If visualization not found in cache
-        ProcessingError: If saving fails
+        ProcessingError: If figure not cached or saving fails
 
     Examples:
-        # Save for publication (high DPI)
-        save_visualization("data1", "spatial", dpi=300, format="pdf")
+        # For Nature/Science submission (vector PDF with metadata)
+        save_visualization("data1", "spatial", format="pdf", dpi=300)
 
-        # Save with custom filename
-        save_visualization("data1", "umap", filename="figure_1a")
+        # For web publication (scalable SVG)
+        save_visualization("data1", "heatmap", format="svg")
+
+        # For high-res raster (PowerPoint, posters)
+        save_visualization("data1", "umap", format="png", dpi=600)
+
+        # For LaTeX inclusion
+        save_visualization("data1", "spatial", format="eps")
     """
     try:
         # Use environment variable for output_dir if default value was passed
@@ -5424,7 +6186,7 @@ async def save_visualization(
                 )
 
         # Validate format
-        valid_formats = ["png", "jpg", "jpeg", "pdf", "svg"]
+        valid_formats = ["png", "jpg", "jpeg", "pdf", "svg", "eps", "ps", "tiff"]
         if format.lower() not in valid_formats:
             raise InvalidParameterError(
                 f"Invalid format: {format}. Must be one of {valid_formats}"
@@ -5451,10 +6213,7 @@ async def save_visualization(
 
         # Set default DPI based on format
         if dpi is None:
-            if format.lower() in ["pdf", "svg"]:
-                dpi = 300  # High quality for vector formats
-            else:
-                dpi = 100  # Standard quality for raster formats
+            dpi = 300  # High quality for all formats (publication-ready)
 
         # For publication quality, recommend at least 300 DPI
         if dpi >= 300 and context:
@@ -5496,92 +6255,121 @@ async def save_visualization(
         # Full path for the file
         file_path = output_path / filename
 
-        # Try to get cached figure object for high-quality export
-
+        # Get cached figure object for export (required)
         from ..utils.image_utils import get_cached_figure, load_figure_pickle
 
-        cached_fig = None
-
         # 1. Try to get figure from in-memory cache
-        if dpi > 100 or format.lower() in ["pdf", "svg"]:
-            cached_fig = get_cached_figure(cache_key)
+        cached_fig = get_cached_figure(cache_key)
 
-            # 2. If not in memory, try pickle file
-            if cached_fig is None:
-                pickle_path = f"/tmp/chatspatial/figures/{cache_key}.pkl"
-                if os.path.exists(pickle_path):
-                    try:
-                        cached_fig = load_figure_pickle(pickle_path)
-                        if context:
-                            await context.info(
-                                "Loaded figure from pickle cache for high-quality export"
-                            )
-                    except Exception as e:
-                        if context:
-                            await context.warning(
-                                f"Failed to load figure from pickle: {str(e)}"
-                            )
+        # 2. If not in memory, try pickle file
+        if cached_fig is None:
+            pickle_path = f"/tmp/chatspatial/figures/{cache_key}.pkl"
+            if os.path.exists(pickle_path):
+                try:
+                    cached_fig = load_figure_pickle(pickle_path)
+                    if context:
+                        await context.info(
+                            "Loaded figure from pickle cache"
+                        )
+                except Exception as e:
+                    if context:
+                        await context.warning(
+                            f"Failed to load figure from pickle: {str(e)}"
+                        )
 
-        # If we have the original figure, regenerate at high quality
-        if cached_fig is not None:
+        # Figure must be cached for high-quality export (no fallback)
+        if cached_fig is None:
+            raise ProcessingError(
+                f"Figure not found in cache for {cache_key}. "
+                f"Please regenerate the visualization first."
+            )
+
+        # Export from cached figure with format-specific parameters
+        if context:
+            format_info = format.upper()
+            if format.lower() in ["pdf", "svg", "eps", "ps"]:
+                format_info += " (vector)"
+            else:
+                format_info += f" ({dpi} DPI)"
+            await context.info(f"Exporting visualization as {format_info}...")
+
+        try:
+            # Prepare save parameters
+            save_params = {
+                "bbox_inches": "tight",
+                "facecolor": "white",
+                "edgecolor": "none",
+                "transparent": False,
+                "pad_inches": 0.1,
+            }
+
+            # Format-specific settings
+            if format.lower() == "pdf":
+                import matplotlib
+                # PDF metadata for publication
+                save_params["dpi"] = dpi
+                save_params["format"] = "pdf"
+                save_params["metadata"] = {
+                    "Title": f"{plot_type} visualization of {data_id}",
+                    "Author": "ChatSpatial MCP",
+                    "Subject": "Spatial Transcriptomics Analysis",
+                    "Keywords": f"{plot_type}, {data_id}, spatial transcriptomics",
+                    "Creator": "ChatSpatial with matplotlib",
+                    "Producer": f"matplotlib {matplotlib.__version__}",
+                }
+            elif format.lower() == "svg":
+                # SVG is vector, doesn't need DPI
+                save_params["format"] = "svg"
+            elif format.lower() in ["eps", "ps"]:
+                # PostScript formats (vector)
+                save_params["format"] = format.lower()
+            elif format.lower() in ["png", "jpg", "jpeg", "tiff"]:
+                # Raster formats need DPI
+                save_params["dpi"] = dpi
+                save_params["format"] = format.lower()
+                if format.lower() in ["jpg", "jpeg"]:
+                    save_params["pil_kwargs"] = {"quality": 95}  # High quality JPEG
+
+            # Save the figure
+            cached_fig.savefig(str(file_path), **save_params)
+
+            # Get file size
+            file_size_kb = os.path.getsize(file_path) / 1024
+
             if context:
+                size_str = (
+                    f"{file_size_kb:.1f} KB"
+                    if file_size_kb < 1024
+                    else f"{file_size_kb/1024:.1f} MB"
+                )
                 await context.info(
-                    f"Regenerating visualization at {dpi} DPI for {format} format from cached figure..."
+                    f"✅ Saved visualization to {file_path} ({size_str})"
                 )
 
-            try:
-                cached_fig.savefig(
-                    str(file_path),
-                    format=format,
-                    dpi=dpi,
-                    bbox_inches="tight",
-                    facecolor="white",
-                )
-
-                # Get file size
-                file_size_kb = os.path.getsize(file_path) / 1024
-
-                if context:
+                # Format-specific advice
+                if format.lower() == "pdf":
                     await context.info(
-                        f"✅ Saved high-quality visualization to {file_path} ({file_size_kb:.1f} KB at {dpi} DPI)"
+                        "📊 PDF ready for journal submission (Nature/Science/Cell compatible)"
+                    )
+                elif format.lower() == "svg":
+                    await context.info(
+                        "📊 SVG ready for web or editing in Illustrator/Inkscape"
+                    )
+                elif format.lower() in ["eps", "ps"]:
+                    await context.info(
+                        "📊 PostScript ready for LaTeX or professional printing"
+                    )
+                elif dpi >= 300:
+                    await context.info(
+                        f"📊 High-resolution ({dpi} DPI) suitable for publication"
                     )
 
-                return str(file_path)
+            return str(file_path)
 
-            except Exception as e:
-                if context:
-                    await context.warning(
-                        f"Failed to regenerate from figure: {str(e)}. Falling back to cached version."
-                    )
-
-        # Fallback: Save cached compressed version
-        if context:
-            await context.warning(
-                "⚠️  Original figure not found in cache. Saving compressed version from MCP transmission."
-            )
-            if dpi > 100:
-                await context.warning(
-                    f"⚠️  Requested {dpi} DPI but saving at lower quality (~80 DPI). "
-                    f"To save at {dpi} DPI, regenerate the visualization immediately before saving."
-                )
-
-        viz_data = visualization_cache[cache_key]
-        if not viz_data:
-            raise ProcessingError("Visualization data is empty")
-
-        with open(file_path, "wb") as f:
-            f.write(viz_data)
-
-        if context:
-            file_size_kb = len(viz_data) / 1024
-            await context.info(
-                f"Saved visualization to {file_path} ({file_size_kb:.1f} KB)"
-            )
-            await context.info(
-                "💡 Tip: For publication-quality exports, save immediately after generating the visualization."
-            )
-
-        return str(file_path)
+        except Exception as e:
+            raise ProcessingError(
+                f"Failed to export visualization: {str(e)}"
+            ) from e
 
     except (DataNotFoundError, InvalidParameterError):
         raise
@@ -5664,6 +6452,8 @@ async def list_saved_visualizations(
 async def export_all_visualizations(
     data_id: str,
     output_dir: str = "./exports",
+    format: str = "png",
+    dpi: Optional[int] = None,
     visualization_cache: Optional[Dict[str, Any]] = None,
     context: Optional[Context] = None,
 ) -> List[str]:
@@ -5672,6 +6462,8 @@ async def export_all_visualizations(
     Args:
         data_id: Dataset ID to export visualizations for
         output_dir: Directory to save files
+        format: Image format (png, jpg, pdf, svg)
+        dpi: DPI for saved images (default: 300 for publication quality)
         visualization_cache: Cache dictionary containing visualizations
         context: MCP context for logging
 
@@ -5705,6 +6497,8 @@ async def export_all_visualizations(
                     data_id=data_id,
                     plot_type=plot_type,
                     output_dir=output_dir,
+                    format=format,
+                    dpi=dpi,
                     visualization_cache=visualization_cache,
                     context=context,
                 )

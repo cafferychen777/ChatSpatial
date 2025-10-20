@@ -135,7 +135,12 @@ class SpatialResourceManager:
     async def create_visualization_resource(
         self, viz_id: str, image_data: bytes, metadata: Dict[str, Any]
     ) -> MCPResource:
-        """Create a resource for visualization"""
+        """Create a resource for visualization
+
+        Note: This function only creates a resource for MCP protocol.
+        The actual visualization caching is handled in server.py using cache_key
+        (without timestamp) for easier retrieval by save/export functions.
+        """
         resource = MCPResource(
             uri=f"spatial://visualizations/{viz_id}",
             name=metadata.get("name", f"Visualization {viz_id}"),
@@ -145,7 +150,8 @@ class SpatialResourceManager:
             content_provider=lambda: image_data,
         )
         self._resources[resource.uri] = resource
-        self._visualization_cache[viz_id] = image_data
+        # DO NOT cache with viz_id - caching is done in server.py with cache_key
+        # self._visualization_cache[viz_id] = image_data  # REMOVED
         return resource
 
     async def get_resource(self, uri: str) -> Optional[MCPResource]:
@@ -615,7 +621,9 @@ class SpatialMCPAdapter:
                 # Create resource for the visualization
                 import time
 
-                viz_id = f"{data_id}_{plot_type}_{int(time.time())}"
+                # Use consistent cache key (no timestamp for easier lookup)
+                cache_key = f"{data_id}_{plot_type}"
+                viz_id = f"{cache_key}_{int(time.time())}"  # Resource ID with timestamp
 
                 metadata = {
                     "data_id": data_id,
@@ -625,8 +633,13 @@ class SpatialMCPAdapter:
                     "description": f"Visualization of {plot_type} for dataset {data_id}",
                 }
 
+                # Decode base64 string to bytes before caching
+                import base64
+                image_bytes = base64.b64decode(image.data)
+
+                # Store with consistent cache_key (for save_visualization lookup)
                 await self.resource_manager.create_visualization_resource(
-                    viz_id, image.data, metadata
+                    cache_key, image_bytes, metadata
                 )
 
                 if context:

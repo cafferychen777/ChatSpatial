@@ -5,6 +5,159 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.3] - 2025-01-19 - Deconvolution Visualization Enhancement
+
+### ✨ **New Features**
+
+#### **Extended Deconvolution Visualizations**
+- **ADDED**: 5 new visualization types for spatial deconvolution results, bringing total from 1 to 6 visualization options
+  - **Background**: Previous version only supported multi-panel spatial maps. Research showed industry-standard tools (SPOTlight, CARD, Cell2location, RCTD) provide 9+ visualization types for comprehensive deconvolution interpretation
+  - **Research Analysis**: See `outputs/DECONVOLUTION_VISUALIZATION_ANALYSIS.md` for gap analysis (1/10 coverage before enhancement)
+  - **Implementation Plan**: See `outputs/DECONVOLUTION_VISUALIZATION_IMPLEMENTATION_PLAN.md` for architecture and design decisions
+
+**New Visualization Types**:
+
+1. **Dominant Cell Type Map** (CARD-style)
+   - Shows the dominant cell type at each spatial location
+   - Optional pure/mixed spot marking based on proportion threshold
+   - Parameters:
+     - `deconv_viz_type="dominant_type"`
+     - `min_proportion_threshold` (default: 0.3) - Threshold for marking spots as "pure"
+     - `show_mixed_spots` (default: True) - Mark heterogeneous locations in gray
+   - Use case: Quick overview of spatial cell type distribution
+
+2. **Shannon Entropy Diversity Map**
+   - Visualizes cell type diversity using Shannon entropy
+   - Range: 0 (homogeneous/single cell type) to 1 (maximally diverse)
+   - Parameters:
+     - `deconv_viz_type="diversity"`
+   - Statistics shown:
+     - Mean entropy ± standard deviation
+     - High diversity percentage (>0.7)
+     - Low diversity percentage (<0.3)
+   - Use case: Identify regions with high/low cell type mixing
+
+3. **Stacked Barplot**
+   - Cell type proportions for each spot as stacked bars
+   - Three sorting modes:
+     - `sort_by="dominant_type"` - Group by dominant cell type (default)
+     - `sort_by="spatial"` - Hierarchical clustering on spatial coordinates
+     - `sort_by="cluster"` - Sort by cluster assignments
+   - Parameters:
+     - `deconv_viz_type="stacked_bar"`
+     - `max_spots` (default: 100, max: 1000) - Sample spots for readability
+   - Use case: Compare cell type compositions across spots
+
+4. **Spatial Scatterpie** (SPOTlight-style)
+   - Pie charts at each spatial location showing cell type proportions
+   - Automatic pie size scaling based on spatial coordinate range
+   - Parameters:
+     - `deconv_viz_type="scatterpie"`
+     - `pie_scale` (default: 0.4, range: 0.0-2.0) - Size multiplier for pie charts
+     - `scatterpie_alpha` (default: 1.0, range: 0.0-1.0) - Transparency
+   - Performance: Auto-samples to 500 spots for large datasets (computationally intensive)
+   - Use case: Classic SPOTlight-style visualization for publications
+
+5. **UMAP + Cell Type Proportions**
+   - Multi-panel UMAP embeddings colored by cell type proportions
+   - Shows top cell types by mean proportion
+   - Parameters:
+     - `deconv_viz_type="umap"`
+     - `n_cell_types` (default: 4) - Number of cell types to show
+   - Requirements: Requires UMAP coordinates in `adata.obsm['X_umap']`
+   - Use case: Visualize deconvolution results in UMAP space
+
+6. **Spatial Multi-Panel** (Original)
+   - Multi-panel spatial maps for top cell types
+   - Parameters:
+     - `deconv_viz_type="spatial_multi"` (default)
+   - Use case: Compare spatial distribution of multiple cell types
+
+**Implementation Details**:
+
+- **Helper Function**: `get_deconvolution_proportions(adata, method=None)` - Unified data access with auto-detection
+  - Location: `chatspatial/tools/visualization.py:2078-2140`
+  - Auto-detects deconvolution method from available results
+  - Handles data from all deconvolution methods (Cell2location, RCTD, CARD, DestVI, Stereoscope, SPOTlight, Tangram)
+  - Proper error messages for missing data
+
+- **Parameter Extension**: Added 8 new parameters to `VisualizationParameters` model
+  - Location: `chatspatial/models/data.py:407-453`
+  - `deconv_viz_type`: Visualization type selector (Literal with 6 options)
+  - `deconv_method`: Method name (auto-detect if None)
+  - `min_proportion_threshold`: Pure/mixed threshold (0.0-1.0)
+  - `show_mixed_spots`: Mark heterogeneous spots (bool)
+  - `pie_scale`: Scatterpie size (0.0-2.0)
+  - `scatterpie_alpha`: Scatterpie transparency (0.0-1.0)
+  - `max_spots`: Barplot spot limit (1-1000)
+  - `sort_by`: Barplot sorting ("dominant_type", "spatial", "cluster")
+
+- **Router Pattern**: Main `create_deconvolution_visualization()` dispatches to specialized functions
+  - Location: `chatspatial/tools/visualization.py:2765-2807`
+  - Clean separation of concerns (each viz type has dedicated function)
+  - Backward compatible (original multi-panel moved to `create_spatial_multi_deconvolution()`)
+
+**Files Modified**:
+- `chatspatial/tools/visualization.py:2078-2968` - Added helper + 6 visualization functions
+- `chatspatial/models/data.py:407-453` - Extended VisualizationParameters
+- `chatspatial/CHANGELOG.md` - This documentation
+
+**Testing Strategy**:
+- Unit tests: Each visualization function with mock data
+- Integration tests: Full workflow with real deconvolution results
+- MCP tests: End-to-end testing via MCP protocol
+- Test datasets: V1_Adult_Mouse_Brain (2,702 spots), PBMC 3k
+
+**Scientific Validity**:
+- Shannon entropy calculation: `scipy.stats.entropy` with base-2 logarithm
+- Proportion normalization: Library size normalization preserved from deconvolution
+- Spatial scatterpie: Follows SPOTlight R package conventions
+- Dominant type detection: Argmax over cell type proportions (standard approach)
+
+**User Experience**:
+- **Before**: 1 visualization type (limited interpretation)
+- **After**: 6 visualization types (comprehensive deconvolution analysis)
+- **Coverage**: 60% of industry-standard visualizations (6/10 from research analysis)
+- **Priority**: Implemented all Priority 1 visualizations from implementation plan
+- **Compatibility**: All existing code backward compatible (default `deconv_viz_type="spatial_multi"`)
+
+**Example Usage**:
+```python
+# Dominant cell type map with pure/mixed marking
+params = {
+    "plot_type": "deconvolution",
+    "deconv_viz_type": "dominant_type",
+    "min_proportion_threshold": 0.3,
+    "show_mixed_spots": True
+}
+
+# Shannon entropy diversity
+params = {"plot_type": "deconvolution", "deconv_viz_type": "diversity"}
+
+# Spatial scatterpie (SPOTlight-style)
+params = {
+    "plot_type": "deconvolution",
+    "deconv_viz_type": "scatterpie",
+    "pie_scale": 0.5,
+    "scatterpie_alpha": 0.8
+}
+
+# UMAP with proportions
+params = {
+    "plot_type": "deconvolution",
+    "deconv_viz_type": "umap",
+    "n_cell_types": 6
+}
+```
+
+**Future Enhancements** (Priority 2, not implemented yet):
+- Cell type interaction networks (spatial co-occurrence graph)
+- Proportion correlation heatmaps (cell type relationships)
+- Spatial gradient visualization (proportion changes across tissue)
+- Confidence/uncertainty maps (per-spot prediction confidence)
+
+---
+
 ## [v0.2.2] - 2025-01-19 - Statistical Accuracy Improvements
 
 ### 📚 **Documentation Improvements**
@@ -26,6 +179,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `chatspatial/tools/visualization.py:1133-1140` - Improved heatmap error message
     - `chatspatial/tools/visualization.py:1442-1449` - Improved violin error message
   - **Investigation**: See `outputs/LLM_GROUPBY_ERROR_ROOT_CAUSE.md` and `outputs/GROUPBY_VS_CLUSTER_KEY_RESEARCH.md`
+
+#### **Missing Gene Warning for Visualizations**
+- **IMPROVED**: Added user warning when some (but not all) requested genes are missing from dataset
+  - **Issue**: When users provided a mix of valid and invalid gene names (e.g., `["CST3", "FAKE_GENE", "NKG7"]`), the system would silently filter out missing genes without warning
+  - **Impact**: Users with typos in gene names would not know genes were skipped, potentially leading to confusion about results
+  - **Solution**:
+    - Added detection of partially missing genes in visualization gene selection
+    - Warning message shows: number of missing genes, their names, and which genes will be used
+    - Example: `"⚠️ 1 gene(s) not found and will be skipped: ['FAKE_GENE']. Proceeding with 2 available gene(s): ['CST3', 'NKG7']"`
+  - **Behavior**:
+    - All genes missing → Fall back to highly variable genes (unchanged)
+    - Some genes missing → Warn user and continue with available genes (NEW)
+    - All genes found → Proceed normally (unchanged)
+  - **Files Modified**:
+    - `chatspatial/tools/visualization.py:1175-1207` - Added missing gene detection and warning
+  - **Testing**: See `outputs/ADDITIONAL_VISUALIZATION_TESTING.md` (Test scenario #9)
 
 ### 🐛 **Bug Fixes**
 

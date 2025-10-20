@@ -303,8 +303,14 @@ async def visualize_data(
         # Visualize spatial statistics results (Ripley, neighborhood enrichment, etc.)
         params = {
             "plot_type": "spatial_statistics",
-            "analysis_type": "ripley",  # neighborhood, co_occurrence, ripley, moran, centrality, getis_ord
+            "subtype": "ripley",  # neighborhood, co_occurrence, ripley, moran, centrality, getis_ord
             "cluster_key": "leiden"
+        }
+
+        # Visualize deconvolution results
+        params = {
+            "plot_type": "deconvolution",
+            "subtype": "dominant_type"  # spatial_multi, dominant_type, diversity, stacked_bar, scatterpie, umap
         }
 
         # NOTE: This tool does NOT provide demo/default data for scientific integrity.
@@ -330,14 +336,21 @@ async def visualize_data(
     if image is not None:
         import time
 
-        # Use simple cache key for easy retrieval
-        cache_key = f"{data_id}_{params.plot_type}"
-        # Use timestamp version for resource URI to maintain uniqueness
-        viz_id = f"{data_id}_{params.plot_type}_{int(time.time())}"
+        # Generate cache key with subtype if applicable
+        # This handles plot types with subtypes (e.g., deconvolution, spatial_statistics)
+        subtype = params.subtype if hasattr(params, "subtype") and params.subtype else None
+
+        if subtype:
+            cache_key = f"{data_id}_{params.plot_type}_{subtype}"
+            viz_id = f"{data_id}_{params.plot_type}_{subtype}_{int(time.time())}"
+        else:
+            cache_key = f"{data_id}_{params.plot_type}"
+            viz_id = f"{data_id}_{params.plot_type}_{int(time.time())}"
 
         metadata = {
             "data_id": data_id,
             "plot_type": params.plot_type,
+            "subtype": subtype if subtype else "N/A",
             "feature": getattr(params, "feature", "N/A"),
             "timestamp": int(time.time()),
             "name": f"{params.plot_type} - {getattr(params, 'feature', 'N/A')}",
@@ -353,12 +366,16 @@ async def visualize_data(
             # Direct ImageContent
             image_data = image.data
 
+        # Decode base64 string to bytes before caching
+        import base64
+        image_bytes = base64.b64decode(image_data)
+
         # Store in cache with simple key for easy retrieval
-        adapter.resource_manager._visualization_cache[cache_key] = image_data
+        adapter.resource_manager._visualization_cache[cache_key] = image_bytes
 
         # Also create resource with timestamped ID for uniqueness
         await adapter.resource_manager.create_visualization_resource(
-            viz_id, image_data, metadata
+            viz_id, image_bytes, metadata
         )
 
         file_size_kb = len(image_data) / 1024
@@ -1874,117 +1891,6 @@ for name, metadata in tool_metadata.items():
 
 
 # ============== Publication Export Tools ==============
-
-
-@mcp.tool()
-@mcp_tool_error_handler()
-async def export_for_publication(
-    data_id: str,
-    plot_type: str,
-    output_path: str,
-    format: str = "pdf",
-    dpi: int = 300,
-    context: Context = None,
-) -> str:
-    """Export visualization in publication quality
-
-    Generate high-quality figures suitable for scientific publications.
-    Supports PDF, SVG for vector graphics and high-DPI PNG for raster.
-
-    Args:
-        data_id: Dataset ID
-        plot_type: Type of plot to export (e.g., 'spatial', 'heatmap')
-        output_path: Full path for output file
-        format: Output format (pdf, svg, png, eps)
-        dpi: DPI for raster formats (default: 300 for publication)
-
-    Returns:
-        Path to the exported file
-
-    Examples:
-        # Export for Nature/Science (PDF)
-        export_for_publication("data1", "spatial", "figure1.pdf", format="pdf", dpi=300)
-
-        # Export for web (SVG)
-        export_for_publication("data1", "heatmap", "figure2.svg", format="svg")
-
-        # Export high-res PNG
-        export_for_publication("data1", "umap", "figure3.png", format="png", dpi=600)
-    """
-    from .utils.publication_export import export_for_publication as export_func
-
-    try:
-        result = await export_func(
-            data_id=data_id,
-            plot_type=plot_type,
-            output_path=output_path,
-            format=format,
-            dpi=dpi,
-            context=context,
-        )
-        return f"✅ Exported publication-quality {format.upper()} to: {result}"
-    except Exception as e:
-        error_msg = f"Failed to export: {str(e)}"
-        if context:
-            await context.error(error_msg)
-        raise
-
-
-@mcp.tool()
-@mcp_tool_error_handler()
-async def batch_export_all_figures(
-    data_id: str,
-    output_dir: str = "./publication_figures",
-    formats: Optional[List[str]] = None,
-    dpi: int = 300,
-    context: Context = None,
-) -> str:
-    """Batch export all visualizations for publication
-
-    Export all cached visualizations for a dataset in multiple formats
-    suitable for scientific publication.
-
-    Args:
-        data_id: Dataset ID
-        output_dir: Directory for output files
-        formats: List of formats to export (default: ["pdf", "png"])
-        dpi: DPI for raster formats (default: 300)
-
-    Returns:
-        Summary of exported files
-
-    Example:
-        batch_export_all_figures("data1", formats=["pdf", "svg", "png"], dpi=300)
-    """
-    from .utils.publication_export import batch_export_for_publication
-
-    if formats is None:
-        formats = ["pdf", "png"]
-
-    try:
-        results = await batch_export_for_publication(
-            data_id=data_id,
-            output_dir=output_dir,
-            formats=formats,
-            dpi=dpi,
-            context=context,
-        )
-
-        # Format results summary
-        summary = f"📊 Exported {len(results)} format(s) for dataset '{data_id}':\n"
-        for fmt, files in results.items():
-            summary += f"\n{fmt.upper()}: {len(files)} files\n"
-            for file in files[:3]:  # Show first 3
-                summary += f"  - {file}\n"
-            if len(files) > 3:
-                summary += f"  ... and {len(files)-3} more\n"
-
-        return summary
-    except Exception as e:
-        error_msg = f"Failed to batch export: {str(e)}"
-        if context:
-            await context.error(error_msg)
-        raise
 
 
 @mcp.tool()
