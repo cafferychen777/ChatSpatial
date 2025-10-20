@@ -494,6 +494,8 @@ async def list_saved_visualizations(
 async def export_all_visualizations(
     data_id: str,
     output_dir: str = "./exports",
+    format: str = "png",
+    dpi: Optional[int] = None,
     context: Context = None,
 ) -> List[str]:
     """Export all cached visualizations for a dataset to disk
@@ -501,13 +503,21 @@ async def export_all_visualizations(
     Args:
         data_id: Dataset ID to export visualizations for
         output_dir: Directory to save files (default: ./exports)
+        format: Image format (png, jpg, jpeg, pdf, svg, eps, ps, tiff) (default: png)
+        dpi: DPI for raster formats (default: 300 for publication quality)
 
     Returns:
         List of paths to saved files
 
     Examples:
-        Export all visualizations for dataset: export_all_visualizations("data1")
-        Export to custom directory: export_all_visualizations("data1", "./my_exports")
+        # Export all visualizations as PNG
+        export_all_visualizations("data1")
+
+        # Export all as PDF for publication
+        export_all_visualizations("data1", format="pdf", dpi=300)
+
+        # Export to custom directory as SVG
+        export_all_visualizations("data1", "./my_exports", format="svg")
     """
     from .tools.visualization import export_all_visualizations as export_func
 
@@ -517,6 +527,8 @@ async def export_all_visualizations(
     result = await export_func(
         data_id=data_id,
         output_dir=output_dir,
+        format=format,
+        dpi=dpi,
         visualization_cache=visualization_cache,
         context=context,
     )
