@@ -6114,6 +6114,7 @@ async def create_batch_integration_visualization(
 async def save_visualization(
     data_id: str,
     plot_type: str,
+    subtype: Optional[str] = None,
     output_dir: str = "./outputs",
     filename: Optional[str] = None,
     format: str = "png",
@@ -6131,7 +6132,10 @@ async def save_visualization(
 
     Args:
         data_id: Dataset ID
-        plot_type: Type of plot to save
+        plot_type: Type of plot to save (e.g., 'spatial', 'deconvolution', 'spatial_statistics')
+        subtype: Optional subtype for plot types with variants (e.g., 'neighborhood', 'scatterpie')
+                 - For deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'
+                 - For spatial_statistics: 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality', 'getis_ord'
         output_dir: Directory to save the file (default: ./outputs)
         filename: Custom filename (optional, auto-generated if not provided)
         format: Image format (png, jpg, jpeg, pdf, svg, eps, ps, tiff)
@@ -6150,17 +6154,17 @@ async def save_visualization(
         ProcessingError: If figure not cached or saving fails
 
     Examples:
-        # For Nature/Science submission (vector PDF with metadata)
+        # Simple visualization
         save_visualization("data1", "spatial", format="pdf", dpi=300)
 
-        # For web publication (scalable SVG)
-        save_visualization("data1", "heatmap", format="svg")
+        # Visualization with subtype
+        save_visualization("data1", "spatial_statistics", subtype="neighborhood", format="png")
+
+        # Deconvolution scatterpie
+        save_visualization("data1", "deconvolution", subtype="scatterpie", format="svg")
 
         # For high-res raster (PowerPoint, posters)
         save_visualization("data1", "umap", format="png", dpi=600)
-
-        # For LaTeX inclusion
-        save_visualization("data1", "spatial", format="eps")
     """
     try:
         # Use environment variable for output_dir if default value was passed
@@ -6182,7 +6186,12 @@ async def save_visualization(
         if visualization_cache is None:
             raise ProcessingError("Visualization cache not provided")
 
-        cache_key = f"{data_id}_{plot_type}"
+        # Generate cache key with subtype if provided
+        if subtype:
+            cache_key = f"{data_id}_{plot_type}_{subtype}"
+        else:
+            cache_key = f"{data_id}_{plot_type}"
+
         if cache_key not in visualization_cache:
             available_keys = [
                 k for k in visualization_cache.keys() if k.startswith(data_id)
@@ -6229,10 +6238,16 @@ async def save_visualization(
         # Generate filename if not provided
         if filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            if dpi != 100:
-                filename = f"{data_id}_{plot_type}_{dpi}dpi_{timestamp}.{format}"
+            # Include subtype in filename if provided
+            if subtype:
+                plot_name = f"{plot_type}_{subtype}"
             else:
-                filename = f"{data_id}_{plot_type}_{timestamp}.{format}"
+                plot_name = plot_type
+
+            if dpi != 100:
+                filename = f"{data_id}_{plot_name}_{dpi}dpi_{timestamp}.{format}"
+            else:
+                filename = f"{data_id}_{plot_name}_{timestamp}.{format}"
         else:
             # Ensure filename has correct extension
             if not filename.endswith(f".{format}"):
@@ -6475,13 +6490,33 @@ async def export_all_visualizations(
         saved_files = []
 
         for cache_key in relevant_keys:
-            # Extract plot type from cache key
-            plot_type = cache_key.replace(f"{data_id}_", "")
+            # Extract plot_type and subtype from cache key
+            # Cache key format: {data_id}_{plot_type} or {data_id}_{plot_type}_{subtype}
+            remainder = cache_key.replace(f"{data_id}_", "")
+
+            # Known plot types that support subtypes
+            known_plot_types_with_subtype = ["deconvolution", "spatial_statistics"]
+
+            plot_type = None
+            subtype = None
+
+            # Try to match known plot types with subtypes
+            for known_type in known_plot_types_with_subtype:
+                if remainder.startswith(f"{known_type}_"):
+                    plot_type = known_type
+                    subtype = remainder[len(known_type) + 1 :]  # +1 for the underscore
+                    break
+
+            # If no match, treat the entire remainder as plot_type
+            if plot_type is None:
+                plot_type = remainder
+                subtype = None
 
             try:
                 saved_path = await save_visualization(
                     data_id=data_id,
                     plot_type=plot_type,
+                    subtype=subtype,
                     output_dir=output_dir,
                     format=format,
                     dpi=dpi,
