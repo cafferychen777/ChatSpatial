@@ -262,19 +262,16 @@ class VisualizationParameters(BaseModel):
     ] = "spatial"
     colormap: str = "viridis"
 
-    # Spatial analysis visualization parameters
-    analysis_type: Optional[
-        Literal[
-            "neighborhood",
-            "co_occurrence",
-            "ripley",
-            "moran",
-            "centrality",
-            "getis_ord",
-        ]
-    ] = Field(
+    # Unified subtype parameter for all visualization types with subtypes
+    subtype: Optional[str] = Field(
         None,
-        description="Analysis type for spatial_analysis plot type. Determines which spatial analysis result to visualize.",
+        description=(
+            "Unified subtype parameter for visualization variants. "
+            "Usage depends on plot_type:\n"
+            "- deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'\n"
+            "- spatial_statistics: 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality', 'getis_ord'\n"
+            "- Other plot types may not require this parameter"
+        ),
     )
     cluster_key: Optional[str] = Field(
         None,
@@ -404,6 +401,42 @@ class VisualizationParameters(BaseModel):
             description="Number of top cell types to show in deconvolution visualization. Must be between 1-10. Default: 4",
         ),
     ] = 4
+    deconv_method: Optional[str] = Field(
+        None,
+        description="Deconvolution method name (e.g., 'cell2location', 'rctd'). If None, auto-detect from available results.",
+    )
+    min_proportion_threshold: float = Field(
+        0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum proportion threshold for marking spots as 'pure' vs 'mixed' (dominant_type visualization). Default: 0.3",
+    )
+    show_mixed_spots: bool = Field(
+        True,
+        description="Whether to mark mixed/heterogeneous spots in dominant_type visualization. Default: True",
+    )
+    pie_scale: float = Field(
+        0.4,
+        gt=0.0,
+        le=2.0,
+        description="Size scale factor for pie charts in scatterpie visualization. Default: 0.4",
+    )
+    scatterpie_alpha: float = Field(
+        1.0,
+        ge=0.0,
+        le=1.0,
+        description="Transparency of pie charts in scatterpie visualization (0=transparent, 1=opaque). Default: 1.0",
+    )
+    max_spots: int = Field(
+        100,
+        gt=0,
+        le=1000,
+        description="Maximum number of spots to show in stacked_bar visualization. Default: 100",
+    )
+    sort_by: Literal["dominant_type", "spatial", "cluster"] = Field(
+        "dominant_type",
+        description="Sorting method for stacked_bar visualization. Options: dominant_type (group by dominant cell type), spatial (spatial order), cluster (cluster order). Default: dominant_type",
+    )
 
     @model_validator(mode="after")
     def validate_conditional_parameters(self) -> Self:
@@ -411,8 +444,8 @@ class VisualizationParameters(BaseModel):
 
         # Spatial statistics validation
         if self.plot_type == "spatial_statistics":
-            if not self.analysis_type or (
-                isinstance(self.analysis_type, str) and not self.analysis_type.strip()
+            if not self.subtype or (
+                isinstance(self.subtype, str) and not self.subtype.strip()
             ):
                 available_types = [
                     "neighborhood",
@@ -423,15 +456,16 @@ class VisualizationParameters(BaseModel):
                     "getis_ord",
                 ]
                 raise ValueError(
-                    f"Parameter dependency error: analysis_type is required when plot_type='spatial_statistics'.\n"
-                    f"Available analysis types: {', '.join(available_types)}\n"
-                    f"Example usage: VisualizationParameters(plot_type='spatial_statistics', analysis_type='neighborhood')\n"
+                    f"Parameter dependency error: subtype is required when plot_type='spatial_statistics'.\n"
+                    f"Available subtypes: {', '.join(available_types)}\n"
+                    f"Example usage: VisualizationParameters(plot_type='spatial_statistics', subtype='neighborhood')\n"
                     f"For more details, see spatial statistics documentation."
                 )
 
-        # Future: Add other conditional validations here
-        # if self.plot_type == "cell_communication" and not self.method:
-        #     raise ValueError("method required for cell_communication plot_type")
+        # Deconvolution validation - set default subtype if not provided
+        if self.plot_type == "deconvolution":
+            if not self.subtype:
+                self.subtype = "spatial_multi"  # Default deconvolution visualization type
 
         return self
 
