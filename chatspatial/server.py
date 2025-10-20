@@ -407,6 +407,7 @@ async def visualize_data(
 async def save_visualization(
     data_id: str,
     plot_type: str,
+    subtype: Optional[str] = None,
     output_dir: str = "./outputs",
     filename: Optional[str] = None,
     format: str = "png",
@@ -417,11 +418,14 @@ async def save_visualization(
 
     Args:
         data_id: Dataset ID
-        plot_type: Type of plot to save (e.g., 'spatial', 'umap', 'heatmap')
+        plot_type: Type of plot to save (e.g., 'spatial', 'umap', 'deconvolution', 'spatial_statistics')
+        subtype: Optional subtype for plot types with variants (e.g., 'neighborhood', 'scatterpie')
+                 - For deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'
+                 - For spatial_statistics: 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality', 'getis_ord'
         output_dir: Directory to save the file (default: ./outputs)
         filename: Custom filename (optional, auto-generated if not provided)
         format: Image format (png, jpg, pdf, svg)
-        dpi: DPI for saved image (default: 100 for png/jpg, 300 for pdf/svg)
+        dpi: DPI for saved image (default: 300 for publication quality)
              For publication quality, use 300+ DPI
 
     Returns:
@@ -429,8 +433,8 @@ async def save_visualization(
 
     Examples:
         Save a spatial plot: save_visualization("data1", "spatial")
-        Save with custom name: save_visualization("data1", "umap", filename="my_umap")
-        Save as PDF with high DPI: save_visualization("data1", "heatmap", format="pdf", dpi=300)
+        Save with subtype: save_visualization("data1", "spatial_statistics", subtype="neighborhood")
+        Save deconvolution: save_visualization("data1", "deconvolution", subtype="scatterpie", format="pdf")
         Save for publication: save_visualization("data1", "spatial", dpi=300, format="png")
     """
     from .tools.visualization import save_visualization as save_func
@@ -444,6 +448,7 @@ async def save_visualization(
     result = await save_func(
         data_id=data_id,
         plot_type=plot_type,
+        subtype=subtype,
         output_dir=output_dir,
         filename=filename,
         format=format,
