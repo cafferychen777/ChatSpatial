@@ -241,19 +241,28 @@ def infer_spatial_trajectory_cellrank(
     try:
         g.compute_macrostates(n_states=n_states)
     except Exception as e:
-        # If automatic n_states fails, try with fewer states
-        for alt_n_states in [n_states - 1, n_states - 2, 3, 2]:
-            if alt_n_states < 2:
-                break
-            try:
-                g.compute_macrostates(n_states=alt_n_states)
-                break
-            except Exception:
-                continue
-        else:
-            raise RuntimeError(
-                f"Failed to compute macrostates with any number of states: {e}"
-            )
+        # NO FALLBACK: User's parameter choice must be respected
+        # Different n_states produce different biological interpretations
+        raise RuntimeError(
+            f"❌ CellRank macrostate computation failed with n_states={n_states}\n\n"
+            f"Error: {str(e)}\n\n"
+            f"🔬 SCIENTIFIC INTEGRITY: Different n_states lead to different biological conclusions.\n"
+            f"We cannot automatically change this parameter without your explicit consent.\n\n"
+            f"💡 SOLUTIONS:\n"
+            f"1. Try fewer states manually:\n"
+            f"   • params.cellrank_n_states = {max(2, n_states-1)}  # Reduce by 1\n"
+            f"   • params.cellrank_n_states = {max(2, n_states-2)}  # Reduce by 2\n"
+            f"   • params.cellrank_n_states = 3  # Use minimum reasonable value\n\n"
+            f"2. Check data quality:\n"
+            f"   • Dataset may be too small (need >100 cells)\n"
+            f"   • Low-quality velocity data\n"
+            f"   • Insufficient trajectory structure\n\n"
+            f"3. Try simpler trajectory method:\n"
+            f"   • method='palantir' (doesn't require n_states)\n"
+            f"   • method='dpt' (diffusion pseudotime)\n\n"
+            f"📊 Current dataset: {adata_for_cellrank.n_obs} cells, "
+            f"requested {n_states} macrostates"
+        )
 
     # Predict terminal states
     try:
