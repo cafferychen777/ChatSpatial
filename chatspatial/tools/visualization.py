@@ -2555,23 +2555,9 @@ async def create_scatterpie_plot(
         )
     spatial_coords = adata.obsm["spatial"]
 
-    # Limit spots for performance (pie charts are expensive)
-    n_spots = len(proportions)
-    max_pie_spots = 500  # Hardcoded limit for performance
-    if n_spots > max_pie_spots:
-        sample_indices = np.random.choice(
-            n_spots, size=max_pie_spots, replace=False
-        )
-        proportions_plot = proportions.iloc[sample_indices]
-        coords_plot = spatial_coords[sample_indices]
-        if context:
-            await context.warning(
-                f"Sampled {max_pie_spots} spots out of {n_spots} for performance. "
-                f"Scatterpie plots are computationally intensive."
-            )
-    else:
-        proportions_plot = proportions
-        coords_plot = spatial_coords
+    # Use all spots (no sampling)
+    proportions_plot = proportions
+    coords_plot = spatial_coords
 
     # Get cell types
     cell_types = proportions_plot.columns.tolist()
