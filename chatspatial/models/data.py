@@ -1081,7 +1081,7 @@ class CellCommunicationParameters(BaseModel):
     liana_resource: Literal[
         "consensus",
         "mouseconsensus",
-        "cellchat",
+        "cellchatdb",  # CellChatDB resource (corrected from "cellchat")
         "cellphonedb",
         "connectome",
         "omnipath",
@@ -1181,6 +1181,18 @@ class CellCommunicationParameters(BaseModel):
         None  # Spatial radius for microenvironments
     )
     cellphonedb_debug_seed: Optional[int] = None  # Random seed for reproducible results
+
+    # Multiple testing correction for CellPhoneDB
+    # When using minimum p-value across multiple cell type pairs, correction is needed
+    # to control false positive rate (e.g., 7 clusters = 49 pairs → FPR 91.9% without correction)
+    cellphonedb_correction_method: Literal["fdr_bh", "bonferroni", "sidak", "none"] = (
+        "fdr_bh"  # Multiple testing correction method (default: Benjamini-Hochberg FDR)
+    )
+    # Options:
+    # - "fdr_bh": Benjamini-Hochberg FDR (recommended, balances sensitivity & specificity)
+    # - "bonferroni": Bonferroni correction (most conservative, controls FWER)
+    # - "sidak": Šidák correction (similar to Bonferroni but more accurate for independent tests)
+    # - "none": No correction (NOT recommended, leads to ~92% FPR with 7 clusters)
 
     # ========== Gene Filtering for CellPhoneDB Compatibility (ULTRATHINK) ==========
     enable_gene_filtering: bool = (
