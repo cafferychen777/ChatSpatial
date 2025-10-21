@@ -98,9 +98,12 @@ full = [
     
     # ========== Advanced Cell Type Annotation ==========
     "tangram-sc>=1.0.0",  # Spatial mapping of cell types
-    "singler>=0.4.0",  # SingleR Python implementation
-    "singlecellexperiment>=0.4.0",  # Required for SingleR
-    "celldex>=0.3.0",  # Reference datasets for SingleR
+
+    # SingleR stack (Unix only - mattress has MSVC compilation issues)
+    "singler>=0.4.0; sys_platform != 'win32'",  # SingleR Python implementation
+    "singlecellexperiment>=0.4.0; sys_platform != 'win32'",  # Required for SingleR
+    "celldex>=0.3.0; sys_platform != 'win32'",  # Reference datasets for SingleR
+
     "mllmcelltype>=0.1.0",  # LLM-based cell type annotation
     
     # ========== R Interface (for specific methods) ==========
