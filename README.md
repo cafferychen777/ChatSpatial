@@ -96,7 +96,7 @@ pip install --upgrade pip
 pip install -e ".[full]"  # Recommended: All features included
 ```
 
-> 💡 **Windows Users:** PETSc acceleration is not available on Windows (CellRank will use alternative 'brandts' method). All other features including R-based methods work on Windows. See [INSTALLATION.md](INSTALLATION.md#windows) for details.
+> 💡 **Windows Users:** SingleR and PETSc acceleration are not available on Windows due to C++ compilation limitations. Use alternative cell type annotation methods (Tangram, scANVI, CellAssign). All R-based methods (RCTD, SPOTlight, Numbat) work on Windows. See [INSTALLATION.md](INSTALLATION.md#windows) for details.
 
 ### 2. Configure Your Client
 

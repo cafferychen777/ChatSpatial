@@ -99,9 +99,11 @@ full = [
     # ========== Advanced Cell Type Annotation ==========
     "tangram-sc>=1.0.0",  # Spatial mapping of cell types
 
-    "singler>=0.4.0",  # SingleR Python implementation
-    "singlecellexperiment>=0.4.0",  # Required for SingleR
-    "celldex>=0.3.0",  # Reference datasets for SingleR
+    # SingleR requires C++ dependencies (mattress, knncolle) that fail on Windows
+    # Error: MinGW "too many sections" compilation error (Windows PE format limitation)
+    "singler>=0.4.0; sys_platform != 'win32'",  # SingleR Python implementation
+    "singlecellexperiment>=0.4.0; sys_platform != 'win32'",  # Required for SingleR
+    "celldex>=0.3.0; sys_platform != 'win32'",  # Reference datasets for SingleR
     "mllmcelltype>=0.1.0",  # LLM-based cell type annotation
 
     # ========== R Interface (for specific methods) ==========
