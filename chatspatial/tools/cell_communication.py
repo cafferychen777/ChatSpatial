@@ -1508,11 +1508,95 @@ async def _analyze_communication_cellphonedb(
         n_lr_pairs = (
             len(means) if means is not None and hasattr(means, "__len__") else 0
         )
-        n_significant_pairs = (
-            len(significant_means)
-            if significant_means is not None and hasattr(significant_means, "__len__")
-            else 0
-        )
+
+        # CRITICAL FIX: Properly filter significant pairs based on p-values
+        # CellPhoneDB v5 API returns ALL pairs in 'significant_means', not just p < threshold
+        # We must manually filter using the pvalues DataFrame
+        # Reference: https://github.com/ventolab/CellphoneDB (v5 behavior change)
+        if (
+            pvalues is None
+            or not hasattr(pvalues, "values")
+            or means is None
+            or not hasattr(means, "index")
+        ):
+            # NO FALLBACK - if we can't filter properly, fail loudly
+            raise RuntimeError(
+                "❌ CellPhoneDB statistical filtering failed: p-values unavailable.\n\n"
+                "This is required to correctly identify significant interactions.\n"
+                "Without p-values, all interactions would be incorrectly marked as significant.\n\n"
+                "🔧 SOLUTIONS:\n"
+                "1. Ensure CellPhoneDB v5 is properly installed: pip install 'cellphonedb>=5.0.0'\n"
+                "2. Check that the analysis completed successfully without errors\n"
+                "3. Try LIANA method as alternative: analyze_cell_communication(..., method='liana')\n\n"
+                "📋 SCIENTIFIC INTEGRITY: We refuse to return potentially incorrect results.\n"
+                "Better to fail explicitly than report 100% false positives."
+            )
+
+        # Filter pairs where ANY cell-cell interaction has p < threshold
+        # This matches CellPhoneDB's official statistical logic
+        threshold = params.cellphonedb_pvalue
+
+        # Use nanmin to find minimum p-value across all cell type pairs
+        # A pair is significant if its minimum p-value < threshold
+        # Convert to numeric to handle any non-numeric values
+        pval_array = pvalues.select_dtypes(include=[np.number]).values
+        if pval_array.shape[0] == 0:
+            # No numeric columns found
+            raise RuntimeError(
+                "❌ CellPhoneDB p-values are not numeric.\n"
+                "This indicates a problem with CellPhoneDB analysis.\n"
+                "Please check CellPhoneDB installation and data format."
+            )
+        mask = np.nanmin(pval_array, axis=1) < threshold
+        n_significant_pairs = int(np.sum(mask))
+
+        # Update stored significant_means to match filtered results
+        if n_significant_pairs > 0:
+            significant_indices = means.index[mask]
+            significant_means_filtered = means.loc[significant_indices]
+
+            # Update both storage locations
+            adata.uns["cellphonedb_significant_means"] = significant_means_filtered
+            adata_for_storage.uns["cellphonedb_significant_means"] = (
+                significant_means_filtered
+            )
+
+            # Also update the variable for downstream use
+            significant_means = significant_means_filtered
+
+            # Log the filtering results
+            if context:
+                await context.info(
+                    f"📊 CellPhoneDB Statistical Filtering:\n"
+                    f"  Total L-R pairs tested: {n_lr_pairs:,}\n"
+                    f"  Significant pairs (p < {threshold}): {n_significant_pairs:,}\n"
+                    f"  Significance rate: {n_significant_pairs/n_lr_pairs*100:.2f}%\n"
+                    f"  Non-significant pairs filtered: {n_lr_pairs - n_significant_pairs:,}"
+                )
+
+                # Sanity check: warn if significance rate is suspiciously high
+                significance_rate = n_significant_pairs / n_lr_pairs
+                if significance_rate > 0.5:
+                    await context.warning(
+                        f"⚠️ Unusually high significance rate: {significance_rate*100:.1f}%\n"
+                        f"This may indicate:\n"
+                        f"  1. Extremely strong biological signals (rare)\n"
+                        f"  2. Data quality issues\n"
+                        f"  3. Inappropriate p-value threshold (current: {threshold})\n"
+                        f"  4. Potential statistical test failure\n"
+                        f"Please verify results carefully."
+                    )
+        else:
+            # No significant interactions found
+            if context:
+                await context.warning(
+                    f"⚠️ No significant interactions found at p < {threshold}.\n"
+                    f"Consider:\n"
+                    f"  1. Relaxing threshold (current: {threshold})\n"
+                    f"  2. Checking data quality and gene coverage\n"
+                    f"  3. Using alternative methods (LIANA, CellChat)\n"
+                    f"  4. Verifying cell type annotations are correct"
+                )
 
         # Get top LR pairs
         top_lr_pairs = []
