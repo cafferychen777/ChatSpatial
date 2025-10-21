@@ -445,7 +445,7 @@ async def analyze_cell_communication(
         elif params.method == "cellphonedb":
             database = "cellphonedb"
         elif params.method == "cellchat_liana":
-            database = "cellchat"
+            database = "cellchatdb"  # Match actual LIANA resource name used in implementation (line 1801)
         else:
             database = "unknown"
 
@@ -505,7 +505,7 @@ async def analyze_cell_communication(
             data_id=data_id,
             method=params.method,
             species=params.species,
-            database="liana",  # LIANA+ uses its own resource system
+            database=database,  # Use actual database/resource determined above
             n_lr_pairs=result_data["n_lr_pairs"],
             n_significant_pairs=result_data["n_significant_pairs"],
             global_results_key=result_data.get("global_results_key"),
@@ -1903,12 +1903,15 @@ async def _create_microenvironments_file(
 
         # ULTRATHINK FIX: Create microenvironments using cell types, not cell barcodes
         # Get cell types for all cells
-        if "cell_type" not in adata.obs.columns:
+        # BUG FIX: Use user-specified cell_type_column instead of hardcoded "cell_type"
+        if params.cell_type_column not in adata.obs.columns:
             raise ValueError(
-                "Cell type annotations required for microenvironments. Run cell annotation first."
+                f"Cell type column '{params.cell_type_column}' not found in adata.obs.\n"
+                f"Available columns: {list(adata.obs.columns)}\n"
+                f"Microenvironments require cell type annotations."
             )
 
-        cell_types = adata.obs["cell_type"].values
+        cell_types = adata.obs[params.cell_type_column].values
 
         # Create microenvironments by cell type co-occurrence
         microenv_assignments = {}
