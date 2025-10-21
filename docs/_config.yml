@@ -34,8 +34,8 @@ callouts:
     title: Warning
     color: red
 
-# Site logo (先禁用自定义 logo)
-# logo: "/assets/images/logo.svg"
+# Site logo
+logo: "/assets/images/chatspatial-logo.png"
 
 # Search configuration
 search_enabled: true
