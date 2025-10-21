@@ -86,21 +86,25 @@ Everything in Standard, plus:
 ### Platform-Specific Limitations
 
 {: .warning }
-**Windows Users:** PETSc/SLEPc acceleration is not available on Windows. See details below.
+**Windows Users:** SingleR and PETSc/SLEPc acceleration are not available on Windows due to C++ compilation limitations.
 
 #### Windows Limitations
 
-**❌ PETSc/SLEPc acceleration not available:**
-- **CellRank** PETSc acceleration requires Cygwin Python (not native Windows Python)
-- CellRank still works on Windows, automatically uses 'brandts' method (suitable for small-medium datasets)
+**❌ Not Available on Windows:**
+- **SingleR** cell type annotation - C++ dependencies (mattress, knncolle) fail to compile due to MinGW compiler limitations
+- **PETSc/SLEPc** acceleration for CellRank - Requires Cygwin Python (not native Windows Python)
+
+**✅ Windows Alternatives:**
+- Cell type annotation: Use Tangram, scANVI, CellAssign, or mllmcelltype instead of SingleR
+- CellRank: Works without PETSc (automatically uses 'brandts' method for small-medium datasets)
 
 **✅ All other features work on Windows** including:
 - R-based methods (RCTD, SPOTlight, Numbat) via rpy2
-- SingleR cell type annotation
-- All deconvolution, trajectory, and spatial analysis methods
+- All deconvolution methods (Cell2location, DestVI, Stereoscope, CARD)
+- All trajectory and spatial analysis methods
 
 {: .note }
-**Technical Note:** GitHub Actions CI now installs R 4.4.1 on all platforms, enabling rpy2 compilation on Windows.
+**Technical Note:** GitHub Actions CI installs R 4.4.1 on all platforms, enabling rpy2 compilation on Windows. However, SingleR's C++ dependencies still fail due to compiler limitations.
 
 ## Configure Your MCP Client
 
