@@ -80,7 +80,7 @@ jobs:
         echo "[INSTALL] Installing ChatSpatial with full dependencies on ${{ matrix.os }}..."
         pip install -e ".[full]"
         echo "[OK] Full installation completed"
-      timeout-minutes: 20
+      timeout-minutes: 40
 
     - name: Verify core imports
       run: |
