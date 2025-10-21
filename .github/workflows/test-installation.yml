@@ -12,6 +12,7 @@ on:
     paths:
       - 'pyproject.toml'
       - 'chatspatial/**'
+      - '.github/workflows/test-installation.yml'
   workflow_dispatch:
 
 jobs:
