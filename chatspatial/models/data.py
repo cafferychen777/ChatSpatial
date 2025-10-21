@@ -1113,8 +1113,12 @@ class CellCommunicationParameters(BaseModel):
     # require_existing: Must exist or error, compute_with_params: Compute with provided params, skip: Skip spatial analysis
 
     # Spatial connectivity parameters (required when compute_with_params)
+    # Platform-specific recommendations (see server.py docs for detailed guidance):
+    # Visium: {"coord_type": "grid", "n_rings": 1} or {"coord_type": "generic", "n_neighs": 6-18}
+    # Slide-seq: {"coord_type": "generic", "n_neighs": 10-30} or {"radius": 50-100}
+    # MERFISH/seqFISH: {"coord_type": "generic", "n_neighs": 3-10} or {"radius": 20-50}
+    # Analysis-based: Local signaling=smaller n, Microenvironment=larger n
     spatial_neighbors_kwargs: Optional[Dict[str, Any]] = None
-    # Example: {"coord_type": "generic", "n_neighs": 6, "radius": 150}
 
     # ========== Cell Type Control ==========
     # Cell type column control
