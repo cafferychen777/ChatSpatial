@@ -1257,20 +1257,96 @@ async def analyze_cell_communication(
 
         2. Missing spatial connectivity:
            - Use spatial_connectivity_handling="compute_with_params"
-           - Provide spatial_neighbors_kwargs={"coord_type": "generic", "n_neighs": 6}
+           - Provide spatial_neighbors_kwargs with platform-appropriate parameters (see below)
 
         3. Missing cell type annotations:
            - Ensure cell type column exists or run annotation first
            - Use cell_type_handling="create_from_column" with clustering results
 
-        **Example for mouse spatial data:**
-        params = {
-            "species": "mouse",
-            "liana_resource": "mouseconsensus",
-            "data_source": "raw",
-            "spatial_connectivity_handling": "compute_with_params",
-            "spatial_neighbors_kwargs": {"coord_type": "generic", "n_neighs": 6}
-        }
+        **Spatial connectivity parameters (spatial_neighbors_kwargs):**
+
+        The spatial neighborhood definition profoundly impacts cell communication analysis results.
+        Choose parameters based on your spatial transcriptomics platform and biological question:
+
+        **Platform-specific recommendations:**
+
+        10x Visium (hexagonal grid, 55µm spots, 100µm center-to-center spacing):
+          • coord_type: "grid" (for hexagonal layout) or "generic" (for custom)
+          • n_neighs: 6 (direct neighbors in hexagonal grid)
+          • n_rings: 1-2 (for grid mode: 1=first ring only, 2=first+second ring)
+          • radius: 150-200 pixels (for distance-based, ~captures first neighbor ring)
+          ├─ Local interactions (paracrine signaling): n_neighs=6 or n_rings=1
+          ├─ Microenvironment analysis: n_neighs=12-18 or n_rings=2
+          └─ Broader spatial context: radius=300-500 pixels
+
+        Slide-seq/Slide-seqV2 (10µm beads, high density):
+          • coord_type: "generic"
+          • n_neighs: 10-30 (higher density requires more neighbors)
+          • radius: 50-100 µm (typical cell-cell signaling range)
+          ├─ Dense regions: n_neighs=20-30
+          ├─ Sparse regions: n_neighs=10-15
+          └─ Distance-based: radius=50-100 µm (matches biological signaling range)
+
+        MERFISH/seqFISH+ (single-cell resolution, <1µm precision):
+          • coord_type: "generic"
+          • n_neighs: 3-10 (nearest cell neighbors)
+          • radius: 20-50 µm (direct cell-cell contact to short-range paracrine)
+          ├─ Direct contact: n_neighs=3-5 or radius=10-20 µm
+          ├─ Paracrine signaling: n_neighs=5-10 or radius=30-50 µm
+          └─ Microenvironment: radius=50-100 µm
+
+        **Biological considerations:**
+
+        Cell communication distance ranges (from literature):
+          • Juxtacrine signaling: 0-10 µm (direct contact)
+          • Paracrine signaling: 10-100 µm (e.g., Wnt/Wg: ~50-100 µm)
+          • Broader microenvironment: 100-500 µm
+
+        Analysis goal-based selection:
+          • Identify direct cell-cell interactions → Use smaller neighborhoods (n_neighs=6-10, radius=50-100 µm)
+          • Study tissue microenvironments → Use larger neighborhoods (n_neighs=15-30, radius=200-500 µm)
+          • Rare cell type interactions → Use adaptive/larger k to avoid missing signals
+          • Abundant cell types → Use smaller k to avoid spurious connections
+
+        **Parameter tradeoffs:**
+          • Larger neighborhoods: Capture long-range signals but lose spatial specificity
+          • Smaller neighborhoods: High spatial precision but may miss important interactions
+          • Fixed k (n_neighs): Same number for all spots, may overcluster dense regions
+          • Distance-based (radius): More biologically meaningful but varying neighbor counts
+
+        **Examples:**
+
+        Visium - local paracrine signaling:
+          params = {
+              "species": "human",
+              "liana_resource": "consensus",
+              "data_source": "raw",
+              "spatial_connectivity_handling": "compute_with_params",
+              "spatial_neighbors_kwargs": {"coord_type": "grid", "n_rings": 1}
+          }
+
+        Visium - microenvironment analysis:
+          params = {
+              "species": "human",
+              "data_source": "raw",
+              "spatial_connectivity_handling": "compute_with_params",
+              "spatial_neighbors_kwargs": {"coord_type": "generic", "n_neighs": 18}
+          }
+
+        MERFISH - direct cell-cell contact:
+          params = {
+              "species": "mouse",
+              "liana_resource": "mouseconsensus",
+              "data_source": "raw",
+              "spatial_connectivity_handling": "compute_with_params",
+              "spatial_neighbors_kwargs": {"coord_type": "generic", "radius": 20}
+          }
+
+        **References:**
+          • Squidpy framework: Palla et al., Nat Methods 2022
+          • LIANA+: Dimitrov et al., Nat Cell Biol 2024
+          • Visium resolution: 10x Genomics Technical Note
+          • Signaling ranges: Literature-based (Wnt/Wg: ~50-100 µm)
     """
     # Import cell communication function
     from .tools.cell_communication import (
