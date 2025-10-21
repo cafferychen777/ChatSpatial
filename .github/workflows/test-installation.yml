@@ -77,35 +77,35 @@ jobs:
 
     - name: Install ChatSpatial (full)
       run: |
-        echo "📦 Installing ChatSpatial with full dependencies on ${{ matrix.os }}..."
+        echo "[INSTALL] Installing ChatSpatial with full dependencies on ${{ matrix.os }}..."
         pip install -e ".[full]"
-        echo "✅ Full installation completed"
+        echo "[OK] Full installation completed"
       timeout-minutes: 20
 
     - name: Verify core imports
       run: |
-        python -c "import chatspatial; print(f'✅ ChatSpatial version: {chatspatial.__version__}')"
-        python -c "from chatspatial.server import mcp; print('✅ MCP server import successful')"
-        python -c "import scanpy; print(f'✅ Scanpy available')"
-        python -c "import squidpy; print(f'✅ Squidpy available')"
+        python -c "import chatspatial; print(f'[OK] ChatSpatial version: {chatspatial.__version__}')"
+        python -c "from chatspatial.server import mcp; print('[OK] MCP server import successful')"
+        python -c "import scanpy; print(f'[OK] Scanpy available')"
+        python -c "import squidpy; print(f'[OK] Squidpy available')"
 
     - name: Verify advanced imports
       run: |
-        python -c "import torch; print(f'✅ PyTorch version: {torch.__version__}')"
-        python -c "import scvi; print(f'✅ scvi-tools available')"
-        python -c "import liana; print(f'✅ LIANA available')"
+        python -c "import torch; print(f'[OK] PyTorch version: {torch.__version__}')"
+        python -c "import scvi; print(f'[OK] scvi-tools available')"
+        python -c "import liana; print(f'[OK] LIANA available')"
       continue-on-error: true
 
     - name: Test MCP server CLI
       shell: bash
       run: |
-        echo "🚀 Testing MCP server CLI on ${{ matrix.os }}..."
-        python -m chatspatial server --help || echo "✅ Help command works"
-        echo "✅ MCP server ready with full features"
+        echo "[TEST] Testing MCP server CLI on ${{ matrix.os }}..."
+        python -m chatspatial server --help || echo "[OK] Help command works"
+        echo "[OK] MCP server ready with full features"
 
     - name: List key packages
       run: |
-        echo "📋 Key installed packages:"
+        echo "[INFO] Key installed packages:"
         pip list | grep -E "(chatspatial|scanpy|squidpy|scvi|liana|torch)" || pip list | findstr /I "chatspatial scanpy squidpy scvi liana torch" || true
 
   test-dev-installation:
@@ -136,24 +136,24 @@ jobs:
 
     - name: Install ChatSpatial (dev)
       run: |
-        echo "📦 Installing ChatSpatial with dev dependencies..."
+        echo "[INSTALL] Installing ChatSpatial with dev dependencies..."
         pip install -e ".[dev]"
-        echo "✅ Dev installation completed"
+        echo "[OK] Dev installation completed"
 
     - name: Verify dev tools
       run: |
-        python -c "import chatspatial; print(f'✅ ChatSpatial version: {chatspatial.__version__}')"
+        python -c "import chatspatial; print(f'[OK] ChatSpatial version: {chatspatial.__version__}')"
         black --version
         isort --version
         pytest --version
         mypy --version
         ruff --version
-        echo "✅ All dev tools available"
+        echo "[OK] All dev tools available"
 
     - name: Test code formatting check
       run: |
-        echo "🔍 Running black check..."
-        black --check chatspatial/ || echo "⚠️  Code formatting issues detected (non-blocking)"
+        echo "[TEST] Running black check..."
+        black --check chatspatial/ || echo "[WARN] Code formatting issues detected (non-blocking)"
       continue-on-error: true
 
   test-mcp-protocol:
@@ -187,7 +187,7 @@ jobs:
 
             # Test that tools are registered
             tools = mcp._tools if hasattr(mcp, '_tools') else {}
-            print(f"✅ MCP server initialized with {len(tools)} tools")
+            print(f"[OK] MCP server initialized with {len(tools)} tools")
 
             # Verify key tools exist
             expected_tools = [
@@ -199,13 +199,13 @@ jobs:
 
             for tool_name in expected_tools:
                 if tool_name in str(tools):
-                    print(f"✅ Tool registered: {tool_name}")
+                    print(f"[OK] Tool registered: {tool_name}")
 
-            print("✅ MCP protocol test passed")
+            print("[OK] MCP protocol test passed")
             sys.exit(0)
 
         except Exception as e:
-            print(f"❌ MCP protocol test failed: {e}")
+            print(f"[ERROR] MCP protocol test failed: {e}")
             sys.exit(1)
         EOF
 
@@ -219,7 +219,7 @@ jobs:
         # Test server subcommand
         python -m chatspatial server --help 2>&1 | grep -E "(usage|help)" || echo "Server help available"
 
-        echo "✅ CLI interface functional"
+        echo "[OK] CLI interface functional"
 
   installation-summary:
     name: Installation Test Summary
@@ -230,25 +230,25 @@ jobs:
     steps:
     - name: Check test results
       run: |
-        echo "📊 Installation Test Results:"
+        echo "[INFO] Installation Test Results:"
         echo "=============================="
 
         if [[ "${{ needs.test-full-installation.result }}" == "success" ]]; then
-          echo "✅ Full installation (Linux + macOS + Windows): PASSED"
+          echo "[PASS] Full installation (Linux + macOS + Windows): PASSED"
         else
-          echo "❌ Full installation: FAILED"
+          echo "[FAIL] Full installation: FAILED"
         fi
 
         if [[ "${{ needs.test-dev-installation.result }}" == "success" ]]; then
-          echo "✅ Dev installation: PASSED"
+          echo "[PASS] Dev installation: PASSED"
         else
-          echo "❌ Dev installation: FAILED"
+          echo "[FAIL] Dev installation: FAILED"
         fi
 
         if [[ "${{ needs.test-mcp-protocol.result }}" == "success" ]]; then
-          echo "✅ MCP protocol: PASSED"
+          echo "[PASS] MCP protocol: PASSED"
         else
-          echo "❌ MCP protocol: FAILED"
+          echo "[FAIL] MCP protocol: FAILED"
         fi
 
         echo "=============================="
@@ -256,8 +256,8 @@ jobs:
         # Fail if any critical tests failed
         if [[ "${{ needs.test-full-installation.result }}" != "success" ]] || \
            [[ "${{ needs.test-mcp-protocol.result }}" != "success" ]]; then
-          echo "❌ Critical installation tests failed!"
+          echo "[FAIL] Critical installation tests failed!"
           exit 1
         fi
 
-        echo "✅ All critical installation tests passed!"
+        echo "[PASS] All critical installation tests passed!"
