@@ -625,9 +625,8 @@ async def _analyze_communication_liana(
             params.species = detected_species
 
         # Determine analysis type based on data characteristics
-        has_clusters = (
-            "cell_type" in adata.obs.columns or "cluster" in adata.obs.columns
-        )
+        # BUG FIX: Check the actual cell_type_column specified by user, not just hardcoded names
+        has_clusters = params.cell_type_column in adata.obs.columns
 
         if has_clusters and not params.perform_spatial_analysis:
             # Single-cell style analysis with clusters
