@@ -419,8 +419,22 @@ async def analyze_cell_communication(
                 "Cell communication analysis complete. Use visualize_data tool with plot_type='cell_communication' to visualize results"
             )
 
-        # ✅ COW FIX: No need to update data_store - changes already reflected via direct reference
-        # All modifications to adata.obs/uns/obsm are in-place and preserved
+        # ⚠️  CRITICAL FIX: When data_source="raw", _prepare_data_with_user_control creates a NEW adata object
+        # This breaks the direct reference to data_store, so we MUST copy results back
+        original_adata = data_store[data_id]["adata"]
+
+        # Copy all CellPhoneDB/LIANA results from the temporary adata to the original
+        # This ensures results are preserved when data is saved
+        for key in ["cellphonedb_deconvoluted", "cellphonedb_means", "cellphonedb_pvalues",
+                    "cellphonedb_significant_means", "cellphonedb_statistics",
+                    "liana_res", "lrdata", "liana_spatial"]:
+            if key in adata.uns:
+                original_adata.uns[key] = adata.uns[key]
+
+        # Also copy any obsm keys that were added
+        for key in adata.obsm.keys():
+            if key not in original_adata.obsm or key.startswith("liana_"):
+                original_adata.obsm[key] = adata.obsm[key]
 
         # Store scientific metadata for reproducibility
         from ..utils.metadata_storage import store_analysis_metadata
@@ -828,9 +842,10 @@ async def _run_liana_cluster_analysis(
     # Get results
     liana_res = adata.uns["liana_res"]
 
-    # Calculate statistics
+    # Calculate statistics using magnitude_rank (signal strength)
+    # NOT specificity_rank (which has non-uniform distribution)
     n_lr_pairs = len(liana_res)
-    n_significant_pairs = len(liana_res[liana_res["specificity_rank"] <= 0.05])
+    n_significant_pairs = len(liana_res[liana_res["magnitude_rank"] <= 0.05])
 
     # Get top pairs
     top_lr_pairs = []
@@ -1533,11 +1548,12 @@ async def _analyze_communication_cellphonedb(
             )
 
         # Filter pairs where ANY cell-cell interaction has p < threshold
-        # This matches CellPhoneDB's official statistical logic
+        # WITH multiple testing correction for cell type pairs
         threshold = params.cellphonedb_pvalue
+        correction_method = params.cellphonedb_correction_method
 
         # Use nanmin to find minimum p-value across all cell type pairs
-        # A pair is significant if its minimum p-value < threshold
+        # A pair is significant if its minimum p-value < threshold (after correction)
         # Convert to numeric to handle any non-numeric values
         pval_array = pvalues.select_dtypes(include=[np.number]).values
         if pval_array.shape[0] == 0:
@@ -1547,8 +1563,85 @@ async def _analyze_communication_cellphonedb(
                 "This indicates a problem with CellPhoneDB analysis.\n"
                 "Please check CellPhoneDB installation and data format."
             )
-        mask = np.nanmin(pval_array, axis=1) < threshold
+
+        # Apply multiple testing correction if requested
+        # IMPORTANT: Correct p-values for EACH L-R pair across its cell type pairs,
+        # NOT across L-R pairs. This properly controls FPR from multiple cell type pair testing.
+        n_cell_type_pairs = pval_array.shape[1]
+        n_lr_pairs_total = pval_array.shape[0]
+
+        if context:
+            await context.info(
+                f"🔬 DEBUG: Starting multiple testing correction\n"
+                f"  Method: {correction_method}\n"
+                f"  P-value array shape: {pval_array.shape}\n"
+                f"  Cell type pairs: {n_cell_type_pairs}\n"
+                f"  L-R pairs: {n_lr_pairs_total}\n"
+                f"  Threshold: {threshold}"
+            )
+
+        if correction_method == "none":
+            # No correction: use minimum p-value (not recommended)
+            min_pvals = np.nanmin(pval_array, axis=1)
+            mask = min_pvals < threshold
+
+            if context:
+                await context.warning(
+                    f"⚠️ Multiple testing correction disabled (correction_method='none').\n"
+                    f"With {n_cell_type_pairs} cell type pairs, this can lead to severe\n"
+                    f"false positive inflation (theoretical FPR ~{(1-(1-threshold)**n_cell_type_pairs)*100:.1f}%).\n"
+                    f"Consider using 'fdr_bh', 'bonferroni', or 'sidak' correction."
+                )
+
+            # For 'none', we don't have corrected p-values per se, just use min
+            min_pvals_corrected = min_pvals.copy()
+
+        else:
+            # CORRECT APPROACH: For each L-R pair, correct its cell type pair p-values
+            # Then check if ANY cell type pair remains significant after correction
+            from statsmodels.stats.multitest import multipletests
+
+            mask = np.zeros(n_lr_pairs_total, dtype=bool)
+            min_pvals_corrected = np.ones(n_lr_pairs_total)  # Store minimum corrected p-value
+
+            n_uncorrected_sig = 0
+            n_corrected_sig = 0
+
+            for i in range(n_lr_pairs_total):
+                # Get p-values for this L-R pair across all cell type pairs
+                pvals_this_lr = pval_array[i, :]
+
+                # Count uncorrected significance
+                n_uncorrected_sig += (pvals_this_lr < threshold).any()
+
+                # Apply correction across cell type pairs for this L-R pair
+                reject_this_lr, pvals_corrected_this_lr, _, _ = multipletests(
+                    pvals_this_lr,
+                    alpha=threshold,
+                    method=correction_method,
+                    is_sorted=False,
+                    returnsorted=False,
+                )
+
+                # This L-R pair is significant if ANY cell type pair is significant after correction
+                if reject_this_lr.any():
+                    mask[i] = True
+                    n_corrected_sig += 1
+
+                # Store minimum corrected p-value for this L-R pair
+                min_pvals_corrected[i] = pvals_corrected_this_lr.min()
+
         n_significant_pairs = int(np.sum(mask))
+
+        # Store minimum corrected p-values for transparency
+        adata.uns["cellphonedb_pvalues_min_corrected"] = pd.Series(
+            min_pvals_corrected,
+            index=pvalues.index,
+            name=f"min_corrected_pvalue_{correction_method}",
+        )
+        adata_for_storage.uns["cellphonedb_pvalues_min_corrected"] = adata.uns[
+            "cellphonedb_pvalues_min_corrected"
+        ]
 
         # Update stored significant_means to match filtered results
         if n_significant_pairs > 0:
@@ -1620,15 +1713,32 @@ async def _analyze_communication_cellphonedb(
                 f"Found {n_significant_pairs} significant interactions out of {n_lr_pairs} tested"
             )
 
+        n_cell_types = meta_df["cell_type"].nunique()
+        n_cell_type_pairs = n_cell_types ** 2
+
+        # Add correction statistics (useful for understanding results)
+        correction_stats = {}
+        if correction_method != "none" and 'n_uncorrected_sig' in locals():
+            correction_stats["n_uncorrected_significant"] = int(n_uncorrected_sig)
+            correction_stats["n_corrected_significant"] = int(n_corrected_sig) if 'n_corrected_sig' in locals() else None
+            if correction_stats["n_corrected_significant"] is not None and n_uncorrected_sig > 0:
+                correction_stats["reduction_percentage"] = round((1 - n_corrected_sig/n_uncorrected_sig) * 100, 2)
+
         statistics = {
             "method": "cellphonedb",
             "iterations": params.cellphonedb_iterations,
             "threshold": params.cellphonedb_threshold,
             "pvalue_threshold": params.cellphonedb_pvalue,
-            "n_cell_types": meta_df["cell_type"].nunique(),
+            "n_cell_types": n_cell_types,
+            "n_cell_type_pairs": n_cell_type_pairs,
+            "multiple_testing_correction": correction_method,
             "microenvironments_used": microenvs_file is not None,
             "analysis_time_seconds": analysis_time,
         }
+
+        # Add correction stats if available
+        if correction_stats:
+            statistics["correction_statistics"] = correction_stats
 
         return {
             "n_lr_pairs": n_lr_pairs,
@@ -1687,11 +1797,12 @@ async def _analyze_communication_cellchat_liana(
                 f"Running CellChat analysis grouped by '{groupby_col}'..."
             )
 
-        # Get appropriate resource name based on species
-        resource_name = _get_liana_resource_name(params.species, params.liana_resource)
+        # Use CellChatDB resource to match function name
+        # Hardcoded to ensure consistency with method name "cellchat_liana"
+        resource_name = "cellchatdb"
         if context:
             await context.info(
-                f"Using CellChat resource: {resource_name} for species: {params.species}"
+                f"Using LIANA resource: {resource_name} (CellChatDB database)"
             )
 
         # Use parameters from user (respect user choice)
@@ -1712,9 +1823,10 @@ async def _analyze_communication_cellchat_liana(
         # Get results
         liana_res = adata.uns["liana_res"]
 
-        # Calculate statistics
+        # Calculate statistics using magnitude_rank (signal strength)
+        # NOT specificity_rank (which has non-uniform distribution)
         n_lr_pairs = len(liana_res)
-        n_significant_pairs = len(liana_res[liana_res["specificity_rank"] <= 0.05])
+        n_significant_pairs = len(liana_res[liana_res["magnitude_rank"] <= 0.05])
 
         # Get top pairs
         top_lr_pairs = []
@@ -1739,7 +1851,8 @@ async def _analyze_communication_cellchat_liana(
             "n_lr_pairs_tested": n_lr_pairs,
             "n_permutations": n_perms,
             "significance_threshold": 0.05,
-            "resource": "cellchat",
+            "resource": resource_name,  # Actual resource used (cellchatdb)
+            "significance_metric": "magnitude_rank",  # Clarify which metric is used
             "analysis_time_seconds": analysis_time,
         }
 
