@@ -99,16 +99,15 @@ full = [
     # ========== Advanced Cell Type Annotation ==========
     "tangram-sc>=1.0.0",  # Spatial mapping of cell types
 
-    # SingleR stack (Unix only - mattress has MSVC compilation issues)
-    "singler>=0.4.0; sys_platform != 'win32'",  # SingleR Python implementation
-    "singlecellexperiment>=0.4.0; sys_platform != 'win32'",  # Required for SingleR
-    "celldex>=0.3.0; sys_platform != 'win32'",  # Reference datasets for SingleR
-
+    "singler>=0.4.0",  # SingleR Python implementation
+    "singlecellexperiment>=0.4.0",  # Required for SingleR
+    "celldex>=0.3.0",  # Reference datasets for SingleR
     "mllmcelltype>=0.1.0",  # LLM-based cell type annotation
-    
+
     # ========== R Interface (for specific methods) ==========
     # IMPORTANT: rpy2 3.6.x requires R 4.5 which has compatibility issues
     # We pin to 3.5.x which works well with R 4.4.1
+    # Note: Requires R to be installed (GitHub Actions installs R 4.4.1)
     "rpy2>=3.5.0,<3.7",  # Compatible with R 4.4.x, required for RCTD, SPOTlight, etc.
     
     # ========== Extended Spatial Analysis ==========
