@@ -96,6 +96,8 @@ pip install --upgrade pip
 pip install -e ".[full]"  # Recommended: All features included
 ```
 
+> 💡 **Windows Users:** SingleR and PETSc acceleration are not available on Windows. See [INSTALLATION.md](INSTALLATION.md#windows) for alternatives.
+
 ### 2. Configure Your Client
 
 <details>

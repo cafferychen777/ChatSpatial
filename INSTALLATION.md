@@ -153,6 +153,26 @@ That's it! Start analyzing your spatial data with natural language.
 - macOS, Linux, or Windows
 - 5-10 GB disk space (for full installation)
 
+### Platform-Specific Limitations
+
+#### Windows
+
+Some advanced features have limited support on Windows due to C++ compilation requirements:
+
+**❌ Not Available on Windows:**
+- **SingleR** cell type annotation (dependency compilation issues with MSVC)
+- **PETSc/SLEPc** acceleration for CellRank (requires Cygwin, not native Windows Python)
+
+**✅ Fully Available Alternatives:**
+- Cell type annotation: Tangram, scANVI, CellAssign, mllmcelltype
+- CellRank trajectory analysis: Works without PETSc (automatically uses 'brandts' method, suitable for small-medium datasets)
+
+**Why these limitations?**
+- **SingleR**: The `mattress` package (C++ dependency) has template constexpr issues with Microsoft Visual C++ compiler
+- **PETSc**: Requires Cygwin Python environment, not compatible with native Windows Python installations
+
+All other features (90%+ of functionality) work identically across all platforms.
+
 ## Troubleshooting
 
 | Issue | Solution |
