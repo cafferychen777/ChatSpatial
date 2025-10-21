@@ -84,9 +84,10 @@ full = [
     "cellrank>=2.0.0,<3.0",  # RNA velocity-based fate mapping
     "palantir>=1.0.0",  # Probabilistic trajectory inference
     
-    # CellRank acceleration (optional but recommended)
-    "petsc4py>=3.18.0,<4.0",
-    "slepc4py>=3.18.0,<4.0",
+    # CellRank acceleration (optional but recommended, Unix only)
+    # Note: PETSc requires Cygwin on Windows, not supported in native Windows Python
+    "petsc4py>=3.18.0,<4.0; sys_platform != 'win32'",
+    "slepc4py>=3.18.0,<4.0; sys_platform != 'win32'",
     
     # ========== Additional Integration Methods ==========
     "scanorama>=1.7.0",  # Cross-dataset integration
