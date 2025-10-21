@@ -83,6 +83,24 @@ Everything in Standard, plus:
 - 5-10 GB disk space (for full installation)
 - macOS, Linux, or Windows
 
+### Platform-Specific Limitations
+
+{: .warning }
+**Windows Users:** Some advanced features are not available on Windows due to C++ compilation requirements. See details below.
+
+#### Windows Limitations
+
+**❌ Not Available:**
+- **SingleR** cell type annotation (MSVC compilation issues)
+- **PETSc/SLEPc** acceleration for CellRank (requires Cygwin Python)
+
+**✅ Available Alternatives:**
+- Cell type annotation: Tangram, scANVI, CellAssign, mllmcelltype
+- CellRank: Works without PETSc (uses 'brandts' method for small-medium datasets)
+
+{: .note }
+90%+ of ChatSpatial features work identically on all platforms. These limitations affect only 2 specific methods.
+
 ## Configure Your MCP Client
 
 **Important:** Use your virtual environment's Python path for reliable operation.
