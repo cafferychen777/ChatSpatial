@@ -86,20 +86,21 @@ Everything in Standard, plus:
 ### Platform-Specific Limitations
 
 {: .warning }
-**Windows Users:** Some advanced features are not available on Windows due to C++ compilation requirements. See details below.
+**Windows Users:** PETSc/SLEPc acceleration is not available on Windows. See details below.
 
 #### Windows Limitations
 
-**❌ Not Available:**
-- **SingleR** cell type annotation (MSVC compilation issues)
-- **PETSc/SLEPc** acceleration for CellRank (requires Cygwin Python)
+**❌ PETSc/SLEPc acceleration not available:**
+- **CellRank** PETSc acceleration requires Cygwin Python (not native Windows Python)
+- CellRank still works on Windows, automatically uses 'brandts' method (suitable for small-medium datasets)
 
-**✅ Available Alternatives:**
-- Cell type annotation: Tangram, scANVI, CellAssign, mllmcelltype
-- CellRank: Works without PETSc (uses 'brandts' method for small-medium datasets)
+**✅ All other features work on Windows** including:
+- R-based methods (RCTD, SPOTlight, Numbat) via rpy2
+- SingleR cell type annotation
+- All deconvolution, trajectory, and spatial analysis methods
 
 {: .note }
-90%+ of ChatSpatial features work identically on all platforms. These limitations affect only 2 specific methods.
+**Technical Note:** GitHub Actions CI now installs R 4.4.1 on all platforms, enabling rpy2 compilation on Windows.
 
 ## Configure Your MCP Client
 
