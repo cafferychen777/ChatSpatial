@@ -327,10 +327,11 @@ pip install -e ".[dev]"
 If ChatSpatial helps your research, please cite:
 ```bibtex
 @software{chatspatial2025,
-  title={ChatSpatial: Interactive Spatial Transcriptomics Analysis via Model Context Protocol},
-  author={Chen Yang and Jun Chen and Xianyang Zhang},
+  title={ChatSpatial: An Agentic Framework for Reproducible Cross-Platform Spatial Transcriptomics Analysis},
+  author={Chen Yang and Xianyang Zhang and Jun Chen},
   year={2025},
-  url={https://github.com/cafferychen777/ChatSpatial}
+  url={https://github.com/cafferychen777/ChatSpatial},
+  note={Manuscript in preparation}
 }
 ```
 
