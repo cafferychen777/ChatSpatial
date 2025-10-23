@@ -4,7 +4,6 @@ Enhanced error handling for MCP server
 
 import io
 import logging
-import traceback
 import warnings
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
@@ -158,21 +157,6 @@ def _validate_velocity_data_internal(adata: "sc.AnnData", issues: List[str]) -> 
             else:  # Dense matrix
                 if np.any(np.isnan(layer_data)):
                     issues.append(f"'{layer_name}' layer contains NaN values")
-
-
-def handle_error(error: Exception, context: Optional[Any] = None) -> None:
-    """Handle errors with appropriate logging
-
-    Args:
-        error: The exception to handle
-        context: Optional context for logging
-    """
-    if context:
-        if isinstance(error, SpatialMCPError):
-            context.warning(f"Analysis error: {str(error)}")
-        else:
-            context.error(f"Unexpected error: {str(error)}")
-            context.debug(traceback.format_exc())
 
 
 @contextmanager

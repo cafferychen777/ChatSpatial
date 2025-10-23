@@ -8,7 +8,7 @@ we have ONE validation system that works everywhere.
 Every tool uses the same validation functions. No exceptions.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Optional, Set
+from typing import TYPE_CHECKING, Optional, Set
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -632,33 +632,6 @@ def validate_for_spatial_statistics(
         require_spatial=True,
         require_cell_types=False,
     )
-
-
-def check_data_compatibility(adata: "ad.AnnData", tool_name: str) -> Dict[str, Any]:
-    """
-    Check if data is compatible with a specific tool.
-
-    This replaces the scattered compatibility checking logic.
-    """
-    DataValidator()
-
-    # Tool-specific validation
-    if tool_name.lower() in ["cell_communication", "cellchat", "liana"]:
-        result = validate_for_cell_communication(adata)
-    elif tool_name.lower() in ["deconvolution", "cell2location", "rctd"]:
-        result = validate_for_deconvolution(adata)
-    elif tool_name.lower() in ["spatial_statistics", "neighborhood", "cooccurrence"]:
-        result = validate_for_spatial_statistics(adata)
-    else:
-        result = validate_spatial_data(adata)
-
-    return {
-        "compatible": result.passed,
-        "errors": result.errors,
-        "warnings": result.warnings,
-        "suggestions": result.suggestions,
-        "tool": tool_name,
-    }
 
 
 def raise_if_invalid(

@@ -101,33 +101,3 @@ def store_analysis_metadata(
     # Store in adata.uns with unique key
     metadata_key = f"{analysis_name}_metadata"
     adata.uns[metadata_key] = metadata
-
-
-def get_analysis_metadata(
-    adata: AnnData, analysis_name: str
-) -> Optional[Dict[str, Any]]:
-    """Retrieve analysis metadata from adata.uns.
-
-    Args:
-        adata: AnnData object
-        analysis_name: Name of the analysis
-
-    Returns:
-        Dictionary of metadata, or None if not found
-    """
-    metadata_key = f"{analysis_name}_metadata"
-    return adata.uns.get(metadata_key)
-
-
-def list_analysis_metadata(adata: AnnData) -> List[str]:
-    """List all analysis metadata keys stored in adata.uns.
-
-    Args:
-        adata: AnnData object
-
-    Returns:
-        List of analysis names that have metadata stored
-    """
-    metadata_keys = [key for key in adata.uns.keys() if key.endswith("_metadata")]
-    # Remove "_metadata" suffix to get analysis names
-    return [key[: -len("_metadata")] for key in metadata_keys]
