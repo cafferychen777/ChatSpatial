@@ -30,39 +30,6 @@ except ImportError:
     CELLPHONEDB_AVAILABLE = False
 
 
-def _detect_species_pattern(adata: Any) -> str:
-    """Detect gene naming patterns for species validation only"""
-    sample_genes = list(adata.var_names[: min(500, adata.n_vars)])
-
-    mouse_pattern = sum(
-        1 for g in sample_genes if len(g) > 1 and g[0].isupper() and g[1:].islower()
-    )
-    human_pattern = sum(1 for g in sample_genes if g.isupper())
-
-    if mouse_pattern > human_pattern * 2:
-        return "mouse"
-    elif human_pattern > mouse_pattern * 2:
-        return "human"
-    else:
-        return "ambiguous"
-
-
-def _calculate_species_confidence(adata: Any, detected_species: str) -> float:
-    """Calculate confidence score for species detection"""
-    sample_genes = list(adata.var_names[: min(500, adata.n_vars)])
-
-    if detected_species == "mouse":
-        pattern_count = sum(
-            1 for g in sample_genes if len(g) > 1 and g[0].isupper() and g[1:].islower()
-        )
-    elif detected_species == "human":
-        pattern_count = sum(1 for g in sample_genes if g.isupper())
-    else:
-        return 0.0
-
-    return pattern_count / len(sample_genes)
-
-
 async def _validate_liana_requirements(
     adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
 ) -> Dict[str, Any]:
@@ -76,38 +43,9 @@ async def _validate_liana_requirements(
     }
 
     if context:
-        await context.info("Performing comprehensive LIANA+ validation...")
+        await context.info("Validating LIANA+ requirements...")
 
-    # 1. Species validation
-    if params.validate_species_match:
-        detected = _detect_species_pattern(adata)
-        if detected != "ambiguous" and detected != params.species:
-            confidence = _calculate_species_confidence(adata, detected)
-            if confidence > 0.7:
-                error_msg = (
-                    f"Species mismatch detected:\n"
-                    f"  Parameter species: '{params.species}'\n"
-                    f"  Detected from gene patterns: '{detected}' (confidence: {confidence:.1%})\n"
-                    f"  Gene samples: {list(adata.var_names[:5])}\n\n"
-                    f"Please either:\n"
-                    f"  1. Set species='{detected}' if data is {detected}\n"
-                    f"  2. Verify your gene symbols are correct for {params.species} data\n"
-                    f"  3. Use species='{detected}' and liana_resource='mouseconsensus' for mouse data"
-                )
-
-                if params.species_validation_strictness == "strict":
-                    validation_result["passed"] = False
-                    validation_result["errors"].append(error_msg)
-                elif params.species_validation_strictness == "warning":
-                    validation_result["warnings"].append(
-                        f"Species mismatch: {error_msg}"
-                    )
-                    if context:
-                        await context.warning(
-                            "Species mismatch detected but continuing due to warning mode"
-                        )
-
-    # 2. Spatial connectivity validation
+    # 1. Spatial connectivity validation
     if (
         params.perform_spatial_analysis
         and params.spatial_connectivity_handling == "require_existing"
@@ -123,7 +61,7 @@ async def _validate_liana_requirements(
             validation_result["passed"] = False
             validation_result["errors"].append(error_msg)
 
-    # 3. Cell type validation
+    # 2. Cell type validation
     if params.cell_type_handling == "require":
         if params.cell_type_column not in adata.obs.columns:
             # Show all categorical columns (more helpful than hardcoded list)
@@ -160,7 +98,7 @@ async def _validate_liana_requirements(
             validation_result["passed"] = False
             validation_result["errors"].append(error_msg)
 
-    # 4. Resource matching validation
+    # 3. Resource matching validation
     if params.species == "mouse" and params.liana_resource == "consensus":
         warning_msg = (
             "Using 'consensus' resource for mouse data. "
