@@ -231,11 +231,36 @@ class VisualizationParameters(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def handle_features_alias(cls, data):
-        """Handle 'features' parameter as alias for 'feature'"""
-        if isinstance(data, dict) and "features" in data and "feature" not in data:
-            data = data.copy()
-            data["feature"] = data.pop("features")
+    def preprocess_params(cls, data):
+        """
+        Preprocess visualization parameters to handle different input formats.
+
+        Handles:
+        - None: Returns empty dict
+        - str: Converts to feature parameter (supports "gene:CCL21" and "CCL21" formats)
+        - dict: Normalizes features/feature naming
+        """
+        # Handle None input
+        if data is None:
+            return {}
+
+        # Handle string format parameters (shorthand for feature)
+        if isinstance(data, str):
+            if data.startswith("gene:"):
+                feature = data.split(":", 1)[1]
+                return {"feature": feature, "plot_type": "spatial"}
+            else:
+                return {"feature": data, "plot_type": "spatial"}
+
+        # Handle dict format - normalize features/feature naming
+        if isinstance(data, dict):
+            data_copy = data.copy()
+            # Handle 'features' as alias for 'feature'
+            if "features" in data_copy and "feature" not in data_copy:
+                data_copy["feature"] = data_copy.pop("features")
+            return data_copy
+
+        # For other types (e.g., VisualizationParameters instances), return as-is
         return data
 
     plot_type: Literal[

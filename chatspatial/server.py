@@ -43,31 +43,27 @@ from .models.analysis import (
     TrajectoryResult,
 )
 from .models.data import (
+    AnnotationParameters,
     CellCommunicationParameters,
     CNVParameters,  # noqa: E402
     ColumnInfo,
     DeconvolutionParameters,
     EnrichmentParameters,
     IntegrationParameters,
+    PreprocessingParameters,
     RNAVelocityParameters,
     SpatialDataset,
     SpatialDomainParameters,
+    SpatialStatisticsParameters,
     SpatialVariableGenesParameters,
     TrajectoryParameters,
+    VisualizationParameters,
 )
 from .spatial_mcp_adapter import (
     MCPToolMetadata,
     create_spatial_mcp_server,
 )  # noqa: E402
 from .utils.error_handling import ProcessingError  # noqa: E402
-from .utils.mcp_parameter_handler import (
-    manual_parameter_validation,  # noqa: E402
-    validate_analysis_params,
-    validate_annotation_params,
-    validate_cell_communication_params,
-    validate_spatial_analysis_params,
-    validate_visualization_params,
-)
 from .utils.tool_error_handling import mcp_tool_error_handler  # noqa: E402
 
 # Lazy imports for heavy dependencies - imported when first used
@@ -176,9 +172,10 @@ async def load_data(
 
 @mcp.tool()
 @mcp_tool_error_handler()
-@manual_parameter_validation(("params", validate_analysis_params))
 async def preprocess_data(
-    data_id: str, params: Any = None, context: Context = None
+    data_id: str,
+    params: PreprocessingParameters = PreprocessingParameters(),
+    context: Context = None,
 ) -> PreprocessingResult:
     """Preprocess spatial transcriptomics data
 
@@ -238,9 +235,10 @@ async def preprocess_data(
 
 @mcp.tool()
 @mcp_tool_error_handler()  # CRITICAL: This decorator has special Image handling - see /docs/CRITICAL_IMAGE_DISPLAY_BUG.md
-@manual_parameter_validation(("params", validate_visualization_params))
 async def visualize_data(
-    data_id: str, params: Any = None, context: Context = None
+    data_id: str,
+    params: VisualizationParameters = VisualizationParameters(),
+    context: Context = None,
 ) -> Union[
     ImageContent, str
 ]:  # Simplified: ImageContent or str (MCP 2025 best practice)
@@ -326,7 +324,7 @@ async def visualize_data(
     dataset_info = await data_manager.get_dataset(data_id)
     data_store = {data_id: dataset_info}
 
-    # Parameter preprocessing and validation is now handled by the @manual_parameter_validation decorator
+    # Parameter validation is handled by Pydantic model
     # params is already a validated VisualizationParameters instance
 
     # Call visualization function
@@ -588,9 +586,10 @@ async def clear_visualization_cache(
 
 @mcp.tool()
 @mcp_tool_error_handler()
-@manual_parameter_validation(("params", validate_annotation_params))
 async def annotate_cell_types(
-    data_id: str, params: Any = None, context: Context = None
+    data_id: str,
+    params: AnnotationParameters = AnnotationParameters(),
+    context: Context = None,
 ) -> AnnotationResult:
     """Annotate cell types in spatial transcriptomics data
 
@@ -693,9 +692,10 @@ async def annotate_cell_types(
 
 @mcp.tool()
 @mcp_tool_error_handler()
-@manual_parameter_validation(("params", validate_spatial_analysis_params))
 async def analyze_spatial_statistics(
-    data_id: str, params: Any = None, context: Context = None
+    data_id: str,
+    params: SpatialStatisticsParameters = SpatialStatisticsParameters(),
+    context: Context = None,
 ) -> SpatialStatisticsResult:
     """Analyze spatial statistics and autocorrelation patterns
 
@@ -1228,7 +1228,6 @@ async def identify_spatial_domains(
 
 @mcp.tool()
 @mcp_tool_error_handler()
-@manual_parameter_validation(("params", validate_cell_communication_params))
 async def analyze_cell_communication(
     data_id: str,
     params: CellCommunicationParameters,  # No default - LLM must provide parameters
