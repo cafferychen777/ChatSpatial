@@ -134,7 +134,7 @@ def compute_rna_velocity(adata, mode="stochastic", params=None):
         from ..models.data import RNAVelocityParameters
 
         if isinstance(params, RNAVelocityParameters):
-            mode = params.mode
+            mode = params.scvelo_mode
 
     # Check if preprocessing is needed
     if "Ms" not in adata.layers or "Mu" not in adata.layers:
@@ -555,7 +555,7 @@ async def analyze_rna_velocity(
         )
 
     if context:
-        await context.info(f"Analyzing RNA velocity using {params.mode} mode")
+        await context.info(f"Analyzing RNA velocity using {params.scvelo_mode} mode")
 
     # Get AnnData object
     if data_id not in data_store:
@@ -587,10 +587,10 @@ async def analyze_rna_velocity(
             try:
                 if context:
                     await context.info(
-                        f"Computing RNA velocity using scVelo ({params.mode} mode)..."
+                        f"Computing RNA velocity using scVelo ({params.scvelo_mode} mode)..."
                     )
                 # Use existing scVelo computation
-                adata = compute_rna_velocity(adata, mode=params.mode, params=params)
+                adata = compute_rna_velocity(adata, mode=params.scvelo_mode, params=params)
                 velocity_computed = True
 
             except Exception as e:

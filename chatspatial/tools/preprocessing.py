@@ -887,7 +887,7 @@ async def preprocess_data(
                         await context.info(
                             f"velocity_params not specified. Using default parameters:\n"
                             f"   • Method: {default_params.method}\n"
-                            f"   • Mode: {default_params.mode}\n"
+                            f"   • Mode: {default_params.scvelo_mode}\n"
                             f"   • N top genes: {default_params.n_top_genes}\n"
                             f"   • N neighbors: {default_params.n_neighbors}\n"
                             f"   • Min shared counts: {default_params.min_shared_counts}\n"
@@ -899,7 +899,7 @@ async def preprocess_data(
 
                     if context:
                         await context.info(
-                            f"RNA velocity preprocessing completed using {velocity_params.mode} mode"
+                            f"RNA velocity preprocessing completed using {velocity_params.scvelo_mode} mode"
                         )
                 else:
                     if context:

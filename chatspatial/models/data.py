@@ -260,7 +260,7 @@ class VisualizationParameters(BaseModel):
         "spatial_cnv",  # CNV spatial projection
         "card_imputation",  # CARD imputation high-resolution results
     ] = "spatial"
-    colormap: str = "viridis"
+    colormap: str = "coolwarm"
 
     # Unified subtype parameter for all visualization types with subtypes
     subtype: Optional[str] = Field(
@@ -490,7 +490,7 @@ class AnnotationParameters(BaseModel):
     num_epochs: int = (
         100  # For Tangram/ScanVI methods - number of training epochs (reduced for faster training)
     )
-    mode: Literal["cells", "clusters"] = "cells"  # For Tangram method - mapping mode
+    tangram_mode: Literal["cells", "clusters"] = "cells"  # Tangram mapping mode: 'cells' (cell-level) or 'clusters' (cluster-level)
     cluster_label: Optional[str] = (
         None  # For mLLMCellType method - cluster label in spatial data. Only required when method='mllmcelltype'
     )
@@ -794,7 +794,7 @@ class RNAVelocityParameters(BaseModel):
     method: Literal["scvelo", "velovi"] = "scvelo"
 
     # scVelo specific parameters
-    mode: Literal["deterministic", "stochastic", "dynamical"] = "stochastic"
+    scvelo_mode: Literal["deterministic", "stochastic", "dynamical"] = "stochastic"
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
     basis: str = "spatial"
 

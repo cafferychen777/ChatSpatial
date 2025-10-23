@@ -2583,7 +2583,9 @@ async def create_scatterpie_plot(
     # Calculate pie radius based on spatial scale
     # Use params.pie_scale to adjust size
     coord_range = np.ptp(coords_plot, axis=0).max()
-    base_radius = coord_range * 0.01  # 1% of coordinate range
+    # Use 2% (1/50th) to match R scatterpie package behavior
+    # This ensures consistency with SPOTlight, STdeconvolve, and standard R workflows
+    base_radius = coord_range * 0.02  # 2% of coordinate range (matches R scatterpie)
     pie_radius = base_radius * params.pie_scale
 
     # Draw pie charts at each location
@@ -3584,7 +3586,7 @@ async def create_multi_gene_umap_visualization(
     fig, axes = setup_multi_panel_figure(
         n_panels=len(available_genes),
         params=params,
-        default_title=f"Multi-Gene Expression UMAP ({len(available_genes)} genes)",
+        default_title="",  # No default title for cleaner visualization
     )
 
     # Plot each gene
@@ -3684,7 +3686,7 @@ async def create_multi_gene_visualization(
     fig, axes = setup_multi_panel_figure(
         n_panels=len(available_genes),
         params=params,
-        default_title=f"Multi-Gene Expression ({len(available_genes)} genes)",
+        default_title="",  # No default title for cleaner visualization
         use_tight_layout=True,
     )
 

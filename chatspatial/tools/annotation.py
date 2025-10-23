@@ -671,7 +671,7 @@ async def _annotate_with_tangram(
             )
 
         # Set mapping mode
-        mode = params.mode
+        mode = params.tangram_mode
         cluster_label = params.cluster_label
 
         if mode == "clusters" and cluster_label is None:
