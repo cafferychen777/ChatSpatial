@@ -103,7 +103,7 @@ pip install -e ".[full]"  # Recommended: All features included
 <details>
 <summary><strong>Option A: Claude Desktop</strong> (GUI Application)</summary>
 
-> 💡 **New to Claude Desktop?** [Download Claude Desktop](https://claude.ai/download) from Anthropic's official site (available for Mac & Windows)
+> 💡 **New to Claude Desktop?** [Download Claude Desktop](https://claude.com/download) from Anthropic's official site (available for Mac & Windows)
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json

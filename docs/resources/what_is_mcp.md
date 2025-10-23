@@ -208,7 +208,7 @@ sq.gr.spatial_autocorr(adata)
 ## Getting Started
 
 ### 1. Install an MCP Client
-Download [Claude Desktop](https://claude.ai/download) or [VS Code](https://code.visualstudio.com/).
+Download [Claude Desktop](https://claude.com/download) or [VS Code](https://code.visualstudio.com/).
 
 ### 2. Configure MCP Servers
 Configure your client's config file:
