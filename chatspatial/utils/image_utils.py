@@ -425,7 +425,7 @@ async def optimize_fig_to_image_with_cache(
 
         if context:
             await context.info(
-                f"✅ Preview: {preview_size_kb}KB | "
+                f"Preview: {preview_size_kb}KB | "
                 f"High-quality: {hq_path} | "
                 f"Figure cached for PDF/SVG export"
             )

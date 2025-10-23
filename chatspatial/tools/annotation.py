@@ -228,7 +228,7 @@ async def _annotate_with_singler(
         singler, sce, celldex = _validate_singler(context)
 
         if context:
-            await context.info("🔬 Starting SingleR annotation...")
+            await context.info("Starting SingleR annotation...")
             await context.info(f"   Cells: {adata.n_obs}, Genes: {adata.n_vars}")
 
         # Convert AnnData to SingleCellExperiment
@@ -298,7 +298,7 @@ async def _annotate_with_singler(
                 )
                 if context:
                     await context.warning(
-                        f"⚠️  Found {n_duplicates} duplicate gene names in reference data, fixing..."
+                        f"Found {n_duplicates} duplicate gene names in reference data, fixing..."
                     )
                 reference_adata.var_names_make_unique()
 
@@ -306,7 +306,7 @@ async def _annotate_with_singler(
                 n_duplicates = len(adata.var_names) - len(set(adata.var_names))
                 if context:
                     await context.warning(
-                        f"⚠️  Found {n_duplicates} duplicate gene names in query data, fixing..."
+                        f"Found {n_duplicates} duplicate gene names in query data, fixing..."
                     )
                 adata.var_names_make_unique()
                 # Update test_features after fixing
@@ -459,7 +459,7 @@ async def _annotate_with_singler(
                     low_delta = sum(1 for d in delta_scores if d and d < 0.05)
                     if low_delta > len(delta_scores) * 0.3:
                         await context.warning(
-                            f"⚠️ {low_delta}/{len(delta_scores)} cells have low confidence scores (delta < 0.05)"
+                            f"{low_delta}/{len(delta_scores)} cells have low confidence scores (delta < 0.05)"
                         )
             except Exception:
                 delta_scores = None
@@ -537,7 +537,7 @@ async def _annotate_with_singler(
             adata.obs[confidence_key] = confidence_array
 
         if context:
-            await context.info("✅ SingleR annotation completed!")
+            await context.info("SingleR annotation completed!")
             await context.info(f"   Found {len(unique_types)} cell types")
             top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
             await context.info(
@@ -607,7 +607,7 @@ async def _annotate_with_tangram(
             )
             if context:
                 await context.warning(
-                    f"⚠️  Found {n_duplicates} duplicate gene names in reference data, fixing..."
+                    f"Found {n_duplicates} duplicate gene names in reference data, fixing..."
                 )
             adata_sc_original.var_names_make_unique()
 
@@ -615,7 +615,7 @@ async def _annotate_with_tangram(
             n_duplicates = len(adata_sp.var_names) - len(set(adata_sp.var_names))
             if context:
                 await context.warning(
-                    f"⚠️  Found {n_duplicates} duplicate gene names in spatial data, fixing..."
+                    f"Found {n_duplicates} duplicate gene names in spatial data, fixing..."
                 )
             adata_sp.var_names_make_unique()
 
@@ -654,7 +654,7 @@ async def _annotate_with_tangram(
         if context:
             await context.info(f"Using {len(training_genes)} genes for Tangram mapping")
 
-        # ✅ COW FIX: Create copy of reference data to avoid modifying original
+        # COW FIX: Create copy of reference data to avoid modifying original
         # Tangram's pp_adatas adds metadata (uns, obs) but doesn't subset genes
         adata_sc = adata_sc_original.copy()
         if context:
@@ -774,15 +774,15 @@ async def _annotate_with_tangram(
                 else:
                     # NO FALLBACK: Require modern Tangram format for scientific integrity
                     error_msg = (
-                        "❌ Tangram training history format not recognized.\n\n"
+                        "Tangram training history format not recognized.\n\n"
                         "Expected dictionary with 'main_loss' key, but got: "
                         f"{type(history).__name__ if history else 'None'}\n\n"
-                        "🔧 SOLUTIONS:\n"
+                        "SOLUTIONS:\n"
                         "1. Ensure using modern Tangram-sc version:\n"
                         "   pip install --upgrade tangram-sc\n\n"
                         "2. Verify Tangram completed training successfully\n\n"
                         "3. Check that mapping_result has valid training_history\n\n"
-                        "📋 SCIENTIFIC INTEGRITY: We require consistent Tangram output format "
+                        "SCIENTIFIC INTEGRITY: We require consistent Tangram output format "
                         "to ensure reproducible cell type mapping scores."
                     )
                     if context:
@@ -914,17 +914,17 @@ async def _annotate_with_tangram(
             if not (cell_type_prob.values >= 0).all():
                 if context:
                     await context.warning(
-                        "⚠️  Some normalized probabilities are negative - data quality issue"
+                        "Some normalized probabilities are negative - data quality issue"
                     )
             if not (cell_type_prob.values <= 1.0).all():
                 if context:
                     await context.warning(
-                        "⚠️  Some normalized probabilities exceed 1.0 - normalization failed"
+                        "Some normalized probabilities exceed 1.0 - normalization failed"
                     )
             if not np.allclose(cell_type_prob.sum(axis=1), 1.0):
                 if context:
                     await context.warning(
-                        "⚠️  Row sums don't equal 1.0 after normalization - numerical issue"
+                        "Row sums don't equal 1.0 after normalization - numerical issue"
                     )
 
             if context:
@@ -1135,28 +1135,28 @@ async def _annotate_with_scanvi(
             )
             if context:
                 await context.warning(
-                    f"⚠️  Found {n_duplicates_ref} duplicate gene names in reference data"
+                    f"Found {n_duplicates_ref} duplicate gene names in reference data"
                 )
                 await context.info(
                     "Fixing duplicate gene names with unique suffixes..."
                 )
             adata_ref_original.var_names_make_unique()
             if context:
-                await context.info("✓ Reference gene names fixed")
+                await context.info("Reference gene names fixed")
 
         # Fix duplicate gene names in query data
         if not adata.var_names.is_unique:
             n_duplicates_query = len(adata.var_names) - len(set(adata.var_names))
             if context:
                 await context.warning(
-                    f"⚠️  Found {n_duplicates_query} duplicate gene names in query data"
+                    f"Found {n_duplicates_query} duplicate gene names in query data"
                 )
                 await context.info(
                     "Fixing duplicate gene names with unique suffixes..."
                 )
             adata.var_names_make_unique()
             if context:
-                await context.info("✓ Query gene names fixed")
+                await context.info("Query gene names fixed")
 
         # ===== Gene Alignment (NEW) =====
         if context:
@@ -1170,7 +1170,7 @@ async def _annotate_with_scanvi(
                 f"Reference has {adata_ref_original.n_vars}, query has {adata.n_vars} genes."
             )
 
-        # ✅ COW FIX: Operate on temporary copies for gene subsetting
+        # COW FIX: Operate on temporary copies for gene subsetting
         # This prevents loss of HVG information in the original adata
         if len(common_genes) < adata_ref_original.n_vars:
             if context:
@@ -1193,7 +1193,7 @@ async def _annotate_with_scanvi(
         if context:
             await context.info("Validating data preprocessing...")
 
-        # ✅ DEBUG: Check for counts layer existence
+        # DEBUG: Check for counts layer existence
         if context:
             await context.info(
                 f"Reference data has 'counts' layer: {'counts' in adata_ref.layers}"
@@ -1280,7 +1280,7 @@ async def _annotate_with_scanvi(
                 await context.info("Training SCANVI model directly...")
 
             # Setup AnnData for scANVI
-            # ✅ FIX: Use raw counts from layers['counts'] instead of normalized adata.X
+            # FIX: Use raw counts from layers['counts'] instead of normalized adata.X
             scvi.model.SCANVI.setup_anndata(
                 adata_ref,
                 labels_key=cell_type_key,
@@ -1309,7 +1309,7 @@ async def _annotate_with_scanvi(
         if context:
             await context.info("Step 3/3: Preparing and training on query data...")
 
-        # ✅ COW FIX: Work on adata_subset for query data preparation
+        # COW FIX: Work on adata_subset for query data preparation
         # Add unlabeled category for all cells (on subset, not original)
         adata_subset.obs[cell_type_key] = params.scanvi_unlabeled_category
 
@@ -1319,12 +1319,12 @@ async def _annotate_with_scanvi(
             adata_subset.obs[batch_key] = "query_batch"
             if context:
                 await context.info(
-                    f"🔧 Added temporary batch label '{batch_key}' = 'query_batch' for ScANVI compatibility.\n"
+                    f"Added temporary batch label '{batch_key}' = 'query_batch' for ScANVI compatibility.\n"
                     f"   This is TECHNICAL METADATA, not real batch information from your experiment.\n"
                     f"   ScANVI algorithm requires batch labels to function properly."
                 )
 
-        # ✅ FIX: Use raw counts for query data as well
+        # FIX: Use raw counts for query data as well
         scvi.model.SCANVI.setup_anndata(
             adata_subset,
             labels_key=cell_type_key,
@@ -1344,7 +1344,7 @@ async def _annotate_with_scanvi(
             check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch,
         )
 
-        # ✅ COW FIX: Get predictions from adata_subset, then add to original adata
+        # COW FIX: Get predictions from adata_subset, then add to original adata
         predictions = spatial_model.predict()
         adata_subset.obs[cell_type_key] = predictions
         adata_subset.obs[cell_type_key] = adata_subset.obs[cell_type_key].astype(
@@ -1384,7 +1384,7 @@ async def _annotate_with_scanvi(
                 {}
             )  # Empty dict clearly indicates no confidence data available
 
-        # ✅ COW FIX: Add prediction results to original adata.obs
+        # COW FIX: Add prediction results to original adata.obs
         # This will be picked up by the main function to store in adata.obs[output_key]
         adata.obs[cell_type_key] = adata_subset.obs[cell_type_key].values
 
@@ -2021,14 +2021,11 @@ async def annotate_cell_types(
             await context.error(f"Annotation failed: {str(e)}")
         raise
 
-    # ✅ COW FIX: Each annotation method handles adata.obs assignment internally
+    # COW FIX: Each annotation method handles adata.obs assignment internally
     # This maintains consistency and prevents duplicate assignments
     # Construct output keys for result reporting
     output_key = f"cell_type_{params.method}"
     confidence_key = f"confidence_{params.method}" if confidence_scores else None
-
-    # ❌ REMOVED: data_store[data_id]["adata"] = adata
-    # No longer overwrite adata to preserve HVG information and original gene set
 
     # Inform user about visualization options
     if context:
@@ -2190,7 +2187,7 @@ async def _load_sctype_functions(context: Optional[Context] = None) -> None:
                 )
 
                 if context:
-                    await context.info("✅ R packages loaded/installed successfully")
+                    await context.info("R packages loaded/installed successfully")
 
                 # Load sc-type functions from GitHub
                 robjects.r(
@@ -2204,7 +2201,7 @@ async def _load_sctype_functions(context: Optional[Context] = None) -> None:
                 )
 
         if context:
-            await context.info("✅ sc-type R functions loaded successfully")
+            await context.info("sc-type R functions loaded successfully")
 
     except Exception as e:
         error_msg = f"Failed to load sc-type R functions: {str(e)}"
@@ -2218,7 +2215,7 @@ async def _prepare_sctype_genesets(
 ):
     """Prepare gene sets for sc-type"""
     if context:
-        await context.info("🧬 Preparing sc-type gene sets...")
+        await context.info("Preparing sc-type gene sets...")
 
     try:
         # Get robjects from validation
@@ -2352,7 +2349,7 @@ async def _run_sctype_scoring(
 ):
     """Run sc-type scoring algorithm"""
     if context:
-        await context.info("🔬 Running sc-type scoring...")
+        await context.info("Running sc-type scoring...")
 
     try:
         # Get robjects and converters from validation
@@ -2483,7 +2480,7 @@ async def _run_sctype_scoring(
 
         if context:
             await context.info(
-                f"✅ Scoring completed - DataFrame shape: {scores_df.shape}"
+                f"Scoring completed - DataFrame shape: {scores_df.shape}"
             )
             await context.info(f"   Rows (should be cell types): {scores_df.shape[0]}")
             await context.info(f"   Cols (should be cells): {scores_df.shape[1]}")
@@ -2493,7 +2490,7 @@ async def _run_sctype_scoring(
             if scores_df.index is not None and len(scores_df.index) > 0:
                 cell_type_names = list(scores_df.index)[:5]
                 await context.info(
-                    f"📋 Cell types detected: {', '.join(str(ct) for ct in cell_type_names)}"
+                    f"Cell types detected: {', '.join(str(ct) for ct in cell_type_names)}"
                     + ("..." if len(scores_df.index) > 5 else "")
                 )
 
@@ -2509,7 +2506,7 @@ async def _run_sctype_scoring(
 async def _assign_sctype_celltypes(scores_df, context: Optional[Context] = None):
     """Assign cell types based on sc-type scores"""
     if context:
-        await context.info("🏷️  Assigning cell types based on scores...")
+        await context.info("Assigning cell types based on scores...")
 
     try:
         # Handle empty or invalid scores
@@ -2626,7 +2623,7 @@ async def _assign_sctype_celltypes(scores_df, context: Optional[Context] = None)
         if context:
             unique_types = list(set(cell_types))
             await context.info(
-                f"✅ Assigned {len(unique_types)} unique cell types: {', '.join(unique_types[:10])}"
+                f"Assigned {len(unique_types)} unique cell types: {', '.join(unique_types[:10])}"
                 + ("..." if len(unique_types) > 10 else "")
             )
 
@@ -2667,7 +2664,7 @@ async def _cache_sctype_results(
         _SCTYPE_CACHE[cache_key] = results
 
         if context:
-            await context.info("✅ Results cached successfully")
+            await context.info("Results cached successfully")
 
     except Exception as e:
         if context:
@@ -2768,15 +2765,15 @@ async def _annotate_with_sctype(
 
     try:
         if context:
-            await context.info("🧬 Starting sc-type cell type annotation...")
+            await context.info("Starting sc-type cell type annotation...")
             await context.info(
-                f"📊 Analyzing {adata.n_obs} cells with {adata.n_vars} genes"
+                f"Analyzing {adata.n_obs} cells with {adata.n_vars} genes"
             )
             if params.sctype_tissue:
-                await context.info(f"🔬 Using tissue type: {params.sctype_tissue}")
+                await context.info(f"Using tissue type: {params.sctype_tissue}")
             else:
                 await context.info(
-                    f"🔬 Using custom markers for {len(params.sctype_custom_markers)} cell types"
+                    f"Using custom markers for {len(params.sctype_custom_markers)} cell types"
                 )
 
         # Check cache if enabled
@@ -2820,7 +2817,7 @@ async def _annotate_with_sctype(
             else:
                 confidence_by_celltype[cell_type] = 0.0
 
-        # ✅ COW FIX: Assign results to adata.obs (like tangram and other methods)
+        # COW FIX: Assign results to adata.obs (like tangram and other methods)
         # This maintains consistency across all annotation methods
         output_key = f"cell_type_{params.method}"
         confidence_key = f"confidence_{params.method}"

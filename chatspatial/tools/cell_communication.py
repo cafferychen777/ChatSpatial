@@ -283,7 +283,7 @@ async def analyze_cell_communication(
     if data_id not in data_store:
         raise ValueError(f"Dataset {data_id} not found in data store")
 
-    # ✅ COW FIX: Direct reference instead of copy
+    # COW FIX: Direct reference instead of copy
     # Only add metadata to adata.obs/uns, never overwrite entire adata
     adata = data_store[data_id]["adata"]
 
@@ -419,7 +419,7 @@ async def analyze_cell_communication(
                 "Cell communication analysis complete. Use visualize_data tool with plot_type='cell_communication' to visualize results"
             )
 
-        # ⚠️  CRITICAL FIX: When data_source="raw", _prepare_data_with_user_control creates a NEW adata object
+        # WARNING:  CRITICAL FIX: When data_source="raw", _prepare_data_with_user_control creates a NEW adata object
         # This breaks the direct reference to data_store, so we MUST copy results back
         original_adata = data_store[data_id]["adata"]
 
@@ -614,15 +614,24 @@ async def _analyze_communication_liana(
                     f"Spatial connectivity computed with bandwidth={bandwidth}, cutoff={cutoff}"
                 )
 
-        # Auto-detect species if not specified correctly
-        detected_species = _detect_species_from_genes(adata, context)
-        if detected_species != params.species:
-            if context:
-                await context.info(
-                    f"Auto-detected species: {detected_species}, overriding user setting: {params.species}"
-                )
-            # Update params with detected species
-            params.species = detected_species
+        # Validate species parameter is specified
+        if not params.species:
+            raise ValueError(
+                "Species parameter is required!\n\n"
+                "You must explicitly specify the species of your data:\n"
+                "  - species='human': For human data (genes like ACTB, GAPDH)\n"
+                "  - species='mouse': For mouse data (genes like Actb, Gapdh)\n"
+                "  - species='zebrafish': For zebrafish data\n\n"
+                "Example usage:\n"
+                "  params = {\n"
+                "      'species': 'mouse',\n"
+                "      'cell_type_column': 'cell_type',\n"
+                "      'liana_resource': 'mouseconsensus'\n"
+                "  }"
+            )
+
+        if context:
+            await context.info(f"Using species: {params.species}")
 
         # Determine analysis type based on data characteristics
         # BUG FIX: Check the actual cell_type_column specified by user, not just hardcoded names
@@ -637,134 +646,6 @@ async def _analyze_communication_liana(
 
     except Exception as e:
         raise RuntimeError(f"LIANA+ analysis failed: {str(e)}")
-
-
-def _detect_species_from_genes(adata: Any, context: Optional[Context] = None) -> str:
-    """Auto-detect species from gene names using adaptive sampling strategy"""
-    # Linus's Rule: No magic numbers, no special cases
-    gene_names = _get_representative_gene_sample(adata)
-
-    # Common mouse gene patterns
-    mouse_patterns = [
-        lambda g: g[0].isupper()
-        and g[1:].islower(),  # Capitalized first letter, rest lowercase (e.g., Actb)
-        lambda g: any(
-            g.startswith(prefix) for prefix in ["Gm", "Rik", "LOC"]
-        ),  # Mouse-specific prefixes
-    ]
-
-    # Common human gene patterns
-    human_patterns = [
-        lambda g: g.isupper(),  # All uppercase (e.g., ACTB)
-        lambda g: g.startswith("ENSG"),  # Ensembl human gene IDs
-    ]
-
-    mouse_score = sum(
-        1 for gene in gene_names if any(pattern(gene) for pattern in mouse_patterns)
-    )
-    human_score = sum(
-        1 for gene in gene_names if any(pattern(gene) for pattern in human_patterns)
-    )
-
-    # Calculate confidence scores for robustness
-    total_classified = mouse_score + human_score
-    confidence = total_classified / len(gene_names) if gene_names else 0
-
-    # Note: context.info is async but we can't await in a sync function
-    # Store confidence for potential logging by caller
-    result_species = "mouse" if mouse_score > human_score else "human"
-
-    # Store detection metadata for debugging
-    if hasattr(adata, "uns"):
-        adata.uns["species_detection"] = {
-            "detected_species": result_species,
-            "mouse_score": mouse_score,
-            "human_score": human_score,
-            "total_genes_sampled": len(gene_names),
-            "classification_confidence": confidence,
-        }
-
-    return result_species
-
-
-def _get_representative_gene_sample(adata: Any) -> set:
-    """
-    Get representative gene sample using adaptive sampling strategy.
-
-    Linus's principle: Eliminate special cases by making the algorithm adapt to data,
-    not the other way around.
-    """
-    total_genes = len(adata.var.index)
-
-    if total_genes == 0:
-        return set()
-
-    # Adaptive sample size based on dataset characteristics
-    if total_genes <= 100:
-        # Small dataset: use all genes
-        sample_size = total_genes
-        return set(adata.var.index)
-    elif total_genes <= 1000:
-        # Medium dataset: use all genes, no sampling needed
-        sample_size = total_genes
-        return set(adata.var.index)
-    else:
-        # Large dataset: intelligent sampling
-        # Use square root scaling with reasonable bounds
-        sample_size = max(500, min(2000, int(np.sqrt(total_genes) * 50)))
-
-        # Stratified sampling to avoid ordering bias
-        # Take samples from different parts of the gene list
-        return _stratified_gene_sampling(adata.var.index, sample_size)
-
-
-def _stratified_gene_sampling(gene_index: Any, sample_size: int) -> set:
-    """
-    Perform stratified sampling to get representative genes from different regions.
-
-    This eliminates the ordering bias problem that plagued the original [:1000] approach.
-    """
-    total_genes = len(gene_index)
-
-    if sample_size >= total_genes:
-        return set(gene_index)
-
-    # Divide gene space into strata and sample from each
-    n_strata = min(10, sample_size // 50)  # At least 50 genes per stratum
-    if n_strata < 2:
-        # Fallback to simple random sampling for very small sample sizes
-        indices = np.random.choice(total_genes, sample_size, replace=False)
-        return set(gene_index[indices])
-
-    genes_per_stratum = sample_size // n_strata
-    remaining_genes = sample_size % n_strata
-
-    sampled_genes = set()
-
-    for i in range(n_strata):
-        # Calculate stratum boundaries
-        stratum_start = (total_genes * i) // n_strata
-        stratum_end = (total_genes * (i + 1)) // n_strata
-
-        # Number of genes to sample from this stratum
-        stratum_sample_size = genes_per_stratum
-        if i < remaining_genes:
-            stratum_sample_size += 1
-
-        # Sample from this stratum
-        stratum_size = stratum_end - stratum_start
-        if stratum_sample_size >= stratum_size:
-            # Take all genes from this stratum
-            sampled_genes.update(gene_index[stratum_start:stratum_end])
-        else:
-            # Random sample from stratum
-            stratum_indices = (
-                np.random.choice(stratum_size, stratum_sample_size, replace=False)
-                + stratum_start
-            )
-            sampled_genes.update(gene_index[stratum_indices])
-
-    return sampled_genes
 
 
 def _get_liana_resource_name(species: str, resource_preference: str) -> str:
@@ -1258,7 +1139,7 @@ async def _analyze_communication_cellphonedb(
                 # Issue warning about problematic genes found
                 if context:
                     await context.warning(
-                        f"⚠️ ULTRATHINK Gene Filter: Found {len(gene_info['found_core'])} problematic genes "
+                        f"WARNING - ULTRATHINK Gene Filter: Found {len(gene_info['found_core'])} problematic genes "
                         f"that may cause 'ICAM3_integrin_aDb2_complex' KeyError with microenvironments:\n"
                         f"  Core genes found: {', '.join(gene_info['found_core'])}\n"
                         f"  Using '{params.gene_filtering_strategy}' filtering strategy..."
@@ -1280,17 +1161,17 @@ async def _analyze_communication_cellphonedb(
                     filter_info = adata_for_analysis.uns["cellphonedb_gene_filter"]
                     if context:
                         await context.warning(
-                            f"✂️ Gene Filtering Applied:\n"
+                            f"Gene Filtering Applied:\n"
                             f"  Strategy: {filter_info['strategy']}\n"
                             f"  Genes removed: {filter_info['n_genes_removed']}\n"
                             f"  Genes remaining: {filter_info['n_genes_after']}/{filter_info['n_genes_before']}\n"
                             f"  Removed genes: {', '.join(filter_info['genes_removed'])}\n"
-                            f"  📦 Original data preserved in adata.raw for recovery"
+                            f"  Original data preserved in adata.raw for recovery"
                         )
             else:
                 if context:
                     await context.info(
-                        "✅ No problematic genes found. Proceeding without filtering."
+                        "No problematic genes found. Proceeding without filtering."
                     )
 
         # Import pandas for DataFrame operations
@@ -1395,9 +1276,9 @@ async def _analyze_communication_cellphonedb(
                 if not isinstance(result, dict):
                     # Critical error: unexpected format from CellPhoneDB
                     error_msg = (
-                        "❌ CRITICAL: CellPhoneDB returned unexpected format.\n\n"
+                        "CRITICAL: CellPhoneDB returned unexpected format.\n\n"
                         f"Expected dictionary format from CellPhoneDB v5, but received: {type(result).__name__}\n\n"
-                        "🔧 SOLUTIONS:\n"
+                        "SOLUTIONS:\n"
                         "1. Verify CellPhoneDB installation:\n"
                         "   pip list | grep cellphonedb  # Should be >=5.0.0\n\n"
                         "2. Reinstall correct version:\n"
@@ -1405,7 +1286,7 @@ async def _analyze_communication_cellphonedb(
                         "   pip install 'cellphonedb>=5.0.0,<6.0'\n\n"
                         "3. Check for environment conflicts:\n"
                         "   python -c 'import cellphonedb; print(cellphonedb.__version__)'\n\n"
-                        "📋 SCIENTIFIC INTEGRITY: Using incorrect CellPhoneDB version may produce "
+                        "SCIENTIFIC INTEGRITY: Using incorrect CellPhoneDB version may produce "
                         "inconsistent results. We enforce v5 to ensure reproducible analysis."
                     )
                     if context:
@@ -1422,15 +1303,15 @@ async def _analyze_communication_cellphonedb(
                 if significant_means is None and "significant_means" not in result:
                     # CellPhoneDB API failure - do not mask with empty DataFrame
                     error_msg = (
-                        "❌ CellPhoneDB API returned incomplete results (missing 'significant_means').\n\n"
-                        "🔧 SOLUTIONS:\n"
+                        "CellPhoneDB API returned incomplete results (missing 'significant_means').\n\n"
+                        "SOLUTIONS:\n"
                         "1. Use LIANA method (more robust):\n"
                         "   analyze_cell_communication(data_id, params={'method': 'liana'})\n\n"
                         "2. Ensure comprehensive gene coverage (>10,000 genes recommended)\n\n"
                         "3. Use raw data with full gene set:\n"
                         "   analyze_cell_communication(data_id, params={'data_source': 'raw'})\n\n"
                         "4. Check data quality and L-R gene presence in dataset\n\n"
-                        "📋 CONTEXT: This indicates CellPhoneDB internal failure or insufficient gene coverage."
+                        "CONTEXT: This indicates CellPhoneDB internal failure or insufficient gene coverage."
                     )
                     if context:
                         await context.error(error_msg)
@@ -1444,8 +1325,8 @@ async def _analyze_communication_cellphonedb(
                     "integrin" in error_str.lower() and "KeyError" in error_str
                 ):
                     error_msg = (
-                        f"❌ CellPhoneDB analysis failed due to ICAM3_integrin_aDb2_complex compatibility issue.\n\n"
-                        f"🔧 SOLUTIONS:\n"
+                        f"CellPhoneDB analysis failed due to ICAM3_integrin_aDb2_complex compatibility issue.\n\n"
+                        f"SOLUTIONS:\n"
                         f"1. Try aggressive gene filtering:\n"
                         f"   analyze_cell_communication(data_id, params={{'gene_filtering_strategy': 'aggressive'}})\n\n"
                         f"2. Disable spatial microenvironments:\n"
@@ -1454,7 +1335,7 @@ async def _analyze_communication_cellphonedb(
                         f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
                         f"4. Try CellChat via LIANA:\n"
                         f"   analyze_cell_communication(data_id, params={{'method': 'cellchat_liana'}})\n\n"
-                        f"📋 CONTEXT: This is a known CellPhoneDB compatibility issue with integrin complexes.\n"
+                        f"CONTEXT: This is a known CellPhoneDB compatibility issue with integrin complexes.\n"
                         f"Original error: {error_str}"
                     )
                 elif (
@@ -1462,34 +1343,34 @@ async def _analyze_communication_cellphonedb(
                     or "KeyError: 'significant_means'" in error_str
                 ):
                     error_msg = (
-                        f"❌ CellPhoneDB analysis failed - insufficient ligand-receptor gene coverage.\n\n"
-                        f"🔧 SOLUTIONS:\n"
+                        f"CellPhoneDB analysis failed - insufficient ligand-receptor gene coverage.\n\n"
+                        f"SOLUTIONS:\n"
                         f"1. Use raw data with full gene set:\n"
                         f"   analyze_cell_communication(data_id, params={{'data_source': 'raw'}})\n\n"
                         f"2. Use LIANA method (handles sparse data better):\n"
                         f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
                         f"3. Ensure comprehensive gene panel (>10,000 genes recommended)\n\n"
                         f"4. For Visium data, include all genes (not just HVGs)\n\n"
-                        f"📋 CONTEXT: Dataset has {adata.n_vars:,} genes. CellPhoneDB requires extensive L-R gene coverage.\n"
+                        f"CONTEXT: Dataset has {adata.n_vars:,} genes. CellPhoneDB requires extensive L-R gene coverage.\n"
                         f"Original error: {error_str}"
                     )
                 elif microenvs_file:
                     error_msg = (
-                        f"❌ CellPhoneDB spatial analysis failed.\n\n"
-                        f"🔧 SOLUTIONS:\n"
+                        f"CellPhoneDB spatial analysis failed.\n\n"
+                        f"SOLUTIONS:\n"
                         f"1. Disable spatial microenvironments:\n"
                         f"   analyze_cell_communication(data_id, params={{'cellphonedb_use_microenvironments': False}})\n\n"
                         f"2. Verify spatial coordinates are present in data\n\n"
                         f"3. Check microenvironment file format (cell_type, microenvironment columns)\n\n"
                         f"4. Use LIANA for spatial analysis:\n"
                         f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
-                        f"📋 CONTEXT: Spatial analysis requires properly formatted data and coordinates.\n"
+                        f"CONTEXT: Spatial analysis requires properly formatted data and coordinates.\n"
                         f"Original error: {error_str}"
                     )
                 else:
                     error_msg = (
-                        f"❌ CellPhoneDB analysis failed.\n\n"
-                        f"🔧 SOLUTIONS:\n"
+                        f"CellPhoneDB analysis failed.\n\n"
+                        f"SOLUTIONS:\n"
                         f"1. Try LIANA method (more robust):\n"
                         f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
                         f"2. Check CellPhoneDB installation:\n"
@@ -1497,7 +1378,7 @@ async def _analyze_communication_cellphonedb(
                         f"3. Verify cell type annotations exist in data\n\n"
                         f"4. Reduce computational requirements:\n"
                         f"   analyze_cell_communication(data_id, params={{'cellphonedb_iterations': 100}})\n\n"
-                        f"📋 CONTEXT: General CellPhoneDB failure - consider alternative methods.\n"
+                        f"CONTEXT: General CellPhoneDB failure - consider alternative methods.\n"
                         f"Original error: {error_str}"
                     )
 
@@ -1535,14 +1416,14 @@ async def _analyze_communication_cellphonedb(
         ):
             # NO FALLBACK - if we can't filter properly, fail loudly
             raise RuntimeError(
-                "❌ CellPhoneDB statistical filtering failed: p-values unavailable.\n\n"
+                "CellPhoneDB statistical filtering failed: p-values unavailable.\n\n"
                 "This is required to correctly identify significant interactions.\n"
                 "Without p-values, all interactions would be incorrectly marked as significant.\n\n"
-                "🔧 SOLUTIONS:\n"
+                "SOLUTIONS:\n"
                 "1. Ensure CellPhoneDB v5 is properly installed: pip install 'cellphonedb>=5.0.0'\n"
                 "2. Check that the analysis completed successfully without errors\n"
                 "3. Try LIANA method as alternative: analyze_cell_communication(..., method='liana')\n\n"
-                "📋 SCIENTIFIC INTEGRITY: We refuse to return potentially incorrect results.\n"
+                "SCIENTIFIC INTEGRITY: We refuse to return potentially incorrect results.\n"
                 "Better to fail explicitly than report 100% false positives."
             )
 
@@ -1558,7 +1439,7 @@ async def _analyze_communication_cellphonedb(
         if pval_array.shape[0] == 0:
             # No numeric columns found
             raise RuntimeError(
-                "❌ CellPhoneDB p-values are not numeric.\n"
+                "CellPhoneDB p-values are not numeric.\n"
                 "This indicates a problem with CellPhoneDB analysis.\n"
                 "Please check CellPhoneDB installation and data format."
             )
@@ -1571,7 +1452,7 @@ async def _analyze_communication_cellphonedb(
 
         if context:
             await context.info(
-                f"🔬 DEBUG: Starting multiple testing correction\n"
+                f"DEBUG: Starting multiple testing correction\n"
                 f"  Method: {correction_method}\n"
                 f"  P-value array shape: {pval_array.shape}\n"
                 f"  Cell type pairs: {n_cell_type_pairs}\n"
@@ -1586,7 +1467,7 @@ async def _analyze_communication_cellphonedb(
 
             if context:
                 await context.warning(
-                    f"⚠️ Multiple testing correction disabled (correction_method='none').\n"
+                    f"WARNING: Multiple testing correction disabled (correction_method='none').\n"
                     f"With {n_cell_type_pairs} cell type pairs, this can lead to severe\n"
                     f"false positive inflation (theoretical FPR ~{(1-(1-threshold)**n_cell_type_pairs)*100:.1f}%).\n"
                     f"Consider using 'fdr_bh', 'bonferroni', or 'sidak' correction."
@@ -1659,7 +1540,7 @@ async def _analyze_communication_cellphonedb(
             # Log the filtering results
             if context:
                 await context.info(
-                    f"📊 CellPhoneDB Statistical Filtering:\n"
+                    f"CellPhoneDB Statistical Filtering:\n"
                     f"  Total L-R pairs tested: {n_lr_pairs:,}\n"
                     f"  Significant pairs (p < {threshold}): {n_significant_pairs:,}\n"
                     f"  Significance rate: {n_significant_pairs/n_lr_pairs*100:.2f}%\n"
@@ -1670,7 +1551,7 @@ async def _analyze_communication_cellphonedb(
                 significance_rate = n_significant_pairs / n_lr_pairs
                 if significance_rate > 0.5:
                     await context.warning(
-                        f"⚠️ Unusually high significance rate: {significance_rate*100:.1f}%\n"
+                        f"WARNING: Unusually high significance rate: {significance_rate*100:.1f}%\n"
                         f"This may indicate:\n"
                         f"  1. Extremely strong biological signals (rare)\n"
                         f"  2. Data quality issues\n"
@@ -1682,7 +1563,7 @@ async def _analyze_communication_cellphonedb(
             # No significant interactions found
             if context:
                 await context.warning(
-                    f"⚠️ No significant interactions found at p < {threshold}.\n"
+                    f"WARNING: No significant interactions found at p < {threshold}.\n"
                     f"Consider:\n"
                     f"  1. Relaxing threshold (current: {threshold})\n"
                     f"  2. Checking data quality and gene coverage\n"
@@ -2083,14 +1964,14 @@ async def _comprehensive_data_validation(
         if context:
             if validation_result["passed"]:
                 await context.info(
-                    f"✅ Data validation passed with {len(warnings_list)} warnings"
+                    f"Data validation passed with {len(warnings_list)} warnings"
                 )
                 if warnings_list:
                     for warning in warnings_list[:3]:  # Show first 3 warnings
-                        await context.info(f"⚠️  {warning}")
+                        await context.info(f" {warning}")
             else:
                 await context.warning(
-                    f"❌ Data validation failed: {len(errors)} critical issues found"
+                    f"Data validation failed: {len(errors)} critical issues found"
                 )
 
         return validation_result

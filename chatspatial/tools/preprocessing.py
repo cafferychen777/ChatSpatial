@@ -93,7 +93,7 @@ def _diagnose_hvg_failure(adata, n_hvgs: int) -> str:
                 "✓ Data appears normalized (contains non-integer values)"
             )
         else:
-            diagnostics.append("⚠ Data may be raw counts (consider normalization)")
+            diagnostics.append("WARNING: Data may be raw counts (consider normalization)")
 
         # Check data range
         data_min, data_max = float(adata.X.min()), float(adata.X.max())
@@ -105,7 +105,7 @@ def _diagnose_hvg_failure(adata, n_hvgs: int) -> str:
     # Check if requested HVGs is too high
     if n_hvgs >= adata.n_vars:
         diagnostics.append(
-            f"⚠ Requested {n_hvgs} HVGs but only {adata.n_vars} genes available"
+            f"WARNING: Requested {n_hvgs} HVGs but only {adata.n_vars} genes available"
         )
         diagnostics.append(f"Suggested: Use n_hvgs={min(adata.n_vars // 2, 2000)}")
 
@@ -115,7 +115,7 @@ def _diagnose_hvg_failure(adata, n_hvgs: int) -> str:
         if gene_var is not None:
             zero_var_genes = np.sum(gene_var == 0)
             if zero_var_genes > 0:
-                diagnostics.append(f"⚠ {zero_var_genes} genes have zero variance")
+                diagnostics.append(f"WARNING: {zero_var_genes} genes have zero variance")
         else:
             diagnostics.append("Could not compute gene variance for diagnosis")
     except Exception:
@@ -191,7 +191,7 @@ async def preprocess_data(
                 adata, copy=False, strict=False, preserve_original=True
             )
             if context:
-                await context.info("✓ Data structure standardized successfully")
+                await context.info("Data structure standardized successfully")
         except Exception as e:
             if context:
                 await context.warning(
@@ -219,14 +219,14 @@ async def preprocess_data(
             n_duplicates = len(adata.var_names) - len(set(adata.var_names))
             if context:
                 await context.warning(
-                    f"⚠️  Found {n_duplicates} duplicate gene names in data"
+                    f"Found {n_duplicates} duplicate gene names in data"
                 )
                 await context.info(
                     "Fixing duplicate gene names with unique suffixes..."
                 )
             adata.var_names_make_unique()
             if context:
-                await context.info(f"✓ Fixed {n_duplicates} duplicate gene names")
+                await context.info(f"Fixed {n_duplicates} duplicate gene names")
 
         # 1. Calculate QC metrics
         if context:
@@ -250,20 +250,18 @@ async def preprocess_data(
                 or len(gene_counts) == 0
                 or np.all(gene_counts == 0)
             ):
-                # ❌ REMOVED: Fallback creation of fake QC metrics
-                # Creating artificial count data violates scientific integrity
                 raise ValueError(
-                    "❌ CRITICAL DATA QUALITY ISSUE\n\n"
+                    "CRITICAL DATA QUALITY ISSUE\n\n"
                     "Unable to calculate basic QC metrics from your data:\n"
                     "• Gene count calculation failed\n"
                     "• Cell gene count calculation failed\n"
                     "• This indicates fundamental data corruption or format issues\n\n"
-                    "🛠️ REQUIRED ACTIONS:\n"
+                    "REQUIRED ACTIONS:\n"
                     "1. Verify your input data format and integrity\n"
                     "2. Check for correct gene expression matrix structure\n"
                     "3. Ensure data is not corrupted during loading\n"
                     "4. Verify that adata.X contains valid numeric expression data\n\n"
-                    "⚠️ SCIENTIFIC INTEGRITY: We refuse to create fake QC metrics.\n"
+                    "SCIENTIFIC INTEGRITY: We refuse to create fake QC metrics.\n"
                     "   Real scientific analysis requires real data, not artificial fallbacks."
                 )
 
@@ -435,7 +433,7 @@ async def preprocess_data(
                     )
                     if context:
                         await context.info(
-                            f"🔧 normalize_target_sum not specified. Using adaptive normalization:\n"
+                            f"normalize_target_sum not specified. Using adaptive normalization:\n"
                             f"   • Calculated median counts: {calculated_median:.0f}\n"
                             f"   • This value was automatically determined from your data\n"
                             f"   • For reproducible results, use: normalize_target_sum={calculated_median:.0f}"
@@ -445,7 +443,7 @@ async def preprocess_data(
                         f"✓ Normalized to adaptive target_sum={calculated_median:.0f}"
                     )
                 sc.pp.log1p(adata)
-                logger.info("✓ Applied log1p transformation")
+                logger.info("Applied log1p transformation")
             elif params.normalization == "sct":
                 # SCTransform is not actually implemented
                 error_msg = (
@@ -505,7 +503,7 @@ async def preprocess_data(
                     # Apply Pearson residuals normalization (to all genes)
                     # Note: High variable gene selection happens later in the pipeline
                     sc.experimental.pp.normalize_pearson_residuals(adata)
-                    logger.info("✓ Applied Pearson residuals normalization")
+                    logger.info("Applied Pearson residuals normalization")
                 except MemoryError:
                     raise MemoryError(
                         f"Insufficient memory for Pearson residuals on {adata.n_obs}×{adata.n_vars} matrix. "
@@ -522,7 +520,7 @@ async def preprocess_data(
                     await context.info(
                         "Skipping normalization (data assumed to be pre-normalized)"
                     )
-                logger.info("✓ Normalization skipped (using pre-normalized data)")
+                logger.info("Normalization skipped (using pre-normalized data)")
 
                 # CRITICAL: Check if data appears to be raw counts
                 # HVG selection requires normalized data for statistical validity
@@ -538,18 +536,18 @@ async def preprocess_data(
                 # Check if data looks raw (all integers and high values)
                 if np.all((X_sample % 1) == 0) and np.max(X_sample) > 100:
                     error_msg = (
-                        "❌ STATISTICAL ERROR: Cannot perform HVG selection on raw counts with normalization='none'\n\n"
+                        "STATISTICAL ERROR: Cannot perform HVG selection on raw counts with normalization='none'\n\n"
                         "Your data appears to be raw counts (integer values with max > 100), but you specified "
                         "normalization='none'. Highly variable gene (HVG) selection requires normalized data "
                         "for statistical validity because:\n"
                         "• Raw count variance scales non-linearly with expression level\n"
                         "• This prevents accurate comparison of variability across genes\n"
                         "• Scanpy's HVG algorithm will fail with 'infinity' errors\n\n"
-                        "📊 REQUIRED ACTIONS:\n"
+                        "REQUIRED ACTIONS:\n"
                         "Option 1 (Recommended): Use normalization='log' for standard log-normalization\n"
                         "Option 2: Use normalization='pearson_residuals' for variance-stabilizing normalization\n"
                         "Option 3: Pre-normalize your data externally, then reload with normalized values\n\n"
-                        "⚠️  If your data is already normalized but appears raw, verify data integrity."
+                        "WARNING: If your data is already normalized but appears raw, verify data integrity."
                     )
                     if context:
                         await context.error(error_msg)
@@ -597,7 +595,7 @@ async def preprocess_data(
         # - Single-cell best practices: typical range 1000-2000
         if n_hvgs < 500 and context:
             await context.warning(
-                f"⚠️  Using only {n_hvgs} HVGs is below the recommended minimum of 500 genes.\n"
+                f"Using only {n_hvgs} HVGs is below the recommended minimum of 500 genes.\n"
                 f"   • Literature consensus: 500-5000 genes (typical: 1000-2000)\n"
                 f"   • Low gene counts may lead to unstable clustering results\n"
                 f"   • Recommended: Use n_hvgs=1000-2000 for most analyses\n"
@@ -615,7 +613,7 @@ async def preprocess_data(
             # Attempt HVG selection - no fallback for failures
             try:
                 sc.pp.highly_variable_genes(adata, n_top_genes=n_hvgs)
-                logger.info(f"✓ Selected {n_hvgs} highly variable genes")
+                logger.info(f"Selected {n_hvgs} highly variable genes")
             except Exception as e:
                 # Provide detailed error information with diagnostics
                 diagnostics = _diagnose_hvg_failure(adata, n_hvgs)
@@ -665,7 +663,7 @@ async def preprocess_data(
                 await context.info(
                     f"Subsampled to {adata.n_vars} highly variable genes"
                 )
-            logger.info(f"✓ Gene subsampling: kept {adata.n_vars} HVGs")
+            logger.info(f"Gene subsampling: kept {adata.n_vars} HVGs")
 
         # 5. Batch effect correction (if applicable)
         if (
@@ -800,7 +798,7 @@ async def preprocess_data(
         recommended_max = int(np.sqrt(adata.n_obs))
         if n_neighbors > recommended_max and context:
             await context.warning(
-                f"⚠️  n_neighbors={n_neighbors} exceeds the sqrt(N) rule of thumb (√{adata.n_obs} ≈ {recommended_max}).\n"
+                f"n_neighbors={n_neighbors} exceeds the sqrt(N) rule of thumb (√{adata.n_obs} ≈ {recommended_max}).\n"
                 f"   • High neighbor counts may reduce clustering resolution for small datasets\n"
                 f"   • Rule of thumb: k ≈ √N (based on KNN literature)\n"
                 f"   • Recommended: n_neighbors={recommended_max} or lower for this dataset\n"
@@ -887,7 +885,7 @@ async def preprocess_data(
                     if params.velocity_params is None and context:
                         default_params = RNAVelocityParameters()
                         await context.info(
-                            f"🔧 velocity_params not specified. Using default parameters:\n"
+                            f"velocity_params not specified. Using default parameters:\n"
                             f"   • Method: {default_params.method}\n"
                             f"   • Mode: {default_params.mode}\n"
                             f"   • N top genes: {default_params.n_top_genes}\n"

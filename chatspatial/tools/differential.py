@@ -76,7 +76,7 @@ async def differential_expression(
                     [f"  • {g}: {n} cell(s)" for g, n in skipped_groups.items()]
                 )
                 await context.warning(
-                    f"⚠️ Skipped {len(skipped_groups)} group(s) with <{min_cells} cells:\n{skipped_list}"
+                    f"WARNING:Skipped {len(skipped_groups)} group(s) with <{min_cells} cells:\n{skipped_list}"
                 )
 
         # Check if any valid groups remain
@@ -85,9 +85,9 @@ async def differential_expression(
                 [f"  • {g}: {n} cell(s)" for g, n in group_sizes.items()]
             )
             raise ValueError(
-                f"❌ All groups have <{min_cells} cells. Cannot perform {method} test.\n\n"
-                f"📊 Group sizes:\n{all_sizes}\n\n"
-                f"💡 Try: find_markers(group_key='leiden') or merge small groups"
+                f"All groups have <{min_cells} cells. Cannot perform {method} test.\n\n"
+                f"Group sizes:\n{all_sizes}\n\n"
+                f"Try: find_markers(group_key='leiden') or merge small groups"
             )
 
         # Filter data to only include valid groups
@@ -252,19 +252,19 @@ async def differential_expression(
     # Check if raw count data is available
     if adata.raw is None:
         raise ValueError(
-            "❌ CRITICAL: Raw count data required for accurate fold change calculation\n\n"
+            "CRITICAL: Raw count data required for accurate fold change calculation\n\n"
             "Differential expression analysis requires raw counts (adata.raw) to calculate "
             "scientifically accurate fold change values. Your data lacks this.\n\n"
-            "📊 WHY THIS MATTERS:\n"
+            "WHY THIS MATTERS:\n"
             "• Fold change from log-normalized data produces mathematically incorrect results\n"
             "• Can lead to extreme overestimation (e.g., 1000× instead of 3×)\n"
             "• Results would not be scientifically valid for publication\n\n"
-            "🔧 SOLUTION:\n"
+            "SOLUTION:\n"
             "1. Reload your data and run preprocessing again:\n"
             "   preprocess_data(data_id='your_data', params={'normalization': 'log'})\n"
             "2. Preprocessing automatically saves raw counts to adata.raw\n"
             "3. Then run differential expression analysis\n\n"
-            "⚠️  We refuse to return incorrect fold change values. "
+            "WARNING: We refuse to return incorrect fold change values. "
             "Scientific integrity requires accurate calculations."
         )
 
@@ -336,7 +336,7 @@ async def differential_expression(
     if mean_log2fc is not None and abs(mean_log2fc) > 10:
         if context:
             await context.warning(
-                f"⚠️  EXTREME FOLD CHANGE DETECTED: mean log2FC = {mean_log2fc:.2f}\n"
+                f"WARNING: EXTREME FOLD CHANGE DETECTED: mean log2FC = {mean_log2fc:.2f}\n"
                 f"   • This indicates fold change > 2^10 = 1024×\n"
                 f"   • Biologically plausible range: 2-32× (log2FC = 1-5)\n"
                 f"   • Possible causes:\n"

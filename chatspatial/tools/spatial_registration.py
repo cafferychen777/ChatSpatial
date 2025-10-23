@@ -480,7 +480,7 @@ class SpatialRegistration:
                         if isinstance(transformed_coords, torch.Tensor):
                             transformed_coords = transformed_coords.numpy()
 
-                        logger.info("✅ STalign LDDMM registration successful")
+                        logger.info("STalign LDDMM registration successful")
                     else:
                         raise ValueError(
                             "STalign did not return valid transformation components"

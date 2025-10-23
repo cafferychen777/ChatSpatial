@@ -94,12 +94,12 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
             if batch_key not in adata.obs:
                 raise ValueError(
                     f"Dataset {i} missing batch information in column '{batch_key}'.\n\n"
-                    f"🔬 SAMPLE INTEGRATION REQUIRES BATCH LABELS\n"
+                    f"DEBUG:SAMPLE INTEGRATION REQUIRES BATCH LABELS\n"
                     f"Each dataset must have batch information for proper integration.\n\n"
                     f"🛠️ HOW TO ADD BATCH LABELS:\n"
                     f"• Same batch: adata.obs['{batch_key}'] = 'experiment_1'\n"
                     f"• Different batches: adata.obs['{batch_key}'] = 'batch_A', 'batch_B', etc.\n\n"
-                    f"⚠️ IMPORTANT: Only use real batch information from your experiment.\n"
+                    f"IMPORTANT: Only use real batch information from your experiment.\n"
                     f"Don't create fake batch labels - this violates scientific integrity."
                 )
 

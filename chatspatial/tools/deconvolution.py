@@ -241,7 +241,7 @@ def _prepare_anndata_for_counts(
                 )
                 if context:
                     context.info(
-                        f"✅ Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
+                        f"Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
                     )
                 adata_copy = raw_adata
                 data_source = "raw"
@@ -253,7 +253,7 @@ def _prepare_anndata_for_counts(
                 )
                 if context:
                     context.info(
-                        f"⚠️ .raw for {data_name} is normalized, checking counts layer"
+                        f"WARNING:.raw for {data_name} is normalized, checking counts layer"
                     )
         except Exception as e:
             logger.warning(
@@ -265,7 +265,7 @@ def _prepare_anndata_for_counts(
     if data_source is None and "counts" in adata_copy.layers:
         logger.info(f"{data_name}: Found counts layer, using as raw counts")
         if context:
-            context.info(f"✅ Using counts layer for {data_name} data")
+            context.info(f"Using counts layer for {data_name} data")
         adata_copy.X = adata_copy.layers["counts"].copy()
         data_source = "counts_layer"
 
@@ -323,7 +323,7 @@ def _prepare_anndata_for_counts(
     # Check if data is valid integer counts
     if has_negatives or has_decimals:
         error_msg = (
-            f"\n❌ {data_name} data is not raw integer counts:\n"
+            f"\n{data_name} data is not raw integer counts:\n"
             f"  • Data source attempted: {data_source}\n"
             f"  • Range: [{data_min:.2f}, {data_max:.2f}]\n"
             f"  • Has negative values: {has_negatives}\n"
@@ -332,21 +332,21 @@ def _prepare_anndata_for_counts(
 
         if has_negatives:
             error_msg += (
-                "  ⚠️ Data appears to be z-score normalized (contains negative values)\n"
+                "  WARNING:Data appears to be z-score normalized (contains negative values)\n"
             )
         elif has_decimals and data_max < 20:
-            error_msg += "  ⚠️ Data appears to be log-transformed\n"
+            error_msg += "  WARNING:Data appears to be log-transformed\n"
         elif has_decimals:
-            error_msg += "  ⚠️ Data appears to be normalized (contains decimals)\n"
+            error_msg += "  WARNING:Data appears to be normalized (contains decimals)\n"
 
         error_msg += (
-            "\n🚫 IMPORTANT: Deconvolution methods (Cell2location, DestVI, RCTD, Stereoscope) "
+            "\nIMPORTANT: Deconvolution methods (Cell2location, DestVI, RCTD, Stereoscope) "
             "require raw integer counts and CANNOT work with preprocessed data.\n\n"
             "DO NOT use these preprocessing steps before deconvolution:\n"
-            "  ❌ normalize_total (sc.pp.normalize_total)\n"
-            "  ❌ log transformation (sc.pp.log1p)\n"
-            "  ❌ scaling/z-score (sc.pp.scale)\n"
-            "  ❌ any transformation that creates decimals or negative values\n\n"
+            "  normalize_total (sc.pp.normalize_total)\n"
+            "  log transformation (sc.pp.log1p)\n"
+            "  scaling/z-score (sc.pp.scale)\n"
+            "  any transformation that creates decimals or negative values\n\n"
             "Solutions:\n"
             "  1. Skip preprocessing before deconvolution:\n"
             "     • Load data → Directly run deconvolution\n"
@@ -377,7 +377,7 @@ def _prepare_anndata_for_counts(
 
     if context:
         context.info(
-            f"✅ {data_name} data validated: "
+            f"{data_name} data validated: "
             f"source={data_source}, range=[{int(data_min)}, {int(data_max)}]"
         )
 
@@ -433,7 +433,7 @@ def _prepare_reference_for_card(
                 )
                 if context:
                     context.info(
-                        f"✅ Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
+                        f"Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
                     )
                 adata_copy = raw_adata
                 data_source = "raw"
@@ -443,7 +443,7 @@ def _prepare_reference_for_card(
     if data_source is None and "counts" in adata_copy.layers:
         logger.info(f"{data_name}: Using counts from layers['counts']")
         if context:
-            context.info(f"✅ Using counts layer for {data_name}")
+            context.info(f"Using counts layer for {data_name}")
         adata_copy.X = adata_copy.layers["counts"].copy()
         data_source = "counts_layer"
 
@@ -464,7 +464,7 @@ def _prepare_reference_for_card(
             )
             if context:
                 context.warning(
-                    f"⚠️  {data_name}: Using normalized data (no raw counts available). "
+                    f"WARNING: {data_name}: Using normalized data (no raw counts available). "
                     f"This is acceptable for CARD reference data from technologies like Smart-seq2."
                 )
             data_source = "normalized"
@@ -489,7 +489,7 @@ def _prepare_reference_for_card(
 
     if context:
         context.info(
-            f"✅ {data_name} prepared: source={data_source}, "
+            f"{data_name} prepared: source={data_source}, "
             f"range=[{data_min:.2f}, {data_max:.2f}]"
         )
 
@@ -571,7 +571,7 @@ def _process_deconvolution_results_transparently(
 
         if context:
             context.warning(
-                f"⚠️ Deconvolution produced {nan_count} NaN values ({nan_percentage:.1f}%) "
+                f"WARNING:Deconvolution produced {nan_count} NaN values ({nan_percentage:.1f}%) "
                 f"in {nan_spots}/{proportions.shape[0]} spots.\n\n"
                 "IMPORTANT: NaN indicates computation failure, NOT absence of cell types.\n"
                 "These values are preserved for transparency.\n\n"
@@ -593,7 +593,7 @@ def _process_deconvolution_results_transparently(
         min_value = proportions.min().min()
 
         error_msg = (
-            f"❌ CRITICAL: {method} produced {neg_count} negative values "
+            f"CRITICAL: {method} produced {neg_count} negative values "
             f"(minimum: {min_value:.4f}) in {neg_spots} spots.\n\n"
             "This indicates a serious problem:\n"
             "• Algorithm implementation error\n"
@@ -601,7 +601,7 @@ def _process_deconvolution_results_transparently(
             "• Invalid input data format\n\n"
             "Negative cell type proportions are biologically impossible.\n"
             "Cannot proceed with invalid results.\n\n"
-            "🔧 SOLUTIONS:\n"
+            "SOLUTIONS:\n"
             "1. Verify input data is raw counts (not normalized)\n"
             "2. Check reference data quality\n"
             "3. Report this as a bug if using standard data"
@@ -627,7 +627,7 @@ def _process_deconvolution_results_transparently(
 
             if context:
                 context.warning(
-                    f"⚠️ {method} proportions deviate from expected sum of 1.0:\n"
+                    f"WARNING:{method} proportions deviate from expected sum of 1.0:\n"
                     f"• Maximum deviation: {max_deviation:.3f}\n"
                     f"• Spots affected: {spots_affected}/{len(row_sums)}\n"
                     f"• Sum range: [{row_sums.min():.3f}, {row_sums.max():.3f}]\n\n"
@@ -642,7 +642,7 @@ def _process_deconvolution_results_transparently(
         # These methods may output absolute abundances
         if context:
             context.info(
-                f"📊 {method} output statistics:\n"
+                f"{method} output statistics:\n"
                 f"• Estimated cells per spot: {row_sums.mean():.2f} ± {row_sums.std():.2f}\n"
                 f"• Range: [{row_sums.min():.2f}, {row_sums.max():.2f}]\n"
                 f"• Zero spots: {(row_sums == 0).sum()}\n\n"
@@ -656,7 +656,7 @@ def _process_deconvolution_results_transparently(
         if zero_sum_spots > 0:
             if context:
                 context.warning(
-                    f"⚠️ Cannot normalize {zero_sum_spots} spots with zero total abundance.\n"
+                    f"WARNING:Cannot normalize {zero_sum_spots} spots with zero total abundance.\n"
                     "These spots will remain as zeros."
                 )
 
@@ -774,7 +774,7 @@ def deconvolve_cell2location(
                 f"  Required: {min_common_genes} genes\n"
                 f"  Reference data: {ref.n_vars} genes\n"
                 f"  Spatial data: {sp.n_vars} genes\n\n"
-                f"💡 TIPS:\n"
+                f"TIPS:\n"
                 f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
                 f"2. Ensure both datasets are from the same species\n"
                 f"3. Try using different reference dataset\n"
@@ -1063,7 +1063,7 @@ def _validate_gene_format_compatibility(
     reference_format = _detect_gene_format(reference_adata.var_names)
 
     if context:
-        context.info("📊 Gene format detection:")
+        context.info("Gene format detection:")
         context.info(
             f"   Spatial: {spatial_format} ({len(spatial_adata.var_names)} genes)"
         )
@@ -1077,12 +1077,12 @@ def _validate_gene_format_compatibility(
 
     if overlap_pct < 0.3:  # Statistical threshold: <30% overlap is problematic
         return False, (
-            f"❌ Insufficient gene overlap: {overlap_pct:.1%}\n"
+            f"Insufficient gene overlap: {overlap_pct:.1%}\n"
             f"   This indicates gene naming format mismatch.\n\n"
             f"   Detected formats:\n"
             f"   - Spatial: {spatial_format}\n"
             f"   - Reference: {reference_format}\n\n"
-            f"   💡 SOLUTION:\n"
+            f"   SOLUTION:\n"
             f"   If reference uses Ensembl IDs, reload spatial data with:\n"
             f"   sc.read_10x_mtx(path, var_names='gene_ids')\n\n"
             f"   Reference genes (first 5): {list(reference_adata.var_names[:5])}\n"
@@ -1092,7 +1092,7 @@ def _validate_gene_format_compatibility(
     if reference_format == "mixed" and spatial_format != "mixed":
         if context:
             context.warning(
-                "⚠️ Reference has mixed gene naming (symbols + Ensembl IDs).\n"
+                "WARNING:Reference has mixed gene naming (symbols + Ensembl IDs).\n"
                 "   Using order-preserving gene matching to avoid expression mismatch."
             )
 
@@ -1148,7 +1148,7 @@ def _validate_subset_quality(
     # Statistical threshold: >50% median nUMI loss is pathological
     if loss_ratio > 0.5:
         raise ValueError(
-            f"❌ {data_label} data quality compromised after gene subsetting!\n\n"
+            f"{data_label} data quality compromised after gene subsetting!\n\n"
             f"   Statistical evidence of gene name mismatch:\n"
             f"   - Median nUMI loss: {loss_ratio:.1%} (threshold: 50%)\n"
             f"   - Before subsetting: {original_median:.0f} UMI/cell\n"
@@ -1156,7 +1156,7 @@ def _validate_subset_quality(
             f"   - Cells with nUMI < 5: {low_umi_count}/{len(subset_numi)} ({low_umi_pct:.1%})\n\n"
             f"   This indicates that gene names in var_names don't match\n"
             f"   the actual genes in the expression matrix.\n\n"
-            f"   💡 SOLUTION:\n"
+            f"   SOLUTION:\n"
             f"   Reload data with matching gene ID format (Ensembl IDs recommended):\n"
             f"   sc.read_10x_mtx(path, var_names='gene_ids')"
         )
@@ -1165,7 +1165,7 @@ def _validate_subset_quality(
     if loss_ratio > 0.2 or low_umi_pct > 0.1:
         if context:
             context.warning(
-                f"⚠️ Moderate {data_label} data quality loss detected.\n"
+                f"WARNING:Moderate {data_label} data quality loss detected.\n"
                 f"   This may impact deconvolution accuracy."
             )
 
@@ -1274,7 +1274,7 @@ def deconvolve_rctd(
 
         if context:
             context.info(
-                f"🔬 Gene matching: {len(common_genes)} common genes "
+                f"DEBUG:Gene matching: {len(common_genes)} common genes "
                 f"({len(common_genes)/len(reference_data.var_names)*100:.1f}% of reference)"
             )
 
@@ -1285,7 +1285,7 @@ def deconvolve_rctd(
                 f"  Required: {min_common_genes} genes\n"
                 f"  Reference data: {reference_data.n_vars} genes\n"
                 f"  Spatial data: {spatial_data.n_vars} genes\n\n"
-                f"💡 TIPS:\n"
+                f"TIPS:\n"
                 f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
                 f"2. Ensure both datasets are from the same species\n"
                 f"3. Try using different reference dataset\n"
@@ -1311,12 +1311,12 @@ def deconvolve_rctd(
         if context and cell_type_key in reference_data.obs:
             ref_ct_counts = reference_data.obs[cell_type_key].value_counts()
             context.info(
-                f"🧬 After subsetting: {len(common_genes)} common genes, {len(ref_ct_counts)} cell types"
+                f"After subsetting: {len(common_genes)} common genes, {len(ref_ct_counts)} cell types"
             )
             min_count = ref_ct_counts.min()
             if min_count < 25:
                 context.warning(
-                    f"⚠️ Minimum cells per type: {min_count} (< 25 required)"
+                    f"WARNING:Minimum cells per type: {min_count} (< 25 required)"
                 )
 
         # Get spatial coordinates if available
@@ -1367,12 +1367,12 @@ def deconvolve_rctd(
         cell_type_counts = cell_types_series.value_counts()
         if context:
             context.info(
-                f"📊 Reference: {len(cell_type_counts)} cell types, {len(cell_types_series)} total cells"
+                f"Reference: {len(cell_type_counts)} cell types, {len(cell_types_series)} total cells"
             )
             min_count = cell_type_counts.min()
             if min_count < 25:
                 context.warning(
-                    f"⚠️ WARNING: Minimum cells per type = {min_count} (< 25 required)"
+                    f"WARNING:WARNING: Minimum cells per type = {min_count} (< 25 required)"
                 )
                 # List types below threshold
                 low_types = [ct for ct, count in cell_type_counts.items() if count < 25]
@@ -2267,7 +2267,7 @@ async def deconvolve_destvi(
                 f"  Required: {min_common_genes} genes\n"
                 f"  Reference data: {ref_data.n_vars} genes\n"
                 f"  Spatial data: {spatial_data.n_vars} genes\n\n"
-                f"💡 TIPS:\n"
+                f"TIPS:\n"
                 f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
                 f"2. Ensure both datasets are from the same species\n"
                 f"3. Try using different reference dataset\n"
@@ -2480,7 +2480,7 @@ async def deconvolve_stereoscope(
                 f"  Required: {min_common_genes} genes\n"
                 f"  Reference data: {ref_data.n_vars} genes\n"
                 f"  Spatial data: {spatial_data.n_vars} genes\n\n"
-                f"💡 TIPS:\n"
+                f"TIPS:\n"
                 f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
                 f"2. Ensure both datasets are from the same species\n"
                 f"3. Try using different reference dataset\n"
@@ -2756,7 +2756,7 @@ def deconvolve_spotlight(
                 f"  Required: {min_common_genes} genes\n"
                 f"  Reference data: {reference_prepared.n_vars} genes\n"
                 f"  Spatial data: {spatial_prepared.n_vars} genes\n\n"
-                f"💡 TIPS:\n"
+                f"TIPS:\n"
                 f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
                 f"2. Ensure both datasets are from the same species\n"
                 f"3. Try using different reference dataset\n"
@@ -3056,7 +3056,7 @@ def deconvolve_card(
                 f"  Required: {min_common_genes} genes\n"
                 f"  Reference data: {reference_data.n_vars} genes\n"
                 f"  Spatial data: {spatial_data.n_vars} genes\n\n"
-                f"💡 TIPS:\n"
+                f"TIPS:\n"
                 f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
                 f"2. Ensure both datasets are from the same species\n"
                 f"3. Try using different reference dataset\n"
@@ -3365,7 +3365,7 @@ async def deconvolve_tangram(
                 f"  Required: {min_common_genes} genes\n"
                 f"  Reference data: {reference_adata.n_vars} genes\n"
                 f"  Spatial data: {spatial_adata.n_vars} genes\n\n"
-                f"💡 TIPS:\n"
+                f"TIPS:\n"
                 f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
                 f"2. Ensure both datasets are from the same species\n"
                 f"3. Try using different reference dataset\n"

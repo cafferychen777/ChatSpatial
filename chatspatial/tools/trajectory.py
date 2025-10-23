@@ -244,11 +244,11 @@ def infer_spatial_trajectory_cellrank(
         # NO FALLBACK: User's parameter choice must be respected
         # Different n_states produce different biological interpretations
         raise RuntimeError(
-            f"❌ CellRank macrostate computation failed with n_states={n_states}\n\n"
+            f"CellRank macrostate computation failed with n_states={n_states}\n\n"
             f"Error: {str(e)}\n\n"
-            f"🔬 SCIENTIFIC INTEGRITY: Different n_states lead to different biological conclusions.\n"
+            f"SCIENTIFIC INTEGRITY: Different n_states lead to different biological conclusions.\n"
             f"We cannot automatically change this parameter without your explicit consent.\n\n"
-            f"💡 SOLUTIONS:\n"
+            f"SOLUTIONS:\n"
             f"1. Try fewer states manually:\n"
             f"   • params.cellrank_n_states = {max(2, n_states-1)}  # Reduce by 1\n"
             f"   • params.cellrank_n_states = {max(2, n_states-2)}  # Reduce by 2\n"
@@ -260,7 +260,7 @@ def infer_spatial_trajectory_cellrank(
             f"3. Try simpler trajectory method:\n"
             f"   • method='palantir' (doesn't require n_states)\n"
             f"   • method='dpt' (diffusion pseudotime)\n\n"
-            f"📊 Current dataset: {adata_for_cellrank.n_obs} cells, "
+            f"Current dataset: {adata_for_cellrank.n_obs} cells, "
             f"requested {n_states} macrostates"
         )
 
@@ -482,14 +482,14 @@ async def compute_dpt_trajectory(adata, root_cells=None, context=None):
         else:
             # NO FALLBACK: Root cell selection is critical for trajectory analysis
             raise ValueError(
-                f"❌ Specified root cell '{root_cells[0]}' not found in data.\n\n"
+                f"Specified root cell '{root_cells[0]}' not found in data.\n\n"
                 f"Available cells: {adata.n_obs:,} cells with IDs like: "
                 f"{list(adata.obs_names[:3])}...\n\n"
-                "🔧 SOLUTIONS:\n"
+                "SOLUTIONS:\n"
                 "1. Verify the cell ID exists in your data\n"
                 "2. Use a valid cell ID from adata.obs_names\n"
                 "3. Omit root_cells to auto-select based on data\n\n"
-                "📋 SCIENTIFIC INTEGRITY: Root cell selection critically affects "
+                "SCIENTIFIC INTEGRITY: Root cell selection critically affects "
                 "trajectory inference. We cannot arbitrarily substitute cells."
             )
     else:
@@ -561,7 +561,7 @@ async def analyze_rna_velocity(
     if data_id not in data_store:
         raise DataNotFoundError(f"Dataset {data_id} not found in data store")
 
-    # ✅ COW FIX: Direct reference instead of copy
+    # COW FIX: Direct reference instead of copy
     # Only add metadata to adata.obs/uns/obsm, never overwrite entire adata
     adata = data_store[data_id]["adata"]
 
@@ -644,7 +644,7 @@ async def analyze_rna_velocity(
     else:
         raise ValueError(f"Unknown velocity method: {params.method}")
 
-    # ✅ COW FIX: No need to update data_store - changes already reflected via direct reference
+    # COW FIX: No need to update data_store - changes already reflected via direct reference
     # All modifications to adata.obs/uns/obsm are in-place and preserved
 
     # Return result with metadata only
@@ -680,7 +680,7 @@ async def analyze_trajectory(
     if data_id not in data_store:
         raise ValueError(f"Dataset {data_id} not found in data store")
 
-    # ✅ COW FIX: Direct reference instead of copy
+    # COW FIX: Direct reference instead of copy
     # Only add metadata to adata.obs/uns/obsm, never overwrite entire adata
     adata = data_store[data_id]["adata"]
 
@@ -784,7 +784,7 @@ async def analyze_trajectory(
     if pseudotime_key is None or pseudotime_key not in adata.obs.columns:
         raise ProcessingError("Failed to compute pseudotime with any available method")
 
-    # ✅ COW FIX: No need to update data_store - changes already reflected via direct reference
+    # COW FIX: No need to update data_store - changes already reflected via direct reference
     # All modifications to adata.obs/uns/obsm are in-place and preserved
 
     # Store scientific metadata for reproducibility

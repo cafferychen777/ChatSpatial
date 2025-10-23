@@ -128,12 +128,12 @@ async def get_validated_features(
     # Check if user specified any features
     if not params.feature:
         raise DataNotFoundError(
-            "❌ No genes specified for visualization.\n\n"
-            "🔧 SOLUTIONS:\n"
+            "No genes specified for visualization.\n\n"
+            "SOLUTIONS:\n"
             "1. Specify genes: visualize_data(data_id, params={'feature': ['CD3D', 'CD8A']})\n"
             "2. Find markers: find_markers(data_id, group_key='cell_type')\n"
             "3. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n\n"
-            "📋 CONTEXT: Explicit gene selection required for scientific accuracy."
+            "CONTEXT: Explicit gene selection required for scientific accuracy."
         )
 
     # Parse user features
@@ -146,18 +146,18 @@ async def get_validated_features(
         missing = [f for f in features if f not in adata.var_names]
         examples = list(adata.var_names[:10])
         raise DataNotFoundError(
-            f"❌ Genes not found: {missing}\n\n"
-            f"🔧 SOLUTIONS:\n"
+            f"Genes not found: {missing}\n\n"
+            f"SOLUTIONS:\n"
             f"1. Check names (available: {examples})\n"
             f"2. Search for similar gene names\n"
             f"3. Use gene discovery tools\n\n"
-            f"📋 CONTEXT: Dataset has {adata.n_vars:,} genes."
+            f"CONTEXT: Dataset has {adata.n_vars:,} genes."
         )
 
     if len(available_features) > max_features:
         raise ValueError(
-            f"❌ Too many genes ({len(available_features)} > {max_features}).\n\n"
-            f"🔧 SOLUTIONS:\n"
+            f"Too many genes ({len(available_features)} > {max_features}).\n\n"
+            f"SOLUTIONS:\n"
             f"1. Select {max_features} genes from: {available_features}\n"
             f"2. Create multiple visualizations\n"
             f"3. Use heatmap for larger sets"
@@ -256,7 +256,7 @@ def handle_visualization_errors(plot_title: str):
 
                 # Create clear error message with visual emphasis
                 error_text = (
-                    "⚠️ TECHNICAL ERROR - NOT A DATA ISSUE ⚠️\n\n"
+                    "WARNING:TECHNICAL ERROR - NOT A DATA ISSUE \n\n"
                     f"{type(e).__name__}: {str(e)}\n\n"
                     "This is a rendering/technical issue, not a problem with your data.\n"
                     "The analysis may have succeeded but visualization failed."
@@ -587,14 +587,14 @@ async def visualize_data(
                     examples = list(adata.var_names[:10])
                     obs_examples = list(adata.obs.columns[:10])
                     raise DataNotFoundError(
-                        f"❌ Feature '{single_feature}' not found in dataset.\n\n"
-                        f"🔧 SOLUTIONS:\n"
+                        f"Feature '{single_feature}' not found in dataset.\n\n"
+                        f"SOLUTIONS:\n"
                         f"1. Check spelling and case (gene names are case-sensitive)\n"
                         f"   - Mouse genes: First letter uppercase (e.g., 'Cd5l', 'Gbp2b')\n"
                         f"   - Human genes: All uppercase (e.g., 'CD5L', 'GBP2B')\n"
                         f"2. Available genes (first 10): {examples}\n"
                         f"3. Available annotations (first 10): {obs_examples}\n\n"
-                        f"📋 CONTEXT: Dataset has {adata.n_vars:,} genes and "
+                        f"CONTEXT: Dataset has {adata.n_vars:,} genes and "
                         f"{len(adata.obs.columns)} annotations."
                     )
 
@@ -798,12 +798,12 @@ async def visualize_data(
                 # Check prerequisites for UMAP
                 if "neighbors" not in adata.uns:
                     error_msg = (
-                        "❌ UMAP visualization requires neighborhood graph.\n\n"
-                        "🔧 SOLUTION:\n"
+                        "UMAP visualization requires neighborhood graph.\n\n"
+                        "SOLUTION:\n"
                         "Run preprocessing first:\n"
                         "1. sc.pp.neighbors(adata)\n"
                         "2. sc.tl.umap(adata)\n\n"
-                        "📋 SCIENTIFIC INTEGRITY: UMAP requires a k-nearest neighbor graph "
+                        "SCIENTIFIC INTEGRITY: UMAP requires a k-nearest neighbor graph "
                         "to preserve local manifold structure. Cannot proceed without it."
                     )
                     if context:
@@ -838,9 +838,9 @@ async def visualize_data(
                 except Exception as e:
                     # NO FALLBACK: Honest error reporting with alternatives
                     error_msg = (
-                        "❌ Failed to compute UMAP for visualization.\n\n"
+                        "Failed to compute UMAP for visualization.\n\n"
                         f"Error: {str(e)}\n\n"
-                        "🔧 ALTERNATIVES:\n"
+                        "ALTERNATIVES:\n"
                         "1. Use PCA visualization instead (LINEAR method):\n"
                         "   visualize_data(data_id, params={'plot_type': 'pca'})\n\n"
                         "2. Use t-SNE visualization (NON-LINEAR, different from UMAP):\n"
@@ -850,7 +850,7 @@ async def visualize_data(
                         "   - Check for extreme values or NaN\n"
                         "   - Verify neighbors graph is computed correctly\n"
                         "   - Try different UMAP parameters\n\n"
-                        "📋 SCIENTIFIC INTEGRITY: UMAP (Uniform Manifold Approximation) and PCA "
+                        "SCIENTIFIC INTEGRITY: UMAP (Uniform Manifold Approximation) and PCA "
                         "(Principal Component Analysis) are fundamentally different algorithms:\n"
                         "• UMAP: Non-linear, preserves local structure, reveals clusters\n"
                         "• PCA: Linear, preserves global variance, shows major axes of variation\n"
@@ -878,10 +878,10 @@ async def visualize_data(
                         if adata.obs[col].dtype.name in ["object", "category"]
                     ]
                     raise ValueError(
-                        "❌ UMAP visualization requires 'feature' parameter.\n\n"
+                        "UMAP visualization requires 'feature' parameter.\n\n"
                         f"Available categorical columns ({len(categorical_cols)} total):\n"
                         f"  {', '.join(categorical_cols[:15])}\n\n"
-                        "🔧 SOLUTION: Specify feature explicitly:\n"
+                        "SOLUTION: Specify feature explicitly:\n"
                         "  visualize_data(data_id, params={'plot_type': 'umap', 'feature': 'your_column_name'})"
                     )
 
@@ -1098,7 +1098,7 @@ async def visualize_data(
 
             if not hvg_exists or not hvg_any:
                 # Provide detailed diagnostic information
-                diagnostic_info = "\n📋 DIAGNOSTIC INFO:\n"
+                diagnostic_info = "\nDIAGNOSTIC INFO:\n"
                 diagnostic_info += (
                     f"  - 'highly_variable' column exists: {hvg_exists}\n"
                 )
@@ -1113,8 +1113,8 @@ async def visualize_data(
                 )
 
                 raise ValueError(
-                    "❌ Heatmap requires highly variable genes but none found.\n\n"
-                    "🔧 SOLUTIONS:\n"
+                    "Heatmap requires highly variable genes but none found.\n\n"
+                    "SOLUTIONS:\n"
                     "1. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n"
                     "2. Specify genes: visualize_data(data_id, params={'feature': ['CD3D']})\n"
                     "3. Use spatial plot: visualize_data(data_id, params={'plot_type': 'spatial'})\n"
@@ -1130,18 +1130,18 @@ async def visualize_data(
                     if adata.obs[col].dtype.name in ["object", "category"]
                 ]
                 raise ValueError(
-                    "❌ Heatmap visualization requires 'cluster_key' parameter.\n\n"
+                    "Heatmap visualization requires 'cluster_key' parameter.\n\n"
                     f"Available categorical columns ({len(categorical_cols)} total):\n"
                     f"  {', '.join(categorical_cols[:15])}\n\n"
-                    "🔧 SOLUTION: Specify cluster_key explicitly:\n"
+                    "SOLUTION: Specify cluster_key explicitly:\n"
                     "  visualize_data(data_id, params={'plot_type': 'heatmap', 'cluster_key': 'your_column_name'})\n\n"
-                    "💡 NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
+                    "NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
                     "   This maintains consistency with Squidpy spatial analysis functions."
                 )
 
             if params.cluster_key not in adata.obs.columns:
                 raise ValueError(
-                    f"❌ Cluster key '{params.cluster_key}' not found in data.\n\n"
+                    f"Cluster key '{params.cluster_key}' not found in data.\n\n"
                     f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
                 )
 
@@ -1197,7 +1197,7 @@ async def visualize_data(
                     # Some genes missing - warn but continue
                     if context:
                         await context.warning(
-                            f"⚠️  {len(missing_genes)} gene(s) not found and will be skipped: {missing_genes}\n"
+                            f"WARNING: {len(missing_genes)} gene(s) not found and will be skipped: {missing_genes}\n"
                             f"Proceeding with {len(available_genes)} available gene(s): {available_genes}"
                         )
                     # Limit to reasonable number for visualization
@@ -1429,12 +1429,12 @@ async def visualize_data(
                     # None of the specified genes found
                     examples = list(adata.var_names[:10])
                     raise DataNotFoundError(
-                        f"❌ Genes not found in dataset: {missing_genes}\n\n"
-                        f"🔧 SOLUTIONS:\n"
+                        f"Genes not found in dataset: {missing_genes}\n\n"
+                        f"SOLUTIONS:\n"
                         f"1. Choose from available genes (examples: {examples})\n"
                         f"2. Check gene name format (e.g., 'CD3D' vs 'Cd3d')\n"
                         f"3. Use gene search functionality\n\n"
-                        f"📋 CONTEXT: Dataset contains {adata.n_vars:,} genes total."
+                        f"CONTEXT: Dataset contains {adata.n_vars:,} genes total."
                     )
                 elif missing_genes and context:
                     # Some genes missing - warn but continue
@@ -1455,18 +1455,18 @@ async def visualize_data(
                     if adata.obs[col].dtype.name in ["object", "category"]
                 ]
                 raise ValueError(
-                    "❌ Violin plot requires 'cluster_key' parameter.\n\n"
+                    "Violin plot requires 'cluster_key' parameter.\n\n"
                     f"Available categorical columns ({len(categorical_cols)} total):\n"
                     f"  {', '.join(categorical_cols[:15])}\n\n"
-                    "🔧 SOLUTION: Specify cluster_key explicitly:\n"
+                    "SOLUTION: Specify cluster_key explicitly:\n"
                     "  visualize_data(data_id, params={'plot_type': 'violin', 'cluster_key': 'your_column_name'})\n\n"
-                    "💡 NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
+                    "NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
                     "   This maintains consistency with Squidpy spatial analysis functions."
                 )
 
             if params.cluster_key not in adata.obs.columns:
                 raise ValueError(
-                    f"❌ Cluster key '{params.cluster_key}' not found in data.\n\n"
+                    f"Cluster key '{params.cluster_key}' not found in data.\n\n"
                     f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
                 )
 
@@ -3013,9 +3013,9 @@ async def create_spatial_domains_visualization(
     except Exception as e:
         # NO FALLBACK: Spatial domains require REAL spatial coordinates
         error_msg = (
-            "❌ Spatial domain visualization requires actual spatial coordinates.\n\n"
+            "Spatial domain visualization requires actual spatial coordinates.\n\n"
             f"Error details: {str(e)}\n\n"
-            "🔧 SOLUTIONS:\n"
+            "SOLUTIONS:\n"
             "1. Ensure your data contains spatial coordinates:\n"
             "   - Standard location: adata.obsm['spatial']\n"
             "   - Alternative: adata.obs['x'] and adata.obs['y']\n\n"
@@ -3023,7 +3023,7 @@ async def create_spatial_domains_visualization(
             "   sc.read_visium(path_to_data)\n\n"
             "3. For other spatial platforms, add coordinates manually:\n"
             "   adata.obsm['spatial'] = np.column_stack([x_coords, y_coords])\n\n"
-            "📋 SCIENTIFIC INTEGRITY: Spatial domains are tissue regions defined by\n"
+            "SCIENTIFIC INTEGRITY: Spatial domains are tissue regions defined by\n"
             "PHYSICAL LOCATION. PCA coordinates represent gene expression similarity,\n"
             "NOT spatial position. We cannot substitute one for the other.\n\n"
             "• Spatial coords: Real (x,y) positions on tissue\n"
@@ -5175,10 +5175,10 @@ async def create_enrichment_visualization(
                 if adata.obs[col].dtype.name in ["object", "category"]
             ]
             raise ValueError(
-                "❌ Enrichment violin plot requires 'cluster_key' parameter.\n\n"
+                "Enrichment violin plot requires 'cluster_key' parameter.\n\n"
                 f"Available categorical columns ({len(categorical_cols)} total):\n"
                 f"  {', '.join(categorical_cols[:15])}\n\n"
-                "🔧 SOLUTION: Specify cluster_key explicitly:\n"
+                "SOLUTION: Specify cluster_key explicitly:\n"
                 "  params={'cluster_key': 'your_column_name'}"
             )
 
@@ -6344,25 +6344,25 @@ async def save_visualization(
                     else f"{file_size_kb/1024:.1f} MB"
                 )
                 await context.info(
-                    f"✅ Saved visualization to {file_path} ({size_str})"
+                    f"Saved visualization to {file_path} ({size_str})"
                 )
 
                 # Format-specific advice
                 if format.lower() == "pdf":
                     await context.info(
-                        "📊 PDF ready for journal submission (Nature/Science/Cell compatible)"
+                        "PDF ready for journal submission (Nature/Science/Cell compatible)"
                     )
                 elif format.lower() == "svg":
                     await context.info(
-                        "📊 SVG ready for web or editing in Illustrator/Inkscape"
+                        "SVG ready for web or editing in Illustrator/Inkscape"
                     )
                 elif format.lower() in ["eps", "ps"]:
                     await context.info(
-                        "📊 PostScript ready for LaTeX or professional printing"
+                        "PostScript ready for LaTeX or professional printing"
                     )
                 elif dpi >= 300:
                     await context.info(
-                        f"📊 High-resolution ({dpi} DPI) suitable for publication"
+                        f"High-resolution ({dpi} DPI) suitable for publication"
                     )
 
             return str(file_path)
