@@ -42,19 +42,8 @@ except ImportError:
 
 # Setup logger
 logger = logging.getLogger(__name__)
-MERFISH_GENE_THRESHOLD = 200
 MIN_KMEANS_CLUSTERS = 2
 MAX_TSNE_PCA_COMPONENTS = 50
-
-
-def _detect_data_type(adata) -> str:
-    """Detect the type of spatial transcriptomics data"""
-    if adata.n_vars < MERFISH_GENE_THRESHOLD:
-        return "merfish"
-    elif adata.n_vars > 10000:
-        return "visium"
-    else:
-        return "other"
 
 
 def _should_use_all_genes_for_hvg(adata) -> bool:
@@ -93,7 +82,9 @@ def _diagnose_hvg_failure(adata, n_hvgs: int) -> str:
                 "✓ Data appears normalized (contains non-integer values)"
             )
         else:
-            diagnostics.append("WARNING: Data may be raw counts (consider normalization)")
+            diagnostics.append(
+                "WARNING: Data may be raw counts (consider normalization)"
+            )
 
         # Check data range
         data_min, data_max = float(adata.X.min()), float(adata.X.max())
@@ -115,7 +106,9 @@ def _diagnose_hvg_failure(adata, n_hvgs: int) -> str:
         if gene_var is not None:
             zero_var_genes = np.sum(gene_var == 0)
             if zero_var_genes > 0:
-                diagnostics.append(f"WARNING: {zero_var_genes} genes have zero variance")
+                diagnostics.append(
+                    f"WARNING: {zero_var_genes} genes have zero variance"
+                )
         else:
             diagnostics.append("Could not compute gene variance for diagnosis")
     except Exception:
@@ -203,14 +196,6 @@ async def preprocess_data(
         if adata.n_obs == 0 or adata.n_vars == 0:
             raise ValueError(
                 f"Dataset {data_id} is empty: {adata.n_obs} cells, {adata.n_vars} genes"
-            )
-
-        # Detect data type for informational purposes
-        data_type = _detect_data_type(adata)
-
-        if context:
-            await context.info(
-                f"Detected data type: {data_type} ({adata.n_obs} cells, {adata.n_vars} genes)"
             )
 
         # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
