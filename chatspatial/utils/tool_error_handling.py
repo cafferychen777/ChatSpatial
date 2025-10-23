@@ -12,11 +12,10 @@ A bug in this code caused images to display as object strings for 2 WEEKS!
 !!!!!!!!!! CRITICAL WARNING - IMAGE HANDLING !!!!!!!!!!
 """
 
-import asyncio
 import traceback
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Dict, List, Union, get_type_hints
+from typing import Any, Dict, List, get_type_hints
 
 
 @dataclass
@@ -41,37 +40,6 @@ def create_error_result(error: Exception, include_traceback: bool = True) -> Too
         error_content.append({"type": "text", "text": f"Traceback:\n{tb}"})
 
     return ToolResult(content=error_content, isError=True)
-
-
-def create_success_result(content: Union[str, Dict[str, Any], Any]) -> ToolResult:
-    """Create a standardized success result for tools"""
-    if isinstance(content, str):
-        return ToolResult(content=[{"type": "text", "text": content}], isError=False)
-    elif isinstance(content, dict):
-        # If it's already in the right format
-        if "content" in content and isinstance(content["content"], list):
-            return ToolResult(content=content["content"], isError=False)
-        else:
-            # Convert dict to text representation
-            import json
-
-            return ToolResult(
-                content=[{"type": "text", "text": json.dumps(content, indent=2)}],
-                isError=False,
-            )
-    else:
-        # For model objects, convert to dict first
-        if hasattr(content, "model_dump"):
-            # Pydantic v2
-            data = content.model_dump()
-        elif hasattr(content, "dict"):
-            # Pydantic v1
-            data = content.dict()
-        else:
-            # Fallback to string representation
-            data = str(content)
-
-        return create_success_result(data)
 
 
 def _check_return_type_category(func) -> str:
@@ -230,65 +198,8 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 # For simple types or unknown, return error in the result object
                 return create_error_result(e, include_traceback).to_dict()
 
-        @wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            try:
-                result = func(*args, **kwargs)
-                # If the function already returns a ToolResult, use it
-                if isinstance(result, ToolResult):
-                    return result.to_dict()
-                # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
-                # ImageContent objects MUST be returned directly without any wrapping!
-                # FastMCP needs to see the raw ImageContent object to convert it properly.
-                # If you wrap ImageContent objects in dictionaries or ToolResult,
-                # Claude Desktop will show "<ImageContent object at 0x...>" instead of the actual image.
-                # This bug took 2 WEEKS to find and fix. DO NOT CHANGE THIS!
-                # See /docs/CRITICAL_IMAGE_DISPLAY_BUG.md for full details.
-                # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
-                from mcp.types import ImageContent
-                from pydantic import BaseModel
-
-                if isinstance(result, ImageContent):
-                    return result  # MUST return raw ImageContent object!
-                # Support for Tuple[ImageContent, EmbeddedResource] returns
-                if isinstance(result, tuple) and len(result) >= 1:
-                    if isinstance(result[0], ImageContent):
-                        return result  # Let FastMCP handle the tuple!
-                # MCP 1.10+ can handle Pydantic models directly - don't wrap them!
-                if isinstance(result, BaseModel):
-                    return result  # Let FastMCP serialize Pydantic models
-                # MCP 1.17+ can handle simple types (str, int, list, dict) directly
-                # Return them without wrapping to avoid validation errors
-                return result
-            except Exception as e:
-                # Handle errors based on return type category
-                if return_type_category == "image":
-                    # For ImageContent, return error as placeholder image
-                    # This ensures type consistency - MCP expects ImageContent, not error dict
-                    error_image = _create_error_placeholder_image(e)
-                    if error_image is not None:
-                        return error_image  # Return placeholder ImageContent
-                    # Fall through to re-raise if placeholder creation fails
-
-                elif return_type_category == "basemodel":
-                    # For BaseModel types, re-raise the exception
-                    # Let FastMCP handle it at a higher level
-                    # This prevents MCP schema validation errors
-                    raise
-
-                elif return_type_category == "str":
-                    # For str return type, must return str (not dict) for MCP schema
-                    # Simply return error message as string
-                    return f"Error: {str(e)}"
-
-                # For simple types or unknown, return error in the result object
-                return create_error_result(e, include_traceback).to_dict()
-
-        # Return appropriate wrapper based on function type
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        else:
-            return sync_wrapper
+        # All MCP tools are async functions, return async wrapper
+        return async_wrapper
 
     return decorator
 

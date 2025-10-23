@@ -10,7 +10,6 @@ different data formats, so the tools can work with clean, standardized data.
 """
 
 import warnings
-from functools import wraps
 from typing import TYPE_CHECKING, Tuple
 
 if TYPE_CHECKING:
@@ -19,44 +18,22 @@ if TYPE_CHECKING:
     import anndata as ad
 
 from .data_validator import (  # Import the hardcoded standard keys; Import the alternative key sets
-    ALTERNATIVE_BATCH_KEYS, ALTERNATIVE_CELL_TYPE_KEYS,
-    ALTERNATIVE_CLUSTER_KEYS, ALTERNATIVE_SPATIAL_KEYS, BATCH_KEY,
-    CELL_TYPE_KEY, CLUSTER_KEY, SPATIAL_KEY, DataValidator)
+    ALTERNATIVE_BATCH_KEYS,
+    ALTERNATIVE_CELL_TYPE_KEYS,
+    ALTERNATIVE_CLUSTER_KEYS,
+    ALTERNATIVE_SPATIAL_KEYS,
+    BATCH_KEY,
+    CELL_TYPE_KEY,
+    CLUSTER_KEY,
+    SPATIAL_KEY,
+    DataValidator,
+)
 
 
 class DataStandardizationError(Exception):
     """Raised when data cannot be standardized."""
 
     pass
-
-
-def standardize_input(func):
-    """
-    Decorator to automatically standardize AnnData input for any tool function.
-
-    This decorator eliminates the need for each tool to handle different
-    data formats. Apply it to any function that takes adata as first argument.
-
-    Usage:
-        @standardize_input
-        async def my_spatial_tool(adata, params, context):
-            # adata is now guaranteed to be in standard format
-    """
-
-    @wraps(func)
-    async def wrapper(adata, *args, **kwargs):
-        # Standardize the input data
-        try:
-            standardized_adata = standardize_adata(adata, copy=True)
-            return await func(standardized_adata, *args, **kwargs)
-        except Exception as e:
-            # If standardization fails, try with original data and warn
-            import logging
-
-            logging.warning(f"Data standardization failed for {func.__name__}: {e}")
-            return await func(adata, *args, **kwargs)
-
-    return wrapper
 
 
 class DataAdapter:
