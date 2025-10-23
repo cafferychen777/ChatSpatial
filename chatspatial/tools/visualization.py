@@ -187,7 +187,16 @@ def plot_spatial_feature(
         force_no_colorbar: If True, disable colorbar even if params.show_colorbar is True.
                           Used when caller wants to manually add colorbar with make_axes_locatable.
     """
-    has_image = "spatial" in adata.uns and "images" in adata.uns["spatial"]
+    # CRITICAL FIX: Check for tissue images correctly
+    # Structure is: adata.uns["spatial"][library_id]["images"]
+    # NOT: adata.uns["spatial"]["images"]
+    has_image = False
+    if "spatial" in adata.uns and isinstance(adata.uns["spatial"], dict):
+        # Check if any library has images
+        for lib_id in adata.uns["spatial"].keys():
+            if isinstance(adata.uns["spatial"][lib_id], dict) and "images" in adata.uns["spatial"][lib_id]:
+                has_image = True
+                break
 
     # Base kwargs for both functions
     plot_kwargs = {
@@ -3781,7 +3790,8 @@ async def create_multi_gene_visualization(
 
     # Adjust spacing for compact layout with proper colorbar spacing
     # Using subplots_adjust directly (no tight_layout to avoid conflicts)
-    fig.subplots_adjust(top=0.92, wspace=0.2, hspace=0.3, right=0.98)
+    # Reduced wspace from 0.2 to 0.1 for tighter left-right spacing
+    fig.subplots_adjust(top=0.92, wspace=0.1, hspace=0.3, right=0.98)
     return fig
 
 
@@ -4042,7 +4052,8 @@ async def create_lr_pairs_visualization(
 
     # Adjust spacing for compact layout with proper colorbar spacing
     # Using subplots_adjust directly (no tight_layout to avoid conflicts)
-    fig.subplots_adjust(top=0.92, wspace=0.2, hspace=0.3, right=0.98)
+    # Reduced wspace from 0.2 to 0.1 for tighter left-right spacing
+    fig.subplots_adjust(top=0.92, wspace=0.1, hspace=0.3, right=0.98)
     return fig
 
 
