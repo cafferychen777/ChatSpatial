@@ -150,7 +150,7 @@ def _create_error_placeholder_image(error: Exception):
         from ..utils.image_utils import create_placeholder_image
 
         # Format error message
-        error_msg = f"❌ Error: {str(error)}"
+        error_msg = f"Error: {str(error)}"
 
         # Truncate if too long
         if len(error_msg) > 200:
@@ -225,7 +225,7 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 elif return_type_category == "str":
                     # For str return type, must return str (not dict) for MCP schema
                     # Simply return error message as string
-                    return f"❌ Error: {str(e)}"
+                    return f"Error: {str(e)}"
 
                 # For simple types or unknown, return error in the result object
                 return create_error_result(e, include_traceback).to_dict()
@@ -279,7 +279,7 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 elif return_type_category == "str":
                     # For str return type, must return str (not dict) for MCP schema
                     # Simply return error message as string
-                    return f"❌ Error: {str(e)}"
+                    return f"Error: {str(e)}"
 
                 # For simple types or unknown, return error in the result object
                 return create_error_result(e, include_traceback).to_dict()

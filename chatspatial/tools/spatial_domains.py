@@ -128,7 +128,7 @@ async def identify_spatial_domains(
     if data_id not in data_store:
         raise ValueError(f"Dataset {data_id} not found in data store")
 
-    # ✅ COW FIX: Direct reference instead of copy
+    # COW FIX: Direct reference instead of copy
     # Only add metadata to adata.obs/obsm/obsp, never overwrite entire adata
     adata = data_store[data_id]["adata"]
 
@@ -343,7 +343,7 @@ async def identify_spatial_domains(
         domain_counts = adata.obs[domain_key].value_counts().to_dict()
         domain_counts = {str(k): int(v) for k, v in domain_counts.items()}
 
-        # ✅ COW FIX: No need to update data_store - changes already reflected via direct reference
+        # COW FIX: No need to update data_store - changes already reflected via direct reference
         # All modifications to adata.obs/obsm/obsp are in-place and preserved
 
         # Create result
@@ -692,13 +692,13 @@ async def _identify_domains_clustering(
                 if not SQUIDPY_AVAILABLE:
                     # Squidpy is a core dependency for spatial analysis
                     raise ImportError(
-                        "❌ CRITICAL: squidpy is required for spatial domain analysis but not available.\n\n"
-                        "🔬 SCIENTIFIC INTEGRITY NOTICE:\n"
+                        "CRITICAL: squidpy is required for spatial domain analysis but not available.\n\n"
+                        "SCIENTIFIC INTEGRITY NOTICE:\n"
                         "Spatial domain identification requires proper spatial neighbor graphs.\n"
                         "Alternative methods would compromise scientific validity.\n\n"
-                        "💡 SOLUTION:\n"
+                        "SOLUTION:\n"
                         "Install squidpy: pip install 'squidpy>=1.2.0'\n\n"
-                        "🚫 Cannot proceed with spatial domain analysis without squidpy."
+                        "Cannot proceed with spatial domain analysis without squidpy."
                     )
 
                 # Use squidpy's scientifically validated spatial neighbors

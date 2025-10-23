@@ -151,7 +151,6 @@ class SpatialResourceManager:
         )
         self._resources[resource.uri] = resource
         # DO NOT cache with viz_id - caching is done in server.py with cache_key
-        # self._visualization_cache[viz_id] = image_data  # REMOVED
         return resource
 
     async def get_resource(self, uri: str) -> Optional[MCPResource]:

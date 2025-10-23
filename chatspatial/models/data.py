@@ -542,7 +542,7 @@ class AnnotationParameters(BaseModel):
         description=(
             "Dimensionality of latent space. Official default: 10\n"
             "scvi-tools recommendation for large integration: 30\n"
-            "⚠️  Empirical (not official): Small datasets may need 3-5 to avoid NaN"
+            "WARNING:Empirical (not official): Small datasets may need 3-5 to avoid NaN"
         ),
     )
     scanvi_n_layers: int = Field(
@@ -556,7 +556,7 @@ class AnnotationParameters(BaseModel):
         default=0.1,
         description=(
             "Dropout rate for regularization. Official default: 0.1\n"
-            "⚠️  Empirical (not official): 0.2-0.3 may help small datasets"
+            "WARNING:Empirical (not official): 0.2-0.3 may help small datasets"
         ),
     )
     scanvi_unlabeled_category: str = Field(
@@ -570,7 +570,7 @@ class AnnotationParameters(BaseModel):
         description=(
             "Whether to pretrain with SCVI before SCANVI training. Default: True\n"
             "Official scvi-tools best practice: SCVI pretraining improves stability\n"
-            "⚠️  For small datasets: Set to False if encountering NaN errors"
+            "WARNING:For small datasets: Set to False if encountering NaN errors"
         ),
     )
     scanvi_scvi_epochs: int = Field(
@@ -586,7 +586,7 @@ class AnnotationParameters(BaseModel):
         default=100,
         description=(
             "Number of epochs for training on query data. Default: 100\n"
-            "⚠️  For small datasets: Recommend 50 to prevent overfitting"
+            "WARNING:For small datasets: Recommend 50 to prevent overfitting"
         ),
     )
     scanvi_check_val_every_n_epoch: int = Field(
@@ -1073,9 +1073,11 @@ class CellCommunicationParameters(BaseModel):
     method: Literal["liana", "cellphonedb", "cellchat_liana"] = "liana"
 
     # ========== Species and Resource Control ==========
-    species: Literal["human", "mouse", "zebrafish"] = (
-        "human"  # Species for ligand-receptor database
-    )
+    species: Literal["human", "mouse", "zebrafish"]
+    # REQUIRED: Must explicitly specify species for ligand-receptor database
+    # - "human": For human data (genes like ACTB, GAPDH - all uppercase)
+    # - "mouse": For mouse data (genes like Actb, Gapdh - capitalized)
+    # - "zebrafish": For zebrafish data
 
     # Enhanced resource selection including mouseconsensus
     liana_resource: Literal[
@@ -1088,13 +1090,6 @@ class CellCommunicationParameters(BaseModel):
         "celltalkdb",
         "icellnet",
     ] = "consensus"  # LR database resource
-
-    # Species validation control
-    validate_species_match: bool = (
-        True  # Whether to validate species matches gene patterns
-    )
-    species_validation_strictness: Literal["strict", "warning", "disabled"] = "strict"
-    # strict: Error on mismatch, warning: Warn but continue, disabled: Skip validation
 
     # ========== Data Usage Control ==========
     # Explicit data source control

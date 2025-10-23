@@ -279,7 +279,7 @@ async def _identify_spatial_genes_spatialde(
     if n_genes > 5000 and context:
         estimated_time = int(n_genes / 14000 * 10)  # Based on 14k genes = 10 min
         await context.warning(
-            f"⚠️  Running SpatialDE on {n_genes} genes × {n_spots} spots may take {estimated_time}-{estimated_time*2} minutes.\n"
+            f"WARNING:Running SpatialDE on {n_genes} genes × {n_spots} spots may take {estimated_time}-{estimated_time*2} minutes.\n"
             f"   • Official benchmark: ~10 min for 14,000 genes\n"
             f"   • Tip: Use n_top_genes=1000-3000 to test fewer genes\n"
             f"   • Or use method='sparkx' for faster analysis (2-5 min)"
@@ -901,7 +901,7 @@ async def _identify_spatial_genes_sparkx(
         # Warn if >30% are housekeeping genes
         if housekeeping_ratio > 0.3 and context:
             await context.warning(
-                f"⚠️  Housekeeping gene dominance detected: {n_housekeeping}/{n_top} ({housekeeping_ratio*100:.1f}%) of top genes are housekeeping genes.\n"
+                f"WARNING:Housekeeping gene dominance detected: {n_housekeeping}/{n_top} ({housekeeping_ratio*100:.1f}%) of top genes are housekeeping genes.\n"
                 f"   • Housekeeping genes found: {', '.join(housekeeping_genes[:10])}{'...' if len(housekeeping_genes) > 10 else ''}\n"
                 f"   • These genes may not represent true spatial patterns\n"
                 f"   • Recommendations:\n"

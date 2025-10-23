@@ -237,7 +237,7 @@ async def preprocess_data(
 
 
 @mcp.tool()
-@mcp_tool_error_handler()  # ⚠️ CRITICAL: This decorator has special Image handling - see /docs/CRITICAL_IMAGE_DISPLAY_BUG.md
+@mcp_tool_error_handler()  # CRITICAL: This decorator has special Image handling - see /docs/CRITICAL_IMAGE_DISPLAY_BUG.md
 @manual_parameter_validation(("params", validate_visualization_params))
 async def visualize_data(
     data_id: str, params: Any = None, context: Context = None
@@ -399,7 +399,7 @@ async def visualize_data(
 
     else:
         # Return error message if no image was generated
-        return "❌ Visualization generation failed, please check the data and parameter settings."
+        return "Visualization generation failed, please check the data and parameter settings."
 
 
 @mcp.tool()
@@ -1526,10 +1526,10 @@ async def analyze_enrichment(
             # NO FALLBACK: Enrichment analysis requires specific gene sets for scientific validity
             error_msg = (
                 f"Failed to load gene sets from {params.gene_set_database}: {e}\n\n"
-                f"❌ ENRICHMENT ANALYSIS REQUIRES SPECIFIC GENE SETS\n\n"
+                f"ENRICHMENT ANALYSIS REQUIRES SPECIFIC GENE SETS\n\n"
                 f"Gene set enrichment analysis cannot proceed with arbitrary gene substitutions.\n"
                 f"This preserves scientific integrity and prevents misleading results.\n\n"
-                f"💡 SOLUTIONS:\n"
+                f"SOLUTIONS:\n"
                 f"1. Check your internet connection (required for database access)\n"
                 f"2. Verify species parameter: '{params.species}' (use 'human' or 'mouse')\n"
                 f"3. Try a different database:\n"
@@ -1539,14 +1539,14 @@ async def analyze_enrichment(
                 f"   - 'MSigDB_Hallmark' (for hallmark gene sets)\n"
                 f"4. Provide custom gene sets via 'gene_sets' parameter\n"
                 f"5. Use spatial analysis tools for data-driven insights without predefined pathways\n\n"
-                f"🔬 WHY NO FALLBACK:\n"
+                f"WHY NO FALLBACK:\n"
                 f"Using different gene sets (like highly variable genes) would produce\n"
                 f"scientifically different results while appearing to be pathway analysis."
             )
 
             if context:
                 await context.error(f"Gene set database loading failed: {e}")
-                await context.error("❌ No fallback - preserving scientific integrity")
+                await context.error("No fallback - preserving scientific integrity")
 
             raise ProcessingError(error_msg)
 
@@ -2048,7 +2048,7 @@ async def save_data(
         absolute_path = save_path.resolve()
 
         if context:
-            await context.info(f"✅ Dataset saved to: {absolute_path}")
+            await context.info(f"Dataset saved to: {absolute_path}")
 
         return f"Dataset '{data_id}' saved to: {absolute_path}"
 

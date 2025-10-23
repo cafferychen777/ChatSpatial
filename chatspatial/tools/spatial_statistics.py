@@ -124,7 +124,7 @@ async def analyze_spatial_statistics(
         raise DataNotFoundError(f"Dataset {data_id} not found in data store")
 
     try:
-        # ✅ COW FIX: Direct reference instead of copy
+        # COW FIX: Direct reference instead of copy
         # Only add metadata to adata.obs/uns/obsp, never overwrite entire adata
         adata = data_store[data_id]["adata"]
 
@@ -189,7 +189,7 @@ async def analyze_spatial_statistics(
         else:
             raise ValueError(f"Analysis type {params.analysis_type} not implemented")
 
-        # ✅ COW FIX: No need to update data_store - changes already reflected via direct reference
+        # COW FIX: No need to update data_store - changes already reflected via direct reference
         # All modifications to adata.obs/uns/obsp are in-place and preserved
 
         # Ensure result is a dictionary
@@ -334,15 +334,15 @@ async def _ensure_cluster_key(
     ]
 
     raise ValueError(
-        f"❌ Requested cluster key '{requested_key}' not found in data.\n\n"
+        f"Requested cluster key '{requested_key}' not found in data.\n\n"
         f"Available clustering keys: {available_keys if available_keys else 'None found'}\n"
         f"All obs keys: {list(adata.obs.columns[:10])}...\n\n"
-        "🔧 SOLUTIONS:\n"
+        "SOLUTIONS:\n"
         "1. Run clustering first:\n"
         "   sc.tl.leiden(adata, key_added='leiden')\n\n"
         "2. Use an existing cluster key from the list above\n\n"
         "3. Check your preprocessing pipeline included clustering\n\n"
-        "📋 SCIENTIFIC INTEGRITY: Different clustering methods produce different results. "
+        "SCIENTIFIC INTEGRITY: Different clustering methods produce different results. "
         "We cannot substitute one for another without explicit user consent."
     )
 
@@ -380,22 +380,22 @@ async def _ensure_spatial_neighbors(
 
             if context:
                 await context.info(
-                    "✅ Spatial neighbors computed successfully with squidpy"
+                    "Spatial neighbors computed successfully with squidpy"
                 )
 
         except Exception as e:
             error_msg = (
-                f"❌ CRITICAL: Spatial neighbor computation failed: {e}\n\n"
-                "🔬 SCIENTIFIC INTEGRITY NOTICE:\n"
+                f"CRITICAL: Spatial neighbor computation failed: {e}\n\n"
+                "SCIENTIFIC INTEGRITY NOTICE:\n"
                 "Spatial neighbor graphs are fundamental to all spatial transcriptomics analyses.\n"
                 "Using alternative methods (like sklearn) would compromise result validity.\n\n"
-                "💡 SOLUTIONS:\n"
+                "SOLUTIONS:\n"
                 "1. Check squidpy installation: pip install 'squidpy>=1.3.0'\n"
                 "2. Verify spatial coordinates in adata.obsm['spatial']\n"
                 "3. Ensure coordinates don't contain NaN/infinite values\n"
                 "4. For Visium data, try coord_type='grid'\n"
                 "5. Reduce n_neighbors if dataset is very small\n\n"
-                "🚫 Analysis cannot proceed without proper spatial neighbors."
+                "Analysis cannot proceed without proper spatial neighbors."
             )
 
             if context:
@@ -1276,7 +1276,7 @@ async def _analyze_spatial_centrality(
         closeness_centrality = nx.closeness_centrality(G)
         betweenness_centrality = nx.betweenness_centrality(G)
 
-        # ✅ FIX: NetworkX returns {0: val0, 1: val1, ...} with integer keys,
+        # FIX: NetworkX returns {0: val0, 1: val1, ...} with integer keys,
         # but adata.obs_names are strings. We need to extract values in order.
         # Bug: pd.Series(dict) cannot align integer keys to string obs_names
         n_nodes = adata.n_obs

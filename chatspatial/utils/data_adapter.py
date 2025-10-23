@@ -379,12 +379,7 @@ class DataAdapter:
         This function no longer creates fake batch information to preserve scientific integrity.
         Tools must handle missing batch information appropriately.
         """
-        # ❌ REMOVED: Automatic batch creation - violates scientific integrity
-        # Previous code automatically created fake "batch1" labels for all data
-        # This misled users into thinking their data had batch information
-        # Scientific integrity requires honest handling of missing metadata
-
-        # ✅ PRESERVED: Don't create fake clustering or cell types
+        # PRESERVED: Don't create fake clustering or cell types
         # Add placeholder clustering if none exists
         if not any(key in adata.obs for key in ALTERNATIVE_CLUSTER_KEYS):
             # Don't add default clustering - let tools handle this

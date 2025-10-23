@@ -61,7 +61,7 @@ is_problematic = (
 
 if is_problematic:
     print(
-        f"⚠️  Working directory appears problematic: {user_cwd}\n"
+        f"WARNING:Working directory appears problematic: {user_cwd}\n"
         f"   Changing to project root: {PROJECT_ROOT}\n"
         f"   (This ensures file operations work correctly)",
         file=sys.stderr,
