@@ -552,7 +552,8 @@ async def visualize_data(
             raise DataNotFoundError("Dataset has too few genes (minimum 5 required)")
 
         # Set matplotlib style for better visualizations
-        sc.settings.set_figure_params(dpi=120, facecolor="white")
+        # Use user's DPI setting if provided, otherwise default to 100
+        sc.settings.set_figure_params(dpi=params.dpi or 100, facecolor="white")
 
         # Create figure based on plot type
         if params.plot_type == "spatial":
@@ -1225,7 +1226,8 @@ async def visualize_data(
                         if groupby
                         else 6
                     ),
-                )
+                ),
+                dpi=params.dpi,
             )
 
             try:
@@ -1486,9 +1488,10 @@ async def visualize_data(
             if False:  # Disabled the no-grouping path - cluster_key now required
                 groupby = None
 
-            # Create violin plot with smaller figure size
-            # Reduce figure size from (12, 10) to (8, 6) to decrease image size
-            plt.figure(figsize=(8, 6))
+            # Create violin plot
+            # Use user's figure size if specified, otherwise default to (8, 6)
+            figsize = params.figure_size if params.figure_size else (8, 6)
+            plt.figure(figsize=figsize, dpi=params.dpi)
             ax = sc.pl.violin(
                 adata,
                 genes,
@@ -2193,7 +2196,8 @@ async def create_dominant_celltype_map(
     spatial_coords = adata.obsm["spatial"]
 
     # Create figure
-    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+    figsize = params.figure_size if params.figure_size else (10, 8)
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
 
     # Get unique categories
     unique_categories = np.unique(spot_categories)
@@ -2333,7 +2337,8 @@ async def create_diversity_map(
     spatial_coords = adata.obsm["spatial"]
 
     # Create figure
-    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+    figsize = params.figure_size if params.figure_size else (10, 8)
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
 
     # Plot entropy
     scatter = ax.scatter(
@@ -2459,7 +2464,8 @@ async def create_stacked_barplot(
     proportions_sorted = proportions_plot.iloc[sort_order]
 
     # Create figure
-    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+    figsize = params.figure_size if params.figure_size else (12, 6)
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
 
     # Get cell types
     cell_types = proportions_sorted.columns.tolist()
@@ -2571,7 +2577,8 @@ async def create_scatterpie_plot(
     colors = {cell_type: cmap(i) for i, cell_type in enumerate(cell_types)}
 
     # Create figure
-    fig, ax = plt.subplots(1, 1, figsize=(12, 10))
+    figsize = params.figure_size if params.figure_size else (12, 10)
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
 
     # Calculate pie radius based on spatial scale
     # Use params.pie_scale to adjust size
@@ -4270,16 +4277,15 @@ async def create_neighborhood_network_visualization(
     try:
         import networkx as nx
     except ImportError:
-        if context:
-            await context.warning(
-                "NetworkX not available. Falling back to heatmap visualization."
-            )
-        # Fallback to standard heatmap
-        figsize = params.figure_size or (10, 8)
-        fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
-        ax.imshow(enrichment_matrix, cmap=params.colormap)
-        ax.set_title("Neighborhood Enrichment (NetworkX not available)")
-        return fig
+        raise ImportError(
+            "Network visualization requires NetworkX but it is not installed.\n\n"
+            "SOLUTION:\n"
+            "Install NetworkX: pip install networkx\n\n"
+            "ALTERNATIVE:\n"
+            "Use standard heatmap visualization by setting show_network=False\n\n"
+            "SCIENTIFIC INTEGRITY: Network graphs and heatmaps convey different information.\n"
+            "We refuse to silently substitute one for another as this could mislead interpretation."
+        )
 
     # Create network graph
     G = nx.Graph()
@@ -5254,7 +5260,8 @@ async def create_enrichment_visualization(
         else:
             score_col = score_cols[0]
 
-        fig = plt.figure(figsize=(10, 8))
+        figsize = params.figure_size if params.figure_size else (10, 8)
+        fig = plt.figure(figsize=figsize, dpi=params.dpi)
 
         try:
             if plot_type == "correlogram":
@@ -5274,15 +5281,27 @@ async def create_enrichment_visualization(
             else:
                 # Default spatial enrichment
                 em.pl.spatial_enrichmap(adata, score_key=score_col)
-        except Exception as e:
-            if context:
-                await context.warning(
-                    f"EnrichMap visualization failed: {e}. Using fallback."
-                )
+        except DataNotFoundError:
+            # Re-raise data validation errors without modification
             plt.close(fig)
-            # Fall back to standard visualization
-            fig, ax = create_figure(figsize=(10, 8))
-            plot_spatial_feature(adata, feature=score_col, ax=ax, params=params)
+            raise
+        except Exception as e:
+            plt.close(fig)
+            # Provide clear error message explaining why we cannot fallback
+            raise ProcessingError(
+                f"EnrichMap {plot_type} visualization failed: {str(e)}\n\n"
+                f"CONTEXT:\n"
+                f"You requested a specific statistical visualization ('{plot_type}').\n"
+                f"Score column: {score_col}\n\n"
+                f"SOLUTIONS:\n"
+                f"1. Verify the enrichment analysis completed successfully\n"
+                f"2. Check that spatial neighbors graph exists: adata.obsp['spatial_connectivities']\n"
+                f"3. Ensure enrichment scores are properly stored in adata.obs['{score_col}']\n"
+                f"4. Try a different plot_type or remove enrichmap_plot_type parameter\n\n"
+                f"SCIENTIFIC INTEGRITY: Statistical visualizations (correlogram, variogram) "
+                f"convey specific spatial patterns. We refuse to silently substitute them with "
+                f"standard plots as this would misrepresent the analysis type."
+            ) from e
 
         return fig
 
@@ -5376,7 +5395,7 @@ async def create_gsea_visualization(
         adata: AnnData object with GSEA results
         params: Visualization parameters
             - gsea_results_key: Key in adata.uns for GSEA results (default: 'gsea_results')
-            - gsea_plot_type: Type of plot ('enrichment_plot', 'barplot', 'dotplot', 'spatial')
+            - subtype: Type of plot ('enrichment_plot', 'barplot', 'dotplot', 'spatial')
             - feature: Specific pathway/gene set to visualize
             - n_top_pathways: Number of top pathways to show (default: 10)
         context: MCP context
@@ -5400,28 +5419,29 @@ async def create_gsea_visualization(
             raise DataNotFoundError(f"GSEA results not found. Expected key: {gsea_key}")
 
     gsea_results = adata.uns[gsea_key]
-    plot_type = getattr(params, "gsea_plot_type", "barplot")
+    plot_type = params.subtype if params.subtype else "barplot"
 
     if plot_type == "enrichment_plot":
         # Classic GSEA enrichment score plot
-        return _create_gsea_enrichment_plot(adata, gsea_results, params, context)
+        return _create_gsea_enrichment_plot(gsea_results, params)
     elif plot_type == "barplot":
         # Top pathways barplot
-        return _create_gsea_barplot(adata, gsea_results, params, context)
+        return _create_gsea_barplot(gsea_results, params)
     elif plot_type == "dotplot":
         # Multi-cluster dotplot
-        return _create_gsea_dotplot(adata, gsea_results, params, context)
+        return _create_gsea_dotplot(gsea_results)
     elif plot_type == "spatial":
         # Spatial distribution of pathway scores
-        return _create_gsea_spatial_plot(adata, gsea_results, params, context)
+        return _create_gsea_spatial_plot(adata, params)
     else:
         # Default to barplot
-        return _create_gsea_barplot(adata, gsea_results, params, context)
+        return _create_gsea_barplot(gsea_results, params)
 
 
-def _create_gsea_enrichment_plot(adata, gsea_results, params, context):
+def _create_gsea_enrichment_plot(gsea_results, params):
     """Create classic GSEA enrichment score plot"""
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), height_ratios=[3, 1])
+    figsize = params.figure_size if params.figure_size else (10, 8)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, height_ratios=[3, 1])
 
     # Get specific pathway if specified
     pathway = params.feature if params.feature else None
@@ -5516,7 +5536,7 @@ def _create_gsea_enrichment_plot(adata, gsea_results, params, context):
     return fig
 
 
-def _create_gsea_barplot(adata, gsea_results, params, context):
+def _create_gsea_barplot(gsea_results, params):
     """Create barplot of top enriched pathways"""
     n_top = getattr(params, "n_top_pathways", 10)
 
@@ -5561,7 +5581,9 @@ def _create_gsea_barplot(adata, gsea_results, params, context):
     df_sorted = df.nlargest(min(n_top, len(df)), score_col)
 
     # Create barplot
-    fig, ax = plt.subplots(figsize=(10, max(6, n_top * 0.4)))
+    # Use user's figure size if provided, otherwise auto-calculate based on n_top
+    figsize = params.figure_size if params.figure_size else (10, max(6, n_top * 0.4))
+    fig, ax = plt.subplots(figsize=figsize)
 
     y_pos = np.arange(len(df_sorted))
     scores = df_sorted[score_col].values
@@ -5624,7 +5646,7 @@ def _create_gsea_barplot(adata, gsea_results, params, context):
     return fig
 
 
-def _create_gsea_dotplot(adata, gsea_results, params, context):
+def _create_gsea_dotplot(gsea_results):
     """Create dotplot showing enrichment across multiple conditions"""
     fig, ax = plt.subplots(figsize=(12, 8))
 
@@ -5707,39 +5729,61 @@ def _create_gsea_dotplot(adata, gsea_results, params, context):
     return fig
 
 
-def _create_gsea_spatial_plot(adata, gsea_results, params, context):
+def _create_gsea_spatial_plot(adata, params):
     """Create spatial visualization of pathway enrichment scores"""
     # Get spatial coordinates
     x_coords, y_coords = get_spatial_coordinates(adata)
 
-    # Get pathway scores (these should be pre-computed and stored in adata.obs)
+    # Get pathway to visualize
     pathway = params.feature if params.feature else None
 
-    # Look for pathway scores in obs
-    pathway_score_cols = [
-        col
-        for col in adata.obs.columns
-        if "pathway" in col.lower() or "gsea" in col.lower()
-    ]
-
-    if pathway and f"{pathway}_score" in adata.obs.columns:
-        score_col = f"{pathway}_score"
-    elif pathway and pathway in adata.obs.columns:
-        score_col = pathway
-    elif pathway_score_cols:
-        score_col = pathway_score_cols[0]
-    else:
-        # No pathway scores available - fail honestly
+    if not pathway:
         raise ValueError(
-            "No pathway scores found in the dataset. "
-            "Available columns: " + ", ".join(adata.obs.columns) + ". "
-            "Cannot visualize pathway scores without real enrichment analysis results."
+            "No pathway specified. Please provide a 'feature' parameter "
+            "with the pathway name to visualize spatially."
         )
 
-    scores = adata.obs[score_col].values
+    # First try to get scores from adata.obs (pre-computed scores)
+    if f"{pathway}_score" in adata.obs.columns:
+        scores = adata.obs[f"{pathway}_score"].values
+        score_col = f"{pathway}_score"
+    elif pathway in adata.obs.columns:
+        scores = adata.obs[pathway].values
+        score_col = pathway
+    # If not in obs, try to extract from GSEA results in uns
+    elif "gsea_results" in adata.uns:
+        gsea_results = adata.uns["gsea_results"]
+        if isinstance(gsea_results, pd.DataFrame):
+            # GSEA results are stored as DataFrame
+            if pathway in gsea_results.index:
+                # For spatial visualization, we need per-cell scores
+                # GSEA doesn't provide per-cell scores, only pathway-level statistics
+                raise ValueError(
+                    f"Pathway '{pathway}' found in GSEA results, but GSEA analysis "
+                    "does not provide per-cell enrichment scores for spatial visualization. "
+                    "GSEA provides pathway-level statistics (enrichment scores, p-values) "
+                    "but not cell-level scores needed for spatial mapping. "
+                    "Use 'barplot', 'dotplot', or 'enrichment_plot' for GSEA results visualization."
+                )
+            else:
+                available_pathways = list(gsea_results.index[:10])
+                raise ValueError(
+                    f"Pathway '{pathway}' not found in GSEA results. "
+                    f"Available pathways: {', '.join(available_pathways)}..."
+                )
+    else:
+        # No pathway scores available at all
+        raise ValueError(
+            "No pathway scores found in the dataset. "
+            "GSEA analysis results are present but do not include per-cell spatial scores. "
+            "Use 'barplot', 'dotplot', or 'enrichment_plot' for pathway enrichment visualization."
+        )
+
+    score_col = pathway
 
     # Create spatial plot
-    fig, ax = plt.subplots(figsize=(10, 8))
+    figsize = params.figure_size if params.figure_size else (10, 8)
+    fig, ax = plt.subplots(figsize=figsize)
 
     scatter = ax.scatter(
         x_coords,
@@ -5918,24 +5962,26 @@ async def create_spatial_interaction_visualization(
         plt.tight_layout()
         return fig
 
+    except ValueError as e:
+        # Re-raise validation errors (e.g., missing lr_pairs)
+        raise
     except Exception as e:
-        if context:
-            await context.warning(
-                f"Failed to create spatial interaction plot: {str(e)}"
-            )
-        # Fallback to basic spatial plot
-        fig, ax = create_figure()
-        ax.text(
-            0.5,
-            0.5,
-            f"Spatial interaction visualization failed:\n{str(e)}",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-            fontsize=12,
-        )
-        ax.set_title("Spatial Interaction (Error)", fontsize=14)
-        return fig
+        # Provide clear error for any other failures
+        raise ProcessingError(
+            f"Spatial ligand-receptor interaction visualization failed: {str(e)}\n\n"
+            f"CONTEXT:\n"
+            f"This visualization maps spatial locations of cells expressing ligands and receptors.\n\n"
+            f"COMMON CAUSES:\n"
+            f"1. Ligand/receptor genes not found in dataset\n"
+            f"2. No cells expressing the specified ligands/receptors above threshold\n"
+            f"3. Missing spatial coordinates in adata.obsm['spatial']\n"
+            f"4. Invalid lr_pairs format (should be list of (ligand, receptor) tuples)\n\n"
+            f"SOLUTIONS:\n"
+            f"1. Verify gene names match exactly (case-sensitive)\n"
+            f"2. Check gene expression: adata[:, 'GENE_NAME'].X\n"
+            f"3. Ensure spatial coordinates exist\n"
+            f"4. Use valid lr_pairs: [('Ligand1', 'Receptor1'), ('Ligand2', 'Receptor2')]"
+        ) from e
 
 
 @handle_visualization_errors("Batch Integration")
@@ -5962,7 +6008,8 @@ async def create_batch_integration_visualization(
         )
 
     # Create multi-panel figure (2x2 layout)
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    figsize = params.figure_size if params.figure_size else (16, 12)
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
 
     # Panel 1: UMAP colored by batch (shows mixing)
     if "X_umap" in adata.obsm:
@@ -6120,8 +6167,6 @@ async def save_visualization(
     format: str = "png",
     dpi: Optional[int] = None,
     visualization_cache: Optional[Dict[str, Any]] = None,
-    data_store: Optional[Dict[str, Any]] = None,
-    regenerate_high_quality: bool = False,
     context: Optional[Context] = None,
 ) -> str:
     """Save a visualization from cache to disk at publication quality
@@ -6142,8 +6187,6 @@ async def save_visualization(
         dpi: DPI for raster formats (default: 300 for publication quality)
               Vector formats (PDF, SVG, EPS, PS) ignore DPI
         visualization_cache: Cache dictionary containing visualizations
-        data_store: Data store for regenerating visualization at higher quality
-        regenerate_high_quality: If True, regenerate the plot at specified DPI
         context: MCP context for logging
 
     Returns:
@@ -6182,29 +6225,16 @@ async def save_visualization(
                 f"Invalid format: {format}. Must be one of {valid_formats}"
             )
 
-        # Check cache
-        if visualization_cache is None:
-            raise ProcessingError("Visualization cache not provided")
-
         # Generate cache key with subtype if provided
         if subtype:
             cache_key = f"{data_id}_{plot_type}_{subtype}"
         else:
             cache_key = f"{data_id}_{plot_type}"
 
-        if cache_key not in visualization_cache:
-            available_keys = [
-                k for k in visualization_cache.keys() if k.startswith(data_id)
-            ]
-            if not available_keys:
-                raise DataNotFoundError(
-                    f"No visualizations found for dataset '{data_id}'"
-                )
-            else:
-                raise DataNotFoundError(
-                    f"Visualization '{plot_type}' not found for dataset '{data_id}'. "
-                    f"Available: {', '.join([k.replace(data_id + '_', '') for k in available_keys])}"
-                )
+        # Check if visualization exists (session cache is now optional)
+        cache_key_exists = False
+        if visualization_cache is not None:
+            cache_key_exists = cache_key in visualization_cache
 
         # Set default DPI based on format
         if dpi is None:
@@ -6256,13 +6286,13 @@ async def save_visualization(
         # Full path for the file
         file_path = output_path / filename
 
-        # Get cached figure object for export (required)
+        # Get cached figure object for export (pickle files are PRIMARY source)
         from ..utils.image_utils import get_cached_figure, load_figure_pickle
 
-        # 1. Try to get figure from in-memory cache
-        cached_fig = get_cached_figure(cache_key)
+        # 1. Try to get figure from in-memory cache (fast path)
+        cached_fig = get_cached_figure(cache_key) if cache_key_exists else None
 
-        # 2. If not in memory, try pickle file
+        # 2. If not in memory, try pickle file (PRIMARY SOURCE - persistent storage)
         if cached_fig is None:
             pickle_path = f"/tmp/chatspatial/figures/{cache_key}.pkl"
             if os.path.exists(pickle_path):
@@ -6270,7 +6300,7 @@ async def save_visualization(
                     cached_fig = load_figure_pickle(pickle_path)
                     if context:
                         await context.info(
-                            "Loaded figure from pickle cache"
+                            "Loaded figure from pickle file (persistent storage)"
                         )
                 except Exception as e:
                     if context:
@@ -6278,12 +6308,20 @@ async def save_visualization(
                             f"Failed to load figure from pickle: {str(e)}"
                         )
 
-        # Figure must be cached for high-quality export (no fallback)
+        # Figure must exist (either in memory or pickle)
         if cached_fig is None:
-            raise ProcessingError(
-                f"Figure not found in cache for {cache_key}. "
-                f"Please regenerate the visualization first."
-            )
+            # Provide helpful error message
+            if not cache_key_exists:
+                raise DataNotFoundError(
+                    f"Visualization '{plot_type}' not found for dataset '{data_id}'. "
+                    f"Please create the visualization first using visualize_data tool."
+                )
+            else:
+                raise ProcessingError(
+                    f"Figure pickle file not found for {cache_key}. "
+                    f"The visualization may have been created in a previous session. "
+                    f"Please regenerate the visualization using visualize_data tool."
+                )
 
         # Export from cached figure with format-specific parameters
         if context:
@@ -6475,17 +6513,42 @@ async def export_all_visualizations(
         if visualization_cache is None:
             raise ProcessingError("Visualization cache not provided")
 
-        # Find all visualizations for this dataset
+        # Strategy 1: Check session cache first (fast path)
         relevant_keys = [
             k for k in visualization_cache.keys() if k.startswith(f"{data_id}_")
         ]
 
+        # Strategy 2: Fallback to pickle files (persistent storage)
         if not relevant_keys:
             if context:
-                await context.warning(
-                    f"No visualizations found for dataset '{data_id}'"
+                await context.info(
+                    f"Session cache empty, scanning pickle files for dataset '{data_id}'..."
                 )
-            return []
+
+            # Scan pickle directory for this dataset
+            import glob
+            pickle_dir = "/tmp/chatspatial/figures"
+            pickle_pattern = f"{pickle_dir}/{data_id}_*.pkl"
+            pickle_files = glob.glob(pickle_pattern)
+
+            if pickle_files:
+                # Extract cache keys from pickle filenames
+                relevant_keys = [
+                    os.path.basename(f).replace(".pkl", "")
+                    for f in pickle_files
+                ]
+
+                if context:
+                    await context.info(
+                        f"Found {len(relevant_keys)} visualization(s) from pickle files"
+                    )
+            else:
+                if context:
+                    await context.warning(
+                        f"No visualizations found for dataset '{data_id}' "
+                        f"(neither in session cache nor pickle files)"
+                    )
+                return []
 
         saved_files = []
 

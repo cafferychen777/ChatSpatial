@@ -160,16 +160,16 @@ async def analyze_spatial_statistics(
             result = await _analyze_gearys_c(adata, params, context)
         elif params.analysis_type == "neighborhood":
             result = await _analyze_neighborhood_enrichment(
-                adata, cluster_key, params, context
+                adata, cluster_key, context
             )
         elif params.analysis_type == "co_occurrence":
-            result = await _analyze_co_occurrence(adata, cluster_key, params, context)
+            result = await _analyze_co_occurrence(adata, cluster_key, context)
         elif params.analysis_type == "ripley":
-            result = await _analyze_ripleys_k(adata, cluster_key, params, context)
+            result = await _analyze_ripleys_k(adata, cluster_key, context)
         elif params.analysis_type == "getis_ord":
             result = await _analyze_getis_ord(adata, params, context)
         elif params.analysis_type == "centrality":
-            result = await _analyze_centrality(adata, cluster_key, params, context)
+            result = await _analyze_centrality(adata, cluster_key, context)
         elif params.analysis_type == "bivariate_moran":
             result = await _analyze_bivariate_moran(adata, params, context)
         elif params.analysis_type == "join_count":
@@ -568,7 +568,6 @@ async def _analyze_gearys_c(
 async def _analyze_neighborhood_enrichment(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Compute neighborhood enrichment analysis."""
@@ -596,7 +595,6 @@ async def _analyze_neighborhood_enrichment(
 async def _analyze_co_occurrence(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Compute co-occurrence analysis."""
@@ -617,7 +615,6 @@ async def _analyze_co_occurrence(
 async def _analyze_ripleys_k(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Compute Ripley's K function."""
@@ -801,7 +798,6 @@ async def _analyze_getis_ord(
 async def _analyze_centrality(
     adata: ad.AnnData,
     cluster_key: str,
-    params: SpatialStatisticsParameters,
     context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Compute centrality scores."""
