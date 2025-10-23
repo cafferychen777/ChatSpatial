@@ -451,9 +451,20 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
         with open(scalefactors_file, "r") as f:
             scalefactors = json.load(f)
 
+        # Generate meaningful library_id from spatial_path
+        # Priority: parent directory name (usually sample name) > "sample_1" default
+        # Avoid using "spatial" as library_id to prevent confusing adata.uns["spatial"]["spatial"] nesting
+        parent_dir = os.path.dirname(spatial_path.rstrip(os.sep))
+        if parent_dir and os.path.basename(parent_dir) != "":
+            library_id = os.path.basename(parent_dir)
+        else:
+            library_id = "sample_1"  # Fallback to clear default name
+
+        logger.info(f"Using library_id: {library_id}")
+
         # Create spatial uns structure (scanpy expects nested structure)
         adata.uns["spatial"] = {
-            "spatial": {"scalefactors": scalefactors, "images": {}}  # Library ID as key
+            library_id: {"scalefactors": scalefactors, "images": {}}
         }
 
         # Try to load images if available
@@ -466,7 +477,7 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
                     img = np.array(Image.open(img_path))
 
                     img_key = "hires" if "hires" in img_name else "lowres"
-                    adata.uns["spatial"]["spatial"]["images"][img_key] = img
+                    adata.uns["spatial"][library_id]["images"][img_key] = img
                     logger.info(f"Loaded {img_key} tissue image")
                 except ImportError:
                     logger.warning("PIL not available, skipping image loading")
