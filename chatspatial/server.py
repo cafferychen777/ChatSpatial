@@ -1865,7 +1865,7 @@ async def register_spatial_data(
 
     # Call registration function using standard architecture
     result = await register_spatial_slices_mcp(
-        source_id, target_id, data_store, method, landmarks, context
+        source_id, target_id, data_store, method, context
     )
 
     # Update datasets in data manager
