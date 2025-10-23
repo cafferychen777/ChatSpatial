@@ -670,8 +670,6 @@ def _process_deconvolution_results_transparently(
         proportions_normalized = proportions.div(row_sums, axis=0)
 
         # Don't fill NaN - preserve them
-        # proportions_normalized = proportions_normalized.fillna(0)  # REMOVED
-
         # Store original sums as metadata
         proportions_normalized.attrs = proportions_normalized.attrs or {}
         proportions_normalized.attrs["original_sums"] = row_sums
@@ -1425,27 +1423,11 @@ def deconvolve_rctd(
             ro.globalenv["cell_types_vec"] = r_cell_types
             ro.globalenv["numi_ref"] = r_reference_numi
 
-            # DEBUG: Print cell type counts before creating Reference
-            print("\n" + "=" * 60)
-            print("DEBUG: Cell type counts BEFORE creating R Reference object")
-            print("=" * 60)
-            ct_counts_debug = cell_types_series.value_counts().sort_index()
-            for ct, count in ct_counts_debug.items():
-                status = "✓" if count >= 25 else "❌"
-                print(f"{status} {ct}: {count} cells")
-            print(
-                f"\nTotal: {len(cell_types_series)} cells, {len(ct_counts_debug)} types"
-            )
-            print(f"Min count: {ct_counts_debug.min()}")
-            print("=" * 60 + "\n")
-
-            # Convert cell_types to factor as required by RCTD, and set min_UMI lower for testing
+            # Convert cell_types to factor as required by RCTD
             reference = ro.r(
                 """
             cell_types_factor <- as.factor(cell_types_vec)
             names(cell_types_factor) <- names(cell_types_vec)
-            print("DEBUG: Cell type table in R:")
-            print(table(cell_types_factor))
             Reference(reference_counts, cell_types_factor, numi_ref, min_UMI = 5)
             """
             )
