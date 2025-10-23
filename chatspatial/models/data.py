@@ -4,7 +4,7 @@ Data models for spatial transcriptomics analysis.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Annotated, Dict, List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing_extensions import Self
@@ -463,7 +463,9 @@ class VisualizationParameters(BaseModel):
         # Deconvolution validation - set default subtype if not provided
         if self.plot_type == "deconvolution":
             if not self.subtype:
-                self.subtype = "spatial_multi"  # Default deconvolution visualization type
+                self.subtype = (
+                    "spatial_multi"  # Default deconvolution visualization type
+                )
 
         return self
 
@@ -490,7 +492,9 @@ class AnnotationParameters(BaseModel):
     num_epochs: int = (
         100  # For Tangram/ScanVI methods - number of training epochs (reduced for faster training)
     )
-    tangram_mode: Literal["cells", "clusters"] = "cells"  # Tangram mapping mode: 'cells' (cell-level) or 'clusters' (cluster-level)
+    tangram_mode: Literal["cells", "clusters"] = (
+        "cells"  # Tangram mapping mode: 'cells' (cell-level) or 'clusters' (cluster-level)
+    )
     cluster_label: Optional[str] = (
         None  # For mLLMCellType method - cluster label in spatial data. Only required when method='mllmcelltype'
     )
@@ -1077,16 +1081,25 @@ class CellCommunicationParameters(BaseModel):
     # - "mouse": For mouse data (genes like Actb, Gapdh - capitalized)
     # - "zebrafish": For zebrafish data
 
-    # Enhanced resource selection including mouseconsensus
+    # LIANA resource selection (matches actual LIANA+ supported resources)
     liana_resource: Literal[
-        "consensus",
-        "mouseconsensus",
-        "cellchatdb",  # CellChatDB resource (corrected from "cellchat")
-        "cellphonedb",
-        "connectome",
-        "omnipath",
-        "celltalkdb",
-        "icellnet",
+        "consensus",  # Default: consensus of multiple databases (recommended)
+        "mouseconsensus",  # Mouse consensus database
+        "baccin2019",  # Baccin et al. 2019 resource
+        "cellcall",  # CellCall database
+        "cellchatdb",  # CellChat database
+        "cellinker",  # CellLinker database
+        "cellphonedb",  # CellPhoneDB database (curated, stringent)
+        "celltalkdb",  # CellTalkDB database (large)
+        "connectomedb2020",  # Connectome database 2020
+        "embrace",  # EMBRACE database
+        "guide2pharma",  # Guide to Pharmacology
+        "hpmr",  # Human Plasma Membrane Receptome
+        "icellnet",  # iCellNet database (immune focus)
+        "italk",  # iTALK database
+        "kirouac2010",  # Kirouac et al. 2010
+        "lrdb",  # LRdb database
+        "ramilowski2015",  # Ramilowski et al. 2015
     ] = "consensus"  # LR database resource
 
     # ========== Data Usage Control ==========
@@ -1099,32 +1112,9 @@ class CellCommunicationParameters(BaseModel):
         True  # Whether to perform spatial bivariate analysis
     )
 
-    # Spatial connectivity control
-    spatial_connectivity_handling: Literal[
-        "require_existing", "compute_with_params", "skip"
-    ] = "require_existing"
-    # require_existing: Must exist or error, compute_with_params: Compute with provided params, skip: Skip spatial analysis
-
-    # Spatial connectivity parameters (required when compute_with_params)
-    # Platform-specific recommendations (see server.py docs for detailed guidance):
-    # Visium: {"coord_type": "grid", "n_rings": 1} or {"coord_type": "generic", "n_neighs": 6-18}
-    # Slide-seq: {"coord_type": "generic", "n_neighs": 10-30} or {"radius": 50-100}
-    # MERFISH/seqFISH: {"coord_type": "generic", "n_neighs": 3-10} or {"radius": 20-50}
-    # Analysis-based: Local signaling=smaller n, Microenvironment=larger n
-    spatial_neighbors_kwargs: Optional[Dict[str, Any]] = None
-
     # ========== Cell Type Control ==========
-    # Cell type column control
-    cell_type_column: str  # REQUIRED: Which column to use for cell types. LLM will infer from metadata. Common values: 'cell_type', 'celltype', 'leiden', 'louvain', 'seurat_clusters'
-    cell_type_handling: Literal["require", "create_from_column", "skip_validation"] = (
-        "require"
-    )
-    # require: Must exist, create_from_column: Create from clustering, skip_validation: Skip (dangerous)
-
-    cell_type_source_column: Optional[str] = (
-        None  # Source column when create_from_column
-    )
-    # Example: "leiden", "louvain", "seurat_clusters"
+    # Cell type key (unified naming with other tools)
+    cell_type_key: str  # REQUIRED: Which column to use for cell types. LLM will infer from metadata. Common values: 'cell_type', 'celltype', 'leiden', 'louvain', 'seurat_clusters'
 
     # ========== LIANA Specific Parameters ==========
     liana_local_metric: Literal["cosine", "pearson", "spearman", "jaccard"] = (
@@ -1139,10 +1129,6 @@ class CellCommunicationParameters(BaseModel):
     liana_cutoff: Annotated[float, Field(gt=0.0, le=1.0)] = (
         0.1  # Cutoff for spatial connectivity
     )
-
-    # ========== Advanced Control ==========
-    # Failure handling
-    on_validation_failure: Literal["error", "warning", "ignore"] = "error"
 
     # ========== Expression Filtering Parameters ==========
     min_cells: Annotated[int, Field(ge=0)] = (
@@ -1186,20 +1172,6 @@ class CellCommunicationParameters(BaseModel):
     # - "bonferroni": Bonferroni correction (most conservative, controls FWER)
     # - "sidak": Šidák correction (similar to Bonferroni but more accurate for independent tests)
     # - "none": No correction (NOT recommended, leads to ~92% FPR with 7 clusters)
-
-    # ========== Gene Filtering for CellPhoneDB Compatibility (ULTRATHINK) ==========
-    enable_gene_filtering: bool = (
-        True  # Whether to enable automatic gene filtering for CellPhoneDB compatibility
-    )
-    gene_filtering_strategy: Literal[
-        "none", "conservative", "moderate", "aggressive", "adaptive"
-    ] = "conservative"
-    # Gene filtering strategies:
-    # - none: No filtering applied
-    # - conservative: Only remove core problematic genes (ICAM3, ITGAD, CD11D) [DEFAULT]
-    # - moderate: Remove core + ITGB2 for added safety
-    # - aggressive: Remove all potentially related genes
-    # - adaptive: Automatically adjust based on dataset characteristics
 
 
 class EnrichmentParameters(BaseModel):

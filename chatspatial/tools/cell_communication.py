@@ -5,9 +5,7 @@ Cell-cell communication analysis tools for spatial transcriptomics data.
 from typing import Any, Dict, Optional
 
 import numpy as np
-import pandas as pd
 from mcp.server.fastmcp import Context
-from scipy import sparse
 
 from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
@@ -20,179 +18,43 @@ try:
 except ImportError:
     LIANA_AVAILABLE = False
 
-# Import CellPhoneDB for cell communication analysis
+# Check CellPhoneDB availability
 try:
-    from cellphonedb.src.core.methods import (cpdb_degs_analysis_method,  # noqa: F401
-                                              cpdb_statistical_analysis_method)  # noqa: F401
+    import importlib.util
 
-    CELLPHONEDB_AVAILABLE = True
+    CELLPHONEDB_AVAILABLE = importlib.util.find_spec("cellphonedb") is not None
 except ImportError:
     CELLPHONEDB_AVAILABLE = False
 
 
 async def _validate_liana_requirements(
     adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
-) -> Dict[str, Any]:
-    """Comprehensive validation of LIANA+ requirements with explicit user control"""
-
-    validation_result = {
-        "passed": True,
-        "errors": [],
-        "warnings": [],
-        "suggestions": [],
-    }
-
-    if context:
-        await context.info("Validating LIANA+ requirements...")
-
-    # 1. Spatial connectivity validation
-    if (
-        params.perform_spatial_analysis
-        and params.spatial_connectivity_handling == "require_existing"
-    ):
-        if "spatial_connectivities" not in adata.obsp:
-            error_msg = (
-                "Spatial connectivity required for LIANA+ bivariate analysis.\n"
-                "Options:\n"
-                "  1. Set spatial_connectivity_handling='compute_with_params' and provide spatial_neighbors_kwargs\n"
-                "  2. Compute spatial neighbors first: sq.gr.spatial_neighbors(adata)\n"
-                "  3. Set spatial_connectivity_handling='skip' to use cluster-based analysis"
-            )
-            validation_result["passed"] = False
-            validation_result["errors"].append(error_msg)
-
-    # 2. Cell type validation
-    if params.cell_type_handling == "require":
-        if params.cell_type_column not in adata.obs.columns:
-            # Show all categorical columns (more helpful than hardcoded list)
-            all_cols = list(adata.obs.columns)
-            categorical_cols = [
-                col
-                for col in all_cols
-                if adata.obs[col].dtype.name in ["object", "category"]
-            ]
-
-            error_msg = (
-                f"Cell type annotations required for LIANA+ analysis.\n"
-                f"Missing column: '{params.cell_type_column}'\n\n"
-                f"Available categorical columns ({len(categorical_cols)} total):\n"
-                f"  {', '.join(categorical_cols[:15])}\n"
-                f"  {'...' if len(categorical_cols) > 15 else ''}\n\n"
-                f"Options:\n"
-                f"  1. Set cell_type_handling='create_from_column' and cell_type_source_column='<your_column>'\n"
-                f"  2. Run cell type annotation first using annotate_cell_types()\n"
-                f"  3. Manually create cell type column from existing clustering\n\n"
-                f"Common cell type column names: cell_type, celltype, annotation, label\n"
-                f"Common cluster column names: leiden, louvain, seurat_clusters, phenograph"
-            )
-            validation_result["passed"] = False
-            validation_result["errors"].append(error_msg)
-
-    elif params.cell_type_handling == "create_from_column":
-        if not params.cell_type_source_column:
-            error_msg = "cell_type_source_column must be specified when cell_type_handling='create_from_column'"
-            validation_result["passed"] = False
-            validation_result["errors"].append(error_msg)
-        elif params.cell_type_source_column not in adata.obs.columns:
-            error_msg = f"Source column '{params.cell_type_source_column}' not found in adata.obs"
-            validation_result["passed"] = False
-            validation_result["errors"].append(error_msg)
-
-    # 3. Resource matching validation
-    if params.species == "mouse" and params.liana_resource == "consensus":
-        warning_msg = (
-            "Using 'consensus' resource for mouse data. "
-            "Consider using liana_resource='mouseconsensus' for better mouse gene coverage."
-        )
-        validation_result["warnings"].append(warning_msg)
-        if context:
-            await context.warning(warning_msg)
-
-    return validation_result
-
-
-async def _prepare_data_with_user_control(
-    adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
-) -> Any:
-    """Prepare data according to explicit user control parameters"""
-
-    # 1. Handle data source selection
-    if params.data_source == "raw":
-        if adata.raw is None:
-            raise ValueError(
-                "data_source='raw' specified but adata.raw is None. "
-                "Either use data_source='current' or load data with raw counts preserved."
-            )
-
-        if context:
-            await context.info(f"Using raw data: {adata.raw.n_vars} genes")
-
-        # Create full dataset from raw
-        adata_full = adata.raw.to_adata()
-
-        # Transfer all metadata
-        adata_full.obs = adata.obs.copy()
-        adata_full.obsm = adata.obsm.copy()
-        adata_full.obsp = adata.obsp.copy()  # Critical for spatial connectivity
-        adata_full.uns = adata.uns.copy()
-
-        # Check if raw data needs normalization
-        if adata_full.X.max() > 100:
-            if context:
-                await context.info("Normalizing raw data for LIANA+ analysis")
-            import scanpy as sc
-
-            sc.pp.normalize_total(adata_full, target_sum=1e4)
-            sc.pp.log1p(adata_full)
-
-        adata = adata_full
-
-    elif params.data_source == "current":
-        if context:
-            await context.info(f"Using current data: {adata.n_vars} genes")
-
-    # 2. Handle spatial connectivity
-    if params.spatial_connectivity_handling == "compute_with_params":
-        if not params.spatial_neighbors_kwargs:
-            raise ValueError(
-                "spatial_neighbors_kwargs must be provided when spatial_connectivity_handling='compute_with_params'"
-            )
-
-        if context:
-            await context.info(
-                f"Computing spatial connectivity with params: {params.spatial_neighbors_kwargs}"
-            )
-
-        import squidpy as sq
-
-        sq.gr.spatial_neighbors(adata, **params.spatial_neighbors_kwargs)
-
-    # 3. Handle cell type creation
-    if params.cell_type_handling == "create_from_column":
-        if context:
-            await context.info(
-                f"Creating cell types from column: {params.cell_type_source_column}"
-            )
-
-        adata.obs[params.cell_type_column] = "Type_" + adata.obs[
-            params.cell_type_source_column
-        ].astype(str)
-        adata.obs[params.cell_type_column] = adata.obs[params.cell_type_column].astype(
-            "category"
+) -> None:
+    """Validate LIANA+ requirements"""
+    # Spatial connectivity validation
+    if params.perform_spatial_analysis and "spatial_connectivities" not in adata.obsp:
+        raise ValueError(
+            "Spatial connectivity required for LIANA+ bivariate analysis.\n\n"
+            "Run spatial neighbor computation first:\n"
+            "  import squidpy as sq\n"
+            "  sq.gr.spatial_neighbors(adata, coord_type='grid', n_rings=1)\n\n"
+            "Platform-specific recommendations:\n"
+            "  Visium: coord_type='grid', n_rings=1-2\n"
+            "  MERFISH: coord_type='generic', radius=20-50\n"
+            "  Slide-seq: coord_type='generic', n_neighs=10-30"
         )
 
-    # 4. Log final data state
-    if context:
-        await context.info("Final data preparation complete:")
-        await context.info(f"  Data source: {params.data_source}")
-        await context.info(f"  Genes: {adata.n_vars}")
-        await context.info(f"  Cells: {adata.n_obs}")
-        await context.info(f"  Cell type column: {params.cell_type_column}")
-        await context.info(
-            f"  Spatial connectivity: {'spatial_connectivities' in adata.obsp}"
+    # Cell type validation
+    if params.cell_type_key not in adata.obs.columns:
+        raise ValueError(
+            f"Cell type column '{params.cell_type_key}' not found in adata.obs."
         )
 
-    return adata
+    # Warning for resource matching
+    if params.species == "mouse" and params.liana_resource == "consensus" and context:
+        await context.warning(
+            "Using 'consensus' for mouse data. Consider liana_resource='mouseconsensus'."
+        )
 
 
 async def analyze_cell_communication(
@@ -212,60 +74,27 @@ async def analyze_cell_communication(
     Returns:
         Cell communication analysis result
     """
-    if context:
-        await context.info(
-            f"Analyzing cell-cell communication using {params.method} method"
-        )
-
     # Retrieve the AnnData object from data store
     if data_id not in data_store:
         raise ValueError(f"Dataset {data_id} not found in data store")
 
-    # COW FIX: Direct reference instead of copy
-    # Only add metadata to adata.obs/uns, never overwrite entire adata
+    # Direct reference to avoid unnecessary copies
     adata = data_store[data_id]["adata"]
 
     try:
-        # Apply method-specific validation based on ULTRATHINK analysis
+        # Apply method-specific validation
         if params.method in ["liana", "cellchat_liana"]:
             # LIANA-based methods need spatial connectivity validation
-            validation_result = await _validate_liana_requirements(
-                adata, params, context
-            )
-
-            # Handle validation failures according to user preference
-            if not validation_result["passed"]:
-                error_messages = "\n".join(validation_result["errors"])
-                if params.on_validation_failure == "error":
-                    raise ValueError(f"LIANA+ validation failed:\n{error_messages}")
-                elif params.on_validation_failure == "warning":
-                    if context:
-                        await context.warning(
-                            f"Validation issues detected but continuing: {error_messages}"
-                        )
-                # If "ignore", continue without raising error
+            await _validate_liana_requirements(adata, params, context)
         elif params.method == "cellphonedb":
-            # ULTRATHINK improvement: Remove problematic validation function, keep only minimal necessary checks
-            # Issues with original validation function:
-            # 1. Hard-coded human gene names, always fails for mouse data
-            # 2. Doesn't check raw layer, misses many available genes
-            # 3. Overly conservative thresholds, rejects usable data
-            # Analysis shows CellPhoneDB has sufficient error handling capability
-
-            # Minimal necessary validation
-            validation_result = {"passed": True, "warnings": [], "errors": []}
-
-            # Only check if cell type exists (this is absolutely necessary)
-            if params.cell_type_column not in adata.obs.columns:
-                validation_result["passed"] = False
-                validation_result["errors"].append(
-                    f"Cell type column '{params.cell_type_column}' not found in adata.obs. "
-                    f"Available columns: {list(adata.obs.columns)}"
+            # Check if cell type column exists
+            if params.cell_type_key not in adata.obs.columns:
+                raise ValueError(
+                    f"Cell type column '{params.cell_type_key}' not found in adata.obs."
                 )
 
-            # Informational warnings (do not block execution)
+            # Provide data overview information
             if context:
-                # Provide data overview information
                 data_source_info = (
                     "raw layer"
                     if params.data_source == "raw" and adata.raw
@@ -281,43 +110,44 @@ async def analyze_cell_communication(
                     f"and {adata.n_obs} cells"
                 )
 
-                # Friendly warnings (do not block execution)
+                # Warnings for low counts
                 if n_genes < 5000:
-                    validation_result["warnings"].append(
+                    await context.warning(
                         f"Gene count ({n_genes}) is relatively low. "
-                        f"This may limit the number of interactions found, but analysis will proceed."
+                        f"This may limit the number of interactions found."
                     )
 
                 if adata.n_obs < 100:
-                    validation_result["warnings"].append(
+                    await context.warning(
                         f"Cell count ({adata.n_obs}) is relatively low. "
-                        f"This may affect statistical power, but analysis will proceed."
+                        f"This may affect statistical power."
                     )
 
-            # Handle validation results (only missing cell type is a real error)
-            if not validation_result["passed"]:
-                error_message = "\n".join(validation_result["errors"])
+        # Handle data source selection
+        if params.data_source == "raw":
+            if adata.raw is None:
                 raise ValueError(
-                    f"CellPhoneDB requires cell type information:\n{error_message}"
+                    "data_source='raw' specified but adata.raw is None. "
+                    "Either use data_source='current' or load data with raw counts preserved."
                 )
 
-            # Record warning information
-            if validation_result["warnings"] and context:
-                for warning in validation_result["warnings"]:
-                    await context.warning(warning)
-        else:
-            # Default validation for unknown methods
-            validation_result = await _validate_liana_requirements(
-                adata, params, context
-            )
+            # Create full dataset from raw
+            adata_full = adata.raw.to_adata()
 
-        # After validation passes (or user chooses to ignore), apply data preparation
-        adata = await _prepare_data_with_user_control(adata, params, context)
+            # Transfer all metadata
+            adata_full.obs = adata.obs.copy()
+            adata_full.obsm = adata.obsm.copy()
+            adata_full.obsp = adata.obsp.copy()  # Critical for spatial connectivity
+            adata_full.uns = adata.uns.copy()
 
-        # Log any warnings
-        for warning in validation_result["warnings"]:
-            if context:
-                await context.warning(warning)
+            # Check if raw data needs normalization
+            if adata_full.X.max() > 100:
+                import scanpy as sc
+
+                sc.pp.normalize_total(adata_full, target_sum=1e4)
+                sc.pp.log1p(adata_full)
+
+            adata = adata_full
 
         # Analyze cell communication using selected method
         if params.method == "liana":
@@ -357,15 +187,21 @@ async def analyze_cell_communication(
                 "Cell communication analysis complete. Use visualize_data tool with plot_type='cell_communication' to visualize results"
             )
 
-        # WARNING:  CRITICAL FIX: When data_source="raw", _prepare_data_with_user_control creates a NEW adata object
-        # This breaks the direct reference to data_store, so we MUST copy results back
+        # When data_source="raw", a new adata object is created, so copy results back
         original_adata = data_store[data_id]["adata"]
 
         # Copy all CellPhoneDB/LIANA results from the temporary adata to the original
         # This ensures results are preserved when data is saved
-        for key in ["cellphonedb_deconvoluted", "cellphonedb_means", "cellphonedb_pvalues",
-                    "cellphonedb_significant_means", "cellphonedb_statistics",
-                    "liana_res", "lrdata", "liana_spatial"]:
+        for key in [
+            "cellphonedb_deconvoluted",
+            "cellphonedb_means",
+            "cellphonedb_pvalues",
+            "cellphonedb_significant_means",
+            "cellphonedb_statistics",
+            "liana_res",
+            "lrdata",
+            "liana_spatial",
+        ]:
             if key in adata.uns:
                 original_adata.uns[key] = adata.uns[key]
 
@@ -405,7 +241,7 @@ async def analyze_cell_communication(
             analysis_name=f"cell_communication_{params.method}",
             method=params.method,
             parameters={
-                "cell_type_column": params.cell_type_column,
+                "cell_type_key": params.cell_type_key,
                 "n_perms": (
                     params.liana_n_perms
                     if params.method in ["liana", "cellchat_liana"]
@@ -490,9 +326,6 @@ async def _analyze_communication_liana(
             "LIANA+ is not installed. Please install it with: pip install liana"
         )
 
-    if context:
-        await context.info("Running LIANA+ for cell communication analysis...")
-
     try:
         import time
 
@@ -500,9 +333,6 @@ async def _analyze_communication_liana(
 
         # Ensure spatial connectivity is computed
         if "spatial_connectivities" not in adata.obsp:
-            if context:
-                await context.info("Computing spatial connectivity matrix...")
-
             # Use parameters from user or determine optimal bandwidth based on data size
             if params.liana_bandwidth is not None:
                 bandwidth = params.liana_bandwidth
@@ -514,7 +344,7 @@ async def _analyze_communication_liana(
             cutoff = params.liana_cutoff
 
             # Use Squidpy for spatial neighbor computation
-            # CRITICAL: Spatial analysis REQUIRES spatial neighbors, not expression neighbors!
+            # Note: Spatial analysis requires spatial neighbors (physical coordinates), not expression neighbors
             try:
                 import squidpy as sq
 
@@ -529,23 +359,11 @@ async def _analyze_communication_liana(
                     delaunay=True,  # Use Delaunay triangulation for spatial data
                     set_diag=False,  # Standard practice for spatial graphs
                 )
-                if context:
-                    await context.info("Spatial connectivity computed using Squidpy")
             except ImportError:
-                # CRITICAL: NO FALLBACK! Spatial analysis without spatial neighbors is meaningless
-                error_msg = (
-                    "CRITICAL ERROR: Squidpy is required for spatial cell communication analysis!\n\n"
-                    "Squidpy computes neighbors based on PHYSICAL spatial coordinates.\n"
-                    "Without it, spatial analysis cannot be performed correctly.\n\n"
-                    "Please install squidpy:\n"
-                    "  pip install squidpy\n\n"
-                    "Why this matters:\n"
-                    "- Spatial neighbors = cells that are physically close\n"
-                    "- Expression neighbors (scanpy) = cells with similar gene expression\n"
-                    "- These are COMPLETELY different and lead to opposite conclusions!\n\n"
-                    "Using expression neighbors for spatial analysis would be scientifically invalid."
+                raise ImportError(
+                    "Squidpy required for spatial analysis (computes neighbors based on physical coordinates). "
+                    "Install: pip install squidpy"
                 )
-                raise ImportError(error_msg)
 
             if context:
                 await context.info(
@@ -563,17 +381,13 @@ async def _analyze_communication_liana(
                 "Example usage:\n"
                 "  params = {\n"
                 "      'species': 'mouse',\n"
-                "      'cell_type_column': 'cell_type',\n"
+                "      'cell_type_key': 'cell_type',\n"
                 "      'liana_resource': 'mouseconsensus'\n"
                 "  }"
             )
 
-        if context:
-            await context.info(f"Using species: {params.species}")
-
         # Determine analysis type based on data characteristics
-        # BUG FIX: Check the actual cell_type_column specified by user, not just hardcoded names
-        has_clusters = params.cell_type_column in adata.obs.columns
+        has_clusters = params.cell_type_key in adata.obs.columns
 
         if has_clusters and not params.perform_spatial_analysis:
             # Single-cell style analysis with clusters
@@ -612,35 +426,17 @@ async def _run_liana_cluster_analysis(
     """Run LIANA+ cluster-based analysis"""
     import liana as li
 
-    # Use cell_type_column from params (required field, no auto-detect)
-    groupby_col = params.cell_type_column
+    # Use cell_type_key from params (required field, no auto-detect)
+    groupby_col = params.cell_type_key
 
     if groupby_col not in adata.obs.columns:
-        available_cols = list(adata.obs.columns)
-        categorical_cols = [
-            col
-            for col in available_cols
-            if adata.obs[col].dtype.name in ["object", "category"]
-        ]
-
         raise ValueError(
-            f"Groupby column '{groupby_col}' not found for cluster analysis.\n\n"
-            f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
-            f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
-            f"Please specify the correct column using cell_type_column parameter."
-        )
-
-    if context:
-        await context.info(
-            f"Running LIANA+ rank aggregate analysis grouped by '{groupby_col}'..."
+            f"Cell type column '{groupby_col}' not found in adata.obs. "
+            f"Use cell_type_key parameter to specify correct column."
         )
 
     # Get appropriate resource name based on species
     resource_name = _get_liana_resource_name(params.species, params.liana_resource)
-    if context:
-        await context.info(
-            f"Using LIANA+ resource: {resource_name} for species: {params.species}"
-        )
 
     # Use parameters from user (respect user choice)
     n_perms = params.liana_n_perms
@@ -716,15 +512,8 @@ async def _run_liana_spatial_analysis(
     """Run LIANA+ spatial bivariate analysis"""
     import liana as li
 
-    if context:
-        await context.info("Running LIANA+ spatial bivariate analysis...")
-
     # Get appropriate resource name based on species
     resource_name = _get_liana_resource_name(params.species, params.liana_resource)
-    if context:
-        await context.info(
-            f"Using LIANA+ resource: {resource_name} for species: {params.species}"
-        )
 
     # Use parameters from user (respect user choice)
     n_perms = params.liana_n_perms
@@ -862,161 +651,6 @@ async def _ensure_cellphonedb_database(
         raise RuntimeError(error_msg) from e
 
 
-def _identify_problematic_genes(adata: Any) -> Dict:
-    """
-    ULTRATHINK: Identify genes that may cause CellPhoneDB errors
-
-    Args:
-        adata: AnnData object
-
-    Returns:
-        Dict with problematic gene information
-    """
-
-    # Core problematic genes (must be removed for ICAM3_integrin_aDb2_complex error)
-    core_problematic = {
-        "ICAM3",  # Intercellular Adhesion Molecule 3
-        "ITGAD",  # Integrin alpha D (CD11d)
-        "CD11D",  # Alternative name for ITGAD
-    }
-
-    # Related genes (optionally removed for moderate strategy)
-    related_genes = {
-        "ITGB2",  # Integrin beta 2 (CD18) - partner of ITGAD
-        "ICAM1",  # Related adhesion molecule
-        "ICAM2",  # Related adhesion molecule
-        "ITGAL",  # Integrin alpha L (CD11a)
-        "ITGAM",  # Integrin alpha M (CD11b)
-        "ITGAX",  # Integrin alpha X (CD11c)
-    }
-
-    # Check which genes are actually present (case-insensitive)
-    found_core = []
-    found_related = []
-
-    gene_names_upper = [g.upper() for g in adata.var_names]
-    gene_names_map = {g.upper(): g for g in adata.var_names}
-
-    for gene in core_problematic:
-        if gene.upper() in gene_names_upper:
-            found_core.append(gene_names_map[gene.upper()])
-
-    for gene in related_genes:
-        if gene.upper() in gene_names_upper:
-            found_related.append(gene_names_map[gene.upper()])
-
-    return {
-        "core_problematic": core_problematic,
-        "related_genes": related_genes,
-        "found_core": found_core,
-        "found_related": found_related,
-        "total_genes": len(adata.var_names),
-        "impact_percentage": (
-            len(found_core) / len(adata.var_names) * 100
-            if len(adata.var_names) > 0
-            else 0
-        ),
-    }
-
-
-def _smart_gene_filtering(
-    adata: Any, strategy: str = "conservative", context: Optional[Context] = None
-) -> Any:
-    """
-    ULTRATHINK: Smart filtering of problematic genes for CellPhoneDB compatibility
-
-    Args:
-        adata: Input AnnData object
-        strategy: Filtering strategy ('conservative', 'moderate', 'aggressive', 'adaptive')
-        context: MCP context for logging
-
-    Returns:
-        Filtered AnnData object
-    """
-    from datetime import datetime
-
-    # 1. Identify problematic genes
-    gene_info = _identify_problematic_genes(adata)
-
-    # 2. Determine genes to remove based on strategy
-    genes_to_remove = set()
-
-    if strategy == "conservative":
-        # Only remove core problematic genes
-        genes_to_remove = set(gene_info["found_core"])
-
-    elif strategy == "moderate":
-        # Remove core + ITGB2 (if present)
-        genes_to_remove = set(gene_info["found_core"])
-        if "ITGB2" in [g.upper() for g in gene_info["found_related"]]:
-            itgb2_actual = [
-                g for g in gene_info["found_related"] if g.upper() == "ITGB2"
-            ]
-            if itgb2_actual:
-                genes_to_remove.add(itgb2_actual[0])
-
-    elif strategy == "aggressive":
-        # Remove all related genes
-        genes_to_remove = set(gene_info["found_core"] + gene_info["found_related"])
-
-    elif strategy == "adaptive":
-        # Check if immune-focused dataset
-        is_immune = False
-        if "cell_type" in adata.obs.columns:
-            cell_types = adata.obs["cell_type"].unique()
-            immune_keywords = [
-                "T_cell",
-                "B_cell",
-                "NK",
-                "Macrophage",
-                "Dendritic",
-                "Monocyte",
-                "Neutrophil",
-                "immune",
-                "lymph",
-            ]
-            immune_count = sum(
-                any(kw.lower() in str(ct).lower() for kw in immune_keywords)
-                for ct in cell_types
-            )
-            if immune_count > len(cell_types) * 0.5:
-                is_immune = True
-
-        if is_immune:
-            genes_to_remove = set(gene_info["found_core"] + gene_info["found_related"])
-        else:
-            genes_to_remove = set(gene_info["found_core"])
-
-    # If no problematic genes found, return original
-    if not genes_to_remove:
-        return adata
-
-    # 3. Backup original data to raw (if not already done)
-    if adata.raw is None:
-        adata.raw = adata.copy()
-
-    # 4. Perform filtering
-    genes_to_keep = ~adata.var_names.isin(genes_to_remove)
-    n_removed = len(genes_to_remove)
-    n_kept = genes_to_keep.sum()
-
-    # Record filtering information
-    adata.uns["cellphonedb_gene_filter"] = {
-        "timestamp": datetime.now().isoformat(),
-        "strategy": strategy,
-        "genes_removed": list(genes_to_remove),
-        "n_genes_before": len(adata.var_names),
-        "n_genes_after": n_kept,
-        "n_genes_removed": n_removed,
-        "removal_reason": "ICAM3_integrin_aDb2_complex KeyError prevention",
-    }
-
-    # Create filtered object
-    adata_filtered = adata[:, genes_to_keep].copy()
-
-    return adata_filtered
-
-
 async def _analyze_communication_cellphonedb(
     adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
 ) -> Dict[str, Any]:
@@ -1025,91 +659,28 @@ async def _analyze_communication_cellphonedb(
         import os
         import tempfile
 
-        from cellphonedb.src.core.methods import \
-            cpdb_statistical_analysis_method
+        from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
     except ImportError:
         raise ImportError(
             "CellPhoneDB is not installed. Please install it with: pip install cellphonedb"
         )
-
-    if context:
-        await context.info("Running CellPhoneDB statistical analysis...")
 
     try:
         import time
 
         start_time = time.time()
 
-        # Prepare data for CellPhoneDB
-        if context:
-            await context.info("Preparing data for CellPhoneDB analysis...")
-
-        # Use cell_type_column from params (required field, no auto-detect)
-        cell_type_col = params.cell_type_column
+        # Use cell_type_key from params (required field, no auto-detect)
+        cell_type_col = params.cell_type_key
 
         if cell_type_col not in adata.obs.columns:
-            available_cols = list(adata.obs.columns)
-            categorical_cols = [
-                col
-                for col in available_cols
-                if adata.obs[col].dtype.name in ["object", "category"]
-            ]
-
             raise ValueError(
-                f"Cell type column '{cell_type_col}' not found for CellPhoneDB analysis.\n\n"
-                f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
-                f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
-                f"Please specify the correct column using cell_type_column parameter."
+                f"Cell type column '{cell_type_col}' not found in adata.obs. "
+                f"Use cell_type_key parameter to specify correct column."
             )
 
-        # ULTRATHINK: Apply gene filtering if microenvironments is enabled
+        # Use original adata directly (no gene filtering needed)
         adata_for_analysis = adata
-        if params.cellphonedb_use_microenvironments and params.enable_gene_filtering:
-            if context:
-                await context.info(
-                    "🔍 Checking for problematic genes that may cause CellPhoneDB errors..."
-                )
-
-            gene_info = _identify_problematic_genes(adata)
-
-            if gene_info["found_core"]:
-                # Issue warning about problematic genes found
-                if context:
-                    await context.warning(
-                        f"WARNING - ULTRATHINK Gene Filter: Found {len(gene_info['found_core'])} problematic genes "
-                        f"that may cause 'ICAM3_integrin_aDb2_complex' KeyError with microenvironments:\n"
-                        f"  Core genes found: {', '.join(gene_info['found_core'])}\n"
-                        f"  Using '{params.gene_filtering_strategy}' filtering strategy..."
-                    )
-
-                # Apply filtering
-                adata_for_analysis = _smart_gene_filtering(
-                    adata,
-                    strategy=(
-                        params.gene_filtering_strategy
-                        if params.gene_filtering_strategy != "none"
-                        else "conservative"
-                    ),
-                    context=None,  # We'll handle logging ourselves
-                )
-
-                # Log filtering results
-                if "cellphonedb_gene_filter" in adata_for_analysis.uns:
-                    filter_info = adata_for_analysis.uns["cellphonedb_gene_filter"]
-                    if context:
-                        await context.warning(
-                            f"Gene Filtering Applied:\n"
-                            f"  Strategy: {filter_info['strategy']}\n"
-                            f"  Genes removed: {filter_info['n_genes_removed']}\n"
-                            f"  Genes remaining: {filter_info['n_genes_after']}/{filter_info['n_genes_before']}\n"
-                            f"  Removed genes: {', '.join(filter_info['genes_removed'])}\n"
-                            f"  Original data preserved in adata.raw for recovery"
-                        )
-            else:
-                if context:
-                    await context.info(
-                        "No problematic genes found. Proceeding without filtering."
-                    )
 
         # Import pandas for DataFrame operations
         import pandas as pd
@@ -1170,10 +741,6 @@ async def _analyze_communication_cellphonedb(
             counts_df.to_csv(counts_file, sep="\t")
             meta_df.to_csv(meta_file, sep="\t", index=False)
 
-            # Ensure CellPhoneDB database is available
-            if context:
-                await context.info("Ensuring CellPhoneDB database is available...")
-
             try:
                 db_path = await _ensure_cellphonedb_database(temp_dir, context)
             except Exception as db_error:
@@ -1185,11 +752,6 @@ async def _analyze_communication_cellphonedb(
                     "3. Ensure write permissions to temporary directory"
                 )
                 raise RuntimeError(error_msg) from db_error
-
-            if context:
-                await context.info(
-                    "Running CellPhoneDB statistical analysis (this may take several minutes)..."
-                )
 
             # Run the analysis using CellPhoneDB v5 API with correct parameters
             try:
@@ -1209,26 +771,12 @@ async def _analyze_communication_cellphonedb(
                     score_interactions=True,  # New: Enable interaction scoring (v5 feature)
                 )
 
-                # Validate CellPhoneDB v5 format - NO BACKWARD COMPATIBILITY
+                # Validate CellPhoneDB v5 format
                 if not isinstance(result, dict):
-                    # Critical error: unexpected format from CellPhoneDB
-                    error_msg = (
-                        "CRITICAL: CellPhoneDB returned unexpected format.\n\n"
-                        f"Expected dictionary format from CellPhoneDB v5, but received: {type(result).__name__}\n\n"
-                        "SOLUTIONS:\n"
-                        "1. Verify CellPhoneDB installation:\n"
-                        "   pip list | grep cellphonedb  # Should be >=5.0.0\n\n"
-                        "2. Reinstall correct version:\n"
-                        "   pip uninstall cellphonedb\n"
-                        "   pip install 'cellphonedb>=5.0.0,<6.0'\n\n"
-                        "3. Check for environment conflicts:\n"
-                        "   python -c 'import cellphonedb; print(cellphonedb.__version__)'\n\n"
-                        "SCIENTIFIC INTEGRITY: Using incorrect CellPhoneDB version may produce "
-                        "inconsistent results. We enforce v5 to ensure reproducible analysis."
+                    raise RuntimeError(
+                        f"CellPhoneDB returned unexpected format: {type(result).__name__}. "
+                        f"Expected dict from CellPhoneDB v5. Check installation: pip install 'cellphonedb>=5.0.0'"
                     )
-                    if context:
-                        await context.error(error_msg)
-                    raise RuntimeError(error_msg)
 
                 # Extract results from CellPhoneDB v5 dictionary format
                 deconvoluted = result.get("deconvoluted")
@@ -1238,99 +786,17 @@ async def _analyze_communication_cellphonedb(
 
                 # Validate CellPhoneDB API result completeness
                 if significant_means is None and "significant_means" not in result:
-                    # CellPhoneDB API failure - do not mask with empty DataFrame
-                    error_msg = (
-                        "CellPhoneDB API returned incomplete results (missing 'significant_means').\n\n"
-                        "SOLUTIONS:\n"
-                        "1. Use LIANA method (more robust):\n"
-                        "   analyze_cell_communication(data_id, params={'method': 'liana'})\n\n"
-                        "2. Ensure comprehensive gene coverage (>10,000 genes recommended)\n\n"
-                        "3. Use raw data with full gene set:\n"
-                        "   analyze_cell_communication(data_id, params={'data_source': 'raw'})\n\n"
-                        "4. Check data quality and L-R gene presence in dataset\n\n"
-                        "CONTEXT: This indicates CellPhoneDB internal failure or insufficient gene coverage."
+                    raise RuntimeError(
+                        "CellPhoneDB returned incomplete results (missing 'significant_means'). "
+                        "Try method='liana' or data_source='raw' for better gene coverage."
                     )
-                    if context:
-                        await context.error(error_msg)
-                    raise RuntimeError(error_msg)
             except Exception as api_error:
-                # Simple, direct error handling for MCP - let LLM guide the user
-                error_str = str(api_error)
+                raise RuntimeError(
+                    f"CellPhoneDB analysis failed: {str(api_error)}. "
+                    f"Consider using method='liana' as alternative."
+                ) from api_error
 
-                # Provide clear, actionable error message for LLM
-                if "ICAM3_integrin_aDb2_complex" in error_str or (
-                    "integrin" in error_str.lower() and "KeyError" in error_str
-                ):
-                    error_msg = (
-                        f"CellPhoneDB analysis failed due to ICAM3_integrin_aDb2_complex compatibility issue.\n\n"
-                        f"SOLUTIONS:\n"
-                        f"1. Try aggressive gene filtering:\n"
-                        f"   analyze_cell_communication(data_id, params={{'gene_filtering_strategy': 'aggressive'}})\n\n"
-                        f"2. Disable spatial microenvironments:\n"
-                        f"   analyze_cell_communication(data_id, params={{'cellphonedb_use_microenvironments': False}})\n\n"
-                        f"3. Use alternative method (recommended):\n"
-                        f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
-                        f"4. Try CellChat via LIANA:\n"
-                        f"   analyze_cell_communication(data_id, params={{'method': 'cellchat_liana'}})\n\n"
-                        f"CONTEXT: This is a known CellPhoneDB compatibility issue with integrin complexes.\n"
-                        f"Original error: {error_str}"
-                    )
-                elif (
-                    "'significant_means'" in error_str
-                    or "KeyError: 'significant_means'" in error_str
-                ):
-                    error_msg = (
-                        f"CellPhoneDB analysis failed - insufficient ligand-receptor gene coverage.\n\n"
-                        f"SOLUTIONS:\n"
-                        f"1. Use raw data with full gene set:\n"
-                        f"   analyze_cell_communication(data_id, params={{'data_source': 'raw'}})\n\n"
-                        f"2. Use LIANA method (handles sparse data better):\n"
-                        f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
-                        f"3. Ensure comprehensive gene panel (>10,000 genes recommended)\n\n"
-                        f"4. For Visium data, include all genes (not just HVGs)\n\n"
-                        f"CONTEXT: Dataset has {adata.n_vars:,} genes. CellPhoneDB requires extensive L-R gene coverage.\n"
-                        f"Original error: {error_str}"
-                    )
-                elif microenvs_file:
-                    error_msg = (
-                        f"CellPhoneDB spatial analysis failed.\n\n"
-                        f"SOLUTIONS:\n"
-                        f"1. Disable spatial microenvironments:\n"
-                        f"   analyze_cell_communication(data_id, params={{'cellphonedb_use_microenvironments': False}})\n\n"
-                        f"2. Verify spatial coordinates are present in data\n\n"
-                        f"3. Check microenvironment file format (cell_type, microenvironment columns)\n\n"
-                        f"4. Use LIANA for spatial analysis:\n"
-                        f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
-                        f"CONTEXT: Spatial analysis requires properly formatted data and coordinates.\n"
-                        f"Original error: {error_str}"
-                    )
-                else:
-                    error_msg = (
-                        f"CellPhoneDB analysis failed.\n\n"
-                        f"SOLUTIONS:\n"
-                        f"1. Try LIANA method (more robust):\n"
-                        f"   analyze_cell_communication(data_id, params={{'method': 'liana'}})\n\n"
-                        f"2. Check CellPhoneDB installation:\n"
-                        f"   pip install --upgrade cellphonedb\n\n"
-                        f"3. Verify cell type annotations exist in data\n\n"
-                        f"4. Reduce computational requirements:\n"
-                        f"   analyze_cell_communication(data_id, params={{'cellphonedb_iterations': 100}})\n\n"
-                        f"CONTEXT: General CellPhoneDB failure - consider alternative methods.\n"
-                        f"Original error: {error_str}"
-                    )
-
-                raise RuntimeError(error_msg) from api_error
-
-            # Store results in AnnData object (use filtered data if applicable)
-            adata_for_storage = (
-                adata_for_analysis if params.enable_gene_filtering else adata
-            )
-            adata_for_storage.uns["cellphonedb_deconvoluted"] = deconvoluted
-            adata_for_storage.uns["cellphonedb_means"] = means
-            adata_for_storage.uns["cellphonedb_pvalues"] = pvalues
-            adata_for_storage.uns["cellphonedb_significant_means"] = significant_means
-
-            # Also store in original adata to maintain compatibility
+            # Store results in AnnData object
             adata.uns["cellphonedb_deconvoluted"] = deconvoluted
             adata.uns["cellphonedb_means"] = means
             adata.uns["cellphonedb_pvalues"] = pvalues
@@ -1341,27 +807,17 @@ async def _analyze_communication_cellphonedb(
             len(means) if means is not None and hasattr(means, "__len__") else 0
         )
 
-        # CRITICAL FIX: Properly filter significant pairs based on p-values
-        # CellPhoneDB v5 API returns ALL pairs in 'significant_means', not just p < threshold
-        # We must manually filter using the pvalues DataFrame
-        # Reference: https://github.com/ventolab/CellphoneDB (v5 behavior change)
+        # Filter significant pairs based on p-values
+        # CellPhoneDB v5 returns all pairs in 'significant_means', so manual filtering is needed
         if (
             pvalues is None
             or not hasattr(pvalues, "values")
             or means is None
             or not hasattr(means, "index")
         ):
-            # NO FALLBACK - if we can't filter properly, fail loudly
             raise RuntimeError(
-                "CellPhoneDB statistical filtering failed: p-values unavailable.\n\n"
-                "This is required to correctly identify significant interactions.\n"
-                "Without p-values, all interactions would be incorrectly marked as significant.\n\n"
-                "SOLUTIONS:\n"
-                "1. Ensure CellPhoneDB v5 is properly installed: pip install 'cellphonedb>=5.0.0'\n"
-                "2. Check that the analysis completed successfully without errors\n"
-                "3. Try LIANA method as alternative: analyze_cell_communication(..., method='liana')\n\n"
-                "SCIENTIFIC INTEGRITY: We refuse to return potentially incorrect results.\n"
-                "Better to fail explicitly than report 100% false positives."
+                "CellPhoneDB p-values unavailable - cannot identify significant interactions. "
+                "Try method='liana' as alternative."
             )
 
         # Filter pairs where ANY cell-cell interaction has p < threshold
@@ -1382,20 +838,9 @@ async def _analyze_communication_cellphonedb(
             )
 
         # Apply multiple testing correction if requested
-        # IMPORTANT: Correct p-values for EACH L-R pair across its cell type pairs,
-        # NOT across L-R pairs. This properly controls FPR from multiple cell type pair testing.
+        # Correct p-values for each L-R pair across its cell type pairs to control FPR
         n_cell_type_pairs = pval_array.shape[1]
         n_lr_pairs_total = pval_array.shape[0]
-
-        if context:
-            await context.info(
-                f"DEBUG: Starting multiple testing correction\n"
-                f"  Method: {correction_method}\n"
-                f"  P-value array shape: {pval_array.shape}\n"
-                f"  Cell type pairs: {n_cell_type_pairs}\n"
-                f"  L-R pairs: {n_lr_pairs_total}\n"
-                f"  Threshold: {threshold}"
-            )
 
         if correction_method == "none":
             # No correction: use minimum p-value (not recommended)
@@ -1404,10 +849,7 @@ async def _analyze_communication_cellphonedb(
 
             if context:
                 await context.warning(
-                    f"WARNING: Multiple testing correction disabled (correction_method='none').\n"
-                    f"With {n_cell_type_pairs} cell type pairs, this can lead to severe\n"
-                    f"false positive inflation (theoretical FPR ~{(1-(1-threshold)**n_cell_type_pairs)*100:.1f}%).\n"
-                    f"Consider using 'fdr_bh', 'bonferroni', or 'sidak' correction."
+                    f"Multiple testing correction disabled. With {n_cell_type_pairs} cell type pairs, consider using 'fdr_bh' or 'bonferroni'."
                 )
 
             # For 'none', we don't have corrected p-values per se, just use min
@@ -1419,7 +861,9 @@ async def _analyze_communication_cellphonedb(
             from statsmodels.stats.multitest import multipletests
 
             mask = np.zeros(n_lr_pairs_total, dtype=bool)
-            min_pvals_corrected = np.ones(n_lr_pairs_total)  # Store minimum corrected p-value
+            min_pvals_corrected = np.ones(
+                n_lr_pairs_total
+            )  # Store minimum corrected p-value
 
             n_uncorrected_sig = 0
             n_corrected_sig = 0
@@ -1456,56 +900,28 @@ async def _analyze_communication_cellphonedb(
             index=pvalues.index,
             name=f"min_corrected_pvalue_{correction_method}",
         )
-        adata_for_storage.uns["cellphonedb_pvalues_min_corrected"] = adata.uns[
-            "cellphonedb_pvalues_min_corrected"
-        ]
 
         # Update stored significant_means to match filtered results
         if n_significant_pairs > 0:
             significant_indices = means.index[mask]
             significant_means_filtered = means.loc[significant_indices]
 
-            # Update both storage locations
+            # Update stored significant_means
             adata.uns["cellphonedb_significant_means"] = significant_means_filtered
-            adata_for_storage.uns["cellphonedb_significant_means"] = (
-                significant_means_filtered
-            )
 
             # Also update the variable for downstream use
             significant_means = significant_means_filtered
 
-            # Log the filtering results
+            # Log filtering results
             if context:
                 await context.info(
-                    f"CellPhoneDB Statistical Filtering:\n"
-                    f"  Total L-R pairs tested: {n_lr_pairs:,}\n"
-                    f"  Significant pairs (p < {threshold}): {n_significant_pairs:,}\n"
-                    f"  Significance rate: {n_significant_pairs/n_lr_pairs*100:.2f}%\n"
-                    f"  Non-significant pairs filtered: {n_lr_pairs - n_significant_pairs:,}"
+                    f"CellPhoneDB: {n_significant_pairs}/{n_lr_pairs} significant pairs (p < {threshold}, {correction_method} correction)"
                 )
-
-                # Sanity check: warn if significance rate is suspiciously high
-                significance_rate = n_significant_pairs / n_lr_pairs
-                if significance_rate > 0.5:
-                    await context.warning(
-                        f"WARNING: Unusually high significance rate: {significance_rate*100:.1f}%\n"
-                        f"This may indicate:\n"
-                        f"  1. Extremely strong biological signals (rare)\n"
-                        f"  2. Data quality issues\n"
-                        f"  3. Inappropriate p-value threshold (current: {threshold})\n"
-                        f"  4. Potential statistical test failure\n"
-                        f"Please verify results carefully."
-                    )
         else:
             # No significant interactions found
             if context:
                 await context.warning(
-                    f"WARNING: No significant interactions found at p < {threshold}.\n"
-                    f"Consider:\n"
-                    f"  1. Relaxing threshold (current: {threshold})\n"
-                    f"  2. Checking data quality and gene coverage\n"
-                    f"  3. Using alternative methods (LIANA, CellChat)\n"
-                    f"  4. Verifying cell type annotations are correct"
+                    f"No significant interactions found at p < {threshold}. Consider adjusting threshold or using method='liana'."
                 )
 
         # Get top LR pairs
@@ -1531,15 +947,22 @@ async def _analyze_communication_cellphonedb(
             )
 
         n_cell_types = meta_df["cell_type"].nunique()
-        n_cell_type_pairs = n_cell_types ** 2
+        n_cell_type_pairs = n_cell_types**2
 
         # Add correction statistics (useful for understanding results)
         correction_stats = {}
-        if correction_method != "none" and 'n_uncorrected_sig' in locals():
+        if correction_method != "none" and "n_uncorrected_sig" in locals():
             correction_stats["n_uncorrected_significant"] = int(n_uncorrected_sig)
-            correction_stats["n_corrected_significant"] = int(n_corrected_sig) if 'n_corrected_sig' in locals() else None
-            if correction_stats["n_corrected_significant"] is not None and n_uncorrected_sig > 0:
-                correction_stats["reduction_percentage"] = round((1 - n_corrected_sig/n_uncorrected_sig) * 100, 2)
+            correction_stats["n_corrected_significant"] = (
+                int(n_corrected_sig) if "n_corrected_sig" in locals() else None
+            )
+            if (
+                correction_stats["n_corrected_significant"] is not None
+                and n_uncorrected_sig > 0
+            ):
+                correction_stats["reduction_percentage"] = round(
+                    (1 - n_corrected_sig / n_uncorrected_sig) * 100, 2
+                )
 
         statistics = {
             "method": "cellphonedb",
@@ -1591,22 +1014,13 @@ async def _analyze_communication_cellchat_liana(
 
         start_time = time.time()
 
-        # Use cell_type_column from params (required field, no auto-detect)
-        groupby_col = params.cell_type_column
+        # Use cell_type_key from params (required field, no auto-detect)
+        groupby_col = params.cell_type_key
 
         if groupby_col not in adata.obs.columns:
-            available_cols = list(adata.obs.columns)
-            categorical_cols = [
-                col
-                for col in available_cols
-                if adata.obs[col].dtype.name in ["object", "category"]
-            ]
-
             raise ValueError(
-                f"Cell type column '{groupby_col}' not found for CellChat analysis.\n\n"
-                f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
-                f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
-                f"Please specify the correct column using cell_type_column parameter."
+                f"Cell type column '{groupby_col}' not found in adata.obs. "
+                f"Use cell_type_key parameter to specify correct column."
             )
 
         if context:
@@ -1719,17 +1133,15 @@ async def _create_microenvironments_file(
         nn.fit(spatial_coords)
         neighbor_matrix = nn.radius_neighbors_graph(spatial_coords)
 
-        # ULTRATHINK FIX: Create microenvironments using cell types, not cell barcodes
-        # Get cell types for all cells
-        # BUG FIX: Use user-specified cell_type_column instead of hardcoded "cell_type"
-        if params.cell_type_column not in adata.obs.columns:
+        # Create microenvironments using cell types
+        if params.cell_type_key not in adata.obs.columns:
             raise ValueError(
-                f"Cell type column '{params.cell_type_column}' not found in adata.obs.\n"
+                f"Cell type column '{params.cell_type_key}' not found in adata.obs.\n"
                 f"Available columns: {list(adata.obs.columns)}\n"
                 f"Microenvironments require cell type annotations."
             )
 
-        cell_types = adata.obs[params.cell_type_column].values
+        cell_types = adata.obs[params.cell_type_key].values
 
         # Create microenvironments by cell type co-occurrence
         microenv_assignments = {}
@@ -1796,431 +1208,3 @@ async def _create_microenvironments_file(
         if context:
             await context.warning(f"Failed to create microenvironments file: {str(e)}")
         return None
-
-
-async def _comprehensive_data_validation(
-    adata: Any, context: Optional[Context] = None
-) -> Dict[str, Any]:
-    """Comprehensive data quality validation for AnnData objects
-
-    This function implements Linus's "good taste" principle by:
-    1. Checking real problems that occur in production
-    2. Failing early with clear error messages
-    3. Providing actionable suggestions for fixes
-    4. Using a unified validation framework
-
-    Args:
-        adata: AnnData object to validate
-        context: MCP context for logging
-
-    Returns:
-        Dict with validation results:
-        {
-            "passed": bool,
-            "error_message": str,
-            "warnings": List[str],
-            "suggestions": str,
-            "validation_details": Dict[str, Any]
-        }
-    """
-    validation_result = {
-        "passed": True,
-        "error_message": "",
-        "warnings": [],
-        "suggestions": "",
-        "validation_details": {},
-    }
-
-    errors = []
-    warnings_list = []
-    suggestions = []
-
-    try:
-        # 1. Basic structure validation
-        structure_check = await _validate_basic_structure(adata, context)
-        validation_result["validation_details"]["structure"] = structure_check
-        if not structure_check["passed"]:
-            errors.extend(structure_check["errors"])
-            suggestions.extend(structure_check["suggestions"])
-        warnings_list.extend(structure_check["warnings"])
-
-        # 2. Expression matrix validation
-        expression_check = await _validate_expression_matrix(adata, context)
-        validation_result["validation_details"]["expression"] = expression_check
-        if not expression_check["passed"]:
-            errors.extend(expression_check["errors"])
-            suggestions.extend(expression_check["suggestions"])
-        warnings_list.extend(expression_check["warnings"])
-
-        # 3. Spatial coordinates validation
-        from ..utils.data_validator import validate_for_cell_communication
-
-        spatial_check = validate_for_cell_communication(adata, strict=False)
-        validation_result["validation_details"]["spatial"] = spatial_check
-        if not spatial_check.passed:
-            errors.extend(spatial_check.errors)
-            suggestions.extend(spatial_check.suggestions)
-            if context:
-                await context.warning(
-                    f"Cell communication validation failed: {len(spatial_check.errors)} errors"
-                )
-                for error in spatial_check.errors[:3]:  # Show first 3 errors
-                    await context.warning(f"  • {error}")
-        warnings_list.extend(spatial_check.warnings)
-
-        # 4. Metadata validation
-        metadata_check = await _validate_metadata(adata, context)
-        validation_result["validation_details"]["metadata"] = metadata_check
-        if not metadata_check["passed"]:
-            errors.extend(metadata_check["errors"])
-            suggestions.extend(metadata_check["suggestions"])
-        warnings_list.extend(metadata_check["warnings"])
-
-        # 5. Cell communication specific validation
-        comm_check = await _validate_communication_requirements(adata, context)
-        validation_result["validation_details"]["communication"] = comm_check
-        if not comm_check["passed"]:
-            errors.extend(comm_check["errors"])
-            suggestions.extend(comm_check["suggestions"])
-        warnings_list.extend(comm_check["warnings"])
-
-        # Compile final results
-        if errors:
-            validation_result["passed"] = False
-            validation_result["error_message"] = "\n".join(
-                [f"• {error}" for error in errors]
-            )
-
-        validation_result["warnings"] = warnings_list
-        if suggestions:
-            validation_result["suggestions"] = "\n".join(
-                [f"• {suggestion}" for suggestion in suggestions]
-            )
-
-        # Log summary
-        if context:
-            if validation_result["passed"]:
-                await context.info(
-                    f"Data validation passed with {len(warnings_list)} warnings"
-                )
-                if warnings_list:
-                    for warning in warnings_list[:3]:  # Show first 3 warnings
-                        await context.info(f" {warning}")
-            else:
-                await context.warning(
-                    f"Data validation failed: {len(errors)} critical issues found"
-                )
-
-        return validation_result
-
-    except Exception as e:
-        validation_result["passed"] = False
-        validation_result["error_message"] = f"Validation process failed: {str(e)}"
-        validation_result["suggestions"] = "Please check your data format and try again"
-        return validation_result
-
-
-async def _validate_basic_structure(
-    adata: Any, context: Optional[Context] = None
-) -> Dict[str, Any]:
-    """Validate basic AnnData structure"""
-    result = {"passed": True, "errors": [], "warnings": [], "suggestions": []}
-
-    try:
-        # Check if it's actually an AnnData object
-        if (
-            not hasattr(adata, "X")
-            or not hasattr(adata, "obs")
-            or not hasattr(adata, "var")
-        ):
-            result["errors"].append(
-                "Invalid AnnData object: missing X, obs, or var attributes"
-            )
-            result["suggestions"].append("Ensure you're passing a valid AnnData object")
-            result["passed"] = False
-            return result
-
-        # Check dimensions consistency
-        if adata.X.shape[0] != len(adata.obs):
-            result["errors"].append(
-                f"Dimension mismatch: X has {adata.X.shape[0]} cells but obs has {len(adata.obs)} entries"
-            )
-            result["suggestions"].append(
-                "Check data loading process - cells and observations must match"
-            )
-            result["passed"] = False
-
-        if adata.X.shape[1] != len(adata.var):
-            result["errors"].append(
-                f"Dimension mismatch: X has {adata.X.shape[1]} genes but var has {len(adata.var)} entries"
-            )
-            result["suggestions"].append(
-                "Check data loading process - genes and variables must match"
-            )
-            result["passed"] = False
-
-        # Check for empty data
-        if adata.n_obs == 0:
-            result["errors"].append("Dataset is empty: no cells found")
-            result["suggestions"].append("Load data with actual cell measurements")
-            result["passed"] = False
-
-        if adata.n_vars == 0:
-            result["errors"].append("Dataset is empty: no genes found")
-            result["suggestions"].append("Load data with actual gene measurements")
-            result["passed"] = False
-
-        # Data size warnings
-        if adata.n_obs < 50:
-            result["warnings"].append(
-                f"Very few cells ({adata.n_obs}) - cell communication analysis may be unreliable"
-            )
-
-        if adata.n_vars < 1000:
-            result["warnings"].append(
-                f"Few genes ({adata.n_vars}) - consider using more comprehensive gene set"
-            )
-
-    except Exception as e:
-        result["errors"].append(f"Structure validation failed: {str(e)}")
-        result["suggestions"].append("Check if the input is a valid AnnData object")
-        result["passed"] = False
-
-    return result
-
-
-async def _validate_expression_matrix(
-    adata: Any, context: Optional[Context] = None
-) -> Dict[str, Any]:
-    """Validate expression matrix data quality"""
-    result = {"passed": True, "errors": [], "warnings": [], "suggestions": []}
-
-    try:
-        X = adata.X
-
-        # Convert sparse to dense for NaN/Inf checking (sample if too large)
-        if sparse.issparse(X):
-            # For large matrices, sample to check quality
-            if X.shape[0] > 5000 or X.shape[1] > 2000:
-                sample_cells = min(1000, X.shape[0])
-                sample_genes = min(500, X.shape[1])
-                cell_idx = np.random.choice(X.shape[0], sample_cells, replace=False)
-                gene_idx = np.random.choice(X.shape[1], sample_genes, replace=False)
-                X_sample = X[cell_idx, :][:, gene_idx].toarray()
-            else:
-                X_sample = X.toarray()
-        else:
-            X_sample = (
-                X if X.size <= 10_000_000 else X[:1000, :500]
-            )  # Sample large dense matrices
-
-        # Check for NaN values
-        if np.isnan(X_sample).any():
-            nan_count = np.isnan(X_sample).sum()
-            nan_fraction = nan_count / X_sample.size
-            if nan_fraction > 0.1:  # More than 10% NaN
-                result["errors"].append(
-                    f"High proportion of NaN values ({nan_fraction:.2%}) in expression matrix"
-                )
-                result["suggestions"].append(
-                    "Remove or impute NaN values before analysis"
-                )
-                result["passed"] = False
-            else:
-                result["warnings"].append(
-                    f"Found {nan_count} NaN values ({nan_fraction:.2%}) in expression matrix"
-                )
-
-        # Check for infinite values
-        if np.isinf(X_sample).any():
-            inf_count = np.isinf(X_sample).sum()
-            result["errors"].append(
-                f"Found {inf_count} infinite values in expression matrix"
-            )
-            result["suggestions"].append(
-                "Replace infinite values with finite numbers or remove affected cells/genes"
-            )
-            result["passed"] = False
-
-        # Check for negative values (suspicious in count data)
-        if (X_sample < 0).any():
-            neg_count = (X_sample < 0).sum()
-            neg_fraction = neg_count / X_sample.size
-            if neg_fraction > 0.01:  # More than 1% negative
-                result["warnings"].append(
-                    f"Found {neg_count} negative values ({neg_fraction:.2%}) - unusual for count data"
-                )
-
-        # Check for extremely large values
-        max_val = X_sample.max()
-        if max_val > 1e6:
-            result["warnings"].append(
-                f"Very large expression values detected (max: {max_val:.2e}) - consider normalization"
-            )
-
-        # Check sparsity
-        if sparse.issparse(X):
-            sparsity = 1.0 - (X.nnz / (X.shape[0] * X.shape[1]))
-        else:
-            sparsity = (X == 0).sum() / X.size
-
-        if sparsity > 0.99:
-            result["warnings"].append(
-                f"Very sparse data ({sparsity:.1%} zeros) - ensure sufficient sequencing depth"
-            )
-        elif sparsity < 0.3:
-            result["warnings"].append(
-                f"Unusually dense data ({sparsity:.1%} zeros) - verify data normalization"
-            )
-
-        # Check data type
-        if not np.issubdtype(X.dtype, np.number):
-            result["errors"].append(
-                f"Expression matrix has non-numeric data type: {X.dtype}"
-            )
-            result["suggestions"].append("Convert expression data to numeric format")
-            result["passed"] = False
-
-    except Exception as e:
-        result["errors"].append(f"Expression matrix validation failed: {str(e)}")
-        result["suggestions"].append("Check expression matrix format and values")
-        result["passed"] = False
-
-    return result
-
-
-async def _validate_metadata(
-    adata: Any, context: Optional[Context] = None
-) -> Dict[str, Any]:
-    """Validate observation and variable metadata"""
-    result = {"passed": True, "errors": [], "warnings": [], "suggestions": []}
-
-    try:
-        # Validate observation metadata (adata.obs)
-        if adata.obs.index.duplicated().any():
-            dup_count = adata.obs.index.duplicated().sum()
-            result["errors"].append(
-                f"Found {dup_count} duplicate cell IDs in adata.obs"
-            )
-            result["suggestions"].append("Ensure all cell IDs are unique")
-            result["passed"] = False
-
-        # Check for empty cell IDs
-        empty_ids = adata.obs.index.isna() | (adata.obs.index == "")
-        if empty_ids.any():
-            empty_count = empty_ids.sum()
-            result["errors"].append(f"Found {empty_count} empty cell IDs")
-            result["suggestions"].append("Provide valid cell IDs for all cells")
-            result["passed"] = False
-
-        # Validate variable metadata (adata.var)
-        if adata.var.index.duplicated().any():
-            dup_count = adata.var.index.duplicated().sum()
-            result["errors"].append(
-                f"Found {dup_count} duplicate gene names in adata.var"
-            )
-            result["suggestions"].append(
-                "Ensure all gene names are unique or use adata.var_names_unique()"
-            )
-            result["passed"] = False
-
-        # Check for empty gene names
-        empty_genes = adata.var.index.isna() | (adata.var.index == "")
-        if empty_genes.any():
-            empty_count = empty_genes.sum()
-            result["errors"].append(f"Found {empty_count} empty gene names")
-            result["suggestions"].append("Provide valid gene names for all variables")
-            result["passed"] = False
-
-        # Check for suspicious gene name patterns
-        gene_names = adata.var.index.astype(str)
-        numeric_genes = pd.to_numeric(gene_names, errors="coerce").notna()
-        if numeric_genes.sum() > len(gene_names) * 0.5:
-            result["warnings"].append(
-                f"Many genes have numeric names ({numeric_genes.sum()}/{len(gene_names)})"
-            )
-
-    except Exception as e:
-        result["errors"].append(f"Metadata validation failed: {str(e)}")
-        result["suggestions"].append("Check observation and variable metadata format")
-        result["passed"] = False
-
-    return result
-
-
-async def _validate_communication_requirements(
-    adata: Any, context: Optional[Context] = None
-) -> Dict[str, Any]:
-    """Validate specific requirements for cell communication analysis"""
-    result = {"passed": True, "errors": [], "warnings": [], "suggestions": []}
-
-    try:
-        # Check for minimum cell count for meaningful analysis
-        min_cells_recommended = 100
-        if adata.n_obs < min_cells_recommended:
-            result["warnings"].append(
-                f"Low cell count ({adata.n_obs}) may lead to unreliable cell communication results. "
-                f"Recommended: >{min_cells_recommended} cells"
-            )
-
-        # Check for cell type annotations (helpful for interpretation)
-        cell_type_cols = [
-            col
-            for col in adata.obs.columns
-            if "type" in col.lower() or "cluster" in col.lower()
-        ]
-        if not cell_type_cols:
-            result["warnings"].append(
-                "No cell type annotations found. Consider adding cell type information for better interpretation"
-            )
-        else:
-            # Check cell type diversity
-            for col in cell_type_cols[:1]:  # Check first cell type column
-                n_types = adata.obs[col].nunique()
-                if n_types < 2:
-                    result["warnings"].append(
-                        f"Only {n_types} cell type(s) found - communication analysis needs diversity"
-                    )
-                elif n_types > 50:
-                    result["warnings"].append(
-                        f"Very many cell types ({n_types}) - consider grouping similar types"
-                    )
-
-        # Check gene expression levels
-        if hasattr(adata.X, "max"):
-            max_expr = adata.X.max()
-            if max_expr < 1:
-                result["warnings"].append(
-                    f"Low maximum expression value ({max_expr:.3f}) suggests data may need normalization"
-                )
-            elif max_expr > 50 and "log1p" not in adata.uns:
-                result["warnings"].append(
-                    f"High maximum expression value ({max_expr:.1f}) suggests data may need log transformation"
-                )
-
-        # Check for mitochondrial genes (quality control indicator)
-        gene_names = adata.var.index.astype(str).str.upper()
-        mt_genes = (
-            gene_names.str.startswith("MT-")
-            | gene_names.str.startswith("MT.")
-            | gene_names.str.contains("^MT-")
-        )
-        n_mt_genes = mt_genes.sum()
-
-        if n_mt_genes == 0:
-            result["warnings"].append(
-                "No mitochondrial genes detected - consider quality control filtering"
-            )
-        elif n_mt_genes > len(gene_names) * 0.1:
-            result["warnings"].append(
-                f"High proportion of mitochondrial genes ({n_mt_genes}/{len(gene_names)})"
-            )
-
-    except Exception as e:
-        result["errors"].append(
-            f"Communication requirements validation failed: {str(e)}"
-        )
-        result["suggestions"].append("Check data quality and preprocessing steps")
-        result["passed"] = False
-
-    return result

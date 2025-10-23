@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 import warnings
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 # Suppress warnings to speed up startup
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -25,7 +25,7 @@ except ImportError:
     pass
 
 from mcp.server.fastmcp import Context  # noqa: E402
-from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
+from mcp.types import ImageContent  # noqa: E402
 
 from .models.analysis import (
     AnnotationResult,
@@ -241,7 +241,9 @@ async def preprocess_data(
 @manual_parameter_validation(("params", validate_visualization_params))
 async def visualize_data(
     data_id: str, params: Any = None, context: Context = None
-) -> Union[ImageContent, str]:  # Simplified: ImageContent or str (MCP 2025 best practice)
+) -> Union[
+    ImageContent, str
+]:  # Simplified: ImageContent or str (MCP 2025 best practice)
     """Visualize spatial transcriptomics data
 
     Args:
@@ -336,7 +338,9 @@ async def visualize_data(
 
         # Generate cache key with subtype if applicable
         # This handles plot types with subtypes (e.g., deconvolution, spatial_statistics)
-        subtype = params.subtype if hasattr(params, "subtype") and params.subtype else None
+        subtype = (
+            params.subtype if hasattr(params, "subtype") and params.subtype else None
+        )
 
         if subtype:
             cache_key = f"{data_id}_{params.plot_type}_{subtype}"
@@ -362,12 +366,12 @@ async def visualize_data(
             adapter.resource_manager._visualization_cache[cache_key] = {
                 "type": "file_path",
                 "message": image,
-                "timestamp": int(time.time())
+                "timestamp": int(time.time()),
             }
 
             if context:
                 await context.info(
-                    f"Large visualization saved to disk (following MCP best practice: URI over embedded content)"
+                    "Large visualization saved to disk (following MCP best practice: URI over embedded content)"
                 )
                 await context.info(
                     f"Visualization type: {params.plot_type}, feature: {getattr(params, 'feature', 'N/A')}"
@@ -380,6 +384,7 @@ async def visualize_data(
 
         # Decode base64 string to bytes before caching
         import base64
+
         image_bytes = base64.b64decode(image_data)
 
         # Store in cache with simple key for easy retrieval
@@ -1252,6 +1257,17 @@ async def analyze_cell_communication(
         - species="human" + liana_resource="consensus" for human data
         - species="zebrafish" for zebrafish data
 
+        **Available LIANA resources (liana_resource parameter):**
+        - "consensus" (default, recommended): Consensus of multiple databases
+        - "mouseconsensus": Mouse-specific consensus database
+        - "cellphonedb": CellPhoneDB database (curated, stringent)
+        - "celltalkdb": CellTalkDB database (large, comprehensive)
+        - "icellnet": iCellNet database (immune cell focus)
+        - "cellchatdb": CellChat database
+        - "connectomedb2020": Connectome database 2020
+        - "baccin2019", "cellcall", "cellinker", "embrace", "guide2pharma",
+          "hpmr", "italk", "kirouac2010", "lrdb", "ramilowski2015": Additional resources
+
         **Data source selection:**
         - data_source="raw" - Use raw unfiltered data (recommended for comprehensive gene coverage)
         - data_source="current" - Use current processed data (may have limited genes)
@@ -1263,14 +1279,12 @@ async def analyze_cell_communication(
            - Use species-appropriate resource (mouseconsensus for mouse)
 
         2. Missing spatial connectivity:
-           - Use spatial_connectivity_handling="compute_with_params"
-           - Provide spatial_neighbors_kwargs with platform-appropriate parameters (see below)
+           - Run spatial neighbor computation in preprocessing step (see below)
 
         3. Missing cell type annotations:
-           - Ensure cell type column exists or run annotation first
-           - Use cell_type_handling="create_from_column" with clustering results
+           - Ensure cell_type_key column exists or run annotation first
 
-        **Spatial connectivity parameters (spatial_neighbors_kwargs):**
+        **Spatial connectivity computation (preprocessing step):**
 
         The spatial neighborhood definition profoundly impacts cell communication analysis results.
         Choose parameters based on your spatial transcriptomics platform and biological question:
@@ -1324,29 +1338,38 @@ async def analyze_cell_communication(
         **Examples:**
 
         Visium - local paracrine signaling:
+          # Step 1: Compute spatial neighbors (preprocessing)
+          import squidpy as sq
+          sq.gr.spatial_neighbors(adata, coord_type='grid', n_rings=1)
+
+          # Step 2: Analyze communication
           params = {
               "species": "human",
               "liana_resource": "consensus",
-              "data_source": "raw",
-              "spatial_connectivity_handling": "compute_with_params",
-              "spatial_neighbors_kwargs": {"coord_type": "grid", "n_rings": 1}
+              "data_source": "raw"
           }
 
         Visium - microenvironment analysis:
+          # Step 1: Compute spatial neighbors (preprocessing)
+          import squidpy as sq
+          sq.gr.spatial_neighbors(adata, coord_type='generic', n_neighs=18)
+
+          # Step 2: Analyze communication
           params = {
               "species": "human",
-              "data_source": "raw",
-              "spatial_connectivity_handling": "compute_with_params",
-              "spatial_neighbors_kwargs": {"coord_type": "generic", "n_neighs": 18}
+              "data_source": "raw"
           }
 
         MERFISH - direct cell-cell contact:
+          # Step 1: Compute spatial neighbors (preprocessing)
+          import squidpy as sq
+          sq.gr.spatial_neighbors(adata, coord_type='generic', radius=20)
+
+          # Step 2: Analyze communication
           params = {
               "species": "mouse",
               "liana_resource": "mouseconsensus",
-              "data_source": "raw",
-              "spatial_connectivity_handling": "compute_with_params",
-              "spatial_neighbors_kwargs": {"coord_type": "generic", "radius": 20}
+              "data_source": "raw"
           }
 
         **References:**
@@ -1723,7 +1746,9 @@ async def analyze_enrichment(
     top_depleted = set(result_dict.get("top_depleted_sets", []))
 
     # Combine significant and top sets, limit to MAX_RESULTS_FOR_LLM
-    display_sets = list((significant_sets | top_sets | top_depleted))[:MAX_RESULTS_FOR_LLM]
+    display_sets = list((significant_sets | top_sets | top_depleted))[
+        :MAX_RESULTS_FOR_LLM
+    ]
 
     # Filter large dictionaries to only include display sets
     filtered_enrichment_scores = {
