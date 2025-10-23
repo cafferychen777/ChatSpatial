@@ -74,16 +74,18 @@ def fig_to_image(
     fig: "plt.Figure",
     dpi: int = 100,
     format: str = "png",
-    max_size_kb: int = 900,
     close_fig: bool = True,
 ) -> ImageContent:
-    """Convert matplotlib figure to ImageContent with size control
+    """Convert matplotlib figure to ImageContent
+
+    This function respects user's DPI and format settings without any
+    automatic compression or quality reduction. Large images are handled
+    by optimize_fig_to_image_with_cache which saves them to disk.
 
     Args:
         fig: Matplotlib figure
-        dpi: Resolution in dots per inch (lower = smaller file)
-        format: Image format (png, jpg)
-        max_size_kb: Maximum size in KB for the image (MCP limit is 1MB)
+        dpi: Resolution in dots per inch (user's setting is always respected)
+        format: Image format (png or jpg)
         close_fig: Whether to close the figure after conversion
 
     Returns:
@@ -92,55 +94,31 @@ def fig_to_image(
     _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
     import matplotlib.pyplot as plt
 
-    # Try different compression settings until we get a small enough image
-    current_dpi = dpi
-    min_dpi = 40  # Lower minimum DPI to allow smaller files
+    buf = io.BytesIO()
 
-    # For heatmaps and other complex plots, start with a lower DPI
-    if fig.get_size_inches()[0] > 8 or fig.get_size_inches()[1] > 8:
-        current_dpi = min(current_dpi, 80)  # Start with lower DPI for large figures
-
-    # Try JPEG format for potentially smaller file size if PNG is too large
-    current_format = format
-
-    for attempt in range(4):  # Try up to 4 times with different settings
-        buf = io.BytesIO()
-
-        try:
-            # Save figure with appropriate settings
-            # Remove quality parameter which is not supported in some matplotlib versions
-            if current_format == "jpg":
-                try:
-                    fig.savefig(
-                        buf,
-                        format=current_format,
-                        dpi=current_dpi,
-                        bbox_inches="tight",
-                        transparent=False,
-                        facecolor="white",
-                        edgecolor="none",
-                        pad_inches=0.1,
-                        quality=85,  # Try with quality parameter
-                        metadata={"Software": "spatial-transcriptomics-mcp"},
-                    )
-                except TypeError:
-                    # If quality parameter is not supported, try without it
-                    fig.savefig(
-                        buf,
-                        format=current_format,
-                        dpi=current_dpi,
-                        bbox_inches="tight",
-                        transparent=False,
-                        facecolor="white",
-                        edgecolor="none",
-                        pad_inches=0.1,
-                        metadata={"Software": "spatial-transcriptomics-mcp"},
-                    )
-            else:
+    # Save figure with user's exact settings - no compromise
+    try:
+        if format == "jpg":
+            try:
+                # Try with quality parameter first (newer matplotlib)
                 fig.savefig(
                     buf,
-                    format=current_format,
-                    dpi=current_dpi,
+                    format=format,
+                    dpi=dpi,
+                    bbox_inches="tight",
+                    transparent=False,
+                    facecolor="white",
+                    edgecolor="none",
+                    pad_inches=0.1,
+                    quality=85,
+                    metadata={"Software": "spatial-transcriptomics-mcp"},
+                )
+            except TypeError:
+                # Fallback for older matplotlib without quality parameter
+                fig.savefig(
+                    buf,
+                    format=format,
+                    dpi=dpi,
                     bbox_inches="tight",
                     transparent=False,
                     facecolor="white",
@@ -148,62 +126,32 @@ def fig_to_image(
                     pad_inches=0.1,
                     metadata={"Software": "spatial-transcriptomics-mcp"},
                 )
+        else:  # PNG
+            fig.savefig(
+                buf,
+                format=format,
+                dpi=dpi,
+                bbox_inches="tight",
+                transparent=False,
+                facecolor="white",
+                edgecolor="none",
+                pad_inches=0.1,
+                metadata={"Software": "spatial-transcriptomics-mcp"},
+            )
 
-            buf.seek(0)
-            img_data = buf.read()
-            size_kb = len(img_data) / 1024
+        buf.seek(0)
+        img_data = buf.read()
 
-            # If the image is small enough, return it
-            if size_kb <= max_size_kb or (
-                current_dpi <= min_dpi and current_format == "jpg"
-            ):
-                if close_fig:
-                    plt.close(fig)
-                # Convert to ImageContent using unified utility
-                return bytes_to_image_content(img_data, format=current_format)
+        if close_fig:
+            plt.close(fig)
 
-            # Try different strategies to reduce size
-            if current_format == "png" and attempt == 1:
-                # Switch to jpg format which is usually smaller
-                current_format = "jpg"
-            else:
-                # Reduce DPI more aggressively for subsequent attempts
-                current_dpi = max(min_dpi, int(current_dpi * 0.6))  # Reduce DPI by 40%
+        # Convert to ImageContent using unified utility
+        return bytes_to_image_content(img_data, format=format)
 
-        except Exception as e:
-            print(f"Error saving figure: {str(e)}", file=sys.stderr)
-            # Try with a lower DPI
-            current_dpi = max(min_dpi, int(current_dpi * 0.6))
-
-    # If we still can't get a small enough image, return a simplified version
-    if close_fig:
-        plt.close(fig)
-
-    # Create a simplified figure with minimal content
-    simple_fig = plt.figure(figsize=(4, 3), dpi=72)
-    ax = simple_fig.add_subplot(111)
-    ax.text(
-        0.5,
-        0.5,
-        "Image too large - simplified version\nPlease try with fewer features or groups",
-        ha="center",
-        va="center",
-        fontsize=10,
-    )
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.axis("off")
-
-    buf = io.BytesIO()
-    # Use PNG format instead of JPG for Claude compatibility
-    simple_fig.savefig(buf, format="png", dpi=72, bbox_inches="tight")
-
-    buf.seek(0)
-    img_data = buf.read()
-    plt.close(simple_fig)
-
-    # Convert to ImageContent using unified utility
-    return bytes_to_image_content(img_data, format="png")
+    except Exception as e:
+        if close_fig:
+            plt.close(fig)
+        raise RuntimeError(f"Failed to convert figure to image: {str(e)}") from e
 
 
 def create_placeholder_image(
@@ -299,13 +247,16 @@ async def optimize_fig_to_image_with_cache(
     data_id: str = None,
     plot_type: str = None,
     mode: str = "auto",
-) -> Union[ImageContent, Tuple[ImageContent, EmbeddedResource]]:
+) -> Union[ImageContent, str]:
     """Optimized image conversion with Figure caching for high-quality export
 
-    This function implements the token optimization strategy:
-    - Small images (<100KB): Direct embedding
-    - Large images (>=100KB): Preview + resource reference
+    This function implements MCP 2025 best practice token optimization:
+    - Small images (<70KB): Direct embedding as ImageContent
+    - Large images (≥70KB): Save to file, return path as text (URI over embedded content)
     - Caches Figure object for later high-quality export
+
+    Following MCP specification recommendation:
+    "Prefer using URIs over embedded content for large files"
 
     Args:
         fig: Matplotlib figure
@@ -313,13 +264,18 @@ async def optimize_fig_to_image_with_cache(
         context: MCP context for logging
         data_id: Dataset ID (for cache key)
         plot_type: Plot type (for cache key)
-        mode: Optimization mode - "auto", "preview", or "direct"
+        mode: Optimization mode - "auto" or "direct"
 
     Returns:
-        Small images: ImageContent object
-        Large images: Tuple[ImageContent preview, EmbeddedResource with high quality]
+        Small images: ImageContent object (embedded)
+        Large images: str with file path (FastMCP auto-converts to TextContent)
     """
     _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
+    import matplotlib.pyplot as plt
+
+    # Initialize variables
+    cache_key = None
+    pickle_path = None
 
     # Cache Figure object for high-quality export
     if data_id and plot_type:
@@ -343,98 +299,66 @@ async def optimize_fig_to_image_with_cache(
     estimated_size = test_buf.tell()
     test_buf.close()
 
-    # Decision thresholds
-    DIRECT_EMBED_THRESHOLD = 100 * 1024  # 100KB
-    PREVIEW_THRESHOLD = 500 * 1024  # 500KB
+    # MCP 2025 best practice: prefer URIs over embedded content for large files
+    # Threshold: 70KB (safe for MCP 25K token limit)
+    # Calculation: 70KB × 1.33 (base64) ÷ 4 (chars/token) ≈ 23K tokens
+    DIRECT_EMBED_THRESHOLD = 70 * 1024  # 70KB
 
-    # Mode: direct - force direct embedding
+    # Small images: Direct embedding
     if mode == "direct" or (mode == "auto" and estimated_size < DIRECT_EMBED_THRESHOLD):
         if context:
             await context.info(
                 f"Small image ({estimated_size//1024}KB), embedding directly"
             )
-        return fig_to_image(fig, dpi=target_dpi, format="png", max_size_kb=900)
+        return fig_to_image(fig, dpi=target_dpi, format="png")
 
-    # Mode: preview - use preview+resource strategy
-    if mode == "preview" or (mode == "auto" and estimated_size > PREVIEW_THRESHOLD):
-        if context:
-            await context.info(
-                f"Large image ({estimated_size//1024}KB), using preview+resource strategy"
-            )
-
-        # 1. Create low-quality preview (target: 50KB)
-        preview_buf = io.BytesIO()
-        try:
-            # Try with quality parameter
-            fig.savefig(
-                preview_buf,
-                format="jpeg",
-                dpi=60,
-                quality=40,
-                bbox_inches="tight",
-                facecolor="white",
-            )
-        except TypeError:
-            # If quality parameter is not supported, try without it
-            fig.savefig(
-                preview_buf,
-                format="jpeg",
-                dpi=60,
-                bbox_inches="tight",
-                facecolor="white",
-            )
-        preview_buf.seek(0)
-        preview_bytes = preview_buf.read()
-        preview_size_kb = len(preview_bytes) // 1024
-
-        # Convert preview bytes to ImageContent
-        preview_image = bytes_to_image_content(preview_bytes, format="jpeg")
-
-        # 2. Save high-quality version
-        os.makedirs("/tmp/chatspatial/visualizations", exist_ok=True)
-        hq_filename = (
-            f"{plot_type}_{uuid.uuid4().hex[:8]}.png"
-            if plot_type
-            else f"viz_{uuid.uuid4().hex[:8]}.png"
-        )
-        hq_path = f"/tmp/chatspatial/visualizations/{hq_filename}"
-
-        fig.savefig(
-            hq_path,
-            dpi=target_dpi if target_dpi else 300,
-            format="png",
-            bbox_inches="tight",
-            facecolor="white",
-        )
-
-        # 3. Create resource reference with metadata
-        metadata = {
-            "description": f"High-quality {plot_type if plot_type else 'visualization'} at {target_dpi} DPI",
-            "figure_pickle": pickle_path if data_id and plot_type else None,
-            "can_export_pdf": True,
-            "can_export_svg": True,
-            "cache_key": cache_key if data_id and plot_type else None,
-        }
-
-        resource = EmbeddedResource(
-            type="resource",
-            resource=TextResourceContents(
-                uri=f"file://{hq_path}", mimeType="image/png", text=json.dumps(metadata)
-            ),
-        )
-
-        if context:
-            await context.info(
-                f"Preview: {preview_size_kb}KB | "
-                f"High-quality: {hq_path} | "
-                f"Figure cached for PDF/SVG export"
-            )
-
-        return (preview_image, resource)
-
-    # Mode: auto with medium size - compress but don't use preview
+    # Large images: Save to file, return path as text
+    # This follows MCP best practice and avoids token limits
     if context:
         await context.info(
-            f"Medium image ({estimated_size//1024}KB), using compression"
+            f"Large image ({estimated_size//1024}KB), saving to file "
+            f"(following MCP best practice: URI over embedded content)"
         )
-    return fig_to_image(fig, dpi=80, format="png", max_size_kb=200)
+
+    # Save high-quality version
+    os.makedirs("/tmp/chatspatial/visualizations", exist_ok=True)
+    hq_filename = (
+        f"{plot_type}_{uuid.uuid4().hex[:8]}.png"
+        if plot_type
+        else f"viz_{uuid.uuid4().hex[:8]}.png"
+    )
+    hq_path = f"/tmp/chatspatial/visualizations/{hq_filename}"
+
+    fig.savefig(
+        hq_path,
+        dpi=target_dpi if target_dpi else 300,
+        format="png",
+        bbox_inches="tight",
+        facecolor="white",
+    )
+
+    # Close figure
+    plt.close(fig)
+
+    # NOTE: Metadata is now managed by server.py, not here
+    # Pickle file serves as source of truth for figure reconstruction
+
+    # Return text message with file path (MCP best practice for large files)
+    # FastMCP will auto-convert str to TextContent
+    message = (
+        f"✓ Visualization created successfully!\n\n"
+        f"📊 **{plot_type if plot_type else 'Visualization'}** "
+        f"({estimated_size//1024}KB estimated)\n\n"
+        f"📁 **High-quality image saved to:**\n`{hq_path}`\n\n"
+        f"🎨 Resolution: {target_dpi if target_dpi else 300} DPI\n"
+        f"📦 Format: PNG\n\n"
+        f"💡 Following MCP 2025 best practice: large images returned as file paths "
+        f"to avoid token limits and reduce conversation costs.\n\n"
+        f"You can view this image using your system's image viewer, "
+        f"or use the export/save tools to convert to other formats."
+    )
+
+    if context:
+        await context.info(f"✓ Saved high-quality image to: {hq_path}")
+
+    return message

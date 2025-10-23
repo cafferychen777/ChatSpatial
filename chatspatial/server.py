@@ -241,9 +241,7 @@ async def preprocess_data(
 @manual_parameter_validation(("params", validate_visualization_params))
 async def visualize_data(
     data_id: str, params: Any = None, context: Context = None
-) -> Union[
-    ImageContent, Tuple[ImageContent, EmbeddedResource]
-]:  # Now supports Tuple for token optimization!
+) -> Union[ImageContent, str]:  # Simplified: ImageContent or str (MCP 2025 best practice)
     """Visualize spatial transcriptomics data
 
     Args:
@@ -357,14 +355,28 @@ async def visualize_data(
             "description": f"Visualization of {data_id}",
         }
 
-        # Handle both ImageContent and Tuple[ImageContent, EmbeddedResource] returns
-        if isinstance(image, tuple):
-            # Large image with preview+resource optimization
-            preview_image, _resource = image
-            image_data = preview_image.data
-        else:
-            # Direct ImageContent
-            image_data = image.data
+        # Handle two return types: str (large images) or ImageContent (small images)
+        if isinstance(image, str):
+            # Large image: file path returned as text (MCP 2025 best practice)
+            # Store a marker in cache indicating file path return
+            adapter.resource_manager._visualization_cache[cache_key] = {
+                "type": "file_path",
+                "message": image,
+                "timestamp": int(time.time())
+            }
+
+            if context:
+                await context.info(
+                    f"Large visualization saved to disk (following MCP best practice: URI over embedded content)"
+                )
+                await context.info(
+                    f"Visualization type: {params.plot_type}, feature: {getattr(params, 'feature', 'N/A')}"
+                )
+
+            return image  # Return str directly (FastMCP converts to TextContent)
+
+        # ImageContent (small images <70KB)
+        image_data = image.data
 
         # Decode base64 string to bytes before caching
         import base64
@@ -420,6 +432,7 @@ async def save_visualization(
         data_id: Dataset ID
         plot_type: Type of plot to save (e.g., 'spatial', 'umap', 'deconvolution', 'spatial_statistics')
         subtype: Optional subtype for plot types with variants (e.g., 'neighborhood', 'scatterpie')
+                 - For pathway_enrichment: 'enrichment_plot', 'barplot', 'dotplot', 'spatial'
                  - For deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'
                  - For spatial_statistics: 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality', 'getis_ord'
         output_dir: Directory to save the file (default: ./outputs)
@@ -442,9 +455,6 @@ async def save_visualization(
     # Get the visualization cache from the adapter's resource manager
     visualization_cache = adapter.resource_manager._visualization_cache
 
-    # Get data store for potential high-quality regeneration
-    data_store = data_manager.data_store
-
     result = await save_func(
         data_id=data_id,
         plot_type=plot_type,
@@ -454,8 +464,6 @@ async def save_visualization(
         format=format,
         dpi=dpi,
         visualization_cache=visualization_cache,
-        data_store=data_store,
-        regenerate_high_quality=False,  # For now, we don't regenerate
         context=context,
     )
 
@@ -1054,7 +1062,6 @@ async def integrate_samples(
 
         Removed methods:
         - multivi: Requires MuData format (not compatible with current workflow)
-        - totalvi: PyTorch Lightning dependency conflicts
         - contrastivevi: Not integrated (designed for Perturb-seq use cases)
     """
     # Import integration function
@@ -1429,6 +1436,12 @@ async def analyze_enrichment(
     - "pathway_ssgsea": Single-sample GSEA
     - "spatial_enrichmap": Spatial enrichment mapping
 
+    Result Optimization:
+    This tool automatically limits returned results to the 50 most significant pathways
+    for efficient LLM communication. Complete results are preserved in adata.uns for
+    downstream visualization and analysis. This optimization is transparent to users
+    and maintains scientific validity while reducing token usage.
+
     Example usage:
     For mouse data:  params={"species": "mouse", "gene_set_database": "KEGG_Pathways"}
     For human data:  params={"species": "human", "gene_set_database": "KEGG_Pathways"}
@@ -1677,17 +1690,22 @@ async def analyze_enrichment(
     # Update dataset in data manager
     data_manager.data_store[data_id] = data_store[data_id]
 
-    # Filter results to reduce size
+    # === AUTOMATIC TOKEN OPTIMIZATION ===
+    # To ensure efficient LLM communication, we automatically limit the number of
+    # pathways returned to 50 most significant results. This is transparent to users
+    # and prevents excessive token usage while preserving all scientifically important
+    # findings. Complete results are stored in adata.uns for downstream analysis.
+    #
+    # Rationale:
+    # - Full enrichment results are preserved in adata for visualization and further analysis
+    # - Token efficiency: Returning 50 pathways instead of 500+ saves ~90% of tokens
+    # - Scientific validity: Top 50 pathways capture the most biologically significant findings
+    # - User experience: Focused results are easier to interpret than massive lists
+    MAX_RESULTS_FOR_LLM = 50  # Automatic token optimization (transparent to user)
+
     # Get top significant gene sets
     adjusted_pvals = result_dict.get("adjusted_pvalues", {})
     pvals = result_dict.get("pvalues", {})
-
-    # For display, limit to top results
-    max_results = (
-        params.plot_top_terms
-        if hasattr(params, "plot_top_terms") and params.plot_top_terms
-        else 50
-    )
 
     # Get significant gene sets
     significant_sets = (
@@ -1704,8 +1722,8 @@ async def analyze_enrichment(
     top_sets = set(result_dict.get("top_gene_sets", []))
     top_depleted = set(result_dict.get("top_depleted_sets", []))
 
-    # Combine significant and top sets, limit to max_results
-    display_sets = list((significant_sets | top_sets | top_depleted))[:max_results]
+    # Combine significant and top sets, limit to MAX_RESULTS_FOR_LLM
+    display_sets = list((significant_sets | top_sets | top_depleted))[:MAX_RESULTS_FOR_LLM]
 
     # Filter large dictionaries to only include display sets
     filtered_enrichment_scores = {

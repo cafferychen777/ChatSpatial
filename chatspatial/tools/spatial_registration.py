@@ -264,10 +264,9 @@ class SpatialRegistration:
                     adata.obsm["spatial_registered"] = adata.obsm["spatial"].copy()
                 else:
                     # Transform coordinates based on alignment
-                    coords = adata.obsm["spatial"]
                     # Apply transformation from pi
                     adata.obsm["spatial_registered"] = self._transform_coordinates(
-                        coords, pi, slices[reference_idx].obsm["spatial"]
+                        pi, slices[reference_idx].obsm["spatial"]
                     )
 
         logger.info("PASTE registration completed")
@@ -515,7 +514,6 @@ class SpatialRegistration:
 
     def _transform_coordinates(
         self,
-        coords: np.ndarray,
         transport_matrix: np.ndarray,
         reference_coords: np.ndarray,
     ) -> np.ndarray:
@@ -524,8 +522,6 @@ class SpatialRegistration:
 
         Parameters
         ----------
-        coords : np.ndarray
-            Original coordinates
         transport_matrix : np.ndarray
             Optimal transport matrix from PASTE
         reference_coords : np.ndarray
@@ -578,7 +574,6 @@ async def register_spatial_slices_mcp(
     target_id: str,
     data_store: dict,
     method: str = "paste",
-    landmarks: Optional[dict] = None,
     context=None,
 ) -> dict:
     """
@@ -594,7 +589,6 @@ async def register_spatial_slices_mcp(
         target_id: Target dataset ID to align to
         data_store: Dictionary containing dataset information
         method: Registration method (paste, stalign)
-        landmarks: Additional parameters (currently unused)
         context: MCP context for logging
 
     Returns:

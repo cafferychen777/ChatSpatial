@@ -862,13 +862,12 @@ async def _ensure_cellphonedb_database(
         raise RuntimeError(error_msg) from e
 
 
-def _identify_problematic_genes(adata: Any, database_version: str = "5.0.1") -> Dict:
+def _identify_problematic_genes(adata: Any) -> Dict:
     """
     ULTRATHINK: Identify genes that may cause CellPhoneDB errors
 
     Args:
         adata: AnnData object
-        database_version: CellPhoneDB database version
 
     Returns:
         Dict with problematic gene information

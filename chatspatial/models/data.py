@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Dict, List, Literal, Optional, Tuple, Union
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing_extensions import Self
 
 
@@ -268,6 +268,7 @@ class VisualizationParameters(BaseModel):
         description=(
             "Unified subtype parameter for visualization variants. "
             "Usage depends on plot_type:\n"
+            "- pathway_enrichment: 'enrichment_plot', 'barplot', 'dotplot', 'spatial'\n"
             "- deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'\n"
             "- spatial_statistics: 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality', 'getis_ord'\n"
             "- Other plot types may not require this parameter"
@@ -331,9 +332,6 @@ class VisualizationParameters(BaseModel):
 
     # GSEA visualization parameters
     gsea_results_key: str = "gsea_results"  # Key in adata.uns for GSEA results
-    gsea_plot_type: Literal["enrichment_plot", "barplot", "dotplot", "spatial"] = (
-        "barplot"
-    )
     n_top_pathways: int = 10  # Number of top pathways to show in barplot
 
     # NEW: Spatial plot enhancement parameters
@@ -1207,6 +1205,8 @@ class CellCommunicationParameters(BaseModel):
 class EnrichmentParameters(BaseModel):
     """Parameters for gene set enrichment analysis"""
 
+    model_config = ConfigDict(extra="forbid")
+
     # REQUIRED: Species specification (no default value)
     species: Literal["human", "mouse", "zebrafish"]
     # Must explicitly specify the species for gene set matching:
@@ -1263,11 +1263,6 @@ class EnrichmentParameters(BaseModel):
     )
     n_permutations: Annotated[int, Field(gt=0)] = (
         1000  # Number of permutations for GSEA
-    )
-
-    # Result filtering parameters
-    plot_top_terms: Annotated[int, Field(gt=0, le=30)] = (
-        10  # Number of top terms to include in results
     )
 
 
