@@ -1,69 +1,69 @@
-// ChatSpatial 科学主题颜色方案
-// 基于空间转录组学和AI科学研究的专业配色
+// ChatSpatial Scientific Theme Color Scheme
+// Professional color palette based on spatial transcriptomics and AI research
 
-// 主要品牌色彩
-$primary-teal: #0891B2;      // 主要青色 - 链接、按钮
-$primary-teal-light: #06B6D4; // 浅青色 - 悬停状态
-$primary-teal-dark: #0E7490;  // 深青色 - 活跃状态
+// Primary brand colors
+$primary-teal: #0891B2;      // Primary teal - links, buttons
+$primary-teal-light: #06B6D4; // Light teal - hover states
+$primary-teal-dark: #0E7490;  // Dark teal - active states
 
-// 辅助科学色彩
-$secondary-purple: #7C3AED;   // 科学紫 - 次要元素
-$secondary-purple-light: #8B5CF6; // 浅紫色
-$secondary-purple-dark: #6D28D9;  // 深紫色
+// Secondary scientific colors
+$secondary-purple: #7C3AED;   // Scientific purple - secondary elements
+$secondary-purple-light: #8B5CF6; // Light purple
+$secondary-purple-dark: #6D28D9;  // Dark purple
 
-// 强调和功能色彩
-$accent-orange: #F59E0B;      // 强调橙 - 重要提示
-$success-green: #10B981;      // 成功绿
-$warning-amber: #F59E0B;      // 警告琥珀
-$error-red: #EF4444;          // 错误红
+// Accent and functional colors
+$accent-orange: #F59E0B;      // Accent orange - important highlights
+$success-green: #10B981;      // Success green
+$warning-amber: #F59E0B;      // Warning amber
+$error-red: #EF4444;          // Error red
 
-// 中性色彩
-$background-primary: #FFFFFF;  // 主背景
-$background-secondary: #F8FAFC; // 次背景
-$background-code: #F1F5F9;    // 代码背景
-$text-primary: #1F2937;       // 主文本
-$text-secondary: #374151;     // 次文本
-$text-muted: #6B7280;         // 弱化文本
-$border-color: #E5E7EB;       // 边框色
+// Neutral colors
+$background-primary: #FFFFFF;  // Primary background
+$background-secondary: #F8FAFC; // Secondary background
+$background-code: #F1F5F9;    // Code background
+$text-primary: #1F2937;       // Primary text
+$text-secondary: #374151;     // Secondary text
+$text-muted: #6B7280;         // Muted text
+$border-color: #E5E7EB;       // Border color
 
-// 映射到 Just the Docs 颜色变量
-$blue-000: #F0F9FF;          // 极浅青色背景
-$blue-100: #E0F2FE;          // 浅青色背景
-$blue-200: $primary-teal-light; // 中青色
-$blue-300: $primary-teal;     // 主青色
+// Mapping to Just the Docs color variables
+$blue-000: #F0F9FF;          // Very light teal background
+$blue-100: #E0F2FE;          // Light teal background
+$blue-200: $primary-teal-light; // Medium teal
+$blue-300: $primary-teal;     // Primary teal
 
-$purple-000: #FAF5FF;         // 极浅紫色背景
-$purple-100: #F3E8FF;         // 浅紫色背景
-$purple-200: $secondary-purple-light; // 中紫色
-$purple-300: $secondary-purple; // 主紫色
+$purple-000: #FAF5FF;         // Very light purple background
+$purple-100: #F3E8FF;         // Light purple background
+$purple-200: $secondary-purple-light; // Medium purple
+$purple-300: $secondary-purple; // Primary purple
 
-$green-000: #F0FDF4;          // 浅绿色背景
-$green-100: #DCFCE7;          // 绿色背景
-$green-200: #86EFAC;          // 中绿色
-$green-300: $success-green;   // 成功绿
+$green-000: #F0FDF4;          // Light green background
+$green-100: #DCFCE7;          // Green background
+$green-200: #86EFAC;          // Medium green
+$green-300: $success-green;   // Success green
 
-$red-000: #FEF2F2;            // 浅红色背景
-$red-100: #FEE2E2;            // 红色背景
-$red-200: #FCA5A5;            // 中红色
-$red-300: $error-red;         // 错误红
+$red-000: #FEF2F2;            // Light red background
+$red-100: #FEE2E2;            // Red background
+$red-200: #FCA5A5;            // Medium red
+$red-300: $error-red;         // Error red
 
-$yellow-000: #FFFBEB;         // 浅黄色背景
-$yellow-100: #FEF3C7;         // 黄色背景
-$yellow-200: #FCD34D;         // 中黄色
-$yellow-300: $accent-orange;  // 强调橙
+$yellow-000: #FFFBEB;         // Light yellow background
+$yellow-100: #FEF3C7;         // Yellow background
+$yellow-200: #FCD34D;         // Medium yellow
+$yellow-300: $accent-orange;  // Accent orange
 
-// 基础色彩
+// Base colors
 $white: $background-primary;
-$grey-dk-000: $text-primary;   // 最深文本
-$grey-dk-100: $text-secondary; // 次深文本
-$grey-dk-200: $text-muted;     // 弱化文本
-$grey-dk-300: #9CA3AF;         // 更弱文本
-$grey-lt-000: $background-secondary; // 最浅背景
-$grey-lt-100: $border-color;   // 边框
-$grey-lt-200: #D1D5DB;         // 中等边框
-$grey-lt-300: #9CA3AF;         // 深色边框
+$grey-dk-000: $text-primary;   // Darkest text
+$grey-dk-100: $text-secondary; // Secondary dark text
+$grey-dk-200: $text-muted;     // Muted text
+$grey-dk-300: #9CA3AF;         // More muted text
+$grey-lt-000: $background-secondary; // Lightest background
+$grey-lt-100: $border-color;   // Border
+$grey-lt-200: #D1D5DB;         // Medium border
+$grey-lt-300: #9CA3AF;         // Dark border
 
-// 主题色彩应用 - 强制覆盖默认值
+// Theme color application - force override defaults
 $link-color: $primary-teal;
 $link-color-visited: $secondary-purple;
 
@@ -78,11 +78,11 @@ $search-background-color: $background-primary;
 $table-background-color: $background-primary;
 $code-background-color: $background-code;
 
-// ChatSpatial 品牌色彩
+// ChatSpatial brand colors
 $brand-primary: $primary-teal;
 $brand-secondary: $secondary-purple;
 $brand-accent: $accent-orange;
 
-// 按钮颜色
+// Button colors
 $btn-primary-color: $primary-teal;
 $base-button-color: $background-primary;

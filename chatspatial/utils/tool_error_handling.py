@@ -6,8 +6,7 @@ This allows LLMs to see and potentially handle the error.
 
 !!!!!!!!!! CRITICAL WARNING - IMAGE HANDLING !!!!!!!!!!
 This module contains CRITICAL code for handling Image objects from FastMCP.
-DO NOT modify the Image handling logic in mcp_tool_error_handler without
-reading /docs/CRITICAL_IMAGE_DISPLAY_BUG.md first!
+DO NOT modify the Image handling logic in mcp_tool_error_handler!
 A bug in this code caused images to display as object strings for 2 WEEKS!
 !!!!!!!!!! CRITICAL WARNING - IMAGE HANDLING !!!!!!!!!!
 """
@@ -157,7 +156,6 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 # If you wrap ImageContent objects in dictionaries or ToolResult,
                 # Claude Desktop will show "<ImageContent object at 0x...>" instead of the actual image.
                 # This bug took 2 WEEKS to find and fix. DO NOT CHANGE THIS!
-                # See /docs/CRITICAL_IMAGE_DISPLAY_BUG.md for full details.
                 # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
                 from mcp.types import ImageContent
                 from pydantic import BaseModel

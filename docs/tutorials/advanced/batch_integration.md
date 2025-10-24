@@ -817,7 +817,7 @@ Would you like me to generate specific figures or focus on particular aspects?"
 - Expression preserved post-integration
 - Cell type-specific patterns maintained
 
-**Figure Caption (Draft):**
+**Figure Caption:**
 'Multi-sample spatial transcriptomics integration using Harmony. (A) UMAP before integration shows strong batch effects with samples clustering by technical factors rather than biological similarity. (B) UMAP after Harmony integration shows good batch mixing while preserving biological structure. (C) Integration quality metrics show improvement across all measures. (D) Spatial domain analysis shows consistent anatomical organization across integrated samples. (E) Marker gene expression validation confirms preservation of cell type-specific signatures after integration. Integration parameters: θ=3.0, λ=1.0, σ=0.05.'
 
 **Figure Statistics:**

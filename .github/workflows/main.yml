@@ -1,7 +1,7 @@
 name: Main CI
 
 on:
-  # 只在 PR 时运行，不在 push 时运行以节省 GitHub Actions 额度
+  # Run only on pull requests to save GitHub Actions quota
   pull_request:
     branches: [ main ]
     paths-ignore:
@@ -9,7 +9,7 @@ on:
       - 'docs/**'
       - '.gitignore'
       - 'LICENSE'
-  # 可以手动触发
+  # Allow manual trigger
   workflow_dispatch:
 
 jobs:

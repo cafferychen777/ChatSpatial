@@ -251,9 +251,8 @@ async def test_image_object_handling():
     assert isinstance(result, Image)  # Must be raw Image object
     assert result.data  # Must contain base64 data
     assert result.mimeType == "image/png"  # Must be PNG format
-    
+
     # CRITICAL: Test that wrapper functions don't break Image objects
-    # See docs/CRITICAL_IMAGE_DISPLAY_BUG.md for details
 ```
 
 #### **MCP Error Handling Testing**
@@ -737,10 +736,9 @@ When adding a new method:
 
 #### **1. Image Display Bugs**
 **Problem**: Modifying image handling breaks visualization in AI assistants
-**Solution**: 
+**Solution**:
 - Never modify image object handling in `tool_error_handling.py`
 - Always test image display end-to-end
-- Read `/docs/CRITICAL_IMAGE_DISPLAY_BUG.md` before touching visualization code
 
 #### **2. Memory Issues with Large Datasets**
 **Problem**: New methods consume too much memory
