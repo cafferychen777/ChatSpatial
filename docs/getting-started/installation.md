@@ -116,7 +116,7 @@ Everything in Standard, plus:
 # After activating your virtual environment
 which python
 # This will output something like:
-# /Users/apple/Research/SpatialTrans_MCP/chatspatial_env/bin/python
+# /Users/yourname/Projects/chatspatial_env/bin/python
 ```
 
 ### Option A: Claude Desktop (GUI Application)
@@ -142,7 +142,7 @@ Edit Claude Desktop configuration file:
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "/Users/apple/Research/SpatialTrans_MCP/chatspatial_env/bin/python",
+      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
       "args": ["-m", "chatspatial", "server"]
     }
   }

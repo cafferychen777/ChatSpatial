@@ -27,7 +27,7 @@ def get_project_root() -> Path:
     Example:
         >>> root = get_project_root()
         >>> print(root)
-        /Users/apple/Research/SpatialTrans_MCP/chatspatial/chatspatial
+        /path/to/chatspatial/chatspatial
     """
     return _PROJECT_ROOT
 
