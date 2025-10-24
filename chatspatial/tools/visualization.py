@@ -1697,7 +1697,7 @@ async def visualize_data(
 
                 cnv.pl.chromosome_heatmap(
                     adata,
-                    groupby=params.feature if params.feature else None,
+                    groupby=params.cluster_key,
                     dendrogram=True,
                     show=False,
                     figsize=figsize,
