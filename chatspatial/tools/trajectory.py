@@ -158,17 +158,21 @@ def infer_spatial_trajectory_cellrank(
     adata, spatial_weight=0.5, kernel_weights=(0.8, 0.2), n_states=5
 ):
     """
-    Infers cellular trajectories by combining RNA velocity and spatial data with CellRank.
+    Infers cellular trajectories by combining RNA velocity with CellRank.
 
     This function uses CellRank to model cell-state transitions by constructing
     a transition matrix from multiple kernels. It combines:
     1. A velocity kernel, derived from RNA velocity.
     2. A connectivity kernel, based on transcriptomic similarity.
-    3. A custom spatial kernel, based on physical proximity.
+    3. (Optional) A custom spatial kernel, based on physical proximity.
 
     By analyzing the eigenvectors of the combined transition matrix, CellRank
     identifies macrostates (representative cell states), terminal states, and computes
     fate probabilities to map the paths of cellular development.
+
+    Note: Spatial kernel is optional. CellRank can work with velocity + connectivity
+    kernels only. If spatial coordinates are available and spatial_weight > 0, a
+    spatial kernel will be added to enhance the analysis.
 
     Raises ProcessingError if CellRank computation fails.
     """
@@ -176,13 +180,16 @@ def infer_spatial_trajectory_cellrank(
     from scipy.sparse import csr_matrix
     from scipy.spatial.distance import pdist, squareform
 
-    # Validate spatial data
-    try:
-        validate_adata(adata, {}, check_spatial=True)
-    except DataNotFoundError as e:
-        raise ValueError(f"Invalid spatial data: {e}")
+    # Check if spatial data is available
+    has_spatial = "spatial" in adata.obsm
 
-    spatial_coords = adata.obsm["spatial"]
+    # Adjust spatial_weight if no spatial data
+    if not has_spatial and spatial_weight > 0:
+        logger.warning(
+            f"Spatial weight {spatial_weight} specified but no spatial coordinates found. "
+            "Proceeding with velocity + connectivity kernels only (spatial_weight=0)."
+        )
+        spatial_weight = 0
 
     # Create RNA velocity kernel
     # Handle different velocity methods
@@ -191,8 +198,9 @@ def infer_spatial_trajectory_cellrank(
         if "velovi_adata" in adata.uns:
             # Use the VELOVI preprocessed data which has the proper layers
             adata_for_cellrank = adata.uns["velovi_adata"]
-            # Transfer spatial coordinates to the velovi adata for CellRank
-            adata_for_cellrank.obsm["spatial"] = adata.obsm["spatial"]
+            # Transfer spatial coordinates if available
+            if has_spatial:
+                adata_for_cellrank.obsm["spatial"] = adata.obsm["spatial"]
 
             # VELOVI stores velocity as 'velocity_velovi', but CellRank expects 'velocity'
             # Create a reference to the standard velocity layer name
@@ -216,20 +224,27 @@ def infer_spatial_trajectory_cellrank(
     ck = cr.kernels.ConnectivityKernel(adata_for_cellrank)
     ck.compute_transition_matrix()
 
-    # Create custom spatial kernel
-    spatial_dist = squareform(pdist(spatial_coords))
-    spatial_sim = np.exp(-spatial_dist / spatial_dist.mean())
-    spatial_kernel = csr_matrix(spatial_sim)
-
-    # Create spatial kernel
-    sk = cr.kernels.PrecomputedKernel(spatial_kernel, adata_for_cellrank)
-    sk.compute_transition_matrix()
-
-    # Combine kernels using configurable weights
+    # Combine kernels based on spatial data availability
     vk_weight, ck_weight = kernel_weights
-    combined_kernel = (1 - spatial_weight) * (
-        vk_weight * vk + ck_weight * ck
-    ) + spatial_weight * sk
+
+    if has_spatial and spatial_weight > 0:
+        # Create custom spatial kernel
+        spatial_coords = adata.obsm["spatial"]
+        spatial_dist = squareform(pdist(spatial_coords))
+        spatial_sim = np.exp(-spatial_dist / spatial_dist.mean())
+        spatial_kernel = csr_matrix(spatial_sim)
+
+        # Create spatial kernel
+        sk = cr.kernels.PrecomputedKernel(spatial_kernel, adata_for_cellrank)
+        sk.compute_transition_matrix()
+
+        # Combine all three kernels
+        combined_kernel = (1 - spatial_weight) * (
+            vk_weight * vk + ck_weight * ck
+        ) + spatial_weight * sk
+    else:
+        # No spatial data or spatial_weight=0: use only velocity + connectivity
+        combined_kernel = vk_weight * vk + ck_weight * ck
 
     # Use GPCCA for analysis
     g = cr.estimators.GPCCA(combined_kernel)
@@ -737,12 +752,25 @@ async def analyze_trajectory(
 
         try:
             with suppress_output():
-                # Run spatially-aware embedding
-                adata = spatial_aware_embedding(
-                    adata, spatial_weight=params.spatial_weight
-                )
+                # Optional: Run spatially-aware embedding if spatial data available
+                has_spatial = "spatial" in adata.obsm
+                if has_spatial and params.spatial_weight > 0:
+                    if context:
+                        await context.info(
+                            f"Using spatial-aware embedding with weight {params.spatial_weight}"
+                        )
+                    adata = spatial_aware_embedding(
+                        adata, spatial_weight=params.spatial_weight
+                    )
+                elif not has_spatial and params.spatial_weight > 0:
+                    if context:
+                        await context.info(
+                            f"Spatial weight {params.spatial_weight} specified but no spatial "
+                            "coordinates found. Proceeding with expression-only Palantir."
+                        )
 
                 # Run Palantir with configurable parameters
+                # Palantir works with expression data only, spatial is optional enhancement
                 adata = infer_pseudotime_palantir(
                     adata,
                     root_cells=params.root_cells,
