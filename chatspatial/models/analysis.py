@@ -166,9 +166,12 @@ class SpatialVariableGenesResult(BaseModel):
     method: str  # Method used for analysis
 
     # Common results for all methods
-    n_genes_analyzed: int  # Total number of genes analyzed
-    n_significant_genes: int  # Number of significant spatial genes found
-    spatial_genes: List[str]  # List of significant spatial variable gene names
+    n_genes_analyzed: int  # Total number of genes analyzed (input)
+    n_significant_genes: int  # Total number of significant genes found (q < 0.05)
+    n_returned_genes: (
+        int  # Number of genes actually returned (may be truncated due to token limits)
+    )
+    spatial_genes: List[str]  # List of returned gene names (length = n_returned_genes)
 
     # Statistical results (available for all methods)
     gene_statistics: Dict[str, float]  # Gene name -> primary statistic value
@@ -305,6 +308,3 @@ class CNVResult(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
-
-
-
