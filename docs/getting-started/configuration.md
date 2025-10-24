@@ -49,7 +49,7 @@ Configure ChatSpatial in Claude Desktop by editing the MCP configuration file:
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "/Users/apple/Research/SpatialTrans_MCP/st_mcp_env_py310/bin/python",
+      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
       "args": ["-m", "chatspatial"]
     }
   }
