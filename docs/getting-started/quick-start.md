@@ -81,7 +81,7 @@ which python
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "/Users/apple/Projects/chatspatial_env/bin/python",
+      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
       "args": ["-m", "chatspatial"]
     }
   }

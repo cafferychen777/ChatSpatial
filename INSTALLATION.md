@@ -72,7 +72,7 @@ Add to Claude Desktop config file:
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "/Users/apple/Research/SpatialTrans_MCP/chatspatial_env/bin/python",
+      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
       "args": ["-m", "chatspatial", "server"]
     }
   }
