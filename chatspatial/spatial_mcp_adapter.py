@@ -7,7 +7,6 @@ and ChatSpatial's spatial analysis functionality.
 
 import json
 import logging
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -34,16 +33,6 @@ class MCPResource:
 
 
 @dataclass
-class MCPPrompt:
-    """MCP Prompt representation"""
-
-    name: str
-    description: str
-    arguments: List[Dict[str, Any]] = field(default_factory=list)
-    handler: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
-
-
-@dataclass
 class MCPToolMetadata:
     """Enhanced tool metadata including MCP annotations"""
 
@@ -57,41 +46,10 @@ class MCPToolMetadata:
     parameters_schema: Optional[Dict[str, Any]] = None
 
 
-class SpatialDataManager(ABC):
-    """Abstract interface for spatial data management"""
-
-    @abstractmethod
-    async def load_dataset(
-        self, path: str, data_type: str, name: Optional[str] = None
-    ) -> str:
-        """Load a spatial dataset and return its ID"""
-        pass
-
-    @abstractmethod
-    async def get_dataset(self, data_id: str) -> Any:
-        """Get a dataset by ID"""
-        pass
-
-    @abstractmethod
-    async def list_datasets(self) -> List[Dict[str, Any]]:
-        """List all loaded datasets"""
-        pass
-
-    @abstractmethod
-    async def save_result(self, data_id: str, result_type: str, result: Any) -> None:
-        """Save analysis results"""
-        pass
-
-    @abstractmethod
-    async def get_result(self, data_id: str, result_type: str) -> Any:
-        """Get analysis results"""
-        pass
-
-
 class SpatialResourceManager:
     """Manages MCP resources for spatial data"""
 
-    def __init__(self, data_manager: SpatialDataManager):
+    def __init__(self, data_manager: "DefaultSpatialDataManager"):
         self.data_manager = data_manager
         self._resources: Dict[str, MCPResource] = {}
         self._visualization_cache: Dict[str, Any] = {}
@@ -216,206 +174,13 @@ class SpatialResourceManager:
         return safe_dict
 
 
-class SpatialPromptManager:
-    """Manages MCP prompts for spatial analysis"""
-
-    def __init__(self, data_manager: SpatialDataManager):
-        self.data_manager = data_manager
-        self._prompts: Dict[str, MCPPrompt] = {}
-        self._initialize_prompts()
-
-    def _initialize_prompts(self):
-        """Initialize spatial analysis prompts"""
-        self._prompts = {
-            "analyze-spatial-expression": MCPPrompt(
-                name="analyze-spatial-expression",
-                description="Analyze spatial gene expression patterns",
-                arguments=[
-                    {
-                        "name": "genes",
-                        "description": "Genes to analyze",
-                        "required": True,
-                    },
-                    {
-                        "name": "method",
-                        "description": "Analysis method",
-                        "required": False,
-                    },
-                ],
-            ),
-            "find-cell-types": MCPPrompt(
-                name="find-cell-types",
-                description="Identify cell types in spatial data",
-                arguments=[
-                    {
-                        "name": "method",
-                        "description": "Cell type identification method",
-                        "required": False,
-                    },
-                    {
-                        "name": "reference_data",
-                        "description": "Reference dataset path",
-                        "required": False,
-                    },
-                ],
-            ),
-            "compare-conditions": MCPPrompt(
-                name="compare-conditions",
-                description="Compare spatial patterns between conditions",
-                arguments=[
-                    {
-                        "name": "condition_key",
-                        "description": "Column defining conditions",
-                        "required": True,
-                    },
-                    {
-                        "name": "groups",
-                        "description": "Groups to compare",
-                        "required": True,
-                    },
-                ],
-            ),
-            "generate-visualization": MCPPrompt(
-                name="generate-visualization",
-                description="Generate spatial visualization",
-                arguments=[
-                    {
-                        "name": "plot_type",
-                        "description": "Type of visualization",
-                        "required": True,
-                    },
-                    {
-                        "name": "feature",
-                        "description": "Feature(s) to visualize (single gene or list of genes)",
-                        "required": False,
-                    },
-                    {
-                        "name": "save_path",
-                        "description": "Path to save figure",
-                        "required": False,
-                    },
-                ],
-            ),
-            "quality-control": MCPPrompt(
-                name="quality-control",
-                description="Perform quality control on spatial data",
-                arguments=[
-                    {
-                        "name": "metrics",
-                        "description": "QC metrics to compute",
-                        "required": False,
-                    },
-                    {
-                        "name": "thresholds",
-                        "description": "QC thresholds",
-                        "required": False,
-                    },
-                ],
-            ),
-            "batch-correction": MCPPrompt(
-                name="batch-correction",
-                description="Correct batch effects in integrated data",
-                arguments=[
-                    {
-                        "name": "batch_key",
-                        "description": "Column defining batches",
-                        "required": True,
-                    },
-                    {
-                        "name": "method",
-                        "description": "Batch correction method",
-                        "required": False,
-                    },
-                ],
-            ),
-            "spatial-clustering": MCPPrompt(
-                name="spatial-clustering",
-                description="Perform spatial clustering analysis",
-                arguments=[
-                    {
-                        "name": "method",
-                        "description": "Clustering method",
-                        "required": False,
-                    },
-                    {
-                        "name": "n_clusters",
-                        "description": "Number of clusters",
-                        "required": False,
-                    },
-                    {
-                        "name": "resolution",
-                        "description": "Clustering resolution",
-                        "required": False,
-                    },
-                ],
-            ),
-            "cellular-communication": MCPPrompt(
-                name="cellular-communication",
-                description="Analyze cell-cell communication",
-                arguments=[
-                    {
-                        "name": "method",
-                        "description": "Communication analysis method",
-                        "required": False,
-                    },
-                    {
-                        "name": "lr_database",
-                        "description": "Ligand-receptor database",
-                        "required": False,
-                    },
-                ],
-            ),
-            "gene-enrichment": MCPPrompt(
-                name="gene-enrichment",
-                description="Perform gene set enrichment analysis",
-                arguments=[
-                    {
-                        "name": "gene_sets",
-                        "description": "Gene sets to test",
-                        "required": True,
-                    },
-                    {
-                        "name": "method",
-                        "description": "Enrichment method",
-                        "required": False,
-                    },
-                ],
-            ),
-            "spatial-deconvolution": MCPPrompt(
-                name="spatial-deconvolution",
-                description="Deconvolve spatial spots into cell types",
-                arguments=[
-                    {
-                        "name": "reference_data",
-                        "description": "Single-cell reference data",
-                        "required": True,
-                    },
-                    {
-                        "name": "method",
-                        "description": "Deconvolution method",
-                        "required": False,
-                    },
-                ],
-            ),
-        }
-
-    async def get_prompt(self, name: str) -> Optional[MCPPrompt]:
-        """Get a prompt by name"""
-        return self._prompts.get(name)
-
-    async def list_prompts(self) -> List[MCPPrompt]:
-        """List all available prompts"""
-        return list(self._prompts.values())
-
-
 class SpatialMCPAdapter:
     """Main adapter class that bridges MCP and spatial analysis functionality"""
 
-    def __init__(self, mcp_server: FastMCP, data_manager: SpatialDataManager):
+    def __init__(self, mcp_server: FastMCP, data_manager: "DefaultSpatialDataManager"):
         self.mcp = mcp_server
         self.data_manager = data_manager
         self.resource_manager = SpatialResourceManager(data_manager)
-        self.prompt_manager = SpatialPromptManager(data_manager)
         self._tool_metadata: Dict[str, MCPToolMetadata] = {}
         self._initialize_tools()
 
@@ -567,20 +332,6 @@ class SpatialMCPAdapter:
                 ]
             }
 
-    async def handle_prompt_list(self) -> List[Dict[str, Any]]:
-        """Handle MCP prompt list request"""
-        prompts = await self.prompt_manager.list_prompts()
-        return [
-            {"name": p.name, "description": p.description, "arguments": p.arguments}
-            for p in prompts
-        ]
-
-    async def handle_prompt_execute(
-        self, name: str, arguments: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Handle MCP prompt execution request"""
-        result = await self.prompt_manager.execute_prompt(name, arguments)
-        return result
 
     def register_tool(self, tool_func: Callable, metadata: MCPToolMetadata) -> None:
         """Register a tool with the MCP server"""
@@ -655,8 +406,8 @@ class SpatialMCPAdapter:
             return None
 
 
-class DefaultSpatialDataManager(SpatialDataManager):
-    """Default implementation of SpatialDataManager"""
+class DefaultSpatialDataManager:
+    """Default implementation of spatial data management"""
 
     def __init__(self):
         self.data_store: Dict[str, Any] = {}
@@ -722,7 +473,7 @@ class DefaultSpatialDataManager(SpatialDataManager):
 
 
 def create_spatial_mcp_server(
-    server_name: str = "ChatSpatial", data_manager: Optional[SpatialDataManager] = None
+    server_name: str = "ChatSpatial", data_manager: Optional[DefaultSpatialDataManager] = None
 ) -> tuple[FastMCP, SpatialMCPAdapter]:
     """
     Create and configure a spatial MCP server with adapter
@@ -745,7 +496,7 @@ def create_spatial_mcp_server(
     adapter = SpatialMCPAdapter(mcp, data_manager)
 
     # Configure resource handlers
-    # Note: Uncomment these when FastMCP supports resource/prompt decorators
+    # Note: Uncomment these when FastMCP supports resource decorators
     # @mcp.list_resources
     # async def handle_list_resources():
     #     return await adapter.handle_resource_list()
@@ -753,14 +504,5 @@ def create_spatial_mcp_server(
     # @mcp.read_resource
     # async def handle_read_resource(uri: str):
     #     return await adapter.handle_resource_read(uri)
-    #
-    # # Configure prompt handlers
-    # @mcp.list_prompts
-    # async def handle_list_prompts():
-    #     return await adapter.handle_prompt_list()
-    #
-    # @mcp.get_prompt
-    # async def handle_get_prompt(name: str, arguments: Dict[str, Any]):
-    #     return await adapter.handle_prompt_execute(name, arguments)
 
     return mcp, adapter

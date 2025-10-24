@@ -471,38 +471,6 @@ async def save_visualization(
 
 @mcp.tool()
 @mcp_tool_error_handler()
-async def list_saved_visualizations(
-    output_dir: str = "./outputs",
-    pattern: Optional[str] = None,
-    context: Context = None,
-) -> List[Dict[str, Any]]:
-    """List all saved visualizations in the output directory
-
-    Args:
-        output_dir: Directory to search for saved files (default: ./outputs)
-        pattern: Optional glob pattern to filter files (e.g., "*spatial*")
-
-    Returns:
-        List of saved visualization files with metadata
-
-    Examples:
-        List all saved files: list_saved_visualizations()
-        List spatial plots: list_saved_visualizations(pattern="*spatial*")
-        List from custom dir: list_saved_visualizations(output_dir="./my_outputs")
-    """
-    from .tools.visualization import list_saved_visualizations as list_func
-
-    result = await list_func(
-        output_dir=output_dir,
-        pattern=pattern,
-        context=context,
-    )
-
-    return result
-
-
-@mcp.tool()
-@mcp_tool_error_handler()
 async def export_all_visualizations(
     data_id: str,
     output_dir: str = "./exports",

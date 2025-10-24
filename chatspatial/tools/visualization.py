@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
+
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
 
@@ -34,16 +35,28 @@ except ImportError:
     INFERCNVPY_AVAILABLE = False
 
 from ..models.data import VisualizationParameters  # noqa: E402
+
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
+
 # Import error handling utilities
-from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,  # noqa: E402
-                                    InvalidParameterError, ProcessingError)
+from ..utils.error_handling import (
+    DataCompatibilityError,
+    DataNotFoundError,  # noqa: E402
+    InvalidParameterError,
+    ProcessingError,
+)
+
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
+
 # Import path utilities for safe file operations
-from ..utils.path_utils import (get_output_dir_from_config,  # noqa: E402
-                                get_safe_output_path, is_safe_output_path)
+from ..utils.path_utils import (
+    get_output_dir_from_config,  # noqa: E402
+    get_safe_output_path,
+    is_safe_output_path,
+)
+
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors  # noqa: E402
 
@@ -192,7 +205,10 @@ def plot_spatial_feature(
     if "spatial" in adata.uns and isinstance(adata.uns["spatial"], dict):
         # Check if any library has images
         for lib_id in adata.uns["spatial"].keys():
-            if isinstance(adata.uns["spatial"][lib_id], dict) and "images" in adata.uns["spatial"][lib_id]:
+            if (
+                isinstance(adata.uns["spatial"][lib_id], dict)
+                and "images" in adata.uns["spatial"][lib_id]
+            ):
                 has_image = True
                 break
 
@@ -1963,7 +1979,9 @@ async def visualize_data(
             )
 
         # Generate plot_type_key with subtype if applicable (for cache consistency)
-        subtype = params.subtype if hasattr(params, "subtype") and params.subtype else None
+        subtype = (
+            params.subtype if hasattr(params, "subtype") and params.subtype else None
+        )
         plot_type_key = f"{params.plot_type}_{subtype}" if subtype else params.plot_type
 
         # Use the optimized conversion function
@@ -2009,8 +2027,7 @@ async def visualize_data(
 
 
 def get_deconvolution_proportions(
-    adata: ad.AnnData,
-    method: Optional[str] = None
+    adata: ad.AnnData, method: Optional[str] = None
 ) -> Tuple[pd.DataFrame, str]:
     """
     Get deconvolution proportions from AnnData
@@ -2028,8 +2045,7 @@ def get_deconvolution_proportions(
     # Auto-detect if method not specified
     if method is None:
         deconv_keys = [
-            key for key in adata.obsm.keys()
-            if key.startswith("deconvolution_")
+            key for key in adata.obsm.keys() if key.startswith("deconvolution_")
         ]
         if not deconv_keys:
             raise DataNotFoundError(
@@ -2061,13 +2077,15 @@ def get_deconvolution_proportions(
             for col in adata.obs.columns
             if col.startswith(prefix)
         ]
-        cell_types = cell_type_cols if cell_type_cols else [f"CellType_{i}" for i in range(proportions_array.shape[1])]
+        cell_types = (
+            cell_type_cols
+            if cell_type_cols
+            else [f"CellType_{i}" for i in range(proportions_array.shape[1])]
+        )
 
     # Create DataFrame
     proportions = pd.DataFrame(
-        proportions_array,
-        index=adata.obs_names,
-        columns=cell_types
+        proportions_array, index=adata.obs_names, columns=cell_types
     )
 
     return proportions, method
@@ -2341,9 +2359,7 @@ async def create_stacked_barplot(
     n_spots = len(proportions)
     if n_spots > params.max_spots:
         # Sample spots
-        sample_indices = np.random.choice(
-            n_spots, size=params.max_spots, replace=False
-        )
+        sample_indices = np.random.choice(n_spots, size=params.max_spots, replace=False)
         proportions_plot = proportions.iloc[sample_indices]
         if context:
             await context.warning(
@@ -2421,7 +2437,11 @@ async def create_stacked_barplot(
         bottom += values
 
     # Formatting
-    ax.set_xlabel("Spot Index" if params.sort_by == "spatial" else params.sort_by.replace("_", " ").title())
+    ax.set_xlabel(
+        "Spot Index"
+        if params.sort_by == "spatial"
+        else params.sort_by.replace("_", " ").title()
+    )
     ax.set_ylabel("Cell Type Proportion")
     ax.set_title(
         f"Cell Type Proportions ({method})\n"
@@ -2562,9 +2582,7 @@ async def create_scatterpie_plot(
     # Create legend
     from matplotlib.patches import Patch
 
-    legend_elements = [
-        Patch(facecolor=colors[ct], label=ct) for ct in cell_types
-    ]
+    legend_elements = [Patch(facecolor=colors[ct], label=ct) for ct in cell_types]
     ax.legend(
         handles=legend_elements,
         bbox_to_anchor=(1.05, 1),
@@ -6255,6 +6273,7 @@ async def save_visualization(
             # Format-specific settings
             if format.lower() == "pdf":
                 import matplotlib
+
                 # PDF metadata for publication
                 save_params["dpi"] = dpi
                 save_params["format"] = "pdf"
@@ -6291,9 +6310,7 @@ async def save_visualization(
                     if file_size_kb < 1024
                     else f"{file_size_kb/1024:.1f} MB"
                 )
-                await context.info(
-                    f"Saved visualization to {file_path} ({size_str})"
-                )
+                await context.info(f"Saved visualization to {file_path} ({size_str})")
 
                 # Format-specific advice
                 if format.lower() == "pdf":
@@ -6316,86 +6333,12 @@ async def save_visualization(
             return str(file_path)
 
         except Exception as e:
-            raise ProcessingError(
-                f"Failed to export visualization: {str(e)}"
-            ) from e
+            raise ProcessingError(f"Failed to export visualization: {str(e)}") from e
 
     except (DataNotFoundError, InvalidParameterError):
         raise
     except Exception as e:
         raise ProcessingError(f"Failed to save visualization: {str(e)}")
-
-
-async def list_saved_visualizations(
-    output_dir: str = "./outputs",
-    pattern: Optional[str] = None,
-    context: Optional[Context] = None,
-) -> List[Dict[str, Any]]:
-    """List all saved visualizations in the output directory
-
-    Args:
-        output_dir: Directory to search for saved files
-        pattern: Optional glob pattern to filter files (e.g., "*spatial*")
-        context: MCP context for logging
-
-    Returns:
-        List of dictionaries with file information
-    """
-    try:
-        # Resolve path against current working directory (respects user config)
-        user_path = Path(output_dir)
-        if user_path.is_absolute():
-            output_path = user_path
-        else:
-            output_path = Path.cwd() / user_path
-
-        # Check if directory exists (don't create, just list)
-        if not output_path.exists():
-            if context:
-                await context.info(f"Output directory does not exist: {output_path}")
-            return []
-
-        # Security check using new helper
-        if not is_safe_output_path(output_path):
-            raise InvalidParameterError(
-                f"Output directory must be within project or /tmp/chatspatial: {output_path}"
-            )
-
-        # Get all image files
-        image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.pdf", "*.svg"]
-        files = []
-
-        for ext in image_extensions:
-            search_pattern = pattern if pattern else ext
-            for file_path in output_path.glob(search_pattern if pattern else ext):
-                if file_path.is_file():
-                    stat = file_path.stat()
-                    files.append(
-                        {
-                            "filename": file_path.name,
-                            "path": str(file_path),
-                            "size_kb": stat.st_size / 1024,
-                            "modified": datetime.fromtimestamp(
-                                stat.st_mtime
-                            ).isoformat(),
-                            "format": file_path.suffix[1:],  # Remove the dot
-                        }
-                    )
-
-        # Sort by modification time (newest first)
-        files.sort(key=lambda x: x["modified"], reverse=True)
-
-        if context:
-            await context.info(
-                f"Found {len(files)} saved visualization(s) in {output_dir}"
-            )
-
-        return files
-
-    except InvalidParameterError:
-        raise
-    except Exception as e:
-        raise ProcessingError(f"Failed to list visualizations: {str(e)}")
 
 
 async def export_all_visualizations(
@@ -6437,6 +6380,7 @@ async def export_all_visualizations(
 
             # Scan pickle directory for this dataset
             import glob
+
             pickle_dir = "/tmp/chatspatial/figures"
             pickle_pattern = f"{pickle_dir}/{data_id}_*.pkl"
             pickle_files = glob.glob(pickle_pattern)
@@ -6444,8 +6388,7 @@ async def export_all_visualizations(
             if pickle_files:
                 # Extract cache keys from pickle filenames
                 relevant_keys = [
-                    os.path.basename(f).replace(".pkl", "")
-                    for f in pickle_files
+                    os.path.basename(f).replace(".pkl", "") for f in pickle_files
                 ]
 
                 if context:
