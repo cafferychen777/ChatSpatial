@@ -154,34 +154,6 @@ def fig_to_image(
         raise RuntimeError(f"Failed to convert figure to image: {str(e)}") from e
 
 
-def create_placeholder_image(
-    message: str = "No visualization available",
-    figsize: Tuple[int, int] = (6, 6),
-    format: str = "png",
-) -> ImageContent:
-    """Create a placeholder image with a message
-
-    Args:
-        message: Message to display in the placeholder image
-        figsize: Figure size in inches
-        format: Image format (png, jpg)
-
-    Returns:
-        ImageContent object ready for MCP tool return
-    """
-    _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.text(0.5, 0.5, message, ha="center", va="center", fontsize=12)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.axis("off")
-
-    # Convert to Image object
-    return fig_to_image(fig, format=format)
-
-
 # ============ Token Optimization and Publication Export Support ============
 
 # Global Figure cache (using weak references to avoid memory leaks)
@@ -292,35 +264,53 @@ async def optimize_fig_to_image_with_cache(
                 f"Cached figure object for high-quality export: {cache_key}"
             )
 
-    # Estimate original image size
-    test_buf = io.BytesIO()
+    # Generate image once with ACTUAL parameters (not estimation)
     target_dpi = params.dpi if hasattr(params, "dpi") and params.dpi else 100
-    fig.savefig(test_buf, format="png", dpi=target_dpi, bbox_inches="tight")
-    estimated_size = test_buf.tell()
-    test_buf.close()
+
+    # Use fig_to_image to get actual image with full parameters
+    actual_buf = io.BytesIO()
+    fig.savefig(
+        actual_buf,
+        format="png",
+        dpi=target_dpi,
+        bbox_inches="tight",
+        transparent=False,
+        facecolor="white",
+        edgecolor="none",
+        pad_inches=0.1,
+        metadata={"Software": "spatial-transcriptomics-mcp"}
+    )
+    actual_size = actual_buf.tell()
 
     # MCP 2025 best practice: prefer URIs over embedded content for large files
-    # Threshold: 70KB (safe for MCP 25K token limit)
-    # Calculation: 70KB × 1.33 (base64) ÷ 4 (chars/token) ≈ 23K tokens
-    DIRECT_EMBED_THRESHOLD = 70 * 1024  # 70KB
+    # Root cause identified: MCP protocol has ~3.3x overhead for ImageContent
+    # Even 16K token images become 53K tokens in MCP responses (beyond our control)
+    # Solution: Always use file URIs to avoid MCP ImageContent overhead
+    DIRECT_EMBED_THRESHOLD = 0  # 0 = Always save to file (avoids MCP overhead)
 
-    # Small images: Direct embedding
-    if mode == "direct" or (mode == "auto" and estimated_size < DIRECT_EMBED_THRESHOLD):
+    # Small images: Direct embedding (use already-generated image)
+    if mode == "direct" or (mode == "auto" and actual_size < DIRECT_EMBED_THRESHOLD):
         if context:
             await context.info(
-                f"Small image ({estimated_size//1024}KB), embedding directly"
+                f"Small image ({actual_size//1024}KB), embedding directly"
             )
-        return fig_to_image(fig, dpi=target_dpi, format="png")
+        # Convert buffer to ImageContent
+        actual_buf.seek(0)
+        img_data = actual_buf.read()
+        actual_buf.close()
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+        return bytes_to_image_content(img_data, format="png")
 
     # Large images: Save to file, return path as text
     # This follows MCP best practice and avoids token limits
     if context:
         await context.info(
-            f"Large image ({estimated_size//1024}KB), saving to file "
+            f"Large image ({actual_size//1024}KB), saving to file "
             f"(following MCP best practice: URI over embedded content)"
         )
 
-    # Save high-quality version
+    # Save the already-generated image to file (avoid regenerating)
     os.makedirs("/tmp/chatspatial/visualizations", exist_ok=True)
     hq_filename = (
         f"{plot_type}_{uuid.uuid4().hex[:8]}.png"
@@ -329,15 +319,14 @@ async def optimize_fig_to_image_with_cache(
     )
     hq_path = f"/tmp/chatspatial/visualizations/{hq_filename}"
 
-    fig.savefig(
-        hq_path,
-        dpi=target_dpi if target_dpi else 300,
-        format="png",
-        bbox_inches="tight",
-        facecolor="white",
-    )
+    # Write the image data we already generated
+    actual_buf.seek(0)
+    with open(hq_path, 'wb') as f:
+        f.write(actual_buf.read())
+    actual_buf.close()
 
     # Close figure
+    import matplotlib.pyplot as plt
     plt.close(fig)
 
     # NOTE: Metadata is now managed by server.py, not here
@@ -346,19 +335,13 @@ async def optimize_fig_to_image_with_cache(
     # Return text message with file path (MCP best practice for large files)
     # FastMCP will auto-convert str to TextContent
     message = (
-        f"✓ Visualization created successfully!\n\n"
-        f"📊 **{plot_type if plot_type else 'Visualization'}** "
-        f"({estimated_size//1024}KB estimated)\n\n"
-        f"📁 **High-quality image saved to:**\n`{hq_path}`\n\n"
-        f"🎨 Resolution: {target_dpi if target_dpi else 300} DPI\n"
-        f"📦 Format: PNG\n\n"
-        f"💡 Following MCP 2025 best practice: large images returned as file paths "
-        f"to avoid token limits and reduce conversation costs.\n\n"
-        f"You can view this image using your system's image viewer, "
-        f"or use the export/save tools to convert to other formats."
+        f"Visualization saved: {hq_path}\n"
+        f"Type: {plot_type if plot_type else 'visualization'}\n"
+        f"Size: {actual_size//1024}KB\n"
+        f"Resolution: {target_dpi if target_dpi else 300} DPI"
     )
 
     if context:
-        await context.info(f"✓ Saved high-quality image to: {hq_path}")
+        await context.info(f"Saved visualization to: {hq_path}")
 
     return message

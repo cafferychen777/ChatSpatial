@@ -17,17 +17,20 @@ from .data_validator import (
     validate_spatial_data,
 )
 from .error_handling import ProcessingError, suppress_output
-from .tool_error_handling import (
-    ToolResult,
-    create_error_result,
-    mcp_tool_error_handler,
+from .tool_error_handling import mcp_tool_error_handler
+from .validation import (
+    ensure_categorical,
+    validate_adata_basics,
+    validate_categorical,
+    validate_obs_column,
+    validate_obs_columns,
+    validate_var_column,
+    validate_var_columns,
 )
 
 __all__ = [
     "ProcessingError",
     "suppress_output",
-    "ToolResult",
-    "create_error_result",
     "mcp_tool_error_handler",
     "standardize_adata",
     "get_spatial_coordinates",
@@ -39,4 +42,11 @@ __all__ = [
     "validate_for_deconvolution",
     "validate_for_spatial_statistics",
     "raise_if_invalid",
+    "validate_obs_column",
+    "validate_var_column",
+    "validate_obs_columns",
+    "validate_var_columns",
+    "validate_adata_basics",
+    "validate_categorical",
+    "ensure_categorical",
 ]

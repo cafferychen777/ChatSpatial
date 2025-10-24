@@ -4,42 +4,15 @@ Enhanced error handling for MCP tools according to specification.
 Tools should return errors in the result object, not as protocol-level errors.
 This allows LLMs to see and potentially handle the error.
 
-!!!!!!!!!! CRITICAL WARNING - IMAGE HANDLING !!!!!!!!!!
-This module contains CRITICAL code for handling Image objects from FastMCP.
-DO NOT modify the Image handling logic in mcp_tool_error_handler without
-reading /docs/CRITICAL_IMAGE_DISPLAY_BUG.md first!
-A bug in this code caused images to display as object strings for 2 WEEKS!
-!!!!!!!!!! CRITICAL WARNING - IMAGE HANDLING !!!!!!!!!!
+IMAGE HANDLING NOTE (Updated 2024-12):
+- Currently all visualizations save to disk and return file paths (DIRECT_EMBED_THRESHOLD = 0)
+- ImageContent handling code is preserved for future use when MCP protocol improves
+- The type-aware error handling ensures correct error format for different return types
 """
 
 import traceback
-from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Dict, List, get_type_hints
-
-
-@dataclass
-class ToolResult:
-    """Standard tool result format according to MCP specification"""
-
-    content: List[Dict[str, Any]]
-    isError: bool = False
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format expected by MCP"""
-        return {"content": self.content, "isError": self.isError}
-
-
-def create_error_result(error: Exception, include_traceback: bool = True) -> ToolResult:
-    """Create a standardized error result for tools"""
-    error_content = [{"type": "text", "text": f"Error: {str(error)}"}]
-
-    if include_traceback and not isinstance(error, ValueError):
-        # Include traceback for non-value errors
-        tb = traceback.format_exc()
-        error_content.append({"type": "text", "text": f"Traceback:\n{tb}"})
-
-    return ToolResult(content=error_content, isError=True)
+from typing import Any, Dict, get_type_hints
 
 
 def _check_return_type_category(func) -> str:
@@ -105,33 +78,6 @@ def _check_return_type_category(func) -> str:
         return "unknown"
 
 
-def _create_error_placeholder_image(error: Exception):
-    """Create a placeholder image displaying error information
-
-    Args:
-        error: The exception that occurred
-
-    Returns:
-        ImageContent object with error message
-    """
-    try:
-        from ..utils.image_utils import create_placeholder_image
-
-        # Format error message
-        error_msg = f"Error: {str(error)}"
-
-        # Truncate if too long
-        if len(error_msg) > 200:
-            error_msg = error_msg[:197] + "..."
-
-        # Create placeholder image
-        return create_placeholder_image(message=error_msg, figsize=(8, 4))
-
-    except Exception:
-        # If we can't create placeholder image, return None and fall back to error dict
-        return None
-
-
 def mcp_tool_error_handler(include_traceback: bool = True):
     """
     Decorator for MCP tools to handle errors according to specification.
@@ -148,17 +94,10 @@ def mcp_tool_error_handler(include_traceback: bool = True):
         async def async_wrapper(*args, **kwargs):
             try:
                 result = await func(*args, **kwargs)
-                # If the function already returns a ToolResult, use it
-                if isinstance(result, ToolResult):
-                    return result.to_dict()
-                # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
-                # ImageContent objects MUST be returned directly without any wrapping!
-                # FastMCP needs to see the raw ImageContent object to convert it properly.
-                # If you wrap ImageContent objects in dictionaries or ToolResult,
-                # Claude Desktop will show "<ImageContent object at 0x...>" instead of the actual image.
-                # This bug took 2 WEEKS to find and fix. DO NOT CHANGE THIS!
-                # See /docs/CRITICAL_IMAGE_DISPLAY_BUG.md for full details.
-                # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
+                # IMPORTANT: ImageContent handling
+                # ImageContent objects must be returned directly without wrapping
+                # FastMCP requires the raw ImageContent object for proper conversion
+                # Currently not used (DIRECT_EMBED_THRESHOLD = 0) but preserved for future use
                 from mcp.types import ImageContent
                 from pydantic import BaseModel
 
@@ -177,12 +116,17 @@ def mcp_tool_error_handler(include_traceback: bool = True):
             except Exception as e:
                 # Handle errors based on return type category
                 if return_type_category == "image":
-                    # For ImageContent, return error as placeholder image
-                    # This ensures type consistency - MCP expects ImageContent, not error dict
-                    error_image = _create_error_placeholder_image(e)
-                    if error_image is not None:
-                        return error_image  # Return placeholder ImageContent
-                    # Fall through to re-raise if placeholder creation fails
+                    # Return error as readable text message (not placeholder image)
+                    # The Union[ImageContent, str] return type allows str returns
+                    # FastMCP auto-converts str to TextContent for display
+                    error_msg = f"Visualization Error: {str(e)}"
+
+                    # Include traceback for detailed debugging (except for common user errors)
+                    if include_traceback and not isinstance(e, (ValueError, KeyError)):
+                        tb = traceback.format_exc()
+                        error_msg += f"\n\nTechnical Details:\n{tb}"
+
+                    return error_msg  # Return error message as string
 
                 elif return_type_category == "basemodel":
                     # For BaseModel types, re-raise the exception
@@ -196,12 +140,14 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                     return f"Error: {str(e)}"
 
                 # For simple types or unknown, return error in the result object
-                return create_error_result(e, include_traceback).to_dict()
+                # Inline the error result creation (was create_error_result)
+                error_content = [{"type": "text", "text": f"Error: {str(e)}"}]
+                if include_traceback and not isinstance(e, ValueError):
+                    tb = traceback.format_exc()
+                    error_content.append({"type": "text", "text": f"Traceback:\n{tb}"})
+                return {"content": error_content, "isError": True}
 
         # All MCP tools are async functions, return async wrapper
         return async_wrapper
 
     return decorator
-
-
-# Convenience functions for common error scenarios

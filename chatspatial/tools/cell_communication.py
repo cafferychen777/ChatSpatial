@@ -9,6 +9,7 @@ from mcp.server.fastmcp import Context
 
 from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
+from ..utils import validate_obs_column
 
 # Import LIANA+ for cell communication analysis
 try:
@@ -45,10 +46,7 @@ async def _validate_liana_requirements(
         )
 
     # Cell type validation
-    if params.cell_type_key not in adata.obs.columns:
-        raise ValueError(
-            f"Cell type column '{params.cell_type_key}' not found in adata.obs."
-        )
+    validate_obs_column(adata, params.cell_type_key, "Cell type column")
 
     # Warning for resource matching
     if params.species == "mouse" and params.liana_resource == "consensus" and context:
@@ -88,10 +86,7 @@ async def analyze_cell_communication(
             await _validate_liana_requirements(adata, params, context)
         elif params.method == "cellphonedb":
             # Check if cell type column exists
-            if params.cell_type_key not in adata.obs.columns:
-                raise ValueError(
-                    f"Cell type column '{params.cell_type_key}' not found in adata.obs."
-                )
+            validate_obs_column(adata, params.cell_type_key, "Cell type column")
 
             # Provide data overview information
             if context:
@@ -429,11 +424,7 @@ async def _run_liana_cluster_analysis(
     # Use cell_type_key from params (required field, no auto-detect)
     groupby_col = params.cell_type_key
 
-    if groupby_col not in adata.obs.columns:
-        raise ValueError(
-            f"Cell type column '{groupby_col}' not found in adata.obs. "
-            f"Use cell_type_key parameter to specify correct column."
-        )
+    validate_obs_column(adata, groupby_col, "Cell type column")
 
     # Get appropriate resource name based on species
     resource_name = _get_liana_resource_name(params.species, params.liana_resource)
@@ -673,11 +664,7 @@ async def _analyze_communication_cellphonedb(
         # Use cell_type_key from params (required field, no auto-detect)
         cell_type_col = params.cell_type_key
 
-        if cell_type_col not in adata.obs.columns:
-            raise ValueError(
-                f"Cell type column '{cell_type_col}' not found in adata.obs. "
-                f"Use cell_type_key parameter to specify correct column."
-            )
+        validate_obs_column(adata, cell_type_col, "Cell type column")
 
         # Use original adata directly (no gene filtering needed)
         adata_for_analysis = adata
@@ -1017,11 +1004,7 @@ async def _analyze_communication_cellchat_liana(
         # Use cell_type_key from params (required field, no auto-detect)
         groupby_col = params.cell_type_key
 
-        if groupby_col not in adata.obs.columns:
-            raise ValueError(
-                f"Cell type column '{groupby_col}' not found in adata.obs. "
-                f"Use cell_type_key parameter to specify correct column."
-            )
+        validate_obs_column(adata, groupby_col, "Cell type column")
 
         if context:
             await context.info(
@@ -1134,12 +1117,7 @@ async def _create_microenvironments_file(
         neighbor_matrix = nn.radius_neighbors_graph(spatial_coords)
 
         # Create microenvironments using cell types
-        if params.cell_type_key not in adata.obs.columns:
-            raise ValueError(
-                f"Cell type column '{params.cell_type_key}' not found in adata.obs.\n"
-                f"Available columns: {list(adata.obs.columns)}\n"
-                f"Microenvironments require cell type annotations."
-            )
+        validate_obs_column(adata, params.cell_type_key, "Cell type column")
 
         cell_types = adata.obs[params.cell_type_key].values
 

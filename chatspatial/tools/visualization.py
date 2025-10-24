@@ -5,7 +5,6 @@ Visualization tools for spatial transcriptomics data.
 import os
 import traceback
 from datetime import datetime
-from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -41,8 +40,7 @@ from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
 from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,  # noqa: E402
                                     InvalidParameterError, ProcessingError)
 # Import standardized image utilities
-from ..utils.image_utils import (create_placeholder_image,  # noqa: E402
-                                 optimize_fig_to_image_with_cache)
+from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
 # Import path utilities for safe file operations
 from ..utils.path_utils import (get_output_dir_from_config,  # noqa: E402
                                 get_safe_output_path, is_safe_output_path)
@@ -230,91 +228,6 @@ def plot_spatial_feature(
     # Note: We don't set the title here to allow callers to set their own titles
     # The old code: if params.add_gene_labels and feature: ax.set_title(feature, fontsize=12)
     # is removed so callers can manually set appropriate titles
-
-
-def handle_visualization_errors(plot_title: str):
-    """
-    Improved decorator to catch errors in visualization functions.
-
-    Strategy:
-    - Scientific/data errors (DataNotFoundError, etc.): Propagate to MCP layer
-    - Technical/rendering errors (matplotlib, memory): Return error figure
-    - Unknown errors: Propagate (conservative approach)
-    """
-
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            try:
-                # The wrapped function is async, so we need to await it
-                return await func(*args, **kwargs)
-
-            except (
-                DataNotFoundError,
-                InvalidParameterError,
-                DataCompatibilityError,
-            ):
-                # Scientific/user errors must propagate for proper error handling
-                # These indicate issues with data or parameters that the user must fix
-                raise
-
-            except (ValueError, MemoryError, RuntimeError, ImportError) as e:
-                # Technical/rendering errors - return a friendly error figure
-                # These are often transient or due to system limitations
-                fig, ax = plt.subplots(figsize=(8, 6))
-
-                # Create clear error message with visual emphasis
-                error_text = (
-                    "WARNING:TECHNICAL ERROR - NOT A DATA ISSUE \n\n"
-                    f"{type(e).__name__}: {str(e)}\n\n"
-                    "This is a rendering/technical issue, not a problem with your data.\n"
-                    "The analysis may have succeeded but visualization failed."
-                )
-
-                ax.text(
-                    0.5,
-                    0.5,
-                    error_text,
-                    ha="center",
-                    va="center",
-                    transform=ax.transAxes,
-                    wrap=True,
-                    fontsize=10,
-                    color="darkred",
-                    weight="bold",
-                )
-
-                ax.set_title(
-                    f"{plot_title} - Technical Error",
-                    color="red",
-                    fontsize=14,
-                    weight="bold",
-                )
-                ax.axis("off")
-
-                # Add red border to emphasize this is an error
-                rect = plt.Rectangle(
-                    (0.02, 0.02),
-                    0.96,
-                    0.96,
-                    transform=ax.transAxes,
-                    linewidth=3,
-                    edgecolor="red",
-                    facecolor="none",
-                    linestyle="--",
-                )
-                ax.add_patch(rect)
-
-                return fig
-
-            except Exception:
-                # Unknown exceptions are propagated (conservative strategy)
-                # This ensures we don't hide unexpected errors
-                raise
-
-        return wrapper
-
-    return decorator
 
 
 # Helper function to validate and prepare feature for visualization
@@ -2073,10 +1986,13 @@ async def visualize_data(
             await context.warning(error_msg)
             await context.info(f"Error details: {traceback.format_exc()}")
 
-        # For image conversion errors, return a placeholder image
+        # For image conversion errors, return error message as string
         if "fig_to_image" in str(e) or "convert" in str(e).lower():
-            return create_placeholder_image(
-                f"Error in {params.plot_type} visualization: {str(e)}"
+            error_details = traceback.format_exc()
+            return (
+                f"Error in {params.plot_type} visualization:\n\n"
+                f"{str(e)}\n\n"
+                f"Technical details:\n{error_details}"
             )
 
         # Wrap the error in a more informative exception
@@ -2771,7 +2687,6 @@ async def create_umap_proportions(
     return fig
 
 
-@handle_visualization_errors("Deconvolution")
 async def create_deconvolution_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -2977,7 +2892,6 @@ async def create_spatial_multi_deconvolution(
     return fig
 
 
-@handle_visualization_errors("Spatial Domains")
 async def create_spatial_domains_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -3129,7 +3043,6 @@ async def create_spatial_domains_visualization(
     return fig
 
 
-@handle_visualization_errors("Cell Communication")
 async def create_cell_communication_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -3567,7 +3480,6 @@ def _create_lr_expression_plot(adata, lr_columns, params, context):
         return fig
 
 
-@handle_visualization_errors("Multi-Gene UMAP")
 async def create_multi_gene_umap_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -3666,7 +3578,6 @@ async def create_multi_gene_umap_visualization(
     return fig
 
 
-@handle_visualization_errors("Multi-Gene")
 async def create_multi_gene_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -3795,7 +3706,6 @@ async def create_multi_gene_visualization(
     return fig
 
 
-@handle_visualization_errors("Ligand-Receptor Pairs")
 async def create_lr_pairs_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -4057,7 +3967,6 @@ async def create_lr_pairs_visualization(
     return fig
 
 
-@handle_visualization_errors("RNA Velocity")
 async def create_rna_velocity_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -4167,7 +4076,6 @@ async def create_rna_velocity_visualization(
     return fig
 
 
-@handle_visualization_errors("Spatial Statistics")
 async def create_spatial_statistics_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -4206,7 +4114,6 @@ async def create_spatial_statistics_visualization(
         )
 
 
-@handle_visualization_errors("Neighborhood Enrichment")
 async def create_neighborhood_enrichment_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -4396,7 +4303,6 @@ async def create_neighborhood_network_visualization(
     return fig
 
 
-@handle_visualization_errors("Co-occurrence")
 async def create_co_occurrence_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -4492,7 +4398,6 @@ async def create_co_occurrence_visualization(
     return fig
 
 
-@handle_visualization_errors("Ripley Function")
 async def create_ripley_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -4555,7 +4460,6 @@ async def create_ripley_visualization(
     return fig
 
 
-@handle_visualization_errors("Moran's I")
 async def create_moran_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -4610,7 +4514,6 @@ async def create_moran_visualization(
     return fig
 
 
-@handle_visualization_errors("Centrality Scores")
 async def create_centrality_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -4677,7 +4580,6 @@ async def create_centrality_visualization(
     return fig
 
 
-@handle_visualization_errors("Getis-Ord Gi*")
 async def create_getis_ord_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -4783,7 +4685,6 @@ async def create_getis_ord_visualization(
     return fig
 
 
-@handle_visualization_errors("Trajectory")
 async def create_trajectory_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -4942,7 +4843,6 @@ async def create_trajectory_visualization(
     return fig
 
 
-@handle_visualization_errors("Gene Correlation")
 async def create_gene_correlation_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -5086,7 +4986,6 @@ async def create_gene_correlation_visualization(
     return fig
 
 
-@handle_visualization_errors("EnrichMap")
 async def create_enrichment_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -5392,7 +5291,6 @@ async def create_enrichment_visualization(
     return fig
 
 
-@handle_visualization_errors("GSEA")
 async def create_gsea_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
@@ -5997,7 +5895,6 @@ async def create_spatial_interaction_visualization(
         ) from e
 
 
-@handle_visualization_errors("Batch Integration")
 async def create_batch_integration_visualization(
     adata, params, context: Optional[Context] = None
 ):

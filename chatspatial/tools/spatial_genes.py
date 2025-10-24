@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 from ..models.analysis import SpatialVariableGenesResult  # noqa: E402
 from ..models.data import SpatialVariableGenesParameters  # noqa: E402
+from ..utils import validate_var_column  # noqa: E402
 from ..utils.error_handling import suppress_output  # noqa: E402
 
 
@@ -612,12 +613,11 @@ async def _identify_spatial_genes_sparkx(
     # TIER 2: HVG-only testing (2024 best practice from PMC11537352)
     if params.test_only_hvg:
         # Check if HVGs are available in adata.var (the preprocessed data)
-        if "highly_variable" not in adata.var.columns:
-            raise ValueError(
-                "test_only_hvg=True but 'highly_variable' column not found in adata.var. "
-                "Please run preprocessing with n_top_genes parameter first to compute HVGs, "
-                "or set test_only_hvg=False to test all genes."
-            )
+        validate_var_column(
+            adata,
+            "highly_variable",
+            "Highly variable genes marker (test_only_hvg=True requires this)",
+        )
 
         # Get HVG list from preprocessed data (adata.var)
         hvg_genes_set = set(adata.var_names[adata.var["highly_variable"]])
