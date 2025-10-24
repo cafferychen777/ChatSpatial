@@ -233,27 +233,27 @@ tests/
 
 ### Critical Testing Requirements
 
-#### **Image Object Testing (CRITICAL)**
+#### **Image Object Testing**
 
-**⚠️ NEVER modify image handling code without extensive testing**
+**Current Architecture (2024-12):**
 
-The image display functionality has a critical bug that took 2 weeks to resolve. When testing visualization:
+All visualizations save to disk and return file paths (DIRECT_EMBED_THRESHOLD = 0). This avoids MCP protocol token overhead issues with embedded images.
 
 ```python
-# CRITICAL: Test image object handling
+# Test current image handling (file paths)
 async def test_image_object_handling():
-    """Test that Image objects are handled correctly for MCP display."""
-    
+    """Test that visualizations return file paths correctly."""
+
     # Test visualization tool
     result = await visualize_data("test_data", params)
-    
-    # CRITICAL: Verify Image object is returned correctly
-    assert isinstance(result, Image)  # Must be raw Image object
-    assert result.data  # Must contain base64 data
-    assert result.mimeType == "image/png"  # Must be PNG format
-    
-    # CRITICAL: Test that wrapper functions don't break Image objects
-    # See docs/CRITICAL_IMAGE_DISPLAY_BUG.md for details
+
+    # Currently returns file path string
+    assert isinstance(result, str)  # File path to saved image
+    assert result.startswith("file://") or result.startswith("/")
+    assert result.endswith(".png")
+
+    # Future: When DIRECT_EMBED_THRESHOLD > 0, small images may return ImageContent
+    # See docs/IMAGE_HANDLING_ARCHITECTURE.md for details
 ```
 
 #### **MCP Error Handling Testing**
@@ -735,12 +735,13 @@ When adding a new method:
 
 ### Common Pitfalls and How to Avoid Them
 
-#### **1. Image Display Bugs**
-**Problem**: Modifying image handling breaks visualization in AI assistants
-**Solution**: 
-- Never modify image object handling in `tool_error_handling.py`
-- Always test image display end-to-end
-- Read `/docs/CRITICAL_IMAGE_DISPLAY_BUG.md` before touching visualization code
+#### **1. Image Display Issues**
+**Problem**: Modifying image handling can affect visualization delivery
+**Solution**:
+- Understand the current architecture (DIRECT_EMBED_THRESHOLD = 0)
+- Always test image display end-to-end with MCP tools
+- Read `/docs/IMAGE_HANDLING_ARCHITECTURE.md` before touching visualization code
+- Don't modify the type-aware error handling in `tool_error_handling.py` without testing
 
 #### **2. Memory Issues with Large Datasets**
 **Problem**: New methods consume too much memory
