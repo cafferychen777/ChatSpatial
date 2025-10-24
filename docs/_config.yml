@@ -4,10 +4,10 @@
 # Site settings
 title: "ChatSpatial Documentation"
 description: "AI-Powered Spatial Transcriptomics Analysis via Model Context Protocol"
-baseurl: "" # 本地测试不需要 baseurl
-url: "http://localhost:4000"
+baseurl: ""
+url: "https://cafferychen777.github.io/ChatSpatial"
 
-# Repository settings (用于生产环境)
+# Repository settings
 repository: "cafferychen777/ChatSpatial"
 edit_page: true
 edit_page_text: "Edit this page on GitHub"
@@ -106,7 +106,7 @@ plugins:
   - jekyll-sitemap
   - jekyll-seo-tag
   - jekyll-mermaid
-  # - jekyll-last-modified-at  # 暂时禁用，可能导致 CSS 文件错误
+  # - jekyll-last-modified-at  # Disabled: may cause CSS issues
 
 # Kramdown settings
 kramdown:
