@@ -16,6 +16,7 @@ from mcp.server.fastmcp import Context
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
+from ..utils import validate_obs_column
 from ..utils.error_handling import ProcessingError
 from ..utils.metadata_storage import store_analysis_metadata
 
@@ -1985,8 +1986,7 @@ async def compute_spatial_metrics(
     adata = data_store[data_id]["adata"]
 
     # Validate score column
-    if score_key not in adata.obs.columns:
-        raise ProcessingError(f"Score column '{score_key}' not found in adata.obs")
+    validate_obs_column(adata, score_key, "Score column")
 
     # Default metrics
     if metrics is None:
@@ -2070,13 +2070,8 @@ async def cluster_gene_correlation(
 
     # Validate inputs
     score_key = f"{signature_name}_score"
-    if score_key not in adata.obs.columns:
-        raise ProcessingError(
-            f"Score column '{score_key}' not found. Run enrichment analysis first."
-        )
-
-    if cluster_key not in adata.obs.columns:
-        raise ProcessingError(f"Cluster column '{cluster_key}' not found in adata.obs")
+    validate_obs_column(adata, score_key, "Score column (run enrichment analysis first)")
+    validate_obs_column(adata, cluster_key, "Cluster column")
 
     try:
         # Compute cluster-gene correlations

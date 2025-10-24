@@ -12,19 +12,14 @@ import pandas as pd
 import scanpy as sc
 from mcp.server.fastmcp import Context
 
-# Import Tangram for cell type annotation
-try:
-    import tangram as tg
-except ImportError:
-    tg = None
-
-# Optional imports - actual validation happens at runtime
+# Optional imports - actual validation happens at runtime via _validate_*() functions
 # This allows the module to load even if optional dependencies are missing
 
 # R interface validation is now handled by _validate_rpy2_and_r() function
 
 from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
+from ..utils import validate_obs_column
 
 # ============================================================================
 # DEPENDENCY VALIDATION SYSTEM
@@ -207,16 +202,6 @@ SUPPORTED_METHODS = {
 }
 
 
-async def _handle_annotation_error(
-    error: Exception, method: str, context: Optional[Context] = None
-) -> None:
-    """Handle annotation errors consistently"""
-    error_msg = f"{method} annotation failed: {str(error)}"
-    if context:
-        await context.error(f"Error in {method} annotation: {str(error)}")
-    raise ValueError(error_msg)
-
-
 async def _annotate_with_singler(
     adata,
     params: AnnotationParameters,
@@ -361,25 +346,7 @@ async def _annotate_with_singler(
             # cell_type_key is now required (no default value)
             cell_type_key = params.cell_type_key
 
-            if cell_type_key not in reference_adata.obs.columns:
-                # Improved error message showing available columns
-                available_cols = list(reference_adata.obs.columns)
-
-                # Categorize columns by type for better guidance
-                categorical_cols = [
-                    col
-                    for col in available_cols
-                    if reference_adata.obs[col].dtype.name in ["object", "category"]
-                ]
-
-                raise ValueError(
-                    f"Cell type column '{cell_type_key}' not found in reference data.\n\n"
-                    f"Available categorical columns (likely cell types):\n  {', '.join(categorical_cols[:15])}\n"
-                    f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
-                    f"All columns ({len(available_cols)} total):\n  {', '.join(available_cols[:20])}\n"
-                    f"{f'  ... and {len(available_cols)-20} more' if len(available_cols) > 20 else ''}\n\n"
-                    f"Please specify the correct column using: cell_type_key='your_column_name'"
-                )
+            validate_obs_column(reference_adata, cell_type_key, "Cell type column")
 
             ref_labels = list(reference_adata.obs[cell_type_key])
             if context:
@@ -552,8 +519,9 @@ async def _annotate_with_singler(
 
         return unique_types, counts, confidence_scores, None
 
-    except Exception as e:
-        await _handle_annotation_error(e, "singler", context)
+    except Exception:
+        # Let exception propagate to MCP error handler
+        raise
 
 
 async def _annotate_with_tangram(
@@ -1017,8 +985,9 @@ async def _annotate_with_tangram(
 
         return cell_types, counts, confidence_scores, tangram_mapping_score
 
-    except Exception as e:
-        await _handle_annotation_error(e, "tangram", context)
+    except Exception:
+        # Let exception propagate to MCP error handler
+        raise
 
 
 async def _annotate_with_scanvi(
@@ -1233,8 +1202,7 @@ async def _annotate_with_scanvi(
 
             # Setup for SCVI with labels (required for SCANVI conversion)
             # First ensure the reference has the cell type labels
-            if cell_type_key not in adata_ref.obs.columns:
-                raise ValueError(f"Reference data missing '{cell_type_key}' column")
+            validate_obs_column(adata_ref, cell_type_key, "Cell type column (reference data)")
 
             # SCVI needs to know about labels for later SCANVI conversion
             scvi.model.SCVI.setup_anndata(
@@ -1401,8 +1369,9 @@ async def _annotate_with_scanvi(
 
         return cell_types, counts, confidence_scores, None
 
-    except Exception as e:
-        await _handle_annotation_error(e, "scanvi", context)
+    except Exception:
+        # Let exception propagate to MCP error handler
+        raise
 
 
 async def _annotate_with_mllmcelltype(
@@ -1690,8 +1659,9 @@ async def _annotate_with_mllmcelltype(
 
         return cell_types, counts, confidence_scores, None, None
 
-    except Exception as e:
-        await _handle_annotation_error(e, "mllmcelltype", context)
+    except Exception:
+        # Let exception propagate to MCP error handler
+        raise
 
 
 async def _annotate_with_cellassign(
@@ -1953,8 +1923,9 @@ async def _annotate_with_cellassign(
 
         return cell_types, counts, confidence_scores, None
 
-    except Exception as e:
-        await _handle_annotation_error(e, "cellassign", context)
+    except Exception:
+        # Let exception propagate to MCP error handler
+        raise
 
 
 async def annotate_cell_types(
@@ -2843,5 +2814,6 @@ async def _annotate_with_sctype(
 
         return results
 
-    except Exception as e:
-        await _handle_annotation_error(e, "sctype", context)
+    except Exception:
+        # Let exception propagate to MCP error handler
+        raise

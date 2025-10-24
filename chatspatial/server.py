@@ -234,7 +234,7 @@ async def preprocess_data(
 
 
 @mcp.tool()
-@mcp_tool_error_handler()  # CRITICAL: This decorator has special Image handling - see /docs/CRITICAL_IMAGE_DISPLAY_BUG.md
+@mcp_tool_error_handler()  # Handles type-aware error formatting for Image/str returns
 async def visualize_data(
     data_id: str,
     params: VisualizationParameters = VisualizationParameters(),
@@ -403,13 +403,9 @@ async def visualize_data(
                 f"Visualization type: {params.plot_type}, feature: {getattr(params, 'feature', 'N/A')}"
             )
 
-        # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
-        # MUST return the raw Image object here!
-        # DO NOT wrap in dictionary, DO NOT call to_image_content()!
-        # The error handler will pass it through to FastMCP unchanged.
-        # See /docs/CRITICAL_IMAGE_DISPLAY_BUG.md for why this is critical.
-        # This bug took 2 WEEKS to find - DO NOT CHANGE!
-        # !!!!!!!!!! CRITICAL WARNING - DO NOT MODIFY !!!!!!!!!!
+        # Return the image (currently always a file path string with DIRECT_EMBED_THRESHOLD = 0)
+        # When threshold > 0 in future, may return ImageContent object directly
+        # The error handler knows how to handle both types correctly
         return image
 
     else:

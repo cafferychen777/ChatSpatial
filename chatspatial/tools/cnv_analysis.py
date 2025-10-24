@@ -10,6 +10,7 @@ from mcp.server.fastmcp import Context
 
 from ..models.analysis import CNVResult
 from ..models.data import CNVParameters
+from ..utils import validate_obs_column
 
 # Dependency checking for infercnvpy
 try:
@@ -65,12 +66,7 @@ async def infer_cnv(
     adata = data_store[data_id]["adata"]
 
     # Validate common parameters
-    if params.reference_key not in adata.obs.columns:
-        available_keys = ", ".join(adata.obs.columns[:10])
-        raise ValueError(
-            f"Reference key '{params.reference_key}' not found in adata.obs.\n"
-            f"Available columns: {available_keys}..."
-        )
+    validate_obs_column(adata, params.reference_key, "Reference cell type key")
 
     available_categories = set(adata.obs[params.reference_key].unique())
     missing_categories = set(params.reference_categories) - available_categories
@@ -130,12 +126,7 @@ async def _infer_cnv_infercnvpy(
     adata = data_store[data_id]["adata"]
 
     # Validate reference_key exists
-    if params.reference_key not in adata.obs.columns:
-        available_keys = ", ".join(adata.obs.columns[:10])
-        raise ValueError(
-            f"Reference key '{params.reference_key}' not found in adata.obs.\n"
-            f"Available columns: {available_keys}..."
-        )
+    validate_obs_column(adata, params.reference_key, "Reference cell type key")
 
     # Validate reference_categories exist in the reference_key column
     available_categories = set(adata.obs[params.reference_key].unique())

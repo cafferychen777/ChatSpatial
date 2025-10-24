@@ -9,6 +9,7 @@ import scanpy as sc
 from mcp.server.fastmcp import Context
 
 from ..models.analysis import DifferentialExpressionResult
+from ..utils import validate_obs_column
 from ..utils.metadata_storage import store_analysis_metadata
 
 
@@ -44,8 +45,7 @@ async def differential_expression(
     adata = data_store[data_id]["adata"]
 
     # Check if the group_key exists in adata.obs
-    if group_key not in adata.obs.columns:
-        raise ValueError(f"Group key '{group_key}' not found in adata.obs")
+    validate_obs_column(adata, group_key, "Group key")
 
     # IMPORTANT: Handle float16 data type (numba doesn't support float16)
     # Convert to float32 if needed for differential expression analysis
