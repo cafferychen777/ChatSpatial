@@ -337,9 +337,10 @@ async def _identify_spatial_genes_spatialde(
     significant_genes = significant_genes_all[:MAX_GENES_TO_RETURN]
 
     # Get top genes if requested
-    if params.n_top_genes is not None:
-        results = results.head(params.n_top_genes)
-        significant_genes = results["g"].tolist()
+    # IMPORTANT: n_top_genes only limits the number of _significant_ genes returned
+    # If no significant genes exist, return empty list (not non-significant genes)
+    if params.n_top_genes is not None and len(significant_genes) > 0:
+        significant_genes = significant_genes[: params.n_top_genes]
 
     # Store results in adata
     results_key = f"spatialde_results_{data_id}"
@@ -370,7 +371,7 @@ async def _identify_spatial_genes_spatialde(
         statistics={
             "n_genes_analyzed": len(results),
             "n_significant_genes": len(
-                results[results["qval"] < params.pvalue_threshold]
+                results[results["qval"] < 0.05]  # FDR standard threshold
             ),
         },
     )
@@ -401,8 +402,6 @@ async def _identify_spatial_genes_spatialde(
         "preprocessing_workflow": "Official: NaiveDE.stabilize + NaiveDE.regress_out",
         "n_genes_tested": n_genes,
         "n_spots": n_spots,
-        "n_significant_genes_total": len(significant_genes_all),
-        "n_significant_genes_returned": len(significant_genes),
         "note": "Full results stored in adata.var['spatialde_pval', 'spatialde_qval', 'spatialde_l']. Top 500 significant genes returned to avoid MCP token limits.",
     }
 
@@ -410,7 +409,8 @@ async def _identify_spatial_genes_spatialde(
         data_id=data_id,
         method="spatialde",
         n_genes_analyzed=len(results),
-        n_significant_genes=len(significant_genes),
+        n_significant_genes=len(significant_genes_all),  # Total significant genes found
+        n_returned_genes=len(significant_genes),  # Actually returned (may be truncated)
         spatial_genes=significant_genes,
         gene_statistics=gene_statistics,
         p_values=p_values,
@@ -860,9 +860,10 @@ async def _identify_spatial_genes_sparkx(
     significant_genes = significant_genes_all[:MAX_GENES_TO_RETURN]
 
     # Get top genes if requested
-    if params.n_top_genes is not None:
-        results_df = results_df.head(params.n_top_genes)
-        significant_genes = results_df["gene"].tolist()
+    # IMPORTANT: n_top_genes only limits the number of _significant_ genes returned
+    # If no significant genes exist, return empty list (not non-significant genes)
+    if params.n_top_genes is not None and len(significant_genes) > 0:
+        significant_genes = significant_genes[: params.n_top_genes]
 
     # TIER 3: Housekeeping gene warnings (post-processing quality check)
     if params.warn_housekeeping and len(results_df) > 0:
@@ -979,8 +980,6 @@ async def _identify_spatial_genes_sparkx(
         "method": "sparkx",
         "num_core": params.sparkx_num_core,
         "option": params.sparkx_option,
-        "n_significant_genes_total": len(significant_genes_all),
-        "n_significant_genes_returned": len(significant_genes),
         "data_format": "genes_x_spots",
         "note": "Full results stored in adata.var['sparkx_pval', 'sparkx_qval']. Top 500 significant genes returned to avoid MCP token limits.",
     }
@@ -989,7 +988,8 @@ async def _identify_spatial_genes_sparkx(
         data_id=data_id,
         method="sparkx",
         n_genes_analyzed=len(results_df),
-        n_significant_genes=len(significant_genes),
+        n_significant_genes=len(significant_genes_all),  # Total significant genes found
+        n_returned_genes=len(significant_genes),  # Actually returned (may be truncated)
         spatial_genes=significant_genes,
         gene_statistics=gene_statistics,
         p_values=p_values,
