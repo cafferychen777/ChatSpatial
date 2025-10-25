@@ -24,6 +24,140 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# MCP RESPONSE OPTIMIZATION
+# ============================================================================
+
+
+def _filter_significant_statistics(
+    gene_set_statistics: dict,
+    enrichment_scores: dict,
+    pvalues: dict,
+    adjusted_pvalues: dict,
+    fdr_threshold: float = None,
+) -> tuple:
+    """
+    Filter all enrichment result dictionaries to only include significant pathways.
+
+    This dramatically reduces MCP response size for large gene set databases
+    (e.g., KEGG 311 pathways, GO 10,000 terms) while preserving all important
+    information for users.
+
+    Args:
+        gene_set_statistics: Full statistics for all gene sets
+        enrichment_scores: Enrichment scores for all gene sets
+        pvalues: P-values for all gene sets
+        adjusted_pvalues: FDR-corrected p-values for all gene sets
+        fdr_threshold: FDR threshold for significance (default: None for auto-detection)
+                       Auto thresholds:
+                       - Small databases (< 200 gene sets): FDR < 0.25
+                       - Medium databases (200-1000): FDR < 0.10
+                       - Large databases (> 1000): FDR < 0.05
+
+    Returns:
+        Tuple of (filtered_statistics, filtered_scores, filtered_pvals, filtered_adj_pvals)
+
+    Example:
+        Before: 311 pathways × 4 dicts × 100 chars = 124KB (KEGG)
+        After: ~15 significant pathways × 4 dicts × 100 chars = 6KB (95% reduction)
+    """
+    if not adjusted_pvalues:
+        # No p-values available (e.g., ssGSEA), return empty
+        return {}, enrichment_scores, pvalues, adjusted_pvalues
+
+    # Auto-determine threshold based on database size if not specified
+    if fdr_threshold is None:
+        n_gene_sets = len(adjusted_pvalues)
+        if n_gene_sets < 200:
+            fdr_threshold = 0.25  # Small database: allow more results
+        elif n_gene_sets < 1000:
+            fdr_threshold = 0.10  # Medium database: moderate filtering
+        else:
+            fdr_threshold = 0.05  # Large database (GO, etc.): strict filtering
+        logger.info(
+            f"Auto-selected FDR threshold {fdr_threshold} for {n_gene_sets} gene sets"
+        )
+
+    # Find significant pathways
+    significant = {
+        name
+        for name, fdr in adjusted_pvalues.items()
+        if fdr is not None and fdr < fdr_threshold
+    }
+
+    # Filter all dictionaries
+    filtered_stats = {
+        name: stats
+        for name, stats in gene_set_statistics.items()
+        if name in significant
+    }
+
+    filtered_scores = {
+        name: score
+        for name, score in enrichment_scores.items()
+        if name in significant
+    }
+
+    filtered_pvals = {
+        name: pval
+        for name, pval in pvalues.items()
+        if name in significant
+    }
+
+    filtered_adj_pvals = {
+        name: adj_pval
+        for name, adj_pval in adjusted_pvalues.items()
+        if name in significant
+    }
+
+    logger.info(
+        f"Filtered enrichment results: {len(adjusted_pvalues)} total → "
+        f"{len(filtered_adj_pvals)} significant (FDR < {fdr_threshold})"
+    )
+
+    return filtered_stats, filtered_scores, filtered_pvals, filtered_adj_pvals
+
+
+# ============================================================================
+# SPARSE MATRIX UTILITIES
+# ============================================================================
+
+
+def _compute_std_sparse_compatible(X, axis=0, ddof=1):
+    """
+    Compute standard deviation compatible with both dense and sparse matrices.
+
+    For sparse matrices, uses the formula: std = sqrt(E[X^2] - E[X]^2) with Bessel correction.
+    For dense matrices, uses numpy's built-in std method.
+
+    Args:
+        X: Input matrix (can be sparse or dense)
+        axis: Axis along which to compute std (0 for columns, 1 for rows)
+        ddof: Delta Degrees of Freedom for Bessel correction (default: 1)
+
+    Returns:
+        1D numpy array of standard deviations
+    """
+    import scipy.sparse as sp
+
+    if sp.issparse(X):
+        # Sparse matrix: use mathematical formula
+        n = X.shape[axis]
+        mean = np.array(X.mean(axis=axis)).flatten()
+        mean_of_squares = np.array(X.power(2).mean(axis=axis)).flatten()
+
+        # Compute variance with Bessel correction: n/(n-ddof)
+        variance = mean_of_squares - np.power(mean, 2)
+        variance = np.maximum(variance, 0)  # Avoid numerical errors
+        if ddof > 0:
+            variance = variance * n / (n - ddof)  # Bessel correction
+
+        return np.sqrt(variance)
+    else:
+        # Dense matrix: use numpy's built-in method
+        return np.array(X.std(axis=axis, ddof=ddof)).flatten()
+
+
+# ============================================================================
 # GENE FORMAT CONVERSION UTILITIES
 # ============================================================================
 
@@ -247,9 +381,9 @@ async def perform_gsea(
                 mean1 = np.array(X[group1_mask, :].mean(axis=0)).flatten()
                 mean2 = np.array(X[group2_mask, :].mean(axis=0)).flatten()
 
-                # Compute standard deviations (ddof=1 for unbiased estimator)
-                std1 = np.array(X[group1_mask, :].std(axis=0, ddof=1)).flatten()
-                std2 = np.array(X[group2_mask, :].std(axis=0, ddof=1)).flatten()
+                # Compute standard deviations (sparse-compatible)
+                std1 = _compute_std_sparse_compatible(X[group1_mask, :], axis=0, ddof=1)
+                std2 = _compute_std_sparse_compatible(X[group2_mask, :], axis=0, ddof=1)
 
                 # Apply minimum std threshold (GSEA standard: 0.2 * |mean|)
                 # This prevents division by zero and reduces noise from low-variance genes
@@ -266,7 +400,7 @@ async def perform_gsea(
                 # CV = σ / μ - accounts for mean-variance relationship
                 # This is more appropriate than raw variance for genes with different expression levels
                 mean = np.array(X.mean(axis=0)).flatten()
-                std = np.array(X.std(axis=0, ddof=1)).flatten()
+                std = _compute_std_sparse_compatible(X, axis=0, ddof=1)
 
                 # Compute CV (avoid division by zero)
                 cv = np.zeros_like(mean)
@@ -284,8 +418,9 @@ async def perform_gsea(
                 ranking = adata.var['dispersions_norm'].to_dict()
             else:
                 # Fallback: Coefficient of Variation (better than raw variance)
+                # Use sparse-compatible std calculation
                 mean = np.array(X.mean(axis=0)).flatten()
-                std = np.array(X.std(axis=0, ddof=1)).flatten()
+                std = _compute_std_sparse_compatible(X, axis=0, ddof=1)
 
                 cv = np.zeros_like(mean)
                 nonzero_mask = np.abs(mean) > 1e-10
@@ -385,14 +520,29 @@ async def perform_gsea(
                 "GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
             )
 
+        # Filter all result dictionaries to only significant pathways (reduces MCP response size)
+        # Auto-determines threshold based on database size
+        (
+            filtered_statistics,
+            filtered_scores,
+            filtered_pvals,
+            filtered_adj_pvals,
+        ) = _filter_significant_statistics(
+            gene_set_statistics,
+            enrichment_scores,
+            pvalues,
+            adjusted_pvalues,
+            fdr_threshold=None,  # Auto-detect based on database size
+        )
+
         return EnrichmentResult(
             method="gsea",
             n_gene_sets=len(gene_sets),
             n_significant=len(results_df[results_df["FDR q-val"] < 0.05]),
-            enrichment_scores=enrichment_scores,
-            pvalues=pvalues,
-            adjusted_pvalues=adjusted_pvalues,
-            gene_set_statistics=gene_set_statistics,
+            enrichment_scores=filtered_scores,
+            pvalues=filtered_pvals,
+            adjusted_pvalues=filtered_adj_pvals,
+            gene_set_statistics=filtered_statistics,
             top_gene_sets=top_enriched,
             top_depleted_sets=top_depleted,
         )
@@ -510,7 +660,7 @@ async def perform_ora(
                 # Use top variable genes (based on Coefficient of Variation)
                 # CV = σ/μ is more appropriate than raw variance
                 mean = np.array(adata.X.mean(axis=0)).flatten()
-                std = np.array(adata.X.std(axis=0, ddof=1)).flatten()
+                std = _compute_std_sparse_compatible(adata.X, axis=0, ddof=1)
 
                 # Compute CV (avoid division by zero)
                 cv = np.zeros_like(mean)
@@ -653,16 +803,31 @@ async def perform_ora(
             "ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
         )
 
+    # Filter all result dictionaries to only significant pathways (reduces MCP response size)
+    # Auto-determines threshold based on database size
+    (
+        filtered_statistics,
+        filtered_scores,
+        filtered_pvals,
+        filtered_adj_pvals,
+    ) = _filter_significant_statistics(
+        gene_set_statistics,
+        enrichment_scores,
+        pvalues,
+        adjusted_pvalues,
+        fdr_threshold=None,  # Auto-detect based on database size
+    )
+
     return EnrichmentResult(
         method="ora",
         n_gene_sets=len(gene_sets),
         n_significant=sum(
             1 for p in adjusted_pvalues.values() if p is not None and p < 0.05
         ),
-        enrichment_scores=enrichment_scores,
-        pvalues=pvalues,
-        adjusted_pvalues=adjusted_pvalues,
-        gene_set_statistics=gene_set_statistics,
+        enrichment_scores=filtered_scores,
+        pvalues=filtered_pvals,
+        adjusted_pvalues=filtered_adj_pvals,
+        gene_set_statistics=filtered_statistics,
         top_gene_sets=top_gene_sets,
         top_depleted_sets=[],  # ORA does not produce depleted gene sets
     )
@@ -825,7 +990,8 @@ async def perform_ssgsea(
         )
         top_gene_sets = [x[0] for x in sorted_by_mean[:10]]
 
-        # ssGSEA doesn't provide p-values
+        # ssGSEA doesn't provide p-values, so return empty gene_set_statistics
+        # to reduce MCP response size (no significance filtering possible)
         pvalues = None
         adjusted_pvalues = None
 
@@ -836,7 +1002,7 @@ async def perform_ssgsea(
             enrichment_scores=enrichment_scores,  # Mean scores per gene set
             pvalues=pvalues,
             adjusted_pvalues=adjusted_pvalues,
-            gene_set_statistics=gene_set_statistics,
+            gene_set_statistics={},  # Empty to reduce response size (no p-values available)
             top_gene_sets=top_gene_sets,
             top_depleted_sets=[],  # ssGSEA doesn't produce depleted sets
         )
@@ -948,14 +1114,29 @@ async def perform_enrichr(
             term = row["Term"]
             gene_set_statistics[term]["odds_ratio"] = row.get("Odds Ratio", 1.0)
 
+        # Filter all result dictionaries to only significant pathways (reduces MCP response size)
+        # Auto-determines threshold based on database size
+        (
+            filtered_statistics,
+            filtered_scores,
+            filtered_pvals,
+            filtered_adj_pvals,
+        ) = _filter_significant_statistics(
+            gene_set_statistics,
+            enrichment_scores,
+            pvalues,
+            adjusted_pvalues,
+            fdr_threshold=None,  # Auto-detect based on database size
+        )
+
         return EnrichmentResult(
             method="enrichr",
             n_gene_sets=len(all_results),
             n_significant=len(all_results[all_results["Adjusted P-value"] < 0.05]),
-            enrichment_scores=enrichment_scores,
-            pvalues=pvalues,
-            adjusted_pvalues=adjusted_pvalues,
-            gene_set_statistics=gene_set_statistics,
+            enrichment_scores=filtered_scores,
+            pvalues=filtered_pvals,
+            adjusted_pvalues=filtered_adj_pvals,
+            gene_set_statistics=filtered_statistics,
             top_gene_sets=top_gene_sets,
             top_depleted_sets=[],  # Enrichr doesn't produce depleted sets
         )
@@ -1245,7 +1426,8 @@ async def perform_spatial_enrichment(
     )
     top_gene_sets = [sig_name for sig_name, _ in sorted_sigs[:10]]
 
-    # Spatial enrichment doesn't provide p-values
+    # Spatial enrichment doesn't provide p-values, so return empty gene_set_statistics
+    # to reduce MCP response size (no significance filtering possible)
     pvalues = None
     adjusted_pvalues = None
 
@@ -1256,7 +1438,7 @@ async def perform_spatial_enrichment(
         enrichment_scores=enrichment_scores,
         pvalues=pvalues,
         adjusted_pvalues=adjusted_pvalues,
-        gene_set_statistics=summary_stats,
+        gene_set_statistics={},  # Empty to reduce response size (no p-values available)
         spatial_scores_key=None,  # Scores are in obs columns, not obsm
         top_gene_sets=top_gene_sets,
         top_depleted_sets=[],  # Spatial enrichment doesn't produce depleted sets
