@@ -278,7 +278,6 @@ class VisualizationParameters(BaseModel):
         "lr_pairs",
         "gene_correlation",
         "pathway_enrichment",
-        "spatial_enrichment",  # Clear enrichment types
         "spatial_interaction",
         "batch_integration",  # Batch integration quality assessment
         "cnv_heatmap",  # CNV analysis heatmap

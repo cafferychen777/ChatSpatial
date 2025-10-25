@@ -252,7 +252,7 @@ async def visualize_data(
                         * Analysis results: spatial_domains, cell_communication, deconvolution,
                           trajectory, rna_velocity, spatial_statistics
                         * Multi-gene/correlation: multi_gene, lr_pairs, gene_correlation
-                        * Enrichment: pathway_enrichment, spatial_enrichment
+                        * Enrichment: pathway_enrichment (use subtype for spatial EnrichMap)
                         * Integration/QC: spatial_interaction, batch_integration
                         * CNV analysis: cnv_heatmap, spatial_cnv
                         * High-resolution: card_imputation
@@ -1579,7 +1579,8 @@ async def analyze_enrichment(
         ).to_dict()
         if context:
             await context.info(
-                "Spatial enrichment analysis complete. Use create_visualization tool with plot_type='spatial_enrichment' to visualize results"
+                "Spatial enrichment analysis complete. Use visualize_data with plot_type='pathway_enrichment' "
+                "and subtype='spatial_score' (or 'spatial_correlogram', 'spatial_variogram', 'spatial_cross_correlation') to visualize results"
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)

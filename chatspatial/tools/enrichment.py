@@ -1830,7 +1830,8 @@ async def perform_spatial_enrichment(
     # Inform user about visualization options
     if context:
         await context.info(
-            "Spatial enrichment analysis complete. Use create_visualization tool with plot_type='enrichment' to visualize results"
+            "Spatial enrichment analysis complete. Use visualize_data with plot_type='pathway_enrichment' "
+            "and subtype='spatial_score' (or 'spatial_correlogram', 'spatial_variogram', 'spatial_cross_correlation') to visualize results"
         )
 
     # === INSIGHTS-BASED RESULT CREATION ===

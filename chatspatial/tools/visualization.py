@@ -471,7 +471,6 @@ async def visualize_data(
         "lr_pairs",
         "gene_correlation",
         "pathway_enrichment",
-        "spatial_enrichment",
         "spatial_interaction",
         "batch_integration",  # Batch integration quality assessment
         "cnv_heatmap",  # Copy number variation heatmap
@@ -1514,11 +1513,6 @@ async def visualize_data(
             if context:
                 await context.info("Creating spatial statistics visualization")
             fig = await create_spatial_statistics_visualization(adata, params, context)
-
-        elif params.plot_type == "spatial_enrichment":
-            if context:
-                await context.info("Creating spatial enrichment visualization")
-            fig = await create_enrichment_visualization(adata, params, context)
 
         elif params.plot_type == "pathway_enrichment":
             if context:
@@ -5026,21 +5020,20 @@ async def create_gene_correlation_visualization(
 async def create_enrichment_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create EnrichMap enrichment visualization
+    """Create spatial enrichment visualization (unified for EnrichMap and standard spatial)
 
-    Supports multiple visualization types:
-    - Default: Spatial enrichment map
-    - violin: Enrichment scores by cluster
-    - heatmap: Gene contributions heatmap
-    - correlation: Signature correlation heatmap
+    Routes to appropriate visualization based on params:
+    - If plot_type="violin": Enrichment scores violin plot by cluster
+    - If subtype starts with "spatial_": EnrichMap spatial visualizations
+      (spatial_score, spatial_correlogram, spatial_variogram, spatial_cross_correlation)
+    - Default: Standard spatial scatter plot of enrichment scores
 
     Args:
         adata: AnnData object with enrichment scores
         params: Visualization parameters
-            - feature: Score column name or signature name
-            - feature: Score column name, signature name, or list of scores for multi-panel plot
-            - cluster_key: For violin plots, the grouping variable (default: leiden)
-            - show_gene_contributions: Show gene contribution heatmap
+            - subtype: Spatial EnrichMap type ('spatial_score', etc.) or None for standard
+            - feature: Score column name or signature name, or list for multi-panel
+            - cluster_key: For violin plots, the grouping variable
         context: MCP context
 
     Returns:
@@ -5069,56 +5062,8 @@ async def create_enrichment_visualization(
             "No enrichment scores found. Please run 'analyze_enrichment' first."
         )
 
-    # Check if user wants gene contribution visualization
-    if hasattr(params, "show_gene_contributions") and params.show_gene_contributions:
-        if "gene_contributions" not in adata.uns:
-            raise DataNotFoundError(
-                "Gene contributions not found. Please run 'analyze_enrichment' first."
-            )
-
-        # Create gene contribution heatmap
-        gene_contribs = adata.uns["gene_contributions"]
-
-        if not gene_contribs:
-            raise DataNotFoundError("No gene contributions available.")
-
-        # Convert to DataFrame for visualization
-        import pandas as pd
-
-        contrib_data = {}
-        for sig, genes in gene_contribs.items():
-            contrib_data[sig] = genes
-
-        if not contrib_data:
-            raise DataNotFoundError("No gene contribution data to visualize.")
-
-        df = pd.DataFrame(contrib_data).fillna(0)
-
-        # Create heatmap
-        fig, ax = create_figure(
-            figsize=(max(8, len(df.columns) * 1.5), max(6, len(df) * 0.3))
-        )
-
-        sns.heatmap(
-            df,
-            annot=True,
-            fmt=".3f",
-            cmap="RdBu_r",
-            center=0,
-            ax=ax,
-            cbar_kws={"label": "Gene Weight"},
-        )
-        ax.set_title("Gene Contributions to Enrichment Scores", fontsize=14)
-        ax.set_xlabel("Signatures", fontsize=12)
-        ax.set_ylabel("Genes", fontsize=12)
-
-        plt.tight_layout()
-        return fig
-
     # Check if user wants violin plot by cluster
-    if params.plot_type == "violin" or (
-        hasattr(params, "show_violin") and params.show_violin
-    ):
+    if params.plot_type == "violin":
         # Determine grouping variable - require explicit specification
         if hasattr(params, "cluster_key") and params.cluster_key:
             group_by = params.cluster_key
