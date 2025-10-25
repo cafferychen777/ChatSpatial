@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
-
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
 
@@ -22,9 +21,10 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import scanpy as sc  # noqa: E402
 import seaborn as sns  # noqa: E402
+from scipy.stats import pearsonr, spearmanr  # noqa: E402
+
 from mcp.server.fastmcp import Context  # noqa: E402
 from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
-from scipy.stats import pearsonr, spearmanr  # noqa: E402
 
 # Optional CNV analysis visualization
 try:
@@ -35,28 +35,17 @@ except ImportError:
     INFERCNVPY_AVAILABLE = False
 
 from ..models.data import VisualizationParameters  # noqa: E402
-
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
-
 # Import error handling utilities
-from ..utils.error_handling import (
-    DataCompatibilityError,
-    DataNotFoundError,  # noqa: E402
-    InvalidParameterError,
-    ProcessingError,
-)
-
+from ..utils.error_handling import DataNotFoundError  # noqa: E402
+from ..utils.error_handling import (DataCompatibilityError,
+                                    InvalidParameterError, ProcessingError)
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
-
 # Import path utilities for safe file operations
-from ..utils.path_utils import (
-    get_output_dir_from_config,  # noqa: E402
-    get_safe_output_path,
-    is_safe_output_path,
-)
-
+from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
+from ..utils.path_utils import get_safe_output_path, is_safe_output_path
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors  # noqa: E402
 
@@ -120,6 +109,36 @@ def setup_multi_panel_figure(
         axes[i].axis("off")
 
     return fig, axes
+
+
+def _ensure_enrichmap_compatibility(adata: ad.AnnData) -> None:
+    """
+    Ensure data has required metadata structure for EnrichMap visualization.
+
+    EnrichMap and squidpy require:
+    1. adata.obs['library_id'] - sample identifier column
+    2. adata.uns['spatial'] - spatial metadata dictionary
+
+    This function adds minimal metadata for single-sample data without these structures.
+    """
+    # Add library_id column if missing (single-sample case)
+    if "library_id" not in adata.obs.columns:
+        adata.obs["library_id"] = "sample_1"
+
+    # Build spatial metadata structure if missing
+    if "spatial" not in adata.uns:
+        library_ids = adata.obs["library_id"].unique()
+        adata.uns["spatial"] = {}
+        for lib_id in library_ids:
+            adata.uns["spatial"][lib_id] = {
+                "images": {},  # No tissue image
+                "scalefactors": {
+                    "spot_diameter_fullres": 1.0,
+                    "tissue_hires_scalef": 1.0,
+                    "fiducial_diameter_fullres": 1.0,
+                    "tissue_lowres_scalef": 1.0,
+                },
+            }
 
 
 async def get_validated_features(
@@ -5175,59 +5194,110 @@ async def create_enrichment_visualization(
         plt.tight_layout()
         return fig
 
-    # Check if EnrichMap is available for advanced visualizations
-    if em is not None and hasattr(params, "enrichmap_plot_type"):
-        plot_type = params.enrichmap_plot_type
+    # Handle spatial EnrichMap visualizations through unified subtype
+    if params.subtype and params.subtype.startswith("spatial_"):
+        # spatial_ requests require EnrichMap - do not fallback silently
+        if em is None:
+            raise ProcessingError(
+                f"Spatial enrichment visualization ('{params.subtype}') requires EnrichMap.\n\n"
+                "INSTALLATION:\n"
+                "  pip install enrichmap\n\n"
+                "EnrichMap provides spatial autocorrelation analysis (Moran's I, variogram, etc.) "
+                "for enrichment scores. Without it, these statistical visualizations cannot be generated."
+            )
 
-        # Determine score to visualize
-        if params.feature:
-            if params.feature in adata.obs.columns:
-                score_col = params.feature
-            elif f"{params.feature}_score" in adata.obs.columns:
-                score_col = f"{params.feature}_score"
-            else:
-                score_col = score_cols[0]
-        else:
-            score_col = score_cols[0]
+        # Ensure EnrichMap compatibility: add required metadata
+        _ensure_enrichmap_compatibility(adata)
 
-        figsize = params.figure_size if params.figure_size else (10, 8)
-        fig = plt.figure(figsize=figsize, dpi=params.dpi)
+        # Get library_id for single-sample case
+        library_id = adata.obs["library_id"].unique()[0]
 
+        # EnrichMap functions create their own figures, so we don't pre-create
+        # We'll capture the figure after EnrichMap creates it
         try:
-            if plot_type == "correlogram":
-                # Moran's I correlogram
-                em.pl.morans_correlogram(adata, score_key=score_col)
-            elif plot_type == "variogram":
-                # Variogram
-                em.pl.variogram(adata, score_key=score_col)
-            elif plot_type == "cross_correlation":
-                # Cross-correlation between scores
-                if len(score_cols) >= 2:
-                    em.pl.cross_moran_scatter(adata, score_keys=score_cols[:2])
+            # spatial_cross_correlation doesn't need feature - uses first 2 pathways
+            if params.subtype == "spatial_cross_correlation":
+                # Need at least 2 pathways
+                if "enrichment_gene_sets" not in adata.uns:
+                    raise DataNotFoundError(
+                        "enrichment_gene_sets not found in adata.uns"
+                    )
+                pathways = list(adata.uns["enrichment_gene_sets"].keys())
+                if len(pathways) < 2:
+                    raise DataNotFoundError(
+                        "Need at least 2 pathways for cross-correlation"
+                    )
+                score_x = f"{pathways[0]}_score"
+                score_y = f"{pathways[1]}_score"
+                em.pl.cross_moran_scatter(
+                    adata, score_x=score_x, score_y=score_y, library_id=library_id
+                )
+            else:
+                # Other spatial enrichment types need feature parameter
+                if params.feature:
+                    score_col = f"{params.feature}_score"
+                    if score_col not in adata.obs.columns:
+                        raise DataNotFoundError(f"Score column '{score_col}' not found")
                 else:
                     raise DataNotFoundError(
-                        "Need at least 2 enrichment scores for cross-correlation"
+                        "Feature parameter is required for spatial enrichment visualization"
                     )
-            else:
-                # Default spatial enrichment
-                em.pl.spatial_enrichmap(adata, score_key=score_col)
+
+                if params.subtype == "spatial_correlogram":
+                    em.pl.morans_correlogram(
+                        adata, score_key=score_col, library_id=library_id
+                    )
+                elif params.subtype == "spatial_variogram":
+                    em.pl.variogram(
+                        adata,
+                        score_keys=[score_col],  # Note: score_keys (plural) and as list
+                    )
+                elif params.subtype == "spatial_score":
+                    # Use EnrichMap native spatial visualization
+                    # Default size=0.5 for better visibility (EnrichMap default is 2)
+                    spot_size = params.spot_size if params.spot_size is not None else 0.5
+                    em.pl.spatial_enrichmap(
+                        adata,
+                        score_key=score_col,
+                        library_id=library_id,
+                        cmap="seismic",
+                        vcenter=0,
+                        size=spot_size,
+                        img=False,  # Skip tissue image loading
+                    )
+
+            # Get the figure that EnrichMap created
+            fig = plt.gcf()
+
+            # Apply user-requested figure size and DPI if specified
+            if params.figure_size:
+                fig.set_size_inches(params.figure_size)
+            if params.dpi:
+                fig.set_dpi(params.dpi)
+
         except DataNotFoundError:
             # Re-raise data validation errors without modification
-            plt.close(fig)
             raise
         except Exception as e:
-            plt.close(fig)
+            # Close any figure that might have been created
+            plt.close("all")
             # Provide clear error message explaining why we cannot fallback
+            score_info = ""
+            if params.subtype == "spatial_cross_correlation":
+                score_info = f"Using first 2 pathways from enrichment results"
+            elif params.feature:
+                score_info = f"Score column: {params.feature}_score"
+
             raise ProcessingError(
-                f"EnrichMap {plot_type} visualization failed: {str(e)}\n\n"
+                f"EnrichMap {params.subtype} visualization failed: {str(e)}\n\n"
                 f"CONTEXT:\n"
-                f"You requested a specific statistical visualization ('{plot_type}').\n"
-                f"Score column: {score_col}\n\n"
+                f"You requested a specific spatial enrichment visualization ('{params.subtype}').\n"
+                f"{score_info}\n\n"
                 f"SOLUTIONS:\n"
                 f"1. Verify the enrichment analysis completed successfully\n"
                 f"2. Check that spatial neighbors graph exists: adata.obsp['spatial_connectivities']\n"
-                f"3. Ensure enrichment scores are properly stored in adata.obs['{score_col}']\n"
-                f"4. Try a different plot_type or remove enrichmap_plot_type parameter\n\n"
+                f"3. Ensure enrichment scores are properly stored in adata.obs\n"
+                f"4. Try a different subtype: 'spatial_score', 'spatial_correlogram', 'spatial_variogram'\n\n"
                 f"SCIENTIFIC INTEGRITY: Statistical visualizations (correlogram, variogram) "
                 f"convey specific spatial patterns. We refuse to silently substitute them with "
                 f"standard plots as this would misrepresent the analysis type."
@@ -5312,59 +5382,74 @@ async def create_enrichment_visualization(
 async def create_gsea_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create GSEA (Gene Set Enrichment Analysis) visualization
+    """Create pathway enrichment visualization (unified for ORA/GSEA and spatial EnrichMap)
 
     Supports multiple visualization types:
-    - enrichment_plot: Classic GSEA enrichment score plot
+    Traditional (ORA/GSEA):
     - barplot: Top enriched pathways barplot
     - dotplot: Multi-cluster enrichment dotplot
-    - spatial: Spatial distribution of enrichment scores
+    - heatmap: Pathway enrichment heatmap
+    - enrichment_plot: Classic GSEA enrichment score plot
+
+    Spatial EnrichMap:
+    - spatial_score: Spatial distribution of enrichment scores
+    - spatial_correlogram: Moran's I correlogram
+    - spatial_variogram: Variogram analysis
+    - spatial_cross_correlation: Cross-correlation between pathways
 
     Args:
-        adata: AnnData object with GSEA results
+        adata: AnnData object with enrichment results
         params: Visualization parameters
-            - gsea_results_key: Key in adata.uns for GSEA results (default: 'gsea_results')
-            - subtype: Type of plot ('enrichment_plot', 'barplot', 'dotplot', 'spatial')
+            - subtype: Type of plot (see above)
             - feature: Specific pathway/gene set to visualize
             - n_top_pathways: Number of top pathways to show (default: 10)
         context: MCP context
 
     Returns:
-        Matplotlib figure with GSEA visualization
+        Matplotlib figure with enrichment visualization
     """
     if context:
-        await context.info("Creating GSEA visualization")
+        await context.info("Creating pathway enrichment visualization")
 
-    # Get GSEA results
-    gsea_key = getattr(params, "gsea_results_key", "gsea_results")
-    if gsea_key not in adata.uns:
-        # Try common alternative keys
-        alt_keys = ["rank_genes_groups", "de_results", "pathway_enrichment"]
-        for key in alt_keys:
-            if key in adata.uns:
-                gsea_key = key
-                break
-        else:
-            raise DataNotFoundError(f"GSEA results not found. Expected key: {gsea_key}")
-
-    gsea_results = adata.uns[gsea_key]
     plot_type = params.subtype if params.subtype else "barplot"
 
-    if plot_type == "enrichment_plot":
-        # Classic GSEA enrichment score plot
-        return _create_gsea_enrichment_plot(gsea_results, params)
-    elif plot_type == "barplot":
-        # Top pathways barplot
-        return _create_gsea_barplot(gsea_results, params)
-    elif plot_type == "dotplot":
-        # Multi-cluster dotplot
-        return _create_gsea_dotplot(gsea_results)
-    elif plot_type == "spatial":
-        # Spatial distribution of pathway scores
-        return _create_gsea_spatial_plot(adata, params)
+    # Route to appropriate visualization based on subtype
+    if plot_type.startswith("spatial_"):
+        # Spatial EnrichMap visualizations (use per-cell scores in adata.obs)
+        return await create_enrichment_visualization(adata, params, context)
     else:
-        # Default to barplot
-        return _create_gsea_barplot(gsea_results, params)
+        # Traditional ORA/GSEA visualizations (use pathway statistics in adata.uns)
+        # Get GSEA results
+        gsea_key = getattr(params, "gsea_results_key", "gsea_results")
+        if gsea_key not in adata.uns:
+            # Try common alternative keys
+            alt_keys = ["rank_genes_groups", "de_results", "pathway_enrichment"]
+            for key in alt_keys:
+                if key in adata.uns:
+                    gsea_key = key
+                    break
+            else:
+                raise DataNotFoundError(
+                    f"GSEA results not found. Expected key: {gsea_key}"
+                )
+
+        gsea_results = adata.uns[gsea_key]
+
+        if plot_type == "enrichment_plot":
+            # Classic GSEA enrichment score plot
+            return _create_gsea_enrichment_plot(gsea_results, params)
+        elif plot_type == "barplot":
+            # Top pathways barplot
+            return _create_gsea_barplot(gsea_results, params)
+        elif plot_type == "dotplot":
+            # Multi-cluster dotplot
+            return _create_gsea_dotplot(gsea_results)
+        elif plot_type == "heatmap":
+            # Pathway enrichment heatmap
+            return _create_gsea_heatmap(gsea_results, params)
+        else:
+            # Default to barplot
+            return _create_gsea_barplot(gsea_results, params)
 
 
 def _create_gsea_enrichment_plot(gsea_results, params):
