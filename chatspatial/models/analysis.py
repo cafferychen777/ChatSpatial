@@ -168,9 +168,7 @@ class SpatialVariableGenesResult(BaseModel):
     # Common results for all methods
     n_genes_analyzed: int  # Total number of genes analyzed (input)
     n_significant_genes: int  # Total number of significant genes found (q < 0.05)
-    n_returned_genes: (
-        int  # Number of genes actually returned (may be truncated due to token limits)
-    )
+    n_returned_genes: int  # Number of genes actually returned
     spatial_genes: List[str]  # List of returned gene names (length = n_returned_genes)
 
     # Statistical results (available for all methods)
@@ -184,7 +182,6 @@ class SpatialVariableGenesResult(BaseModel):
     # Method-specific results (optional, only populated for respective methods)
     spatialde_results: Optional[Dict[str, Any]] = None  # SpatialDE-specific results
     sparkx_results: Optional[Dict[str, Any]] = None  # SPARK-X specific results
-    somde_results: Optional[Dict[str, Any]] = None  # SOMDE-specific results
 
     class Config:
         arbitrary_types_allowed = True
@@ -253,10 +250,8 @@ class EnrichmentResult(BaseModel):
 
     # Enrichment scores and statistics
     enrichment_scores: Dict[str, float]  # Enrichment scores for each gene set
-    pvalues: Dict[str, Optional[float]]  # Raw p-values (None for spatial enrichment)
-    adjusted_pvalues: Dict[
-        str, Optional[float]
-    ]  # Adjusted p-values (None for spatial enrichment)
+    pvalues: Optional[Dict[str, float]] = None  # Raw p-values (None for spatial enrichment)
+    adjusted_pvalues: Optional[Dict[str, float]] = None  # Adjusted p-values (None for spatial enrichment)
     gene_set_statistics: Dict[str, Dict[str, Any]]  # Additional statistics per gene set
 
     # Spatial metrics (for enrichmap)
@@ -265,17 +260,9 @@ class EnrichmentResult(BaseModel):
         None  # Key in adata.obsm for spatial enrichment scores
     )
 
-    # Gene set information (optimized for token efficiency)
-    gene_set_summaries: Dict[
-        str, Dict[str, Any]
-    ]  # Compact summaries with gene counts and sample genes
-
     # Top results
     top_gene_sets: List[str]  # Top enriched gene sets
     top_depleted_sets: List[str]  # Top depleted gene sets
-
-    # Additional metadata
-    parameters_used: Dict[str, Any]  # Parameters used for analysis
 
     class Config:
         arbitrary_types_allowed = True

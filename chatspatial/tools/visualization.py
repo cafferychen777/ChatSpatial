@@ -1988,7 +1988,7 @@ async def visualize_data(
         # Convert figure with optimization (preview + resource for large images)
         if context:
             await context.info(
-                f"Converting {params.plot_type} figure with token optimization..."
+                f"Converting {params.plot_type} figure..."
             )
 
         # Generate plot_type_key with subtype if applicable (for cache consistency)

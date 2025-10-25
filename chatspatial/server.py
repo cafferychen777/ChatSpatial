@@ -1422,11 +1422,7 @@ async def analyze_enrichment(
     - "pathway_ssgsea": Single-sample GSEA
     - "spatial_enrichmap": Spatial enrichment mapping
 
-    Result Optimization:
-    This tool automatically limits returned results to the 50 most significant pathways
-    for efficient LLM communication. Complete results are preserved in adata.uns for
-    downstream visualization and analysis. This optimization is transparent to users
-    and maintains scientific validity while reducing token usage.
+    Complete results are preserved in adata.uns for downstream visualization and analysis.
 
     Example usage:
     For mouse data:  params={"species": "mouse", "gene_set_database": "KEGG_Pathways"}
@@ -1502,24 +1498,6 @@ async def analyze_enrichment(
                     f"Loaded {len(gene_sets)} gene sets from {params.gene_set_database}"
                 )
 
-            # === CRITICAL TOKEN OPTIMIZATION ===
-            # Limit gene sets to prevent token bloat for insights-based analysis
-            if len(gene_sets) > 50:  # Limit to top 50 pathways for token efficiency
-                if context:
-                    await context.info(
-                        f"Limiting to top 50 pathways from {len(gene_sets)} total for token optimization"
-                    )
-
-                # Sort pathways by gene count (larger pathways often more important)
-                sorted_pathways = sorted(
-                    gene_sets.items(), key=lambda x: len(x[1]), reverse=True
-                )
-                gene_sets = dict(sorted_pathways[:50])
-
-                if context:
-                    await context.info(
-                        f"Using {len(gene_sets)} top pathways for analysis"
-                    )
 
         except Exception as e:
             # NO FALLBACK: Enrichment analysis requires specific gene sets for scientific validity
@@ -1560,23 +1538,21 @@ async def analyze_enrichment(
     # Call appropriate enrichment function based on method
     if params.method == "spatial_enrichmap":
         # Spatial enrichment analysis using EnrichMap
-        result_dict = (
-            await perform_enrichment_analysis(
-                data_id=data_id,
-                data_store=data_store,
-                gene_sets=gene_sets,
-                score_keys=params.score_keys,
-                spatial_key=params.spatial_key,
-                n_neighbors=params.n_neighbors,
-                smoothing=params.smoothing,
-                correct_spatial_covariates=params.correct_spatial_covariates,
-                batch_key=params.batch_key,
-                gene_weights=params.gene_weights,
-                species=params.species,
-                database=params.gene_set_database,
-                context=context,
-            )
-        ).to_dict()
+        result_dict = await perform_enrichment_analysis(
+            data_id=data_id,
+            data_store=data_store,
+            gene_sets=gene_sets,
+            score_keys=params.score_keys,
+            spatial_key=params.spatial_key,
+            n_neighbors=params.n_neighbors,
+            smoothing=params.smoothing,
+            correct_spatial_covariates=params.correct_spatial_covariates,
+            batch_key=params.batch_key,
+            gene_weights=params.gene_weights,
+            species=params.species,
+            database=params.gene_set_database,
+            context=context,
+        )
         if context:
             await context.info(
                 "Spatial enrichment analysis complete. Use visualize_data with plot_type='pathway_enrichment' "
@@ -1592,52 +1568,46 @@ async def analyze_enrichment(
         )
 
         if params.method == "pathway_gsea":
-            result_dict = (
-                await perform_gsea(
-                    adata=adata,
-                    gene_sets=gene_sets,
-                    ranking_key=params.score_keys,
-                    permutation_num=params.n_permutations,
-                    min_size=params.min_genes,
-                    max_size=params.max_genes,
-                    species=params.species,
-                    database=params.gene_set_database,
-                    context=context,
-                )
-            ).to_dict()
+            result_dict = await perform_gsea(
+                adata=adata,
+                gene_sets=gene_sets,
+                ranking_key=params.score_keys,
+                permutation_num=params.n_permutations,
+                min_size=params.min_genes,
+                max_size=params.max_genes,
+                species=params.species,
+                database=params.gene_set_database,
+                context=context,
+            )
             if context:
                 await context.info(
                     "Pathway GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
                 )
         elif params.method == "pathway_ora":
-            result_dict = (
-                await perform_ora(
-                    adata=adata,
-                    gene_sets=gene_sets,
-                    pvalue_threshold=params.pvalue_cutoff,
-                    min_size=params.min_genes,
-                    max_size=params.max_genes,
-                    species=params.species,
-                    database=params.gene_set_database,
-                    context=context,
-                )
-            ).to_dict()
+            result_dict = await perform_ora(
+                adata=adata,
+                gene_sets=gene_sets,
+                pvalue_threshold=params.pvalue_cutoff,
+                min_size=params.min_genes,
+                max_size=params.max_genes,
+                species=params.species,
+                database=params.gene_set_database,
+                context=context,
+            )
             if context:
                 await context.info(
                     "Pathway ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
                 )
         elif params.method == "pathway_ssgsea":
-            result_dict = (
-                await perform_ssgsea(
-                    adata=adata,
-                    gene_sets=gene_sets,
-                    min_size=params.min_genes,
-                    max_size=params.max_genes,
-                    species=params.species,
-                    database=params.gene_set_database,
-                    context=context,
-                )
-            ).to_dict()
+            result_dict = await perform_ssgsea(
+                adata=adata,
+                gene_sets=gene_sets,
+                min_size=params.min_genes,
+                max_size=params.max_genes,
+                species=params.species,
+                database=params.gene_set_database,
+                context=context,
+            )
             if context:
                 await context.info(
                     "Pathway ssGSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
@@ -1659,14 +1629,12 @@ async def analyze_enrichment(
                 top_indices = np.argsort(var_scores)[-500:]
                 gene_list = adata.var_names[top_indices].tolist()
 
-            result_dict = (
-                await perform_enrichr(
-                    gene_list=gene_list,
-                    gene_sets=params.gene_set_database,
-                    organism=params.species,  # Use explicit species from params
-                    context=context,
-                )
-            ).to_dict()
+            result_dict = await perform_enrichr(
+                gene_list=gene_list,
+                gene_sets=params.gene_set_database,
+                organism=params.species,  # Use explicit species from params
+                context=context,
+            )
             if context:
                 await context.info(
                     "Pathway Enrichr analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
@@ -1677,82 +1645,8 @@ async def analyze_enrichment(
     # Update dataset in data manager
     data_manager.data_store[data_id] = data_store[data_id]
 
-    # === AUTOMATIC TOKEN OPTIMIZATION ===
-    # To ensure efficient LLM communication, we automatically limit the number of
-    # pathways returned to 50 most significant results. This is transparent to users
-    # and prevents excessive token usage while preserving all scientifically important
-    # findings. Complete results are stored in adata.uns for downstream analysis.
-    #
-    # Rationale:
-    # - Full enrichment results are preserved in adata for visualization and further analysis
-    # - Token efficiency: Returning 50 pathways instead of 500+ saves ~90% of tokens
-    # - Scientific validity: Top 50 pathways capture the most biologically significant findings
-    # - User experience: Focused results are easier to interpret than massive lists
-    MAX_RESULTS_FOR_LLM = 50  # Automatic token optimization (transparent to user)
-
-    # Get top significant gene sets
-    adjusted_pvals = result_dict.get("adjusted_pvalues", {})
-    pvals = result_dict.get("pvalues", {})
-
-    # Get significant gene sets
-    significant_sets = (
-        {
-            k
-            for k, v in adjusted_pvals.items()
-            if v is not None and v < params.pvalue_cutoff
-        }
-        if adjusted_pvals
-        else set()
-    )
-
-    # Get top gene sets
-    top_sets = set(result_dict.get("top_gene_sets", []))
-    top_depleted = set(result_dict.get("top_depleted_sets", []))
-
-    # Combine significant and top sets, limit to MAX_RESULTS_FOR_LLM
-    display_sets = list((significant_sets | top_sets | top_depleted))[
-        :MAX_RESULTS_FOR_LLM
-    ]
-
-    # Filter large dictionaries to only include display sets
-    filtered_enrichment_scores = {
-        k: v
-        for k, v in result_dict.get("enrichment_scores", {}).items()
-        if k in display_sets
-    }
-    filtered_pvalues = {k: v for k, v in pvals.items() if k in display_sets}
-    filtered_adjusted_pvalues = {
-        k: v for k, v in adjusted_pvals.items() if k in display_sets
-    }
-    filtered_gene_set_statistics = {
-        k: v
-        for k, v in result_dict.get("gene_set_statistics", {}).items()
-        if k in display_sets
-    }
-
-    # Filter gene set summaries to display sets
-    gene_set_summaries = result_dict.get("gene_set_summaries", {})
-    filtered_gene_set_summaries = {
-        k: v for k, v in gene_set_summaries.items() if k in display_sets
-    }
-
-    # Create EnrichmentResult object
-    result = EnrichmentResult(
-        method=params.method,
-        n_gene_sets=result_dict.get("n_gene_sets", 0),
-        n_significant=result_dict.get("n_significant", 0),
-        enrichment_scores=filtered_enrichment_scores,
-        pvalues=filtered_pvalues,
-        adjusted_pvalues=filtered_adjusted_pvalues,
-        gene_set_statistics=filtered_gene_set_statistics,
-        gene_set_summaries=filtered_gene_set_summaries,
-        spatial_metrics=result_dict.get("spatial_metrics"),
-        spatial_scores_key=result_dict.get("spatial_scores_key"),
-        top_gene_sets=result_dict.get("top_gene_sets", []),
-        top_depleted_sets=result_dict.get("top_depleted_sets", []),
-        parameters_used=params.model_dump(),
-        computation_time=time.time() - start_time,
-    )
+    # result_dict is already an EnrichmentResult object
+    result = result_dict
 
     # Save enrichment result
     await data_manager.save_result(data_id, "enrichment", result)
