@@ -1248,9 +1248,6 @@ class EnrichmentParameters(BaseModel):
 
     # Analysis parameters
     batch_key: Optional[str] = None  # Column for batch-wise normalization
-    gene_weights: Optional[Dict[str, Dict[str, float]]] = (
-        None  # Pre-computed gene weights
-    )
     min_genes: Annotated[int, Field(gt=0)] = 10  # Minimum genes in gene set
     max_genes: Annotated[int, Field(gt=0)] = 500  # Maximum genes in gene set
 

@@ -7,7 +7,6 @@ This module provides both standard and spatially-aware enrichment analysis metho
 """
 
 import logging
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -16,6 +15,7 @@ from mcp.server.fastmcp import Context
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
+from ..models.analysis import EnrichmentResult
 from ..utils import validate_obs_column
 from ..utils.error_handling import ProcessingError
 from ..utils.metadata_storage import store_analysis_metadata
@@ -112,517 +112,8 @@ def _convert_gene_format_for_matching(
 
 
 # ============================================================================
-# MCP PROTOCOL COMPLIANCE: STANDARDIZED DATA STRUCTURES
+# ENRICHR DATABASE MAPPING
 # ============================================================================
-
-
-@dataclass
-class EnrichmentInternalResult:
-    """Internal standardized result for enrichment analysis.
-
-    Optimized for MCP protocol compliance with token efficiency.
-    Focuses on statistical value and essential summaries rather than complete gene lists.
-
-    Attributes:
-        method: Analysis method name
-        n_gene_sets: Number of gene sets analyzed
-        n_significant: Number of significant gene sets
-        enrichment_scores: Enrichment scores dictionary
-        pvalues: Raw p-values dictionary
-        adjusted_pvalues: Adjusted p-values dictionary
-        gene_set_statistics: Gene set statistical information
-        gene_set_summaries: Compact summaries with counts and sample genes
-        top_gene_sets: Top enriched gene sets
-        top_depleted_sets: Top depleted gene sets
-        spatial_metrics: Spatial analysis metrics (optional)
-        spatial_scores_key: Spatial scores key (optional)
-        method_specific_data: Method-specific extension data
-    """
-
-    # Basic information
-    method: str
-    n_gene_sets: int
-    n_significant: int
-
-    # Core statistical results
-    enrichment_scores: Dict[str, float]
-    pvalues: Dict[str, Optional[float]]
-    adjusted_pvalues: Dict[str, Optional[float]]
-    gene_set_statistics: Dict[str, Dict[str, Any]]
-
-    # Gene set summaries (token-optimized)
-    gene_set_summaries: Dict[str, Dict[str, Any]]  # Contains count + sample genes only
-
-    # Ranking results
-    top_gene_sets: List[str]
-    top_depleted_sets: List[str]
-
-    # Optional spatial analysis results
-    spatial_metrics: Optional[Dict[str, Any]] = None
-    spatial_scores_key: Optional[str] = None
-
-    # Method-specific extension fields
-    method_specific_data: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format optimized for MCP token limits.
-
-        Returns:
-            Token-optimized dictionary focusing on statistical value and essential summaries.
-            Prioritizes enrichment statistics over complete gene lists.
-        """
-        # Optimize gene_set_statistics by removing complete gene lists
-        optimized_gene_set_statistics = {}
-        if self.gene_set_statistics:
-            for pathway, stats in self.gene_set_statistics.items():
-                if isinstance(stats, dict):
-                    # Create optimized version excluding complete gene lists
-                    optimized_stats = {k: v for k, v in stats.items() if k != "genes"}
-                    # Add gene count info if genes were present
-                    if "genes" in stats and isinstance(stats["genes"], list):
-                        optimized_stats["gene_count"] = len(stats["genes"])
-                        optimized_stats["sample_genes"] = stats["genes"][
-                            :3
-                        ]  # Only first 3 genes
-                    optimized_gene_set_statistics[pathway] = optimized_stats
-                else:
-                    # Non-dict statistics, pass through as-is
-                    optimized_gene_set_statistics[pathway] = stats
-
-        base_dict = {
-            "method": self.method,
-            "n_gene_sets": self.n_gene_sets,
-            "n_significant": self.n_significant,
-            "enrichment_scores": self.enrichment_scores,
-            "pvalues": self.pvalues,
-            "adjusted_pvalues": self.adjusted_pvalues,
-            "gene_set_statistics": optimized_gene_set_statistics,  # Optimized version
-            "gene_set_summaries": self.gene_set_summaries,  # Optimized field
-            "top_gene_sets": self.top_gene_sets,
-            "top_depleted_sets": self.top_depleted_sets,
-        }
-
-        # Add spatial analysis results
-        if self.spatial_metrics is not None:
-            base_dict["spatial_metrics"] = self.spatial_metrics
-        if self.spatial_scores_key is not None:
-            base_dict["spatial_scores_key"] = self.spatial_scores_key
-
-        # Add method-specific data
-        base_dict.update(self.method_specific_data)
-
-        return base_dict
-
-
-@dataclass
-class SpatialMetricResult:
-    """Spatial metrics calculation result.
-
-    Standardized return format for _compute_spatial_metric function.
-    """
-
-    data_id: str
-    score_key: str
-    metrics: Dict[str, Dict[str, float]]
-    parameters: Dict[str, Any]
-
-
-@dataclass
-class ClusterCorrelationResult:
-    """Cluster correlation analysis result.
-
-    Standardized return format for _correlate_with_clusters function.
-    """
-
-    data_id: str
-    signature_name: str
-    cluster_key: str
-    correlation_method: str
-    cluster_correlations: Dict[str, Any]
-
-
-@dataclass
-class SSGSEAResult:
-    """Result from single-sample Gene Set Enrichment Analysis."""
-
-    method: str
-    n_gene_sets: int
-    n_samples: int
-    enrichment_scores: Dict[str, List[float]]  # gene_set -> list of sample scores
-    gene_set_summaries: Dict[
-        str, Dict[str, Any]
-    ]  # Compact summaries with counts and sample genes
-    summary_stats: Dict[str, Dict[str, float]]  # gene_set -> {mean, std, etc.}
-    score_matrix: Optional[np.ndarray] = None  # samples x gene_sets matrix
-    method_specific_data: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary optimized for MCP token limits."""
-        return {
-            "method": self.method,
-            "n_gene_sets": self.n_gene_sets,
-            "n_samples": self.n_samples,
-            "enrichment_scores": self.enrichment_scores,
-            "gene_set_summaries": self.gene_set_summaries,
-            "summary_stats": self.summary_stats,
-            "score_matrix": (
-                self.score_matrix.tolist() if self.score_matrix is not None else None
-            ),
-            **self.method_specific_data,
-        }
-
-
-@dataclass
-class EnrichrResult:
-    """Result from Enrichr web service analysis."""
-
-    method: str
-    n_gene_sets: int
-    n_significant: int
-    input_gene_summary: Dict[str, Any]  # Summary of input genes: count + sample
-    enrichment_scores: Dict[str, float]  # gene_set -> combined score
-    pvalues: Dict[str, float]
-    adjusted_pvalues: Dict[str, float]
-    odds_ratios: Dict[str, float]
-    gene_set_statistics: Dict[str, Dict[str, Any]]
-    top_gene_sets: List[str]
-    libraries_used: List[str]
-    method_specific_data: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary optimized for MCP token limits."""
-        return {
-            "method": self.method,
-            "n_gene_sets": self.n_gene_sets,
-            "n_significant": self.n_significant,
-            "input_gene_summary": self.input_gene_summary,
-            "enrichment_scores": self.enrichment_scores,
-            "pvalues": self.pvalues,
-            "adjusted_pvalues": self.adjusted_pvalues,
-            "odds_ratios": self.odds_ratios,
-            "gene_set_statistics": self.gene_set_statistics,
-            "gene_set_summaries": {},  # Enrichr doesn't have local gene sets
-            "top_gene_sets": self.top_gene_sets,
-            "libraries_used": self.libraries_used,
-            **self.method_specific_data,
-        }
-
-
-# ============================================================================
-# INSIGHTS-BASED DATA STRUCTURES (New Value-Driven Approach)
-# ============================================================================
-
-
-@dataclass
-class PathwayResult:
-    """Individual pathway finding with essential information only."""
-
-    name: str  # Clean pathway name
-    category: str  # "Immune", "Metabolism", etc.
-    significance: str  # "Very High (p<0.001)"
-    effect_size: str  # "2.3x enriched"
-    key_genes: List[str]  # 2-3 representative genes
-    description: str  # Brief biological context
-
-
-@dataclass
-class CategorySummary:
-    """Grouped pathway insights."""
-
-    count: int
-    significance_level: str
-    top_themes: List[str]
-
-
-@dataclass
-class EnrichmentInsights:
-    """Value-driven enrichment analysis result optimized for insights and conversation."""
-
-    # === PRIMARY INSIGHTS ===
-    summary: str  # Key findings in 1-2 sentences
-    significance_overview: str  # Overall significance assessment
-
-    # === TOP FINDINGS ===
-    top_pathways: List[PathwayResult]  # 10-20 most significant only
-    pathway_categories: Dict[str, CategorySummary]  # Grouped insights
-
-    # === ACTIONABLE INFORMATION ===
-    key_genes: List[str]  # 5-10 most important genes
-    suggested_analyses: List[str]  # Follow-up suggestions
-    interpretation: str  # What this means
-
-    # === TECHNICAL METADATA ===
-    method: str
-    total_pathways_tested: int
-    significant_count: int
-    stats_summary: Dict[str, Any]  # Minimal reproducibility info
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format for server.py compatibility while maintaining insights focus."""
-
-        # Create compatible data structure that server.py expects but with insights content
-        enrichment_scores = {}
-        pvalues = {}
-        adjusted_pvalues = {}
-        gene_set_statistics = {}
-
-        # Transform insights back to server-expected format
-        for pathway in self.top_pathways:
-            # Use cleaned pathway name as key
-            key = pathway.name.replace(" ", "_").lower()
-
-            # Create mock enrichment scores (server expects these)
-            enrichment_scores[key] = 2.0  # Default enriched value
-            pvalues[key] = None  # Spatial analysis doesn't have p-values
-            adjusted_pvalues[key] = None
-
-            # Create minimal gene_set_statistics (token-optimized)
-            gene_set_statistics[key] = {
-                "category": pathway.category,
-                "effect_size": pathway.effect_size,
-                "significance": pathway.significance,
-                "description": pathway.description,
-                "key_genes": pathway.key_genes,  # Only 2 genes each
-                # No "genes" field with complete gene lists!
-            }
-
-        # Return server.py compatible format with insights content
-        return {
-            # === CORE INSIGHTS (Primary Information) ===
-            "summary": self.summary,
-            "significance_overview": self.significance_overview,
-            "interpretation": self.interpretation,
-            "key_genes": self.key_genes,
-            "suggested_analyses": self.suggested_analyses,
-            "pathway_categories": {
-                cat: {
-                    "count": summary.count,
-                    "significance_level": summary.significance_level,
-                    "top_themes": summary.top_themes,
-                }
-                for cat, summary in self.pathway_categories.items()
-            },
-            "top_pathways": [
-                {
-                    "name": p.name,
-                    "category": p.category,
-                    "significance": p.significance,
-                    "effect_size": p.effect_size,
-                    "key_genes": p.key_genes,
-                    "description": p.description,
-                }
-                for p in self.top_pathways
-            ],
-            # === SERVER COMPATIBILITY FIELDS ===
-            "method": self.method,
-            "n_gene_sets": self.total_pathways_tested,
-            "n_significant": self.significant_count,
-            "enrichment_scores": enrichment_scores,
-            "pvalues": pvalues,
-            "adjusted_pvalues": adjusted_pvalues,
-            "gene_set_statistics": gene_set_statistics,  # Optimized, no full gene lists
-            "gene_set_summaries": {},  # Insights are in pathway_categories
-            "top_gene_sets": [
-                p.name.replace(" ", "_").lower() for p in self.top_pathways[:10]
-            ],
-            "top_depleted_sets": [],  # Spatial enrichment doesn't have depleted sets
-            "spatial_metrics": None,
-            "spatial_scores_key": None,
-            # === TECHNICAL METADATA ===
-            "stats_summary": self.stats_summary,
-        }
-
-
-# ============================================================================
-# INSIGHTS GENERATION HELPER FUNCTIONS
-# ============================================================================
-
-
-def clean_pathway_name(go_term: str) -> str:
-    """Convert GO:0006955_immune_response to 'Immune Response'."""
-    if "_" in go_term:
-        # Split on underscore and clean up
-        parts = go_term.split("_", 1)
-        if len(parts) > 1:
-            name_part = parts[1]
-            # Replace underscores with spaces and title case
-            return name_part.replace("_", " ").title()
-    return go_term.replace("_", " ").title()
-
-
-def categorize_pathway(pathway_name: str) -> str:
-    """Map pathway to high-level category."""
-    pathway_lower = pathway_name.lower()
-
-    # Define category mappings
-    categories = {
-        "Immune": [
-            "immune",
-            "defense",
-            "inflammation",
-            "interferon",
-            "cytokine",
-            "antigen",
-        ],
-        "Metabolism": [
-            "metabolic",
-            "glycol",
-            "lipid",
-            "glucose",
-            "energy",
-            "atp",
-            "respiratory",
-        ],
-        "Cell Cycle": [
-            "cycle",
-            "division",
-            "mitosis",
-            "meiosis",
-            "proliferation",
-            "growth",
-        ],
-        "Signaling": ["signal", "transduction", "response", "pathway", "cascade"],
-        "Transport": [
-            "transport",
-            "localization",
-            "trafficking",
-            "secretion",
-            "endocytosis",
-        ],
-        "Development": ["development", "differentiation", "morphogenesis", "embryo"],
-        "Cell Death": ["death", "apoptosis", "necrosis", "autophagy"],
-        "DNA/RNA": ["transcription", "translation", "dna", "rna", "splicing", "repair"],
-        "Protein": ["protein", "folding", "modification", "ubiquitin", "proteolysis"],
-        "Structure": ["cytoskeleton", "organization", "assembly", "maintenance"],
-    }
-
-    # Find best category match
-    for category, keywords in categories.items():
-        if any(keyword in pathway_lower for keyword in keywords):
-            return category
-
-    return "Other"
-
-
-def format_effect_size(score: float, baseline: float = 1.0) -> str:
-    """Convert score to interpretable effect size."""
-    if score > baseline:
-        fold_change = score / baseline
-        if fold_change >= 3.0:
-            return f"{fold_change:.1f}x enriched (very strong)"
-        elif fold_change >= 2.0:
-            return f"{fold_change:.1f}x enriched (strong)"
-        elif fold_change >= 1.5:
-            return f"{fold_change:.1f}x enriched (moderate)"
-        else:
-            return f"{fold_change:.1f}x enriched (mild)"
-    else:
-        return f"{score:.2f} (below baseline)"
-
-
-def generate_insights_summary(pathways: List[PathwayResult]) -> str:
-    """Generate 1-2 sentence summary of key findings."""
-    if not pathways:
-        return "No significant pathways found."
-
-    # Count categories
-    categories = {}
-    for pathway in pathways:
-        categories[pathway.category] = categories.get(pathway.category, 0) + 1
-
-    # Get top categories
-    top_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:3]
-
-    if len(top_categories) == 1:
-        return f"Strong enrichment in {top_categories[0][0].lower()} pathways with {len(pathways)} significant findings."
-    elif len(top_categories) == 2:
-        return f"Significant enrichment in {top_categories[0][0].lower()} and {top_categories[1][0].lower()} pathways."
-    else:
-        top_names = [cat[0].lower() for cat in top_categories]
-        return f"Enrichment across multiple processes including {', '.join(top_names[:-1])}, and {top_names[-1]}."
-
-
-def suggest_followup_analyses(pathways: List[PathwayResult]) -> List[str]:
-    """Suggest relevant follow-up analyses based on findings."""
-    suggestions = []
-
-    # Get categories present
-    categories = set(pathway.category for pathway in pathways)
-
-    # Category-specific suggestions
-    if "Immune" in categories:
-        suggestions.append(
-            "Perform cell communication analysis to identify immune signaling patterns"
-        )
-        suggestions.append(
-            "Validate key inflammatory markers with targeted gene expression analysis"
-        )
-
-    if "Metabolism" in categories:
-        suggestions.append("Analyze metabolic pathway activity across spatial regions")
-        suggestions.append("Check for metabolic heterogeneity between cell types")
-
-    if "Cell Cycle" in categories:
-        suggestions.append(
-            "Perform trajectory analysis to understand proliferation dynamics"
-        )
-        suggestions.append("Identify proliferative zones with spatial domain analysis")
-
-    if "Signaling" in categories:
-        suggestions.append("Map signaling pathway activity across tissue regions")
-        suggestions.append("Investigate pathway crosstalk with network analysis")
-
-    # General suggestions
-    suggestions.append("Visualize spatial distribution of top enriched pathways")
-    suggestions.append("Validate findings with complementary experimental methods")
-
-    # Return top 4-6 suggestions
-    return suggestions[:6]
-
-
-def generate_pathway_interpretation(pathways: List[PathwayResult]) -> str:
-    """Generate biological interpretation from pathway patterns."""
-    if not pathways:
-        return "No significant pathways found for interpretation."
-
-    # Analyze categories and their significance
-    categories = {}
-    for pathway in pathways:
-        if pathway.category not in categories:
-            categories[pathway.category] = []
-        categories[pathway.category].append(pathway)
-
-    # Generate interpretation based on patterns
-    interpretations = []
-
-    if "Immune" in categories and len(categories["Immune"]) >= 2:
-        interpretations.append(
-            "Strong immune response activation suggests inflammatory processes or tissue response to stimuli"
-        )
-
-    if "Metabolism" in categories and "Cell Cycle" in categories:
-        interpretations.append(
-            "Coordinated metabolic and proliferative activity indicates active tissue remodeling or repair"
-        )
-
-    if "Signaling" in categories and len(categories["Signaling"]) >= 2:
-        interpretations.append(
-            "Multiple signaling pathway activation suggests complex cellular communication and coordination"
-        )
-
-    if len(categories) >= 4:
-        interpretations.append(
-            "Broad pathway activation across multiple biological processes indicates significant physiological changes"
-        )
-
-    # Default interpretation
-    if not interpretations:
-        top_category = max(categories.keys(), key=lambda x: len(categories[x]))
-        interpretations.append(
-            f"Primary enrichment in {top_category.lower()} processes suggests focused biological activity in this domain"
-        )
-
-    return ". ".join(interpretations) + "."
 
 
 def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -> str:
@@ -661,57 +152,7 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
 
 
 # ============================================================================
-# Helper Functions
-# ============================================================================
-
-
-def create_gene_set_summaries(
-    gene_sets: Dict[str, List[str]], sample_size: int = 3
-) -> Dict[str, Dict[str, Any]]:
-    """Create compact gene set summaries for token optimization.
-
-    Args:
-        gene_sets: Dictionary of gene sets with full gene lists
-        sample_size: Number of sample genes to include per set
-
-    Returns:
-        Dictionary with compact summaries containing count and sample genes only
-    """
-    summaries = {}
-    for pathway_name, genes in gene_sets.items():
-        summaries[pathway_name] = {
-            "gene_count": len(genes),
-            "sample_genes": genes[:sample_size],  # First N genes as samples
-            "total_available": len(genes),
-        }
-    return summaries
-
-
-def create_input_gene_summary(
-    input_genes: List[str], genes_found: List[str] = None, sample_size: int = 3
-) -> Dict[str, Any]:
-    """Create compact input gene summary for Enrichr results.
-
-    Args:
-        input_genes: List of input genes
-        genes_found: List of genes found in database (optional)
-        sample_size: Number of sample genes to include
-
-    Returns:
-        Dictionary with compact summary of input genes
-    """
-    return {
-        "total_input": len(input_genes),
-        "genes_found_count": len(genes_found) if genes_found else len(input_genes),
-        "sample_input_genes": input_genes[:sample_size],
-        "sample_found_genes": (
-            genes_found[:sample_size] if genes_found else input_genes[:sample_size]
-        ),
-    }
-
-
-# ============================================================================
-# Standard Enrichment Analysis Functions (Non-spatial)
+# ENRICHMENT ANALYSIS FUNCTIONS
 # ============================================================================
 
 
@@ -736,7 +177,7 @@ async def perform_gsea(
     species: Optional[str] = None,
     database: Optional[str] = None,
     context=None,
-) -> EnrichmentInternalResult:
+) -> "EnrichmentResult":
     """
     Perform Gene Set Enrichment Analysis (GSEA).
 
@@ -787,37 +228,70 @@ async def perform_gsea(
         else:
             X = adata.raw.X if adata.raw else adata.X
 
-        # Simple fold change if we have groups
+        # Compute gene ranking metric
+        # IMPORTANT: GSEA requires biologically meaningful ranking, not just variance
+        # Reference: Subramanian et al. (2005) PNAS, GSEA-MSIGDB documentation
+
         if "condition" in adata.obs or "group" in adata.obs:
             group_key = "condition" if "condition" in adata.obs else "group"
             groups = adata.obs[group_key].unique()
+
             if len(groups) == 2:
-                # Binary comparison
+                # Binary comparison: Use Signal-to-Noise Ratio (GSEA default)
+                # S2N = (μ1 - μ2) / (σ1 + σ2)
+                # This captures both differential expression AND expression stability
                 group1_mask = adata.obs[group_key] == groups[0]
                 group2_mask = adata.obs[group_key] == groups[1]
 
+                # Compute means
                 mean1 = np.array(X[group1_mask, :].mean(axis=0)).flatten()
                 mean2 = np.array(X[group2_mask, :].mean(axis=0)).flatten()
 
-                # Compute fold change
-                fc = np.log2((mean2 + 1) / (mean1 + 1))
-                ranking = dict(zip(adata.var_names, fc))
+                # Compute standard deviations (ddof=1 for unbiased estimator)
+                std1 = np.array(X[group1_mask, :].std(axis=0, ddof=1)).flatten()
+                std2 = np.array(X[group2_mask, :].std(axis=0, ddof=1)).flatten()
+
+                # Apply minimum std threshold (GSEA standard: 0.2 * |mean|)
+                # This prevents division by zero and reduces noise from low-variance genes
+                min_std_factor = 0.2
+                std1 = np.maximum(std1, min_std_factor * np.abs(mean1))
+                std2 = np.maximum(std2, min_std_factor * np.abs(mean2))
+
+                # Compute Signal-to-Noise Ratio
+                s2n = (mean1 - mean2) / (std1 + std2)
+                ranking = dict(zip(adata.var_names, s2n))
+
             else:
-                # Use variance as ranking for multi-group
-                # Handle sparse matrices
-                if hasattr(X, "todense"):
-                    var_scores = np.array(X.todense().var(axis=0)).flatten()
-                else:
-                    var_scores = np.array(X.var(axis=0)).flatten()
-                ranking = dict(zip(adata.var_names, var_scores))
+                # Multi-group: Use Coefficient of Variation (normalized variance)
+                # CV = σ / μ - accounts for mean-variance relationship
+                # This is more appropriate than raw variance for genes with different expression levels
+                mean = np.array(X.mean(axis=0)).flatten()
+                std = np.array(X.std(axis=0, ddof=1)).flatten()
+
+                # Compute CV (avoid division by zero)
+                cv = np.zeros_like(mean)
+                nonzero_mask = np.abs(mean) > 1e-10
+                cv[nonzero_mask] = std[nonzero_mask] / np.abs(mean[nonzero_mask])
+
+                ranking = dict(zip(adata.var_names, cv))
         else:
-            # Use variance as default ranking
-            # Handle sparse matrices
-            if hasattr(X, "todense"):
-                var_scores = np.array(X.todense().var(axis=0)).flatten()
+            # No group information: Use best available ranking method
+            if 'highly_variable_rank' in adata.var:
+                # Prefer pre-computed HVG ranking (most robust)
+                ranking = adata.var['highly_variable_rank'].to_dict()
+            elif 'dispersions_norm' in adata.var:
+                # Use Seurat-style normalized dispersion
+                ranking = adata.var['dispersions_norm'].to_dict()
             else:
-                var_scores = np.array(X.var(axis=0)).flatten()
-            ranking = dict(zip(adata.var_names, var_scores))
+                # Fallback: Coefficient of Variation (better than raw variance)
+                mean = np.array(X.mean(axis=0)).flatten()
+                std = np.array(X.std(axis=0, ddof=1)).flatten()
+
+                cv = np.zeros_like(mean)
+                nonzero_mask = np.abs(mean) > 1e-10
+                cv[nonzero_mask] = std[nonzero_mask] / np.abs(mean[nonzero_mask])
+
+                ranking = dict(zip(adata.var_names, cv))
 
     # Run GSEA preranked
     try:
@@ -911,7 +385,7 @@ async def perform_gsea(
                 "GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
             )
 
-        return EnrichmentInternalResult(
+        return EnrichmentResult(
             method="gsea",
             n_gene_sets=len(gene_sets),
             n_significant=len(results_df[results_df["FDR q-val"] < 0.05]),
@@ -919,16 +393,8 @@ async def perform_gsea(
             pvalues=pvalues,
             adjusted_pvalues=adjusted_pvalues,
             gene_set_statistics=gene_set_statistics,
-            gene_set_summaries=create_gene_set_summaries(gene_sets),
             top_gene_sets=top_enriched,
             top_depleted_sets=top_depleted,
-            method_specific_data={
-                "gene_sets_size_summary": {k: len(v) for k, v in gene_sets.items()},
-                "permutation_num": permutation_num,
-                "ranking_method": method,
-                "min_size": min_size,
-                "max_size": max_size,
-            },
         )
 
     except Exception as e:
@@ -946,7 +412,7 @@ async def perform_ora(
     species: Optional[str] = None,
     database: Optional[str] = None,
     context=None,
-) -> EnrichmentInternalResult:
+) -> "EnrichmentResult":
     """
     Perform Over-Representation Analysis (ORA).
 
@@ -1041,13 +507,17 @@ async def perform_ora(
             if "highly_variable" in adata.var:
                 gene_list = adata.var_names[adata.var["highly_variable"]].tolist()
             else:
-                # Use top variable genes
-                # Handle sparse matrices
-                if hasattr(adata.X, "todense"):
-                    var_scores = np.array(adata.X.todense().var(axis=0)).flatten()
-                else:
-                    var_scores = np.array(adata.X.var(axis=0)).flatten()
-                top_indices = np.argsort(var_scores)[-500:]
+                # Use top variable genes (based on Coefficient of Variation)
+                # CV = σ/μ is more appropriate than raw variance
+                mean = np.array(adata.X.mean(axis=0)).flatten()
+                std = np.array(adata.X.std(axis=0, ddof=1)).flatten()
+
+                # Compute CV (avoid division by zero)
+                cv = np.zeros_like(mean)
+                nonzero_mask = np.abs(mean) > 1e-10
+                cv[nonzero_mask] = std[nonzero_mask] / np.abs(mean[nonzero_mask])
+
+                top_indices = np.argsort(cv)[-500:]
                 gene_list = adata.var_names[top_indices].tolist()
 
     # Background genes
@@ -1183,7 +653,7 @@ async def perform_ora(
             "ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
         )
 
-    return EnrichmentInternalResult(
+    return EnrichmentResult(
         method="ora",
         n_gene_sets=len(gene_sets),
         n_significant=sum(
@@ -1193,16 +663,8 @@ async def perform_ora(
         pvalues=pvalues,
         adjusted_pvalues=adjusted_pvalues,
         gene_set_statistics=gene_set_statistics,
-        gene_set_summaries=create_gene_set_summaries(gene_sets),
         top_gene_sets=top_gene_sets,
         top_depleted_sets=[],  # ORA does not produce depleted gene sets
-        method_specific_data={
-            "query_genes": list(query_genes),
-            "gene_sets_size_summary": {k: len(v) for k, v in gene_sets.items()},
-            "pvalue_threshold": pvalue_threshold,
-            "min_size": min_size,
-            "max_size": max_size,
-        },
     )
 
 
@@ -1214,7 +676,7 @@ async def perform_ssgsea(
     species: Optional[str] = None,
     database: Optional[str] = None,
     context=None,
-) -> SSGSEAResult:
+) -> "EnrichmentResult":
     """
     Perform single-sample Gene Set Enrichment Analysis (ssGSEA).
 
@@ -1363,38 +825,20 @@ async def perform_ssgsea(
         )
         top_gene_sets = [x[0] for x in sorted_by_mean[:10]]
 
-        # Convert enrichment scores to SSGSEAResult format (gene_set -> list of scores)
-        enrichment_scores_lists = {}
-        for gs_name in scores_df.index:
-            enrichment_scores_lists[gs_name] = scores_df.loc[gs_name].values.tolist()
+        # ssGSEA doesn't provide p-values
+        pvalues = None
+        adjusted_pvalues = None
 
-        # Convert gene_set_statistics to summary_stats format
-        summary_stats = {}
-        for gs_name, stats in gene_set_statistics.items():
-            summary_stats[gs_name] = {
-                "mean": stats["mean_score"],
-                "std": stats["std_score"],
-                "min": stats["min_score"],
-                "max": stats["max_score"],
-                "size": stats["size"],
-            }
-
-        return SSGSEAResult(
+        return EnrichmentResult(
             method="ssgsea",
             n_gene_sets=len(gene_sets),
-            n_samples=adata.n_obs,
-            enrichment_scores=enrichment_scores_lists,
-            gene_set_summaries=create_gene_set_summaries(gene_sets),
-            summary_stats=summary_stats,
-            score_matrix=scores_df.values if scores_df is not None else None,
-            method_specific_data={
-                "pvalues": {},  # ssGSEA doesn't provide p-values
-                "adjusted_pvalues": {},
-                "top_gene_sets": top_gene_sets,
-                "top_depleted_sets": [],
-                "scores_added_to_obs": True,
-                "n_significant": len(gene_sets),  # All gene sets get scores in ssGSEA
-            },
+            n_significant=len(gene_sets),  # All gene sets get scores in ssGSEA
+            enrichment_scores=enrichment_scores,  # Mean scores per gene set
+            pvalues=pvalues,
+            adjusted_pvalues=adjusted_pvalues,
+            gene_set_statistics=gene_set_statistics,
+            top_gene_sets=top_gene_sets,
+            top_depleted_sets=[],  # ssGSEA doesn't produce depleted sets
         )
 
     except Exception as e:
@@ -1407,7 +851,7 @@ async def perform_enrichr(
     gene_sets: Optional[str] = None,
     organism: str = "human",
     context=None,
-) -> EnrichrResult:
+) -> "EnrichmentResult":
     """
     Perform enrichment analysis using Enrichr web service.
 
@@ -1490,40 +934,30 @@ async def perform_enrichr(
         all_results_sorted = all_results.sort_values("Combined Score", ascending=False)
         top_gene_sets = all_results_sorted.head(10)["Term"].tolist()
 
-        # Extract odds ratios from results
-        odds_ratios = {}
+        # Collect genes found in results
         genes_found_in_results = []
         for idx, row in all_results.iterrows():
-            term = row["Term"]
-            odds_ratios[term] = row.get("Odds Ratio", 1.0)
-            # Collect genes found in any enriched term
             if isinstance(row["Genes"], str):
                 genes_found_in_results.extend(row["Genes"].split(";"))
 
-        # Remove duplicates and get unique genes found
+        # Remove duplicates
         genes_found_unique = list(set(genes_found_in_results))
 
-        return EnrichrResult(
+        # Add odds ratios to gene_set_statistics
+        for idx, row in all_results.iterrows():
+            term = row["Term"]
+            gene_set_statistics[term]["odds_ratio"] = row.get("Odds Ratio", 1.0)
+
+        return EnrichmentResult(
             method="enrichr",
             n_gene_sets=len(all_results),
             n_significant=len(all_results[all_results["Adjusted P-value"] < 0.05]),
-            input_gene_summary=create_input_gene_summary(gene_list, genes_found_unique),
             enrichment_scores=enrichment_scores,
             pvalues=pvalues,
             adjusted_pvalues=adjusted_pvalues,
-            odds_ratios=odds_ratios,
             gene_set_statistics=gene_set_statistics,
             top_gene_sets=top_gene_sets,
-            libraries_used=(
-                gene_sets
-                if isinstance(gene_sets, list)
-                else [gene_sets] if gene_sets else []
-            ),
-            method_specific_data={
-                "top_depleted_sets": [],
-                "n_input_genes": len(gene_list),
-                "organism": organism,
-            },
+            top_depleted_sets=[],  # Enrichr doesn't produce depleted sets
         )
 
     except Exception as e:
@@ -1580,11 +1014,10 @@ async def perform_spatial_enrichment(
     smoothing: bool = True,
     correct_spatial_covariates: bool = True,
     batch_key: Optional[str] = None,
-    gene_weights: Optional[Dict[str, Dict[str, float]]] = None,
     species: str = "unknown",
     database: Optional[str] = None,
     context: Optional[Context] = None,
-) -> EnrichmentInsights:
+) -> "EnrichmentResult":
     """
     Perform spatially-aware gene set enrichment analysis using EnrichMap.
 
@@ -1610,8 +1043,6 @@ async def perform_spatial_enrichment(
         Whether to correct for spatial covariates using GAM (default: True)
     batch_key : Optional[str]
         Column in adata.obs for batch-wise normalization
-    gene_weights : Optional[Dict[str, Dict[str, float]]]
-        Pre-computed gene weights for each signature
     species : str
         Species for the analysis (e.g., 'mouse', 'human')
     database : Optional[str]
@@ -1659,17 +1090,13 @@ async def perform_spatial_enrichment(
     available_genes = set(adata.var_names)
     validated_gene_sets = {}
 
-    # Debug: log total available genes
-    logger.info(f"Total available genes in dataset: {len(available_genes)}")
-    logger.info(f"First 10 genes: {list(available_genes)[:10]}")
-
     for sig_name, genes in gene_sets.items():
         # Try direct matching first
         common_genes = [gene for gene in genes if gene in available_genes]
 
         # If few matches and we know the species, try format conversion
         if len(common_genes) < len(genes) * 0.5 and species != "unknown":
-            dataset_format_genes, conversion_map = _convert_gene_format_for_matching(
+            dataset_format_genes, _ = _convert_gene_format_for_matching(
                 genes, available_genes, species
             )
 
@@ -1696,31 +1123,11 @@ async def perform_spatial_enrichment(
         )
 
     if not validated_gene_sets:
-        # Collect diagnostic information for better error reporting
-        sample_dataset_genes = list(available_genes)[:10]
-        sample_requested_genes = []
-        for sig_name, genes in gene_sets.items():
-            sample_requested_genes.extend(genes[:3])
-        sample_requested_genes = list(set(sample_requested_genes))[:10]
-
-        error_msg = (
-            f"No valid gene signatures found with at least 2 genes.\n\n"
-            f"Diagnostic information:\n"
-            f"• Dataset contains {len(available_genes)} genes\n"
-            f"• Sample dataset genes: {sample_dataset_genes}\n"
-            f"• Sample requested genes: {sample_requested_genes}\n"
-            f"• Gene signatures provided: {list(gene_sets.keys())}\n\n"
-            f"Common causes and solutions:\n"
-            f"1. Species mismatch (human vs mouse gene naming)\n"
-            f"   - Check if your data species matches the gene set database\n"
-            f"2. Gene name format differences (e.g., 'CD3D' vs 'Cd3d')\n"
-            f"   - Ensure gene names match your dataset's format\n"
-            f"3. Outdated or incompatible gene sets\n"
-            f"   - Try a different gene_set_database option\n"
-            f"4. Custom gene sets with incorrect gene symbols\n"
-            f"   - Verify gene symbols are current and correct"
+        raise ProcessingError(
+            f"No valid gene signatures found with at least 2 genes. "
+            f"Dataset has {len(available_genes)} genes, requested {len(gene_sets)} signatures. "
+            f"Common causes: species mismatch (human vs mouse) or gene name format differences."
         )
-        raise ProcessingError(error_msg)
 
     # Run EnrichMap scoring - process each gene set individually
     failed_signatures = []
@@ -1792,13 +1199,6 @@ async def perform_spatial_enrichment(
             "n_genes": len(validated_gene_sets[sig_name]),
         }
 
-    # Get gene contributions
-    if "gene_contributions" in adata.uns:
-        {
-            sig: {gene: float(contrib.mean()) for gene, contrib in contribs.items()}
-            for sig, contribs in adata.uns["gene_contributions"].items()
-        }
-
     # Store gene set membership for validation
     adata.uns["enrichment_gene_sets"] = validated_gene_sets
 
@@ -1834,524 +1234,318 @@ async def perform_spatial_enrichment(
             "and subtype='spatial_score' (or 'spatial_correlogram', 'spatial_variogram', 'spatial_cross_correlation') to visualize results"
         )
 
-    # === INSIGHTS-BASED RESULT CREATION ===
-    # Note: Skip creating data for all pathways - only create for top findings
+    # Create enrichment scores (use max score per gene set)
+    enrichment_scores = {
+        sig_name: float(stats["max"]) for sig_name, stats in summary_stats.items()
+    }
 
-    # === TRANSFORM TO INSIGHTS-BASED RESULT ===
-
-    # Sort signatures by their max scores and limit to top findings
+    # Sort by enrichment score to get top gene sets
     sorted_sigs = sorted(
-        summary_stats.keys(), key=lambda x: summary_stats[x]["max"], reverse=True
+        enrichment_scores.items(), key=lambda x: x[1], reverse=True
     )
+    top_gene_sets = [sig_name for sig_name, _ in sorted_sigs[:10]]
 
-    # Create PathwayResult objects for top pathways only
-    top_pathways = []
-    max_pathways = min(15, len(sorted_sigs))  # Limit to top 15 pathways
+    # Spatial enrichment doesn't provide p-values
+    pvalues = None
+    adjusted_pvalues = None
 
-    for sig_name in sorted_sigs[:max_pathways]:
-        stats = summary_stats[sig_name]
-        genes = validated_gene_sets.get(sig_name, [])
-
-        pathway_result = PathwayResult(
-            name=clean_pathway_name(sig_name),
-            category=categorize_pathway(sig_name),
-            significance="Spatial Enrichment Score",  # Spatial analysis doesn't have p-values
-            effect_size=format_effect_size(stats["max"], baseline=1.0),
-            key_genes=genes[:2],  # Only keep 2 representative genes
-            description=f"Enrichment score range: {stats['min']:.2f} to {stats['max']:.2f}",
-        )
-        top_pathways.append(pathway_result)
-
-    # Group pathways by category
-    pathway_categories = {}
-    for pathway in top_pathways:
-        if pathway.category not in pathway_categories:
-            pathway_categories[pathway.category] = CategorySummary(
-                count=0, significance_level="Variable", top_themes=[]
-            )
-        pathway_categories[pathway.category].count += 1
-
-    # Set significance levels based on count
-    for category, summary in pathway_categories.items():
-        if summary.count >= 4:
-            summary.significance_level = "High"
-        elif summary.count >= 2:
-            summary.significance_level = "Moderate"
-        else:
-            summary.significance_level = "Low"
-
-        # Extract themes from pathway names in this category
-        category_pathways = [p for p in top_pathways if p.category == category]
-        summary.top_themes = [p.name for p in category_pathways[:3]]
-
-    # Collect key genes from top pathways
-    all_key_genes = []
-    for pathway in top_pathways[:5]:  # Only from top 5 pathways
-        all_key_genes.extend(pathway.key_genes)
-    key_genes = list(dict.fromkeys(all_key_genes))[:8]  # Remove duplicates, keep top 8
-
-    # Generate insights
-    summary = generate_insights_summary(top_pathways)
-    interpretation = generate_pathway_interpretation(top_pathways)
-    suggestions = suggest_followup_analyses(top_pathways)
-
-    # Determine overall significance
-    if len(top_pathways) >= 10:
-        significance_overview = f"High significance with {len(top_pathways)} enriched pathways across {len(pathway_categories)} categories"
-    elif len(top_pathways) >= 5:
-        significance_overview = (
-            f"Moderate significance with {len(top_pathways)} enriched pathways"
-        )
-    else:
-        significance_overview = (
-            f"Limited significance with {len(top_pathways)} enriched pathways"
-        )
-
-    return EnrichmentInsights(
-        summary=summary,
-        significance_overview=significance_overview,
-        top_pathways=top_pathways,
-        pathway_categories=pathway_categories,
-        key_genes=key_genes,
-        suggested_analyses=suggestions,
-        interpretation=interpretation,
+    return EnrichmentResult(
         method="spatial_enrichmap",
-        total_pathways_tested=len(validated_gene_sets),
-        significant_count=len(top_pathways),
-        stats_summary={
-            "max_enrichment_score": (
-                max(stats["max"] for stats in summary_stats.values())
-                if summary_stats
-                else 0
-            ),
-            "mean_enrichment_score": (
-                np.mean([stats["max"] for stats in summary_stats.values()])
-                if summary_stats
-                else 0
-            ),
-            "spatial_parameters": {
-                "n_neighbors": n_neighbors,
-                "smoothing": smoothing,
-                "correct_spatial_covariates": correct_spatial_covariates,
-            },
-        },
+        n_gene_sets=len(validated_gene_sets),
+        n_significant=len(successful_signatures),
+        enrichment_scores=enrichment_scores,
+        pvalues=pvalues,
+        adjusted_pvalues=adjusted_pvalues,
+        gene_set_statistics=summary_stats,
+        spatial_scores_key=None,  # Scores are in obs columns, not obsm
+        top_gene_sets=top_gene_sets,
+        top_depleted_sets=[],  # Spatial enrichment doesn't produce depleted sets
     )
 
-
-async def compute_spatial_metrics(
-    data_id: str,
-    data_store: Dict[str, Any],
-    score_key: str,
-    metrics: Optional[List[str]] = None,
-    n_neighbors: int = 6,
-    n_perms: int = 999,
-    context: Optional[Context] = None,
-) -> SpatialMetricResult:
-    """
-    Compute spatial metrics for enrichment scores.
-
-    Parameters
-    ----------
-    data_id : str
-        Identifier for the spatial data
-    data_store : Dict[str, Any]
-        Dictionary containing the data
-    score_key : str
-        Column name containing the enrichment scores
-    metrics : Optional[List[str]]
-        List of metrics to compute. Options: ['morans_i', 'getis_ord', 'variance']
-        If None, computes all metrics
-    n_neighbors : int
-        Number of spatial neighbors (default: 6)
-    n_perms : int
-        Number of permutations for significance testing (default: 999)
-    context : Optional[Context]
-        Execution context
-
-    Returns
-    -------
-    Dict[str, Any]
-        Dictionary containing computed spatial metrics
-    """
-    # Check if EnrichMap is available
-    is_available, error_msg = is_enrichmap_available()
-    if not is_available:
-        raise ProcessingError(f"EnrichMap is not available: {error_msg}")
-
-    import enrichmap as em
-
-    # Get data
-    if data_id not in data_store:
-        raise ProcessingError(f"Data '{data_id}' not found in data store")
-
-    adata = data_store[data_id]["adata"]
-
-    # Validate score column
-    validate_obs_column(adata, score_key, "Score column")
-
-    # Default metrics
-    if metrics is None:
-        metrics = ["morans_i", "getis_ord", "variance"]
-
-    try:
-        # Compute spatial metrics
-        result = em.tl.compute_spatial_metrics(
-            adata=adata,
-            score_keys=[score_key],
-            metrics=metrics,
-            n_neighs=n_neighbors,
-            n_perms=n_perms,
-        )
-
-        # Extract results for the single score key
-        metric_results = {}
-        for metric in metrics:
-            if metric in result:
-                metric_results[metric] = {
-                    "value": float(result[metric][score_key]),
-                    "p_value": float(
-                        result.get(f"{metric}_pval", {}).get(score_key, np.nan)
-                    ),
-                }
-
-        return SpatialMetricResult(
-            data_id=data_id,
-            score_key=score_key,
-            metrics=metric_results,
-            parameters={"n_neighbors": n_neighbors, "n_perms": n_perms},
-        )
-
-    except Exception as e:
-        raise ProcessingError(f"Spatial metrics computation failed: {str(e)}")
-
-
-async def cluster_gene_correlation(
-    data_id: str,
-    data_store: Dict[str, Any],
-    signature_name: str,
-    cluster_key: str = "leiden",
-    correlation_method: str = "pearson",
-    context: Optional[Context] = None,
-) -> ClusterCorrelationResult:
-    """
-    Compute correlation between gene expression and enrichment scores per cluster.
-
-    Parameters
-    ----------
-    data_id : str
-        Identifier for the spatial data
-    data_store : Dict[str, Any]
-        Dictionary containing the data
-    signature_name : str
-        Name of the signature to analyze
-    cluster_key : str
-        Column in adata.obs containing cluster labels (default: "leiden")
-    correlation_method : str
-        Correlation method: 'pearson' or 'spearman' (default: "pearson")
-    context : Optional[Context]
-        Execution context
-
-    Returns
-    -------
-    Dict[str, Any]
-        Dictionary containing correlation results per cluster
-    """
-    # Check if EnrichMap is available
-    is_available, error_msg = is_enrichmap_available()
-    if not is_available:
-        raise ProcessingError(f"EnrichMap is not available: {error_msg}")
-
-    import enrichmap as em
-
-    # Get data
-    if data_id not in data_store:
-        raise ProcessingError(f"Data '{data_id}' not found in data store")
-
-    adata = data_store[data_id]["adata"]
-
-    # Validate inputs
-    score_key = f"{signature_name}_score"
-    validate_obs_column(adata, score_key, "Score column (run enrichment analysis first)")
-    validate_obs_column(adata, cluster_key, "Cluster column")
-
-    try:
-        # Compute cluster-gene correlations
-        result = em.tl.cluster_gene_correlation(
-            adata=adata,
-            signature_name=signature_name,
-            cluster_key=cluster_key,
-            correlation_method=correlation_method,
-        )
-
-        # Convert results to serializable format
-        correlation_results = {}
-        for cluster, corr_df in result.items():
-            correlation_results[str(cluster)] = {
-                "genes": corr_df.index.tolist(),
-                "correlations": corr_df["correlation"].tolist(),
-                "top_positive": corr_df.nlargest(10, "correlation")[
-                    ["correlation"]
-                ].to_dict(),
-                "top_negative": corr_df.nsmallest(10, "correlation")[
-                    ["correlation"]
-                ].to_dict(),
-            }
-
-        return ClusterCorrelationResult(
-            data_id=data_id,
-            signature_name=signature_name,
-            cluster_key=cluster_key,
-            correlation_method=correlation_method,
-            cluster_correlations=correlation_results,
-        )
-
-    except Exception as e:
-        raise ProcessingError(f"Cluster gene correlation failed: {str(e)}")
 
 
 # ============================================================================
 # Gene Set Loading Functions
 # ============================================================================
+# Simplified from GeneSetLoader class - no need for class overhead when
+# functions are only called once from load_gene_sets()
 
 
-class GeneSetLoader:
-    """Load gene sets from various databases and sources."""
+def _get_organism_name(species: str) -> str:
+    """Get organism name for gseapy from species code."""
+    return "Homo sapiens" if species.lower() == "human" else "Mus musculus"
 
-    def __init__(self, species: str = "human"):
-        """
-        Initialize gene set loader.
 
-        Parameters
-        ----------
-        species : str
-            Species for gene sets ('human' or 'mouse')
-        """
-        self.species = species.lower()
-        self.organism = "Homo sapiens" if species == "human" else "Mus musculus"
+def load_msigdb_gene_sets(
+    species: str,
+    collection: str = "H",
+    subcollection: Optional[str] = None,
+    min_size: int = 10,
+    max_size: int = 500,
+) -> Dict[str, List[str]]:
+    """
+    Load gene sets from MSigDB using gseapy.
 
-    def load_msigdb(
-        self,
-        collection: str = "H",
-        subcollection: Optional[str] = None,
-        min_size: int = 10,
-        max_size: int = 500,
-    ) -> Dict[str, List[str]]:
-        """
-        Load gene sets from MSigDB using gseapy.
+    Parameters
+    ----------
+    species : str
+        Species for gene sets ('human' or 'mouse')
+    collection : str
+        MSigDB collection name:
+        - H: hallmark gene sets
+        - C1: positional gene sets
+        - C2: curated gene sets (e.g., CGP, CP:KEGG, CP:REACTOME)
+        - C3: motif gene sets
+        - C4: computational gene sets
+        - C5: GO gene sets (CC, BP, MF)
+        - C6: oncogenic signatures
+        - C7: immunologic signatures
+        - C8: cell type signatures
+    subcollection : Optional[str]
+        Subcollection for specific databases (e.g., 'CP:KEGG', 'GO:BP')
+    min_size : int
+        Minimum gene set size
+    max_size : int
+        Maximum gene set size
 
-        Parameters
-        ----------
-        collection : str
-            MSigDB collection name:
-            - H: hallmark gene sets
-            - C1: positional gene sets
-            - C2: curated gene sets (e.g., CGP, CP:KEGG, CP:REACTOME)
-            - C3: motif gene sets
-            - C4: computational gene sets
-            - C5: GO gene sets (CC, BP, MF)
-            - C6: oncogenic signatures
-            - C7: immunologic signatures
-            - C8: cell type signatures
-        subcollection : Optional[str]
-            Subcollection for specific databases (e.g., 'CP:KEGG', 'GO:BP')
-        min_size : int
-            Minimum gene set size
-        max_size : int
-            Maximum gene set size
+    Returns
+    -------
+    Dict[str, List[str]]
+        Dictionary of gene sets
+    """
+    try:
+        import gseapy as gp
 
-        Returns
-        -------
-        Dict[str, List[str]]
-            Dictionary of gene sets
-        """
-        try:
-            import gseapy as gp
+        organism = _get_organism_name(species)
+        gene_sets_dict = {}
 
-            # Get available gene sets
-            gene_sets_dict = {}
+        if collection == "H":
+            # Hallmark gene sets
+            gene_sets = gp.get_library_name(organism=organism)
+            if "MSigDB_Hallmark_2020" in gene_sets:
+                gene_sets_dict = gp.get_library("MSigDB_Hallmark_2020", organism=organism)
 
-            if collection == "H":
-                # Hallmark gene sets
-                gene_sets = gp.get_library_name(organism=self.organism)
-                if "MSigDB_Hallmark_2020" in gene_sets:
-                    gene_sets_dict = gp.get_library(
-                        "MSigDB_Hallmark_2020", organism=self.organism
-                    )
+        elif collection == "C2" and subcollection == "CP:KEGG":
+            # KEGG pathways
+            if species.lower() == "human":
+                gene_sets_dict = gp.get_library("KEGG_2021_Human", organism=organism)
+            else:
+                gene_sets_dict = gp.get_library("KEGG_2019_Mouse", organism=organism)
 
-            elif collection == "C2" and subcollection == "CP:KEGG":
-                # KEGG pathways
-                if self.species == "human":
-                    gene_sets_dict = gp.get_library(
-                        "KEGG_2021_Human", organism=self.organism
-                    )
-                else:
-                    gene_sets_dict = gp.get_library(
-                        "KEGG_2019_Mouse", organism=self.organism
-                    )
+        elif collection == "C2" and subcollection == "CP:REACTOME":
+            # Reactome pathways
+            gene_sets_dict = gp.get_library("Reactome_2022", organism=organism)
 
-            elif collection == "C2" and subcollection == "CP:REACTOME":
-                # Reactome pathways
-                gene_sets_dict = gp.get_library("Reactome_2022", organism=self.organism)
-
-            elif collection == "C5":
-                # GO gene sets
-                if subcollection == "GO:BP" or subcollection is None:
-                    gene_sets_dict.update(
-                        gp.get_library(
-                            "GO_Biological_Process_2023", organism=self.organism
-                        )
-                    )
-                if subcollection == "GO:MF" or subcollection is None:
-                    gene_sets_dict.update(
-                        gp.get_library(
-                            "GO_Molecular_Function_2023", organism=self.organism
-                        )
-                    )
-                if subcollection == "GO:CC" or subcollection is None:
-                    gene_sets_dict.update(
-                        gp.get_library(
-                            "GO_Cellular_Component_2023", organism=self.organism
-                        )
-                    )
-
-            elif collection == "C8":
-                # Cell type signatures
-                gene_sets_dict = gp.get_library(
-                    "CellMarker_Augmented_2021", organism=self.organism
+        elif collection == "C5":
+            # GO gene sets
+            if subcollection == "GO:BP" or subcollection is None:
+                gene_sets_dict.update(
+                    gp.get_library("GO_Biological_Process_2023", organism=organism)
+                )
+            if subcollection == "GO:MF" or subcollection is None:
+                gene_sets_dict.update(
+                    gp.get_library("GO_Molecular_Function_2023", organism=organism)
+                )
+            if subcollection == "GO:CC" or subcollection is None:
+                gene_sets_dict.update(
+                    gp.get_library("GO_Cellular_Component_2023", organism=organism)
                 )
 
-            # Filter by size
-            filtered_sets = {}
-            for name, genes in gene_sets_dict.items():
-                if min_size <= len(genes) <= max_size:
-                    filtered_sets[name] = genes
+        elif collection == "C8":
+            # Cell type signatures
+            gene_sets_dict = gp.get_library("CellMarker_Augmented_2021", organism=organism)
 
-            logger.info(
-                f"Loaded {len(filtered_sets)} gene sets from MSigDB {collection}"
-            )
-            return filtered_sets
+        # Filter by size
+        filtered_sets = {}
+        for name, genes in gene_sets_dict.items():
+            if min_size <= len(genes) <= max_size:
+                filtered_sets[name] = genes
 
-        except Exception as e:
-            logger.error(f"Failed to load MSigDB gene sets: {e}")
-            return {}
+        logger.info(f"Loaded {len(filtered_sets)} gene sets from MSigDB {collection}")
+        return filtered_sets
 
-    def load_go_terms(
-        self, aspect: str = "BP", min_size: int = 10, max_size: int = 500
-    ) -> Dict[str, List[str]]:
-        """
-        Load GO terms using gseapy.
+    except Exception as e:
+        logger.error(f"Failed to load MSigDB gene sets: {e}")
+        return {}
 
-        Parameters
-        ----------
-        aspect : str
-            GO aspect: 'BP' (biological process), 'MF' (molecular function), 'CC' (cellular component)
-        min_size : int
-            Minimum gene set size
-        max_size : int
-            Maximum gene set size
 
-        Returns
-        -------
-        Dict[str, List[str]]
-            Dictionary of GO gene sets
-        """
-        aspect_map = {
-            "BP": "GO_Biological_Process_2023",
-            "MF": "GO_Molecular_Function_2023",
-            "CC": "GO_Cellular_Component_2023",
-        }
+def load_go_gene_sets(
+    species: str,
+    aspect: str = "BP",
+    min_size: int = 10,
+    max_size: int = 500,
+) -> Dict[str, List[str]]:
+    """
+    Load GO terms using gseapy.
 
-        if aspect not in aspect_map:
-            raise ValueError(f"Invalid GO aspect: {aspect}")
+    Parameters
+    ----------
+    species : str
+        Species for gene sets ('human' or 'mouse')
+    aspect : str
+        GO aspect: 'BP' (biological process), 'MF' (molecular function),
+        'CC' (cellular component)
+    min_size : int
+        Minimum gene set size
+    max_size : int
+        Maximum gene set size
 
-        try:
-            import gseapy as gp
+    Returns
+    -------
+    Dict[str, List[str]]
+        Dictionary of GO gene sets
+    """
+    aspect_map = {
+        "BP": "GO_Biological_Process_2023",
+        "MF": "GO_Molecular_Function_2023",
+        "CC": "GO_Cellular_Component_2023",
+    }
 
-            gene_sets = gp.get_library(aspect_map[aspect], organism=self.organism)
+    if aspect not in aspect_map:
+        raise ValueError(f"Invalid GO aspect: {aspect}")
 
-            # Filter by size
-            filtered_sets = {}
-            for name, genes in gene_sets.items():
-                if min_size <= len(genes) <= max_size:
-                    filtered_sets[name] = genes
+    try:
+        import gseapy as gp
 
-            logger.info(f"Loaded {len(filtered_sets)} GO {aspect} gene sets")
-            return filtered_sets
+        organism = _get_organism_name(species)
+        gene_sets = gp.get_library(aspect_map[aspect], organism=organism)
 
-        except Exception as e:
-            logger.error(f"Failed to load GO gene sets: {e}")
-            return {}
+        # Filter by size
+        filtered_sets = {}
+        for name, genes in gene_sets.items():
+            if min_size <= len(genes) <= max_size:
+                filtered_sets[name] = genes
 
-    def load_kegg_pathways(
-        self, min_size: int = 10, max_size: int = 500
-    ) -> Dict[str, List[str]]:
-        """Load KEGG pathways."""
-        try:
-            import gseapy as gp
+        logger.info(f"Loaded {len(filtered_sets)} GO {aspect} gene sets")
+        return filtered_sets
 
-            if self.species == "human":
-                gene_sets = gp.get_library("KEGG_2021_Human", organism=self.organism)
-            else:
-                gene_sets = gp.get_library("KEGG_2019_Mouse", organism=self.organism)
+    except Exception as e:
+        logger.error(f"Failed to load GO gene sets: {e}")
+        return {}
 
-            # Filter by size
-            filtered_sets = {}
-            for name, genes in gene_sets.items():
-                if min_size <= len(genes) <= max_size:
-                    filtered_sets[name] = genes
 
-            logger.info(f"Loaded {len(filtered_sets)} KEGG pathways")
-            return filtered_sets
+def load_kegg_gene_sets(
+    species: str, min_size: int = 10, max_size: int = 500
+) -> Dict[str, List[str]]:
+    """
+    Load KEGG pathways using gseapy.
 
-        except Exception as e:
-            logger.error(f"Failed to load KEGG pathways: {e}")
-            return {}
+    Parameters
+    ----------
+    species : str
+        Species for gene sets ('human' or 'mouse')
+    min_size : int
+        Minimum gene set size
+    max_size : int
+        Maximum gene set size
 
-    def load_reactome_pathways(
-        self, min_size: int = 10, max_size: int = 500
-    ) -> Dict[str, List[str]]:
-        """Load Reactome pathways."""
-        try:
-            import gseapy as gp
+    Returns
+    -------
+    Dict[str, List[str]]
+        Dictionary of KEGG pathway gene sets
+    """
+    try:
+        import gseapy as gp
 
-            gene_sets = gp.get_library("Reactome_2022", organism=self.organism)
+        organism = _get_organism_name(species)
 
-            # Filter by size
-            filtered_sets = {}
-            for name, genes in gene_sets.items():
-                if min_size <= len(genes) <= max_size:
-                    filtered_sets[name] = genes
+        if species.lower() == "human":
+            gene_sets = gp.get_library("KEGG_2021_Human", organism=organism)
+        else:
+            gene_sets = gp.get_library("KEGG_2019_Mouse", organism=organism)
 
-            logger.info(f"Loaded {len(filtered_sets)} Reactome pathways")
-            return filtered_sets
+        # Filter by size
+        filtered_sets = {}
+        for name, genes in gene_sets.items():
+            if min_size <= len(genes) <= max_size:
+                filtered_sets[name] = genes
 
-        except Exception as e:
-            logger.error(f"Failed to load Reactome pathways: {e}")
-            return {}
+        logger.info(f"Loaded {len(filtered_sets)} KEGG pathways")
+        return filtered_sets
 
-    def load_cell_markers(
-        self, min_size: int = 5, max_size: int = 200
-    ) -> Dict[str, List[str]]:
-        """Load cell type marker gene sets."""
-        try:
-            import gseapy as gp
+    except Exception as e:
+        logger.error(f"Failed to load KEGG pathways: {e}")
+        return {}
 
-            gene_sets = gp.get_library(
-                "CellMarker_Augmented_2021", organism=self.organism
-            )
 
-            # Filter by size
-            filtered_sets = {}
-            for name, genes in gene_sets.items():
-                if min_size <= len(genes) <= max_size:
-                    filtered_sets[name] = genes
+def load_reactome_gene_sets(
+    species: str, min_size: int = 10, max_size: int = 500
+) -> Dict[str, List[str]]:
+    """
+    Load Reactome pathways using gseapy.
 
-            logger.info(f"Loaded {len(filtered_sets)} cell type marker sets")
-            return filtered_sets
+    Parameters
+    ----------
+    species : str
+        Species for gene sets ('human' or 'mouse')
+    min_size : int
+        Minimum gene set size
+    max_size : int
+        Maximum gene set size
 
-        except Exception as e:
-            logger.error(f"Failed to load cell markers: {e}")
-            return {}
+    Returns
+    -------
+    Dict[str, List[str]]
+        Dictionary of Reactome pathway gene sets
+    """
+    try:
+        import gseapy as gp
+
+        organism = _get_organism_name(species)
+        gene_sets = gp.get_library("Reactome_2022", organism=organism)
+
+        # Filter by size
+        filtered_sets = {}
+        for name, genes in gene_sets.items():
+            if min_size <= len(genes) <= max_size:
+                filtered_sets[name] = genes
+
+        logger.info(f"Loaded {len(filtered_sets)} Reactome pathways")
+        return filtered_sets
+
+    except Exception as e:
+        logger.error(f"Failed to load Reactome pathways: {e}")
+        return {}
+
+
+def load_cell_marker_gene_sets(
+    species: str, min_size: int = 5, max_size: int = 200
+) -> Dict[str, List[str]]:
+    """
+    Load cell type marker gene sets using gseapy.
+
+    Parameters
+    ----------
+    species : str
+        Species for gene sets ('human' or 'mouse')
+    min_size : int
+        Minimum gene set size
+    max_size : int
+        Maximum gene set size
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        Dictionary of cell type marker gene sets
+    """
+    try:
+        import gseapy as gp
+
+        organism = _get_organism_name(species)
+        gene_sets = gp.get_library("CellMarker_Augmented_2021", organism=organism)
+
+        # Filter by size
+        filtered_sets = {}
+        for name, genes in gene_sets.items():
+            if min_size <= len(genes) <= max_size:
+                filtered_sets[name] = genes
+
+        logger.info(f"Loaded {len(filtered_sets)} cell type marker sets")
+        return filtered_sets
+
+    except Exception as e:
+        logger.error(f"Failed to load cell markers: {e}")
+        return {}
 
 
 async def load_gene_sets(
@@ -2387,24 +1581,25 @@ async def load_gene_sets(
     Dict[str, List[str]]
         Dictionary of gene sets
     """
-    loader = GeneSetLoader(species=species)
-
+    # Direct function calls - no class overhead
     database_map = {
-        "GO_Biological_Process": lambda: loader.load_go_terms(
-            "BP", min_genes, max_genes
+        "GO_Biological_Process": lambda: load_go_gene_sets(
+            species, "BP", min_genes, max_genes
         ),
-        "GO_Molecular_Function": lambda: loader.load_go_terms(
-            "MF", min_genes, max_genes
+        "GO_Molecular_Function": lambda: load_go_gene_sets(
+            species, "MF", min_genes, max_genes
         ),
-        "GO_Cellular_Component": lambda: loader.load_go_terms(
-            "CC", min_genes, max_genes
+        "GO_Cellular_Component": lambda: load_go_gene_sets(
+            species, "CC", min_genes, max_genes
         ),
-        "KEGG_Pathways": lambda: loader.load_kegg_pathways(min_genes, max_genes),
-        "Reactome_Pathways": lambda: loader.load_reactome_pathways(
-            min_genes, max_genes
+        "KEGG_Pathways": lambda: load_kegg_gene_sets(species, min_genes, max_genes),
+        "Reactome_Pathways": lambda: load_reactome_gene_sets(species, min_genes, max_genes),
+        "MSigDB_Hallmark": lambda: load_msigdb_gene_sets(
+            species, "H", None, min_genes, max_genes
         ),
-        "MSigDB_Hallmark": lambda: loader.load_msigdb("H", None, min_genes, max_genes),
-        "Cell_Type_Markers": lambda: loader.load_cell_markers(min_genes, max_genes),
+        "Cell_Type_Markers": lambda: load_cell_marker_gene_sets(
+            species, min_genes, max_genes
+        ),
     }
 
     if database not in database_map:
