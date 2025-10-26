@@ -330,12 +330,26 @@ class VisualizationParameters(BaseModel):
     )
     dpi: int = 300  # Publication quality (Nature/Cell standard)
     alpha: float = 0.9  # Spot transparency (higher = more opaque)
-    spot_size: Optional[float] = None  # Auto-determined if None (recommended)
+    spot_size: Optional[float] = Field(
+        200.0,
+        description=(
+            "Size of spots in spatial plots (in pixels). "
+            "Default 200 is optimal for most 10x Visium data. "
+            "Adjust based on data density: "
+            "dense (>3000 spots): 150-200, "
+            "sparse (<2000 spots): 200-250. "
+            "Set to None for scanpy auto-sizing (not recommended - usually too small)."
+        ),
+    )
     alpha_img: float = Field(
-        0.5,
+        0.3,
         ge=0.0,
         le=1.0,
-        description="Background tissue image transparency (lower = dimmer, helps spots stand out)",
+        description=(
+            "Background tissue image transparency (lower = dimmer, helps spots stand out). "
+            "Default 0.3 provides good contrast. "
+            "Increase to 0.4-0.5 to emphasize tissue structure."
+        ),
     )
 
     # Color parameters
