@@ -324,7 +324,9 @@ async def differential_expression(
         else:
             # Gene not in raw data (should not happen, but handle gracefully)
             if context:
-                await context.warning(f"Gene {gene} not found in raw data, skipping fold change calculation")
+                await context.warning(
+                    f"Gene {gene} not found in raw data, skipping fold change calculation"
+                )
             log2fc_values.append(None)
 
     # Calculate mean log2fc (filtering out None values)

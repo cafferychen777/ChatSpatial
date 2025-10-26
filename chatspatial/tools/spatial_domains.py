@@ -483,14 +483,20 @@ async def _identify_domains_spagcn(
                         scalefactors = spatial_data.get("scalefactors", {})
 
                         # Prefer high-res image, fall back to low-res
-                        if "hires" in img_dict and "tissue_hires_scalef" in scalefactors:
+                        if (
+                            "hires" in img_dict
+                            and "tissue_hires_scalef" in scalefactors
+                        ):
                             img = img_dict["hires"]
                             scale_factor = scalefactors["tissue_hires_scalef"]
                             if context:
                                 await context.info(
                                     f"Using high-resolution histology image from library '{lib_id}'"
                                 )
-                        elif "lowres" in img_dict and "tissue_lowres_scalef" in scalefactors:
+                        elif (
+                            "lowres" in img_dict
+                            and "tissue_lowres_scalef" in scalefactors
+                        ):
                             img = img_dict["lowres"]
                             scale_factor = scalefactors["tissue_lowres_scalef"]
                             if context:

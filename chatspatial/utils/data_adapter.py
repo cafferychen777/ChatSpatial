@@ -18,16 +18,9 @@ if TYPE_CHECKING:
     import anndata as ad
 
 from .data_validator import (  # Import the hardcoded standard keys; Import the alternative key sets
-    ALTERNATIVE_BATCH_KEYS,
-    ALTERNATIVE_CELL_TYPE_KEYS,
-    ALTERNATIVE_CLUSTER_KEYS,
-    ALTERNATIVE_SPATIAL_KEYS,
-    BATCH_KEY,
-    CELL_TYPE_KEY,
-    CLUSTER_KEY,
-    SPATIAL_KEY,
-    DataValidator,
-)
+    ALTERNATIVE_BATCH_KEYS, ALTERNATIVE_CELL_TYPE_KEYS,
+    ALTERNATIVE_CLUSTER_KEYS, ALTERNATIVE_SPATIAL_KEYS, BATCH_KEY,
+    CELL_TYPE_KEY, CLUSTER_KEY, SPATIAL_KEY, DataValidator)
 
 
 class DataStandardizationError(Exception):

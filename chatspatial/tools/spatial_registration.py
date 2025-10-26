@@ -192,10 +192,10 @@ class SpatialRegistration:
             )
 
             # Get common genes
-            common_genes = set(registered_list[0].var_names)
+            common_genes_set = set(registered_list[0].var_names)
             for adata in registered_list[1:]:
-                common_genes = common_genes & set(adata.var_names)
-            common_genes = list(common_genes)
+                common_genes_set = common_genes_set & set(adata.var_names)
+            common_genes = list(common_genes_set)
             logger.info(f"Using {len(common_genes)} common genes")
 
             # Subset to common genes
@@ -450,19 +450,25 @@ class SpatialRegistration:
                         return xgrid, torch.tensor(image, dtype=torch.float32)
 
                     # Prepare images
-                    xI, I = prepare_image_data(
+                    source_grid, source_image = prepare_image_data(
                         source_coords, source_intensity, image_size
                     )
-                    xJ, J = prepare_image_data(
+                    target_grid, target_image = prepare_image_data(
                         target_coords, target_intensity, image_size
                     )
 
                     logger.info(
-                        f"Running STalign LDDMM on {I.shape} -> {J.shape} images"
+                        f"Running STalign LDDMM on {source_image.shape} -> {target_image.shape} images"
                     )
 
                     # Run STalign LDDMM
-                    result = ST.LDDMM(xI=xI, I=I, xJ=xJ, J=J, **stalign_params)
+                    result = ST.LDDMM(
+                        xI=source_grid,
+                        I=source_image,
+                        xJ=target_grid,
+                        J=target_image,
+                        **stalign_params,
+                    )
 
                     # Extract transformation components
                     A = result.get("A", None)

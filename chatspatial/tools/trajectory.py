@@ -605,7 +605,9 @@ async def analyze_rna_velocity(
                         f"Computing RNA velocity using scVelo ({params.scvelo_mode} mode)..."
                     )
                 # Use existing scVelo computation
-                adata = compute_rna_velocity(adata, mode=params.scvelo_mode, params=params)
+                adata = compute_rna_velocity(
+                    adata, mode=params.scvelo_mode, params=params
+                )
                 velocity_computed = True
 
             except Exception as e:

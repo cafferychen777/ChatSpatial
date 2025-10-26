@@ -167,3 +167,10 @@ filterwarnings = [
     "ignore:.*jinja2.*:UserWarning",
     "ignore:.*numpy.*version.*:UserWarning",
 ]
+
+[tool.setuptools]
+# Explicit package discovery to avoid including test/data directories
+packages = ["chatspatial"]
+
+[tool.setuptools.package-data]
+chatspatial = ["py.typed"]

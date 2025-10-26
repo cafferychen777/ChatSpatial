@@ -27,42 +27,25 @@ except ImportError:
 from mcp.server.fastmcp import Context  # noqa: E402
 from mcp.types import ImageContent  # noqa: E402
 
-from .models.analysis import (
-    AnnotationResult,
-    CellCommunicationResult,  # noqa: E402
-    CNVResult,
-    DeconvolutionResult,
-    DifferentialExpressionResult,
-    EnrichmentResult,
-    IntegrationResult,
-    PreprocessingResult,
-    RNAVelocityResult,
-    SpatialStatisticsResult,
-    SpatialDomainResult,
-    SpatialVariableGenesResult,
-    TrajectoryResult,
-)
-from .models.data import (
-    AnnotationParameters,
-    CellCommunicationParameters,
-    CNVParameters,  # noqa: E402
-    ColumnInfo,
-    DeconvolutionParameters,
-    EnrichmentParameters,
-    IntegrationParameters,
-    PreprocessingParameters,
-    RNAVelocityParameters,
-    SpatialDataset,
-    SpatialDomainParameters,
-    SpatialStatisticsParameters,
-    SpatialVariableGenesParameters,
-    TrajectoryParameters,
-    VisualizationParameters,
-)
-from .spatial_mcp_adapter import (
-    MCPToolMetadata,
-    create_spatial_mcp_server,
-)  # noqa: E402
+from .models.analysis import CellCommunicationResult  # noqa: E402
+from .models.analysis import (AnnotationResult, CNVResult,  # noqa: E402
+                              DeconvolutionResult,
+                              DifferentialExpressionResult, EnrichmentResult,
+                              IntegrationResult, PreprocessingResult,
+                              RNAVelocityResult, SpatialDomainResult,
+                              SpatialStatisticsResult,
+                              SpatialVariableGenesResult, TrajectoryResult)
+from .models.data import CNVParameters  # noqa: E402
+from .models.data import (AnnotationParameters,  # noqa: E402
+                          CellCommunicationParameters, ColumnInfo,
+                          DeconvolutionParameters, EnrichmentParameters,
+                          IntegrationParameters, PreprocessingParameters,
+                          RNAVelocityParameters, SpatialDataset,
+                          SpatialDomainParameters, SpatialStatisticsParameters,
+                          SpatialVariableGenesParameters, TrajectoryParameters,
+                          VisualizationParameters)
+from .spatial_mcp_adapter import MCPToolMetadata  # noqa: E402
+from .spatial_mcp_adapter import create_spatial_mcp_server
 from .utils.error_handling import ProcessingError  # noqa: E402
 from .utils.tool_error_handling import mcp_tool_error_handler  # noqa: E402
 
@@ -105,7 +88,7 @@ async def load_data(
     data_path: str,
     data_type: str = "auto",
     name: Optional[str] = None,
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> SpatialDataset:
     """Load spatial transcriptomics data with comprehensive metadata profile
 
@@ -175,7 +158,7 @@ async def load_data(
 async def preprocess_data(
     data_id: str,
     params: PreprocessingParameters = PreprocessingParameters(),
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> PreprocessingResult:
     """Preprocess spatial transcriptomics data
 
@@ -238,7 +221,7 @@ async def preprocess_data(
 async def visualize_data(
     data_id: str,
     params: VisualizationParameters = VisualizationParameters(),
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> Union[
     ImageContent, str
 ]:  # Simplified: ImageContent or str (MCP 2025 best practice)
@@ -423,7 +406,7 @@ async def save_visualization(
     filename: Optional[str] = None,
     format: str = "png",
     dpi: Optional[int] = None,
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> str:
     """Save a visualization from cache to disk
 
@@ -476,7 +459,7 @@ async def export_all_visualizations(
     output_dir: str = "./exports",
     format: str = "png",
     dpi: Optional[int] = None,
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> List[str]:
     """Export all cached visualizations for a dataset to disk
 
@@ -520,7 +503,7 @@ async def export_all_visualizations(
 @mcp_tool_error_handler()
 async def clear_visualization_cache(
     data_id: Optional[str] = None,
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> int:
     """Clear visualization cache to free memory
 
@@ -553,7 +536,7 @@ async def clear_visualization_cache(
 async def annotate_cell_types(
     data_id: str,
     params: AnnotationParameters = AnnotationParameters(),
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> AnnotationResult:
     """Annotate cell types in spatial transcriptomics data
 
@@ -659,7 +642,7 @@ async def annotate_cell_types(
 async def analyze_spatial_statistics(
     data_id: str,
     params: SpatialStatisticsParameters = SpatialStatisticsParameters(),
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> SpatialStatisticsResult:
     """Analyze spatial statistics and autocorrelation patterns
 
@@ -708,9 +691,8 @@ async def analyze_spatial_statistics(
     data_store = {data_id: dataset_info}
 
     # Lazy import spatial_statistics (squidpy is slow to import)
-    from .tools.spatial_statistics import (
-        analyze_spatial_statistics as _analyze_spatial_statistics,
-    )
+    from .tools.spatial_statistics import \
+        analyze_spatial_statistics as _analyze_spatial_statistics
 
     # Call spatial statistics analysis function
     result = await _analyze_spatial_statistics(data_id, data_store, params, context)
@@ -741,7 +723,7 @@ async def find_markers(
     group2: Optional[str] = None,
     method: str = "wilcoxon",
     n_top_genes: int = 25,  # Number of top differentially expressed genes to return
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> DifferentialExpressionResult:
     """Find differentially expressed genes between groups
 
@@ -810,7 +792,7 @@ async def analyze_cnv(
     numbat_min_cells: int = 10,
     numbat_ncores: int = 1,
     numbat_skip_nj: bool = False,
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> CNVResult:
     """Analyze copy number variations (CNVs) in spatial transcriptomics data
 
@@ -911,7 +893,7 @@ async def analyze_cnv(
 async def analyze_velocity_data(
     data_id: str,
     params: RNAVelocityParameters = RNAVelocityParameters(),
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> RNAVelocityResult:
     """Analyze RNA velocity to understand cellular dynamics
 
@@ -962,7 +944,7 @@ async def analyze_velocity_data(
 async def analyze_trajectory_data(
     data_id: str,
     params: TrajectoryParameters = TrajectoryParameters(),
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> TrajectoryResult:
     """Infer cellular trajectories and pseudotime
 
@@ -1013,7 +995,7 @@ async def analyze_trajectory_data(
 async def integrate_samples(
     data_ids: List[str],
     params: IntegrationParameters = IntegrationParameters(),
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> IntegrationResult:
     """Integrate multiple spatial transcriptomics samples
 
@@ -1075,7 +1057,7 @@ async def integrate_samples(
 async def deconvolve_data(
     data_id: str,
     params: DeconvolutionParameters,  # No default - LLM must provide parameters
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> DeconvolutionResult:
     """Deconvolve spatial spots to estimate cell type proportions
 
@@ -1146,7 +1128,7 @@ async def deconvolve_data(
 async def identify_spatial_domains(
     data_id: str,
     params: SpatialDomainParameters = SpatialDomainParameters(),
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> SpatialDomainResult:
     """Identify spatial domains and tissue architecture
 
@@ -1166,7 +1148,8 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import \
+        identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1195,7 +1178,7 @@ async def identify_spatial_domains(
 async def analyze_cell_communication(
     data_id: str,
     params: CellCommunicationParameters,  # No default - LLM must provide parameters
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> CellCommunicationResult:
     """Analyze cell-cell communication patterns
 
@@ -1342,9 +1325,8 @@ async def analyze_cell_communication(
           • Signaling ranges: Literature-based (Wnt/Wg: ~50-100 µm)
     """
     # Import cell communication function
-    from .tools.cell_communication import (
-        analyze_cell_communication as analyze_comm_func,
-    )
+    from .tools.cell_communication import \
+        analyze_cell_communication as analyze_comm_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1377,7 +1359,7 @@ async def analyze_cell_communication(
 async def analyze_enrichment(
     data_id: str,
     params: Optional[EnrichmentParameters] = None,
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> EnrichmentResult:
     """Perform gene set enrichment analysis
 
@@ -1429,11 +1411,9 @@ async def analyze_enrichment(
     For human data:  params={"species": "human", "gene_set_database": "KEGG_Pathways"}
     """
     # Import enrichment analysis function
-    import time
 
-    from .tools.enrichment import (
-        perform_spatial_enrichment as perform_enrichment_analysis,
-    )
+    from .tools.enrichment import \
+        perform_spatial_enrichment as perform_enrichment_analysis
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1441,9 +1421,6 @@ async def analyze_enrichment(
     # Get dataset from data manager
     dataset_info = await data_manager.get_dataset(data_id)
     data_store = {data_id: dataset_info}
-
-    # Start timing
-    start_time = time.time()
 
     # Check if params is None (parameter is required now)
     if params is None:
@@ -1497,7 +1474,6 @@ async def analyze_enrichment(
                 await context.info(
                     f"Loaded {len(gene_sets)} gene sets from {params.gene_set_database}"
                 )
-
 
         except Exception as e:
             # NO FALLBACK: Enrichment analysis requires specific gene sets for scientific validity
@@ -1560,12 +1536,8 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (
-            perform_enrichr,
-            perform_gsea,
-            perform_ora,
-            perform_ssgsea,
-        )
+        from .tools.enrichment import (perform_enrichr, perform_gsea,
+                                       perform_ora, perform_ssgsea)
 
         if params.method == "pathway_gsea":
             result_dict = await perform_gsea(
@@ -1662,7 +1634,7 @@ async def analyze_enrichment(
 async def find_spatial_genes(
     data_id: str,
     params: SpatialVariableGenesParameters = SpatialVariableGenesParameters(),
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> SpatialVariableGenesResult:
     """Identify spatially variable genes using various methods
 
@@ -1721,7 +1693,7 @@ async def register_spatial_data(
     target_id: str,
     method: str = "paste",
     landmarks: Optional[List[Dict[str, Any]]] = None,
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Register/align spatial transcriptomics data across sections
 
@@ -1892,7 +1864,7 @@ for name, metadata in tool_metadata.items():
 async def save_data(
     data_id: str,
     output_path: Optional[str] = None,
-    context: Context = None,
+    context: Optional[Context] = None,
 ) -> str:
     """Manually save dataset to disk
 

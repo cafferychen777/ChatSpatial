@@ -2,11 +2,56 @@
 Data models for spatial transcriptomics analysis.
 """
 
-from .analysis import *
-# Import actual model classes from other modules
-from .data import *
+# Import result models from analysis module
+from .analysis import (AnnotationResult, CellCommunicationResult, CNVResult,
+                       DeconvolutionResult, DifferentialExpressionResult,
+                       EnrichmentResult, IntegrationResult,
+                       PreprocessingResult, RNAVelocityResult,
+                       SpatialDomainResult, SpatialStatisticsResult,
+                       SpatialVariableGenesResult, TrajectoryResult)
+# Import parameter models from data module
+from .data import (AnnotationParameters, CellCommunicationParameters,
+                   CNVParameters, ColumnInfo, DeconvolutionParameters,
+                   EnrichmentParameters, IntegrationParameters,
+                   PreprocessingParameters, ResolVIPreprocessingParameters,
+                   RNAVelocityParameters, SpatialDataset,
+                   SpatialDomainParameters, SpatialStatisticsParameters,
+                   SpatialVariableGenesParameters, TrajectoryParameters,
+                   VisualizationParameters)
 
 # Note: data_standards.py has been removed in favor of hardcoded industry standards
 # The standards are now defined directly in utils/data_validator.py
 
-__all__ = []
+__all__ = [
+    # Result models
+    "AnnotationResult",
+    "CellCommunicationResult",
+    "CNVResult",
+    "DeconvolutionResult",
+    "DifferentialExpressionResult",
+    "EnrichmentResult",
+    "IntegrationResult",
+    "PreprocessingResult",
+    "RNAVelocityResult",
+    "SpatialDomainResult",
+    "SpatialStatisticsResult",
+    "SpatialVariableGenesResult",
+    "TrajectoryResult",
+    # Parameter models
+    "AnnotationParameters",
+    "CellCommunicationParameters",
+    "CNVParameters",
+    "ColumnInfo",
+    "DeconvolutionParameters",
+    "EnrichmentParameters",
+    "IntegrationParameters",
+    "PreprocessingParameters",
+    "ResolVIPreprocessingParameters",
+    "RNAVelocityParameters",
+    "SpatialDataset",
+    "SpatialDomainParameters",
+    "SpatialStatisticsParameters",
+    "SpatialVariableGenesParameters",
+    "TrajectoryParameters",
+    "VisualizationParameters",
+]

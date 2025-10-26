@@ -33,19 +33,19 @@ def get_save_path(data_id: str, original_path: str) -> Path:
         return save_dir
 
     # Default: use directory next to original data
-    original_path = Path(original_path)
+    path_obj = Path(original_path)
 
     # Determine parent directory based on whether path looks like a file
     # Check if path has a file extension or ends with a known data format
-    if original_path.suffix in [".h5ad", ".h5", ".csv", ".txt", ".mtx", ".gz"]:
+    if path_obj.suffix in [".h5ad", ".h5", ".csv", ".txt", ".mtx", ".gz"]:
         # It's a file path, use parent directory
-        parent_dir = original_path.parent
-    elif original_path.is_dir():
+        parent_dir = path_obj.parent
+    elif path_obj.is_dir():
         # It's an existing directory
-        parent_dir = original_path
+        parent_dir = path_obj
     else:
         # Assume it's a file path (even if doesn't exist yet)
-        parent_dir = original_path.parent
+        parent_dir = path_obj.parent
 
     save_dir = parent_dir / ".chatspatial_saved"
     save_dir.mkdir(parents=True, exist_ok=True)

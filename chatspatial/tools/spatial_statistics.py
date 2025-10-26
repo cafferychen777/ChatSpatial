@@ -159,9 +159,7 @@ async def analyze_spatial_statistics(
         elif params.analysis_type == "geary":
             result = await _analyze_gearys_c(adata, params, context)
         elif params.analysis_type == "neighborhood":
-            result = await _analyze_neighborhood_enrichment(
-                adata, cluster_key, context
-            )
+            result = await _analyze_neighborhood_enrichment(adata, cluster_key, context)
         elif params.analysis_type == "co_occurrence":
             result = await _analyze_co_occurrence(adata, cluster_key, context)
         elif params.analysis_type == "ripley":
@@ -505,8 +503,12 @@ async def _analyze_morans_i(
         return {
             "n_genes_analyzed": len(genes),
             "n_significant": len(significant_genes),
-            "top_highest_autocorrelation": results_df.nlargest(n_top, "I").index.tolist() if n_top > 0 else [],
-            "top_lowest_autocorrelation": results_df.nsmallest(n_top, "I").index.tolist() if n_top > 0 else [],
+            "top_highest_autocorrelation": (
+                results_df.nlargest(n_top, "I").index.tolist() if n_top > 0 else []
+            ),
+            "top_lowest_autocorrelation": (
+                results_df.nsmallest(n_top, "I").index.tolist() if n_top > 0 else []
+            ),
             "mean_morans_i": float(results_df["I"].mean()),
             "analysis_key": moran_key,
             "note": "top_highest/top_lowest refer to autocorrelation strength, not positive/negative correlation",
@@ -891,11 +893,11 @@ async def _analyze_bivariate_moran(
                 denominator = np.sum((x - x_mean) ** 2)
 
                 if denominator > 0:
-                    I = (n / w.sparse.sum()) * (numerator / denominator)
+                    moran_i = (n / w.sparse.sum()) * (numerator / denominator)
                 else:
-                    I = 0
+                    moran_i = 0
 
-                results[f"{gene1}_vs_{gene2}"] = float(I)
+                results[f"{gene1}_vs_{gene2}"] = float(moran_i)
 
     except Exception as e:
         if context:

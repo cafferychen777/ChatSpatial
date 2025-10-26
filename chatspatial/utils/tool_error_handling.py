@@ -12,7 +12,7 @@ IMAGE HANDLING NOTE (Updated 2024-12):
 
 import traceback
 from functools import wraps
-from typing import Any, Dict, get_type_hints
+from typing import get_type_hints
 
 
 def _check_return_type_category(func) -> str:

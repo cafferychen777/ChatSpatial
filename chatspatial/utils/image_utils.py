@@ -7,15 +7,13 @@ All functions return Image objects that can be directly used in MCP tools.
 
 import base64
 import io
-import json
 import os
 import pickle
-import sys
 import uuid
 import weakref
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
-from mcp.types import EmbeddedResource, ImageContent, TextResourceContents
+from mcp.types import ImageContent
 
 
 # Function to ensure matplotlib uses non-interactive backend
@@ -216,8 +214,8 @@ async def optimize_fig_to_image_with_cache(
     fig: "plt.Figure",
     params: Any,
     context: Optional[Any] = None,
-    data_id: str = None,
-    plot_type: str = None,
+    data_id: Optional[str] = None,
+    plot_type: Optional[str] = None,
     mode: str = "auto",
 ) -> Union[ImageContent, str]:
     """Optimized image conversion with Figure caching for high-quality export
@@ -278,7 +276,7 @@ async def optimize_fig_to_image_with_cache(
         facecolor="white",
         edgecolor="none",
         pad_inches=0.1,
-        metadata={"Software": "spatial-transcriptomics-mcp"}
+        metadata={"Software": "spatial-transcriptomics-mcp"},
     )
     actual_size = actual_buf.tell()
 
@@ -299,6 +297,7 @@ async def optimize_fig_to_image_with_cache(
         img_data = actual_buf.read()
         actual_buf.close()
         import matplotlib.pyplot as plt
+
         plt.close(fig)
         return bytes_to_image_content(img_data, format="png")
 
@@ -321,12 +320,13 @@ async def optimize_fig_to_image_with_cache(
 
     # Write the image data we already generated
     actual_buf.seek(0)
-    with open(hq_path, 'wb') as f:
+    with open(hq_path, "wb") as f:
         f.write(actual_buf.read())
     actual_buf.close()
 
     # Close figure
     import matplotlib.pyplot as plt
+
     plt.close(fig)
 
     # NOTE: Metadata is now managed by server.py, not here
