@@ -27,6 +27,27 @@ from ..utils import validate_var_column  # noqa: E402
 from ..utils.error_handling import suppress_output  # noqa: E402
 
 
+def _extract_counts_matrix(X):
+    """
+    Extract count matrix from AnnData X, handling both sparse and dense matrices efficiently.
+
+    For sparse matrices, toarray() already returns a new numpy array (no copy needed).
+    For dense matrices, we need to copy to avoid modifying the original data.
+
+    Args:
+        X: Count matrix (sparse or dense)
+
+    Returns:
+        numpy.ndarray: Count matrix as a numpy array
+    """
+    if hasattr(X, "toarray"):
+        # Sparse matrix: toarray() already returns a new array
+        return X.toarray()
+    else:
+        # Dense matrix: need to copy to avoid modifying original
+        return X.copy()
+
+
 async def identify_spatial_genes(
     data_id: str,
     data_store: Dict[str, Any],
@@ -530,20 +551,14 @@ async def _identify_spatial_genes_sparkx(
 
     # Get count matrix - use raw counts if available, otherwise current matrix
     if adata.raw is not None:
-        # Use raw counts for SPARK
-        if hasattr(adata.raw.X, "toarray"):
-            counts_matrix = adata.raw.X.toarray()
-        else:
-            counts_matrix = adata.raw.X.copy()
+        # Use raw counts for SPARK (optimized: no redundant copy for sparse matrices)
+        counts_matrix = _extract_counts_matrix(adata.raw.X)
         # Use raw gene names
         gene_names = [str(name) for name in adata.raw.var_names]
         n_genes = len(gene_names)
     else:
-        # Fallback to current matrix
-        if hasattr(adata.X, "toarray"):
-            counts_matrix = adata.X.toarray()
-        else:
-            counts_matrix = adata.X.copy()
+        # Fallback to current matrix (optimized: no redundant copy for sparse matrices)
+        counts_matrix = _extract_counts_matrix(adata.X)
         gene_names = [str(name) for name in adata.var_names]
         n_genes = len(gene_names)
 
