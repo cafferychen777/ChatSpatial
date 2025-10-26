@@ -332,7 +332,6 @@ class SpatialMCPAdapter:
                 ]
             }
 
-
     def register_tool(self, tool_func: Callable, metadata: MCPToolMetadata) -> None:
         """Register a tool with the MCP server"""
         # Wrap the tool with MCP decorators
@@ -385,6 +384,7 @@ class SpatialMCPAdapter:
 
                 # Decode base64 string to bytes before caching
                 import base64
+
                 image_bytes = base64.b64decode(image.data)
 
                 # Store with consistent cache_key (for save_visualization lookup)
@@ -473,7 +473,8 @@ class DefaultSpatialDataManager:
 
 
 def create_spatial_mcp_server(
-    server_name: str = "ChatSpatial", data_manager: Optional[DefaultSpatialDataManager] = None
+    server_name: str = "ChatSpatial",
+    data_manager: Optional[DefaultSpatialDataManager] = None,
 ) -> tuple[FastMCP, SpatialMCPAdapter]:
     """
     Create and configure a spatial MCP server with adapter

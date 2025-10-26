@@ -12,14 +12,15 @@ import pandas as pd
 import scanpy as sc
 from mcp.server.fastmcp import Context
 
+from ..models.analysis import AnnotationResult
+from ..models.data import AnnotationParameters
+from ..utils import validate_obs_column
+
 # Optional imports - actual validation happens at runtime via _validate_*() functions
 # This allows the module to load even if optional dependencies are missing
 
 # R interface validation is now handled by _validate_rpy2_and_r() function
 
-from ..models.analysis import AnnotationResult
-from ..models.data import AnnotationParameters
-from ..utils import validate_obs_column
 
 # ============================================================================
 # DEPENDENCY VALIDATION SYSTEM
@@ -205,7 +206,7 @@ SUPPORTED_METHODS = {
 async def _annotate_with_singler(
     adata,
     params: AnnotationParameters,
-    data_store: Dict[str, Any] = None,
+    data_store: Optional[Dict[str, Any]] = None,
     context: Optional[Context] = None,
 ):
     """Annotate cell types using SingleR reference-based method"""
@@ -1202,7 +1203,9 @@ async def _annotate_with_scanvi(
 
             # Setup for SCVI with labels (required for SCANVI conversion)
             # First ensure the reference has the cell type labels
-            validate_obs_column(adata_ref, cell_type_key, "Cell type column (reference data)")
+            validate_obs_column(
+                adata_ref, cell_type_key, "Cell type column (reference data)"
+            )
 
             # SCVI needs to know about labels for later SCANVI conversion
             scvi.model.SCVI.setup_anndata(

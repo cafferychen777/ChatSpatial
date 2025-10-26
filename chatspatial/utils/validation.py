@@ -119,7 +119,9 @@ def validate_var_columns(
         )
 
 
-def validate_adata_basics(adata: ad.AnnData, min_obs: int = 1, min_vars: int = 1) -> None:
+def validate_adata_basics(
+    adata: ad.AnnData, min_obs: int = 1, min_vars: int = 1
+) -> None:
     """
     Validate basic AnnData structure and size requirements.
 

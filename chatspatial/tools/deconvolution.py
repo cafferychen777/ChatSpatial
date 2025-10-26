@@ -331,9 +331,7 @@ def _prepare_anndata_for_counts(
         )
 
         if has_negatives:
-            error_msg += (
-                "  WARNING:Data appears to be z-score normalized (contains negative values)\n"
-            )
+            error_msg += "  WARNING:Data appears to be z-score normalized (contains negative values)\n"
         elif has_decimals and data_max < 20:
             error_msg += "  WARNING:Data appears to be log-transformed\n"
         elif has_decimals:

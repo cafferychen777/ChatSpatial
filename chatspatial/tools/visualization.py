@@ -21,10 +21,9 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import scanpy as sc  # noqa: E402
 import seaborn as sns  # noqa: E402
-from scipy.stats import pearsonr, spearmanr  # noqa: E402
-
 from mcp.server.fastmcp import Context  # noqa: E402
 from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
+from scipy.stats import pearsonr, spearmanr  # noqa: E402
 
 # Optional CNV analysis visualization
 try:
@@ -39,13 +38,13 @@ from ..models.data import VisualizationParameters  # noqa: E402
 from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
 # Import error handling utilities
 from ..utils.error_handling import DataNotFoundError  # noqa: E402
-from ..utils.error_handling import (DataCompatibilityError,
+from ..utils.error_handling import (DataCompatibilityError,  # noqa: E402
                                     InvalidParameterError, ProcessingError)
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
 # Import path utilities for safe file operations
 from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
-from ..utils.path_utils import get_safe_output_path, is_safe_output_path
+from ..utils.path_utils import get_safe_output_path  # noqa: E402
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors  # noqa: E402
 
@@ -1987,9 +1986,7 @@ async def visualize_data(
 
         # Convert figure with optimization (preview + resource for large images)
         if context:
-            await context.info(
-                f"Converting {params.plot_type} figure..."
-            )
+            await context.info(f"Converting {params.plot_type} figure...")
 
         # Generate plot_type_key with subtype if applicable (for cache consistency)
         subtype = (
@@ -2194,7 +2191,6 @@ async def create_dominant_celltype_map(
             )
     else:
         # No mixed spots - standard categorical plot
-        from matplotlib.colors import ListedColormap
 
         if n_categories <= 20:
             cmap = plt.cm.get_cmap("tab20", n_categories)
@@ -2392,7 +2388,6 @@ async def create_stacked_barplot(
         # Sort by spatial distance (hierarchical clustering on coordinates)
         if "spatial" in adata.obsm:
             from scipy.cluster.hierarchy import dendrogram, linkage
-            from scipy.spatial.distance import pdist
 
             spatial_coords = adata.obsm["spatial"][proportions_plot.index]
             linkage_matrix = linkage(spatial_coords, method="ward")
@@ -5200,7 +5195,9 @@ async def create_enrichment_visualization(
                 elif params.subtype == "spatial_score":
                     # Use EnrichMap native spatial visualization
                     # Default size=0.5 for better visibility (EnrichMap default is 2)
-                    spot_size = params.spot_size if params.spot_size is not None else 0.5
+                    spot_size = (
+                        params.spot_size if params.spot_size is not None else 0.5
+                    )
                     em.pl.spatial_enrichmap(
                         adata,
                         score_key=score_col,
@@ -5229,7 +5226,7 @@ async def create_enrichment_visualization(
             # Provide clear error message explaining why we cannot fallback
             score_info = ""
             if params.subtype == "spatial_cross_correlation":
-                score_info = f"Using first 2 pathways from enrichment results"
+                score_info = "Using first 2 pathways from enrichment results"
             elif params.feature:
                 score_info = f"Score column: {params.feature}_score"
 
@@ -5389,9 +5386,6 @@ async def create_gsea_visualization(
         elif plot_type == "dotplot":
             # Multi-cluster dotplot
             return _create_gsea_dotplot(gsea_results)
-        elif plot_type == "heatmap":
-            # Pathway enrichment heatmap
-            return _create_gsea_heatmap(gsea_results, params)
         else:
             # Default to barplot
             return _create_gsea_barplot(gsea_results, params)
@@ -5921,7 +5915,7 @@ async def create_spatial_interaction_visualization(
         plt.tight_layout()
         return fig
 
-    except ValueError as e:
+    except ValueError:
         # Re-raise validation errors (e.g., missing lr_pairs)
         raise
     except Exception as e:

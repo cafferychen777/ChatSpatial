@@ -292,7 +292,7 @@ class VisualizationParameters(BaseModel):
         description=(
             "Unified subtype parameter for visualization variants. "
             "Usage depends on plot_type:\n"
-            "- pathway_enrichment: 'barplot', 'dotplot', 'heatmap' (traditional ORA/GSEA), "
+            "- pathway_enrichment: 'barplot', 'dotplot' (traditional ORA/GSEA), "
             "'spatial_score', 'spatial_correlogram', 'spatial_variogram', 'spatial_cross_correlation' (spatial EnrichMap)\n"
             "- deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'\n"
             "- spatial_statistics: 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality', 'getis_ord'\n"
@@ -460,7 +460,6 @@ class VisualizationParameters(BaseModel):
         "dominant_type",
         description="Sorting method for stacked_bar visualization. Options: dominant_type (group by dominant cell type), spatial (spatial order), cluster (cluster order). Default: dominant_type",
     )
-
 
     @model_validator(mode="after")
     def validate_conditional_parameters(self) -> Self:

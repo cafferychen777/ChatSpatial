@@ -16,7 +16,6 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
-from ..utils import validate_obs_column
 from ..utils.error_handling import ProcessingError
 from ..utils.metadata_storage import store_analysis_metadata
 
@@ -33,7 +32,7 @@ def _filter_significant_statistics(
     enrichment_scores: dict,
     pvalues: dict,
     adjusted_pvalues: dict,
-    fdr_threshold: float = None,
+    fdr_threshold: Optional[float] = None,
 ) -> tuple:
     """
     Filter all enrichment result dictionaries to only include significant pathways.
@@ -92,15 +91,11 @@ def _filter_significant_statistics(
     }
 
     filtered_scores = {
-        name: score
-        for name, score in enrichment_scores.items()
-        if name in significant
+        name: score for name, score in enrichment_scores.items() if name in significant
     }
 
     filtered_pvals = {
-        name: pval
-        for name, pval in pvalues.items()
-        if name in significant
+        name: pval for name, pval in pvalues.items() if name in significant
     }
 
     filtered_adj_pvals = {
@@ -410,12 +405,12 @@ async def perform_gsea(
                 ranking = dict(zip(adata.var_names, cv))
         else:
             # No group information: Use best available ranking method
-            if 'highly_variable_rank' in adata.var:
+            if "highly_variable_rank" in adata.var:
                 # Prefer pre-computed HVG ranking (most robust)
-                ranking = adata.var['highly_variable_rank'].to_dict()
-            elif 'dispersions_norm' in adata.var:
+                ranking = adata.var["highly_variable_rank"].to_dict()
+            elif "dispersions_norm" in adata.var:
                 # Use Seurat-style normalized dispersion
-                ranking = adata.var['dispersions_norm'].to_dict()
+                ranking = adata.var["dispersions_norm"].to_dict()
             else:
                 # Fallback: Coefficient of Variation (better than raw variance)
                 # Use sparse-compatible std calculation
@@ -1106,9 +1101,6 @@ async def perform_enrichr(
             if isinstance(row["Genes"], str):
                 genes_found_in_results.extend(row["Genes"].split(";"))
 
-        # Remove duplicates
-        genes_found_unique = list(set(genes_found_in_results))
-
         # Add odds ratios to gene_set_statistics
         for idx, row in all_results.iterrows():
             term = row["Term"]
@@ -1421,9 +1413,7 @@ async def perform_spatial_enrichment(
     }
 
     # Sort by enrichment score to get top gene sets
-    sorted_sigs = sorted(
-        enrichment_scores.items(), key=lambda x: x[1], reverse=True
-    )
+    sorted_sigs = sorted(enrichment_scores.items(), key=lambda x: x[1], reverse=True)
     top_gene_sets = [sig_name for sig_name, _ in sorted_sigs[:10]]
 
     # Spatial enrichment doesn't provide p-values, so return empty gene_set_statistics
@@ -1443,7 +1433,6 @@ async def perform_spatial_enrichment(
         top_gene_sets=top_gene_sets,
         top_depleted_sets=[],  # Spatial enrichment doesn't produce depleted sets
     )
-
 
 
 # ============================================================================
@@ -1505,7 +1494,9 @@ def load_msigdb_gene_sets(
             # Hallmark gene sets
             gene_sets = gp.get_library_name(organism=organism)
             if "MSigDB_Hallmark_2020" in gene_sets:
-                gene_sets_dict = gp.get_library("MSigDB_Hallmark_2020", organism=organism)
+                gene_sets_dict = gp.get_library(
+                    "MSigDB_Hallmark_2020", organism=organism
+                )
 
         elif collection == "C2" and subcollection == "CP:KEGG":
             # KEGG pathways
@@ -1535,7 +1526,9 @@ def load_msigdb_gene_sets(
 
         elif collection == "C8":
             # Cell type signatures
-            gene_sets_dict = gp.get_library("CellMarker_Augmented_2021", organism=organism)
+            gene_sets_dict = gp.get_library(
+                "CellMarker_Augmented_2021", organism=organism
+            )
 
         # Filter by size
         filtered_sets = {}
@@ -1775,7 +1768,9 @@ async def load_gene_sets(
             species, "CC", min_genes, max_genes
         ),
         "KEGG_Pathways": lambda: load_kegg_gene_sets(species, min_genes, max_genes),
-        "Reactome_Pathways": lambda: load_reactome_gene_sets(species, min_genes, max_genes),
+        "Reactome_Pathways": lambda: load_reactome_gene_sets(
+            species, min_genes, max_genes
+        ),
         "MSigDB_Hallmark": lambda: load_msigdb_gene_sets(
             species, "H", None, min_genes, max_genes
         ),

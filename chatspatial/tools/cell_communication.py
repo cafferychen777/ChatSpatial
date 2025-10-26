@@ -650,7 +650,8 @@ async def _analyze_communication_cellphonedb(
         import os
         import tempfile
 
-        from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
+        from cellphonedb.src.core.methods import \
+            cpdb_statistical_analysis_method
     except ImportError:
         raise ImportError(
             "CellPhoneDB is not installed. Please install it with: pip install cellphonedb"

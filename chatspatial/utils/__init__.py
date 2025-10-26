@@ -2,31 +2,19 @@
 Utility functions for spatial transcriptomics data analysis.
 """
 
-from .data_adapter import (
-    ensure_spatial_neighbors,
-    get_cell_types,
-    get_clusters,
-    get_spatial_coordinates,
-    standardize_adata,
-)
-from .data_validator import (
-    raise_if_invalid,
-    validate_for_cell_communication,
-    validate_for_deconvolution,
-    validate_for_spatial_statistics,
-    validate_spatial_data,
-)
+from .data_adapter import (ensure_spatial_neighbors, get_cell_types,
+                           get_clusters, get_spatial_coordinates,
+                           standardize_adata)
+from .data_validator import (raise_if_invalid, validate_for_cell_communication,
+                             validate_for_deconvolution,
+                             validate_for_spatial_statistics,
+                             validate_spatial_data)
 from .error_handling import ProcessingError, suppress_output
 from .tool_error_handling import mcp_tool_error_handler
-from .validation import (
-    ensure_categorical,
-    validate_adata_basics,
-    validate_categorical,
-    validate_obs_column,
-    validate_obs_columns,
-    validate_var_column,
-    validate_var_columns,
-)
+from .validation import (ensure_categorical, validate_adata_basics,
+                         validate_categorical, validate_obs_column,
+                         validate_obs_columns, validate_var_column,
+                         validate_var_columns)
 
 __all__ = [
     "ProcessingError",
