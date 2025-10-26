@@ -37,9 +37,9 @@ from ..models.data import VisualizationParameters  # noqa: E402
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
 # Import error handling utilities
+from ..utils.error_handling import DataCompatibilityError  # noqa: E402
 from ..utils.error_handling import DataNotFoundError  # noqa: E402
-from ..utils.error_handling import (DataCompatibilityError,  # noqa: E402
-                                    InvalidParameterError, ProcessingError)
+from ..utils.error_handling import InvalidParameterError, ProcessingError
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
 # Import path utilities for safe file operations
@@ -251,6 +251,19 @@ def plot_spatial_feature(
         # Only add spot_size if explicitly set (None = auto-determined, recommended)
         if params.spot_size is not None:
             plot_kwargs["spot_size"] = params.spot_size
+
+        # CRITICAL FIX: Add library_id for proper spot rendering
+        # Get sample key from adata.uns["spatial"]
+        sample_key = None
+        if "spatial" in adata.uns and isinstance(adata.uns["spatial"], dict):
+            keys = list(adata.uns["spatial"].keys())
+            if keys:
+                sample_key = keys[0]
+
+        # Add library_id for multi-sample reliability and proper spot rendering
+        if sample_key:
+            plot_kwargs["library_id"] = sample_key
+
         sc.pl.spatial(adata, img_key="hires", **plot_kwargs)
     else:
         # For embeddings, use 'size' parameter if spot_size is set
