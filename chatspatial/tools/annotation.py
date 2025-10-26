@@ -1256,8 +1256,8 @@ async def _annotate_with_scanvi(
                         "Creating counts layer from adata.raw for scANVI..."
                     )
                 if adata_ref.raw is not None:
-                    # Get raw counts from adata.raw
-                    adata_ref.layers["counts"] = adata_ref.raw.X.copy()
+                    # Get raw counts from adata.raw (view, not copy - no extra memory)
+                    adata_ref.layers["counts"] = adata_ref.raw.X
                 else:
                     raise ValueError(
                         "scANVI requires raw counts. Please run preprocessing first "
@@ -1316,8 +1316,8 @@ async def _annotate_with_scanvi(
                     "Creating counts layer from adata.raw for query data..."
                 )
             if adata_subset.raw is not None:
-                # Get raw counts from adata.raw
-                adata_subset.layers["counts"] = adata_subset.raw.X.copy()
+                # Get raw counts from adata.raw (view, not copy - no extra memory)
+                adata_subset.layers["counts"] = adata_subset.raw.X
             else:
                 raise ValueError(
                     "scANVI requires raw counts. Please run preprocessing first "
