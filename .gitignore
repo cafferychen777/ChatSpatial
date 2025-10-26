@@ -257,6 +257,14 @@ credentials.json
 # MCP server specific
 *.mcprc
 .mcp/
+.mcp.json
+
+# Test configuration (should be in pyproject.toml)
+pytest.ini
+tox.ini
+
+# Legacy setup files (use pyproject.toml instead)
+setup.cfg
 
 # Documentation build artifacts
 docs/_build/
@@ -313,6 +321,9 @@ docs/*_PLAN.md
 docs/DOCUMENTATION_IMPROVEMENT_PLAN.md
 docs/IMPROVEMENT_COMPLETION_REPORT.md
 docs/WEBSITE_STRUCTURE_IMPROVEMENT_PLAN.md
+# Exclude internal GitHub configuration docs
+.github/*_CONFIG.md
+.github/PAGES_CONFIG.md
 # Exclude specific internal guides
 ChatSpatial_Claude_Desktop_Testing_Guide.md
 docs/examples/guides/ChatSpatial_Claude_Desktop_Testing_Guide.md
