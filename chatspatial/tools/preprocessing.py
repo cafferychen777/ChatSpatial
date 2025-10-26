@@ -305,11 +305,14 @@ async def preprocess_data(
         # We need to create an independent AnnData object to truly preserve counts
         import anndata as ad_module
 
+        # Memory optimization: AnnData.raw internally copies var, so no need for .copy()
+        # obs MUST be copied to prevent contamination from later preprocessing steps
+        # uns can be empty dict as raw doesn't need metadata
         adata.raw = ad_module.AnnData(
-            X=adata.X.copy(),
-            var=adata.var.copy(),
-            obs=adata.obs.copy(),
-            uns=adata.uns.copy(),
+            X=adata.X.copy(),      # Must copy - will be modified during normalization
+            var=adata.var,         # No copy needed - AnnData internally creates independent copy
+            obs=adata.obs.copy(),  # Must copy - will be modified by clustering/annotation
+            uns={},                # Empty dict - raw doesn't need uns metadata
         )
 
         # Update QC metrics after filtering
