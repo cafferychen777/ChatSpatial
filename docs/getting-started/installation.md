@@ -51,14 +51,14 @@ pip install -e ".[full]"
 💡 **Why virtual environment?** Isolates dependencies, prevents conflicts, and makes configuration with MCP clients cleaner.
 
 {: .highlight }
-💡 **Why [full]?** Enables all 16+ analysis methods. Takes ~13 minutes but provides the complete ChatSpatial experience.
+💡 **Why [full]?** Enables all 16+ analysis methods. **Installation time:** 6-10 minutes depending on your internet speed and system (includes compiling PETSc/SLEPc on first install).
 
 ## Installation Options
 
 | Option | Command | Features | Time |
 |--------|---------|----------|------|
-| **Full (Recommended)** | `pip install -e ".[full]"` | 100% features | ~13 min |
-| Standard | `pip install -e .` | 80% features | ~6 min |
+| **Full (Recommended)** | `pip install -e ".[full]"` | 100% features | 6-10 min |
+| Standard | `pip install -e .` | 80% features | 3-5 min |
 
 ### Standard Installation (Default)
 - ✅ Core spatial analysis (Moran's I, Getis-Ord)
@@ -79,9 +79,23 @@ Everything in Standard, plus:
 
 ## Requirements
 
-- Python 3.10-3.12 (MCP requires Python 3.10+)
+- Python 3.10-3.13 (MCP requires Python 3.10+)
 - 5-10 GB disk space (for full installation)
 - macOS, Linux, or Windows
+
+### Check Your Python Version
+
+```bash
+# Check your Python version
+python --version
+# or
+python3 --version
+
+# Should output: Python 3.10.x, 3.11.x, 3.12.x, or 3.13.x
+```
+
+{: .note }
+💡 **Python 3.13 Support:** ChatSpatial is fully compatible with Python 3.13. Some minor FutureWarning messages from dependencies may appear but do not affect functionality.
 
 ### Platform-Specific Limitations
 
@@ -157,32 +171,80 @@ Install Claude Code CLI and add ChatSpatial:
 # Install Claude Code CLI (if not installed)
 npm install -g @anthropic-ai/claude-code
 
-# Add ChatSpatial MCP server
-claude mcp add chatspatial /path/to/your/chatspatial_env/bin/python -- -m chatspatial server
+# Step 1: Find your virtual environment Python path
+# (Make sure your virtual environment is activated first)
+which python
+# Copy the output path (e.g., /Users/yourname/chatspatial_env/bin/python)
 
-# Verify installation
+# Step 2: Add ChatSpatial MCP server using the FULL path
+claude mcp add chatspatial -- /Users/yourname/chatspatial_env/bin/python -m chatspatial server
+
+# Step 3: Verify the server is connected
 claude mcp list
+# You should see "chatspatial: ... - ✓ Connected"
+```
+
+**Real Example:**
+```bash
+# After running "which python" in activated environment
+# Output: /Users/alice/Projects/chatspatial_env/bin/python
+
+# Add the server with that exact path:
+claude mcp add chatspatial -- /Users/alice/Projects/chatspatial_env/bin/python -m chatspatial server
 ```
 
 {: .note }
-💡 The `--` separates Claude's options from the server command. Use `--scope user` to make ChatSpatial available across all projects.
+💡 **Key points:**
+- The `--` separates Claude CLI options from the server command
+- Always use the **absolute path** from `which python` (not relative paths)
+- Use `--scope user` to make ChatSpatial available across all projects: `claude mcp add --scope user chatspatial -- ...`
 
 {: .warning }
-⚠️ **Never use system Python:** Always use the Python from your virtual environment to avoid dependency conflicts.
+⚠️ **Never use system Python:** Always use the Python from your virtual environment to avoid dependency conflicts. Test with `which python` to ensure you're using the right one.
 
 ## Verify Installation
+
+### Step 1: Check Virtual Environment
 
 ```bash
 # First, ensure you're in the virtual environment
 which python
 # Should output path to your virtual environment, not system Python
+# Example: /Users/yourname/chatspatial_env/bin/python
 
-# Check installation
-python -m chatspatial --help
-
-# Test import
-python -c "import chatspatial; print('✅ Installation successful')"
+# Verify Python version
+python --version
+# Should show Python 3.10.x, 3.11.x, 3.12.x, or 3.13.x
 ```
+
+### Step 2: Test ChatSpatial Installation
+
+```bash
+# Test the command-line interface
+python -m chatspatial server --help
+# Should display server options without errors
+
+# Test Python import
+python -c "import chatspatial; print(f'✅ ChatSpatial {chatspatial.__version__} installed successfully')"
+```
+
+### Step 3: Test Core Dependencies
+
+```bash
+# Quick functionality test
+python -c "
+import scanpy as sc
+import squidpy as sq
+import numpy as np
+print('✅ Core packages working:')
+print(f'  - scanpy: {sc.__version__}')
+print(f'  - squidpy: {sq.__version__}')
+print(f'  - numpy: {np.__version__}')
+"
+```
+
+{: .note }
+**Expected output:** All commands should complete without errors. You may see some FutureWarning messages (especially with Python 3.13), which are normal and don't affect functionality.
 
 ## Troubleshooting
 
