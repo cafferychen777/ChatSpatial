@@ -14,8 +14,7 @@ from anndata import AnnData
 from mcp.server.fastmcp import Context
 
 from ..models.analysis import PreprocessingResult
-from ..models.data import (PreprocessingParameters,
-                           ResolVIPreprocessingParameters)
+from ..models.data import PreprocessingParameters, ResolVIPreprocessingParameters
 from ..utils.data_adapter import standardize_adata
 from ..utils.tool_error_handling import mcp_tool_error_handler
 
@@ -300,8 +299,6 @@ async def preprocess_data(
         # Save raw data before normalization (required for some analysis methods)
         if context:
             await context.info("Saving raw data for downstream analysis...")
-        # Save counts layer for deconvolution methods that require raw counts
-        adata.layers["counts"] = adata.X.copy()
 
         # IMPORTANT: Create a proper frozen copy for .raw to preserve counts
         # Using `adata.raw = adata` creates a view that gets modified during normalization

@@ -98,8 +98,7 @@ def _validate_rpy2_and_r(context: Optional[Context] = None):
         # First check rpy2
         import rpy2.robjects as robjects
         from rpy2.rinterface_lib import openrlib  # For thread safety
-        from rpy2.robjects import (conversion, default_converter, numpy2ri,
-                                   pandas2ri)
+        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
         from rpy2.robjects.conversion import localconverter
         from rpy2.robjects.packages import importr
 
@@ -1250,6 +1249,21 @@ async def _annotate_with_scanvi(
             if context:
                 await context.info("Training SCANVI model directly...")
 
+            # Ensure counts layer exists (create from adata.raw if needed)
+            if "counts" not in adata_ref.layers:
+                if context:
+                    await context.info(
+                        "Creating counts layer from adata.raw for scANVI..."
+                    )
+                if adata_ref.raw is not None:
+                    # Get raw counts from adata.raw
+                    adata_ref.layers["counts"] = adata_ref.raw.X.copy()
+                else:
+                    raise ValueError(
+                        "scANVI requires raw counts. Please run preprocessing first "
+                        "or provide data with counts in layers['counts']"
+                    )
+
             # Setup AnnData for scANVI
             # FIX: Use raw counts from layers['counts'] instead of normalized adata.X
             scvi.model.SCANVI.setup_anndata(
@@ -1293,6 +1307,21 @@ async def _annotate_with_scanvi(
                     f"Added temporary batch label '{batch_key}' = 'query_batch' for ScANVI compatibility.\n"
                     f"   This is TECHNICAL METADATA, not real batch information from your experiment.\n"
                     f"   ScANVI algorithm requires batch labels to function properly."
+                )
+
+        # Ensure counts layer exists for query data (create from adata.raw if needed)
+        if "counts" not in adata_subset.layers:
+            if context:
+                await context.info(
+                    "Creating counts layer from adata.raw for query data..."
+                )
+            if adata_subset.raw is not None:
+                # Get raw counts from adata.raw
+                adata_subset.layers["counts"] = adata_subset.raw.X.copy()
+            else:
+                raise ValueError(
+                    "scANVI requires raw counts. Please run preprocessing first "
+                    "or provide data with counts in layers['counts']"
                 )
 
         # FIX: Use raw counts for query data as well
