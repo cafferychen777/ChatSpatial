@@ -16,7 +16,7 @@ edit_page_text: "Edit this page on GitHub"
 theme: just-the-docs
 
 # Color scheme and appearance
-color_scheme: "chatspatial" # Custom ChatSpatial theme
+# Using Just the Docs default color scheme
 callouts_level: loud # or quiet
 callouts:
   highlight:
