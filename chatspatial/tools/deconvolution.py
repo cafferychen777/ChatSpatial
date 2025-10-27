@@ -2634,18 +2634,29 @@ def is_spotlight_available() -> Tuple[bool, str]:
         Tuple of (is_available, error_message)
     """
     try:
-        import rpy2.robjects as ro  # noqa: F401
-        from rpy2.robjects.packages import importr
+        import rpy2.robjects as ro
+        from rpy2.robjects import pandas2ri
+        from rpy2.robjects.conversion import localconverter
+
+        # Test R connection
+        try:
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                ro.r("R.version.string")
+        except Exception as e:
+            return False, f"R is not accessible: {str(e)}"
 
         # Check if SPOTlight is installed in R
         try:
-            importr("SPOTlight")
-            return True, ""
-        except Exception:
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                ro.r("library(SPOTlight)")
+        except Exception as e:
             return (
                 False,
-                "SPOTlight R package is not installed. Install in R with: BiocManager::install('SPOTlight')",
+                f"SPOTlight R package is not installed: {str(e)}. "
+                "Install in R with: BiocManager::install('SPOTlight')",
             )
+
+        return True, ""
 
     except ImportError:
         return (
