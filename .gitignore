@@ -177,19 +177,33 @@ bower_components/
 *.h5
 *.hdf5
 *.csv
+*.csv.gz
 *.tsv
+*.tsv.gz
 *.txt
+*.txt.gz
 *.xlsx
 *.xls
 *.parquet
 *.zarr
 *.loom
 *.rds
+*.RData
 *.pkl
 *.pickle
 *.npy
 *.npz
 *.mat
+*.mtx
+*.mtx.gz
+*.h5mu
+
+# 10x Genomics and spatial data specific files
+web_summary.html
+scalefactors_json.json
+**/spatial/*.json
+**/filtered_feature_bc_matrix/
+**/raw_feature_bc_matrix/
 
 # Image and plot files
 *.png
@@ -320,6 +334,37 @@ latex-workflow.sh
 *_MIGRATION_GUIDE.md
 *_REFACTOR_PLAN*.md
 *_DEPENDENCY_*.md
+*_SUMMARY.md
+*SUMMARY*.md
+*_ANALYSIS*.md
+*ANALYSIS*.md
+*_VERIFICATION*.md
+*VERIFICATION*.md
+*_IMPLEMENTATION*.md
+*IMPLEMENTATION*.md
+*_OPTIMIZATION*.md
+*OPTIMIZATION*.md
+*_FIX*.md
+*FIX*.md
+*_COMPLETE*.md
+*COMPLETE*.md
+*_GUIDE*.md
+*GUIDE*.md
+*_INDEX*.md
+*_README.md
+*README*.md
+*_FINDINGS*.md
+*FINDINGS*.md
+*_PHASE*.md
+*PHASE*.md
+*_REPORT*.md
+*REPORT*.md
+*_FLOW*.md
+*FLOW*.md
+quick_reference.md
+duplicate_code_analysis.md
+check_*.md
+MEMORY_PATTERN_SCANNER.py
 docs/*_REPORT.md
 docs/*_PLAN.md
 docs/DOCUMENTATION_IMPROVEMENT_PLAN.md
@@ -348,6 +393,21 @@ dataset_survey_code.py
 deep_organize_data.py
 download_reliable_datasets.py
 download_standard_datasets.py
+verify_*.py
+analyze_*.py
+investigate_*.py
+demo_*.py
+check_*.py
+check_*.R
+filter_*.py
+sparse_matrix_*.py
+convert_*.py
+convert_*.R
+fix_*.py
+compare_*.py
+prepare_*.py
+quick_*.py
+survey_*.py
 
 # Exclude large data directories that shouldn't be in git
 data/V1_*/
@@ -356,6 +416,8 @@ data/merfish_large/
 data/slideseq_large/
 data/modern_spatial/
 data/real_datasets/visium_*/
+data/gaston_tutorial/
+data/merfish_data/
 
 # Exclude data verification scripts
 data/verify_large_datasets.py
@@ -365,6 +427,9 @@ data/test_chatspatial_large_data.py
 data/BIG_DATASETS_FINAL_REPORT.md
 data/QUICK_START_DEMO.py
 data/STANDARD_DATASETS_GUIDE.md
+data/*TESTING*.md
+data/*LOG*.md
+data/card_example/*.RData
 
 # Personal development files (should never be committed)
 Group*_Fixes_Summary.md
@@ -395,11 +460,9 @@ exports/*.pdf
 exports/*.svg
 # Internal development files in outputs/
 outputs/*.py
-outputs/*_TEST.md
-outputs/*_FIX*.md
-outputs/*_INVESTIGATION.md
-outputs/*_ANALYSIS.md
-outputs/*_VERIFICATION.md
+outputs/*.R
+outputs/*.md
+outputs/*/*.md
 # Keep README files
 !outputs/README.md
 !exports/README.md
