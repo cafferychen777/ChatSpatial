@@ -28,16 +28,16 @@ from mcp.server.fastmcp import Context  # noqa: E402
 from mcp.types import ImageContent  # noqa: E402
 
 from .models.analysis import CellCommunicationResult  # noqa: E402
-from .models.analysis import (AnnotationResult, CNVResult,  # noqa: E402
-                              DeconvolutionResult,
+from .models.analysis import CNVResult  # noqa: E402
+from .models.analysis import (AnnotationResult, DeconvolutionResult,
                               DifferentialExpressionResult, EnrichmentResult,
                               IntegrationResult, PreprocessingResult,
                               RNAVelocityResult, SpatialDomainResult,
                               SpatialStatisticsResult,
                               SpatialVariableGenesResult, TrajectoryResult)
+from .models.data import AnnotationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
-from .models.data import (AnnotationParameters,  # noqa: E402
-                          CellCommunicationParameters, ColumnInfo,
+from .models.data import (CellCommunicationParameters, ColumnInfo,
                           DeconvolutionParameters, EnrichmentParameters,
                           IntegrationParameters, PreprocessingParameters,
                           RNAVelocityParameters, SpatialDataset,
