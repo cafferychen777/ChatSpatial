@@ -549,16 +549,17 @@ async def _identify_spatial_genes_sparkx(
     if context:
         await context.info(f"Preparing data: {n_spots} spots × {n_genes} genes")
 
-    # Get count matrix - use raw counts if available, otherwise current matrix
+    # ==================== OPTIMIZED: Filter on sparse matrix, then convert ====================
+    # Strategy: Keep data sparse throughout filtering, only convert final filtered result
+    # Benefit: For 30k cells × 20k genes → 3k genes: save ~15GB memory
+
+    # Get sparse count matrix - DO NOT convert to dense yet!
     if adata.raw is not None:
-        # Use raw counts for SPARK (optimized: no redundant copy for sparse matrices)
-        counts_matrix = _extract_counts_matrix(adata.raw.X)
-        # Use raw gene names
+        sparse_counts = adata.raw.X  # Keep sparse!
         gene_names = [str(name) for name in adata.raw.var_names]
         n_genes = len(gene_names)
     else:
-        # Fallback to current matrix (optimized: no redundant copy for sparse matrices)
-        counts_matrix = _extract_counts_matrix(adata.X)
+        sparse_counts = adata.X  # Keep sparse!
         gene_names = [str(name) for name in adata.var_names]
         n_genes = len(gene_names)
 
@@ -586,27 +587,27 @@ async def _identify_spatial_genes_sparkx(
                 f"Made duplicate gene names unique (found {sum(1 for c in gene_counts.values() if c > 1)} duplicates)"
             )
 
-    # Ensure counts are non-negative integers
-    counts_matrix = np.maximum(counts_matrix, 0).astype(int)
-
     if context:
         await context.info(
-            f"Using {'raw' if adata.raw is not None else 'current'} count matrix"
+            f"Using {'raw' if adata.raw is not None else 'current'} count matrix (keeping sparse for efficient filtering)"
         )
 
-    # ==================== Gene Filtering Pipeline ====================
+    # ==================== Gene Filtering Pipeline (ON SPARSE MATRIX) ====================
     # Following SPARK-X paper best practices + 2024 literature recommendations
+    # All filtering done on sparse matrix to minimize memory usage
+
+    # Initialize gene mask (all True = keep all genes initially)
+    gene_mask = np.ones(len(gene_names), dtype=bool)
 
     # TIER 1: Mitochondrial gene filtering (SPARK-X paper standard practice)
     if params.filter_mt_genes:
         mt_mask = np.array([gene.startswith(("MT-", "mt-")) for gene in gene_names])
         n_mt_genes = mt_mask.sum()
         if n_mt_genes > 0:
-            counts_matrix = counts_matrix[:, ~mt_mask]
-            gene_names = [gene for gene, is_mt in zip(gene_names, mt_mask) if not is_mt]
+            gene_mask &= ~mt_mask  # Exclude MT genes
             if context:
                 await context.info(
-                    f"Filtered {n_mt_genes} mitochondrial genes (SPARK-X paper standard)"
+                    f"Marked {n_mt_genes} mitochondrial genes for filtering (SPARK-X paper standard)"
                 )
 
     # TIER 1: Ribosomal gene filtering (optional)
@@ -616,13 +617,10 @@ async def _identify_spatial_genes_sparkx(
         )
         n_ribo_genes = ribo_mask.sum()
         if n_ribo_genes > 0:
-            counts_matrix = counts_matrix[:, ~ribo_mask]
-            gene_names = [
-                gene for gene, is_ribo in zip(gene_names, ribo_mask) if not is_ribo
-            ]
+            gene_mask &= ~ribo_mask  # Exclude ribosomal genes
             if context:
                 await context.info(
-                    f"Filtered {n_ribo_genes} ribosomal genes (reduces housekeeping dominance)"
+                    f"Marked {n_ribo_genes} ribosomal genes for filtering (reduces housekeeping dominance)"
                 )
 
     # TIER 2: HVG-only testing (2024 best practice from PMC11537352)
@@ -644,13 +642,11 @@ async def _identify_spatial_genes_sparkx(
             )
 
         # Filter gene_names to only include HVGs
-        # gene_names comes from adata.raw if it exists, otherwise from adata.var
         hvg_mask = np.array([gene in hvg_genes_set for gene in gene_names])
         n_hvg = hvg_mask.sum()
 
         if n_hvg == 0:
             # No overlap between current gene list and HVGs
-            # This can happen if adata.raw has different genes than adata.var
             raise ValueError(
                 f"test_only_hvg=True but no overlap found between current gene list ({len(gene_names)} genes) "
                 f"and HVGs ({len(hvg_genes_set)} genes). "
@@ -658,40 +654,58 @@ async def _identify_spatial_genes_sparkx(
                 "Try setting test_only_hvg=False or ensure adata.raw is None."
             )
 
-        counts_matrix = counts_matrix[:, hvg_mask]
-        gene_names = [gene for gene, is_hvg in zip(gene_names, hvg_mask) if is_hvg]
-
+        gene_mask &= hvg_mask  # Keep only HVGs
         if context:
             await context.info(
-                f"Testing only {n_hvg} highly variable genes (2024 best practice - PMC11537352)"
+                f"Marked for HVG-only testing: {n_hvg} highly variable genes (2024 best practice - PMC11537352)"
             )
 
-    # Update gene count after filtering
-    n_genes = len(gene_names)
-
-    # TIER 1: Apply SPARK-X standard filtering (expression-based)
-    # Apply gene filtering based on SPARK-X parameters (like CreateSPARKObject in R)
+    # TIER 1: Apply SPARK-X standard filtering (expression-based) - ON SPARSE MATRIX
     percentage = params.sparkx_percentage
     min_total_counts = params.sparkx_min_total_counts
 
-    # Calculate total counts per gene
-    gene_totals = counts_matrix.sum(axis=0)
-    n_expressed = (counts_matrix > 0).sum(axis=0)
+    # Calculate on sparse matrix (efficient!)
+    # sum(axis=0) on sparse matrix returns matrix, need to convert to 1D array
+    gene_totals = np.array(sparse_counts.sum(axis=0)).flatten()
+    # Count non-zeros per gene (efficient on sparse)
+    n_expressed = np.array((sparse_counts > 0).sum(axis=0)).flatten()
 
     # Filter genes: must be expressed in at least percentage of cells AND have min total counts
     min_cells = int(np.ceil(n_spots * percentage))
-    keep_genes = (n_expressed >= min_cells) & (gene_totals >= min_total_counts)
+    expr_mask = (n_expressed >= min_cells) & (gene_totals >= min_total_counts)
 
-    if keep_genes.sum() < len(gene_names):
-        # Apply filtering
-        counts_matrix = counts_matrix[:, keep_genes]
-        gene_names = [gene for gene, keep in zip(gene_names, keep_genes) if keep]
-        n_filtered = keep_genes.sum()
+    gene_mask &= expr_mask  # Combine with previous filters
+
+    n_filtered_out = len(gene_names) - gene_mask.sum()
+    if n_filtered_out > 0 and context:
+        await context.info(
+            f"Marked {n_filtered_out} genes for filtering (expression threshold: >{percentage*100:.0f}% cells, >{min_total_counts} counts)"
+        )
+
+    # Apply combined filter mask to sparse matrix (still sparse!)
+    if gene_mask.sum() < len(gene_names):
+        filtered_sparse = sparse_counts[:, gene_mask]
+        gene_names = [gene for gene, keep in zip(gene_names, gene_mask) if keep]
+        n_genes_after_filter = len(gene_names)
 
         if context:
             await context.info(
-                f"Filtered to {n_filtered}/{len(keep_genes)} genes (>{percentage*100:.0f}% cells, >{min_total_counts} counts)"
+                f"Filtered {len(gene_mask)} → {n_genes_after_filter} genes (saved {len(gene_mask) - n_genes_after_filter} genes = {(1 - n_genes_after_filter/len(gene_mask))*100:.1f}% reduction)"
             )
+    else:
+        filtered_sparse = sparse_counts
+        n_genes_after_filter = len(gene_names)
+
+    # NOW convert filtered sparse matrix to dense (much smaller!)
+    counts_matrix = _extract_counts_matrix(filtered_sparse)
+
+    # Ensure counts are non-negative integers
+    counts_matrix = np.maximum(counts_matrix, 0).astype(int)
+
+    if context:
+        await context.info(
+            f"Converted filtered sparse matrix to dense: {counts_matrix.shape} (saves ~{(len(gene_mask) - n_genes_after_filter) * n_spots * 4 / (1024**3):.1f}GB vs converting before filtering)"
+        )
 
     # Update gene count after filtering
     n_genes = len(gene_names)
