@@ -98,7 +98,8 @@ def _validate_rpy2_and_r(context: Optional[Context] = None):
         # First check rpy2
         import rpy2.robjects as robjects
         from rpy2.rinterface_lib import openrlib  # For thread safety
-        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
+        from rpy2.robjects import (conversion, default_converter, numpy2ri,
+                                   pandas2ri)
         from rpy2.robjects.conversion import localconverter
         from rpy2.robjects.packages import importr
 
@@ -1164,7 +1165,6 @@ async def _annotate_with_scanvi(
         if context:
             await context.info("Validating data preprocessing...")
 
-        # DEBUG: Check for counts layer existence
         if context:
             await context.info(
                 f"Reference data has 'counts' layer: {'counts' in adata_ref.layers}"

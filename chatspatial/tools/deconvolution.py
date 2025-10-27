@@ -1367,7 +1367,6 @@ def deconvolve_rctd(
             spatial_metrics_before, spatial_data, "Spatial", context
         )
 
-        # DEBUG: Check data after subsetting to common genes
         if context and cell_type_key in reference_data.obs:
             ref_ct_counts = reference_data.obs[cell_type_key].value_counts()
             context.info(
@@ -1411,7 +1410,6 @@ def deconvolve_rctd(
             cell_types.values, index=reference_data.obs_names, name="cell_type"
         )
 
-        # DEBUG: Check cell type distribution before passing to R
         cell_type_counts = cell_types_series.value_counts()
         if context:
             context.info(
