@@ -111,6 +111,7 @@ full = [
     # We pin to 3.5.x which works well with R 4.4.1
     # Note: Requires R to be installed (GitHub Actions installs R 4.4.1)
     "rpy2>=3.5.0,<3.7",  # Compatible with R 4.4.x, required for RCTD, SPOTlight, etc.
+    "anndata2ri>=1.3.0",  # Sparse matrix support for R deconvolution (85.9% memory savings)
     
     # ========== Extended Spatial Analysis ==========
     "pysal>=2.6.0",  # Full Python spatial analysis library
