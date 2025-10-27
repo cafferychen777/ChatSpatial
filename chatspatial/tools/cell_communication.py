@@ -671,21 +671,20 @@ async def _analyze_communication_cellphonedb(
         adata_for_analysis = adata
 
         # Import pandas for DataFrame operations
-        import pandas as pd
+        import csv
 
-        # Prepare counts data (genes x cells) - Use filtered data
-        if hasattr(adata_for_analysis.X, "toarray"):
-            counts_df = pd.DataFrame(
-                adata_for_analysis.X.toarray().T,
-                index=adata_for_analysis.var.index,
-                columns=adata_for_analysis.obs.index,
-            )
-        else:
-            counts_df = pd.DataFrame(
-                adata_for_analysis.X.T,
-                index=adata_for_analysis.var.index,
-                columns=adata_for_analysis.obs.index,
-            )
+        import pandas as pd
+        import scipy.sparse as sp
+
+        # Get matrix dimensions for reporting
+        n_genes, n_cells = (
+            adata_for_analysis.shape[1],
+            adata_for_analysis.shape[0],
+        )
+
+        # Check if data is sparse
+        is_sparse = sp.issparse(adata_for_analysis.X)
+        matrix_type = "sparse" if is_sparse else "dense"
 
         # Prepare meta data
         meta_df = pd.DataFrame(
@@ -697,7 +696,9 @@ async def _analyze_communication_cellphonedb(
 
         if context:
             await context.info(
-                f"Data prepared: {counts_df.shape[0]} genes, {counts_df.shape[1]} cells, {meta_df['cell_type'].nunique()} cell types"
+                f"Preparing {matrix_type} expression data for CellPhoneDB\n"
+                f"  Data: {n_genes} genes × {n_cells} cells\n"
+                f"  Cell types: {meta_df['cell_type'].nunique()}"
             )
 
         # Create microenvironments file if spatial data is available and requested
@@ -726,7 +727,30 @@ async def _analyze_communication_cellphonedb(
             counts_file = os.path.join(temp_dir, "counts.txt")
             meta_file = os.path.join(temp_dir, "meta.txt")
 
-            counts_df.to_csv(counts_file, sep="\t")
+            # Direct file writing: Stream sparse matrix to CSV without creating DataFrame
+            # Memory-efficient approach: write gene-by-gene instead of toarray()
+            with open(counts_file, "w", newline="") as f:
+                writer = csv.writer(f, delimiter="\t")
+
+                # Write header: empty first column + cell names
+                header = [""] + list(adata_for_analysis.obs_names)
+                writer.writerow(header)
+
+                # Convert to CSC for efficient column access (genes)
+                if is_sparse:
+                    X_csc = adata_for_analysis.X.tocsc()
+                else:
+                    X_csc = adata_for_analysis.X
+
+                # Write gene-by-gene (memory constant)
+                for i, gene_name in enumerate(adata_for_analysis.var_names):
+                    if is_sparse:
+                        # Extract gene expression across all cells
+                        gene_expression = X_csc[:, i].toarray().flatten()
+                    else:
+                        gene_expression = X_csc[:, i]
+                    writer.writerow([gene_name] + list(gene_expression))
+
             meta_df.to_csv(meta_file, sep="\t", index=False)
 
             try:
