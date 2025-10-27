@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 from mcp.server.fastmcp import Context
 
-# Import dependencies using the dependency manager
 from ..utils.error_handling import suppress_output
 
 # Try importing deep learning dependencies

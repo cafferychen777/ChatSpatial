@@ -172,8 +172,10 @@ async def preprocess_data(
         if data_id not in data_store:
             raise ValueError(f"Dataset {data_id} not found in data store")
 
-        # Make a copy of the AnnData object to avoid modifying the original
-        adata = data_store[data_id]["adata"].copy()
+        # Memory optimization: Preprocessing modifies dataset in-place (by design)
+        # The preprocessed result replaces the original at line 982, so no copy needed
+        # Original counts are preserved in adata.raw (line 311-316)
+        adata = data_store[data_id]["adata"]
 
         # LINUS FIX: Standardize data format at the entry point
         # This eliminates all downstream special cases for data format handling
@@ -309,10 +311,10 @@ async def preprocess_data(
         # obs MUST be copied to prevent contamination from later preprocessing steps
         # uns can be empty dict as raw doesn't need metadata
         adata.raw = ad_module.AnnData(
-            X=adata.X.copy(),      # Must copy - will be modified during normalization
-            var=adata.var,         # No copy needed - AnnData internally creates independent copy
+            X=adata.X.copy(),  # Must copy - will be modified during normalization
+            var=adata.var,  # No copy needed - AnnData internally creates independent copy
             obs=adata.obs.copy(),  # Must copy - will be modified by clustering/annotation
-            uns={},                # Empty dict - raw doesn't need uns metadata
+            uns={},  # Empty dict - raw doesn't need uns metadata
         )
 
         # Update QC metrics after filtering
