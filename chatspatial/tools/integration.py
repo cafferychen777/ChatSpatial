@@ -298,8 +298,8 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
     # Remove genes with zero variance to avoid NaN in scaling
     import numpy as np
 
-    if hasattr(combined.X, "todense"):
-        X_check = np.asarray(combined.X.todense())
+    if hasattr(combined.X, "toarray"):
+        X_check = combined.X.toarray()
     else:
         X_check = np.asarray(combined.X)
 
@@ -342,8 +342,8 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
     # Check data matrix before PCA
     import numpy as np
 
-    if hasattr(combined.X, "todense"):
-        X_check = np.asarray(combined.X.todense())
+    if hasattr(combined.X, "toarray"):
+        X_check = combined.X.toarray()
     else:
         X_check = np.asarray(combined.X)
 

@@ -873,9 +873,9 @@ async def perform_ssgsea(
         await context.info("Running ssGSEA analysis...")
 
     # Prepare expression data
-    if hasattr(adata.X, "todense"):
+    if hasattr(adata.X, "toarray"):
         expr_df = pd.DataFrame(
-            adata.X.todense().T, index=adata.var_names, columns=adata.obs_names
+            adata.X.toarray().T, index=adata.var_names, columns=adata.obs_names
         )
     else:
         expr_df = pd.DataFrame(
