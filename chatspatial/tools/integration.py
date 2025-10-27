@@ -41,12 +41,13 @@ def validate_data_quality(adata, min_cells=10, min_genes=10):
 
     # Check for empty cells or genes
     if hasattr(adata.X, "toarray"):
-        X_dense = adata.X.toarray()
+        # Sparse-aware: use getnnz() method (no conversion needed)
+        cell_counts = np.array(adata.X.getnnz(axis=1)).flatten()
+        gene_counts = np.array(adata.X.getnnz(axis=0)).flatten()
     else:
-        X_dense = adata.X
-
-    cell_counts = np.sum(X_dense > 0, axis=1)
-    gene_counts = np.sum(X_dense > 0, axis=0)
+        # Dense matrix
+        cell_counts = np.sum(adata.X > 0, axis=1)
+        gene_counts = np.sum(adata.X > 0, axis=0)
 
     empty_cells = np.sum(cell_counts == 0)
     empty_genes = np.sum(gene_counts == 0)
