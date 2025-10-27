@@ -925,8 +925,8 @@ async def visualize_data(
                 # Create the plot
                 fig = sc.pl.umap(adata, **plot_kwargs)
 
-                # Add velocity or trajectory overlays if requested
-                if params.show_velocity or params.show_trajectory:
+                # Add velocity overlay if requested
+                if params.show_velocity:
                     try:
                         # Get the axis from the figure
                         ax = fig.get_axes()[0] if fig.get_axes() else None
@@ -963,95 +963,6 @@ async def visualize_data(
                                 elif context:
                                     await context.warning(
                                         "Velocity data (velocity_umap) not found in adata.obsm"
-                                    )
-
-                            # Trajectory overlay (PAGA connections)
-                            if params.show_trajectory:
-                                if "paga" in adata.uns:
-                                    try:
-                                        # Add PAGA trajectory connections
-
-                                        # Get PAGA connectivity matrix
-                                        paga_adj = adata.uns["paga"][
-                                            "connectivities"
-                                        ].toarray()
-
-                                        # Get cluster centroids in UMAP space
-                                        if feature and feature in adata.obs.columns:
-                                            umap_coords = adata.obsm["X_umap"]
-                                            clusters = adata.obs[feature].astype(str)
-                                            unique_clusters = clusters.unique()
-
-                                            # Calculate centroids
-                                            centroids = {}
-                                            for cluster in unique_clusters:
-                                                mask = clusters == cluster
-                                                if mask.sum() > 0:
-                                                    centroids[cluster] = umap_coords[
-                                                        mask
-                                                    ].mean(axis=0)
-
-                                            # Draw connections based on PAGA
-                                            threshold = (
-                                                np.percentile(
-                                                    paga_adj[paga_adj > 0], 75
-                                                )
-                                                if np.any(paga_adj > 0)
-                                                else 0
-                                            )
-                                            for i, cluster_i in enumerate(
-                                                unique_clusters
-                                            ):
-                                                for j, cluster_j in enumerate(
-                                                    unique_clusters
-                                                ):
-                                                    if (
-                                                        i < j
-                                                        and i < paga_adj.shape[0]
-                                                        and j < paga_adj.shape[1]
-                                                    ):
-                                                        if paga_adj[i, j] > threshold:
-                                                            if (
-                                                                cluster_i in centroids
-                                                                and cluster_j
-                                                                in centroids
-                                                            ):
-                                                                x_coords = [
-                                                                    centroids[
-                                                                        cluster_i
-                                                                    ][0],
-                                                                    centroids[
-                                                                        cluster_j
-                                                                    ][0],
-                                                                ]
-                                                                y_coords = [
-                                                                    centroids[
-                                                                        cluster_i
-                                                                    ][1],
-                                                                    centroids[
-                                                                        cluster_j
-                                                                    ][1],
-                                                                ]
-                                                                ax.plot(
-                                                                    x_coords,
-                                                                    y_coords,
-                                                                    "k-",
-                                                                    alpha=0.6,
-                                                                    linewidth=2,
-                                                                )
-
-                                            if context:
-                                                await context.info(
-                                                    "Added PAGA trajectory connections to UMAP"
-                                                )
-                                    except Exception as e:
-                                        if context:
-                                            await context.warning(
-                                                f"Failed to add trajectory overlay: {str(e)}"
-                                            )
-                                elif context:
-                                    await context.warning(
-                                        "PAGA trajectory data not found in adata.uns"
                                     )
                     except Exception as e:
                         if context:

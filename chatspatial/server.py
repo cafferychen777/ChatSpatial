@@ -961,7 +961,6 @@ async def analyze_trajectory_data(
         - palantir: Probabilistic trajectory inference (implemented when palantir installed)
         - cellrank: RNA velocity-based trajectory inference (implemented when cellrank installed)
         - velovi: scvi-tools VeloVI (implemented when scvi-tools available)
-        - paga: Not implemented in tools/trajectory.py (planned)
     """
     # Import trajectory function
     from .tools.trajectory import analyze_trajectory
