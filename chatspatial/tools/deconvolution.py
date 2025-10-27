@@ -223,13 +223,16 @@ def _prepare_anndata_for_counts(
             raw_adata = adata_copy.raw.to_adata()
 
             # Validate if raw contains counts (not normalized)
-            raw_X = (
-                raw_adata.X.toarray()
-                if hasattr(raw_adata.X, "toarray")
-                else raw_adata.X
-            )
-            sample_size = min(100, raw_X.shape[0])
-            sample_X = raw_X[:sample_size, : min(100, raw_X.shape[1])]
+            # Sample first, then convert (memory efficient)
+            sample_size = min(100, raw_adata.X.shape[0])
+            sample_genes = min(100, raw_adata.X.shape[1])
+            raw_X_sample = raw_adata.X[:sample_size, :sample_genes]
+
+            if hasattr(raw_X_sample, "toarray"):
+                sample_X = raw_X_sample.toarray()
+            else:
+                sample_X = raw_X_sample
+
             has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
             has_negatives = sample_X.min() < 0
 
@@ -423,12 +426,17 @@ def _prepare_reference_for_card(
     if adata_copy.raw is not None:
         try:
             raw_adata = adata_copy.raw.to_adata()
-            raw_X = (
-                raw_adata.X.toarray()
-                if hasattr(raw_adata.X, "toarray")
-                else raw_adata.X
-            )
-            sample_X = raw_X[: min(100, raw_X.shape[0]), : min(100, raw_X.shape[1])]
+
+            # Sample first, then convert (memory efficient)
+            sample_size = min(100, raw_adata.X.shape[0])
+            sample_genes = min(100, raw_adata.X.shape[1])
+            raw_X_sample = raw_adata.X[:sample_size, :sample_genes]
+
+            if hasattr(raw_X_sample, "toarray"):
+                sample_X = raw_X_sample.toarray()
+            else:
+                sample_X = raw_X_sample
+
             has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
             has_negatives = sample_X.min() < 0
 
@@ -3393,22 +3401,34 @@ async def deconvolve_tangram(
         # Check data format - Tangram can work with normalized data but prefers raw counts
         import numpy as np
 
-        # Check spatial data
-        sp_data = (
-            spatial_data.X.toarray()
-            if hasattr(spatial_data.X, "toarray")
-            else spatial_data.X
-        )
-        sp_has_negatives = sp_data.min() < 0
-        sp_has_decimals = not np.allclose(sp_data, np.round(sp_data), atol=1e-6)
+        # Check spatial data (sparse-aware)
+        sp_has_negatives = spatial_data.X.min() < 0
 
-        # Check reference data
-        ref_data_arr = (
-            ref_data.X.toarray() if hasattr(ref_data.X, "toarray") else ref_data.X
+        # Sample for decimal check
+        sp_sample_size = min(1000, spatial_data.n_obs)
+        sp_sample_genes = min(100, spatial_data.n_vars)
+        sp_sample = spatial_data.X[:sp_sample_size, :sp_sample_genes]
+        if hasattr(sp_sample, "toarray"):
+            sp_sample_dense = sp_sample.toarray()
+        else:
+            sp_sample_dense = sp_sample
+        sp_has_decimals = not np.allclose(
+            sp_sample_dense, np.round(sp_sample_dense), atol=1e-6
         )
-        ref_has_negatives = ref_data_arr.min() < 0
+
+        # Check reference data (sparse-aware)
+        ref_has_negatives = ref_data.X.min() < 0
+
+        # Sample for decimal check
+        ref_sample_size = min(1000, ref_data.n_obs)
+        ref_sample_genes = min(100, ref_data.n_vars)
+        ref_sample = ref_data.X[:ref_sample_size, :ref_sample_genes]
+        if hasattr(ref_sample, "toarray"):
+            ref_sample_dense = ref_sample.toarray()
+        else:
+            ref_sample_dense = ref_sample
         ref_has_decimals = not np.allclose(
-            ref_data_arr, np.round(ref_data_arr), atol=1e-6
+            ref_sample_dense, np.round(ref_sample_dense), atol=1e-6
         )
 
         if (
