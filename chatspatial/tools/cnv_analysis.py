@@ -22,9 +22,11 @@ except ImportError:
 
 # Dependency checking for Numbat (via rpy2)
 try:
+    import anndata2ri
     import rpy2.robjects as ro
     from rpy2.rinterface_lib import openrlib  # For thread safety
-    from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
+    from rpy2.robjects import (conversion, default_converter, numpy2ri,
+                               pandas2ri)
 
     # Test if Numbat R package is available
     ro.r("library(numbat)")
@@ -427,13 +429,10 @@ async def _infer_cnv_numbat(
             f"Available uns keys: {list(adata.uns.keys())}"
         )
 
-    # Get expression matrix
-    import scipy.sparse
+    # Get expression matrix (keep sparse if possible)
+    import scipy.sparse as sp
 
-    if scipy.sparse.issparse(adata.X):
-        count_mat = adata.X.toarray()
-    else:
-        count_mat = adata.X.copy()
+    count_mat = adata.X
 
     # Prepare metadata
     gene_names = list(adata.var_names)
@@ -450,13 +449,17 @@ async def _infer_cnv_numbat(
             f"categories {params.reference_categories}"
         )
 
+    # Log sparse vs dense matrix info
+    is_sparse = sp.issparse(count_mat)
     if context:
+        matrix_type = "sparse" if is_sparse else "dense"
         await context.info(
             f"Preparing Numbat analysis:\n"
             f"  - {len(cell_barcodes)} cells × {len(gene_names)} genes\n"
             f"  - {len(ref_indices_r)} reference cells\n"
             f"  - {len(df_allele)} SNP-cell pairs\n"
-            f"  - Genome: {params.numbat_genome}"
+            f"  - Genome: {params.numbat_genome}\n"
+            f"  - Matrix format: {matrix_type}"
         )
 
     # Create temporary directory for Numbat output
@@ -471,11 +474,18 @@ async def _infer_cnv_numbat(
         # This prevents "Conversion rules missing" errors in multithreaded/async environments
         with openrlib.rlock:  # Thread safety lock
             with conversion.localconverter(
-                default_converter + pandas2ri.converter + numpy2ri.converter
+                default_converter
+                + anndata2ri.converter
+                + pandas2ri.converter
+                + numpy2ri.converter
             ):
                 # Transfer data to R environment (inside context!)
                 if context:
-                    await context.info("Transferring data to R environment...")
+                    transfer_msg = (
+                        f"Using anndata2ri for {'sparse' if is_sparse else 'dense'} matrix transfer to Numbat\n"
+                        f"  (spatial: ({count_mat.shape[0]}, {count_mat.shape[1]}))"
+                    )
+                    await context.info(transfer_msg)
 
                 ro.globalenv["count_mat"] = count_mat.T  # R expects genes × cells
                 ro.globalenv["df_allele_python"] = (
