@@ -393,9 +393,6 @@ class VisualizationParameters(BaseModel):
     show_velocity: bool = Field(
         False, description="Overlay RNA velocity vectors on UMAP"
     )
-    show_trajectory: bool = Field(
-        False, description="Show trajectory connections on UMAP (PAGA)"
-    )
     velocity_scale: float = Field(1.0, description="Scaling factor for velocity arrows")
 
     # NEW: Heatmap enhancement parameters
