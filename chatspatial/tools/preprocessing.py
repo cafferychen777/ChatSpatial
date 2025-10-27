@@ -1243,10 +1243,8 @@ async def preprocess_with_resolvi(
         denoised_mean = np.mean(denoised_expression)
 
         # Calculate noise reduction metrics
-        if hasattr(adata.X, "toarray"):
-            orig_data = adata.X.toarray()
-        else:
-            orig_data = adata.X
+        # Note: adata.X is already dense (converted at line 1163)
+        orig_data = adata.X
 
         if hasattr(denoised_expression, "toarray"):
             denoised_data = denoised_expression.toarray()

@@ -273,23 +273,31 @@ def _prepare_anndata_for_counts(
         logger.info(f"{data_name}: No counts layer or .raw found, checking current X")
         data_source = "current"
 
-    # Convert to dense for validation
-    if hasattr(adata_copy.X, "toarray"):
-        X_dense = adata_copy.X.toarray()
-    else:
-        X_dense = adata_copy.X.copy()
-
-    # Validate data
-    data_min = X_dense.min()
-    data_max = X_dense.max()
+    # Validate data (sparse-aware)
+    data_min = adata_copy.X.min()
+    data_max = adata_copy.X.max()
     has_negatives = data_min < 0
-    has_decimals = not np.allclose(X_dense, np.round(X_dense), atol=1e-6)
+
+    # Check for decimals using small sample (avoid converting entire matrix)
+    sample_size = min(1000, adata_copy.n_obs)
+    sample_genes = min(100, adata_copy.n_vars)
+    if hasattr(adata_copy.X, "toarray"):
+        X_sample = adata_copy.X[:sample_size, :sample_genes].toarray()
+    else:
+        X_sample = adata_copy.X[:sample_size, :sample_genes]
+    has_decimals = not np.allclose(X_sample, np.round(X_sample), atol=1e-6)
 
     logger.info(
         f"{data_name} data: source={data_source}, "
         f"range=[{data_min:.2f}, {data_max:.2f}], "
         f"has_negatives={has_negatives}, has_decimals={has_decimals}"
     )
+
+    # Extract dense array for processing (handle sparse/dense matrices)
+    if hasattr(adata_copy.X, "toarray"):
+        X_dense = adata_copy.X.toarray()
+    else:
+        X_dense = adata_copy.X
 
     # Handle float32/64 with integer values (R compatibility fix)
     if (
@@ -446,12 +454,16 @@ def _prepare_reference_for_card(
 
     # Step 2: If no raw counts found, use current data (may be normalized)
     if data_source is None:
-        if hasattr(adata_copy.X, "toarray"):
-            X_dense = adata_copy.X.toarray()
-        else:
-            X_dense = adata_copy.X.copy()
+        # Sample first, then convert (more memory efficient)
+        sample_size = min(100, adata_copy.n_obs)
+        sample_genes = min(100, adata_copy.n_vars)
+        X_sample = adata_copy.X[:sample_size, :sample_genes]
 
-        sample_X = X_dense[: min(100, X_dense.shape[0]), : min(100, X_dense.shape[1])]
+        if hasattr(X_sample, "toarray"):
+            sample_X = X_sample.toarray()
+        else:
+            sample_X = X_sample
+
         has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
 
         if has_decimals:
@@ -469,14 +481,9 @@ def _prepare_reference_for_card(
             logger.info(f"{data_name}: Using current data as counts")
             data_source = "current"
 
-    # Log final data info
-    if hasattr(adata_copy.X, "toarray"):
-        X_check = adata_copy.X.toarray()
-    else:
-        X_check = adata_copy.X.copy()
-
-    data_min = X_check.min()
-    data_max = X_check.max()
+    # Log final data info (sparse-aware)
+    data_min = adata_copy.X.min()
+    data_max = adata_copy.X.max()
 
     logger.info(
         f"{data_name} prepared: source={data_source}, "
@@ -758,8 +765,9 @@ def deconvolve_cell2location(
         device = _get_device(use_gpu, "Cell2location")
 
         # Prepare data using helper functions - Cell2location expects raw count data
-        ref = _prepare_anndata_for_counts(reference_adata.copy(), "Reference", context)
-        sp = _prepare_anndata_for_counts(spatial_adata.copy(), "Spatial", context)
+        # Memory optimization: helper function creates internal copy, no need to copy here
+        ref = _prepare_anndata_for_counts(reference_adata, "Reference", context)
+        sp = _prepare_anndata_for_counts(spatial_adata, "Spatial", context)
 
         # Find common genes AFTER data preparation (uses actual gene set that will be used)
         common_genes = list(set(ref.var_names) & set(sp.var_names))
@@ -1245,11 +1253,10 @@ def deconvolve_rctd(
         # Running RCTD deconvolution
 
         # Prepare data first (restore raw counts)
-        spatial_data = _prepare_anndata_for_counts(
-            spatial_adata.copy(), "Spatial", context
-        )
+        # Memory optimization: helper function creates internal copy, no need to copy here
+        spatial_data = _prepare_anndata_for_counts(spatial_adata, "Spatial", context)
         reference_data = _prepare_anndata_for_counts(
-            reference_adata.copy(), "Reference", context
+            reference_adata, "Reference", context
         )
 
         # === SCIENTIFIC VALIDATION: Gene Format Compatibility ===
@@ -2246,12 +2253,9 @@ async def deconvolve_destvi(
             )
 
         # Prepare data first (DestVI requires integer counts)
-        ref_data = _prepare_anndata_for_counts(
-            reference_adata.copy(), "reference", context
-        )
-        spatial_data = _prepare_anndata_for_counts(
-            spatial_adata.copy(), "spatial", context
-        )
+        # Memory optimization: helper function creates internal copy, no need to copy here
+        ref_data = _prepare_anndata_for_counts(reference_adata, "reference", context)
+        spatial_data = _prepare_anndata_for_counts(spatial_adata, "spatial", context)
 
         # Find common genes AFTER data preparation
         common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
@@ -2459,12 +2463,9 @@ async def deconvolve_stereoscope(
             )
 
         # Prepare data first - Stereoscope requires raw counts
-        ref_data = _prepare_anndata_for_counts(
-            reference_adata.copy(), "Reference", context
-        )
-        spatial_data = _prepare_anndata_for_counts(
-            spatial_adata.copy(), "Spatial", context
-        )
+        # Memory optimization: helper function creates internal copy, no need to copy here
+        ref_data = _prepare_anndata_for_counts(reference_adata, "Reference", context)
+        spatial_data = _prepare_anndata_for_counts(spatial_adata, "Spatial", context)
 
         # Find common genes AFTER data preparation
         common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
@@ -2734,11 +2735,12 @@ def deconvolve_spotlight(
             )
 
         # Prepare full datasets first
+        # Memory optimization: helper function creates internal copy, no need to copy here
         spatial_prepared = _prepare_anndata_for_counts(
-            spatial_adata.copy(), "Spatial", context
+            spatial_adata, "Spatial", context
         )
         reference_prepared = _prepare_anndata_for_counts(
-            reference_adata.copy(), "Reference", context
+            reference_adata, "Reference", context
         )
 
         # Find common genes AFTER data preparation
@@ -3034,13 +3036,12 @@ def deconvolve_card(
         # normalized reference data (e.g., from Smart-seq2 which doesn't provide raw UMI counts).
         # This matches how Arora et al. 2023 used CARD with SCTransform-normalized reference.
 
-        spatial_data = _prepare_anndata_for_counts(
-            spatial_adata.copy(), "Spatial", context
-        )
+        # Memory optimization: helper functions create internal copies, no need to copy here
+        spatial_data = _prepare_anndata_for_counts(spatial_adata, "Spatial", context)
 
         # For reference data: try to get raw counts if available, but accept normalized if not
         reference_data = _prepare_reference_for_card(
-            reference_adata.copy(), "Reference", context
+            reference_adata, "Reference", context
         )
 
         # 2. Find common genes AFTER data preparation
