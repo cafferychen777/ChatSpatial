@@ -96,6 +96,7 @@ def _validate_rpy2_and_r(context: Optional[Context] = None):
     """Validate R and rpy2 availability with detailed error reporting"""
     try:
         # First check rpy2
+        import anndata2ri
         import rpy2.robjects as robjects
         from rpy2.rinterface_lib import openrlib  # For thread safety
         from rpy2.robjects import (conversion, default_converter, numpy2ri,
@@ -121,6 +122,7 @@ def _validate_rpy2_and_r(context: Optional[Context] = None):
             localconverter,
             default_converter,
             openrlib,
+            anndata2ri,
         )
     except ImportError as e:
         raise ImportError(
@@ -2164,7 +2166,7 @@ async def _load_sctype_functions(context: Optional[Context] = None) -> None:
 
     try:
         # Get robjects from validation
-        robjects, _, _, _, _, default_converter, openrlib = _validate_rpy2_and_r(
+        robjects, _, _, _, _, default_converter, openrlib, _ = _validate_rpy2_and_r(
             context
         )
 
@@ -2224,7 +2226,7 @@ async def _prepare_sctype_genesets(
 
     try:
         # Get robjects from validation
-        robjects, _, _, _, _, default_converter, openrlib = _validate_rpy2_and_r(
+        robjects, _, _, _, _, default_converter, openrlib, _ = _validate_rpy2_and_r(
             context
         )
 
@@ -2320,7 +2322,7 @@ def _convert_custom_markers_to_gs(
         )
 
     # Get robjects and converters from validation
-    robjects, pandas2ri, _, _, localconverter, default_converter, openrlib = (
+    robjects, pandas2ri, _, _, localconverter, default_converter, openrlib, _ = (
         _validate_rpy2_and_r(context)
     )
 
@@ -2358,9 +2360,16 @@ async def _run_sctype_scoring(
 
     try:
         # Get robjects and converters from validation
-        robjects, pandas2ri, _, _, localconverter, default_converter, openrlib = (
-            _validate_rpy2_and_r(context)
-        )
+        (
+            robjects,
+            pandas2ri,
+            numpy2ri,
+            _,
+            localconverter,
+            default_converter,
+            openrlib,
+            anndata2ri,
+        ) = _validate_rpy2_and_r(context)
 
         # Import conversion module
         from rpy2.robjects import conversion
@@ -2377,23 +2386,50 @@ async def _run_sctype_scoring(
             if context:
                 await context.info("Using raw expression data from adata.X")
 
-        # Convert to dense array if sparse
-        if hasattr(expr_data, "toarray"):
-            expr_data = expr_data.toarray()
+        # Keep sparse matrix (remove forced toarray conversion)
+        import scipy.sparse as sp
 
-        # Convert to DataFrame with proper gene and cell names
-        expr_df = pd.DataFrame(
-            expr_data.T,  # sc-type expects genes as rows, cells as columns
-            index=adata.var_names,
-            columns=adata.obs_names,
-        )
+        # Prepare gene and cell names for R
+        gene_names = list(adata.var_names)
+        cell_names = list(adata.obs_names)
+
+        # Detect matrix format for user feedback
+        is_sparse = sp.issparse(expr_data)
+        matrix_type = "sparse" if is_sparse else "dense"
+
+        if context:
+            await context.info(
+                f"Transferring {matrix_type} matrix to R for sc-type scoring\n"
+                f"  Shape: {expr_data.shape[0]} cells × {expr_data.shape[1]} genes"
+            )
 
         # Wrap ALL R calls in conversion context (FIX for contextvars issue)
         with openrlib.rlock:
-            with conversion.localconverter(default_converter + pandas2ri.converter):
-                # Transfer to R
-                robjects.r.assign("scdata", expr_df)
+            with conversion.localconverter(
+                default_converter
+                + anndata2ri.converter
+                + pandas2ri.converter
+                + numpy2ri.converter
+            ):
+                # Transfer sparse matrix directly to R (genes × cells for scType)
+                robjects.r.assign("scdata", expr_data.T)
+                robjects.r.assign("gene_names", gene_names)
+                robjects.r.assign("cell_names", cell_names)
                 robjects.r.assign("gs_list", gs_list)
+
+                # Set row/column names and convert to dense in R if needed
+                robjects.r(
+                    """
+                    # Add dimension names
+                    rownames(scdata) <- gene_names
+                    colnames(scdata) <- cell_names
+
+                    # Convert sparse to dense if needed (scType's scale() will do this anyway)
+                    if (inherits(scdata, 'sparseMatrix')) {
+                        scdata <- as.matrix(scdata)
+                    }
+                    """
+                )
 
                 # Extract gs_positive and gs_negative from gs_list in R
                 robjects.r(
@@ -2731,6 +2767,7 @@ async def _annotate_with_sctype(
         localconverter,
         default_converter,
         openrlib,
+        anndata2ri,
     ) = _validate_rpy2_and_r(context)
 
     # Define supported tissue types from sc-type database
