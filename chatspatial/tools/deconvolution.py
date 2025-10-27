@@ -182,7 +182,7 @@ def _get_device(use_gpu: bool, method: str) -> str:
 
 
 def _prepare_anndata_for_counts(
-    adata: ad.AnnData, data_name: str, context=None
+    adata: ad.AnnData, data_name: str, context=None, require_int_dtype: bool = False
 ) -> ad.AnnData:
     """Ensure AnnData object has raw integer counts in .X with complete gene set
 
@@ -200,6 +200,9 @@ def _prepare_anndata_for_counts(
         adata: AnnData object to prepare
         data_name: Name of the data for logging purposes
         context: Optional MCP context for logging
+        require_int_dtype: If True, convert float32/64 to int32 for R compatibility
+                          If False (default), keep original dtype (for scvi-tools methods)
+                          scvi-tools internally uses float32 regardless of input dtype
 
     Returns:
         AnnData object with integer counts in .X and complete gene set if available
@@ -211,16 +214,17 @@ def _prepare_anndata_for_counts(
 
     logger = logging.getLogger(__name__)
 
-    # Create a copy to avoid modifying original
-    adata_copy = adata.copy()
+    # MEMORY OPTIMIZATION: Don't copy adata immediately
+    # Only copy if needed (when not using .raw)
+    adata_copy = None
     data_source = None
 
     # Step 1: Check .raw data first (prefer complete gene set for deconvolution)
-    if adata_copy.raw is not None:
+    if adata.raw is not None:
         logger.info(f"{data_name}: Found .raw data, checking if it contains counts")
         try:
             # Get raw data to check if it contains counts
-            raw_adata = adata_copy.raw.to_adata()
+            raw_adata = adata.raw.to_adata()
 
             # Validate if raw contains counts (not normalized)
             # Sample first, then convert (memory efficient)
@@ -245,7 +249,7 @@ def _prepare_anndata_for_counts(
                     context.info(
                         f"Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
                     )
-                adata_copy = raw_adata
+                adata_copy = raw_adata  # Use raw directly, no copy needed
                 data_source = "raw"
             else:
                 # Raw is normalized/transformed, skip to layers['counts']
@@ -263,13 +267,18 @@ def _prepare_anndata_for_counts(
             )
             data_source = None
 
-    # Step 2: Check layers["counts"] if raw not available or not counts
-    if data_source is None and "counts" in adata_copy.layers:
-        logger.info(f"{data_name}: Found counts layer, using as raw counts")
-        if context:
-            context.info(f"Using counts layer for {data_name} data")
-        adata_copy.X = adata_copy.layers["counts"].copy()
-        data_source = "counts_layer"
+    # Step 2: If not using .raw, copy adata now
+    if adata_copy is None:
+        # Create a copy to avoid modifying original
+        adata_copy = adata.copy()
+
+        # Check layers["counts"] if raw not available or not counts
+        if "counts" in adata_copy.layers:
+            logger.info(f"{data_name}: Found counts layer, using as raw counts")
+            if context:
+                context.info(f"Using counts layer for {data_name} data")
+            adata_copy.X = adata_copy.layers["counts"].copy()
+            data_source = "counts_layer"
 
     # Step 3: Use current X as fallback
     if data_source is None:
@@ -296,39 +305,28 @@ def _prepare_anndata_for_counts(
         f"has_negatives={has_negatives}, has_decimals={has_decimals}"
     )
 
-    # Extract dense array for processing (handle sparse/dense matrices)
-    if hasattr(adata_copy.X, "toarray"):
-        X_dense = adata_copy.X.toarray()
-    else:
-        X_dense = adata_copy.X
-
-    # Handle float32/64 with integer values (R compatibility fix)
+    # MEMORY OPTIMIZATION: Conditional dtype conversion based on downstream method
+    # - R methods (RCTD, Spotlight, CARD) require int32 dtype for compatibility
+    # - scvi-tools methods (Cell2location, DestVI, Stereoscope) work with float32
+    #   (they internally convert to float32 regardless of input dtype)
     if (
-        not has_negatives
+        require_int_dtype
+        and not has_negatives
         and not has_decimals
         and adata_copy.X.dtype in [np.float32, np.float64]
     ):
         logger.info(
-            f"{data_name}: Converting float32/64 integers to int32 for R compatibility"
+            f"{data_name}: Converting {adata_copy.X.dtype} to int32 for R compatibility"
         )
         if context:
             context.info(
-                f"🔄 Converting {data_name} from {adata_copy.X.dtype} to int32 for R compatibility"
+                f"🔄 Converting {data_name} from {adata_copy.X.dtype} to int32 for R method"
             )
 
-        # Convert to int32 for R compatibility
-        X_int32 = np.round(X_dense).astype(np.int32)
-
-        # Preserve sparsity if original was sparse
-        if hasattr(adata_copy.X, "toarray"):
-            import scipy.sparse as sp
-
-            adata_copy.X = sp.csr_matrix(X_int32, dtype=np.int32)
-        else:
-            adata_copy.X = X_int32
-
-        # Update X_dense for subsequent validation
-        X_dense = X_int32
+        # Direct dtype conversion (works for both sparse and dense matrices)
+        # No need for round() since has_decimals=False already verified
+        # No need for separate .data handling since .astype() handles both
+        adata_copy.X = adata_copy.X.astype(np.int32)
 
     # Check if data is valid integer counts
     if has_negatives or has_decimals:
@@ -370,12 +368,6 @@ def _prepare_anndata_for_counts(
         if context:
             context.error(error_msg)
         raise ValueError(error_msg)
-
-    # Ensure integer dtype
-    if X_dense.dtype not in [np.int32, np.int64]:
-        X_dense = X_dense.astype(np.int32)
-
-    adata_copy.X = X_dense
 
     # Add processing info to uns for tracking
     adata_copy.uns[f"{data_name}_data_source"] = {
@@ -774,8 +766,9 @@ def deconvolve_cell2location(
 
         # Prepare data using helper functions - Cell2location expects raw count data
         # Memory optimization: helper function creates internal copy, no need to copy here
-        ref = _prepare_anndata_for_counts(reference_adata, "Reference", context)
-        sp = _prepare_anndata_for_counts(spatial_adata, "Spatial", context)
+        # Cell2location (scvi-tools) works with float32, no need for int32 conversion
+        ref = _prepare_anndata_for_counts(reference_adata, "Reference", context, require_int_dtype=False)
+        sp = _prepare_anndata_for_counts(spatial_adata, "Spatial", context, require_int_dtype=False)
 
         # Find common genes AFTER data preparation (uses actual gene set that will be used)
         common_genes = list(set(ref.var_names) & set(sp.var_names))
@@ -1262,9 +1255,10 @@ def deconvolve_rctd(
 
         # Prepare data first (restore raw counts)
         # Memory optimization: helper function creates internal copy, no need to copy here
-        spatial_data = _prepare_anndata_for_counts(spatial_adata, "Spatial", context)
+        # RCTD (R method) requires int32 dtype for R compatibility
+        spatial_data = _prepare_anndata_for_counts(spatial_adata, "Spatial", context, require_int_dtype=True)
         reference_data = _prepare_anndata_for_counts(
-            reference_adata, "Reference", context
+            reference_adata, "Reference", context, require_int_dtype=True
         )
 
         # === SCIENTIFIC VALIDATION: Gene Format Compatibility ===
@@ -2262,8 +2256,9 @@ async def deconvolve_destvi(
 
         # Prepare data first (DestVI requires integer counts)
         # Memory optimization: helper function creates internal copy, no need to copy here
-        ref_data = _prepare_anndata_for_counts(reference_adata, "reference", context)
-        spatial_data = _prepare_anndata_for_counts(spatial_adata, "spatial", context)
+        # DestVI (scvi-tools) works with float32, no need for int32 conversion
+        ref_data = _prepare_anndata_for_counts(reference_adata, "reference", context, require_int_dtype=False)
+        spatial_data = _prepare_anndata_for_counts(spatial_adata, "spatial", context, require_int_dtype=False)
 
         # Find common genes AFTER data preparation
         common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
@@ -2472,8 +2467,9 @@ async def deconvolve_stereoscope(
 
         # Prepare data first - Stereoscope requires raw counts
         # Memory optimization: helper function creates internal copy, no need to copy here
-        ref_data = _prepare_anndata_for_counts(reference_adata, "Reference", context)
-        spatial_data = _prepare_anndata_for_counts(spatial_adata, "Spatial", context)
+        # Stereoscope (scvi-tools) works with float32, no need for int32 conversion
+        ref_data = _prepare_anndata_for_counts(reference_adata, "Reference", context, require_int_dtype=False)
+        spatial_data = _prepare_anndata_for_counts(spatial_adata, "Spatial", context, require_int_dtype=False)
 
         # Find common genes AFTER data preparation
         common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
@@ -2755,11 +2751,12 @@ def deconvolve_spotlight(
 
         # Prepare full datasets first
         # Memory optimization: helper function creates internal copy, no need to copy here
+        # SPOTlight (R method) requires int32 dtype for R compatibility
         spatial_prepared = _prepare_anndata_for_counts(
-            spatial_adata, "Spatial", context
+            spatial_adata, "Spatial", context, require_int_dtype=True
         )
         reference_prepared = _prepare_anndata_for_counts(
-            reference_adata, "Reference", context
+            reference_adata, "Reference", context, require_int_dtype=True
         )
 
         # Find common genes AFTER data preparation
@@ -3056,7 +3053,8 @@ def deconvolve_card(
         # This matches how Arora et al. 2023 used CARD with SCTransform-normalized reference.
 
         # Memory optimization: helper functions create internal copies, no need to copy here
-        spatial_data = _prepare_anndata_for_counts(spatial_adata, "Spatial", context)
+        # CARD (R method) requires int32 dtype for R compatibility
+        spatial_data = _prepare_anndata_for_counts(spatial_adata, "Spatial", context, require_int_dtype=True)
 
         # For reference data: try to get raw counts if available, but accept normalized if not
         reference_data = _prepare_reference_for_card(
