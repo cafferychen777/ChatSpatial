@@ -499,17 +499,12 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
                     batch_mask = combined.obs[batch_key] == batch
                     batch_data = combined[batch_mask]
 
-                    # Convert to dense array if sparse
-                    if hasattr(batch_data.X, "toarray"):
-                        X_batch = batch_data.X.toarray()
-                    else:
-                        X_batch = batch_data.X
-
-                    datasets.append(X_batch)
+                    # Scanorama natively supports sparse matrices
+                    datasets.append(batch_data.X)
                     genes_list.append(batch_data.var_names.tolist())
                     batch_order.append(batch)
 
-                    logging.info(f"Prepared batch '{batch}': {X_batch.shape}")
+                    logging.info(f"Prepared batch '{batch}': {batch_data.X.shape}")
 
                 # Run Scanorama integration
                 logging.info("Running Scanorama integration...")
