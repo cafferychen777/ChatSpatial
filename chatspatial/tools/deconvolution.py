@@ -10,6 +10,7 @@ import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 import anndata as ad
+import anndata2ri  # For sparse matrix support in R deconvolution methods
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -47,10 +48,6 @@ try:
     import cell2location
 except ImportError:
     cell2location = None
-
-# Import anndata2ri for sparse matrix support in R deconvolution methods
-# Note: anndata2ri is a required dependency (see pyproject.toml)
-import anndata2ri  # noqa: F401
 
 from ..models.analysis import DeconvolutionResult  # noqa: E402
 from ..models.data import DeconvolutionParameters  # noqa: E402
@@ -1398,46 +1395,13 @@ def deconvolve_rctd(
                 index=spatial_adata.obs_names,
             )
 
-        # Prepare count matrices for R
-        # Use sparse path if data is sparse, otherwise use dense path
-        use_sparse_path = sp.issparse(spatial_data.X)
-
-        if use_sparse_path:
-            if context:
-                context.info(
-                    "Using anndata2ri for sparse matrix transfer to RCTD "
-                    f"(spatial: {spatial_data.X.shape}, reference: {reference_data.X.shape})"
-                )
-            # Sparse path: will transfer directly to R later
-            spatial_counts = None
-            reference_counts = None
-        else:
-            # Dense path: data is already dense
-            if context:
-                context.info(
-                    "Using dense matrix transfer to RCTD (data is already dense)"
-                )
-
-            if hasattr(spatial_data.X, "toarray"):
-                spatial_X = spatial_data.X.toarray()
-            else:
-                spatial_X = spatial_data.X
-
-            if hasattr(reference_data.X, "toarray"):
-                reference_X = reference_data.X.toarray()
-            else:
-                reference_X = reference_data.X
-
-            spatial_counts = pd.DataFrame(
-                spatial_X.T,
-                index=spatial_data.var_names,
-                columns=spatial_data.obs_names,
-            )
-
-            reference_counts = pd.DataFrame(
-                reference_X.T,
-                index=reference_data.var_names,
-                columns=reference_data.obs_names,
+        # Prepare count matrices for R using anndata2ri
+        # Note: anndata2ri handles both sparse and dense matrices automatically
+        if context:
+            matrix_type = "sparse" if sp.issparse(spatial_data.X) else "dense"
+            context.info(
+                f"Using anndata2ri for matrix transfer to RCTD ({matrix_type} data) "
+                f"(spatial: {spatial_data.X.shape}, reference: {reference_data.X.shape})"
             )
 
         # Prepare cell type information as named factor
@@ -1477,121 +1441,67 @@ def deconvolve_rctd(
             name="nUMI",
         )
 
-        # Converting data to R format
-        if use_sparse_path:
-            # Sparse path: use anndata2ri for direct sparse matrix transfer
-            with localconverter(ro.default_converter + anndata2ri.converter):
-                # Transfer sparse matrices directly (genes × spots/cells for R convention)
-                ro.globalenv["spatial_counts"] = spatial_data.X.T
-                ro.globalenv["reference_counts"] = reference_data.X.T
+        # Converting data to R format using anndata2ri
+        # anndata2ri handles both sparse and dense matrices automatically
+        with localconverter(ro.default_converter + anndata2ri.converter):
+            # Transfer matrices directly (genes × spots/cells for R convention)
+            ro.globalenv["spatial_counts"] = spatial_data.X.T
+            ro.globalenv["reference_counts"] = reference_data.X.T
 
-                # Set row/column names in R
-                ro.globalenv["gene_names_spatial"] = ro.StrVector(
-                    spatial_data.var_names
-                )
-                ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
-                ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
-                ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
+            # Set row/column names in R
+            ro.globalenv["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
+            ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
+            ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
+            ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
 
-                ro.r(
-                    """
-                    rownames(spatial_counts) <- gene_names_spatial
-                    colnames(spatial_counts) <- spot_names
-                    rownames(reference_counts) <- gene_names_ref
-                    colnames(reference_counts) <- cell_names
-                    """
-                )
+            ro.r(
+                """
+                rownames(spatial_counts) <- gene_names_spatial
+                colnames(spatial_counts) <- spot_names
+                rownames(reference_counts) <- gene_names_ref
+                colnames(reference_counts) <- cell_names
+                """
+            )
 
-            # Convert other data using pandas2ri
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                r_coords = ro.conversion.py2rpy(coords)
-                r_spatial_numi = ro.conversion.py2rpy(spatial_numi)
-                r_cell_types = ro.conversion.py2rpy(cell_types_series)
-                r_reference_numi = ro.conversion.py2rpy(reference_numi)
+        # Convert other data using pandas2ri
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            r_coords = ro.conversion.py2rpy(coords)
+            r_spatial_numi = ro.conversion.py2rpy(spatial_numi)
+            r_cell_types = ro.conversion.py2rpy(cell_types_series)
+            r_reference_numi = ro.conversion.py2rpy(reference_numi)
 
-                # Create SpatialRNA object
-                ro.globalenv["coords"] = r_coords
-                ro.globalenv["numi_spatial"] = r_spatial_numi
+            # Create SpatialRNA object
+            ro.globalenv["coords"] = r_coords
+            ro.globalenv["numi_spatial"] = r_spatial_numi
 
-                puck = ro.r(
-                    """
-                    SpatialRNA(coords, spatial_counts, numi_spatial)
-                    """
-                )
+            puck = ro.r(
+                """
+                SpatialRNA(coords, spatial_counts, numi_spatial)
+                """
+            )
 
-                # Create Reference object
-                ro.globalenv["cell_types_vec"] = r_cell_types
-                ro.globalenv["numi_ref"] = r_reference_numi
+            # Create Reference object
+            ro.globalenv["cell_types_vec"] = r_cell_types
+            ro.globalenv["numi_ref"] = r_reference_numi
 
-                reference = ro.r(
-                    """
-                    cell_types_factor <- as.factor(cell_types_vec)
-                    names(cell_types_factor) <- names(cell_types_vec)
-                    Reference(reference_counts, cell_types_factor, numi_ref, min_UMI = 5)
-                    """
-                )
+            reference = ro.r(
+                """
+                cell_types_factor <- as.factor(cell_types_vec)
+                names(cell_types_factor) <- names(cell_types_vec)
+                Reference(reference_counts, cell_types_factor, numi_ref, min_UMI = 5)
+                """
+            )
 
-                # Create RCTD object (must be within localconverter context for async compatibility)
-                ro.globalenv["puck"] = puck
-                ro.globalenv["reference"] = reference
-                ro.globalenv["max_cores_val"] = max_cores
+            # Create RCTD object (must be within localconverter context for async compatibility)
+            ro.globalenv["puck"] = puck
+            ro.globalenv["reference"] = reference
+            ro.globalenv["max_cores_val"] = max_cores
 
-                myRCTD = ro.r(
-                    f"""
+            myRCTD = ro.r(
+                f"""
         create.RCTD(puck, reference, max_cores = {max_cores}, UMI_min_sigma = 10)
         """
-                )
-        else:
-            # Dense path: original pandas2ri implementation
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                # Convert spatial data
-                r_spatial_counts = ro.conversion.py2rpy(spatial_counts)
-                r_coords = ro.conversion.py2rpy(coords)
-                r_spatial_numi = ro.conversion.py2rpy(spatial_numi)
-
-                # Convert reference data
-                r_reference_counts = ro.conversion.py2rpy(reference_counts)
-                r_cell_types = ro.conversion.py2rpy(cell_types_series)
-                r_reference_numi = ro.conversion.py2rpy(reference_numi)
-
-                # Create SpatialRNA object
-                ro.globalenv["spatial_counts"] = r_spatial_counts
-                ro.globalenv["coords"] = r_coords
-                ro.globalenv["numi_spatial"] = r_spatial_numi
-
-                puck = ro.r(
-                    """
-                    SpatialRNA(coords, spatial_counts, numi_spatial)
-                    """
-                )
-
-                # Create Reference object
-                ro.globalenv["reference_counts"] = r_reference_counts
-                ro.globalenv["cell_types_vec"] = r_cell_types
-                ro.globalenv["numi_ref"] = r_reference_numi
-
-                # Convert cell_types to factor as required by RCTD
-                reference = ro.r(
-                    """
-                    cell_types_factor <- as.factor(cell_types_vec)
-                    names(cell_types_factor) <- names(cell_types_vec)
-                    Reference(reference_counts, cell_types_factor, numi_ref, min_UMI = 5)
-                    """
-                )
-
-                # Create RCTD object (must be within localconverter context for async compatibility)
-                ro.globalenv["puck"] = puck
-                ro.globalenv["reference"] = reference
-                ro.globalenv["max_cores_val"] = max_cores
-
-                # Use f-string to properly pass max_cores parameter
-                # Scientific rationale: Parallel processing improves computational efficiency
-                # while maintaining statistical validity (order of computation doesn't matter)
-                myRCTD = ro.r(
-                    f"""
-        create.RCTD(puck, reference, max_cores = {max_cores}, UMI_min_sigma = 10)
-        """
-                )
+            )
 
         # Set RCTD parameters
         ro.globalenv["myRCTD"] = myRCTD
@@ -2933,38 +2843,18 @@ def deconvolve_spotlight(
         spatial_subset = spatial_prepared[:, common_genes].copy()
         reference_subset = reference_prepared[:, common_genes].copy()
 
-        # Extract count matrices
-        # Use sparse path if data is sparse, otherwise use dense path
-        use_sparse_path = sp.issparse(spatial_subset.X)
+        # Extract count matrices for R using anndata2ri
+        # Note: anndata2ri handles both sparse and dense matrices automatically
+        if context:
+            matrix_type = "sparse" if sp.issparse(spatial_subset.X) else "dense"
+            context.info(
+                f"Using anndata2ri for matrix transfer to SPOTlight ({matrix_type} data) "
+                f"(spatial: {spatial_subset.X.shape}, reference: {reference_subset.X.shape})"
+            )
 
-        if use_sparse_path:
-            if context:
-                context.info(
-                    "Using anndata2ri for sparse matrix transfer to SPOTlight "
-                    f"(spatial: {spatial_subset.X.shape}, reference: {reference_subset.X.shape})"
-                )
-            # Sparse path: keep sparse, ensure integer dtype
-            spatial_counts = spatial_subset.X.astype(int)
-            reference_counts = reference_subset.X.astype(int)
-        else:
-            # Dense path: data is already dense
-            if context:
-                context.info(
-                    "Using dense matrix transfer to SPOTlight (data is already dense)"
-                )
-
-            spatial_counts = spatial_subset.X
-            reference_counts = reference_subset.X
-
-            # Convert to dense if sparse (shouldn't happen, but be safe)
-            if hasattr(spatial_counts, "toarray"):
-                spatial_counts = spatial_counts.toarray()
-            if hasattr(reference_counts, "toarray"):
-                reference_counts = reference_counts.toarray()
-
-            # Ensure integer counts
-            spatial_counts = spatial_counts.astype(int)
-            reference_counts = reference_counts.astype(int)
+        # Ensure integer counts (SPOTlight expects integer data)
+        spatial_counts = spatial_subset.X.astype(int)
+        reference_counts = reference_subset.X.astype(int)
 
         # Get spatial coordinates
         spatial_coords = spatial_subset.obsm["spatial"]
@@ -2977,59 +2867,34 @@ def deconvolve_spotlight(
         # Preparing data for SPOTlight deconvolution
 
         # Execute SPOTlight using the official API
-        if use_sparse_path:
-            # Sparse path: use anndata2ri for sparse matrix transfer
-            # First transfer sparse matrices
-            with localconverter(ro.default_converter + anndata2ri.converter):
-                # Transfer sparse matrices (genes × spots/cells for R convention)
-                ro.globalenv["spatial_counts"] = spatial_counts.T
-                ro.globalenv["reference_counts"] = reference_counts.T
+        # Converting data to R format using anndata2ri
+        # anndata2ri handles both sparse and dense matrices automatically
 
-            # Then transfer other data with numpy2ri + pandas2ri
-            with localconverter(
-                ro.default_converter + pandas2ri.converter + numpy2ri.converter
-            ):
-                # Import required R packages
-                ro.r("library(SPOTlight)")
-                ro.r("library(SingleCellExperiment)")
-                ro.r("library(SpatialExperiment)")
-                ro.r("library(scran)")
-                ro.r("library(scuttle)")
+        # First transfer count matrices using anndata2ri
+        with localconverter(ro.default_converter + anndata2ri.converter):
+            # Transfer matrices (genes × spots/cells for R convention)
+            ro.globalenv["spatial_counts"] = spatial_counts.T
+            ro.globalenv["reference_counts"] = reference_counts.T
 
-                # Transfer non-matrix data
-                ro.globalenv["spatial_coords"] = spatial_coords
-                ro.globalenv["gene_names"] = ro.StrVector(common_genes)
-                ro.globalenv["spatial_names"] = ro.StrVector(
-                    list(spatial_subset.obs_names)
-                )
-                ro.globalenv["reference_names"] = ro.StrVector(
-                    list(reference_subset.obs_names)
-                )
-                ro.globalenv["cell_types"] = ro.StrVector(cell_types.tolist())
-        else:
-            # Dense path: original numpy2ri + pandas2ri implementation
-            with localconverter(
-                ro.default_converter + pandas2ri.converter + numpy2ri.converter
-            ):
-                # Import required R packages
-                ro.r("library(SPOTlight)")
-                ro.r("library(SingleCellExperiment)")
-                ro.r("library(SpatialExperiment)")
-                ro.r("library(scran)")
-                ro.r("library(scuttle)")
+        # Then transfer other data with numpy2ri + pandas2ri
+        with localconverter(
+            ro.default_converter + pandas2ri.converter + numpy2ri.converter
+        ):
+            # Import required R packages
+            ro.r("library(SPOTlight)")
+            ro.r("library(SingleCellExperiment)")
+            ro.r("library(SpatialExperiment)")
+            ro.r("library(scran)")
+            ro.r("library(scuttle)")
 
-                # Convert data to R
-                ro.globalenv["spatial_counts"] = spatial_counts.T  # genes x spots
-                ro.globalenv["reference_counts"] = reference_counts.T  # genes x cells
-                ro.globalenv["spatial_coords"] = spatial_coords
-                ro.globalenv["gene_names"] = ro.StrVector(common_genes)
-                ro.globalenv["spatial_names"] = ro.StrVector(
-                    list(spatial_subset.obs_names)
-                )
-                ro.globalenv["reference_names"] = ro.StrVector(
-                    list(reference_subset.obs_names)
-                )
-                ro.globalenv["cell_types"] = ro.StrVector(cell_types.tolist())
+            # Transfer non-matrix data
+            ro.globalenv["spatial_coords"] = spatial_coords
+            ro.globalenv["gene_names"] = ro.StrVector(common_genes)
+            ro.globalenv["spatial_names"] = ro.StrVector(list(spatial_subset.obs_names))
+            ro.globalenv["reference_names"] = ro.StrVector(
+                list(reference_subset.obs_names)
+            )
+            ro.globalenv["cell_types"] = ro.StrVector(cell_types.tolist())
 
         # Create SingleCellExperiment and SpatialExperiment objects (shared for both paths)
         # SingleCellExperiment and SpatialExperiment fully support sparse matrices
@@ -3266,47 +3131,13 @@ def deconvolve_card(
                 index=spatial_adata.obs_names,
             )
 
-        # 5. Prepare count matrices (genes x cells/spots as required by CARD)
-        # Use sparse path if data is sparse, otherwise use dense path
-        use_sparse_path = sp.issparse(spatial_data.X)
-
-        if use_sparse_path:
-            if context:
-                context.info(
-                    "Using anndata2ri for sparse matrix transfer to CARD "
-                    f"(spatial: {spatial_data.X.shape}, reference: {reference_data.X.shape})"
-                )
-            # Sparse path: will transfer directly to R later
-            spatial_count = None
-            sc_count = None
-        else:
-            # Dense path: data is already dense
-            if context:
-                context.info(
-                    "Using dense matrix transfer to CARD (data is already dense)"
-                )
-
-            spatial_X = (
-                spatial_data.X.toarray()
-                if hasattr(spatial_data.X, "toarray")
-                else spatial_data.X
-            )
-            reference_X = (
-                reference_data.X.toarray()
-                if hasattr(reference_data.X, "toarray")
-                else reference_data.X
-            )
-
-            spatial_count = pd.DataFrame(
-                spatial_X.T,
-                index=spatial_data.var_names,
-                columns=spatial_data.obs_names,
-            )
-
-            sc_count = pd.DataFrame(
-                reference_X.T,
-                index=reference_data.var_names,
-                columns=reference_data.obs_names,
+        # 5. Prepare count matrices for R using anndata2ri
+        # Note: anndata2ri handles both sparse and dense matrices automatically
+        if context:
+            matrix_type = "sparse" if sp.issparse(spatial_data.X) else "dense"
+            context.info(
+                f"Using anndata2ri for matrix transfer to CARD ({matrix_type} data) "
+                f"(spatial: {spatial_data.X.shape}, reference: {reference_data.X.shape})"
             )
 
         # 6. Prepare metadata
@@ -3320,62 +3151,37 @@ def deconvolve_card(
             sc_meta["sampleInfo"] = "sample1"  # Default single sample
 
         # 7. Convert to R format and run CARD
-        if use_sparse_path:
-            # Sparse path: use anndata2ri for direct sparse matrix transfer
-            with localconverter(ro.default_converter + anndata2ri.converter):
-                # Transfer sparse matrices directly (genes × spots/cells for R convention)
-                ro.globalenv["sc_count"] = reference_data.X.T
-                ro.globalenv["spatial_count"] = spatial_data.X.T
+        # Converting data to R format using anndata2ri
+        # anndata2ri handles both sparse and dense matrices automatically
+        with localconverter(ro.default_converter + anndata2ri.converter):
+            # Transfer matrices directly (genes × spots/cells for R convention)
+            ro.globalenv["sc_count"] = reference_data.X.T
+            ro.globalenv["spatial_count"] = spatial_data.X.T
 
-                # Set row/column names in R
-                ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
-                ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
-                ro.globalenv["gene_names_spatial"] = ro.StrVector(
-                    spatial_data.var_names
-                )
-                ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
+            # Set row/column names in R
+            ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
+            ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
+            ro.globalenv["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
+            ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
 
-                ro.r(
-                    """
-                    rownames(sc_count) <- gene_names_ref
-                    colnames(sc_count) <- cell_names
-                    rownames(spatial_count) <- gene_names_spatial
-                    colnames(spatial_count) <- spot_names
-                    """
-                )
+            ro.r(
+                """
+                rownames(sc_count) <- gene_names_ref
+                colnames(sc_count) <- cell_names
+                rownames(spatial_count) <- gene_names_spatial
+                colnames(spatial_count) <- spot_names
+                """
+            )
 
-            # Convert metadata and spatial location using pandas2ri
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                r_sc_meta = ro.conversion.py2rpy(sc_meta)
-                r_spatial_location = ro.conversion.py2rpy(spatial_location)
+        # Convert metadata and spatial location using pandas2ri
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            r_sc_meta = ro.conversion.py2rpy(sc_meta)
+            r_spatial_location = ro.conversion.py2rpy(spatial_location)
 
-                ro.globalenv["sc_meta"] = r_sc_meta
-                ro.globalenv["spatial_location"] = r_spatial_location
-                ro.globalenv["minCountGene"] = minCountGene
-                ro.globalenv["minCountSpot"] = minCountSpot
-
-            # Note: sc_count and spatial_count are already matrices (dgCMatrix) from anndata2ri
-        else:
-            # Dense path: original pandas2ri implementation
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                # Convert data to R
-                r_sc_count = ro.conversion.py2rpy(sc_count)
-                r_sc_meta = ro.conversion.py2rpy(sc_meta)
-                r_spatial_count = ro.conversion.py2rpy(spatial_count)
-                r_spatial_location = ro.conversion.py2rpy(spatial_location)
-
-                # Assign to R environment
-                ro.globalenv["sc_count"] = r_sc_count
-                ro.globalenv["sc_meta"] = r_sc_meta
-                ro.globalenv["spatial_count"] = r_spatial_count
-                ro.globalenv["spatial_location"] = r_spatial_location
-                ro.globalenv["minCountGene"] = minCountGene
-                ro.globalenv["minCountSpot"] = minCountSpot
-
-                # Convert DataFrames to matrices in R (CARD requires matrix format)
-                # Converting count DataFrames to R matrices
-                ro.r("sc_count <- as.matrix(sc_count)")
-                ro.r("spatial_count <- as.matrix(spatial_count)")
+            ro.globalenv["sc_meta"] = r_sc_meta
+            ro.globalenv["spatial_location"] = r_spatial_location
+            ro.globalenv["minCountGene"] = minCountGene
+            ro.globalenv["minCountSpot"] = minCountSpot
 
         # Both paths converge here: Create CARD object
         # Creating CARD object
