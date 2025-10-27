@@ -537,14 +537,14 @@ def _create_deconvolution_stats(
     return stats
 
 
-def _process_deconvolution_results_transparently(
+def _validate_and_process_proportions(
     proportions: pd.DataFrame,
     method: str,
     normalize: bool = False,
     context=None,
 ) -> pd.DataFrame:
     """
-    Transparently process deconvolution results while preserving data integrity.
+    Validate and process deconvolution proportions while preserving data integrity.
 
     DESIGN NOTE: This function is synchronous (not async) because it needs to be called
     from both sync and async deconvolution methods. The context object supports sync calls,
@@ -938,7 +938,7 @@ def deconvolve_cell2location(
 
         # Process results transparently - Cell2location outputs absolute cell counts
         # so normalization would be converting to proportions (user should decide)
-        proportions = _process_deconvolution_results_transparently(
+        proportions = _validate_and_process_proportions(
             proportions=proportions,
             method="cell2location",
             normalize=False,  # Cell2location outputs absolute counts, not proportions
@@ -1299,8 +1299,6 @@ def deconvolve_rctd(
             rpackages.importr("spacexr")
             rpackages.importr("base")
 
-        # Running RCTD deconvolution
-
         # Prepare data first (restore raw counts)
         # Memory optimization: helper function creates internal copy, no need to copy here
         # RCTD (R method) requires int32 dtype for R compatibility
@@ -1441,7 +1439,6 @@ def deconvolve_rctd(
             name="nUMI",
         )
 
-        # Converting data to R format using anndata2ri
         # anndata2ri handles both sparse and dense matrices automatically
         with localconverter(ro.default_converter + anndata2ri.converter):
             # Transfer matrices directly (genes × spots/cells for R convention)
@@ -1517,7 +1514,6 @@ def deconvolve_rctd(
         )
 
         # Run RCTD using the unified run.RCTD function
-        # Running RCTD deconvolution
         myRCTD = ro.r(
             """
         myRCTD <- run.RCTD(myRCTD, doublet_mode = rctd_mode)
@@ -1526,7 +1522,6 @@ def deconvolve_rctd(
         )
 
         # Extract results
-        # Extracting RCTD results
         if mode == "full":
             # For full mode, get weights matrix and cell type names
             ro.r(
@@ -2436,7 +2431,7 @@ async def deconvolve_destvi(
             raise RuntimeError("Failed to extract valid proportions from DestVI model")
 
         # Process results transparently - DestVI outputs proportions
-        proportions_df = _process_deconvolution_results_transparently(
+        proportions_df = _validate_and_process_proportions(
             proportions=proportions_df,
             method="DestVI",
             normalize=False,  # DestVI already outputs proportions
@@ -2653,7 +2648,7 @@ async def deconvolve_stereoscope(
         )
 
         # Process results transparently - Stereoscope outputs proportions
-        proportions = _process_deconvolution_results_transparently(
+        proportions = _validate_and_process_proportions(
             proportions=proportions,
             method="Stereoscope",
             normalize=False,  # Stereoscope already outputs proportions
@@ -2796,7 +2791,6 @@ def deconvolve_spotlight(
         from rpy2.robjects import numpy2ri, pandas2ri
         from rpy2.robjects.conversion import localconverter
 
-        # Running SPOTlight deconvolution
         # Validate cell type key exists
         if cell_type_key not in reference_adata.obs:
             raise ValueError(
@@ -2864,10 +2858,7 @@ def deconvolve_spotlight(
         cell_types = cell_types.str.replace("/", "_", regex=False)
         cell_types = cell_types.str.replace(" ", "_", regex=False)
 
-        # Preparing data for SPOTlight deconvolution
-
         # Execute SPOTlight using the official API
-        # Converting data to R format using anndata2ri
         # anndata2ri handles both sparse and dense matrices automatically
 
         # First transfer count matrices using anndata2ri
@@ -2896,12 +2887,10 @@ def deconvolve_spotlight(
             )
             ro.globalenv["cell_types"] = ro.StrVector(cell_types.tolist())
 
-        # Create SingleCellExperiment and SpatialExperiment objects (shared for both paths)
+        # Create SingleCellExperiment and SpatialExperiment objects
         # SingleCellExperiment and SpatialExperiment fully support sparse matrices
         ro.r(
             """
-            # Creating SingleCellExperiment object
-
             # Create SCE object for reference data (sparse matrix supported)
             sce <- SingleCellExperiment(
                 assays = list(counts = reference_counts),
@@ -2914,8 +2903,6 @@ def deconvolve_spotlight(
 
             # Add logcounts
             sce <- logNormCounts(sce)
-
-            # Creating SpatialExperiment object
 
             # Create SPE object for spatial data (sparse matrix supported)
             spe <- SpatialExperiment(
@@ -2951,9 +2938,7 @@ def deconvolve_spotlight(
             
             # Combine all marker genes
             mgs <- do.call(rbind, mgs_list)
-            
-            # Running SPOTlight marker detection and deconvolution
-            
+
             # Run official SPOTlight function
             spotlight_result <- SPOTlight(
                 x = sce,                    # SingleCellExperiment object
@@ -2986,7 +2971,7 @@ def deconvolve_spotlight(
 
         # Process results transparently - SPOTlight should output proportions
         # but check if they already sum to 1
-        proportions = _process_deconvolution_results_transparently(
+        proportions = _validate_and_process_proportions(
             proportions=proportions,
             method="SPOTlight",
             normalize=False,  # SPOTlight should already output proportions
@@ -3078,8 +3063,6 @@ def deconvolve_card(
         with localconverter(ro.default_converter + pandas2ri.converter):
             ro.r("library(CARD)")
 
-        # Running CARD deconvolution
-
         # 1. Prepare data
         # IMPORTANT: CARD requires raw counts for spatial data, but can accept
         # normalized reference data (e.g., from Smart-seq2 which doesn't provide raw UMI counts).
@@ -3151,7 +3134,6 @@ def deconvolve_card(
             sc_meta["sampleInfo"] = "sample1"  # Default single sample
 
         # 7. Convert to R format and run CARD
-        # Converting data to R format using anndata2ri
         # anndata2ri handles both sparse and dense matrices automatically
         with localconverter(ro.default_converter + anndata2ri.converter):
             # Transfer matrices directly (genes × spots/cells for R convention)
@@ -3183,9 +3165,7 @@ def deconvolve_card(
             ro.globalenv["minCountGene"] = minCountGene
             ro.globalenv["minCountSpot"] = minCountSpot
 
-        # Both paths converge here: Create CARD object
-        # Creating CARD object
-
+        # Create CARD object
         # MCP Protocol: Redirect R stdout to /dev/null to prevent non-JSON output
         # CARD prints progress messages (## QC, ## create) that break MCP JSON-RPC
         ro.r(
@@ -3208,8 +3188,6 @@ def deconvolve_card(
         )
 
         # Run deconvolution
-        # Running CARD deconvolution
-
         # MCP Protocol: Suppress stdout to prevent protocol pollution
         ro.r(
             """
@@ -3221,7 +3199,6 @@ def deconvolve_card(
         )
 
         # Extract results
-        # Extracting CARD results
         with localconverter(
             ro.default_converter + pandas2ri.converter + numpy2ri.converter
         ):
@@ -3243,8 +3220,6 @@ def deconvolve_card(
         imputed_coordinates = None
 
         if imputation:
-            # Running CARD spatial imputation
-
             # MCP Protocol: Suppress stdout
             ro.r(
                 f"""
@@ -3291,7 +3266,7 @@ def deconvolve_card(
                 )
 
         # 8. Process results - CARD outputs proportions that sum to 1
-        proportions = _process_deconvolution_results_transparently(
+        proportions = _validate_and_process_proportions(
             proportions=proportions,
             method="CARD",
             normalize=False,  # CARD already outputs proportions
@@ -3546,7 +3521,7 @@ async def deconvolve_tangram(
 
         # Process results transparently - Tangram mapper matrix returns "equivalent
         # cell counts" (not proportions), so we must normalize to get proportions
-        proportions = _process_deconvolution_results_transparently(
+        proportions = _validate_and_process_proportions(
             proportions=proportions,
             method="Tangram",
             normalize=True,  # Convert counts to proportions
