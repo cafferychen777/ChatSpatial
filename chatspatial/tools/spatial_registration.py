@@ -370,15 +370,33 @@ class SpatialRegistration:
                     source_expr = source_adata[:, common_genes].X
                     target_expr = target_adata[:, common_genes].X
 
-                    # Handle sparse matrices
-                    if hasattr(source_expr, "toarray"):
-                        source_expr = source_expr.toarray()
-                    if hasattr(target_expr, "toarray"):
-                        target_expr = target_expr.toarray()
+                    # ==================== OPTIMIZED: Compute sum on sparse matrix directly ====================
+                    # Strategy: scipy.sparse supports sum(axis=1) natively - no need to convert to dense
+                    # Benefit: For 5k spots × 10k genes (2 slices): save ~343 MB (90%)
+                    # Technical note: sparse.sum(axis=1) returns numpy.matrix, need flatten() to get 1D array
 
-                    # Sum expression for intensity
-                    source_intensity = source_expr.sum(axis=1).astype(np.float32)
-                    target_intensity = target_expr.sum(axis=1).astype(np.float32)
+                    # Handle sparse matrices - compute sum directly (no toarray!)
+                    if hasattr(source_expr, "toarray"):
+                        # Sparse matrix: sum returns matrix, flatten to 1D array
+                        source_intensity = (
+                            np.array(source_expr.sum(axis=1))
+                            .flatten()
+                            .astype(np.float32)
+                        )
+                    else:
+                        # Dense array
+                        source_intensity = source_expr.sum(axis=1).astype(np.float32)
+
+                    if hasattr(target_expr, "toarray"):
+                        # Sparse matrix: sum returns matrix, flatten to 1D array
+                        target_intensity = (
+                            np.array(target_expr.sum(axis=1))
+                            .flatten()
+                            .astype(np.float32)
+                        )
+                    else:
+                        # Dense array
+                        target_intensity = target_expr.sum(axis=1).astype(np.float32)
                 else:
                     # Use uniform intensity
                     source_intensity = np.ones(len(source_coords), dtype=np.float32)
