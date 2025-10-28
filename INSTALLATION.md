@@ -225,6 +225,139 @@ python -c "import chatspatial; print('✅ Installation successful')"
 
 Some advanced features require packages that are not available on PyPI and must be installed manually:
 
+### R Dependencies (For R-based Methods)
+
+ChatSpatial integrates several powerful R-based analysis methods. If you want to use these methods, you need to install R and the required R packages.
+
+#### R-based Methods Available
+
+| Method | Category | R Packages Required |
+|--------|----------|-------------------|
+| **RCTD** | Deconvolution | spacexr |
+| **SPOTlight** | Deconvolution | SPOTlight |
+| **CARD** | Deconvolution | CARD |
+| **scType** | Cell Type Annotation | dplyr, openxlsx, HGNChelper |
+| **Numbat** | CNV Analysis | numbat, dplyr |
+| **SPARK** | Spatial Variable Genes | SPARK |
+
+#### Prerequisites
+
+1. **Install R (version 4.0+)**
+   ```bash
+   # macOS
+   brew install r
+
+   # Ubuntu/Debian
+   sudo apt-get update
+   sudo apt-get install r-base r-base-dev
+
+   # Or download from https://www.r-project.org/
+   ```
+
+2. **Install rpy2 (Python-R bridge)**
+   ```bash
+   pip install rpy2
+   ```
+
+#### Automated Installation (Recommended)
+
+We provide a convenient installation script that installs all required R packages:
+
+```bash
+# Navigate to ChatSpatial directory
+cd chatspatial
+
+# Run the R installation script
+Rscript install_r_dependencies.R
+```
+
+This script will automatically install:
+- **Base dependencies**: devtools, BiocManager
+- **CRAN packages**: dplyr, openxlsx, HGNChelper, SPARK
+- **Bioconductor packages**: SPOTlight
+- **GitHub packages**: spacexr, CARD, numbat
+
+#### Manual Installation
+
+If you prefer to install packages manually or the automated script fails:
+
+**Step 1: Open R console**
+```bash
+R
+```
+
+**Step 2: Install base dependencies**
+```r
+# Install devtools for GitHub packages
+install.packages("devtools")
+
+# Install BiocManager for Bioconductor packages
+install.packages("BiocManager")
+```
+
+**Step 3: Install CRAN packages**
+```r
+install.packages(c("dplyr", "openxlsx", "HGNChelper", "SPARK"))
+```
+
+**Step 4: Install Bioconductor packages**
+```r
+BiocManager::install("SPOTlight")
+```
+
+**Step 5: Install GitHub packages**
+```r
+# RCTD deconvolution
+devtools::install_github("dmcable/spacexr", build_vignettes = FALSE)
+
+# CARD deconvolution
+devtools::install_github("YingMa0107/CARD")
+
+# Numbat CNV analysis
+devtools::install_github("kharchenkolab/numbat")
+```
+
+#### Verify R Installation
+
+Test if R packages are correctly installed:
+
+```bash
+# Test from command line
+R -e "library(spacexr); library(SPOTlight); library(CARD)"
+```
+
+Or in Python:
+```python
+import rpy2.robjects as ro
+ro.r("library(spacexr)")  # Should not raise error if installed
+```
+
+#### Troubleshooting R Installation
+
+**Problem: rpy2 installation fails**
+- **macOS**: Install R from Homebrew (`brew install r`)
+- **Linux**: Install r-base-dev: `sudo apt-get install r-base-dev`
+- **Windows**: Set R_HOME environment variable to your R installation path
+
+**Problem: GitHub package installation fails**
+- Ensure you have a stable internet connection
+- Try installing devtools first: `install.packages("devtools")`
+- Check if you have build tools installed (Rtools on Windows, Xcode on macOS)
+
+**Problem: "R_HOME not found" error**
+```bash
+# Find R home directory
+R RHOME
+
+# Set environment variable (add to ~/.bashrc or ~/.zshrc)
+export R_HOME=/path/to/R/installation
+```
+
+**Note:** All R-based methods are optional. ChatSpatial will work without them, but those specific methods will not be available. Python-based alternatives exist for most analyses:
+- Deconvolution: Cell2location, DestVI, Stereoscope, Tangram (Python)
+- Cell Type Annotation: Tangram, scANVI, CellAssign (Python)
+- Spatial Variable Genes: SpatialDE, SPARK-X (Python)
+
 ### STAGATE_pyG (Spatial Domain Identification)
 
 STAGATE is a graph attention-based method for spatial domain identification. It's not available on PyPI and must be installed from GitHub:
