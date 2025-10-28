@@ -39,7 +39,7 @@ from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
 # Import error handling utilities
 from ..utils.error_handling import DataCompatibilityError  # noqa: E402
 from ..utils.error_handling import DataNotFoundError  # noqa: E402
-from ..utils.error_handling import InvalidParameterError, ProcessingError
+from ..utils.error_handling import InvalidParameterError, ProcessingError  # noqa: E402
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
 # Import path utilities for safe file operations

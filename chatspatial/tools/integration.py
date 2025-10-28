@@ -314,7 +314,7 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
         mean_squared = np.array(X_squared.mean(axis=0)).flatten()
 
         # Variance = E[X²] - E[X]²
-        gene_var = mean_squared - mean_per_gene ** 2
+        gene_var = mean_squared - mean_per_gene**2
     else:
         # Dense matrix: use standard variance calculation
         gene_var = np.var(combined.X, axis=0)
