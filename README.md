@@ -154,8 +154,11 @@ claude mcp list
 ```bash
 # IMPORTANT: Exit and restart Claude Code for changes to take effect
 /quit
+
+# Then re-enter Claude Code
+claude
 ```
-> 💡 **Note**: After adding the MCP server, you MUST restart Claude Code using `/quit` for ChatSpatial to appear in the available tools.
+> 💡 **Note**: After adding the MCP server, you MUST restart Claude Code using `/quit` and then re-enter with `claude` for ChatSpatial to appear in the available tools.
 
 </details>
 
