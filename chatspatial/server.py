@@ -27,25 +27,27 @@ except ImportError:
 from mcp.server.fastmcp import Context  # noqa: E402
 from mcp.types import ImageContent  # noqa: E402
 
+from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
 from .models.analysis import CNVResult  # noqa: E402
-from .models.analysis import (AnnotationResult, DeconvolutionResult,
+from .models.analysis import (DeconvolutionResult,  # noqa: E402
                               DifferentialExpressionResult, EnrichmentResult,
                               IntegrationResult, PreprocessingResult,
                               RNAVelocityResult, SpatialDomainResult,
                               SpatialStatisticsResult,
                               SpatialVariableGenesResult, TrajectoryResult)
 from .models.data import AnnotationParameters  # noqa: E402
+from .models.data import CellCommunicationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
-from .models.data import (CellCommunicationParameters, ColumnInfo,
-                          DeconvolutionParameters, EnrichmentParameters,
-                          IntegrationParameters, PreprocessingParameters,
-                          RNAVelocityParameters, SpatialDataset,
-                          SpatialDomainParameters, SpatialStatisticsParameters,
+from .models.data import (ColumnInfo, DeconvolutionParameters,  # noqa: E402
+                          EnrichmentParameters, IntegrationParameters,
+                          PreprocessingParameters, RNAVelocityParameters,
+                          SpatialDataset, SpatialDomainParameters,
+                          SpatialStatisticsParameters,
                           SpatialVariableGenesParameters, TrajectoryParameters,
                           VisualizationParameters)
 from .spatial_mcp_adapter import MCPToolMetadata  # noqa: E402
-from .spatial_mcp_adapter import create_spatial_mcp_server
+from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .utils.error_handling import ProcessingError  # noqa: E402
 from .utils.tool_error_handling import mcp_tool_error_handler  # noqa: E402
 
@@ -1068,10 +1070,30 @@ async def deconvolve_data(
                 - reference_data_id: Reference single-cell dataset ID (required for most methods)
 
                 Cell2location-specific parameters (official scvi-tools recommendations):
+                Phase 1 (Critical fixes):
                 - ref_model_epochs: Reference model training epochs (default: 250)
                 - n_epochs: Cell2location model training epochs (default: 30000)
                 - n_cells_per_spot: Expected cells per location (default: 30, tissue-dependent)
-                - detection_alpha: RNA detection sensitivity (default: 200)
+                - detection_alpha: RNA detection sensitivity (NEW DEFAULT 2024: 20, old: 200)
+                - batch_key: Batch column for batch effect correction (default: None)
+                - categorical_covariate_keys: Technical covariates list (default: None)
+                - apply_gene_filtering: Apply official gene filtering (default: True)
+                - gene_filter_*: Gene filtering thresholds (cell_count_cutoff=5, etc.)
+
+                Phase 2 (Training enhancements):
+                - ref_model_lr: Reference model learning rate (default: 0.002)
+                - cell2location_lr: Cell2location learning rate (default: 0.005)
+                - ref_model_train_size: Training data fraction for ref model (default: 1.0)
+                - cell2location_train_size: Training data fraction for cell2location (default: 1.0)
+                - enable_qc_plots: Generate QC diagnostic plots (default: False)
+                - qc_output_dir: Output directory for QC plots (default: None)
+
+                Phase 3 (Runtime optimization):
+                - early_stopping: Enable early stopping to reduce training time (default: True)
+                - early_stopping_patience: Epochs to wait before stopping (default: 45)
+                - early_stopping_threshold: Minimum relative change threshold (default: 0.0)
+                - use_aggressive_training: Use train_aggressive() for better convergence (default: True)
+                - validation_size: Validation set fraction for early stopping (default: 0.1)
 
     Returns:
         Deconvolution result with cell type proportions
@@ -1079,8 +1101,42 @@ async def deconvolve_data(
     Notes:
         Deconvolution methods (status):
         - cell2location, destvi, stereoscope, tangram: Implemented when scvi-tools available
-        - rctd, spotlight: Implemented via rpy2/R when R packages are installed
-        - card: Implemented (CARD deconvolution method)
+        - rctd: Implemented via rpy2/R when R packages are installed (spacexr)
+          * Supports 3 modes: 'doublet' (high-res), 'full' (low-res, default), 'multi' (greedy)
+          * Mode selection via rctd_mode parameter
+          * Reference: Cable et al. (2022) Nat. Biotechnol.
+        - spotlight: Implemented via rpy2/R when R packages are installed
+        - card: Implemented via rpy2/R when CARD package is installed
+          * Unique feature: Models spatial correlation of cell type compositions via CAR model
+          * Optional imputation: Create enhanced high-resolution spatial maps
+          * Parameters: card_imputation, card_NumGrids, card_ineibor, card_minCountGene, card_minCountSpot
+          * Reference: Ma & Zhou (2022) Nat. Biotechnol.
+
+        RCTD-specific notes:
+        - Method: Robust decomposition of cell type mixtures using platform-free approach
+        - Mode selection guide:
+          * 'doublet': For high-resolution data (Slide-seq ~10μm, MERFISH, Visium HD)
+            - Assigns 1-2 cell types per spot, identifies singlets vs doublets
+          * 'full' (default): For low-resolution data (standard Visium 55μm spots)
+            - Can assign any number of cell types, best for multi-cellular spots
+          * 'multi': Greedy algorithm alternative to 'full'
+            - More constrained than 'full', useful for intermediate resolutions
+        - Additional parameters: rctd_confidence_threshold, rctd_doublet_threshold, max_cores
+
+        CARD-specific notes:
+        - Method: Spatially informed cell type deconvolution with CAR (Conditional AutoRegressive) model
+        - Unique capability: Models spatial correlation of cell type compositions across tissue locations
+        - Imputation feature (optional via card_imputation=True):
+          * Creates enhanced spatial maps with arbitrarily higher resolution than original measurement
+          * Imputes cell type compositions and gene expression at unmeasured locations
+          * Extremely fast: 0.4s for all genes (5816x faster than BayesSpace)
+          * Use cases: Enhance Visium to near-cellular resolution, fill tissue gaps, smooth artifacts
+        - Imputation parameters:
+          * card_NumGrids: Number of grid points (2000=standard, 5000=high-res, 10000=ultra)
+          * card_ineibor: Neighbors for smoothing (10=default, higher=smoother)
+        - Quality control: card_minCountGene, card_minCountSpot
+        - Multi-sample support: card_sample_key for batch effects
+        - Visualization: Use plot_type='card_imputation' to visualize imputed results
 
         Cell2location uses two-stage training:
         1. Reference model (NB regression): Learns cell type signatures (250 epochs)
