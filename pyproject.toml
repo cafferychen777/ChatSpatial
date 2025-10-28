@@ -78,7 +78,7 @@ full = [
     # "STAGATE>=1.0.0",  # Spatial domain identification with graph attention
     
     # ========== Advanced Deconvolution ==========
-    "cell2location>=0.1.3",  # Bayesian deconvolution
+    "cell2location>=0.1.4",  # Bayesian deconvolution (0.1.4+ fixes scvi-tools one_hot compatibility)
     
     # ========== Advanced Trajectory Analysis ==========
     "cellrank>=2.0.0,<3.0",  # RNA velocity-based fate mapping
