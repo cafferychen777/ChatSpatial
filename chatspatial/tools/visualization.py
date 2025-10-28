@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
+
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
 
@@ -34,17 +35,22 @@ except ImportError:
     INFERCNVPY_AVAILABLE = False
 
 from ..models.data import VisualizationParameters  # noqa: E402
+
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
+
 # Import error handling utilities
 from ..utils.error_handling import DataCompatibilityError  # noqa: E402
 from ..utils.error_handling import DataNotFoundError  # noqa: E402
 from ..utils.error_handling import InvalidParameterError, ProcessingError  # noqa: E402
+
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
+
 # Import path utilities for safe file operations
 from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
 from ..utils.path_utils import get_safe_output_path  # noqa: E402
+
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors  # noqa: E402
 
@@ -2846,42 +2852,51 @@ async def create_spatial_domains_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create spatial domains visualization"""
-    # Look for spatial domain results in adata.obs
-    domain_keys = [
-        col
-        for col in adata.obs.columns
-        if "spatial_domains" in col.lower() or "domain" in col.lower()
-    ]
+    # Check if user explicitly specified cluster_key parameter
+    if params.cluster_key:
+        if params.cluster_key not in adata.obs.columns:
+            raise ValueError(
+                f"Specified cluster_key '{params.cluster_key}' not found in data.\n\n"
+                f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
+            )
+        domain_keys = [params.cluster_key]
+    else:
+        # Look for spatial domain results in adata.obs
+        domain_keys = [
+            col
+            for col in adata.obs.columns
+            if "spatial_domains" in col.lower() or "domain" in col.lower()
+        ]
 
-    # Also check for any categorical clustering results that might represent domains
+    # FAIL HONESTLY: Don't guess which column contains spatial domains
     if not domain_keys:
-        # Find categorical columns (potential clustering/domain results)
+        # Show available categorical columns for user reference
         categorical_cols = [
             col
             for col in adata.obs.columns
             if adata.obs[col].dtype.name in ["object", "category"]
         ]
-        domain_keys = categorical_cols[
-            :5
-        ]  # Take first 5 categorical columns as potential domains
 
-    if not domain_keys:
-        # No spatial domains found, suggest running domain identification first
-        fig, ax = plt.subplots(figsize=params.figure_size or (10, 8))
-        ax.text(
-            0.5,
-            0.5,
+        error_msg = (
             "No spatial domains found in dataset.\n\n"
-            "Please run spatial domain identification first:\n"
-            'identify_spatial_domains(data_id="data_1", params={"method": "spagcn"})',
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-            fontsize=12,
+            f"Available categorical columns ({len(categorical_cols)} total):\n"
+            f"  {', '.join(categorical_cols[:15])}"
         )
-        ax.set_title("Spatial Domains - Not Available")
-        ax.axis("off")
-        return fig
+
+        if len(categorical_cols) > 15:
+            error_msg += f"\n  ... and {len(categorical_cols) - 15} more"
+
+        error_msg += (
+            "\n\nSOLUTIONS:\n"
+            "1. Run spatial domain identification first:\n"
+            '   identify_spatial_domains(data_id="your_data_id", params={"method": "spagcn"})\n\n'
+            "2. Or specify an existing clustering column explicitly:\n"
+            '   visualize_data(data_id, params={"plot_type": "spatial_domains", "cluster_key": "leiden"})\n\n'
+            "NOTE: ChatSpatial uses 'cluster_key' parameter.\n"
+            "   This maintains consistency with other visualization functions."
+        )
+
+        raise ValueError(error_msg)
 
     # Use the first available domain key
     domain_key = domain_keys[0]
@@ -3058,23 +3073,18 @@ async def create_cell_communication_visualization(
     elif lr_columns:
         return _create_lr_expression_plot(adata, lr_columns, params, context)
     else:
-        # No communication data found, create instructional plot
-        fig, ax = plt.subplots(figsize=params.figure_size or (10, 8))
-        ax.text(
-            0.5,
-            0.5,
+        # No communication data found - fail honestly
+        raise DataNotFoundError(
             "No cell communication results found in dataset.\n\n"
-            "To analyze cell communication, first run:\n"
-            'analyze_cell_communication(data_id="data_1", params={"method": "liana"})\n\n'
-            "This will generate LIANA+ results for visualization.",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-            fontsize=12,
+            "SOLUTIONS:\n"
+            "1. Run cell communication analysis first:\n"
+            '   analyze_cell_communication(data_id="your_data_id", '
+            'params={"species": "human", "cell_type_key": "your_cell_type_column"})\n\n'
+            "2. Ensure analysis completed successfully and generated results in:\n"
+            "   - adata.uns (for cluster-based analysis)\n"
+            "   - adata.obsm (for spatial analysis)\n\n"
+            "Available analysis methods: liana, cellphonedb, cellchat_liana"
         )
-        ax.set_title("Cell Communication - Not Available")
-        ax.axis("off")
-        return fig
 
 
 def _create_spatial_communication_plot(
@@ -3135,18 +3145,17 @@ def _create_spatial_communication_plot(
             pair_indices = []
 
         if not top_pairs:
-            fig, ax = plt.subplots(figsize=(8, 6))
-            ax.text(
-                0.5,
-                0.5,
-                "No communication pairs found in spatial scores",
-                ha="center",
-                va="center",
-                transform=ax.transAxes,
+            raise DataNotFoundError(
+                "No communication pairs found in spatial scores.\n\n"
+                "POSSIBLE CAUSES:\n"
+                "1. Spatial communication analysis generated empty results\n"
+                "2. No significant L-R pairs detected in your dataset\n"
+                "3. Analysis parameters too stringent\n\n"
+                "SOLUTIONS:\n"
+                "1. Check if cell communication analysis completed successfully\n"
+                "2. Try adjusting analysis parameters (e.g., lower significance threshold)\n"
+                "3. Verify spatial coordinates and cell type annotations are correct"
             )
-            ax.set_title("Cell Communication - Spatial")
-            ax.axis("off")
-            return fig
 
         # Create subplot layout
         n_pairs = min(len(top_pairs), 6)  # Limit to 6 for display
@@ -3234,18 +3243,17 @@ def _create_spatial_communication_plot(
         return fig
 
     except Exception as e:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.text(
-            0.5,
-            0.5,
-            f"Error creating spatial communication plot:\n{str(e)}",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-        )
-        ax.set_title("Cell Communication - Error")
-        ax.axis("off")
-        return fig
+        raise ProcessingError(
+            f"Failed to create spatial communication plot: {str(e)}\n\n"
+            "POSSIBLE CAUSES:\n"
+            "1. Invalid spatial coordinates\n"
+            "2. Incompatible data format in adata.obsm['liana_spatial_scores']\n"
+            "3. Missing or corrupted communication results\n\n"
+            "SOLUTIONS:\n"
+            "1. Verify spatial coordinates exist in adata.obsm['spatial']\n"
+            "2. Re-run cell communication analysis\n"
+            "3. Check data integrity"
+        ) from e
 
 
 def _create_cluster_communication_plot(adata, communication_results, params, context):
@@ -3317,18 +3325,17 @@ def _create_cluster_communication_plot(adata, communication_results, params, con
         return fig
 
     except Exception as e:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.text(
-            0.5,
-            0.5,
-            f"Error creating cluster communication plot:\n{str(e)}",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-        )
-        ax.set_title("Cell Communication - Error")
-        ax.axis("off")
-        return fig
+        raise ProcessingError(
+            f"Failed to create cluster communication plot: {str(e)}\n\n"
+            "POSSIBLE CAUSES:\n"
+            "1. Invalid communication results format\n"
+            "2. Missing required columns in results DataFrame\n"
+            "3. Data corruption in adata.uns\n\n"
+            "SOLUTIONS:\n"
+            "1. Verify communication analysis completed successfully\n"
+            "2. Check adata.uns contains valid LIANA+ results\n"
+            "3. Re-run cell communication analysis"
+        ) from e
 
 
 def _create_lr_expression_plot(adata, lr_columns, params, context):
@@ -3416,18 +3423,17 @@ def _create_lr_expression_plot(adata, lr_columns, params, context):
         return fig
 
     except Exception as e:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.text(
-            0.5,
-            0.5,
-            f"Error creating LR expression plot:\n{str(e)}",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-        )
-        ax.set_title("Cell Communication - Error")
-        ax.axis("off")
-        return fig
+        raise ProcessingError(
+            f"Failed to create ligand-receptor expression plot: {str(e)}\n\n"
+            "POSSIBLE CAUSES:\n"
+            "1. Missing spatial coordinates\n"
+            "2. Invalid L-R columns in adata.obs\n"
+            "3. Data format incompatibility\n\n"
+            "SOLUTIONS:\n"
+            "1. Verify spatial coordinates exist in adata.obsm['spatial']\n"
+            "2. Check L-R expression columns in adata.obs\n"
+            "3. Re-run cell communication analysis"
+        ) from e
 
 
 async def create_multi_gene_umap_visualization(
