@@ -5918,6 +5918,10 @@ async def create_batch_integration_visualization(
         axes[0, 0].set_ylabel("UMAP 2")
         axes[0, 0].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
     else:
+        if context:
+            await context.warning(
+                "UMAP coordinates not available. Run preprocessing with UMAP computation for complete visualization."
+            )
         axes[0, 0].text(
             0.5, 0.5, "UMAP coordinates not available", ha="center", va="center"
         )
@@ -5947,6 +5951,10 @@ async def create_batch_integration_visualization(
         axes[0, 1].set_aspect("equal")
         axes[0, 1].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
     else:
+        if context:
+            await context.info(
+                "Spatial coordinates not available. This is expected for non-spatial datasets."
+            )
         axes[0, 1].text(
             0.5, 0.5, "Spatial coordinates not available", ha="center", va="center"
         )
