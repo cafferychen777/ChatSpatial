@@ -3083,8 +3083,8 @@ async def create_spatial_domains_visualization(
         ax.set_ylabel("Spatial Y")
         ax.invert_yaxis()
     else:
-        ax.set_xlabel("PC1")
-        ax.set_ylabel("PC2")
+        # This should never happen due to earlier validation
+        raise ValueError(f"Unexpected coord_type: {coord_type}")
 
     # Set title
     title = params.title or f"Spatial Domains ({domain_key})"
