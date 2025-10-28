@@ -51,9 +51,6 @@ try:
 except ImportError:
     GRAPHST_AVAILABLE = False
 
-# BANKSY support has been completely removed
-# Use alternative methods: spagcn, leiden, louvain, stagate, or graphst
-
 
 def _check_environment_compatibility():
     """Check environment compatibility for spatial domain identification"""
@@ -72,8 +69,6 @@ def _check_environment_compatibility():
     # Check STAGATE availability
     if not STAGATE_AVAILABLE:
         issues.append("STAGATE not available - graph attention method unavailable")
-
-    # BANKSY has been removed - use alternative methods
 
     # Check version compatibility
     try:
