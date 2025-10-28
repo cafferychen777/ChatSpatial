@@ -555,13 +555,11 @@ class AnnotationParameters(BaseModel):
         ),
     )
 
-    # Tangram-specific parameters (aligned with official API)
+    # Tangram-specific parameters (aligned with scvi.external.Tangram API)
     tangram_density_prior: Literal["rna_count_based", "uniform"] = (
         "rna_count_based"  # Density prior for mapping
     )
     tangram_device: str = "cpu"  # Device for computation ('cpu' or 'cuda:0')
-    tangram_lambda_r: Optional[float] = None  # Regularization parameter
-    tangram_lambda_neighborhood: Optional[float] = None  # Spatial regularization
     tangram_learning_rate: float = 0.1  # Learning rate for optimization
     tangram_compute_validation: bool = False  # Whether to compute validation metrics
     tangram_project_genes: bool = False  # Whether to project gene expression
@@ -921,32 +919,266 @@ class DeconvolutionParameters(BaseModel):
         None  # Reference single-cell data for deconvolution
     )
     cell_type_key: str  # REQUIRED: Key in reference data for cell type information. LLM will infer from metadata. Common values: 'cell_type', 'celltype', 'annotation', 'label'
-    n_top_genes: Annotated[int, Field(gt=0, le=5000)] = (
-        2000  # Number of top genes to use
-    )
-    use_gpu: bool = False  # Whether to use GPU for cell2location
-    ref_model_epochs: Annotated[int, Field(gt=0)] = (
-        250  # Number of epochs for reference model training (NB regression). Official recommendation: 250
-    )
-    n_epochs: Annotated[int, Field(gt=0)] = (
-        30000  # Number of epochs for Cell2location spatial mapping model training. Official recommendation: 30000
-    )
-    n_cells_per_spot: int = (
-        30  # Expected number of cells per spatial location (tissue-dependent). Official recommendation: 30
-    )
-    reference_profiles: Optional[Dict[str, List[float]]] = (
-        None  # Reference expression profiles
+
+    # Universal GPU parameter
+    use_gpu: bool = Field(
+        False,
+        description=(
+            "Whether to use GPU acceleration for training. "
+            "Supported by: Cell2location, DestVI, Stereoscope, Tangram. "
+            "Not supported by: RCTD, SPOTlight, CARD (R-based methods). "
+            "Requires CUDA-compatible GPU and proper PyTorch installation."
+        ),
     )
 
     # Cell2location specific parameters
-    detection_alpha: Annotated[float, Field(gt=0)] = (
-        200.0  # RNA detection sensitivity parameter for cell2location. Higher values = less sensitivity correction. Official recommendation: 200
+    cell2location_ref_model_epochs: Annotated[int, Field(gt=0)] = Field(
+        250,
+        description=(
+            "Number of epochs for Cell2location reference model training (NB regression). "
+            "This is the first stage training for estimating reference cell type signatures. "
+            "Official recommendation: 250. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_n_epochs: Annotated[int, Field(gt=0)] = Field(
+        30000,
+        description=(
+            "Number of epochs for Cell2location spatial mapping model training. "
+            "Official recommendation: 30000. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_n_cells_per_spot: Annotated[int, Field(gt=0)] = Field(
+        30,
+        description=(
+            "Expected number of cells per spatial location for Cell2location. "
+            "This is tissue-dependent (e.g., 30 for Visium, 5-10 for MERFISH). "
+            "Official recommendation: 30 for Visium data. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_detection_alpha: Annotated[float, Field(gt=0)] = Field(
+        20.0,
+        description=(
+            "RNA detection sensitivity parameter for Cell2location. "
+            "NEW DEFAULT (2024): 20 for high technical variability, 200 for low variability. "
+            "Recommendation: test both values on your data. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+
+    # Batch and covariate correction for cell2location
+    cell2location_batch_key: Optional[str] = Field(
+        None,
+        description=(
+            "Column name in adata.obs for batch information (e.g., 'sample_id', 'batch'). "
+            "Used for batch effect correction in Cell2location. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_categorical_covariate_keys: Optional[List[str]] = Field(
+        None,
+        description=(
+            "List of column names in adata.obs for categorical technical covariates "
+            "(e.g., ['platform', 'donor_id']) for Cell2location. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+
+    # Gene filtering parameters (Cell2location-specific preprocessing)
+    cell2location_apply_gene_filtering: bool = Field(
+        True,
+        description=(
+            "Apply Cell2location's recommended permissive gene filtering before training. "
+            "ONLY USED BY CELL2LOCATION. This is NOT the same as HVG selection:\n"
+            "• Cell2location uses permissive filtering to keep rare cell type markers\n"
+            "• Yields ~10k-16k genes (more than typical 2k HVGs)\n"
+            "• Official recommendation: avoid further gene selection for robust results\n"
+            "Other methods use different strategies (see spotlight_n_top_genes parameter)."
+        ),
+    )
+    cell2location_gene_filter_cell_count_cutoff: int = Field(
+        5,
+        description=(
+            "Minimum cells expressing a gene for Cell2location filtering (official default: 5). "
+            "Low cutoff preserves rare cell type markers. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_gene_filter_cell_percentage_cutoff2: float = Field(
+        0.03,
+        description=(
+            "Minimum percentage of cells expressing for Cell2location (official default: 0.03 = 3%). "
+            "Genes detected in ≥3% of cells are always included. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_gene_filter_nonz_mean_cutoff: float = Field(
+        1.12,
+        description=(
+            "Minimum non-zero mean expression for Cell2location (official default: 1.12). "
+            "For genes between cutoffs, only keep if avg expression in non-zero cells > 1.12. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+
+    # Phase 2: Training enhancement parameters (Cell2location)
+    cell2location_ref_model_lr: Annotated[float, Field(gt=0)] = Field(
+        0.002,
+        description=(
+            "Reference model learning rate for Cell2location (official default: 0.002 with ClippedAdam optimizer). "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_lr: Annotated[float, Field(gt=0)] = Field(
+        0.005,
+        description=(
+            "Cell2location model learning rate (official default: 0.005). "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_ref_model_train_size: Annotated[float, Field(gt=0, le=1)] = Field(
+        1.0,
+        description=(
+            "Fraction of reference data for training in Cell2location. "
+            "DEFAULT: 1.0 (official tutorial recommendation - use all data). "
+            "IMPORTANT: RegressionModel validation is not yet implemented, so train_size=1 is standard practice. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_train_size: Annotated[float, Field(gt=0, le=1)] = Field(
+        1.0,
+        description=(
+            "Fraction of spatial data for training in Cell2location. "
+            "DEFAULT: 1.0 (official tutorial: 'we need to estimate cell abundance at all locations'). "
+            "Using train_size=1 ensures all spatial locations are included in training. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_enable_qc_plots: bool = Field(
+        False,
+        description=(
+            "Generate QC diagnostic plots for Cell2location (ELBO history, convergence diagnostics). "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_qc_output_dir: Optional[str] = Field(
+        None,
+        description=(
+            "Output directory for Cell2location QC plots (None = plots not saved to disk). "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+
+    # Phase 3: Runtime optimization parameters (Cell2location)
+    cell2location_early_stopping: bool = Field(
+        False,
+        description=(
+            "Enable early stopping to reduce Cell2location training time. "
+            "DEFAULT: False (following official tutorial best practice). "
+            "IMPORTANT: RegressionModel does not support validation, so early stopping is not recommended. "
+            "Official tutorial uses train_size=1 without early stopping. "
+            "Only enable if you have specific convergence monitoring needs. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_early_stopping_patience: Annotated[int, Field(gt=0)] = Field(
+        45,
+        description=(
+            "Epochs to wait before stopping if no improvement for Cell2location (official default: 45). "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_early_stopping_threshold: Annotated[float, Field(gt=0)] = Field(
+        0.0,
+        description=(
+            "Minimum relative change to qualify as improvement for Cell2location (0 = any improvement). "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_use_aggressive_training: bool = Field(
+        False,
+        description=(
+            "Use train_aggressive() method for large-scale datasets in Cell2location. "
+            "DEFAULT: False (standard train() method, following official tutorial). "
+            "WHEN TO USE: Only for datasets with >50k locations that require mini-batch training due to GPU memory constraints. "
+            "Standard Visium datasets (<50k locations) should use train_size=1 with batch_size=None (official best practice). "
+            "Aggressive training implements amortised inference for scalability to 100k-1M+ locations. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
+    )
+    cell2location_validation_size: Annotated[float, Field(gt=0, lt=1)] = Field(
+        0.1,
+        description=(
+            "Fraction of data for validation set in Cell2location (required if early_stopping=True). "
+            "NOTE: Official tutorial uses train_size=1 (no validation split) for standard workflows. "
+            "ONLY USED BY CELL2LOCATION METHOD."
+        ),
     )
 
     # SPOTlight specific parameters
-    hvg: Optional[int] = None  # Number of highly variable genes to use (None = use all)
+    spotlight_n_top_genes: Annotated[int, Field(gt=0, le=5000)] = Field(
+        2000,
+        description=(
+            "Number of top highly variable genes (HVGs) to use for SPOTlight deconvolution. "
+            "ONLY USED BY SPOTLIGHT METHOD. Other methods use different gene selection strategies:\n"
+            "• Cell2location: Uses permissive gene filtering (apply_gene_filtering parameter)\n"
+            "• RCTD/DestVI/Stereoscope/CARD/Tangram: Use all common genes between datasets\n"
+            "Default: 2000. Recommended range: 1000-3000 for standard Visium data."
+        ),
+    )
+    spotlight_nmf_model: Literal["ns"] = Field(
+        "ns",
+        description=(
+            "NMF model type for SPOTlight. ONLY USED BY SPOTLIGHT METHOD.\n\n"
+            "Currently only 'ns' (non-smooth NMF) is supported. This method produces "
+            "sparser, more interpretable deconvolution results.\n\n"
+            "NOTE: SPOTlight documentation mentions 'std' (standard NMF) as an option, "
+            "but it is currently broken in SPOTlight (internally creates 'stdNMF' algorithm "
+            "which doesn't exist in the NMF package registry). We only expose working parameters.\n\n"
+            "Reference: Elosua-Bayes et al. (2021) Nucleic Acids Research."
+        ),
+    )
+    spotlight_min_prop: Annotated[float, Field(ge=0, le=1)] = Field(
+        0.01,
+        description=(
+            "Minimum cell type proportion threshold for SPOTlight. "
+            "Cell types contributing less than this value are filtered out as noise. "
+            "Official default: 0.01 (1%). "
+            "Lower values = keep more cell types but more noise. "
+            "Higher values = stricter filtering but may lose rare cell types. "
+            "ONLY USED BY SPOTLIGHT METHOD."
+        ),
+    )
+    spotlight_scale: bool = Field(
+        True,
+        description=(
+            "Whether to scale/normalize data in SPOTlight. "
+            "Affects gene expression scale handling. "
+            "Default: True (recommended). "
+            "ONLY USED BY SPOTLIGHT METHOD."
+        ),
+    )
+    spotlight_weight_id: str = Field(
+        "mean.AUC",
+        description=(
+            "Column name for marker gene weights in SPOTlight. "
+            "Specifies which metric to use for weighting marker genes. "
+            "Common values: 'mean.AUC' (default), 'median.AUC'. "
+            "ONLY USED BY SPOTLIGHT METHOD."
+        ),
+    )
 
     # DestVI parameters
+    destvi_n_epochs: Annotated[int, Field(gt=0)] = Field(
+        2000,
+        description=(
+            "Number of epochs for DestVI training. "
+            "Official recommendation: 2000 (minimum 1000). "
+            "ONLY USED BY DESTVI METHOD."
+        ),
+    )
     destvi_n_hidden: int = 128
     destvi_n_latent: int = 10
     destvi_n_layers: int = 1
@@ -959,33 +1191,114 @@ class DeconvolutionParameters(BaseModel):
     stereoscope_batch_size: int = 128
 
     # RCTD specific parameters
-    rctd_mode: Literal["full", "doublet", "multi"] = "full"  # RCTD mode
+    rctd_mode: Literal["full", "doublet", "multi"] = Field(
+        "full",
+        description=(
+            "RCTD deconvolution mode (Cable et al. 2022):\n"
+            "• 'doublet': Assigns 1-2 cell types per spot, classifies each as 'singlet' or 'doublet'. "
+            "Recommended for HIGH-RESOLUTION spatial data (Slide-seq ~10μm, MERFISH, Visium HD)\n"
+            "• 'full' (default): Assigns any number of cell types per spot. "
+            "Recommended for LOW-RESOLUTION data (standard Visium 55μm spots, 100μm spacing)\n"
+            "• 'multi': Extension of doublet mode using greedy algorithm to add multiple cell types. "
+            "Alternative to 'full' with more constraints on cell type mixing"
+        ),
+    )
     max_cores: Annotated[int, Field(gt=0, le=16)] = 4  # Maximum number of cores to use
     rctd_confidence_threshold: Annotated[float, Field(gt=0)] = (
-        10.0  # Confidence threshold for cell type assignment
+        10.0  # Confidence threshold for cell type assignment (higher = more stringent)
     )
     rctd_doublet_threshold: Annotated[float, Field(gt=0)] = (
-        25.0  # Threshold for doublet detection
+        25.0  # Threshold for doublet detection (used in doublet/multi modes)
+    )
+    rctd_max_multi_types: Annotated[int, Field(ge=2, le=10)] = Field(
+        4,
+        description=(
+            "Maximum number of cell types per spot in RCTD multi mode. "
+            "Recommended: 4-6 for Visium (100μm spots), 2-3 for higher resolution. "
+            "Must be less than total number of cell types in reference data."
+        ),
     )
 
     # CARD specific parameters
-    card_minCountGene: Annotated[int, Field(gt=0)] = (
-        100  # Minimum gene counts for CARD QC
+    card_minCountGene: Annotated[int, Field(gt=0)] = Field(
+        100,
+        description="Minimum total counts per gene across all spots for CARD quality control filtering",
     )
-    card_minCountSpot: Annotated[int, Field(gt=0)] = (
-        5  # Minimum spots per gene for CARD QC
+    card_minCountSpot: Annotated[int, Field(gt=0)] = Field(
+        5,
+        description="Minimum number of spots where a gene must be expressed for CARD quality control",
     )
-    card_sample_key: Optional[str] = (
-        None  # Optional sample/batch column in reference data for CARD
+    card_sample_key: Optional[str] = Field(
+        None,
+        description="Optional sample/batch column name in reference data for multi-sample CARD analysis",
     )
-    card_imputation: bool = (
-        False  # Whether to perform CARD spatial imputation for higher resolution
+    card_imputation: bool = Field(
+        False,
+        description=(
+            "Enable CARD spatial imputation to create enhanced high-resolution spatial maps. "
+            "CARD's unique CAR (Conditional AutoRegressive) model allows imputation at unmeasured locations, "
+            "constructing refined tissue maps with arbitrarily higher resolution than the original measurement. "
+            "Extremely fast: 0.4s for all genes (5816x faster than BayesSpace). "
+            "Use for: Enhancing Visium to near-cellular resolution, filling tissue gaps, smoothing artifacts"
+        ),
     )
-    card_NumGrids: Annotated[int, Field(gt=0)] = (
-        2000  # Number of grids for CARD imputation (default: 2000, higher = finer resolution)
+    card_NumGrids: Annotated[int, Field(gt=0)] = Field(
+        2000,
+        description=(
+            "Number of spatial grid points for CARD imputation (default: 2000). "
+            "Higher values = finer spatial resolution but increased computation. "
+            "Typical values: 2000 (standard), 5000 (high-res), 10000 (ultra high-res). "
+            "The imputed map will have ~NumGrids locations covering the tissue area"
+        ),
     )
-    card_ineibor: Annotated[int, Field(gt=0)] = (
-        10  # Number of neighbors for CARD imputation (default: 10)
+    card_ineibor: Annotated[int, Field(gt=0)] = Field(
+        10,
+        description=(
+            "Number of nearest neighbors for CARD spatial imputation (default: 10). "
+            "Controls the spatial smoothness of imputed results. "
+            "Higher values = smoother maps, lower values = preserve local variation"
+        ),
+    )
+
+    # Tangram specific parameters
+    tangram_n_epochs: Annotated[int, Field(gt=0)] = Field(
+        1000,
+        description=(
+            "Number of epochs for Tangram spatial mapping. "
+            "Official recommendation: 1000. "
+            "ONLY USED BY TANGRAM METHOD."
+        ),
+    )
+    tangram_mode: Literal["cells", "clusters", "constrained"] = Field(
+        "cells",
+        description=(
+            "Tangram mapping mode. "
+            "'cells': Cell-level mapping (default). "
+            "'clusters': Cluster-level mapping (requires cluster_label). "
+            "'constrained': Constrained optimization with target_count. "
+            "Official recommendation: 'cells' for most applications. "
+            "ONLY USED BY TANGRAM METHOD."
+        ),
+    )
+    tangram_learning_rate: Annotated[float, Field(gt=0)] = Field(
+        0.1,
+        description=(
+            "Learning rate for Tangram optimizer. "
+            "Official default: 0.1. "
+            "Higher values = faster convergence but less stable. "
+            "Lower values = more stable but slower. "
+            "ONLY USED BY TANGRAM METHOD."
+        ),
+    )
+    tangram_density_prior: Literal["rna_count_based", "uniform"] = Field(
+        "rna_count_based",
+        description=(
+            "Spatial density prior for Tangram. "
+            "'rna_count_based': Weight by RNA counts (default, recommended). "
+            "'uniform': Equal weight for all spots. "
+            "Official recommendation: 'rna_count_based' for better biological interpretation. "
+            "ONLY USED BY TANGRAM METHOD."
+        ),
     )
 
 
