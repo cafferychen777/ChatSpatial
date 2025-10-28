@@ -437,7 +437,12 @@ class VisualizationParameters(BaseModel):
     ] = 4
     deconv_method: Optional[str] = Field(
         None,
-        description="Deconvolution method name (e.g., 'cell2location', 'rctd'). If None, auto-detect from available results.",
+        description=(
+            "Deconvolution method name (e.g., 'cell2location', 'rctd'). "
+            "If None and only one result exists, auto-select and notify. "
+            "If None and multiple results exist, raise error requiring explicit specification. "
+            "This ensures you visualize the intended analysis for scientific reproducibility."
+        ),
     )
     min_proportion_threshold: float = Field(
         0.3,

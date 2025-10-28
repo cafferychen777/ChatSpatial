@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
-
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
 
@@ -35,22 +34,18 @@ except ImportError:
     INFERCNVPY_AVAILABLE = False
 
 from ..models.data import VisualizationParameters  # noqa: E402
-
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
-
 # Import error handling utilities
 from ..utils.error_handling import DataCompatibilityError  # noqa: E402
 from ..utils.error_handling import DataNotFoundError  # noqa: E402
-from ..utils.error_handling import InvalidParameterError, ProcessingError  # noqa: E402
-
+from ..utils.error_handling import (InvalidParameterError,  # noqa: E402
+                                    ProcessingError)
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
-
 # Import path utilities for safe file operations
 from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
 from ..utils.path_utils import get_safe_output_path  # noqa: E402
-
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors  # noqa: E402
 
@@ -1966,21 +1961,25 @@ async def visualize_data(
             ) from e
 
 
-def get_deconvolution_proportions(
-    adata: ad.AnnData, method: Optional[str] = None
+async def get_deconvolution_proportions(
+    adata: ad.AnnData, method: Optional[str] = None, context=None
 ) -> Tuple[pd.DataFrame, str]:
     """
     Get deconvolution proportions from AnnData
 
     Args:
         adata: AnnData object with deconvolution results
-        method: Specific method (e.g., "cell2location"). If None, auto-detect.
+        method: Specific method (e.g., "cell2location"). If None and only one
+                result exists, auto-select. If None and multiple results exist,
+                raise error requiring explicit specification.
+        context: MCP context for info/warning messages
 
     Returns:
         (proportions_df, method_name)
 
     Raises:
         DataNotFoundError: If no deconvolution results found
+        ValueError: If multiple results found but method not specified
     """
     # Auto-detect if method not specified
     if method is None:
@@ -1989,17 +1988,57 @@ def get_deconvolution_proportions(
         ]
         if not deconv_keys:
             raise DataNotFoundError(
-                "No deconvolution results found in adata.obsm. "
-                f"Available keys: {list(adata.obsm.keys())}"
+                "No deconvolution results found in adata.obsm.\n\n"
+                "SOLUTIONS:\n"
+                "1. Run deconvolution analysis first:\n"
+                '   deconvolve_spatial_data(data_id="your_data", '
+                'params={"method": "cell2location", ...})\n\n'
+                "Available methods: cell2location, rctd, destvi, stereoscope, "
+                "spotlight, card, tangram"
             )
+
+        # CHECK FOR MULTIPLE RESULTS - Fail honestly!
+        if len(deconv_keys) > 1:
+            available_methods = [
+                key.replace("deconvolution_", "") for key in deconv_keys
+            ]
+            raise ValueError(
+                f"Multiple deconvolution results found: {available_methods}\n\n"
+                f"SOLUTION: Specify which method to visualize:\n\n"
+                f"  visualize_data(\n"
+                f"    data_id='your_data',\n"
+                f"    params={{\n"
+                f"      'plot_type': 'deconvolution',\n"
+                f"      'deconv_method': '{available_methods[0]}',  # or other method\n"
+                f"      'subtype': 'spatial_multi'  # optional\n"
+                f"    }}\n"
+                f"  )\n\n"
+                f"NOTE: Different deconvolution methods have different assumptions.\n"
+                f"      Always explicitly specify which method you want to visualize\n"
+                f"      to ensure reproducibility and scientific accuracy."
+            )
+
+        # Only auto-select when single result exists
         proportions_key = deconv_keys[0]
         method = proportions_key.replace("deconvolution_", "")
+
+        # Notify user about auto-selection
+        if context:
+            await context.info(f"Using deconvolution method: {method}")
+
     else:
+        # User specified method explicitly
         proportions_key = f"deconvolution_{method}"
         if proportions_key not in adata.obsm:
+            available = [
+                key.replace("deconvolution_", "")
+                for key in adata.obsm.keys()
+                if key.startswith("deconvolution_")
+            ]
             raise DataNotFoundError(
-                f"Deconvolution results for {method} not found. "
-                f"Available: {[k for k in adata.obsm.keys() if 'deconv' in k]}"
+                f"Deconvolution results for method '{method}' not found.\n\n"
+                f"Available methods: {available if available else 'None'}\n\n"
+                "Run deconvolution first or specify an available method."
             )
 
     # Get proportions
@@ -2054,7 +2093,9 @@ async def create_dominant_celltype_map(
         DataNotFoundError: If deconvolution results not found
     """
     # Get proportions
-    proportions, method = get_deconvolution_proportions(adata, params.deconv_method)
+    proportions, method = await get_deconvolution_proportions(
+        adata, params.deconv_method, context
+    )
 
     # Get dominant cell type
     dominant_idx = proportions.values.argmax(axis=1)
@@ -2196,7 +2237,9 @@ async def create_diversity_map(
     from scipy.stats import entropy
 
     # Get proportions
-    proportions, method = get_deconvolution_proportions(adata, params.deconv_method)
+    proportions, method = await get_deconvolution_proportions(
+        adata, params.deconv_method, context
+    )
 
     # Calculate Shannon entropy for each spot
     # Add small epsilon to avoid log(0)
@@ -2292,7 +2335,9 @@ async def create_stacked_barplot(
         DataNotFoundError: If deconvolution results not found
     """
     # Get proportions
-    proportions, method = get_deconvolution_proportions(adata, params.deconv_method)
+    proportions, method = await get_deconvolution_proportions(
+        adata, params.deconv_method, context
+    )
 
     # Limit number of spots for readability
     n_spots = len(proportions)
@@ -2435,7 +2480,9 @@ async def create_scatterpie_plot(
     from matplotlib.patches import Wedge
 
     # Get proportions
-    proportions, method = get_deconvolution_proportions(adata, params.deconv_method)
+    proportions, method = await get_deconvolution_proportions(
+        adata, params.deconv_method, context
+    )
 
     # Get spatial coordinates
     if "spatial" not in adata.obsm:
@@ -2562,7 +2609,9 @@ async def create_umap_proportions(
         DataNotFoundError: If deconvolution or UMAP not found
     """
     # Get proportions
-    proportions, method = get_deconvolution_proportions(adata, params.deconv_method)
+    proportions, method = await get_deconvolution_proportions(
+        adata, params.deconv_method, context
+    )
 
     # Check for UMAP coordinates
     if "X_umap" not in adata.obsm:
@@ -2694,34 +2743,50 @@ async def create_spatial_multi_deconvolution(
 
     Args:
         adata: AnnData object with deconvolution results
-        params: Visualization parameters
+        params: Visualization parameters (uses params.deconv_method)
         context: MCP context
 
     Returns:
         Matplotlib figure with multi-panel spatial visualization
     """
-    # Find deconvolution results in obsm
-    deconv_keys = [
-        key
-        for key in adata.obsm.keys()
-        if "deconvolution" in key.lower() or "proportions" in key.lower()
-    ]
-
     # Import pandas at the top to ensure it's always available
     import pandas as pd
 
+    # Find deconvolution results in obsm
+    # USE params.deconv_method FOR FILTERING
+    if params.deconv_method:
+        # User specified method - look for that specific result
+        target_key = f"deconvolution_{params.deconv_method}"
+        if target_key in adata.obsm:
+            deconv_keys = [target_key]
+        else:
+            # Will check obs columns later
+            deconv_keys = []
+    else:
+        # No method specified - find all available
+        deconv_keys = [
+            key
+            for key in adata.obsm.keys()
+            if "deconvolution" in key.lower() or "proportions" in key.lower()
+        ]
+
     if not deconv_keys:
         # Look for individual cell type proportions in obs
-        # Support all deconvolution methods
-        deconv_methods = [
-            "cell2location",
-            "rctd",
-            "destvi",
-            "stereoscope",
-            "spotlight",
-            "tangram",
-            "card",
-        ]
+        # Filter by params.deconv_method if specified
+        if params.deconv_method:
+            deconv_methods = [params.deconv_method]
+        else:
+            # Support all deconvolution methods
+            deconv_methods = [
+                "cell2location",
+                "rctd",
+                "destvi",
+                "stereoscope",
+                "spotlight",
+                "tangram",
+                "card",
+            ]
+
         cell_type_cols = [
             col
             for col in adata.obs.columns
@@ -2729,11 +2794,18 @@ async def create_spatial_multi_deconvolution(
         ]
 
         if not cell_type_cols:
-            raise DataNotFoundError(
-                f"No deconvolution results found in adata.obsm or adata.obs.\n"
-                f"Looking for columns containing: {', '.join(deconv_methods)}\n"
-                f"Available columns: {list(adata.obs.columns[:10])}"
-            )
+            if params.deconv_method:
+                raise DataNotFoundError(
+                    f"Deconvolution results for method '{params.deconv_method}' not found.\n\n"
+                    f"Available in obsm: {[k for k in adata.obsm.keys() if 'deconv' in k]}\n"
+                    f"Run deconvolution first or specify an available method."
+                )
+            else:
+                raise DataNotFoundError(
+                    f"No deconvolution results found in adata.obsm or adata.obs.\n"
+                    f"Looking for columns containing: {', '.join(deconv_methods)}\n"
+                    f"Available columns: {list(adata.obs.columns[:10])}"
+                )
 
         # Create proportions DataFrame from obs columns
         # Extract base key (e.g., 'deconvolution_cell2location' from 'deconvolution_cell2location_T_cell')
@@ -2747,9 +2819,22 @@ async def create_spatial_multi_deconvolution(
         if not base_keys:
             raise DataNotFoundError("Could not identify deconvolution result structure")
 
-        # Use the first base key found
+        # CHECK FOR MULTIPLE RESULTS
+        if len(base_keys) > 1:
+            available = [key.split("_")[1] if "_" in key else key for key in base_keys]
+            raise ValueError(
+                f"Multiple deconvolution results found in obs: {list(base_keys)}\n\n"
+                f"Available methods: {available}\n\n"
+                f"SOLUTION: Specify deconv_method parameter:\n"
+                f"  params={{'deconv_method': '{available[0]}'}}"
+            )
+
+        # Single result - use it
         base_key = list(base_keys)[0]
-        method_name = base_key.split("_")[0].upper()
+        method_name = base_key.split("_")[1].upper() if "_" in base_key else "DECONV"
+
+        if context:
+            await context.info(f"Using deconvolution method: {method_name}")
 
         # Get all columns for this base key
         relevant_cols = [col for col in cell_type_cols if col.startswith(base_key)]
@@ -2764,8 +2849,31 @@ async def create_spatial_multi_deconvolution(
             index=adata.obs.index,
         )
     else:
-        # Use the first deconvolution key found
+        # CHECK FOR MULTIPLE RESULTS IN OBSM
+        if len(deconv_keys) > 1:
+            available = [key.replace("deconvolution_", "") for key in deconv_keys]
+            raise ValueError(
+                f"Multiple deconvolution results found: {available}\n\n"
+                f"SOLUTION: Specify deconv_method parameter:\n"
+                f"  visualize_data(\n"
+                f"    data_id='your_data',\n"
+                f"    params={{\n"
+                f"      'plot_type': 'deconvolution',\n"
+                f"      'deconv_method': '{available[0]}',\n"
+                f"      'subtype': 'spatial_multi'\n"
+                f"    }}\n"
+                f"  )"
+            )
+
+        # Single result - use it
         deconv_key = deconv_keys[0]
+        method_name = (
+            deconv_key.split("_")[1].upper() if "_" in deconv_key else "DECONV"
+        )
+
+        if context:
+            await context.info(f"Using deconvolution method: {method_name}")
+
         proportions = pd.DataFrame(
             adata.obsm[deconv_key],
             index=adata.obs.index,
@@ -2774,7 +2882,6 @@ async def create_spatial_multi_deconvolution(
                 [f"CellType_{i}" for i in range(adata.obsm[deconv_key].shape[1])],
             ),
         )
-        method_name = deconv_key.split("_")[0].upper()
 
     # Get top cell types by mean proportion
     n_cell_types = min(params.n_cell_types, proportions.shape[1])
