@@ -113,6 +113,13 @@ python -m chatspatial server --transport sse --port 8000
 
 Once ChatSpatial is configured, try these example analyses:
 
+{: .important }
+> 💬 **How to use ChatSpatial**: All examples below are **natural language commands** you type in your Claude chat (Desktop or Code).
+>
+> **First**, tell Claude: "Use ChatSpatial MCP for all my spatial transcriptomics analysis" - this ensures Claude uses the MCP tools instead of writing scripts.
+>
+> **Then**, simply chat in natural language! ChatSpatial MCP server interprets your requests and automatically runs the appropriate analysis tools. **No Python code needed!**
+
 ### Download Sample Data First
 
 Before running analyses, download sample datasets from [ChatSpatial Releases](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.3.0-data):
@@ -121,86 +128,92 @@ Before running analyses, download sample datasets from [ChatSpatial Releases](ht
 
 ### Load and Explore Data
 
+**In your Claude chat, type:**
+
 ```
 Load /Users/yourname/Downloads/card_spatial.h5ad and show me basic information about it
 ```
 
 > ⚠️ **IMPORTANT**: Always use **absolute paths** (starting with `/`) when loading data files.
 
-Expected response: ChatSpatial will load the dataset and provide summary statistics.
+**Expected response**: ChatSpatial MCP will load the dataset and provide summary statistics including number of spots, genes, and quality metrics.
 
 ### Spatial Visualization
+
+**In your Claude chat, type:**
 
 ```
 Create a spatial plot showing the tissue structure and gene expression patterns
 ```
 
-This will generate spatial plots of your data.
+**What happens**: ChatSpatial MCP will generate spatial plots of your data with tissue coordinates and expression overlays.
 
 ### Identify Spatial Domains
+
+**In your Claude chat, type:**
 
 ```
 Identify spatial domains using spagcn method and visualize the results
 ```
 
-ChatSpatial will perform spatial domain identification and create visualization plots.
+**What happens**: ChatSpatial MCP will perform spatial domain identification and create visualization plots showing distinct tissue regions.
 
 ### Cell Type Annotation
+
+**In your Claude chat, type:**
 
 ```
 Annotate cell types using marker genes and show the spatial distribution
 ```
 
-This performs automated cell type annotation and spatial mapping.
+**What happens**: ChatSpatial MCP performs automated cell type annotation and creates spatial maps showing cell type distributions.
 
 ## Example Workflows
 
+{: .note }
+> 💬 **Conversational Analysis**: Copy and paste these natural language requests into your Claude chat. ChatSpatial MCP will execute each step automatically.
+
 ### Basic Spatial Analysis Workflow
 
+**In your Claude chat, have this conversation:**
+
 ```
-# 1. Load data (use absolute path!)
-Load /Users/yourname/Downloads/card_spatial.h5ad
+1. Load /Users/yourname/Downloads/card_spatial.h5ad
 
-# 2. Quality control
-Show me quality control metrics and filter low-quality spots
+2. Show me quality control metrics and filter low-quality spots
 
-# 3. Dimensionality reduction
-Perform PCA and UMAP embedding on the data
+3. Perform PCA and UMAP embedding on the data
 
-# 4. Clustering
-Cluster the spots using Leiden clustering
+4. Cluster the spots using Leiden clustering
 
-# 5. Spatial visualization
-Create spatial plots colored by clusters
+5. Create spatial plots colored by clusters
 
-# 6. Find marker genes
-Find marker genes for each cluster
+6. Find marker genes for each cluster
 
-# 7. Spatial domains
-Identify spatial domains using spagcn method
+7. Identify spatial domains using spagcn method
 ```
+
+**What happens**: ChatSpatial MCP guides you through a complete basic analysis workflow, from data loading to spatial domain identification.
 
 ### Advanced Analysis Workflow
 
+**In your Claude chat, have this conversation:**
+
 ```
-# 1. Load and preprocess (use absolute paths!)
-Load /Users/yourname/Downloads/card_spatial.h5ad and /Users/yourname/Downloads/card_reference_filtered.h5ad and perform quality control
+1. Load /Users/yourname/Downloads/card_spatial.h5ad and /Users/yourname/Downloads/card_reference_filtered.h5ad and perform quality control
 
-# 2. Cell type annotation
-Annotate cell types using the marker gene approach
+2. Annotate cell types using the reference data
 
-# 3. Spatial domains
-Identify spatial domains and visualize them
+3. Identify spatial domains and visualize them
 
-# 4. Cell communication
-Analyze cell-cell communication patterns using liana method
+4. Analyze cell-cell communication patterns using liana method
 
-# 5. Spatial variable genes
-Find spatially variable genes using sparkx method
+5. Find spatially variable genes using sparkx method
 
-# 6. Deconvolution analysis
-Deconvolve the spatial data using the reference with Cell2location
+6. Deconvolve the spatial data using the reference with Cell2location
 ```
+
+**What happens**: ChatSpatial MCP performs an advanced multi-method analysis including deconvolution, cell communication, and spatial statistics.
 
 ## Understanding Results
 

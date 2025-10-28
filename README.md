@@ -12,19 +12,22 @@
 
 **Eliminate the implementation tax. Focus on biological insight.**
 
-ChatSpatial is an agentic workflow orchestration platform that integrates 60 state-of-the-art methods from fragmented Python and R ecosystems into a unified conversational interface. Built on the Model Context Protocol (MCP), it enables human-steered discovery through natural language, eliminating the need for manual data conversion and complex programming.
+ChatSpatial is an agentic workflow orchestration platform that integrates 60 state-of-the-art methods from fragmented Python and R ecosystems into a unified conversational interface. Built on the Model Context Protocol (MCP), it enables human-steered discovery through natural language in Claude Desktop or Claude Code, eliminating the need for manual data conversion and complex programming.
+
+**🎯 Example: Analyze spatial transcriptomics data through conversation with Claude**
 
 ```text
 👤 "Load my 10x Visium dataset and identify spatial domains"
 🤖 ✅ Loaded 3,456 spots, 18,078 genes
     ✅ Identified 7 spatial domains using SpaGCN
     ✅ Generated spatial domain visualization
-    
+
 👤 "Find marker genes for domain 3 and create a heatmap"
 🤖 ✅ Found 23 significant markers (adj. p < 0.05)
     ✅ Top markers: GFAP, S100B, AQP4 (astrocyte signature)
     ✅ Generated expression heatmap
 ```
+*👤 = You chatting with Claude | 🤖 = ChatSpatial MCP executing analysis*
 
 
 ---
@@ -57,16 +60,17 @@ sc.pp.filter_genes(adata, min_cells=3)
 <td width="50%" valign="top">
 
 ### After: ChatSpatial
+**Chat with Claude using natural language:**
 ```text
-"Analyze my Visium data and find 
+"Analyze my Visium data and find
  spatially variable genes"
 ```
 
 ✅ **5 seconds to results**
-✅ **Plain English queries**
+✅ **Plain English in Claude chat**
 ✅ **Zero programming required**
 ✅ **Publication-ready output**
-✅ **60 methods across 15 categories**  
+✅ **60 methods via MCP**  
 
 </td>
 </tr>
@@ -171,14 +175,21 @@ claude
    - `card_reference_filtered.h5ad` (36MB - pancreatic reference with 9 cell types)
    - `card_spatial.h5ad` (7.7MB - spatial data with clear tissue domains)
 
-**Now open your Claude client and try:**
+**3. Open Claude Desktop or Claude Code and chat with ChatSpatial:**
+
+> 💡 **Important**: Tell Claude to use ChatSpatial MCP for your spatial analysis (e.g., "Use ChatSpatial MCP for all my spatial transcriptomics analysis"). This ensures Claude calls the MCP tools instead of writing scripts.
+
+Simply type this natural language request in your Claude chat:
+
 ```text
-"Load /Users/yourname/Downloads/card_reference_filtered.h5ad and /Users/yourname/Downloads/card_spatial.h5ad, then show me the tissue structure"
+Load /Users/yourname/Downloads/card_reference_filtered.h5ad and /Users/yourname/Downloads/card_spatial.h5ad, then show me the tissue structure
 ```
+
+> 💡 **How it works**: ChatSpatial MCP server interprets your natural language and automatically calls the appropriate analysis tools. No coding required!
 
 > ⚠️ **IMPORTANT**: Use **absolute paths** when loading data (e.g., `/Users/yourname/Downloads/card_reference_filtered.h5ad`)
 
-**🎯 That's it!** No programming, no tutorials, no documentation reading required.
+**🎯 That's it!** ChatSpatial will load your data and create a beautiful spatial visualization - all through natural language conversation.
 
 > **📚 Detailed Setup Guides**: [Claude Desktop](INSTALLATION.md#claude-desktop) | [Claude Code](INSTALLATION.md#claude-code)
 
@@ -186,28 +197,40 @@ claude
 
 ## 🧬 What You Can Do
 
+> 💬 **All examples below are natural language commands you type in Claude chat with ChatSpatial MCP**
+
 ### 📊 **Try These Examples** (After Loading Sample Data)
+
+Chat with Claude using these natural language requests:
+
 ```text
-"Identify spatial domains using SpaGCN"
-"Deconvolve the spatial data using the reference data with Cell2location"  
-"Analyze cell communication between spatial regions"
-"Find spatially variable genes and create heatmaps"
+Identify spatial domains using SpaGCN
+
+Deconvolve the spatial data using the reference with Cell2location
+
+Analyze cell communication between spatial regions
+
+Find spatially variable genes and create heatmaps
 ```
 
-### 🔍 **Spatial Analysis Made Simple**
-```text
-"Find spatial domains"  →  SpaGCN + STAGATE + Leiden/Louvain clustering
-"Detect hotspots"       →  Getis-Ord Gi* spatial statistics  
-"Map cell territories"  →  Spatial neighborhood analysis
-```
+**What happens**: ChatSpatial MCP automatically selects the right tools, runs the analysis, and returns publication-ready visualizations.
 
-### 🧮 **Advanced Methods Without Coding**
-```text
-"Deconvolve this spot data"     →  Cell2location + scvi-tools
-"Analyze cell communication"    →  LIANA + CellPhoneDB
-"Find trajectory paths"         →  CellRank + Palantir
-"Run pathway enrichment"        →  GSEA + spatial smoothing
-```
+### 🔍 **Spatial Analysis - Just Ask in Plain English**
+
+| Your Question | What ChatSpatial Does |
+|---------------|----------------------|
+| "Find spatial domains" | Runs SpaGCN/STAGATE/Leiden clustering |
+| "Detect hotspots" | Applies Getis-Ord Gi* spatial statistics |
+| "Map cell territories" | Performs spatial neighborhood analysis |
+
+### 🧮 **Advanced Methods - No Coding Knowledge Required**
+
+| Your Request | Methods Used |
+|-------------|--------------|
+| "Deconvolve this spatial data" | Cell2location + scvi-tools |
+| "Analyze cell communication" | LIANA+ + CellPhoneDB |
+| "Find developmental trajectories" | CellRank + Palantir |
+| "Run pathway enrichment" | GSEA + spatial smoothing |
 
 ### 🎨 **Instant Visualizations**
 - **Spatial plots** with tissue overlays
