@@ -53,42 +53,8 @@ from ..models.analysis import DeconvolutionResult  # noqa: E402
 from ..models.data import DeconvolutionParameters  # noqa: E402
 
 # No longer need local context manager utilities - using centralized version
-
-
-def _apply_cell2location_compatibility_fix():
-    """
-    Apply compatibility fix for cell2location + scvi-tools version mismatch.
-
-    Fixes the issue where cell2location 0.1.4 tries to import 'one_hot' from scvi.nn
-    but scvi-tools >= 1.1.0 moved it to torch.nn.functional.
-
-    This is a non-invasive monkey patch that enables old cell2location to work
-    with new scvi-tools versions.
-    """
-    try:
-        # Check if torch is available
-        import torch.nn.functional as F
-
-        if not hasattr(F, "one_hot"):
-            return False
-
-        # Import scvi modules
-        import scvi
-        import scvi.nn
-        import scvi.nn._utils
-
-        # Apply patches if needed
-        if not hasattr(scvi.nn, "one_hot"):
-            scvi.nn.one_hot = F.one_hot
-
-        if not hasattr(scvi.nn._utils, "one_hot"):
-            scvi.nn._utils.one_hot = F.one_hot
-
-        return True
-
-    except Exception:
-        # Silent fallback - don't break if this fails
-        return False
+# Note: cell2location 0.1.4+ includes official one_hot compatibility fix,
+# so no monkey patch is needed anymore
 
 
 # Helper functions to eliminate redundancy
@@ -743,16 +709,13 @@ def deconvolve_cell2location(
     """
     # Import cell2location
     try:
-        # Apply compatibility fix for cell2location + scvi-tools version mismatch
-        _apply_cell2location_compatibility_fix()
-
         import cell2location as cell2location_mod  # noqa: F401
         from cell2location.models import Cell2location, RegressionModel
     except ImportError as e:
         # Provide specific installation guidance
         raise ImportError(
             "cell2location is not installed. "
-            "Install with 'pip install chatspatial[advanced]' or 'pip install cell2location>=0.1.3'. "
+            "Install with 'pip install chatspatial[full]' or 'pip install cell2location>=0.1.4'. "
             "Note: Requires PyTorch and compatible GPU drivers for optimal performance."
         ) from e
 
