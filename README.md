@@ -166,17 +166,17 @@ claude
 
 **🎯 Quick Test (1 minute):**
 
-1. **Download sample datasets**: Go to [**ChatSpatial Releases**](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.2.0-data)
+1. **Download sample datasets**: Go to [**ChatSpatial Releases**](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.3.0-data)
 2. **Download these files**:
-   - `destvi_reference_small.h5ad` (7.8MB)
-   - `destvi_spatial_small.h5ad` (10MB)
+   - `card_reference_filtered.h5ad` (36MB - pancreatic reference with 9 cell types)
+   - `card_spatial.h5ad` (7.7MB - spatial data with clear tissue domains)
 
 **Now open your Claude client and try:**
 ```text
-"Load /Users/yourname/Downloads/destvi_reference_small.h5ad and /Users/yourname/Downloads/destvi_spatial_small.h5ad, then show me the tissue structure"
+"Load /Users/yourname/Downloads/card_reference_filtered.h5ad and /Users/yourname/Downloads/card_spatial.h5ad, then show me the tissue structure"
 ```
 
-> ⚠️ **IMPORTANT**: Use **absolute paths** when loading data (e.g., `/Users/yourname/Downloads/destvi_reference_small.h5ad`)
+> ⚠️ **IMPORTANT**: Use **absolute paths** when loading data (e.g., `/Users/yourname/Downloads/card_reference_filtered.h5ad`)
 
 **🎯 That's it!** No programming, no tutorials, no documentation reading required.
 
