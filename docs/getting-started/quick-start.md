@@ -115,14 +115,14 @@ Once ChatSpatial is configured, try these example analyses:
 
 ### Download Sample Data First
 
-Before running analyses, download sample datasets from [ChatSpatial Releases](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.2.0-data):
-- `destvi_reference_small.h5ad` (7.8MB)
-- `destvi_spatial_small.h5ad` (10MB)
+Before running analyses, download sample datasets from [ChatSpatial Releases](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.3.0-data):
+- `card_reference_filtered.h5ad` (36MB - pancreatic reference with 9 cell types)
+- `card_spatial.h5ad` (7.7MB - spatial data with clear tissue domains)
 
 ### Load and Explore Data
 
 ```
-Load /Users/yourname/Downloads/destvi_spatial_small.h5ad and show me basic information about it
+Load /Users/yourname/Downloads/card_spatial.h5ad and show me basic information about it
 ```
 
 > ⚠️ **IMPORTANT**: Always use **absolute paths** (starting with `/`) when loading data files.
@@ -159,9 +159,9 @@ This performs automated cell type annotation and spatial mapping.
 
 ```
 # 1. Load data (use absolute path!)
-Load /Users/yourname/Downloads/destvi_spatial_small.h5ad
+Load /Users/yourname/Downloads/card_spatial.h5ad
 
-# 2. Quality control  
+# 2. Quality control
 Show me quality control metrics and filter low-quality spots
 
 # 3. Dimensionality reduction
@@ -184,7 +184,7 @@ Identify spatial domains using spagcn method
 
 ```
 # 1. Load and preprocess (use absolute paths!)
-Load /Users/yourname/Downloads/destvi_spatial_small.h5ad and /Users/yourname/Downloads/destvi_reference_small.h5ad and perform quality control
+Load /Users/yourname/Downloads/card_spatial.h5ad and /Users/yourname/Downloads/card_reference_filtered.h5ad and perform quality control
 
 # 2. Cell type annotation
 Annotate cell types using the marker gene approach
@@ -198,8 +198,8 @@ Analyze cell-cell communication patterns using liana method
 # 5. Spatial variable genes
 Find spatially variable genes using sparkx method
 
-# 6. Trajectory analysis
-Perform RNA velocity analysis for developmental trajectories
+# 6. Deconvolution analysis
+Deconvolve the spatial data using the reference with Cell2location
 ```
 
 ## Understanding Results

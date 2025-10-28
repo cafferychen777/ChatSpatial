@@ -567,12 +567,12 @@ Cannot locate file: ./folder/data.h5ad
    ```bash
    cd /your/download/folder
    pwd  # Shows: /Users/yourname/Downloads
-   ls *.h5ad  # Shows: destvi_spatial_small.h5ad
+   ls *.h5ad  # Shows: card_spatial.h5ad
    ```
 
 2. **Use in ChatSpatial:**
    ```text
-   "Load /Users/yourname/Downloads/destvi_spatial_small.h5ad"
+   "Load /Users/yourname/Downloads/card_spatial.h5ad"
    ```
 
 ### File Format Issues
@@ -604,7 +604,7 @@ KeyError: spatial coordinates not found
 
 3. **Test with ChatSpatial (remember: absolute paths only!):**
    ```text
-   "Load data from /Users/yourname/Downloads/destvi_spatial_small.h5ad"
+   "Load data from /Users/yourname/Downloads/card_spatial.h5ad"
    "Check what file formats are supported"
    "Try loading with different format options"
    ```
