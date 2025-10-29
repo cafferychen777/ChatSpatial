@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
+
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
 
@@ -34,18 +35,22 @@ except ImportError:
     INFERCNVPY_AVAILABLE = False
 
 from ..models.data import VisualizationParameters  # noqa: E402
+
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
+
 # Import error handling utilities
 from ..utils.error_handling import DataCompatibilityError  # noqa: E402
 from ..utils.error_handling import DataNotFoundError  # noqa: E402
-from ..utils.error_handling import (InvalidParameterError,  # noqa: E402
-                                    ProcessingError)
+from ..utils.error_handling import InvalidParameterError, ProcessingError  # noqa: E402
+
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
+
 # Import path utilities for safe file operations
 from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
 from ..utils.path_utils import get_safe_output_path  # noqa: E402
+
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors  # noqa: E402
 
@@ -145,10 +150,27 @@ async def get_validated_features(
     adata: ad.AnnData,
     params: VisualizationParameters,
     max_features: int = 12,
+    allow_empty: bool = False,
+    default_genes: Optional[List[str]] = None,
     context: Optional[Context] = None,
 ) -> List[str]:
-    """Gets a validated list of features (genes) for visualization."""
+    """Gets a validated list of features (genes) for visualization.
 
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        max_features: Maximum number of features allowed
+        allow_empty: If True, allow params.feature to be None/empty and use default_genes
+        default_genes: Default genes to use if params.feature is empty (requires allow_empty=True)
+        context: MCP context for logging
+
+    Returns:
+        List of validated gene names
+
+    Raises:
+        DataNotFoundError: If genes not found or no genes specified when required
+        ValueError: If too many genes specified or invalid configuration
+    """
     # Ensure unique var_names before proceeding
     if not adata.var_names.is_unique:
         if context:
@@ -157,26 +179,43 @@ async def get_validated_features(
 
     # Check if user specified any features
     if not params.feature:
-        raise DataNotFoundError(
-            "No genes specified for visualization.\n\n"
-            "SOLUTIONS:\n"
-            "1. Specify genes: visualize_data(data_id, params={'feature': ['CD3D', 'CD8A']})\n"
-            "2. Find markers: find_markers(data_id, group_key='cell_type')\n"
-            "3. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n\n"
-            "CONTEXT: Explicit gene selection required for scientific accuracy."
-        )
+        if allow_empty and default_genes:
+            # Use default genes
+            if context:
+                await context.info(
+                    f"No genes specified, using {len(default_genes)} default genes: "
+                    f"{default_genes[:3]}{'...' if len(default_genes) > 3 else ''}"
+                )
+            return default_genes[:max_features]
+        elif allow_empty and not default_genes:
+            raise ValueError(
+                "No default genes available and no features specified.\n\n"
+                "INTERNAL ERROR: allow_empty=True but default_genes=None.\n"
+                "This is a configuration error in the visualization function."
+            )
+        else:
+            # Require explicit feature specification
+            raise DataNotFoundError(
+                "No genes specified for visualization.\n\n"
+                "SOLUTIONS:\n"
+                "1. Specify genes: visualize_data(data_id, params={'feature': ['CD3D', 'CD8A']})\n"
+                "2. Find markers: find_markers(data_id, group_key='cell_type')\n"
+                "3. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n\n"
+                "CONTEXT: Explicit gene selection required for scientific accuracy."
+            )
 
     # Parse user features
     features = params.feature if isinstance(params.feature, list) else [params.feature]
 
     # Check which features are available
     available_features = [f for f in features if f in adata.var_names]
+    missing_features = [f for f in features if f not in adata.var_names]
 
     if not available_features:
-        missing = [f for f in features if f not in adata.var_names]
+        # All features missing
         examples = list(adata.var_names[:10])
         raise DataNotFoundError(
-            f"Genes not found: {missing}\n\n"
+            f"Genes not found: {missing_features}\n\n"
             f"SOLUTIONS:\n"
             f"1. Check names (available: {examples})\n"
             f"2. Search for similar gene names\n"
@@ -184,14 +223,21 @@ async def get_validated_features(
             f"CONTEXT: Dataset has {adata.n_vars:,} genes."
         )
 
-    if len(available_features) > max_features:
-        raise ValueError(
-            f"Too many genes ({len(available_features)} > {max_features}).\n\n"
-            f"SOLUTIONS:\n"
-            f"1. Select {max_features} genes from: {available_features}\n"
-            f"2. Create multiple visualizations\n"
-            f"3. Use heatmap for larger sets"
+    # Warn about missing features
+    if missing_features and context:
+        await context.warning(
+            f"WARNING: {len(missing_features)} gene(s) not found and will be skipped: {missing_features}\n"
+            f"Proceeding with {len(available_features)} available gene(s): {available_features}"
         )
+
+    # Limit to max_features
+    if len(available_features) > max_features:
+        if context:
+            await context.warning(
+                f"Too many genes ({len(available_features)} > {max_features}), "
+                f"limiting to first {max_features} genes"
+            )
+        available_features = available_features[:max_features]
 
     return available_features
 
@@ -328,17 +374,36 @@ async def validate_and_prepare_feature(
                     adata.obs[feature] = deconv_df[cell_type]
                     return feature
                 else:
-                    if context:
-                        await context.warning(
-                            f"Deconvolution result {feature} not found. Using default feature."
+                    # Deconvolution result specified but not found
+                    if default_feature is not None:
+                        if context:
+                            await context.warning(
+                                f"Deconvolution result {feature} not found. Using default feature."
+                            )
+                        return default_feature
+                    else:
+                        raise DataNotFoundError(
+                            f"Deconvolution result '{feature}' not found.\n\n"
+                            "SOLUTIONS:\n"
+                            "1. Run deconvolution analysis first\n"
+                            "2. Check the format: 'deconvolution_method:cell_type'\n"
+                            "3. Verify the cell type name is correct"
                         )
-                    return default_feature
         else:
-            if context:
-                await context.warning(
-                    f"Invalid feature format {feature}. Use 'deconvolution_key:cell_type'. Using default feature."
+            # Invalid deconvolution format
+            if default_feature is not None:
+                if context:
+                    await context.warning(
+                        f"Invalid feature format {feature}. Use 'deconvolution_key:cell_type'. Using default feature."
+                    )
+                return default_feature
+            else:
+                raise ValueError(
+                    f"Invalid feature format: '{feature}'\n\n"
+                    "For deconvolution results, use format:\n"
+                    "  'deconvolution_method:cell_type'\n\n"
+                    "Example: 'deconvolution_cell2location:T_cells'"
                 )
-            return default_feature
 
     # Check if it's a deconvolution result with cell type using underscore format
     elif "_" in feature and feature.startswith("deconvolution_"):
@@ -348,11 +413,21 @@ async def validate_and_prepare_feature(
                 await context.info(f"Found cell type proportion in obs as {feature}")
             return feature
         else:
-            if context:
-                await context.warning(
-                    f"Feature {feature} not found in dataset. Using default feature."
+            # Deconvolution feature not found
+            if default_feature is not None:
+                if context:
+                    await context.warning(
+                        f"Feature {feature} not found in dataset. Using default feature."
+                    )
+                return default_feature
+            else:
+                raise DataNotFoundError(
+                    f"Deconvolution feature '{feature}' not found.\n\n"
+                    "SOLUTIONS:\n"
+                    "1. Run deconvolution analysis first\n"
+                    "2. Check the feature name format\n"
+                    "3. Use 'deconvolution_method:cell_type' format instead"
                 )
-            return default_feature
 
     # Check if it's a deconvolution key
     elif feature in adata.obsm:
@@ -375,25 +450,55 @@ async def validate_and_prepare_feature(
                     )
                 return obs_key
             else:
+                # Deconvolution found but cannot determine cell types
+                if default_feature is not None:
+                    if context:
+                        await context.info(
+                            f"Found deconvolution result {feature}, but could not determine cell types. Using default feature."
+                        )
+                    return default_feature
+                else:
+                    raise ValueError(
+                        f"Found deconvolution result '{feature}', but cannot determine cell types.\n\n"
+                        "SOLUTION: Specify a cell type explicitly:\n"
+                        "  Use format: 'deconvolution_method:cell_type'\n"
+                        "  Example: 'deconvolution_cell2location:T_cells'"
+                    )
+        else:
+            # Deconvolution found but no cell types info
+            if default_feature is not None:
                 if context:
                     await context.info(
-                        f"Found deconvolution result {feature}, but could not determine cell types. Please specify a cell type using 'deconvolution_key:cell_type' format."
+                        f"Found deconvolution result {feature}. Using default feature."
                     )
                 return default_feature
-        else:
-            if context:
-                await context.info(
-                    f"Found deconvolution result {feature}. Please specify a cell type using 'deconvolution_key:cell_type' format."
+            else:
+                raise ValueError(
+                    f"Found deconvolution result '{feature}', but no cell types information available.\n\n"
+                    "SOLUTION: Specify a cell type explicitly:\n"
+                    "  Use format: 'deconvolution_method:cell_type'\n"
+                    "  Example: 'deconvolution_cell2location:T_cells'"
                 )
-            return default_feature
 
     # Check if it's a regular feature
     elif feature not in adata.var_names and feature not in adata.obs.columns:
-        if context:
-            await context.warning(
-                f"Feature {feature} not found in dataset. Using default feature."
-            )
-        return default_feature
+        # Feature not found - raise error instead of silent fallback
+        available_genes = list(adata.var_names[:10])
+        available_obs = [
+            col
+            for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ["object", "category"]
+        ][:10]
+        raise DataNotFoundError(
+            f"Feature '{feature}' not found in dataset.\n\n"
+            f"AVAILABLE DATA:\n"
+            f"  - Genes (example): {available_genes}\n"
+            f"  - Annotations (example): {available_obs}\n\n"
+            "SOLUTIONS:\n"
+            "1. Check spelling and capitalization of feature name\n"
+            "2. Use an available gene or annotation column\n"
+            "3. For deconvolution results, use format: 'deconvolution_method:cell_type'"
+        )
     else:
         return feature
 
@@ -443,6 +548,1321 @@ def get_deconvolution_dataframe(adata, deconv_key):
             return None
 
 
+# ============================================================
+# Private Visualization Functions (Extracted from visualize_data)
+# ============================================================
+# These functions handle specific plot types and follow a unified signature:
+#   async def _create_<plot_type>_visualization(adata, params, context) -> plt.Figure
+# ============================================================
+
+
+async def _create_violin_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context: Optional[Context] = None,
+) -> plt.Figure:
+    """
+    Create violin plot visualization
+
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure object
+
+    Raises:
+        DataNotFoundError: If genes not found
+        ValueError: If cluster_key not specified or not found
+    """
+    if context:
+        await context.info(
+            f"Creating violin plot for {params.feature if params.feature else 'top genes'}"
+        )
+
+    # Get genes for violin plot using unified validation function
+    # Default: use first 3 genes if not specified
+    default_genes = list(adata.var_names[:3])
+
+    genes = await get_validated_features(
+        adata,
+        params,
+        max_features=20,  # Reasonable limit for violin plots
+        allow_empty=True,
+        default_genes=default_genes,
+        context=context,
+    )
+
+    # REQUIRE explicit cluster_key specification for grouping
+    if not params.cluster_key:
+        categorical_cols = [
+            col
+            for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ["object", "category"]
+        ]
+        raise ValueError(
+            "Violin plot requires 'cluster_key' parameter.\n\n"
+            f"Available categorical columns ({len(categorical_cols)} total):\n"
+            f"  {', '.join(categorical_cols[:15])}\n\n"
+            "SOLUTION: Specify cluster_key explicitly:\n"
+            "  visualize_data(data_id, params={'plot_type': 'violin', 'cluster_key': 'your_column_name'})\n\n"
+            "NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
+            "   This maintains consistency with Squidpy spatial analysis functions."
+        )
+
+    if params.cluster_key not in adata.obs.columns:
+        raise ValueError(
+            f"Cluster key '{params.cluster_key}' not found in data.\n\n"
+            f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
+        )
+
+    groupby = params.cluster_key
+    # Limit the number of groups to avoid oversized responses
+    n_groups = len(adata.obs[groupby].cat.categories)
+    if n_groups > 8:
+        if context:
+            await context.warning(
+                f"Too many groups ({n_groups}). Limiting to 8 groups."
+            )
+        # Get the 8 largest groups
+        group_counts = adata.obs[groupby].value_counts().nlargest(8).index
+        # Subset the data to include only these groups
+        adata = adata[adata.obs[groupby].isin(group_counts)].copy()
+
+    if False:  # Disabled the no-grouping path - cluster_key now required
+        groupby = None
+
+    # Create violin plot
+    # Use user's figure size if specified, otherwise default to (8, 6)
+    figsize = params.figure_size if params.figure_size else (8, 6)
+    plt.figure(figsize=figsize, dpi=params.dpi)
+    sc.pl.violin(
+        adata,
+        genes,
+        groupby=groupby,
+        show=False,
+        jitter=0.2,  # Reduce jitter amount
+        scale="width",
+    )  # Scale violins to same width
+    fig = plt.gcf()  # Get the current figure
+
+    # Fix overlapping x-axis labels
+    for ax_item in fig.get_axes():
+        # Rotate x-axis labels 45 degrees for better readability
+        ax_item.tick_params(axis="x", labelrotation=45)
+        # Align labels to the right for better appearance
+        for label in ax_item.get_xticklabels():
+            label.set_horizontalalignment("right")
+
+    # Adjust layout to prevent label cutoff
+    plt.tight_layout()
+
+    return fig
+
+
+async def _create_card_imputation_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context: Optional[Context] = None,
+) -> plt.Figure:
+    """
+    Create CARD imputation visualization
+
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure object
+
+    Raises:
+        DataNotFoundError: If CARD imputation data not found or feature not found
+    """
+    if context:
+        await context.info("Creating CARD imputation visualization")
+
+    # Check if CARD imputation data exists
+    if "card_imputation" not in adata.uns:
+        error_msg = (
+            "CARD imputation data not found in adata.uns['card_imputation']. "
+            "Please run CARD deconvolution with card_imputation=True first."
+        )
+        if context:
+            await context.warning(error_msg)
+        raise DataNotFoundError(error_msg)
+
+    # Extract imputation data
+    impute_data = adata.uns["card_imputation"]
+    imputed_proportions = impute_data["proportions"]
+    imputed_coords = impute_data["coordinates"]
+
+    # Determine what to visualize
+    feature = params.feature
+    if not feature:
+        # Default: show dominant cell types
+        feature = "dominant"
+
+    figsize = params.figure_size if params.figure_size else (12, 10)
+    fig, ax = plt.subplots(figsize=figsize)
+
+    if feature == "dominant":
+        # Show dominant cell types
+        dominant_types = imputed_proportions.idxmax(axis=1)
+        unique_types = dominant_types.unique()
+
+        # Create color map
+        import seaborn as sns
+
+        colors = sns.color_palette("tab20", n_colors=len(unique_types))
+        color_map = {ct: colors[i] for i, ct in enumerate(unique_types)}
+        point_colors = [color_map[ct] for ct in dominant_types]
+
+        scatter = ax.scatter(
+            imputed_coords["x"],
+            imputed_coords["y"],
+            c=point_colors,
+            s=25,
+            edgecolors="none",
+            alpha=0.7,
+        )
+
+        ax.set_title(
+            f"CARD Imputation: Dominant Cell Types\n"
+            f"({len(imputed_coords)} locations, "
+            f"{impute_data['resolution_increase']:.1f}x resolution)",
+            fontsize=14,
+            fontweight="bold",
+        )
+
+        # Create legend
+        from matplotlib.patches import Patch
+
+        legend_elements = [
+            Patch(facecolor=color_map[ct], label=ct) for ct in sorted(unique_types)
+        ]
+        ax.legend(
+            handles=legend_elements,
+            bbox_to_anchor=(1.05, 1),
+            loc="upper left",
+            fontsize=9,
+        )
+
+    elif feature in imputed_proportions.columns:
+        # Show specific cell type proportion
+        scatter = ax.scatter(
+            imputed_coords["x"],
+            imputed_coords["y"],
+            c=imputed_proportions[feature],
+            s=30,
+            cmap=params.colormap or "viridis",
+            vmin=0,
+            vmax=imputed_proportions[feature].quantile(0.95),
+            edgecolors="none",
+            alpha=0.8,
+        )
+
+        ax.set_title(
+            f"CARD Imputation: {feature}\n"
+            f"(Mean: {imputed_proportions[feature].mean():.3f}, "
+            f"{len(imputed_coords)} locations)",
+            fontsize=14,
+            fontweight="bold",
+        )
+
+        # Add colorbar
+        cbar = plt.colorbar(scatter, ax=ax)
+        cbar.set_label("Proportion", fontsize=12)
+
+    else:
+        error_msg = (
+            f"Feature '{feature}' not found in imputation results. "
+            f"Available cell types: {list(imputed_proportions.columns)}\n"
+            f"Use feature='dominant' to show dominant cell types."
+        )
+        if context:
+            await context.warning(error_msg)
+        raise DataNotFoundError(error_msg)
+
+    ax.set_xlabel("X coordinate", fontsize=12)
+    ax.set_ylabel("Y coordinate", fontsize=12)
+    ax.set_aspect("equal")
+    plt.tight_layout()
+
+    if context:
+        await context.info("CARD imputation visualization created successfully")
+
+    return fig
+
+
+async def _create_spatial_cnv_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context: Optional[Context] = None,
+) -> plt.Figure:
+    """
+    Create spatial CNV projection visualization
+
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure object
+
+    Raises:
+        DataNotFoundError: If spatial coordinates or CNV features not found
+    """
+    if context:
+        await context.info("Creating spatial CNV projection visualization")
+
+    # Check if spatial coordinates exist
+    if "spatial" not in adata.obsm:
+        error_msg = (
+            "Spatial coordinates not found in adata.obsm['spatial']. "
+            "This plot type requires spatial transcriptomics data."
+        )
+        if context:
+            await context.warning(error_msg)
+        raise DataNotFoundError(error_msg)
+
+    # Determine feature to visualize
+    feature_to_plot = params.feature
+
+    # Auto-detect CNV-related features if none specified
+    if not feature_to_plot:
+        if "numbat_clone" in adata.obs:
+            feature_to_plot = "numbat_clone"
+            if context:
+                await context.info(
+                    "No feature specified, using 'numbat_clone' (Numbat clone assignment)"
+                )
+        elif "cnv_score" in adata.obs:
+            feature_to_plot = "cnv_score"
+            if context:
+                await context.info(
+                    "No feature specified, using 'cnv_score' (CNV score)"
+                )
+        elif "numbat_p_cnv" in adata.obs:
+            feature_to_plot = "numbat_p_cnv"
+            if context:
+                await context.info(
+                    "No feature specified, using 'numbat_p_cnv' (Numbat CNV probability)"
+                )
+        else:
+            error_msg = (
+                "No CNV-related features found in adata.obs. "
+                "Expected one of: 'numbat_clone', 'cnv_score', 'numbat_p_cnv'. "
+                "Please run CNV analysis first using analyze_cnv()."
+            )
+            if context:
+                await context.warning(error_msg)
+            raise DataNotFoundError(error_msg)
+
+    # Validate feature exists
+    if feature_to_plot not in adata.obs.columns:
+        error_msg = (
+            f"Feature '{feature_to_plot}' not found in adata.obs. "
+            f"Available CNV features: {[col for col in adata.obs.columns if 'cnv' in col.lower() or 'numbat' in col.lower()]}"
+        )
+        if context:
+            await context.warning(error_msg)
+        raise DataNotFoundError(error_msg)
+
+    if context:
+        await context.info(f"Visualizing {feature_to_plot} on spatial coordinates")
+
+    # Reuse spatial plot logic
+    # Check for tissue images
+    has_tissue_image = False
+    if "spatial" in adata.uns:
+        for key in adata.uns["spatial"].keys():
+            if "images" in adata.uns["spatial"][key]:
+                has_tissue_image = True
+                break
+
+    if has_tissue_image:
+        # With tissue image background
+        sample_key = (
+            list(adata.uns["spatial"].keys())[0] if "spatial" in adata.uns else None
+        )
+
+        spatial_kwargs = {
+            "img_key": "hires",
+            "show": False,
+            "alpha": params.alpha,
+            "alpha_img": params.alpha_img,
+            "frameon": params.show_axes,
+        }
+
+        if params.spot_size is not None:
+            spatial_kwargs["spot_size"] = params.spot_size
+
+        if sample_key:
+            spatial_kwargs["library_id"] = sample_key
+
+        # Determine if categorical or continuous
+        if (
+            pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot])
+            or adata.obs[feature_to_plot].dtype == "object"
+        ):
+            # Categorical data (e.g., clone assignments)
+            _ensure_categorical_colors(adata, feature_to_plot)
+            spatial_kwargs["palette"] = params.colormap or "tab20"
+        else:
+            # Continuous data (e.g., CNV scores, probabilities)
+            spatial_kwargs["cmap"] = params.colormap or "RdBu_r"
+
+        sc.pl.spatial(adata, color=feature_to_plot, **spatial_kwargs)
+        fig = plt.gcf()
+
+    else:
+        # Without tissue image - use embedding plot
+        figsize = params.figure_size if params.figure_size else (10, 8)
+        fig, ax = plt.subplots(figsize=figsize)
+
+        if (
+            pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot])
+            or adata.obs[feature_to_plot].dtype == "object"
+        ):
+            # Categorical
+            sc.pl.embedding(
+                adata,
+                basis="spatial",
+                color=feature_to_plot,
+                palette=params.colormap or "tab20",
+                show=False,
+                ax=ax,
+            )
+        else:
+            # Continuous
+            sc.pl.embedding(
+                adata,
+                basis="spatial",
+                color=feature_to_plot,
+                cmap=params.colormap or "RdBu_r",
+                show=False,
+                ax=ax,
+            )
+
+    if context:
+        await context.info(f"Spatial CNV projection created for {feature_to_plot}")
+
+    return fig
+
+
+async def _create_cnv_heatmap_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context: Optional[Context] = None,
+) -> plt.Figure:
+    """
+    Create CNV heatmap visualization
+
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure object
+
+    Raises:
+        DataNotFoundError: If CNV data not found
+        DataCompatibilityError: If infercnvpy not installed
+    """
+    if context:
+        await context.info("Creating CNV heatmap visualization")
+
+    # Auto-detect CNV data source (infercnvpy or Numbat)
+    cnv_method = None
+
+    if "X_cnv" in adata.obsm:
+        cnv_method = "infercnvpy"
+    elif "X_cnv_numbat" in adata.obsm:
+        cnv_method = "numbat"
+    else:
+        error_msg = (
+            "CNV data not found. Expected 'X_cnv' (infercnvpy) or "
+            "'X_cnv_numbat' (Numbat) in adata.obsm. "
+            "Please run CNV analysis first using analyze_cnv()."
+        )
+        if context:
+            await context.warning(error_msg)
+        raise DataNotFoundError(error_msg)
+
+    if context:
+        await context.info(f"Detected CNV data from {cnv_method} method")
+
+    # Check if infercnvpy is available (needed for visualization)
+    if not INFERCNVPY_AVAILABLE:
+        error_msg = (
+            "infercnvpy is not installed. Please install it with:\n"
+            "  pip install 'chatspatial[cnv]'\n"
+            "or:\n"
+            "  pip install infercnvpy>=0.4.0"
+        )
+        if context:
+            await context.warning(error_msg)
+        raise DataCompatibilityError(error_msg)
+
+    # For Numbat data, temporarily copy to X_cnv for visualization
+    if cnv_method == "numbat":
+        if context:
+            await context.info(
+                "Converting Numbat CNV data to infercnvpy format for visualization"
+            )
+        adata.obsm["X_cnv"] = adata.obsm["X_cnv_numbat"]
+        # Also ensure cnv metadata exists for infercnvpy plotting
+        # If chromosome info is not available, infercnvpy will still plot but without chromosome labels
+        if "cnv" not in adata.uns:
+            # Create minimal metadata structure for infercnvpy
+            adata.uns["cnv"] = {
+                "genomic_positions": False,  # No genomic position info available
+            }
+            if context:
+                await context.info(
+                    "Note: Chromosome labels not available for Numbat heatmap. "
+                    "Install R packages for full chromosome annotation."
+                )
+
+    # Check if CNV metadata exists
+    if "cnv" not in adata.uns:
+        error_msg = (
+            "CNV metadata not found in adata.uns['cnv']. "
+            "The CNV analysis may not have completed properly. "
+            "Please re-run analyze_cnv()."
+        )
+        if context:
+            await context.warning(error_msg)
+        raise DataNotFoundError(error_msg)
+
+    # Create CNV heatmap
+    if context:
+        await context.info("Generating CNV heatmap...")
+
+    figsize = params.figure_size if params.figure_size else (12, 8)
+
+    # For Numbat data without chromosome info, use aggregated heatmap by group
+    if cnv_method == "numbat" and "chromosome" not in adata.var.columns:
+        if context:
+            await context.info(
+                "Creating aggregated CNV heatmap by group (chromosome positions not available)"
+            )
+
+        # Create aggregated heatmap of CNV matrix
+        import seaborn as sns
+
+        # Get CNV matrix
+        cnv_matrix = adata.obsm["X_cnv"]
+
+        # Aggregate by feature (e.g., clone) for cleaner visualization
+        if params.feature and params.feature in adata.obs.columns:
+            # Group cells by feature and compute mean CNV per group
+            feature_values = adata.obs[params.feature]
+            unique_groups = sorted(feature_values.unique())
+
+            # Compute mean CNV for each group
+            aggregated_cnv = []
+            group_labels = []
+            group_sizes = []
+
+            for group in unique_groups:
+                group_mask = feature_values == group
+                group_cnv = cnv_matrix[group_mask, :].mean(axis=0)
+                aggregated_cnv.append(group_cnv)
+                group_labels.append(str(group))
+                group_sizes.append(group_mask.sum())
+
+            aggregated_cnv = np.array(aggregated_cnv)
+
+            # Calculate appropriate figure width based on number of bins
+            # Use narrower bins for better visualization (0.004 inches per bin)
+            n_bins = aggregated_cnv.shape[1]
+            fig_width = min(max(6, n_bins * 0.004), 12)  # Between 6-12 inches
+            fig_height = max(4, len(unique_groups) * 1.2)
+
+            fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+            # Plot aggregated heatmap with fixed aspect ratio
+            im = ax.imshow(
+                aggregated_cnv,
+                cmap="RdBu_r",
+                aspect="auto",
+                vmin=-1,
+                vmax=1,
+                interpolation="nearest",
+            )
+
+            # Add colorbar
+            plt.colorbar(im, ax=ax, label="Mean CNV state")
+
+            # Set y-axis labels with group names and cell counts
+            ax.set_yticks(range(len(group_labels)))
+            ax.set_yticklabels(
+                [
+                    f"{label} (n={size})"
+                    for label, size in zip(group_labels, group_sizes)
+                ]
+            )
+            ax.set_ylabel(params.feature, fontsize=12, fontweight="bold")
+
+            # Set x-axis
+            ax.set_xlabel("Genomic position (binned)", fontsize=12)
+            ax.set_xticks([])  # Hide x-axis ticks for cleaner look
+
+            # Add title
+            ax.set_title(
+                f"CNV Profile by {params.feature}\n(Numbat analysis, aggregated by group)",
+                fontsize=14,
+                fontweight="bold",
+            )
+
+            # Add gridlines between groups
+            for i in range(len(group_labels) + 1):
+                ax.axhline(i - 0.5, color="white", linewidth=2)
+
+        else:
+            # No grouping - show warning and plot all cells (not recommended)
+            fig, ax = plt.subplots(figsize=figsize)
+
+            sns.heatmap(
+                cnv_matrix,
+                cmap="RdBu_r",
+                center=0,
+                cbar_kws={"label": "CNV state"},
+                yticklabels=False,
+                xticklabels=False,
+                ax=ax,
+                vmin=-1,
+                vmax=1,
+            )
+
+            ax.set_xlabel("Genomic position (binned)")
+            ax.set_ylabel("Cells")
+            ax.set_title("CNV Heatmap (Numbat)\nAll cells (ungrouped)")
+
+        plt.tight_layout()
+
+    else:
+        # Use infercnvpy chromosome_heatmap for infercnvpy data or Numbat with chr info
+        if context:
+            await context.info("Creating chromosome-organized CNV heatmap...")
+
+        cnv.pl.chromosome_heatmap(
+            adata,
+            groupby=params.cluster_key,
+            dendrogram=True,
+            show=False,
+            figsize=figsize,
+        )
+        # Get current figure
+        fig = plt.gcf()
+
+    if context:
+        await context.info("CNV heatmap created successfully")
+
+    return fig
+
+
+# ============================================================
+# Plot Type Handlers - Dispatch Dictionary
+# ============================================================
+# Maps plot_type string to corresponding visualization function
+# All handlers follow the same signature:
+#   async def handler(adata, params, context) -> plt.Figure
+#
+# NOTE: This is a partial implementation. Some plot types (umap, spatial, heatmap)
+#       still use inline logic in visualize_data and will be migrated in future.
+# ============================================================
+
+
+async def _create_umap_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context: Optional[Context] = None,
+) -> plt.Figure:
+    """
+    Create UMAP visualization
+
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure object
+    """
+    if context:
+        await context.info(
+            f"Creating UMAP plot for {params.feature if params.feature else 'clusters'}"
+        )
+
+    # Check if UMAP has been computed
+    if "X_umap" not in adata.obsm:
+        # STRICT: NO FALLBACK - UMAP and PCA are fundamentally different algorithms
+
+        # Check prerequisites for UMAP
+        if "neighbors" not in adata.uns:
+            error_msg = (
+                "UMAP visualization requires neighborhood graph.\n\n"
+                "SOLUTION:\n"
+                "Run preprocessing first:\n"
+                "1. sc.pp.neighbors(adata)\n"
+                "2. sc.tl.umap(adata)\n\n"
+                "SCIENTIFIC INTEGRITY: UMAP requires a k-nearest neighbor graph "
+                "to preserve local manifold structure. Cannot proceed without it."
+            )
+            if context:
+                await context.error(error_msg)
+            raise ValueError(error_msg)
+
+        # Try to compute UMAP with proper error handling
+        if context:
+            await context.info(
+                "UMAP not found. Attempting to compute UMAP coordinates..."
+            )
+
+        try:
+            # Clean data before computing UMAP to handle extreme values
+            if hasattr(adata.X, "data"):
+                # Sparse matrix
+                adata.X.data = np.nan_to_num(
+                    adata.X.data, nan=0.0, posinf=0.0, neginf=0.0
+                )
+            else:
+                # Dense matrix
+                adata.X = np.nan_to_num(adata.X, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # Compute UMAP (scanpy already imported globally)
+            sc.tl.umap(adata)
+
+            if context:
+                await context.info("Successfully computed UMAP coordinates")
+
+        except Exception as e:
+            # NO FALLBACK: Honest error reporting with alternatives
+            error_msg = (
+                "Failed to compute UMAP for visualization.\n\n"
+                f"Error: {str(e)}\n\n"
+                "ALTERNATIVES:\n"
+                "1. Use PCA visualization instead (LINEAR method):\n"
+                "   visualize_data(data_id, params={'plot_type': 'pca'})\n\n"
+                "2. Use t-SNE visualization (NON-LINEAR, different from UMAP):\n"
+                "   visualize_data(data_id, params={'plot_type': 'tsne'})\n\n"
+                "3. Fix UMAP computation in preprocessing:\n"
+                "   - Ensure data is properly normalized\n"
+                "   - Check for extreme values or NaN\n"
+                "   - Verify neighbors graph is computed correctly\n"
+                "   - Try different UMAP parameters\n\n"
+                "SCIENTIFIC INTEGRITY: UMAP (Uniform Manifold Approximation) and PCA "
+                "(Principal Component Analysis) are fundamentally different algorithms:\n"
+                "• UMAP: Non-linear, preserves local structure, reveals clusters\n"
+                "• PCA: Linear, preserves global variance, shows major axes of variation\n"
+                "We cannot substitute one for another without explicit user consent."
+            )
+            if context:
+                await context.error(error_msg)
+            raise RuntimeError(error_msg)
+
+    # Check if we should create multi-panel plot for multiple features
+    feature_list = (
+        params.feature
+        if isinstance(params.feature, list)
+        else ([params.feature] if params.feature else [])
+    )
+    if feature_list and params.multi_panel and len(feature_list) > 1:
+        # Use the new dedicated function for multi-gene UMAP
+        fig = await create_multi_gene_umap_visualization(adata, params, context)
+    else:
+        # REQUIRE explicit feature specification - no automatic defaults
+        if not feature_list:
+            categorical_cols = [
+                col
+                for col in adata.obs.columns
+                if adata.obs[col].dtype.name in ["object", "category"]
+            ]
+            raise ValueError(
+                "UMAP visualization requires 'feature' parameter.\n\n"
+                f"Available categorical columns ({len(categorical_cols)} total):\n"
+                f"  {', '.join(categorical_cols[:15])}\n\n"
+                "SOLUTION: Specify feature explicitly:\n"
+                "  visualize_data(data_id, params={'plot_type': 'umap', 'feature': 'your_column_name'})"
+            )
+
+        single_feature = feature_list[0]
+        # Directly call the helper, it will handle all cases including deconvolution keys
+        feature = await validate_and_prepare_feature(
+            adata, single_feature, context, default_feature=None
+        )
+
+        # Create UMAP plot with potential dual encoding (color + size)
+        plot_kwargs = {"show": False, "return_fig": True}
+
+        if feature:
+            plot_kwargs["color"] = feature
+            if feature in adata.var_names:
+                plot_kwargs["cmap"] = params.colormap
+            elif feature in adata.obs.columns:
+                # Ensure categorical features have proper colors
+                _ensure_categorical_colors(adata, feature)
+
+        # Add size encoding if requested
+        if params.size_by:
+            if params.size_by in adata.var_names or params.size_by in adata.obs.columns:
+                # For scanpy compatibility, we need to pass size values correctly
+                if params.size_by in adata.var_names:
+                    # Gene expression - get the values
+                    size_values = adata[:, params.size_by].X
+                    if hasattr(size_values, "toarray"):
+                        size_values = size_values.toarray().flatten()
+                    else:
+                        size_values = size_values.flatten()
+                    # Normalize to reasonable size range (10-100)
+                    size_values = 10 + 90 * (size_values - size_values.min()) / (
+                        size_values.max() - size_values.min() + 1e-8
+                    )
+                    plot_kwargs["size"] = size_values
+                else:
+                    # Observation column
+                    if adata.obs[params.size_by].dtype.name in [
+                        "category",
+                        "object",
+                    ]:
+                        # Categorical - use different sizes for different categories
+                        unique_vals = adata.obs[params.size_by].unique()
+                        size_map = {
+                            val: 20 + i * 15 for i, val in enumerate(unique_vals)
+                        }
+                        plot_kwargs["size"] = (
+                            adata.obs[params.size_by].map(size_map).values
+                        )
+                    else:
+                        # Numeric - normalize to size range
+                        size_values = adata.obs[params.size_by].values
+                        size_values = 10 + 90 * (size_values - size_values.min()) / (
+                            size_values.max() - size_values.min() + 1e-8
+                        )
+                        plot_kwargs["size"] = size_values
+
+                if context:
+                    await context.info(
+                        f"Using dual encoding: color={feature}, size={params.size_by}"
+                    )
+            elif context:
+                await context.warning(
+                    f"Size feature '{params.size_by}' not found in data"
+                )
+
+        # Create the plot
+        fig = sc.pl.umap(adata, **plot_kwargs)
+
+        # Add velocity overlay if requested
+        if params.show_velocity:
+            try:
+                # Get the axis from the figure
+                ax = fig.get_axes()[0] if fig.get_axes() else None
+                if ax:
+                    # Velocity overlay
+                    if params.show_velocity:
+                        if "velocity_umap" in adata.obsm:
+                            try:
+                                # Try to use scvelo if available
+                                import scvelo as scv
+
+                                scv.pl.velocity_embedding(
+                                    adata,
+                                    basis="umap",
+                                    ax=ax,
+                                    show=False,
+                                    arrow_length=params.velocity_scale,
+                                    arrow_size=params.velocity_scale,
+                                )
+                                if context:
+                                    await context.info(
+                                        "Added RNA velocity vectors to UMAP"
+                                    )
+                            except ImportError:
+                                if context:
+                                    await context.warning(
+                                        "scvelo not available for velocity overlay"
+                                    )
+                            except Exception as e:
+                                if context:
+                                    await context.warning(
+                                        f"Failed to add velocity overlay: {str(e)}"
+                                    )
+                        elif context:
+                            await context.warning(
+                                "Velocity data (velocity_umap) not found in adata.obsm"
+                            )
+            except Exception as e:
+                if context:
+                    await context.warning(f"Failed to add overlays: {str(e)}")
+
+    return fig
+
+
+async def _create_spatial_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context: Optional[Context] = None,
+) -> plt.Figure:
+    """
+    Create spatial visualization
+
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure object
+    """
+    # Check if this should be a multi-gene visualization
+    feature_list = (
+        params.feature
+        if isinstance(params.feature, list)
+        else ([params.feature] if params.feature else [])
+    )
+    if feature_list and params.multi_panel and len(feature_list) > 1:
+        if context:
+            await context.info(
+                f"Creating multi-gene spatial plot for {len(feature_list)} genes"
+            )
+        # Create multi-gene visualization
+        fig = await create_multi_gene_visualization(adata, params, context)
+    else:
+        single_feature = feature_list[0] if feature_list else None
+        if context:
+            await context.info(
+                f"Creating spatial plot for {single_feature if single_feature else 'tissue'}"
+            )
+
+        # Validate and prepare feature for visualization
+        feature = await validate_and_prepare_feature(
+            adata, single_feature, context, default_feature=None
+        )
+
+        # If user explicitly requested a feature but it wasn't found, raise error
+        if single_feature and not feature:
+            # Provide helpful error message
+            examples = list(adata.var_names[:10])
+            obs_examples = list(adata.obs.columns[:10])
+            raise DataNotFoundError(
+                f"Feature '{single_feature}' not found in dataset.\n\n"
+                f"SOLUTIONS:\n"
+                f"1. Check spelling and case (gene names are case-sensitive)\n"
+                f"   - Mouse genes: First letter uppercase (e.g., 'Cd5l', 'Gbp2b')\n"
+                f"   - Human genes: All uppercase (e.g., 'CD5L', 'GBP2B')\n"
+                f"2. Available genes (first 10): {examples}\n"
+                f"3. Available annotations (first 10): {obs_examples}\n\n"
+                f"CONTEXT: Dataset has {adata.n_vars:,} genes and "
+                f"{len(adata.obs.columns)} annotations."
+            )
+
+        # Create spatial plot
+        # For 10x Visium data - check if any sample has tissue images
+        has_tissue_image = False
+        if "spatial" in adata.uns:
+            for key in adata.uns["spatial"].keys():
+                if "images" in adata.uns["spatial"][key]:
+                    has_tissue_image = True
+                    break
+
+        if has_tissue_image:
+
+            # Get sample key for library_id
+            sample_key = (
+                list(adata.uns["spatial"].keys())[0] if "spatial" in adata.uns else None
+            )
+
+            # Build common kwargs for sc.pl.spatial with beautification parameters
+            # NOTE: Do NOT use return_fig=True as it breaks spot rendering!
+            spatial_kwargs = {
+                "img_key": "hires",
+                "show": False,
+                # NO return_fig parameter - it breaks spot rendering!
+                "alpha": params.alpha,  # Spot transparency
+                "alpha_img": params.alpha_img,  # Dim background for better visibility
+                "frameon": params.show_axes,
+            }
+
+            # Only add spot_size if explicitly set (None = auto-determined, recommended)
+            if params.spot_size is not None:
+                spatial_kwargs["spot_size"] = params.spot_size
+
+            # Add library_id for multi-sample reliability
+            if sample_key:
+                spatial_kwargs["library_id"] = sample_key
+
+            # Add outline parameters if requested
+            if params.add_outline:
+                spatial_kwargs["na_in_legend"] = False
+
+            # With tissue image background
+            if feature:
+                if feature in adata.var_names:
+                    # Gene expression (continuous data)
+                    spatial_kwargs["cmap"] = params.colormap or "viridis"
+                    sc.pl.spatial(adata, color=feature, **spatial_kwargs)
+                elif feature in adata.obs.columns:
+                    # Observation annotation (categorical data)
+                    _ensure_categorical_colors(adata, feature)
+                    # Use palette for categorical data
+                    if pd.api.types.is_categorical_dtype(adata.obs[feature]):
+                        spatial_kwargs["palette"] = params.colormap or "Set2"
+                    else:
+                        spatial_kwargs["cmap"] = params.colormap or "viridis"
+                    sc.pl.spatial(adata, color=feature, **spatial_kwargs)
+            else:
+                # Just tissue image with spots
+                sc.pl.spatial(adata, **spatial_kwargs)
+
+            # Get figure using plt.gcf() since we didn't use return_fig
+            fig = plt.gcf()
+
+            # Add outline/contour overlay if requested
+            if (
+                params.add_outline
+                and params.outline_cluster_key
+                and params.outline_cluster_key in adata.obs.columns
+            ):
+                if context:
+                    await context.info(
+                        f"Adding cluster outline overlay for {params.outline_cluster_key}"
+                    )
+                try:
+                    # Get the first (and usually only) axis from the figure
+                    ax = fig.get_axes()[0] if fig.get_axes() else None
+                    if ax:
+                        # Use scanpy's add_outline functionality
+                        sc.pl.spatial(
+                            adata,
+                            img_key="hires",
+                            color=params.outline_cluster_key,
+                            add_outline=True,
+                            outline_color=params.outline_color,
+                            outline_width=params.outline_width,
+                            show=False,
+                            ax=ax,
+                            legend_loc=None,
+                            colorbar=False,
+                        )
+                except Exception as e:
+                    if context:
+                        await context.warning(
+                            f"Failed to add outline overlay: {str(e)}"
+                        )
+
+        else:
+            # For other spatial data without tissue image
+            fig, ax = create_figure()
+            if feature:
+                if feature in adata.var_names:
+                    # Gene expression
+                    sc.pl.embedding(
+                        adata,
+                        basis="spatial",
+                        color=feature,
+                        cmap=params.colormap,
+                        show=False,
+                        ax=ax,
+                    )
+                elif feature in adata.obs.columns:
+                    # Observation annotation (like clusters or cell types)
+                    # Ensure categorical features have proper colors
+                    _ensure_categorical_colors(adata, feature)
+                    sc.pl.embedding(
+                        adata, basis="spatial", color=feature, show=False, ax=ax
+                    )
+            else:
+                # Just spatial coordinates
+                sc.pl.embedding(adata, basis="spatial", show=False, ax=ax)
+                ax.set_aspect("equal")
+                ax.set_title("Spatial coordinates")
+
+            # Add outline/contour overlay for non-tissue data if requested
+            if (
+                params.add_outline
+                and params.outline_cluster_key
+                and params.outline_cluster_key in adata.obs.columns
+            ):
+                if context:
+                    await context.info(
+                        f"Adding cluster outline for {params.outline_cluster_key}"
+                    )
+                try:
+                    # For non-tissue data, we can use scanpy's embedding plot with groups to highlight boundaries
+
+                    # Get spatial coordinates
+                    spatial_coords = adata.obsm["spatial"]
+                    cluster_labels = adata.obs[params.outline_cluster_key].values
+
+                    # For each unique cluster, create a boundary
+                    for cluster in np.unique(cluster_labels):
+                        if pd.isna(cluster):
+                            continue
+                        cluster_mask = cluster_labels == cluster
+                        cluster_coords = spatial_coords[cluster_mask]
+
+                        if (
+                            len(cluster_coords) > 2
+                        ):  # Need at least 3 points for a boundary
+                            try:
+                                # Create convex hull for boundary
+                                from scipy.spatial import ConvexHull
+
+                                hull = ConvexHull(cluster_coords)
+                                boundary_coords = cluster_coords[hull.vertices]
+
+                                # Plot boundary
+                                boundary_coords = np.vstack(
+                                    [boundary_coords, boundary_coords[0]]
+                                )  # Close the polygon
+                                ax.plot(
+                                    boundary_coords[:, 0],
+                                    boundary_coords[:, 1],
+                                    color=params.outline_color,
+                                    linewidth=params.outline_width,
+                                    alpha=0.8,
+                                )
+                            except Exception:
+                                # Fallback: just plot the cluster points with a different marker
+                                ax.scatter(
+                                    cluster_coords[:, 0],
+                                    cluster_coords[:, 1],
+                                    s=20,
+                                    facecolors="none",
+                                    edgecolors=params.outline_color,
+                                    linewidth=params.outline_width,
+                                    alpha=0.6,
+                                )
+                except Exception as e:
+                    if context:
+                        await context.warning(
+                            f"Failed to add outline overlay: {str(e)}"
+                        )
+
+    return fig
+
+
+async def _create_heatmap_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context: Optional[Context] = None,
+) -> plt.Figure:
+    """
+    Create heatmap visualization
+
+    Args:
+        adata: AnnData object
+        params: Visualization parameters
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure object
+    """
+    if context:
+        await context.info("Creating heatmap plot")
+
+    # For heatmap, we need highly variable genes for meaningful clustering
+    hvg_exists = "highly_variable" in adata.var
+    hvg_any = adata.var["highly_variable"].any() if hvg_exists else False
+
+    if not hvg_exists or not hvg_any:
+        # Provide detailed diagnostic information
+        diagnostic_info = "\nDIAGNOSTIC INFO:\n"
+        diagnostic_info += f"  - 'highly_variable' column exists: {hvg_exists}\n"
+        if hvg_exists:
+            diagnostic_info += (
+                f"  - Number of HVGs marked: {adata.var['highly_variable'].sum()}\n"
+            )
+            diagnostic_info += f"  - Total genes in dataset: {adata.n_vars}\n"
+            diagnostic_info += (
+                f"  - HVG column dtype: {adata.var['highly_variable'].dtype}\n"
+            )
+        diagnostic_info += (
+            f"  - Available var columns: {list(adata.var.columns)[:10]}\n"
+        )
+
+        raise ValueError(
+            "Heatmap requires highly variable genes but none found.\n\n"
+            "SOLUTIONS:\n"
+            "1. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n"
+            "2. Specify genes: visualize_data(data_id, params={'feature': ['CD3D']})\n"
+            "3. Use spatial plot: visualize_data(data_id, params={'plot_type': 'spatial'})\n"
+            + diagnostic_info
+        )
+
+    # Create heatmap of top genes across groups
+    # REQUIRE explicit cluster_key specification for grouping
+    if not params.cluster_key:
+        categorical_cols = [
+            col
+            for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ["object", "category"]
+        ]
+        raise ValueError(
+            "Heatmap visualization requires 'cluster_key' parameter.\n\n"
+            f"Available categorical columns ({len(categorical_cols)} total):\n"
+            f"  {', '.join(categorical_cols[:15])}\n\n"
+            "SOLUTION: Specify cluster_key explicitly:\n"
+            "  visualize_data(data_id, params={'plot_type': 'heatmap', 'cluster_key': 'your_column_name'})\n\n"
+            "NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
+            "   This maintains consistency with Squidpy spatial analysis functions."
+        )
+
+    if params.cluster_key not in adata.obs.columns:
+        raise ValueError(
+            f"Cluster key '{params.cluster_key}' not found in data.\n\n"
+            f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
+        )
+
+    groupby = params.cluster_key
+    # Limit the number of groups to avoid oversized responses
+    n_groups = len(adata.obs[groupby].cat.categories)
+    if n_groups > 10:
+        if context:
+            await context.warning(
+                f"Too many groups ({n_groups}). Limiting to 10 groups."
+            )
+        # Get the 10 largest groups
+        group_counts = adata.obs[groupby].value_counts().nlargest(10).index
+        # Subset the data to include only these groups
+        adata = adata[adata.obs[groupby].isin(group_counts)].copy()
+
+    # Get genes for heatmap using unified validation function
+    # Default: use top 20 highly variable genes
+    n_genes = 20
+    default_genes = adata.var_names[adata.var.highly_variable][:n_genes].tolist()
+
+    available_genes = await get_validated_features(
+        adata,
+        params,
+        max_features=n_genes,
+        allow_empty=True,
+        default_genes=default_genes,
+        context=context,
+    )
+
+    if context:
+        await context.info(
+            f"Creating heatmap with {len(available_genes)} genes: {available_genes[:5]}..."
+        )
+
+    # Create heatmap with improved settings
+    plt.figure(
+        figsize=(
+            max(8, len(available_genes) * 0.5),
+            (max(6, len(adata.obs[groupby].cat.categories) * 0.3) if groupby else 6),
+        ),
+        dpi=params.dpi,
+    )
+
+    # Use scanpy's heatmap with better parameters and enhanced annotations
+    heatmap_kwargs = {
+        "var_names": available_genes,
+        "groupby": groupby,
+        "cmap": params.colormap,
+        "show": False,
+        "dendrogram": False,
+        "standard_scale": "var",  # Standardize genes (rows)
+        "figsize": None,  # Let matplotlib handle the size
+        "swap_axes": False,  # Keep genes as rows
+        "vmin": None,  # Let scanpy determine range
+        "vmax": None,
+    }
+
+    # Add obs annotations if specified
+    if params.obs_annotation:
+        available_obs_annotations = [
+            col for col in params.obs_annotation if col in adata.obs.columns
+        ]
+        if available_obs_annotations:
+            # For scanpy heatmap, we can use the var_group_labels parameter
+            # But scanpy heatmap has limited annotation support, so we'll enhance post-creation
+            if context:
+                await context.info(
+                    f"Will add obs annotations: {available_obs_annotations}"
+                )
+
+    sc.pl.heatmap(adata, **heatmap_kwargs)
+    fig = plt.gcf()
+
+    # Add custom annotations if requested
+    if params.obs_annotation or params.var_annotation:
+        try:
+            # Get the main heatmap axis
+            axes = fig.get_axes()
+            if axes:
+                main_ax = axes[0]  # Usually the main heatmap is the first axis
+
+                # Add obs annotations (column annotations)
+                if params.obs_annotation:
+                    available_obs = [
+                        col for col in params.obs_annotation if col in adata.obs.columns
+                    ]
+                    if available_obs:
+                        # Create a simple annotation bar above the heatmap
+                        # Get the position of the main heatmap
+                        pos = main_ax.get_position()
+
+                        # Create annotation axis above the heatmap
+                        ann_height = 0.02 * len(available_obs)
+                        ann_ax = fig.add_axes(
+                            [pos.x0, pos.y1 + 0.01, pos.width, ann_height]
+                        )
+
+                        # Create annotation data
+                        ann_data = adata.obs[available_obs].copy()
+
+                        # Convert categorical to numeric for visualization
+                        for col in available_obs:
+                            if (
+                                ann_data[col].dtype == "category"
+                                or ann_data[col].dtype == "object"
+                            ):
+                                unique_vals = ann_data[col].unique()
+                                color_map = {
+                                    val: i for i, val in enumerate(unique_vals)
+                                }
+                                ann_data[col] = ann_data[col].map(color_map)
+
+                        # Create annotation heatmap
+                        ann_ax.imshow(
+                            ann_data.T,
+                            aspect="auto",
+                            cmap="Set3",
+                            interpolation="nearest",
+                        )
+                        ann_ax.set_xlim(main_ax.get_xlim())
+                        ann_ax.set_xticks([])
+                        ann_ax.set_yticks(range(len(available_obs)))
+                        ann_ax.set_yticklabels(available_obs, fontsize=8)
+                        ann_ax.tick_params(left=False)
+
+                # Add var annotations (row annotations) - similar approach
+                if params.var_annotation:
+                    available_var = [
+                        col for col in params.var_annotation if col in adata.var.columns
+                    ]
+                    if available_var and context:
+                        await context.info(f"Adding var annotations: {available_var}")
+                        # This would require similar logic for row annotations
+
+        except Exception as e:
+            if context:
+                await context.warning(f"Failed to add annotations: {str(e)}")
+
+    # Improve the layout
+    plt.tight_layout()
+
+    return fig
+
+
 async def visualize_data(
     data_id: str,
     data_store: Dict[str, Any],
@@ -468,31 +1888,11 @@ async def visualize_data(
         DataCompatibilityError: If data is not compatible with the visualization
         ProcessingError: If processing fails
     """
-    # Validate parameters
-    valid_plot_types = [
-        "spatial",
-        "umap",
-        "heatmap",
-        "violin",
-        "deconvolution",
-        "spatial_domains",
-        "cell_communication",
-        "trajectory",
-        "rna_velocity",
-        "spatial_statistics",
-        "multi_gene",
-        "lr_pairs",
-        "gene_correlation",
-        "pathway_enrichment",
-        "spatial_interaction",
-        "batch_integration",  # Batch integration quality assessment
-        "cnv_heatmap",  # Copy number variation heatmap
-        "spatial_cnv",  # Spatial CNV projection
-        "card_imputation",  # CARD imputation high-resolution results
-    ]
-    if params.plot_type not in valid_plot_types:
+    # Validate parameters - use PLOT_HANDLERS as single source of truth
+    if params.plot_type not in PLOT_HANDLERS:
         error_msg = (
-            f"Invalid plot_type: {params.plot_type}. Must be one of {valid_plot_types}"
+            f"Invalid plot_type: {params.plot_type}. "
+            f"Must be one of {list(PLOT_HANDLERS.keys())}"
         )
         if context:
             await context.warning(error_msg)
@@ -524,1390 +1924,15 @@ async def visualize_data(
         # Use user's DPI setting if provided, otherwise default to 100
         sc.settings.set_figure_params(dpi=params.dpi or 100, facecolor="white")
 
-        # Create figure based on plot type
-        if params.plot_type == "spatial":
-            # Check if this should be a multi-gene visualization
-            feature_list = (
-                params.feature
-                if isinstance(params.feature, list)
-                else ([params.feature] if params.feature else [])
-            )
-            if feature_list and params.multi_panel and len(feature_list) > 1:
-                if context:
-                    await context.info(
-                        f"Creating multi-gene spatial plot for {len(feature_list)} genes"
-                    )
-                # Create multi-gene visualization
-                fig = await create_multi_gene_visualization(adata, params, context)
-            else:
-                single_feature = feature_list[0] if feature_list else None
-                if context:
-                    await context.info(
-                        f"Creating spatial plot for {single_feature if single_feature else 'tissue'}"
-                    )
-
-                # Validate and prepare feature for visualization
-                feature = await validate_and_prepare_feature(
-                    adata, single_feature, context, default_feature=None
-                )
-
-                # If user explicitly requested a feature but it wasn't found, raise error
-                if single_feature and not feature:
-                    # Provide helpful error message
-                    examples = list(adata.var_names[:10])
-                    obs_examples = list(adata.obs.columns[:10])
-                    raise DataNotFoundError(
-                        f"Feature '{single_feature}' not found in dataset.\n\n"
-                        f"SOLUTIONS:\n"
-                        f"1. Check spelling and case (gene names are case-sensitive)\n"
-                        f"   - Mouse genes: First letter uppercase (e.g., 'Cd5l', 'Gbp2b')\n"
-                        f"   - Human genes: All uppercase (e.g., 'CD5L', 'GBP2B')\n"
-                        f"2. Available genes (first 10): {examples}\n"
-                        f"3. Available annotations (first 10): {obs_examples}\n\n"
-                        f"CONTEXT: Dataset has {adata.n_vars:,} genes and "
-                        f"{len(adata.obs.columns)} annotations."
-                    )
-
-                # Create spatial plot
-                # For 10x Visium data - check if any sample has tissue images
-                has_tissue_image = False
-                if "spatial" in adata.uns:
-                    for key in adata.uns["spatial"].keys():
-                        if "images" in adata.uns["spatial"][key]:
-                            has_tissue_image = True
-                            break
-
-                if has_tissue_image:
-
-                    # Get sample key for library_id
-                    sample_key = (
-                        list(adata.uns["spatial"].keys())[0]
-                        if "spatial" in adata.uns
-                        else None
-                    )
-
-                    # Build common kwargs for sc.pl.spatial with beautification parameters
-                    # NOTE: Do NOT use return_fig=True as it breaks spot rendering!
-                    spatial_kwargs = {
-                        "img_key": "hires",
-                        "show": False,
-                        # NO return_fig parameter - it breaks spot rendering!
-                        "alpha": params.alpha,  # Spot transparency
-                        "alpha_img": params.alpha_img,  # Dim background for better visibility
-                        "frameon": params.show_axes,
-                    }
-
-                    # Only add spot_size if explicitly set (None = auto-determined, recommended)
-                    if params.spot_size is not None:
-                        spatial_kwargs["spot_size"] = params.spot_size
-
-                    # Add library_id for multi-sample reliability
-                    if sample_key:
-                        spatial_kwargs["library_id"] = sample_key
-
-                    # Add outline parameters if requested
-                    if params.add_outline:
-                        spatial_kwargs["na_in_legend"] = False
-
-                    # With tissue image background
-                    if feature:
-                        if feature in adata.var_names:
-                            # Gene expression (continuous data)
-                            spatial_kwargs["cmap"] = params.colormap or "viridis"
-                            sc.pl.spatial(adata, color=feature, **spatial_kwargs)
-                        elif feature in adata.obs.columns:
-                            # Observation annotation (categorical data)
-                            _ensure_categorical_colors(adata, feature)
-                            # Use palette for categorical data
-                            if pd.api.types.is_categorical_dtype(adata.obs[feature]):
-                                spatial_kwargs["palette"] = params.colormap or "Set2"
-                            else:
-                                spatial_kwargs["cmap"] = params.colormap or "viridis"
-                            sc.pl.spatial(adata, color=feature, **spatial_kwargs)
-                    else:
-                        # Just tissue image with spots
-                        sc.pl.spatial(adata, **spatial_kwargs)
-
-                    # Get figure using plt.gcf() since we didn't use return_fig
-                    fig = plt.gcf()
-
-                    # Add outline/contour overlay if requested
-                    if (
-                        params.add_outline
-                        and params.outline_cluster_key
-                        and params.outline_cluster_key in adata.obs.columns
-                    ):
-                        if context:
-                            await context.info(
-                                f"Adding cluster outline overlay for {params.outline_cluster_key}"
-                            )
-                        try:
-                            # Get the first (and usually only) axis from the figure
-                            ax = fig.get_axes()[0] if fig.get_axes() else None
-                            if ax:
-                                # Use scanpy's add_outline functionality
-                                sc.pl.spatial(
-                                    adata,
-                                    img_key="hires",
-                                    color=params.outline_cluster_key,
-                                    add_outline=True,
-                                    outline_color=params.outline_color,
-                                    outline_width=params.outline_width,
-                                    show=False,
-                                    ax=ax,
-                                    legend_loc=None,
-                                    colorbar=False,
-                                )
-                        except Exception as e:
-                            if context:
-                                await context.warning(
-                                    f"Failed to add outline overlay: {str(e)}"
-                                )
-
-                else:
-                    # For other spatial data without tissue image
-                    fig, ax = create_figure()
-                    if feature:
-                        if feature in adata.var_names:
-                            # Gene expression
-                            sc.pl.embedding(
-                                adata,
-                                basis="spatial",
-                                color=feature,
-                                cmap=params.colormap,
-                                show=False,
-                                ax=ax,
-                            )
-                        elif feature in adata.obs.columns:
-                            # Observation annotation (like clusters or cell types)
-                            # Ensure categorical features have proper colors
-                            _ensure_categorical_colors(adata, feature)
-                            sc.pl.embedding(
-                                adata, basis="spatial", color=feature, show=False, ax=ax
-                            )
-                    else:
-                        # Just spatial coordinates
-                        sc.pl.embedding(adata, basis="spatial", show=False, ax=ax)
-                        ax.set_aspect("equal")
-                        ax.set_title("Spatial coordinates")
-
-                    # Add outline/contour overlay for non-tissue data if requested
-                    if (
-                        params.add_outline
-                        and params.outline_cluster_key
-                        and params.outline_cluster_key in adata.obs.columns
-                    ):
-                        if context:
-                            await context.info(
-                                f"Adding cluster outline for {params.outline_cluster_key}"
-                            )
-                        try:
-                            # For non-tissue data, we can use scanpy's embedding plot with groups to highlight boundaries
-
-                            # Get spatial coordinates
-                            spatial_coords = adata.obsm["spatial"]
-                            cluster_labels = adata.obs[
-                                params.outline_cluster_key
-                            ].values
-
-                            # For each unique cluster, create a boundary
-                            for cluster in np.unique(cluster_labels):
-                                if pd.isna(cluster):
-                                    continue
-                                cluster_mask = cluster_labels == cluster
-                                cluster_coords = spatial_coords[cluster_mask]
-
-                                if (
-                                    len(cluster_coords) > 2
-                                ):  # Need at least 3 points for a boundary
-                                    try:
-                                        # Create convex hull for boundary
-                                        from scipy.spatial import ConvexHull
-
-                                        hull = ConvexHull(cluster_coords)
-                                        boundary_coords = cluster_coords[hull.vertices]
-
-                                        # Plot boundary
-                                        boundary_coords = np.vstack(
-                                            [boundary_coords, boundary_coords[0]]
-                                        )  # Close the polygon
-                                        ax.plot(
-                                            boundary_coords[:, 0],
-                                            boundary_coords[:, 1],
-                                            color=params.outline_color,
-                                            linewidth=params.outline_width,
-                                            alpha=0.8,
-                                        )
-                                    except Exception:
-                                        # Fallback: just plot the cluster points with a different marker
-                                        ax.scatter(
-                                            cluster_coords[:, 0],
-                                            cluster_coords[:, 1],
-                                            s=20,
-                                            facecolors="none",
-                                            edgecolors=params.outline_color,
-                                            linewidth=params.outline_width,
-                                            alpha=0.6,
-                                        )
-                        except Exception as e:
-                            if context:
-                                await context.warning(
-                                    f"Failed to add outline overlay: {str(e)}"
-                                )
-
-        elif params.plot_type == "umap":
-            if context:
-                await context.info(
-                    f"Creating UMAP plot for {params.feature if params.feature else 'clusters'}"
-                )
-
-            # Check if UMAP has been computed
-            if "X_umap" not in adata.obsm:
-                # STRICT: NO FALLBACK - UMAP and PCA are fundamentally different algorithms
-
-                # Check prerequisites for UMAP
-                if "neighbors" not in adata.uns:
-                    error_msg = (
-                        "UMAP visualization requires neighborhood graph.\n\n"
-                        "SOLUTION:\n"
-                        "Run preprocessing first:\n"
-                        "1. sc.pp.neighbors(adata)\n"
-                        "2. sc.tl.umap(adata)\n\n"
-                        "SCIENTIFIC INTEGRITY: UMAP requires a k-nearest neighbor graph "
-                        "to preserve local manifold structure. Cannot proceed without it."
-                    )
-                    if context:
-                        await context.error(error_msg)
-                    raise ValueError(error_msg)
-
-                # Try to compute UMAP with proper error handling
-                if context:
-                    await context.info(
-                        "UMAP not found. Attempting to compute UMAP coordinates..."
-                    )
-
-                try:
-                    # Clean data before computing UMAP to handle extreme values
-                    if hasattr(adata.X, "data"):
-                        # Sparse matrix
-                        adata.X.data = np.nan_to_num(
-                            adata.X.data, nan=0.0, posinf=0.0, neginf=0.0
-                        )
-                    else:
-                        # Dense matrix
-                        adata.X = np.nan_to_num(
-                            adata.X, nan=0.0, posinf=0.0, neginf=0.0
-                        )
-
-                    # Compute UMAP (scanpy already imported globally)
-                    sc.tl.umap(adata)
-
-                    if context:
-                        await context.info("Successfully computed UMAP coordinates")
-
-                except Exception as e:
-                    # NO FALLBACK: Honest error reporting with alternatives
-                    error_msg = (
-                        "Failed to compute UMAP for visualization.\n\n"
-                        f"Error: {str(e)}\n\n"
-                        "ALTERNATIVES:\n"
-                        "1. Use PCA visualization instead (LINEAR method):\n"
-                        "   visualize_data(data_id, params={'plot_type': 'pca'})\n\n"
-                        "2. Use t-SNE visualization (NON-LINEAR, different from UMAP):\n"
-                        "   visualize_data(data_id, params={'plot_type': 'tsne'})\n\n"
-                        "3. Fix UMAP computation in preprocessing:\n"
-                        "   - Ensure data is properly normalized\n"
-                        "   - Check for extreme values or NaN\n"
-                        "   - Verify neighbors graph is computed correctly\n"
-                        "   - Try different UMAP parameters\n\n"
-                        "SCIENTIFIC INTEGRITY: UMAP (Uniform Manifold Approximation) and PCA "
-                        "(Principal Component Analysis) are fundamentally different algorithms:\n"
-                        "• UMAP: Non-linear, preserves local structure, reveals clusters\n"
-                        "• PCA: Linear, preserves global variance, shows major axes of variation\n"
-                        "We cannot substitute one for another without explicit user consent."
-                    )
-                    if context:
-                        await context.error(error_msg)
-                    raise RuntimeError(error_msg)
-
-            # Check if we should create multi-panel plot for multiple features
-            feature_list = (
-                params.feature
-                if isinstance(params.feature, list)
-                else ([params.feature] if params.feature else [])
-            )
-            if feature_list and params.multi_panel and len(feature_list) > 1:
-                # Use the new dedicated function for multi-gene UMAP
-                fig = await create_multi_gene_umap_visualization(adata, params, context)
-            else:
-                # REQUIRE explicit feature specification - no automatic defaults
-                if not feature_list:
-                    categorical_cols = [
-                        col
-                        for col in adata.obs.columns
-                        if adata.obs[col].dtype.name in ["object", "category"]
-                    ]
-                    raise ValueError(
-                        "UMAP visualization requires 'feature' parameter.\n\n"
-                        f"Available categorical columns ({len(categorical_cols)} total):\n"
-                        f"  {', '.join(categorical_cols[:15])}\n\n"
-                        "SOLUTION: Specify feature explicitly:\n"
-                        "  visualize_data(data_id, params={'plot_type': 'umap', 'feature': 'your_column_name'})"
-                    )
-
-                single_feature = feature_list[0]
-                # Directly call the helper, it will handle all cases including deconvolution keys
-                feature = await validate_and_prepare_feature(
-                    adata, single_feature, context, default_feature=None
-                )
-
-                # Create UMAP plot with potential dual encoding (color + size)
-                plot_kwargs = {"show": False, "return_fig": True}
-
-                if feature:
-                    plot_kwargs["color"] = feature
-                    if feature in adata.var_names:
-                        plot_kwargs["cmap"] = params.colormap
-                    elif feature in adata.obs.columns:
-                        # Ensure categorical features have proper colors
-                        _ensure_categorical_colors(adata, feature)
-
-                # Add size encoding if requested
-                if params.size_by:
-                    if (
-                        params.size_by in adata.var_names
-                        or params.size_by in adata.obs.columns
-                    ):
-                        # For scanpy compatibility, we need to pass size values correctly
-                        if params.size_by in adata.var_names:
-                            # Gene expression - get the values
-                            size_values = adata[:, params.size_by].X
-                            if hasattr(size_values, "toarray"):
-                                size_values = size_values.toarray().flatten()
-                            else:
-                                size_values = size_values.flatten()
-                            # Normalize to reasonable size range (10-100)
-                            size_values = 10 + 90 * (
-                                size_values - size_values.min()
-                            ) / (size_values.max() - size_values.min() + 1e-8)
-                            plot_kwargs["size"] = size_values
-                        else:
-                            # Observation column
-                            if adata.obs[params.size_by].dtype.name in [
-                                "category",
-                                "object",
-                            ]:
-                                # Categorical - use different sizes for different categories
-                                unique_vals = adata.obs[params.size_by].unique()
-                                size_map = {
-                                    val: 20 + i * 15
-                                    for i, val in enumerate(unique_vals)
-                                }
-                                plot_kwargs["size"] = (
-                                    adata.obs[params.size_by].map(size_map).values
-                                )
-                            else:
-                                # Numeric - normalize to size range
-                                size_values = adata.obs[params.size_by].values
-                                size_values = 10 + 90 * (
-                                    size_values - size_values.min()
-                                ) / (size_values.max() - size_values.min() + 1e-8)
-                                plot_kwargs["size"] = size_values
-
-                        if context:
-                            await context.info(
-                                f"Using dual encoding: color={feature}, size={params.size_by}"
-                            )
-                    elif context:
-                        await context.warning(
-                            f"Size feature '{params.size_by}' not found in data"
-                        )
-
-                # Create the plot
-                fig = sc.pl.umap(adata, **plot_kwargs)
-
-                # Add velocity overlay if requested
-                if params.show_velocity:
-                    try:
-                        # Get the axis from the figure
-                        ax = fig.get_axes()[0] if fig.get_axes() else None
-                        if ax:
-                            # Velocity overlay
-                            if params.show_velocity:
-                                if "velocity_umap" in adata.obsm:
-                                    try:
-                                        # Try to use scvelo if available
-                                        import scvelo as scv
-
-                                        scv.pl.velocity_embedding(
-                                            adata,
-                                            basis="umap",
-                                            ax=ax,
-                                            show=False,
-                                            arrow_length=params.velocity_scale,
-                                            arrow_size=params.velocity_scale,
-                                        )
-                                        if context:
-                                            await context.info(
-                                                "Added RNA velocity vectors to UMAP"
-                                            )
-                                    except ImportError:
-                                        if context:
-                                            await context.warning(
-                                                "scvelo not available for velocity overlay"
-                                            )
-                                    except Exception as e:
-                                        if context:
-                                            await context.warning(
-                                                f"Failed to add velocity overlay: {str(e)}"
-                                            )
-                                elif context:
-                                    await context.warning(
-                                        "Velocity data (velocity_umap) not found in adata.obsm"
-                                    )
-                    except Exception as e:
-                        if context:
-                            await context.warning(f"Failed to add overlays: {str(e)}")
-
-        elif params.plot_type == "heatmap":
-            if context:
-                await context.info("Creating heatmap plot")
-
-            # For heatmap, we need highly variable genes for meaningful clustering
-            hvg_exists = "highly_variable" in adata.var
-            hvg_any = adata.var["highly_variable"].any() if hvg_exists else False
-
-            if not hvg_exists or not hvg_any:
-                # Provide detailed diagnostic information
-                diagnostic_info = "\nDIAGNOSTIC INFO:\n"
-                diagnostic_info += (
-                    f"  - 'highly_variable' column exists: {hvg_exists}\n"
-                )
-                if hvg_exists:
-                    diagnostic_info += f"  - Number of HVGs marked: {adata.var['highly_variable'].sum()}\n"
-                    diagnostic_info += f"  - Total genes in dataset: {adata.n_vars}\n"
-                    diagnostic_info += (
-                        f"  - HVG column dtype: {adata.var['highly_variable'].dtype}\n"
-                    )
-                diagnostic_info += (
-                    f"  - Available var columns: {list(adata.var.columns)[:10]}\n"
-                )
-
-                raise ValueError(
-                    "Heatmap requires highly variable genes but none found.\n\n"
-                    "SOLUTIONS:\n"
-                    "1. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n"
-                    "2. Specify genes: visualize_data(data_id, params={'feature': ['CD3D']})\n"
-                    "3. Use spatial plot: visualize_data(data_id, params={'plot_type': 'spatial'})\n"
-                    + diagnostic_info
-                )
-
-            # Create heatmap of top genes across groups
-            # REQUIRE explicit cluster_key specification for grouping
-            if not params.cluster_key:
-                categorical_cols = [
-                    col
-                    for col in adata.obs.columns
-                    if adata.obs[col].dtype.name in ["object", "category"]
-                ]
-                raise ValueError(
-                    "Heatmap visualization requires 'cluster_key' parameter.\n\n"
-                    f"Available categorical columns ({len(categorical_cols)} total):\n"
-                    f"  {', '.join(categorical_cols[:15])}\n\n"
-                    "SOLUTION: Specify cluster_key explicitly:\n"
-                    "  visualize_data(data_id, params={'plot_type': 'heatmap', 'cluster_key': 'your_column_name'})\n\n"
-                    "NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
-                    "   This maintains consistency with Squidpy spatial analysis functions."
-                )
-
-            if params.cluster_key not in adata.obs.columns:
-                raise ValueError(
-                    f"Cluster key '{params.cluster_key}' not found in data.\n\n"
-                    f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
-                )
-
-            groupby = params.cluster_key
-            # Limit the number of groups to avoid oversized responses
-            n_groups = len(adata.obs[groupby].cat.categories)
-            if n_groups > 10:
-                if context:
-                    await context.warning(
-                        f"Too many groups ({n_groups}). Limiting to 10 groups."
-                    )
-                # Get the 10 largest groups
-                group_counts = adata.obs[groupby].value_counts().nlargest(10).index
-                # Subset the data to include only these groups
-                adata = adata[adata.obs[groupby].isin(group_counts)].copy()
-
-            # Limit the number of genes to avoid oversized responses
-            # Use a smaller number (20) instead of 50 to reduce response size
-            n_genes = 20
-            if context:
-                await context.info(
-                    f"Using top {n_genes} highly variable genes for heatmap"
-                )
-
-            # Get genes for heatmap
-            feature_list = (
-                params.feature
-                if isinstance(params.feature, list)
-                else ([params.feature] if params.feature else [])
-            )
-            if feature_list and len(feature_list) > 0:
-                # Use user-specified genes
-                available_genes = [
-                    gene for gene in feature_list if gene in adata.var_names
-                ]
-
-                # Check for missing genes
-                missing_genes = [
-                    gene for gene in feature_list if gene not in adata.var_names
-                ]
-
-                if not available_genes:
-                    # All genes missing - fall back to HVGs
-                    if context:
-                        await context.warning(
-                            f"None of specified genes found: {feature_list}. Using highly variable genes."
-                        )
-                    # Fall back to highly variable genes
-                    available_genes = adata.var_names[adata.var.highly_variable][
-                        :n_genes
-                    ].tolist()
-                elif missing_genes:
-                    # Some genes missing - warn but continue
-                    if context:
-                        await context.warning(
-                            f"WARNING: {len(missing_genes)} gene(s) not found and will be skipped: {missing_genes}\n"
-                            f"Proceeding with {len(available_genes)} available gene(s): {available_genes}"
-                        )
-                    # Limit to reasonable number for visualization
-                    available_genes = available_genes[:n_genes]
-                else:
-                    # All genes found - limit to reasonable number
-                    available_genes = available_genes[:n_genes]
-            else:
-                # Use highly variable genes
-                available_genes = adata.var_names[adata.var.highly_variable][
-                    :n_genes
-                ].tolist()
-
-            if context:
-                await context.info(
-                    f"Creating heatmap with {len(available_genes)} genes: {available_genes[:5]}..."
-                )
-
-            # Create heatmap with improved settings
-            plt.figure(
-                figsize=(
-                    max(8, len(available_genes) * 0.5),
-                    (
-                        max(6, len(adata.obs[groupby].cat.categories) * 0.3)
-                        if groupby
-                        else 6
-                    ),
-                ),
-                dpi=params.dpi,
-            )
-
-            try:
-                # Use scanpy's heatmap with better parameters and enhanced annotations
-                heatmap_kwargs = {
-                    "var_names": available_genes,
-                    "groupby": groupby,
-                    "cmap": params.colormap,
-                    "show": False,
-                    "dendrogram": False,
-                    "standard_scale": "var",  # Standardize genes (rows)
-                    "figsize": None,  # Let matplotlib handle the size
-                    "swap_axes": False,  # Keep genes as rows
-                    "vmin": None,  # Let scanpy determine range
-                    "vmax": None,
-                }
-
-                # Add obs annotations if specified
-                if params.obs_annotation:
-                    available_obs_annotations = [
-                        col for col in params.obs_annotation if col in adata.obs.columns
-                    ]
-                    if available_obs_annotations:
-                        # For scanpy heatmap, we can use the var_group_labels parameter
-                        # But scanpy heatmap has limited annotation support, so we'll enhance post-creation
-                        if context:
-                            await context.info(
-                                f"Will add obs annotations: {available_obs_annotations}"
-                            )
-
-                sc.pl.heatmap(adata, **heatmap_kwargs)
-                fig = plt.gcf()
-
-                # Add custom annotations if requested
-                if params.obs_annotation or params.var_annotation:
-                    try:
-                        # Get the main heatmap axis
-                        axes = fig.get_axes()
-                        if axes:
-                            main_ax = axes[
-                                0
-                            ]  # Usually the main heatmap is the first axis
-
-                            # Add obs annotations (column annotations)
-                            if params.obs_annotation:
-                                available_obs = [
-                                    col
-                                    for col in params.obs_annotation
-                                    if col in adata.obs.columns
-                                ]
-                                if available_obs:
-                                    # Create a simple annotation bar above the heatmap
-                                    # Get the position of the main heatmap
-                                    pos = main_ax.get_position()
-
-                                    # Create annotation axis above the heatmap
-                                    ann_height = 0.02 * len(available_obs)
-                                    ann_ax = fig.add_axes(
-                                        [pos.x0, pos.y1 + 0.01, pos.width, ann_height]
-                                    )
-
-                                    # Create annotation data
-                                    ann_data = adata.obs[available_obs].copy()
-
-                                    # Convert categorical to numeric for visualization
-                                    for col in available_obs:
-                                        if (
-                                            ann_data[col].dtype == "category"
-                                            or ann_data[col].dtype == "object"
-                                        ):
-                                            unique_vals = ann_data[col].unique()
-                                            color_map = {
-                                                val: i
-                                                for i, val in enumerate(unique_vals)
-                                            }
-                                            ann_data[col] = ann_data[col].map(color_map)
-
-                                    # Create annotation heatmap
-                                    im = ann_ax.imshow(
-                                        ann_data.T,
-                                        aspect="auto",
-                                        cmap="Set3",
-                                        interpolation="nearest",
-                                    )
-                                    ann_ax.set_xlim(main_ax.get_xlim())
-                                    ann_ax.set_xticks([])
-                                    ann_ax.set_yticks(range(len(available_obs)))
-                                    ann_ax.set_yticklabels(available_obs, fontsize=8)
-                                    ann_ax.tick_params(left=False)
-
-                            # Add var annotations (row annotations) - similar approach
-                            if params.var_annotation:
-                                available_var = [
-                                    col
-                                    for col in params.var_annotation
-                                    if col in adata.var.columns
-                                ]
-                                if available_var and context:
-                                    await context.info(
-                                        f"Adding var annotations: {available_var}"
-                                    )
-                                    # This would require similar logic for row annotations
-
-                    except Exception as e:
-                        if context:
-                            await context.warning(
-                                f"Failed to add annotations: {str(e)}"
-                            )
-
-                # Improve the layout
-                plt.tight_layout()
-
-            except Exception as e:
-                if context:
-                    await context.warning(
-                        f"Scanpy heatmap failed: {e}. Creating custom heatmap..."
-                    )
-
-                # Fallback: create custom heatmap using seaborn
-                # Note: pandas and seaborn already imported at module level
-                import seaborn as sns
-
-                # Get expression data
-                expr_data = adata[:, available_genes].X
-                if hasattr(expr_data, "toarray"):
-                    expr_data = expr_data.toarray()
-
-                # Create DataFrame
-                expr_df = pd.DataFrame(
-                    expr_data.T,  # Transpose so genes are rows
-                    index=available_genes,
-                    columns=adata.obs.index,
-                )
-
-                # Add group information if available
-                if groupby:
-                    # Sort by groups
-                    group_order = adata.obs[groupby].cat.categories
-                    sorted_cells = []
-                    for group in group_order:
-                        group_cells = adata.obs[adata.obs[groupby] == group].index
-                        sorted_cells.extend(group_cells)
-
-                    expr_df = expr_df[sorted_cells]
-
-                # Create heatmap
-                fig, ax = plt.subplots(
-                    figsize=(
-                        max(8, len(available_genes) * 0.5),
-                        max(6, len(available_genes) * 0.3),
-                    )
-                )
-
-                # Standardize data (z-score normalization across genes)
-                from scipy.stats import zscore
-
-                expr_df_norm = expr_df.apply(zscore, axis=1)
-
-                # Create heatmap with seaborn
-                sns.heatmap(
-                    expr_df_norm,
-                    cmap=params.colormap,
-                    center=0,
-                    robust=True,
-                    ax=ax,
-                    cbar_kws={"shrink": 0.8},
-                    xticklabels=False,  # Too many cells to show labels
-                    yticklabels=True,
-                )
-
-                ax.set_title(f"Gene Expression Heatmap ({len(available_genes)} genes)")
-                ax.set_xlabel("Cells")
-                ax.set_ylabel("Genes")
-
-                plt.tight_layout()
-
-        elif params.plot_type == "violin":
-            if context:
-                await context.info(
-                    f"Creating violin plot for {params.feature if params.feature else 'top genes'}"
-                )
-
-            # Normalize feature to list format (same logic as heatmap)
-            feature_list = (
-                params.feature
-                if isinstance(params.feature, list)
-                else ([params.feature] if params.feature else [])
-            )
-
-            # Use specified genes or default to first 3 genes
-            if feature_list:
-                # Check which genes exist in dataset
-                available_genes = [
-                    gene for gene in feature_list if gene in adata.var_names
-                ]
-                missing_genes = [
-                    gene for gene in feature_list if gene not in adata.var_names
-                ]
-
-                if not available_genes:
-                    # None of the specified genes found
-                    examples = list(adata.var_names[:10])
-                    raise DataNotFoundError(
-                        f"Genes not found in dataset: {missing_genes}\n\n"
-                        f"SOLUTIONS:\n"
-                        f"1. Choose from available genes (examples: {examples})\n"
-                        f"2. Check gene name format (e.g., 'CD3D' vs 'Cd3d')\n"
-                        f"3. Use gene search functionality\n\n"
-                        f"CONTEXT: Dataset contains {adata.n_vars:,} genes total."
-                    )
-                elif missing_genes and context:
-                    # Some genes missing - warn but continue
-                    await context.warning(
-                        f"Genes not found (skipping): {missing_genes}"
-                    )
-
-                genes = available_genes
-            else:
-                # No genes specified, use first 3 genes
-                genes = list(adata.var_names[:3])
-
-            # REQUIRE explicit cluster_key specification for grouping
-            if not params.cluster_key:
-                categorical_cols = [
-                    col
-                    for col in adata.obs.columns
-                    if adata.obs[col].dtype.name in ["object", "category"]
-                ]
-                raise ValueError(
-                    "Violin plot requires 'cluster_key' parameter.\n\n"
-                    f"Available categorical columns ({len(categorical_cols)} total):\n"
-                    f"  {', '.join(categorical_cols[:15])}\n\n"
-                    "SOLUTION: Specify cluster_key explicitly:\n"
-                    "  visualize_data(data_id, params={'plot_type': 'violin', 'cluster_key': 'your_column_name'})\n\n"
-                    "NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
-                    "   This maintains consistency with Squidpy spatial analysis functions."
-                )
-
-            if params.cluster_key not in adata.obs.columns:
-                raise ValueError(
-                    f"Cluster key '{params.cluster_key}' not found in data.\n\n"
-                    f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
-                )
-
-            groupby = params.cluster_key
-            # Limit the number of groups to avoid oversized responses
-            n_groups = len(adata.obs[groupby].cat.categories)
-            if n_groups > 8:
-                if context:
-                    await context.warning(
-                        f"Too many groups ({n_groups}). Limiting to 8 groups."
-                    )
-                # Get the 8 largest groups
-                group_counts = adata.obs[groupby].value_counts().nlargest(8).index
-                # Subset the data to include only these groups
-                adata = adata[adata.obs[groupby].isin(group_counts)].copy()
-
-            if False:  # Disabled the no-grouping path - cluster_key now required
-                groupby = None
-
-            # Create violin plot
-            # Use user's figure size if specified, otherwise default to (8, 6)
-            figsize = params.figure_size if params.figure_size else (8, 6)
-            plt.figure(figsize=figsize, dpi=params.dpi)
-            ax = sc.pl.violin(
-                adata,
-                genes,
-                groupby=groupby,
-                show=False,
-                jitter=0.2,  # Reduce jitter amount
-                scale="width",
-            )  # Scale violins to same width
-            fig = plt.gcf()  # Get the current figure
-
-            # Fix overlapping x-axis labels
-            for ax_item in fig.get_axes():
-                # Rotate x-axis labels 45 degrees for better readability
-                ax_item.tick_params(axis="x", labelrotation=45)
-                # Align labels to the right for better appearance
-                for label in ax_item.get_xticklabels():
-                    label.set_horizontalalignment("right")
-
-            # Adjust layout to prevent label cutoff
-            plt.tight_layout()
-
-        elif params.plot_type == "deconvolution":
-            if context:
-                await context.info("Creating deconvolution visualization")
-            fig = await create_deconvolution_visualization(adata, params, context)
-
-        elif params.plot_type == "spatial_domains":
-            if context:
-                await context.info("Creating spatial domains visualization")
-            fig = await create_spatial_domains_visualization(adata, params, context)
-
-        elif params.plot_type == "cell_communication":
-            if context:
-                await context.info("Creating cell communication visualization")
-            fig = await create_cell_communication_visualization(adata, params, context)
-
-        elif params.plot_type == "multi_gene":
-            if context:
-                await context.info("Creating multi-gene visualization")
-            fig = await create_multi_gene_visualization(adata, params, context)
-
-        elif params.plot_type == "lr_pairs":
-            if context:
-                await context.info("Creating ligand-receptor pairs visualization")
-            fig = await create_lr_pairs_visualization(adata, params, context)
-
-        elif params.plot_type == "gene_correlation":
-            if context:
-                await context.info("Creating gene correlation visualization")
-            fig = await create_gene_correlation_visualization(adata, params, context)
-
-        elif params.plot_type == "rna_velocity":
-            if context:
-                await context.info("Creating RNA velocity visualization")
-            fig = await create_rna_velocity_visualization(adata, params, context)
-
-        elif params.plot_type == "trajectory":
-            if context:
-                await context.info("Creating trajectory visualization")
-            fig = await create_trajectory_visualization(adata, params, context)
-
-        elif params.plot_type == "spatial_statistics":
-            if context:
-                await context.info("Creating spatial statistics visualization")
-            fig = await create_spatial_statistics_visualization(adata, params, context)
-
-        elif params.plot_type == "pathway_enrichment":
-            if context:
-                await context.info("Creating pathway enrichment visualization")
-            fig = await create_gsea_visualization(adata, params, context)
-
-        elif params.plot_type == "spatial_interaction":
-            if context:
-                await context.info("Creating spatial interaction visualization")
-            fig = await create_spatial_interaction_visualization(adata, params, context)
-
-        elif params.plot_type == "batch_integration":
-            if context:
-                await context.info("Creating batch integration quality visualization")
-            fig = await create_batch_integration_visualization(adata, params, context)
-
-        elif params.plot_type == "cnv_heatmap":
-            if context:
-                await context.info("Creating CNV heatmap visualization")
-
-            # Auto-detect CNV data source (infercnvpy or Numbat)
-            cnv_method = None
-
-            if "X_cnv" in adata.obsm:
-                cnv_method = "infercnvpy"
-            elif "X_cnv_numbat" in adata.obsm:
-                cnv_method = "numbat"
-            else:
-                error_msg = (
-                    "CNV data not found. Expected 'X_cnv' (infercnvpy) or "
-                    "'X_cnv_numbat' (Numbat) in adata.obsm. "
-                    "Please run CNV analysis first using analyze_cnv()."
-                )
-                if context:
-                    await context.warning(error_msg)
-                raise DataNotFoundError(error_msg)
-
-            if context:
-                await context.info(f"Detected CNV data from {cnv_method} method")
-
-            # Check if infercnvpy is available (needed for visualization)
-            if not INFERCNVPY_AVAILABLE:
-                error_msg = (
-                    "infercnvpy is not installed. Please install it with:\n"
-                    "  pip install 'chatspatial[cnv]'\n"
-                    "or:\n"
-                    "  pip install infercnvpy>=0.4.0"
-                )
-                if context:
-                    await context.warning(error_msg)
-                raise DataCompatibilityError(error_msg)
-
-            # For Numbat data, temporarily copy to X_cnv for visualization
-            if cnv_method == "numbat":
-                if context:
-                    await context.info(
-                        "Converting Numbat CNV data to infercnvpy format for visualization"
-                    )
-                adata.obsm["X_cnv"] = adata.obsm["X_cnv_numbat"]
-                # Also ensure cnv metadata exists for infercnvpy plotting
-                # If chromosome info is not available, infercnvpy will still plot but without chromosome labels
-                if "cnv" not in adata.uns:
-                    # Create minimal metadata structure for infercnvpy
-                    adata.uns["cnv"] = {
-                        "genomic_positions": False,  # No genomic position info available
-                    }
-                    if context:
-                        await context.info(
-                            "Note: Chromosome labels not available for Numbat heatmap. "
-                            "Install R packages for full chromosome annotation."
-                        )
-
-            # Check if CNV metadata exists
-            if "cnv" not in adata.uns:
-                error_msg = (
-                    "CNV metadata not found in adata.uns['cnv']. "
-                    "The CNV analysis may not have completed properly. "
-                    "Please re-run analyze_cnv()."
-                )
-                if context:
-                    await context.warning(error_msg)
-                raise DataNotFoundError(error_msg)
-
-            # Create CNV heatmap
-            if context:
-                await context.info("Generating CNV heatmap...")
-
-            figsize = params.figure_size if params.figure_size else (12, 8)
-
-            # For Numbat data without chromosome info, use aggregated heatmap by group
-            if cnv_method == "numbat" and "chromosome" not in adata.var.columns:
-                if context:
-                    await context.info(
-                        "Creating aggregated CNV heatmap by group (chromosome positions not available)"
-                    )
-
-                # Create aggregated heatmap of CNV matrix
-                import seaborn as sns
-
-                # Get CNV matrix
-                cnv_matrix = adata.obsm["X_cnv"]
-
-                # Aggregate by feature (e.g., clone) for cleaner visualization
-                if params.feature and params.feature in adata.obs.columns:
-                    # Group cells by feature and compute mean CNV per group
-                    feature_values = adata.obs[params.feature]
-                    unique_groups = sorted(feature_values.unique())
-
-                    # Compute mean CNV for each group
-                    aggregated_cnv = []
-                    group_labels = []
-                    group_sizes = []
-
-                    for group in unique_groups:
-                        group_mask = feature_values == group
-                        group_cnv = cnv_matrix[group_mask, :].mean(axis=0)
-                        aggregated_cnv.append(group_cnv)
-                        group_labels.append(str(group))
-                        group_sizes.append(group_mask.sum())
-
-                    aggregated_cnv = np.array(aggregated_cnv)
-
-                    # Calculate appropriate figure width based on number of bins
-                    # Use narrower bins for better visualization (0.004 inches per bin)
-                    n_bins = aggregated_cnv.shape[1]
-                    fig_width = min(max(6, n_bins * 0.004), 12)  # Between 6-12 inches
-                    fig_height = max(4, len(unique_groups) * 1.2)
-
-                    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-
-                    # Plot aggregated heatmap with fixed aspect ratio
-                    im = ax.imshow(
-                        aggregated_cnv,
-                        cmap="RdBu_r",
-                        aspect="auto",
-                        vmin=-1,
-                        vmax=1,
-                        interpolation="nearest",
-                    )
-
-                    # Add colorbar
-                    cbar = plt.colorbar(im, ax=ax, label="Mean CNV state")
-
-                    # Set y-axis labels with group names and cell counts
-                    ax.set_yticks(range(len(group_labels)))
-                    ax.set_yticklabels(
-                        [
-                            f"{label} (n={size})"
-                            for label, size in zip(group_labels, group_sizes)
-                        ]
-                    )
-                    ax.set_ylabel(params.feature, fontsize=12, fontweight="bold")
-
-                    # Set x-axis
-                    ax.set_xlabel("Genomic position (binned)", fontsize=12)
-                    ax.set_xticks([])  # Hide x-axis ticks for cleaner look
-
-                    # Add title
-                    ax.set_title(
-                        f"CNV Profile by {params.feature}\n(Numbat analysis, aggregated by group)",
-                        fontsize=14,
-                        fontweight="bold",
-                    )
-
-                    # Add gridlines between groups
-                    for i in range(len(group_labels) + 1):
-                        ax.axhline(i - 0.5, color="white", linewidth=2)
-
-                else:
-                    # No grouping - show warning and plot all cells (not recommended)
-                    fig, ax = plt.subplots(figsize=figsize)
-
-                    sns.heatmap(
-                        cnv_matrix,
-                        cmap="RdBu_r",
-                        center=0,
-                        cbar_kws={"label": "CNV state"},
-                        yticklabels=False,
-                        xticklabels=False,
-                        ax=ax,
-                        vmin=-1,
-                        vmax=1,
-                    )
-
-                    ax.set_xlabel("Genomic position (binned)")
-                    ax.set_ylabel("Cells")
-                    ax.set_title("CNV Heatmap (Numbat)\nAll cells (ungrouped)")
-
-                plt.tight_layout()
-
-            else:
-                # Use infercnvpy chromosome_heatmap for infercnvpy data or Numbat with chr info
-                if context:
-                    await context.info("Creating chromosome-organized CNV heatmap...")
-
-                cnv.pl.chromosome_heatmap(
-                    adata,
-                    groupby=params.cluster_key,
-                    dendrogram=True,
-                    show=False,
-                    figsize=figsize,
-                )
-                # Get current figure
-                fig = plt.gcf()
-
-            if context:
-                await context.info("CNV heatmap created successfully")
-
-        elif params.plot_type == "spatial_cnv":
-            if context:
-                await context.info("Creating spatial CNV projection visualization")
-
-            # Check if spatial coordinates exist
-            if "spatial" not in adata.obsm:
-                error_msg = (
-                    "Spatial coordinates not found in adata.obsm['spatial']. "
-                    "This plot type requires spatial transcriptomics data."
-                )
-                if context:
-                    await context.warning(error_msg)
-                raise DataNotFoundError(error_msg)
-
-            # Determine feature to visualize
-            feature_to_plot = params.feature
-
-            # Auto-detect CNV-related features if none specified
-            if not feature_to_plot:
-                if "numbat_clone" in adata.obs:
-                    feature_to_plot = "numbat_clone"
-                    if context:
-                        await context.info(
-                            "No feature specified, using 'numbat_clone' (Numbat clone assignment)"
-                        )
-                elif "cnv_score" in adata.obs:
-                    feature_to_plot = "cnv_score"
-                    if context:
-                        await context.info(
-                            "No feature specified, using 'cnv_score' (CNV score)"
-                        )
-                elif "numbat_p_cnv" in adata.obs:
-                    feature_to_plot = "numbat_p_cnv"
-                    if context:
-                        await context.info(
-                            "No feature specified, using 'numbat_p_cnv' (Numbat CNV probability)"
-                        )
-                else:
-                    error_msg = (
-                        "No CNV-related features found in adata.obs. "
-                        "Expected one of: 'numbat_clone', 'cnv_score', 'numbat_p_cnv'. "
-                        "Please run CNV analysis first using analyze_cnv()."
-                    )
-                    if context:
-                        await context.warning(error_msg)
-                    raise DataNotFoundError(error_msg)
-
-            # Validate feature exists
-            if feature_to_plot not in adata.obs.columns:
-                error_msg = (
-                    f"Feature '{feature_to_plot}' not found in adata.obs. "
-                    f"Available CNV features: {[col for col in adata.obs.columns if 'cnv' in col.lower() or 'numbat' in col.lower()]}"
-                )
-                if context:
-                    await context.warning(error_msg)
-                raise DataNotFoundError(error_msg)
-
-            if context:
-                await context.info(
-                    f"Visualizing {feature_to_plot} on spatial coordinates"
-                )
-
-            # Reuse spatial plot logic
-            # Check for tissue images
-            has_tissue_image = False
-            if "spatial" in adata.uns:
-                for key in adata.uns["spatial"].keys():
-                    if "images" in adata.uns["spatial"][key]:
-                        has_tissue_image = True
-                        break
-
-            if has_tissue_image:
-                # With tissue image background
-                sample_key = (
-                    list(adata.uns["spatial"].keys())[0]
-                    if "spatial" in adata.uns
-                    else None
-                )
-
-                spatial_kwargs = {
-                    "img_key": "hires",
-                    "show": False,
-                    "alpha": params.alpha,
-                    "alpha_img": params.alpha_img,
-                    "frameon": params.show_axes,
-                }
-
-                if params.spot_size is not None:
-                    spatial_kwargs["spot_size"] = params.spot_size
-
-                if sample_key:
-                    spatial_kwargs["library_id"] = sample_key
-
-                # Determine if categorical or continuous
-                if (
-                    pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot])
-                    or adata.obs[feature_to_plot].dtype == "object"
-                ):
-                    # Categorical data (e.g., clone assignments)
-                    _ensure_categorical_colors(adata, feature_to_plot)
-                    spatial_kwargs["palette"] = params.colormap or "tab20"
-                else:
-                    # Continuous data (e.g., CNV scores, probabilities)
-                    spatial_kwargs["cmap"] = params.colormap or "RdBu_r"
-
-                sc.pl.spatial(adata, color=feature_to_plot, **spatial_kwargs)
-                fig = plt.gcf()
-
-            else:
-                # Without tissue image - use embedding plot
-                figsize = params.figure_size if params.figure_size else (10, 8)
-                fig, ax = plt.subplots(figsize=figsize)
-
-                if (
-                    pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot])
-                    or adata.obs[feature_to_plot].dtype == "object"
-                ):
-                    # Categorical
-                    sc.pl.embedding(
-                        adata,
-                        basis="spatial",
-                        color=feature_to_plot,
-                        palette=params.colormap or "tab20",
-                        show=False,
-                        ax=ax,
-                    )
-                else:
-                    # Continuous
-                    sc.pl.embedding(
-                        adata,
-                        basis="spatial",
-                        color=feature_to_plot,
-                        cmap=params.colormap or "RdBu_r",
-                        show=False,
-                        ax=ax,
-                    )
-
-            if context:
-                await context.info(
-                    f"Spatial CNV projection created for {feature_to_plot}"
-                )
-
-        elif params.plot_type == "card_imputation":
-            if context:
-                await context.info("Creating CARD imputation visualization")
-
-            # Check if CARD imputation data exists
-            if "card_imputation" not in adata.uns:
-                error_msg = (
-                    "CARD imputation data not found in adata.uns['card_imputation']. "
-                    "Please run CARD deconvolution with card_imputation=True first."
-                )
-                if context:
-                    await context.warning(error_msg)
-                raise DataNotFoundError(error_msg)
-
-            # Extract imputation data
-            impute_data = adata.uns["card_imputation"]
-            imputed_proportions = impute_data["proportions"]
-            imputed_coords = impute_data["coordinates"]
-
-            # Determine what to visualize
-            feature = params.feature
-            if not feature:
-                # Default: show dominant cell types
-                feature = "dominant"
-
-            figsize = params.figure_size if params.figure_size else (12, 10)
-            fig, ax = plt.subplots(figsize=figsize)
-
-            if feature == "dominant":
-                # Show dominant cell types
-                dominant_types = imputed_proportions.idxmax(axis=1)
-                unique_types = dominant_types.unique()
-
-                # Create color map
-                import seaborn as sns
-
-                colors = sns.color_palette("tab20", n_colors=len(unique_types))
-                color_map = {ct: colors[i] for i, ct in enumerate(unique_types)}
-                point_colors = [color_map[ct] for ct in dominant_types]
-
-                scatter = ax.scatter(
-                    imputed_coords["x"],
-                    imputed_coords["y"],
-                    c=point_colors,
-                    s=25,
-                    edgecolors="none",
-                    alpha=0.7,
-                )
-
-                ax.set_title(
-                    f"CARD Imputation: Dominant Cell Types\n"
-                    f"({len(imputed_coords)} locations, "
-                    f"{impute_data['resolution_increase']:.1f}x resolution)",
-                    fontsize=14,
-                    fontweight="bold",
-                )
-
-                # Create legend
-                from matplotlib.patches import Patch
-
-                legend_elements = [
-                    Patch(facecolor=color_map[ct], label=ct)
-                    for ct in sorted(unique_types)
-                ]
-                ax.legend(
-                    handles=legend_elements,
-                    bbox_to_anchor=(1.05, 1),
-                    loc="upper left",
-                    fontsize=9,
-                )
-
-            elif feature in imputed_proportions.columns:
-                # Show specific cell type proportion
-                scatter = ax.scatter(
-                    imputed_coords["x"],
-                    imputed_coords["y"],
-                    c=imputed_proportions[feature],
-                    s=30,
-                    cmap=params.colormap or "viridis",
-                    vmin=0,
-                    vmax=imputed_proportions[feature].quantile(0.95),
-                    edgecolors="none",
-                    alpha=0.8,
-                )
-
-                ax.set_title(
-                    f"CARD Imputation: {feature}\n"
-                    f"(Mean: {imputed_proportions[feature].mean():.3f}, "
-                    f"{len(imputed_coords)} locations)",
-                    fontsize=14,
-                    fontweight="bold",
-                )
-
-                # Add colorbar
-                cbar = plt.colorbar(scatter, ax=ax)
-                cbar.set_label("Proportion", fontsize=12)
-
-            else:
-                error_msg = (
-                    f"Feature '{feature}' not found in imputation results. "
-                    f"Available cell types: {list(imputed_proportions.columns)}\n"
-                    f"Use feature='dominant' to show dominant cell types."
-                )
-                if context:
-                    await context.warning(error_msg)
-                raise DataNotFoundError(error_msg)
-
-            ax.set_xlabel("X coordinate", fontsize=12)
-            ax.set_ylabel("Y coordinate", fontsize=12)
-            ax.set_aspect("equal")
-            plt.tight_layout()
-
-            if context:
-                await context.info("CARD imputation visualization created successfully")
-
+        # ============================================================
+        # Dispatch Logic - Use PLOT_HANDLERS for all plot types
+        # ============================================================
+        if params.plot_type in PLOT_HANDLERS:
+            # Use dispatch dictionary for all visualization functions
+            handler = PLOT_HANDLERS[params.plot_type]
+            fig = await handler(adata, params, context)
         else:
-            # This should never happen due to parameter validation at the beginning
-            error_msg = f"Unsupported plot type: {params.plot_type}"
-            if context:
-                await context.warning(error_msg)
-            raise InvalidParameterError(error_msg)
+            raise ValueError(f"Unknown plot type: {params.plot_type}")
 
         # Convert figure with optimization (preview + resource for large images)
         if context:
@@ -2692,7 +2717,7 @@ async def create_umap_proportions(
     return fig
 
 
-async def create_deconvolution_visualization(
+async def _create_deconvolution_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create deconvolution results visualization
@@ -2955,7 +2980,7 @@ async def create_spatial_multi_deconvolution(
     return fig
 
 
-async def create_spatial_domains_visualization(
+async def _create_spatial_domains_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create spatial domains visualization"""
@@ -3115,7 +3140,7 @@ async def create_spatial_domains_visualization(
     return fig
 
 
-async def create_cell_communication_visualization(
+async def _create_cell_communication_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create cell communication visualization"""
@@ -3641,7 +3666,7 @@ async def create_multi_gene_umap_visualization(
     return fig
 
 
-async def create_multi_gene_visualization(
+async def _create_multi_gene_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create multi-gene visualization
@@ -3769,7 +3794,7 @@ async def create_multi_gene_visualization(
     return fig
 
 
-async def create_lr_pairs_visualization(
+async def _create_lr_pairs_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create ligand-receptor pairs visualization
@@ -4030,7 +4055,7 @@ async def create_lr_pairs_visualization(
     return fig
 
 
-async def create_rna_velocity_visualization(
+async def _create_rna_velocity_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create RNA velocity stream plot
@@ -4139,7 +4164,7 @@ async def create_rna_velocity_visualization(
     return fig
 
 
-async def create_spatial_statistics_visualization(
+async def _create_spatial_statistics_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create spatial statistics visualization based on subtype
@@ -4748,7 +4773,7 @@ async def create_getis_ord_visualization(
     return fig
 
 
-async def create_trajectory_visualization(
+async def _create_trajectory_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create trajectory pseudotime visualization
@@ -4906,7 +4931,7 @@ async def create_trajectory_visualization(
     return fig
 
 
-async def create_gene_correlation_visualization(
+async def _create_gene_correlation_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create gene correlation visualization
@@ -5358,7 +5383,7 @@ async def create_enrichment_visualization(
     return fig
 
 
-async def create_gsea_visualization(
+async def _create_gsea_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create pathway enrichment visualization (unified for ORA/GSEA and spatial EnrichMap)
@@ -5815,7 +5840,7 @@ def _create_gsea_spatial_plot(adata, params):
     return fig
 
 
-async def create_spatial_interaction_visualization(
+async def _create_spatial_interaction_visualization(
     adata, params, context: Optional[Context] = None
 ):
     """Create spatial visualization showing ligand-receptor interactions"""
@@ -5974,7 +5999,7 @@ async def create_spatial_interaction_visualization(
         ) from e
 
 
-async def create_batch_integration_visualization(
+async def _create_batch_integration_visualization(
     adata, params, context: Optional[Context] = None
 ):
     """Create multi-panel visualization to assess batch integration quality
@@ -6148,6 +6173,39 @@ async def create_batch_integration_visualization(
 
     plt.tight_layout()
     return fig
+
+
+# ============================================================================
+# PLOT TYPE DISPATCH DICTIONARY
+# ============================================================================
+# This dictionary maps plot_type strings to their handler functions.
+# Serves as the single source of truth for all supported visualization types.
+# Adding a new plot type: 1) Create handler function, 2) Add to this dictionary
+PLOT_HANDLERS = {
+    # ============================================================
+    # All visualization handlers are now private functions
+    # Main entry point: visualize_data()
+    # ============================================================
+    "violin": _create_violin_visualization,
+    "card_imputation": _create_card_imputation_visualization,
+    "spatial_cnv": _create_spatial_cnv_visualization,
+    "cnv_heatmap": _create_cnv_heatmap_visualization,
+    "umap": _create_umap_visualization,
+    "spatial": _create_spatial_visualization,
+    "heatmap": _create_heatmap_visualization,
+    "deconvolution": _create_deconvolution_visualization,
+    "spatial_domains": _create_spatial_domains_visualization,
+    "cell_communication": _create_cell_communication_visualization,
+    "multi_gene": _create_multi_gene_visualization,
+    "lr_pairs": _create_lr_pairs_visualization,
+    "gene_correlation": _create_gene_correlation_visualization,
+    "rna_velocity": _create_rna_velocity_visualization,
+    "trajectory": _create_trajectory_visualization,
+    "spatial_statistics": _create_spatial_statistics_visualization,
+    "pathway_enrichment": _create_gsea_visualization,
+    "spatial_interaction": _create_spatial_interaction_visualization,
+    "batch_integration": _create_batch_integration_visualization,
+}
 
 
 # ============================================================================
