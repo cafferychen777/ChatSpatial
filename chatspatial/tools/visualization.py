@@ -75,12 +75,20 @@ def setup_multi_panel_figure(
 
     Args:
         n_panels: The total number of panels required.
-        params: VisualizationParameters object.
+        params: VisualizationParameters object with GridSpec spacing parameters:
+                - subplot_wspace: horizontal spacing (default 0.0)
+                - subplot_hspace: vertical spacing (default 0.3)
         default_title: Default title for the figure if not provided in params.
-        use_tight_layout: If True, skip subplots_adjust and use tight_layout later (for plots with colorbars).
+        use_tight_layout: If True, skip gridspec_kw and use tight_layout (legacy mode).
+                         For spatial plots with equal aspect ratio, gridspec_kw is recommended.
 
     Returns:
         A tuple of (matplotlib.Figure, flattened numpy.ndarray of Axes).
+
+    Notes:
+        - For spatial plots with ax.set_aspect('equal'), gridspec_kw is the ONLY way
+          to control spacing. subplots_adjust() is ineffective due to aspect constraints.
+        - Default spacing (wspace=0.0, hspace=0.3) optimized for spatial plots with colorbars.
     """
     if params.panel_layout:
         n_rows, n_cols = params.panel_layout
@@ -94,20 +102,30 @@ def setup_multi_panel_figure(
         # Adjust size to prevent images from becoming too large
         figsize = (min(5 * n_cols, 15), min(4 * n_rows, 16))
 
-    fig, axes = plt.subplots(
-        n_rows, n_cols, figsize=figsize, dpi=params.dpi, squeeze=False
-    )
+    # Use GridSpec for proper spacing control with equal aspect ratio
+    # This is critical for spatial plots where ax.set_aspect('equal') is used
+    if not use_tight_layout:
+        fig, axes = plt.subplots(
+            n_rows,
+            n_cols,
+            figsize=figsize,
+            dpi=params.dpi,
+            squeeze=False,
+            gridspec_kw={
+                "wspace": params.subplot_wspace,  # Horizontal spacing
+                "hspace": params.subplot_hspace,  # Vertical spacing
+            },
+        )
+    else:
+        # Legacy mode: use tight_layout (not recommended for spatial plots)
+        fig, axes = plt.subplots(
+            n_rows, n_cols, figsize=figsize, dpi=params.dpi, squeeze=False
+        )
+
     axes = axes.flatten()
 
     title = params.title or default_title
     fig.suptitle(title, fontsize=16)
-
-    # Only use subplots_adjust if not using tight_layout
-    # tight_layout is better for plots with colorbars (L-R pairs, multi-gene spatial)
-    if not use_tight_layout:
-        # Adjust subplot to make room for suptitle
-        # Reduced spacing for tighter layout: hspace=0.3 (was 0.4), wspace=0.2 (was 0.3)
-        plt.subplots_adjust(top=0.92, hspace=0.3, wspace=0.2)
 
     # Hide empty axes from the start
     for i in range(n_panels, len(axes)):
@@ -251,13 +269,19 @@ def plot_spatial_feature(
 ):
     """Plots a feature on spatial coordinates, handling background images.
 
+    Enhanced version that supports:
+    - Automatic detection of categorical vs continuous data
+    - Color palette for categorical data
+    - vmin/vmax for color range control
+    - Tissue image handling
+
     Note: This function sets the title to an empty string. Callers should
     manually set ax.set_title() after calling this function if a specific
     title is desired.
 
     Args:
         adata: AnnData object
-        feature: Feature to plot
+        feature: Feature to plot (gene name or obs column)
         ax: Matplotlib axes
         params: Visualization parameters
         force_no_colorbar: If True, disable colorbar even if params.show_colorbar is True.
@@ -277,12 +301,18 @@ def plot_spatial_feature(
                 has_image = True
                 break
 
+    # Detect if feature is categorical or continuous
+    is_categorical = False
+    if feature and feature in adata.obs.columns:
+        # Ensure categorical colors are set for obs columns
+        _ensure_categorical_colors(adata, feature)
+        is_categorical = pd.api.types.is_categorical_dtype(adata.obs[feature])
+
     # Base kwargs for both functions
     plot_kwargs = {
         "color": feature,
         "ax": ax,
         "show": False,
-        "cmap": params.colormap,
         "alpha": params.alpha,
         "frameon": params.show_axes,
         "colorbar_loc": (
@@ -290,6 +320,21 @@ def plot_spatial_feature(
         ),
         "title": "",  # We will set the title manually
     }
+
+    # Add color mapping (cmap for continuous, palette for categorical)
+    if is_categorical:
+        # Use palette for categorical data
+        plot_kwargs["palette"] = params.colormap or "Set2"
+    else:
+        # Use cmap for continuous data (genes, scores, etc.)
+        plot_kwargs["cmap"] = params.colormap or "viridis"
+
+    # Add vmin/vmax for continuous data color range control
+    if not is_categorical:
+        if params.vmin is not None:
+            plot_kwargs["vmin"] = params.vmin
+        if params.vmax is not None:
+            plot_kwargs["vmax"] = params.vmax
 
     # For spatial plots with tissue image, use 'spot_size'; for embedding use 'size'
     if has_image:
@@ -802,7 +847,10 @@ async def _create_spatial_cnv_visualization(
     context: Optional[Context] = None,
 ) -> plt.Figure:
     """
-    Create spatial CNV projection visualization
+    Create spatial CNV projection visualization (REFACTORED to use plot_spatial_feature helper)
+
+    This function now uses the unified plot_spatial_feature() helper for cleaner
+    code and consistent parameter handling.
 
     Args:
         adata: AnnData object
@@ -874,78 +922,18 @@ async def _create_spatial_cnv_visualization(
     if context:
         await context.info(f"Visualizing {feature_to_plot} on spatial coordinates")
 
-    # Reuse spatial plot logic
-    # Check for tissue images
-    has_tissue_image = False
-    if "spatial" in adata.uns:
-        for key in adata.uns["spatial"].keys():
-            if "images" in adata.uns["spatial"][key]:
-                has_tissue_image = True
-                break
+    # REFACTORED: Use unified plot_spatial_feature() helper
+    # Override colormap default for CNV data (RdBu_r is better for CNV scores)
+    if not params.colormap:
+        # Only override if user hasn't specified a colormap
+        params.colormap = "RdBu_r" if not pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot]) else "tab20"
 
-    if has_tissue_image:
-        # With tissue image background
-        sample_key = (
-            list(adata.uns["spatial"].keys())[0] if "spatial" in adata.uns else None
-        )
+    figsize = params.figure_size if params.figure_size else (10, 8)
+    fig, ax = plt.subplots(figsize=figsize)
 
-        spatial_kwargs = {
-            "img_key": "hires",
-            "show": False,
-            "alpha": params.alpha,
-            "alpha_img": params.alpha_img,
-            "frameon": params.show_axes,
-        }
-
-        if params.spot_size is not None:
-            spatial_kwargs["spot_size"] = params.spot_size
-
-        if sample_key:
-            spatial_kwargs["library_id"] = sample_key
-
-        # Determine if categorical or continuous
-        if (
-            pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot])
-            or adata.obs[feature_to_plot].dtype == "object"
-        ):
-            # Categorical data (e.g., clone assignments)
-            _ensure_categorical_colors(adata, feature_to_plot)
-            spatial_kwargs["palette"] = params.colormap or "tab20"
-        else:
-            # Continuous data (e.g., CNV scores, probabilities)
-            spatial_kwargs["cmap"] = params.colormap or "RdBu_r"
-
-        sc.pl.spatial(adata, color=feature_to_plot, **spatial_kwargs)
-        fig = plt.gcf()
-
-    else:
-        # Without tissue image - use embedding plot
-        figsize = params.figure_size if params.figure_size else (10, 8)
-        fig, ax = plt.subplots(figsize=figsize)
-
-        if (
-            pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot])
-            or adata.obs[feature_to_plot].dtype == "object"
-        ):
-            # Categorical
-            sc.pl.embedding(
-                adata,
-                basis="spatial",
-                color=feature_to_plot,
-                palette=params.colormap or "tab20",
-                show=False,
-                ax=ax,
-            )
-        else:
-            # Continuous
-            sc.pl.embedding(
-                adata,
-                basis="spatial",
-                color=feature_to_plot,
-                cmap=params.colormap or "RdBu_r",
-                show=False,
-                ax=ax,
-            )
+    # Use the enhanced plot_spatial_feature helper
+    # It automatically handles: tissue images, categorical/continuous data, palette/cmap, vmin/vmax, spot_size
+    plot_spatial_feature(adata, feature_to_plot, ax, params)
 
     if context:
         await context.info(f"Spatial CNV projection created for {feature_to_plot}")
@@ -1275,7 +1263,7 @@ async def _create_umap_visualization(
     )
     if feature_list and params.multi_panel and len(feature_list) > 1:
         # Use the new dedicated function for multi-gene UMAP
-        fig = await create_multi_gene_umap_visualization(adata, params, context)
+        fig = await _create_multi_gene_umap_visualization(adata, params, context)
     else:
         # REQUIRE explicit feature specification - no automatic defaults
         if not feature_list:
@@ -1411,7 +1399,10 @@ async def _create_spatial_visualization(
     context: Optional[Context] = None,
 ) -> plt.Figure:
     """
-    Create spatial visualization
+    Create spatial visualization (REFACTORED to use plot_spatial_feature helper)
+
+    This function now uses the unified plot_spatial_feature() helper for cleaner
+    code and consistent parameter handling across all spatial visualizations.
 
     Args:
         adata: AnnData object
@@ -1433,7 +1424,7 @@ async def _create_spatial_visualization(
                 f"Creating multi-gene spatial plot for {len(feature_list)} genes"
             )
         # Create multi-gene visualization
-        fig = await create_multi_gene_visualization(adata, params, context)
+        fig = await _create_multi_gene_visualization(adata, params, context)
     else:
         single_feature = feature_list[0] if feature_list else None
         if context:
@@ -1463,141 +1454,53 @@ async def _create_spatial_visualization(
                 f"{len(adata.obs.columns)} annotations."
             )
 
-        # Create spatial plot
-        # For 10x Visium data - check if any sample has tissue images
-        has_tissue_image = False
-        if "spatial" in adata.uns:
-            for key in adata.uns["spatial"].keys():
-                if "images" in adata.uns["spatial"][key]:
-                    has_tissue_image = True
-                    break
+        # Create spatial plot using unified helper function
+        # REFACTORED: Now uses plot_spatial_feature() for all plotting
+        fig, ax = create_figure()
 
-        if has_tissue_image:
+        # Use the enhanced plot_spatial_feature helper
+        # It handles: tissue images, categorical/continuous data, palette/cmap, vmin/vmax, spot_size
+        plot_spatial_feature(adata, feature, ax, params)
 
-            # Get sample key for library_id
-            sample_key = (
-                list(adata.uns["spatial"].keys())[0] if "spatial" in adata.uns else None
-            )
+        # Set title if no feature specified
+        if not feature:
+            ax.set_title("Spatial coordinates")
 
-            # Build common kwargs for sc.pl.spatial with beautification parameters
-            # NOTE: Do NOT use return_fig=True as it breaks spot rendering!
-            spatial_kwargs = {
-                "img_key": "hires",
-                "show": False,
-                # NO return_fig parameter - it breaks spot rendering!
-                "alpha": params.alpha,  # Spot transparency
-                "alpha_img": params.alpha_img,  # Dim background for better visibility
-                "frameon": params.show_axes,
-            }
+        # Add outline/contour overlay if requested
+        if (
+            params.add_outline
+            and params.outline_cluster_key
+            and params.outline_cluster_key in adata.obs.columns
+        ):
+            if context:
+                await context.info(
+                    f"Adding cluster outline overlay for {params.outline_cluster_key}"
+                )
+            try:
+                # Check if we have tissue images
+                has_tissue_image = False
+                if "spatial" in adata.uns:
+                    for key in adata.uns["spatial"].keys():
+                        if "images" in adata.uns["spatial"][key]:
+                            has_tissue_image = True
+                            break
 
-            # Only add spot_size if explicitly set (None = auto-determined, recommended)
-            if params.spot_size is not None:
-                spatial_kwargs["spot_size"] = params.spot_size
-
-            # Add library_id for multi-sample reliability
-            if sample_key:
-                spatial_kwargs["library_id"] = sample_key
-
-            # Add outline parameters if requested
-            if params.add_outline:
-                spatial_kwargs["na_in_legend"] = False
-
-            # With tissue image background
-            if feature:
-                if feature in adata.var_names:
-                    # Gene expression (continuous data)
-                    spatial_kwargs["cmap"] = params.colormap or "viridis"
-                    sc.pl.spatial(adata, color=feature, **spatial_kwargs)
-                elif feature in adata.obs.columns:
-                    # Observation annotation (categorical data)
-                    _ensure_categorical_colors(adata, feature)
-                    # Use palette for categorical data
-                    if pd.api.types.is_categorical_dtype(adata.obs[feature]):
-                        spatial_kwargs["palette"] = params.colormap or "Set2"
-                    else:
-                        spatial_kwargs["cmap"] = params.colormap or "viridis"
-                    sc.pl.spatial(adata, color=feature, **spatial_kwargs)
-            else:
-                # Just tissue image with spots
-                sc.pl.spatial(adata, **spatial_kwargs)
-
-            # Get figure using plt.gcf() since we didn't use return_fig
-            fig = plt.gcf()
-
-            # Add outline/contour overlay if requested
-            if (
-                params.add_outline
-                and params.outline_cluster_key
-                and params.outline_cluster_key in adata.obs.columns
-            ):
-                if context:
-                    await context.info(
-                        f"Adding cluster outline overlay for {params.outline_cluster_key}"
-                    )
-                try:
-                    # Get the first (and usually only) axis from the figure
-                    ax = fig.get_axes()[0] if fig.get_axes() else None
-                    if ax:
-                        # Use scanpy's add_outline functionality
-                        sc.pl.spatial(
-                            adata,
-                            img_key="hires",
-                            color=params.outline_cluster_key,
-                            add_outline=True,
-                            outline_color=params.outline_color,
-                            outline_width=params.outline_width,
-                            show=False,
-                            ax=ax,
-                            legend_loc=None,
-                            colorbar=False,
-                        )
-                except Exception as e:
-                    if context:
-                        await context.warning(
-                            f"Failed to add outline overlay: {str(e)}"
-                        )
-
-        else:
-            # For other spatial data without tissue image
-            fig, ax = create_figure()
-            if feature:
-                if feature in adata.var_names:
-                    # Gene expression
-                    sc.pl.embedding(
+                if has_tissue_image:
+                    # Use scanpy's add_outline functionality for tissue data
+                    sc.pl.spatial(
                         adata,
-                        basis="spatial",
-                        color=feature,
-                        cmap=params.colormap,
+                        img_key="hires",
+                        color=params.outline_cluster_key,
+                        add_outline=True,
+                        outline_color=params.outline_color,
+                        outline_width=params.outline_width,
                         show=False,
                         ax=ax,
+                        legend_loc=None,
+                        colorbar=False,
                     )
-                elif feature in adata.obs.columns:
-                    # Observation annotation (like clusters or cell types)
-                    # Ensure categorical features have proper colors
-                    _ensure_categorical_colors(adata, feature)
-                    sc.pl.embedding(
-                        adata, basis="spatial", color=feature, show=False, ax=ax
-                    )
-            else:
-                # Just spatial coordinates
-                sc.pl.embedding(adata, basis="spatial", show=False, ax=ax)
-                ax.set_aspect("equal")
-                ax.set_title("Spatial coordinates")
-
-            # Add outline/contour overlay for non-tissue data if requested
-            if (
-                params.add_outline
-                and params.outline_cluster_key
-                and params.outline_cluster_key in adata.obs.columns
-            ):
-                if context:
-                    await context.info(
-                        f"Adding cluster outline for {params.outline_cluster_key}"
-                    )
-                try:
-                    # For non-tissue data, we can use scanpy's embedding plot with groups to highlight boundaries
-
-                    # Get spatial coordinates
+                else:
+                    # For non-tissue data, create manual outlines using ConvexHull
                     spatial_coords = adata.obsm["spatial"]
                     cluster_labels = adata.obs[params.outline_cluster_key].values
 
@@ -1608,9 +1511,7 @@ async def _create_spatial_visualization(
                         cluster_mask = cluster_labels == cluster
                         cluster_coords = spatial_coords[cluster_mask]
 
-                        if (
-                            len(cluster_coords) > 2
-                        ):  # Need at least 3 points for a boundary
+                        if len(cluster_coords) > 2:  # Need at least 3 points for a boundary
                             try:
                                 # Create convex hull for boundary
                                 from scipy.spatial import ConvexHull
@@ -1640,11 +1541,11 @@ async def _create_spatial_visualization(
                                     linewidth=params.outline_width,
                                     alpha=0.6,
                                 )
-                except Exception as e:
-                    if context:
-                        await context.warning(
-                            f"Failed to add outline overlay: {str(e)}"
-                        )
+            except Exception as e:
+                if context:
+                    await context.warning(
+                        f"Failed to add outline overlay: {str(e)}"
+                    )
 
     return fig
 
@@ -2337,7 +2238,7 @@ async def create_diversity_map(
     return fig
 
 
-async def create_stacked_barplot(
+async def _create_stacked_barplot(
     adata: ad.AnnData,
     params: VisualizationParameters,
     context=None,
@@ -2479,7 +2380,7 @@ async def create_stacked_barplot(
     return fig
 
 
-async def create_scatterpie_plot(
+async def _create_scatterpie_plot(
     adata: ad.AnnData,
     params: VisualizationParameters,
     context=None,
@@ -2746,9 +2647,9 @@ async def _create_deconvolution_visualization(
     elif viz_type == "diversity":
         return await create_diversity_map(adata, params, context)
     elif viz_type == "stacked_bar":
-        return await create_stacked_barplot(adata, params, context)
+        return await _create_stacked_barplot(adata, params, context)
     elif viz_type == "scatterpie":
-        return await create_scatterpie_plot(adata, params, context)
+        return await _create_scatterpie_plot(adata, params, context)
     elif viz_type == "umap":
         return await create_umap_proportions(adata, params, context)
     elif viz_type == "spatial_multi":
@@ -2976,7 +2877,10 @@ async def create_spatial_multi_deconvolution(
     if temp_feature_key in adata.obs:
         del adata.obs[temp_feature_key]
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    # Adjust spacing for compact layout with proper colorbar spacing
+    # Using subplots_adjust directly (same as LR pairs and multi-gene)
+    # Reduced wspace from 0.2 to 0.1 for tighter left-right spacing
+    fig.subplots_adjust(top=0.92, wspace=0.1, hspace=0.3, right=0.98)
     return fig
 
 
@@ -3568,7 +3472,7 @@ def _create_lr_expression_plot(adata, lr_columns, params, context):
         ) from e
 
 
-async def create_multi_gene_umap_visualization(
+async def _create_multi_gene_umap_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create multi-gene UMAP visualization
@@ -3662,7 +3566,9 @@ async def create_multi_gene_umap_visualization(
     if temp_feature_key in adata.obs:
         del adata.obs[temp_feature_key]
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    # No need for subplots_adjust - spacing is controlled by GridSpec in setup_multi_panel_figure
+    # GridSpec wspace/hspace parameters are the ONLY effective way to control spacing
+    # when using ax.set_aspect('equal') for spatial plots
     return fig
 
 
@@ -3690,12 +3596,12 @@ async def _create_multi_gene_visualization(
         )
 
     # USE THE NEW PANEL HELPER
-    # Use tight_layout for better handling of colorbars in spatial plots
+    # Use explicit subplots_adjust for better spacing control (like LR pairs)
     fig, axes = setup_multi_panel_figure(
         n_panels=len(available_genes),
         params=params,
         default_title="",  # No default title for cleaner visualization
-        use_tight_layout=True,
+        use_tight_layout=False,  # Changed from True to use explicit spacing control
     )
 
     # Plot each gene
@@ -3753,9 +3659,14 @@ async def _create_multi_gene_visualization(
                         scatter.set_clim(vmin, vmax)
 
                         # Add colorbar with exact height matching using make_axes_locatable
+                        # Use configurable colorbar size and padding for optimal spacing
                         if params.show_colorbar:
                             divider = make_axes_locatable(ax)
-                            cax = divider.append_axes("right", size="5%", pad=0.05)
+                            cax = divider.append_axes(
+                                "right",
+                                size=params.colorbar_size,
+                                pad=params.colorbar_pad,
+                            )
                             plt.colorbar(scatter, cax=cax)
 
                     ax.invert_yaxis()
@@ -3959,9 +3870,14 @@ async def _create_lr_pairs_visualization(
                 )
 
                 # Add colorbar with exact height matching using make_axes_locatable
+                # Use configurable colorbar size and padding for optimal spacing
                 if params.show_colorbar and ax.collections:
                     divider = make_axes_locatable(ax)
-                    cax = divider.append_axes("right", size="5%", pad=0.05)
+                    cax = divider.append_axes(
+                        "right",
+                        size=params.colorbar_size,
+                        pad=params.colorbar_pad,
+                    )
                     plt.colorbar(ax.collections[-1], cax=cax)
 
                 ax.invert_yaxis()
@@ -3985,9 +3901,14 @@ async def _create_lr_pairs_visualization(
                 )
 
                 # Add colorbar with exact height matching using make_axes_locatable
+                # Use configurable colorbar size and padding for optimal spacing
                 if params.show_colorbar and ax.collections:
                     divider = make_axes_locatable(ax)
-                    cax = divider.append_axes("right", size="5%", pad=0.05)
+                    cax = divider.append_axes(
+                        "right",
+                        size=params.colorbar_size,
+                        pad=params.colorbar_pad,
+                    )
                     plt.colorbar(ax.collections[-1], cax=cax)
 
                 ax.invert_yaxis()
@@ -4183,26 +4104,26 @@ async def _create_spatial_statistics_visualization(
         )
 
     if params.subtype == "neighborhood":
-        return await create_neighborhood_enrichment_visualization(
+        return await _create_neighborhood_enrichment_visualization(
             adata, params, context
         )
     elif params.subtype == "co_occurrence":
-        return await create_co_occurrence_visualization(adata, params, context)
+        return await _create_co_occurrence_visualization(adata, params, context)
     elif params.subtype == "ripley":
-        return await create_ripley_visualization(adata, params, context)
+        return await _create_ripley_visualization(adata, params, context)
     elif params.subtype == "moran":
-        return await create_moran_visualization(adata, params, context)
+        return await _create_moran_visualization(adata, params, context)
     elif params.subtype == "centrality":
-        return await create_centrality_visualization(adata, params, context)
+        return await _create_centrality_visualization(adata, params, context)
     elif params.subtype == "getis_ord":
-        return await create_getis_ord_visualization(adata, params, context)
+        return await _create_getis_ord_visualization(adata, params, context)
     else:
         raise InvalidParameterError(
             f"Unsupported subtype for spatial_statistics: {params.subtype}"
         )
 
 
-async def create_neighborhood_enrichment_visualization(
+async def _create_neighborhood_enrichment_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create neighborhood enrichment visualization with optional network view"""
@@ -4248,7 +4169,7 @@ async def create_neighborhood_enrichment_visualization(
             await context.info(
                 "Creating network-style neighborhood enrichment visualization"
             )
-        return await create_neighborhood_network_visualization(
+        return await _create_neighborhood_network_visualization(
             enrichment_matrix, categories, params, context
         )
     else:
@@ -4275,7 +4196,7 @@ async def create_neighborhood_enrichment_visualization(
         return fig
 
 
-async def create_neighborhood_network_visualization(
+async def _create_neighborhood_network_visualization(
     enrichment_matrix: np.ndarray,
     categories,
     params: VisualizationParameters,
@@ -4391,7 +4312,7 @@ async def create_neighborhood_network_visualization(
     return fig
 
 
-async def create_co_occurrence_visualization(
+async def _create_co_occurrence_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create co-occurrence analysis visualization"""
@@ -4486,7 +4407,7 @@ async def create_co_occurrence_visualization(
     return fig
 
 
-async def create_ripley_visualization(
+async def _create_ripley_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create Ripley's function visualization"""
@@ -4548,7 +4469,7 @@ async def create_ripley_visualization(
     return fig
 
 
-async def create_moran_visualization(
+async def _create_moran_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create Moran's I visualization"""
@@ -4602,7 +4523,7 @@ async def create_moran_visualization(
     return fig
 
 
-async def create_centrality_visualization(
+async def _create_centrality_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create centrality scores visualization"""
@@ -4668,7 +4589,7 @@ async def create_centrality_visualization(
     return fig
 
 
-async def create_getis_ord_visualization(
+async def _create_getis_ord_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create Getis-Ord Gi* visualization"""
@@ -5074,7 +4995,7 @@ async def _create_gene_correlation_visualization(
     return fig
 
 
-async def create_enrichment_visualization(
+async def _create_enrichment_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create spatial enrichment visualization (unified for EnrichMap and standard spatial)
@@ -5420,7 +5341,7 @@ async def _create_gsea_visualization(
     # Route to appropriate visualization based on subtype
     if plot_type.startswith("spatial_"):
         # Spatial EnrichMap visualizations (use per-cell scores in adata.obs)
-        return await create_enrichment_visualization(adata, params, context)
+        return await _create_enrichment_visualization(adata, params, context)
     else:
         # Traditional ORA/GSEA visualizations (use pathway statistics in adata.uns)
         # Get GSEA results
