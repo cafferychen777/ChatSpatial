@@ -30,8 +30,8 @@ from mcp.types import ImageContent  # noqa: E402
 from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
 from .models.analysis import CNVResult  # noqa: E402
-from .models.analysis import (DeconvolutionResult,  # noqa: E402
-                              DifferentialExpressionResult, EnrichmentResult,
+from .models.analysis import DeconvolutionResult  # noqa: E402
+from .models.analysis import (DifferentialExpressionResult, EnrichmentResult,
                               IntegrationResult, PreprocessingResult,
                               RNAVelocityResult, SpatialDomainResult,
                               SpatialStatisticsResult,
@@ -39,11 +39,11 @@ from .models.analysis import (DeconvolutionResult,  # noqa: E402
 from .models.data import AnnotationParameters  # noqa: E402
 from .models.data import CellCommunicationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
-from .models.data import (ColumnInfo, DeconvolutionParameters,  # noqa: E402
-                          EnrichmentParameters, IntegrationParameters,
-                          PreprocessingParameters, RNAVelocityParameters,
-                          SpatialDataset, SpatialDomainParameters,
-                          SpatialStatisticsParameters,
+from .models.data import DeconvolutionParameters  # noqa: E402
+from .models.data import (ColumnInfo, EnrichmentParameters,
+                          IntegrationParameters, PreprocessingParameters,
+                          RNAVelocityParameters, SpatialDataset,
+                          SpatialDomainParameters, SpatialStatisticsParameters,
                           SpatialVariableGenesParameters, TrajectoryParameters,
                           VisualizationParameters)
 from .spatial_mcp_adapter import MCPToolMetadata  # noqa: E402
@@ -241,63 +241,55 @@ async def visualize_data(
                         * Integration/QC: spatial_interaction, batch_integration
                         * CNV analysis: cnv_heatmap, spatial_cnv
                         * High-resolution: card_imputation
-            - feature: Gene or feature to visualize (single gene as string or multiple genes as list)
-                      For cell types, use the actual column name created by annotation methods:
-                      - After Tangram: 'cell_type_tangram'
-                      - After scANVI: 'cell_type_scanvi'
-                      - After CellAssign: 'cell_type_cellassign'
-                      - Or use clustering results: 'leiden', 'louvain', etc.
-                      For lr_pairs plot_type: Can pass L-R pairs as ["Ligand^Receptor"] format
-            - lr_pairs: (Optional) For lr_pairs plot_type, explicit list of (ligand, receptor) tuples
-                       Example: [("Fn1", "Cd79a"), ("Vegfa", "Nrp2")]
-            - colormap: Color scheme for visualization
-            - figure_size: Size of the output figure
+            - feature: Gene or feature to visualize (single/multiple genes). For cell types,
+                      use method-specific columns: 'cell_type_tangram', 'cell_type_scanvi',
+                      'cell_type_cellassign', or clustering: 'leiden', 'louvain'
+            - cluster_key: Column in adata.obs for grouping (e.g., 'leiden', 'cell_type').
+                          REQUIRED for heatmap and violin plots
+            - subtype: Visualization variant. Required for certain plot_types:
+                      * deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'
+                      * spatial_statistics: 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality', 'getis_ord'
+                      * pathway_enrichment: 'barplot', 'dotplot', 'spatial_score', 'spatial_correlogram'
+            - deconv_method: Deconvolution method ('cell2location', 'rctd', etc.).
+                            Auto-selected if only one result exists
+            - batch_key: Column for batch/sample identifier (default: 'batch'). Required for batch_integration
+            - colormap: Color scheme (default: 'coolwarm')
+            - figure_size: Tuple (width, height) in inches. Auto-determined if None
+            - dpi: Image resolution (default: 300, publication quality)
+            - spot_size: Spot size for spatial plots (default: 200). Adjust for density: dense data 150-200, sparse 200-250
+            - alpha_img: Background tissue image opacity (default: 0.3). Lower = dimmer background
+            - n_cell_types: Number of top cell types in deconvolution (default: 4, max: 10)
+            - lr_pairs: List of (ligand, receptor) tuples for lr_pairs plot_type
 
     Returns:
         Visualization image
 
     Examples:
-        # Visualize cell types after annotation
-        params = {
-            "plot_type": "spatial",
-            "feature": "cell_type_tangram",  # Use method-specific column name (e.g., cell_type_tangram, cell_type_scanvi)
-            "colormap": "tab20"
-        }
+        # Basic spatial plot
+        {"plot_type": "spatial", "feature": "Cd7", "colormap": "viridis"}
 
-        # Visualize gene expression
-        params = {
-            "plot_type": "spatial",
-            "feature": "Cd7",  # Gene name
-            "colormap": "viridis"
-        }
+        # Cell type visualization
+        {"plot_type": "spatial", "feature": "cell_type_tangram", "colormap": "tab20",
+         "spot_size": 200, "alpha_img": 0.3}
 
-        # Visualize L-R pairs (Method 1: Using lr_pairs parameter)
-        params = {
-            "plot_type": "lr_pairs",
-            "lr_pairs": [("Fn1", "Cd79a"), ("Vegfa", "Nrp2")]
-        }
+        # Violin plot (cluster_key required)
+        {"plot_type": "violin", "feature": ["Cd7", "Cd3d"], "cluster_key": "leiden"}
 
-        # Visualize L-R pairs (Method 2: Using feature with ^ format)
-        params = {
-            "plot_type": "lr_pairs",
-            "feature": ["Fn1^Cd79a", "Vegfa^Nrp2"]  # Will be parsed automatically
-        }
+        # Heatmap (cluster_key required)
+        {"plot_type": "heatmap", "feature": ["Cd7", "Cd3d"], "cluster_key": "cell_type"}
 
-        # Visualize spatial statistics results (Ripley, neighborhood enrichment, etc.)
-        params = {
-            "plot_type": "spatial_statistics",
-            "subtype": "ripley",  # neighborhood, co_occurrence, ripley, moran, centrality, getis_ord
-            "cluster_key": "leiden"
-        }
+        # Deconvolution results
+        {"plot_type": "deconvolution", "subtype": "dominant_type", "deconv_method": "cell2location",
+         "n_cell_types": 6}
 
-        # Visualize deconvolution results
-        params = {
-            "plot_type": "deconvolution",
-            "subtype": "dominant_type"  # spatial_multi, dominant_type, diversity, stacked_bar, scatterpie, umap
-        }
+        # Spatial statistics
+        {"plot_type": "spatial_statistics", "subtype": "neighborhood", "cluster_key": "leiden"}
 
-        # NOTE: This tool does NOT provide demo/default data for scientific integrity.
-        # All visualizations must be based on actual experimental results.
+        # Ligand-receptor pairs
+        {"plot_type": "lr_pairs", "lr_pairs": [("Fn1", "Cd79a"), ("Vegfa", "Nrp2")]}
+
+        # Batch integration QC
+        {"plot_type": "batch_integration", "batch_key": "sample_id"}
     """
     # Import to avoid name conflict
     from .tools.visualization import visualize_data as visualize_func

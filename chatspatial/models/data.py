@@ -316,6 +316,51 @@ class VisualizationParameters(BaseModel):
         None  # (rows, cols) - auto-determined if None
     )
 
+    # GridSpec subplot spacing parameters (for multi-panel plots)
+    subplot_wspace: float = Field(
+        0.0,
+        ge=-0.1,
+        le=1.0,
+        description=(
+            "Horizontal spacing between subplots (GridSpec wspace parameter). "
+            "Fraction of average subplot width. "
+            "Default 0.0 provides tight spacing for spatial plots with colorbars. "
+            "Common values: 0.0 (tight), 0.05 (compact), 0.1 (normal), 0.2 (loose). "
+            "Negative values (-0.05) create overlapping spacing (use with caution)."
+        ),
+    )
+    subplot_hspace: float = Field(
+        0.3,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Vertical spacing between subplots (GridSpec hspace parameter). "
+            "Fraction of average subplot height. "
+            "Default 0.3 provides comfortable spacing. "
+            "Common values: 0.2 (tight), 0.3 (normal), 0.4 (loose)."
+        ),
+    )
+
+    # Colorbar parameters (for spatial plots with make_axes_locatable)
+    colorbar_pad: float = Field(
+        0.02,
+        ge=0.0,
+        le=0.2,
+        description=(
+            "Distance between subplot and colorbar (as fraction of subplot width). "
+            "Default 0.02 provides tight spacing. "
+            "Common values: 0.02 (tight), 0.03 (compact), 0.05 (normal)."
+        ),
+    )
+    colorbar_size: str = Field(
+        "3%",
+        description=(
+            "Width of colorbar as percentage of subplot width. "
+            "Default '3%' provides narrow colorbar to save space. "
+            "Common values: '3%' (narrow), '4%' (compact), '5%' (normal)."
+        ),
+    )
+
     # Ligand-receptor pair parameters
     lr_pairs: Optional[List[Tuple[str, str]]] = None  # List of (ligand, receptor) pairs
     lr_database: str = "cellchat"  # Database for LR pairs
