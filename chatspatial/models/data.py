@@ -319,14 +319,14 @@ class VisualizationParameters(BaseModel):
     # GridSpec subplot spacing parameters (for multi-panel plots)
     subplot_wspace: float = Field(
         0.0,
-        ge=-0.1,
+        ge=-0.3,  # Allow larger negative values for extreme tight spacing
         le=1.0,
         description=(
             "Horizontal spacing between subplots (GridSpec wspace parameter). "
             "Fraction of average subplot width. "
             "Default 0.0 provides tight spacing for spatial plots with colorbars. "
             "Common values: 0.0 (tight), 0.05 (compact), 0.1 (normal), 0.2 (loose). "
-            "Negative values (-0.05) create overlapping spacing (use with caution)."
+            "Negative values (-0.1 to -0.2) create overlapping spacing for extreme compactness."
         ),
     )
     subplot_hspace: float = Field(
