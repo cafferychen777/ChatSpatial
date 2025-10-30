@@ -256,7 +256,7 @@ async def visualize_data(
             - colormap: Color scheme (default: 'coolwarm')
             - figure_size: Tuple (width, height) in inches. Auto-determined if None
             - dpi: Image resolution (default: 300, publication quality)
-            - spot_size: Spot size for spatial plots (default: 200). Adjust for density: dense data 150-200, sparse 200-250
+            - spot_size: Spot size for spatial plots (default: 150). Adjust for density: dense data 100-150, sparse 150-200
             - alpha_img: Background tissue image opacity (default: 0.3). Lower = dimmer background
             - n_cell_types: Number of top cell types in deconvolution (default: 4, max: 10)
             - lr_pairs: List of (ligand, receptor) tuples for lr_pairs plot_type
@@ -270,7 +270,7 @@ async def visualize_data(
 
         # Cell type visualization
         {"plot_type": "spatial", "feature": "cell_type_tangram", "colormap": "tab20",
-         "spot_size": 200, "alpha_img": 0.3}
+         "spot_size": 150, "alpha_img": 0.3}
 
         # Violin plot (cluster_key required)
         {"plot_type": "violin", "feature": ["Cd7", "Cd3d"], "cluster_key": "leiden"}
