@@ -306,7 +306,7 @@ Process killed (signal 9)
 3. **Optimize specific methods:**
    ```text
    "Use Leiden clustering for fastest spatial domain identification"
-   "Skip GASTON for large datasets - use SpatialDE instead"
+   "Use SPARK-X for faster spatial gene detection on large datasets"
    "Use basic visualization instead of interactive plots"
    ```
 

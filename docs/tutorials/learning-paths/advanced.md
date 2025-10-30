@@ -31,7 +31,6 @@ Before starting this path, you should have:
 
 By completing this advanced path, you will:
 
-- **Master machine learning methods** - Understand and apply GASTON neural networks
 - **Analyze temporal dynamics** - Use RNA velocity and trajectory analysis
 - **Integrate multi-modal data** - Combine spatial with single-cell and other modalities
 - **Design research workflows** - Create publication-quality analysis pipelines
@@ -209,10 +208,9 @@ By completing this advanced path, you will:
 ## Time Estimates by Experience
 
 ### Intermediate Path Complete + Research Experience
-- **Week 1:** GASTON mastery (6-8 hours)
-- **Week 2:** Trajectory analysis + integration (4-6 hours)
-- **Week 3:** Multi-modal integration (4-6 hours)
-- **Week 4:** Research project completion (6-8 hours)
+- **Week 1:** Trajectory analysis + integration (4-6 hours)
+- **Week 2:** Multi-modal integration (4-6 hours)
+- **Week 3:** Research project completion (6-8 hours)
 
 ### Strong Computational Background
 - **Weeks 1-2:** Technical methods focus (8-10 hours)
@@ -224,13 +222,6 @@ By completing this advanced path, you will:
 - **Integration with ongoing research projects**
 
 ## Advanced Method Selection
-
-### When to Use GASTON (ML Approach)
-- **Complex Pattern Discovery:** Non-linear spatial relationships
-- **Hypothesis Generation:** Exploratory analysis of unknown patterns  
-- **Large Datasets:** Sufficient data for neural network training
-- **Novel Tissues:** Less well-characterized spatial biology
-- **Computational Resources:** GPU availability for training
 
 ### When to Use Trajectory Analysis
 - **Developmental Questions:** Cell fate and differentiation processes
@@ -267,12 +258,6 @@ By completing this advanced path, you will:
 - **Collaboration:** Cross-disciplinary research partnerships
 
 ## Advanced Troubleshooting
-
-### "GASTON isn't finding patterns I expect to see"
-- **Data Requirements:** Ensure sufficient spatial complexity and sample size
-- **Preprocessing:** Verify appropriate feature selection and normalization
-- **Parameters:** Experiment with neural network architecture settings
-- **Validation:** Compare with traditional methods for sanity checking
 
 ### "RNA velocity results seem noisy"
 - **Data Quality:** Assess splicing read coverage and gene selection

@@ -80,17 +80,15 @@ This page provides comprehensive benchmarks for ChatSpatial's spatial transcript
 
 | Method | Mouse Brain | MERFISH Brain | Genes Detected | Statistical Power |
 |--------|-------------|---------------|----------------|-------------------|
-| **GASTON** | 8.7s | 125.4s | 1,247 | High |
+| **SPARK-X** | 120.5s | 856.2s | 1,198 | High |
 | **SpatialDE** | 234.5s | 1,456.7s | 1,089 | Very High |
-| **SPARK** | 156.8s | 987.3s | 1,156 | High |
 
 ### Detection Sensitivity
 
 | Method | True Positives | False Positives | Precision | Recall |
 |--------|----------------|-----------------|-----------|--------|
-| **GASTON** | 892 | 124 | 0.878 | 0.845 |
+| **SPARK-X** | 925 | 115 | 0.889 | 0.858 |
 | **SpatialDE** | 934 | 89 | 0.913 | 0.887 |
-| **SPARK** | 908 | 107 | 0.894 | 0.861 |
 
 ## Cell Communication Analysis
 
@@ -140,12 +138,12 @@ This page provides comprehensive benchmarks for ChatSpatial's spatial transcript
 - **Hardware**: 8GB RAM, any modern CPU
 
 ### Medium Datasets (5K-25K spots)
-- **Balanced approach**: SpaGCN + GASTON + LIANA
-- **Fast exploration**: Leiden + Marker genes + GASTON
+- **Balanced approach**: SpaGCN + SPARK-X + LIANA
+- **Fast exploration**: Leiden + Marker genes + SPARK-X
 - **Hardware**: 16GB RAM, 8+ core CPU
 
 ### Large Datasets (> 25K spots)
-- **Scalable methods**: Leiden + GASTON + LIANA global
+- **Scalable methods**: Leiden + SPARK-X + LIANA global
 - **Subsampling strategy**: Analyze subset, apply to full data
 - **Hardware**: 32GB+ RAM, GPU recommended
 

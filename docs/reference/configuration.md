@@ -236,10 +236,6 @@ spatial_analysis:
     hidden_dims: [512, 30]
     learning_rate: 0.001
     max_epochs: 1000
-    
-  gaston:
-    n_bins: 10
-    regularization: 0.0
 ```
 
 ### Visualization Settings
