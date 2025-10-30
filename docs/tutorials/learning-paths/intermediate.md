@@ -306,7 +306,6 @@ By completing this intermediate path, you will:
 ### Ready for Advanced Analysis?
 Consider the [Advanced Learning Path](advanced.md) if you want to explore:
 
-- **Machine learning approaches** (GASTON neural networks)
 - **Trajectory analysis** and RNA velocity
 - **Multi-modal integration** (spatial + single-cell)
 - **Research-level workflows** for publication

@@ -244,8 +244,6 @@ Once you complete this beginner path, consider:
 
 **[Advanced Learning Path](advanced.md):**
 
-- Machine learning approaches (GASTON)
-
 - Trajectory analysis and RNA velocity  
 
 - Multi-modal integration

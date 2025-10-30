@@ -68,7 +68,7 @@ Problem-solving resources:
 | `analyze_cell_communication` | Cell-cell interaction analysis | LIANA or CellPhoneDB |
 | `analyze_trajectory_data` | RNA velocity and pseudotime | CellRank or Palantir |
 | `deconvolve_data` | Spatial deconvolution | Cell2location or RCTD |
-| `find_spatial_genes` | Spatially variable genes | GASTON, SpatialDE, or SPARK |
+| `find_spatial_genes` | Spatially variable genes | SPARK-X or SpatialDE |
 
 ### Integration and Utilities
 
