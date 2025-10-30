@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
-
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
 
@@ -35,22 +34,18 @@ except ImportError:
     INFERCNVPY_AVAILABLE = False
 
 from ..models.data import VisualizationParameters  # noqa: E402
-
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
-
 # Import error handling utilities
 from ..utils.error_handling import DataCompatibilityError  # noqa: E402
 from ..utils.error_handling import DataNotFoundError  # noqa: E402
-from ..utils.error_handling import InvalidParameterError, ProcessingError  # noqa: E402
-
+from ..utils.error_handling import (InvalidParameterError,  # noqa: E402
+                                    ProcessingError)
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
-
 # Import path utilities for safe file operations
 from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
 from ..utils.path_utils import get_safe_output_path  # noqa: E402
-
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors  # noqa: E402
 
@@ -926,7 +921,11 @@ async def _create_spatial_cnv_visualization(
     # Override colormap default for CNV data (RdBu_r is better for CNV scores)
     if not params.colormap:
         # Only override if user hasn't specified a colormap
-        params.colormap = "RdBu_r" if not pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot]) else "tab20"
+        params.colormap = (
+            "RdBu_r"
+            if not pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot])
+            else "tab20"
+        )
 
     figsize = params.figure_size if params.figure_size else (10, 8)
     fig, ax = plt.subplots(figsize=figsize)
@@ -1511,7 +1510,9 @@ async def _create_spatial_visualization(
                         cluster_mask = cluster_labels == cluster
                         cluster_coords = spatial_coords[cluster_mask]
 
-                        if len(cluster_coords) > 2:  # Need at least 3 points for a boundary
+                        if (
+                            len(cluster_coords) > 2
+                        ):  # Need at least 3 points for a boundary
                             try:
                                 # Create convex hull for boundary
                                 from scipy.spatial import ConvexHull
@@ -1543,9 +1544,7 @@ async def _create_spatial_visualization(
                                 )
             except Exception as e:
                 if context:
-                    await context.warning(
-                        f"Failed to add outline overlay: {str(e)}"
-                    )
+                    await context.warning(f"Failed to add outline overlay: {str(e)}")
 
     return fig
 
@@ -1996,7 +1995,7 @@ async def get_deconvolution_proportions(
     return proportions, method
 
 
-async def create_dominant_celltype_map(
+async def _create_dominant_celltype_map(
     adata: ad.AnnData,
     params: VisualizationParameters,
     context=None,
@@ -2122,6 +2121,7 @@ async def create_dominant_celltype_map(
         loc="upper left",
         ncol=1 if n_categories <= 15 else 2,
         fontsize=8,
+        markerscale=0.5,
     )
     ax.set_aspect("equal")
 
@@ -2137,7 +2137,7 @@ async def create_dominant_celltype_map(
     return fig
 
 
-async def create_diversity_map(
+async def _create_diversity_map(
     adata: ad.AnnData,
     params: VisualizationParameters,
     context=None,
@@ -2512,7 +2512,7 @@ async def _create_scatterpie_plot(
     return fig
 
 
-async def create_umap_proportions(
+async def _create_umap_proportions(
     adata: ad.AnnData,
     params: VisualizationParameters,
     context=None,
@@ -2643,18 +2643,18 @@ async def _create_deconvolution_visualization(
     viz_type = params.subtype
 
     if viz_type == "dominant_type":
-        return await create_dominant_celltype_map(adata, params, context)
+        return await _create_dominant_celltype_map(adata, params, context)
     elif viz_type == "diversity":
-        return await create_diversity_map(adata, params, context)
+        return await _create_diversity_map(adata, params, context)
     elif viz_type == "stacked_bar":
         return await _create_stacked_barplot(adata, params, context)
     elif viz_type == "scatterpie":
         return await _create_scatterpie_plot(adata, params, context)
     elif viz_type == "umap":
-        return await create_umap_proportions(adata, params, context)
+        return await _create_umap_proportions(adata, params, context)
     elif viz_type == "spatial_multi":
         # Original multi-panel spatial implementation
-        return await create_spatial_multi_deconvolution(adata, params, context)
+        return await _create_spatial_multi_deconvolution(adata, params, context)
     else:
         raise ValueError(
             f"Unknown deconvolution visualization type: {viz_type}. "
@@ -2662,7 +2662,7 @@ async def _create_deconvolution_visualization(
         )
 
 
-async def create_spatial_multi_deconvolution(
+async def _create_spatial_multi_deconvolution(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Original multi-panel spatial deconvolution visualization
