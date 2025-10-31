@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
+
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
 
@@ -34,18 +35,22 @@ except ImportError:
     INFERCNVPY_AVAILABLE = False
 
 from ..models.data import VisualizationParameters  # noqa: E402
+
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
+
 # Import error handling utilities
 from ..utils.error_handling import DataCompatibilityError  # noqa: E402
 from ..utils.error_handling import DataNotFoundError  # noqa: E402
-from ..utils.error_handling import (InvalidParameterError,  # noqa: E402
-                                    ProcessingError)
+from ..utils.error_handling import InvalidParameterError, ProcessingError  # noqa: E402
+
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
+
 # Import path utilities for safe file operations
 from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
 from ..utils.path_utils import get_safe_output_path  # noqa: E402
+
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors  # noqa: E402
 
@@ -3314,14 +3319,24 @@ def _create_cluster_communication_plot(adata, communication_results, params, con
                 top_results = df.nlargest(8, score_cols[0])
 
                 # Create ligand-receptor pair names
-                if "ligand" in df.columns and "receptor" in df.columns:
+                # Check for LIANA+ format first (ligand_complex + receptor_complex)
+                if "ligand_complex" in df.columns and "receptor_complex" in df.columns:
                     pair_names = [
-                        f"{row['ligand']} → {row['receptor']}"
+                        f"{row['ligand_complex']}_{row['receptor_complex']}"
+                        for _, row in top_results.iterrows()
+                    ]
+                    scores = top_results[score_cols[0]].values
+                elif "ligand" in df.columns and "receptor" in df.columns:
+                    pair_names = [
+                        f"{row['ligand']}_{row['receptor']}"
                         for _, row in top_results.iterrows()
                     ]
                     scores = top_results[score_cols[0]].values
                 elif "lr_pair" in df.columns:
                     pair_names = top_results["lr_pair"].tolist()
+                    scores = top_results[score_cols[0]].values
+                elif "interaction" in df.columns:
+                    pair_names = top_results["interaction"].tolist()
                     scores = top_results[score_cols[0]].values
                 else:
                     pair_names = [f"Pair {i+1}" for i in range(len(top_results))]
@@ -5493,22 +5508,54 @@ def _create_gsea_barplot(gsea_results, params):
     else:
         raise ValueError("Unsupported GSEA results format")
 
-    # Determine score column
-    score_cols = ["NES", "nes", "enrichment_score", "score"]
+    # Determine score column and method
     score_col = None
-    for col in score_cols:
-        if col in df.columns:
-            score_col = col
-            break
+    score_label = None
 
-    if not score_col:
-        raise DataNotFoundError("No enrichment score column found in results")
+    # Check for NES column (could be GSEA or ORA disguised as GSEA)
+    if "NES" in df.columns or "nes" in df.columns:
+        score_col = "NES" if "NES" in df.columns else "nes"
+        # Check if odds_ratio column also exists (indicates ORA results aliased as NES)
+        if "odds_ratio" in df.columns:
+            # This is ORA data with NES as an alias - use odds_ratio column directly
+            score_col = "odds_ratio"
+            score_label = "Odds Ratio"
+        else:
+            # Check if this is truly GSEA (typical range -3 to +3) or ORA (larger values)
+            sample_values = pd.to_numeric(df[score_col], errors="coerce").dropna()
+            if len(sample_values) > 0 and sample_values.abs().mean() > 5:
+                # Large values suggest this is actually odds ratio
+                score_label = "Odds Ratio"
+            else:
+                score_label = "Normalized Enrichment Score (NES)"
+    # Check for ORA-specific columns
+    elif "odds_ratio" in df.columns:
+        score_col = "odds_ratio"
+        score_label = "Odds Ratio"
+    # Check for other enrichment score columns
+    elif "enrichment_score" in df.columns:
+        score_col = "enrichment_score"
+        score_label = "Enrichment Score"
+    elif "score" in df.columns:
+        score_col = "score"
+        score_label = "Enrichment Score"
+    else:
+        raise DataNotFoundError(
+            "No enrichment score column found. "
+            "Expected: 'NES', 'odds_ratio', 'enrichment_score', or 'score'"
+        )
 
     # Convert score column to numeric type
     df[score_col] = pd.to_numeric(df[score_col], errors="coerce")
 
-    # Remove rows with NaN scores
-    df = df.dropna(subset=[score_col])
+    # Fill NaN with small positive value for ORA, 0 for others (instead of dropping)
+    if "odds_ratio" in score_label.lower():
+        df[score_col] = df[score_col].fillna(0.01)
+    else:
+        df[score_col] = df[score_col].fillna(0.0)
+
+    # Remove rows that are still invalid after filling
+    df = df[df[score_col].notna()]
 
     if df.empty:
         raise DataNotFoundError("No valid enrichment scores found in results")
@@ -5531,17 +5578,25 @@ def _create_gsea_barplot(gsea_results, params):
     else:
         pathways = df_sorted.index
 
-    # Color based on score
-    colors = [
-        "darkred" if s > 2 else "red" if s > 1.5 else "orange" if s > 1 else "gray"
-        for s in scores
-    ]
+    # Color based on score with method-appropriate thresholds
+    if "odds_ratio" in score_label.lower():
+        # Thresholds for odds ratios: 1, 2, 5
+        colors = [
+            "darkred" if s > 5 else "red" if s > 2 else "orange" if s > 1 else "gray"
+            for s in scores
+        ]
+    else:
+        # Thresholds for NES/enrichment scores: 1, 1.5, 2
+        colors = [
+            "darkred" if s > 2 else "red" if s > 1.5 else "orange" if s > 1 else "gray"
+            for s in scores
+        ]
 
     ax.barh(y_pos, scores, color=colors, alpha=0.8)
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels(pathways, fontsize=10)
-    ax.set_xlabel("Normalized Enrichment Score (NES)", fontsize=12)
+    ax.set_xlabel(score_label, fontsize=12)
     ax.set_title("Top Enriched Pathways", fontsize=14, fontweight="bold")
     ax.axvline(x=0, color="black", linewidth=0.8)
 
