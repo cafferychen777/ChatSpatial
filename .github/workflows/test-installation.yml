@@ -64,6 +64,8 @@ jobs:
         brew install openblas lapack gcc
         echo "LDFLAGS=-L/opt/homebrew/opt/openblas/lib" >> $GITHUB_ENV
         echo "CPPFLAGS=-I/opt/homebrew/opt/openblas/include" >> $GITHUB_ENV
+        # Set compiler flags to allow deprecated function prototypes (for legacy C dependencies)
+        echo "CFLAGS=-Wno-error=deprecated -Wno-error=strict-prototypes" >> $GITHUB_ENV
 
     - name: Set up R (for rpy2 compilation)
       uses: r-lib/actions/setup-r@v2
