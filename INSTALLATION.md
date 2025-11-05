@@ -184,6 +184,7 @@ That's it! Start analyzing your spatial data with natural language.
 | "python not found" error | Use absolute path to virtual environment Python in config |
 | Virtual environment issues | Recreate environment: `rm -rf chatspatial_env && python3 -m venv chatspatial_env` |
 | "STAGATE>=1.0.0 not found" error | STAGATE is not on PyPI. See "Optional Dependencies" section above for manual installation |
+| **Louvain compilation error on macOS/Windows** | **Use Leiden instead** - ChatSpatial automatically uses Leiden (better algorithm, no compilation issues). Known issues: macOS (clang strictness), Windows (MinGW/MSVC incompatibility). No action needed. |
 
 ### MCP Package Installation Error (Common on macOS)
 
@@ -376,7 +377,14 @@ python setup.py build
 python setup.py install
 ```
 
-**Note:** STAGATE is optional. ChatSpatial will work without it, but the `stagate` method in spatial domain identification will not be available. Alternative methods (spagcn, leiden, louvain) are fully functional.
+**Note:** STAGATE is optional. ChatSpatial will work without it, but the `stagate` method in spatial domain identification will not be available. Alternative methods (spagcn, leiden) are fully functional.
+
+**Note on Louvain clustering**: ChatSpatial uses the **Leiden algorithm** instead of Louvain for spatial domain identification. Leiden is an improved version of Louvain with better performance and avoids compilation issues on macOS and Windows:
+- **macOS**: louvain fails due to clang compiler strictness (`-Werror,-Wunused-but-set-parameter`)
+- **Windows**: louvain fails due to MinGW/MSVC linker incompatibility
+- **Automatic fallback**: If you specify `method="louvain"`, it will automatically fall back to Leiden clustering
+
+No action is needed - this is the expected behavior.
 
 ### STalign (Spatial Alignment Tool)
 
