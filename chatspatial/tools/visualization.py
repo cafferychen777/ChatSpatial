@@ -337,7 +337,8 @@ def plot_spatial_feature(
             plot_kwargs["vmax"] = params.vmax
 
     # For spatial plots with tissue image, use 'spot_size'; for embedding use 'size'
-    if has_image:
+    if has_image and params.show_tissue_image:
+        # Show tissue image in background
         # Add alpha_img for tissue background dimming (only supported by sc.pl.spatial)
         plot_kwargs["alpha_img"] = params.alpha_img
         # Only add spot_size if explicitly set (None = auto-determined, recommended)
@@ -358,6 +359,7 @@ def plot_spatial_feature(
 
         sc.pl.spatial(adata, img_key="hires", **plot_kwargs)
     else:
+        # No image available, or user chose not to show tissue image
         # For embeddings, use 'size' parameter if spot_size is set
         if params.spot_size is not None:
             plot_kwargs["size"] = params.spot_size
@@ -1489,8 +1491,8 @@ async def _create_spatial_visualization(
                             has_tissue_image = True
                             break
 
-                if has_tissue_image:
-                    # Use scanpy's add_outline functionality for tissue data
+                if has_tissue_image and params.show_tissue_image:
+                    # Use scanpy's add_outline functionality for tissue data with image
                     sc.pl.spatial(
                         adata,
                         img_key="hires",
