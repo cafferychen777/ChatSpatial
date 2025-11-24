@@ -3358,15 +3358,10 @@ def _create_cellphonedb_heatmap(
     params: VisualizationParameters,
     context=None,
 ) -> plt.Figure:
-    """Create CellPhoneDB visualization using ktplotspy official functions.
+    """Create CellPhoneDB heatmap visualization using ktplotspy.
 
-    Attempts to use ktplotspy (official CellPhoneDB visualization library) first,
-    falls back to custom matplotlib heatmap if unavailable.
-
-    Available visualizations via ktplotspy:
-    - plot_cpdb_heatmap(): Clustered heatmap of significant interactions
-    - plot_cpdb(): Dotplot of cell-cell interactions
-    - plot_cpdb_chord(): Circos/chord diagram
+    Uses ktplotspy.plot_cpdb_heatmap() to create a clustered heatmap showing
+    the count of significant interactions between cell type pairs.
 
     Args:
         adata: AnnData object with cell type annotations
@@ -3381,6 +3376,8 @@ def _create_cellphonedb_heatmap(
         - ktplotspy: https://ktplotspy.readthedocs.io/
         - GitHub: https://github.com/zktuong/ktplotspy
     """
+    import ktplotspy as kpy
+
     means = data.results
 
     if not isinstance(means, pd.DataFrame) or len(means) == 0:
@@ -3389,75 +3386,25 @@ def _create_cellphonedb_heatmap(
             "SOLUTION: Re-run CellPhoneDB analysis"
         )
 
-    # Try to use ktplotspy official visualization
-    try:
-        import ktplotspy as kpy
+    # Get pvalues (required for ktplotspy heatmap)
+    pvalues = adata.uns.get("cellphonedb_pvalues", None)
 
-        # Get pvalues if available
-        pvalues = adata.uns.get("cellphonedb_pvalues", None)
-
-        if pvalues is not None and isinstance(pvalues, pd.DataFrame):
-            # Use ktplotspy heatmap (shows count of significant interactions)
-            # ktplotspy.plot_cpdb_heatmap only needs pvals DataFrame
-            grid = kpy.plot_cpdb_heatmap(
-                pvals=pvalues,
-                title="CellPhoneDB: Significant Interactions",
-                alpha=0.05,
-                symmetrical=True,
-            )
-            # ClusterGrid has a .fig attribute
-            return grid.fig
-        else:
-            # Fall through to custom heatmap
-            raise ValueError("Missing pvalues DataFrame for ktplotspy")
-
-    except Exception as e:
-        # Fallback to custom matplotlib heatmap
-        import logging
-
-        logging.debug(f"ktplotspy failed, using fallback: {e}")
-        pass
-
-    # Custom heatmap implementation (fallback)
-    n_top = params.plot_top_pairs or 30
-
-    # Filter to only numeric columns (CellPhoneDB means may have metadata columns)
-    numeric_means = means.select_dtypes(include=[np.number])
-    if numeric_means.empty:
+    if pvalues is None or not isinstance(pvalues, pd.DataFrame):
         raise DataNotFoundError(
-            "No numeric columns found in CellPhoneDB means DataFrame.\n\n"
-            "SOLUTION: Check CellPhoneDB analysis completed correctly"
+            "CellPhoneDB pvalues not found in adata.uns['cellphonedb_pvalues'].\n\n"
+            "SOLUTION: Re-run CellPhoneDB analysis to generate pvalues"
         )
 
-    row_sums = numeric_means.sum(axis=1).nlargest(n_top)
-    top_means = numeric_means.loc[row_sums.index]
-
-    figsize = params.figure_size or (
-        max(12, len(top_means.columns) * 0.5),
-        max(8, n_top * 0.3),
-    )
-    fig, ax = plt.subplots(figsize=figsize)
-
-    im = ax.imshow(
-        top_means.values.astype(float),
-        cmap=params.colormap or "viridis",
-        aspect="auto",
+    # Use ktplotspy heatmap (shows count of significant interactions)
+    grid = kpy.plot_cpdb_heatmap(
+        pvals=pvalues,
+        title=params.title or "CellPhoneDB: Significant Interactions",
+        alpha=0.05,
+        symmetrical=True,
     )
 
-    ax.set_xticks(np.arange(len(top_means.columns)))
-    ax.set_yticks(np.arange(len(top_means.index)))
-    ax.set_xticklabels(top_means.columns, rotation=45, ha="right", fontsize=8)
-    ax.set_yticklabels(top_means.index, fontsize=8)
-
-    cbar = plt.colorbar(im, ax=ax, shrink=0.8)
-    cbar.set_label("Mean Expression", fontsize=10)
-
-    ax.set_title("CellPhoneDB: Top L-R Interactions", fontsize=12, fontweight="bold")
-    ax.set_xlabel("Cell Type Pairs", fontsize=10)
-    ax.set_ylabel("Ligand-Receptor Pairs", fontsize=10)
-
-    plt.tight_layout()
-    return fig
+    # ClusterGrid has a .fig attribute
+    return grid.fig
 
 
 def _create_cellphonedb_dotplot(
@@ -3554,6 +3501,7 @@ def _create_cellphonedb_chord(
     - Nodes representing cell types
     - Chords/arcs representing interactions between cell types
     - Width/color encoding interaction strength
+    - Legend showing L-R pair names on the right side
 
     Args:
         adata: AnnData object with cell type annotations
@@ -3564,6 +3512,8 @@ def _create_cellphonedb_chord(
     Returns:
         matplotlib Figure
     """
+    from matplotlib.lines import Line2D
+
     means = data.results
 
     if not isinstance(means, pd.DataFrame) or len(means) == 0:
@@ -3574,6 +3524,7 @@ def _create_cellphonedb_chord(
 
     try:
         import ktplotspy as kpy
+        import matplotlib.colors as mcolors
 
         # Get pvalues and deconvoluted (required for chord plot)
         pvalues = adata.uns.get("cellphonedb_pvalues", None)
@@ -3596,8 +3547,39 @@ def _create_cellphonedb_chord(
                     cluster_key = key
                     break
 
+        # Generate link_colors dict for coloring links
+        # We will create our own legend AFTER ktplotspy returns the circos object
+        # This allows us to properly include the legend in bbox_extra_artists
+        link_colors = None
+        legend_items = []  # Store (label, color) for our custom legend
+
+        if "interacting_pair" in deconvoluted.columns:
+            unique_pairs = deconvoluted["interacting_pair"].unique()
+            # Limit to top N pairs for readability (configurable via plot_top_pairs)
+            n_pairs = min(params.plot_top_pairs or 50, len(unique_pairs))
+            top_pairs = unique_pairs[:n_pairs]
+
+            # Use a colormap with enough distinct colors
+            if n_pairs <= 10:
+                cmap = plt.cm.get_cmap("tab10", 10)
+            elif n_pairs <= 20:
+                cmap = plt.cm.get_cmap("tab20", 20)
+            else:
+                cmap = plt.cm.get_cmap("nipy_spectral", n_pairs)
+
+            link_colors = {}
+            for i, pair in enumerate(top_pairs):
+                # ktplotspy uses 'converted_pair' format internally (hyphen-separated)
+                # but the exact format depends on internal processing
+                # We provide colors with underscore format as that's what CellPhoneDB uses
+                color = mcolors.rgb2hex(cmap(i % cmap.N))
+                link_colors[pair] = color
+                # Store for our custom legend (display with underscore as in CellPhoneDB)
+                legend_items.append((pair, color))
+
         # ktplotspy.plot_cpdb_chord creates a chord diagram
         # It returns a pycirclize Circos object, not matplotlib Figure
+        # NOTE: We don't pass legend_kwargs here - we'll create our own legend
         circos = kpy.plot_cpdb_chord(
             adata=adata,
             means=means,
@@ -3606,19 +3588,40 @@ def _create_cellphonedb_chord(
             celltype_key=cluster_key,
             cell_type1=".",  # All cell types
             cell_type2=".",  # All cell types
-            # Move legend to the right side, outside the chord diagram
-            legend_kwargs={
-                "loc": "center left",
-                "bbox_to_anchor": (1.02, 0.5),
-                "fontsize": 6,
-                "frameon": False,
-            },
+            link_colors=link_colors,  # Colors for links (ktplotspy may or may not match)
         )
 
         # Extract matplotlib Figure from Circos object
         fig = circos.ax.figure
-        # Adjust subplot to make room for legend on the right
-        fig.subplots_adjust(right=0.65)
+
+        # Set figure size - make it wider to accommodate legend on right
+        fig.set_size_inches(14, 10)
+
+        # Create our own legend with proper positioning
+        # This approach gives us control over the legend and ensures it's included
+        # when saving with bbox_inches='tight' via bbox_extra_artists
+        if legend_items:
+            line_handles = [
+                Line2D([], [], color=color, label=label, linewidth=2)
+                for label, color in legend_items
+            ]
+
+            # Create legend and position it further right to avoid overlap with chord
+            legend = circos.ax.legend(
+                handles=line_handles,
+                loc="center left",
+                bbox_to_anchor=(1.15, 0.5),  # Move further right to avoid overlap
+                fontsize=6,
+                frameon=True,
+                framealpha=0.9,
+                title="L-R Pairs",
+                title_fontsize=7,
+            )
+
+            # Store legend as figure attribute for bbox_extra_artists in image_utils
+            # This allows the save function to include the legend in the bounding box
+            fig._chatspatial_extra_artists = [legend]
+
         return fig
 
     except ImportError:

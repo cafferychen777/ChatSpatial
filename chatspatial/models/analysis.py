@@ -4,7 +4,7 @@ Analysis result models for spatial transcriptomics data.
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 try:
     from mcp.types import ImageContent
@@ -241,35 +241,63 @@ class CellCommunicationResult(BaseModel):
 
 
 class EnrichmentResult(BaseModel):
-    """Result from gene set enrichment analysis"""
+    """Result from gene set enrichment analysis
 
-    # Basic information
-    method: str  # Method used (pathway_gsea, pathway_ora, pathway_enrichr, pathway_ssgsea, spatial_enrichmap)
+    Note on serialization:
+        To minimize MCP response size (~12k tokens -> ~0.5k tokens), large
+        dictionaries are excluded from JSON serialization using Field(exclude=True).
+        These fields are still stored in the Python object and saved to adata.uns
+        for downstream visualization.
+
+        Fields included in MCP response (sent to LLM):
+        - method, n_gene_sets, n_significant (basic info)
+        - top_gene_sets, top_depleted_sets (top 10 pathway names)
+        - spatial_scores_key (for spatial methods)
+
+        Fields excluded from MCP response (stored in adata.uns):
+        - enrichment_scores, pvalues, adjusted_pvalues (full dicts)
+        - gene_set_statistics (detailed stats per pathway)
+        - spatial_metrics (spatial autocorrelation data)
+    """
+
+    # Basic information - always included in MCP response
+    method: str  # Method used (pathway_gsea, pathway_ora, etc.)
     n_gene_sets: int  # Number of gene sets analyzed
     n_significant: int  # Number of significant gene sets
 
-    # Enrichment scores and statistics
-    enrichment_scores: Dict[str, float]  # Enrichment scores for each gene set
-    pvalues: Optional[Dict[str, float]] = (
-        None  # Raw p-values (None for spatial enrichment)
-    )
-    adjusted_pvalues: Optional[Dict[str, float]] = (
-        None  # Adjusted p-values (None for spatial enrichment)
-    )
-    gene_set_statistics: Dict[str, Dict[str, Any]]  # Additional statistics per gene set
+    # Top results - always included (compact, just pathway names)
+    top_gene_sets: List[str]  # Top enriched gene sets (max 10)
+    top_depleted_sets: List[str]  # Top depleted gene sets (max 10)
 
-    # Spatial metrics (for enrichmap)
-    spatial_metrics: Optional[Dict[str, Any]] = None  # Spatial autocorrelation metrics
-    spatial_scores_key: Optional[str] = (
-        None  # Key in adata.obsm for spatial enrichment scores
+    # Spatial info key - included
+    spatial_scores_key: Optional[str] = None  # Key in adata.obsm
+
+    # ============================================================
+    # EXCLUDED FROM MCP RESPONSE - stored in adata.uns for viz
+    # Full data available via visualize_data() tool
+    # ============================================================
+    enrichment_scores: Dict[str, float] = Field(
+        default_factory=dict,
+        exclude=True,  # Exclude from JSON serialization to LLM
+    )
+    pvalues: Optional[Dict[str, float]] = Field(
+        default=None,
+        exclude=True,
+    )
+    adjusted_pvalues: Optional[Dict[str, float]] = Field(
+        default=None,
+        exclude=True,
+    )
+    gene_set_statistics: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        exclude=True,
+    )
+    spatial_metrics: Optional[Dict[str, Any]] = Field(
+        default=None,
+        exclude=True,
     )
 
-    # Top results
-    top_gene_sets: List[str]  # Top enriched gene sets
-    top_depleted_sets: List[str]  # Top depleted gene sets
-
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = {"arbitrary_types_allowed": True}
 
 
 class CNVResult(BaseModel):
