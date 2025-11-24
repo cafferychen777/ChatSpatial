@@ -51,7 +51,6 @@ try:
 except ImportError:
     GRAPHST_AVAILABLE = False
 
-
 def _check_environment_compatibility():
     """Check environment compatibility for spatial domain identification"""
     issues = []
@@ -740,13 +739,21 @@ async def _identify_domains_clustering(
         if params.method == "leiden":
             sc.tl.leiden(adata, resolution=params.resolution, key_added=key_added)
         else:  # louvain
+            # Deprecation notice for louvain
+            if context:
+                await context.warning(
+                    "Louvain clustering is deprecated and may not be available on all platforms "
+                    "(especially macOS due to compilation issues). "
+                    "Consider using 'leiden' instead, which is an improved algorithm with better performance. "
+                    "Automatic fallback to Leiden will be used if Louvain is unavailable."
+                )
             try:
                 sc.tl.louvain(adata, resolution=params.resolution, key_added=key_added)
             except ImportError as e:
                 # Fallback to leiden if louvain is not available
                 if context:
                     await context.warning(
-                        f"Louvain not available: {e}. Falling back to Leiden clustering."
+                        f"Louvain not available: {e}. Using Leiden clustering instead."
                     )
                 sc.tl.leiden(adata, resolution=params.resolution, key_added=key_added)
 
@@ -906,15 +913,36 @@ async def _identify_domains_stagate(
 
         # Run STAGATE_pyG
         if context:
-            await context.info("Training STAGATE_pyG model...")
+            await context.info("Training STAGATE_pyG model (this may take a few minutes)...")
 
         # Set device
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         if context:
             await context.info(f"Using device: {device}")
 
-        # Train STAGATE using simple API
-        adata_stagate = STAGATE_pyG.train_STAGATE(adata_stagate, device=device)
+        # Train STAGATE with timeout protection (similar to GraphST)
+        import asyncio
+        import concurrent.futures
+
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            timeout_seconds = params.timeout or 600
+
+            if context:
+                await context.info(
+                    f"Running STAGATE with {timeout_seconds}s timeout"
+                )
+
+            adata_stagate = await asyncio.wait_for(
+                loop.run_in_executor(
+                    executor,
+                    lambda: STAGATE_pyG.train_STAGATE(adata_stagate, device=device),
+                ),
+                timeout=timeout_seconds,
+            )
+
+        if context:
+            await context.info("STAGATE training completed successfully")
 
         # Get embeddings
         embeddings_key = "STAGATE"
@@ -951,6 +979,11 @@ async def _identify_domains_stagate(
 
         return domain_labels, embeddings_key, statistics
 
+    except asyncio.TimeoutError:
+        error_msg = f"STAGATE training timeout after {params.timeout or 600} seconds"
+        if context:
+            await context.warning(error_msg)
+        raise RuntimeError(error_msg)
     except Exception as e:
         error_msg = f"STAGATE execution failed: {str(e)}"
         if context:
