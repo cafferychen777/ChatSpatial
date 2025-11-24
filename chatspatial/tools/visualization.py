@@ -2917,7 +2917,15 @@ async def _create_cell_communication_visualization(
     else:
         # Cluster-based analysis
         if data.method == "cellphonedb":
-            return _create_cellphonedb_heatmap(adata, data, params, context)
+            # CellPhoneDB supports multiple visualization types via ktplotspy
+            subtype = params.subtype or "heatmap"
+            if subtype == "dotplot":
+                return _create_cellphonedb_dotplot(adata, data, params, context)
+            elif subtype == "chord":
+                return _create_cellphonedb_chord(adata, data, params, context)
+            else:
+                # Default: heatmap
+                return _create_cellphonedb_heatmap(adata, data, params, context)
         else:
             # LIANA+ cluster results - route based on subtype
             subtype = params.subtype or "dotplot"
@@ -3450,6 +3458,180 @@ def _create_cellphonedb_heatmap(
 
     plt.tight_layout()
     return fig
+
+
+def _create_cellphonedb_dotplot(
+    adata: ad.AnnData,
+    data: CellCommunicationData,
+    params: VisualizationParameters,
+    context=None,
+) -> plt.Figure:
+    """Create CellPhoneDB dotplot visualization using ktplotspy.
+
+    Shows L-R interactions as dots where:
+    - Size encodes -log10(p-value) or proportion
+    - Color encodes mean expression
+
+    Args:
+        adata: AnnData object with cell type annotations
+        data: CellCommunicationData with CellPhoneDB results
+        params: Visualization parameters
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure
+    """
+    means = data.results
+
+    if not isinstance(means, pd.DataFrame) or len(means) == 0:
+        raise DataNotFoundError(
+            "CellPhoneDB results are empty or invalid format.\n\n"
+            "SOLUTION: Re-run CellPhoneDB analysis"
+        )
+
+    try:
+        import ktplotspy as kpy
+
+        # Get pvalues
+        pvalues = adata.uns.get("cellphonedb_pvalues", None)
+
+        if pvalues is None or not isinstance(pvalues, pd.DataFrame):
+            raise ValueError("Missing pvalues DataFrame for ktplotspy dotplot")
+
+        # Get cell types from cluster_key
+        cluster_key = params.cluster_key or "leiden"
+        if cluster_key not in adata.obs.columns:
+            # Try to find a suitable column
+            for key in ["cell_type", "celltype", "leiden", "louvain"]:
+                if key in adata.obs.columns:
+                    cluster_key = key
+                    break
+
+        # ktplotspy.plot_cpdb returns a plotnine ggplot object, not matplotlib Figure
+        # We need to convert it to matplotlib Figure
+        gg = kpy.plot_cpdb(
+            adata=adata,
+            cell_type1=".",  # All cell types
+            cell_type2=".",  # All cell types
+            means=means,
+            pvals=pvalues,
+            celltype_key=cluster_key,
+            genes=None,  # Show all genes
+            figsize=params.figure_size or (12, 10),
+            title="CellPhoneDB: L-R Interactions",
+            max_size=10,
+            alpha=0.05,
+            keep_significant_only=True,
+            standard_scale=True,
+        )
+
+        # Convert plotnine ggplot to matplotlib Figure
+        fig = gg.draw()
+        return fig
+
+    except ImportError:
+        raise ProcessingError(
+            "ktplotspy is required for CellPhoneDB dotplot visualization.\n\n"
+            "SOLUTION: Install ktplotspy:\n"
+            "  pip install ktplotspy"
+        )
+    except Exception as e:
+        raise ProcessingError(
+            f"Failed to create CellPhoneDB dotplot: {str(e)}\n\n"
+            "Try using subtype='heatmap' instead."
+        )
+
+
+def _create_cellphonedb_chord(
+    adata: ad.AnnData,
+    data: CellCommunicationData,
+    params: VisualizationParameters,
+    context=None,
+) -> plt.Figure:
+    """Create CellPhoneDB chord/circos diagram using ktplotspy.
+
+    Shows cell-cell communication as a circular network diagram with:
+    - Nodes representing cell types
+    - Chords/arcs representing interactions between cell types
+    - Width/color encoding interaction strength
+
+    Args:
+        adata: AnnData object with cell type annotations
+        data: CellCommunicationData with CellPhoneDB results
+        params: Visualization parameters
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure
+    """
+    means = data.results
+
+    if not isinstance(means, pd.DataFrame) or len(means) == 0:
+        raise DataNotFoundError(
+            "CellPhoneDB results are empty or invalid format.\n\n"
+            "SOLUTION: Re-run CellPhoneDB analysis"
+        )
+
+    try:
+        import ktplotspy as kpy
+
+        # Get pvalues and deconvoluted (required for chord plot)
+        pvalues = adata.uns.get("cellphonedb_pvalues", None)
+        deconvoluted = adata.uns.get("cellphonedb_deconvoluted", None)
+
+        if pvalues is None or not isinstance(pvalues, pd.DataFrame):
+            raise ValueError("Missing pvalues DataFrame for ktplotspy chord plot")
+
+        if deconvoluted is None or not isinstance(deconvoluted, pd.DataFrame):
+            raise ValueError(
+                "Missing deconvoluted DataFrame for chord plot. "
+                "Re-run CellPhoneDB analysis."
+            )
+
+        # Get cell types from cluster_key
+        cluster_key = params.cluster_key or "leiden"
+        if cluster_key not in adata.obs.columns:
+            for key in ["cell_type", "celltype", "leiden", "louvain"]:
+                if key in adata.obs.columns:
+                    cluster_key = key
+                    break
+
+        # ktplotspy.plot_cpdb_chord creates a chord diagram
+        # It returns a pycirclize Circos object, not matplotlib Figure
+        circos = kpy.plot_cpdb_chord(
+            adata=adata,
+            means=means,
+            pvals=pvalues,
+            deconvoluted=deconvoluted,
+            celltype_key=cluster_key,
+            cell_type1=".",  # All cell types
+            cell_type2=".",  # All cell types
+            # Move legend to the right side, outside the chord diagram
+            legend_kwargs={
+                "loc": "center left",
+                "bbox_to_anchor": (1.02, 0.5),
+                "fontsize": 6,
+                "frameon": False,
+            },
+        )
+
+        # Extract matplotlib Figure from Circos object
+        fig = circos.ax.figure
+        # Adjust subplot to make room for legend on the right
+        fig.subplots_adjust(right=0.65)
+        return fig
+
+    except ImportError:
+        raise ProcessingError(
+            "ktplotspy is required for CellPhoneDB chord visualization.\n\n"
+            "SOLUTION: Install ktplotspy:\n"
+            "  pip install ktplotspy"
+        )
+    except Exception as e:
+        raise ProcessingError(
+            f"Failed to create CellPhoneDB chord diagram: {str(e)}\n\n"
+            "Try using subtype='heatmap' instead."
+        )
 
 
 async def _create_multi_gene_umap_visualization(
@@ -5078,13 +5260,33 @@ async def _create_gsea_visualization(
 
 
 def _create_gsea_enrichment_plot(gsea_results, params):
-    """Create classic GSEA enrichment score plot"""
-    figsize = params.figure_size if params.figure_size else (10, 8)
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, height_ratios=[3, 1])
+    """Create classic GSEA enrichment score plot.
 
+    Note: This plot requires running enrichment scores (RES) and hit positions
+    which are typically only available from gseapy.prerank() or gseapy.gsea()
+    result objects. For standard barplot/dotplot visualizations, use those
+    subtypes instead.
+
+    For this visualization to work, results must include 'RES' and 'hits' data,
+    which requires storing the full gseapy result object (not just res2d DataFrame).
+    """
     # Get specific pathway if specified
     pathway = params.feature if params.feature else None
 
+    # Handle DataFrame format (standard stored format)
+    if isinstance(gsea_results, pd.DataFrame):
+        # DataFrame doesn't contain RES/hits data needed for enrichment plot
+        # Provide helpful error message
+        raise DataNotFoundError(
+            "Enrichment plot requires running enrichment scores (RES) data.\n\n"
+            "The stored results contain only summary statistics (DataFrame format).\n\n"
+            "SOLUTIONS:\n"
+            "1. Use subtype='barplot' or subtype='dotplot' instead (recommended)\n"
+            "2. Re-run GSEA analysis and store the full result object\n\n"
+            "Example: params={'subtype': 'barplot', 'n_top_pathways': 15}"
+        )
+
+    # Handle dict format with RES data
     if isinstance(gsea_results, dict):
         if pathway and pathway in gsea_results:
             result = gsea_results[pathway]
@@ -5092,320 +5294,220 @@ def _create_gsea_enrichment_plot(gsea_results, params):
             # Use first available pathway
             pathway = list(gsea_results.keys())[0]
             result = gsea_results[pathway]
-    else:
-        # Assume it's a single result
-        result = gsea_results
-        pathway = pathway or "Gene Set"
 
-    # Extract enrichment data - fail if data is missing
-    if not isinstance(result, dict):
-        raise ValueError("Enrichment result is not a valid dictionary structure")
+        # Check for required data
+        if not isinstance(result, dict) or "RES" not in result:
+            raise DataNotFoundError(
+                f"Enrichment plot requires 'RES' (running enrichment scores) data.\n\n"
+                f"Available keys: {list(result.keys()) if isinstance(result, dict) else 'N/A'}\n\n"
+                "SOLUTION: Use subtype='barplot' or subtype='dotplot' instead."
+            )
 
-    # Require actual enrichment data - no fake generation
-    if "es" not in result:
-        raise ValueError(
-            "Enrichment score (es) not found in result. Cannot visualize without real enrichment data."
-        )
+        # Use gseapy.gseaplot for professional visualization
+        try:
+            import gseapy as gp
 
-    es = result["es"]
-    nes = result.get("nes", result.get("NES"))
-    pval = result.get("pval", result.get("pvalue"))
-    positions = result.get("positions")
+            term = pathway
+            hits = result.get("hits", result.get("hit_indices", []))
+            nes = result.get("NES", result.get("nes", 0))
+            pval = result.get("pval", result.get("NOM p-val", 0))
+            fdr = result.get("fdr", result.get("FDR q-val", 0))
+            RES = result["RES"]
+            rank_metric = result.get("rank_metric")
 
-    if nes is None or pval is None:
-        raise ValueError(
-            "Missing required enrichment statistics (NES or p-value) for visualization."
-        )
+            figsize = params.figure_size if params.figure_size else (6, 5.5)
 
-    # Normalize ES if needed
-    if isinstance(es, (list, np.ndarray)):
-        es = np.array(es)
-        if es.max() > 1 or es.min() < -1:
-            es = es / np.abs(es).max()
+            fig = gp.gseaplot(
+                term=term,
+                hits=hits,
+                nes=nes,
+                pval=pval,
+                fdr=fdr,
+                RES=RES,
+                rank_metric=rank_metric,
+                figsize=figsize,
+                ofname=None,  # Don't save to file
+            )
+            return fig
 
-    # Plot enrichment score
-    x = np.arange(len(es))
-    ax1.plot(x, es, "b-", linewidth=2)
-    ax1.axhline(y=0, color="gray", linestyle="-", alpha=0.5)
+        except Exception as e:
+            raise ProcessingError(
+                f"Failed to create GSEA enrichment plot: {e}\n\n"
+                "SOLUTION: Use subtype='barplot' or subtype='dotplot' instead."
+            ) from e
 
-    # Mark maximum/minimum ES
-    if es.max() > abs(es.min()):
-        max_idx = np.argmax(es)
-        ax1.axhline(y=es[max_idx], color="red", linestyle="--", alpha=0.8)
-        ax1.text(
-            max_idx,
-            es[max_idx],
-            f"ES = {es[max_idx]:.3f}",
-            ha="left",
-            va="bottom",
-            fontsize=10,
-        )
-    else:
-        min_idx = np.argmin(es)
-        ax1.axhline(y=es[min_idx], color="red", linestyle="--", alpha=0.8)
-        ax1.text(
-            min_idx,
-            es[min_idx],
-            f"ES = {es[min_idx]:.3f}",
-            ha="left",
-            va="top",
-            fontsize=10,
-        )
-
-    # Fill under curve
-    ax1.fill_between(x, 0, es, alpha=0.3, color="blue")
-
-    ax1.set_xlim(0, len(es) - 1)
-    ax1.set_ylabel("Enrichment Score (ES)", fontsize=12)
-    ax1.set_title(
-        f"{pathway}\nNES = {nes:.2f}, p-value = {pval:.3e}",
-        fontsize=14,
-        fontweight="bold",
+    raise ValueError(
+        f"Unsupported GSEA results format: {type(gsea_results)}\n\n"
+        "SOLUTION: Use subtype='barplot' or subtype='dotplot' instead."
     )
-
-    # Gene hit positions
-    ax2.eventplot(positions, colors="black", linewidths=0.5)
-    ax2.set_xlim(0, len(es) - 1)
-    ax2.set_ylim(0, 1)
-    ax2.set_xlabel("Rank in Ordered Gene List", fontsize=12)
-    ax2.set_ylabel("Hits", fontsize=10)
-    ax2.set_yticks([])
-
-    plt.tight_layout()
-    return fig
 
 
 def _create_gsea_barplot(gsea_results, params):
-    """Create barplot of top enriched pathways"""
+    """Create barplot of top enriched pathways using gseapy.barplot.
+
+    Uses the official gseapy visualization for professional, publication-ready output.
+    """
+    import gseapy as gp
+
     n_top = getattr(params, "n_top_pathways", 10)
 
-    # Convert results to DataFrame for easier handling
-    import pandas as pd
-
+    # Convert results to DataFrame if needed
     if isinstance(gsea_results, pd.DataFrame):
-        df = gsea_results
+        df = gsea_results.copy()
     elif isinstance(gsea_results, dict):
         # Convert dict to DataFrame
         rows = []
         for pathway, data in gsea_results.items():
             if isinstance(data, dict):
-                row = {"pathway": pathway}
+                row = {"Term": pathway}
                 row.update(data)
                 rows.append(row)
         df = pd.DataFrame(rows)
     else:
         raise ValueError("Unsupported GSEA results format")
 
-    # Determine score column and method
-    score_col = None
-    score_label = None
-
-    # Check for NES column (could be GSEA or ORA disguised as GSEA)
-    if "NES" in df.columns or "nes" in df.columns:
-        score_col = "NES" if "NES" in df.columns else "nes"
-        # Check if odds_ratio column also exists (indicates ORA results aliased as NES)
-        if "odds_ratio" in df.columns:
-            # This is ORA data with NES as an alias - use odds_ratio column directly
-            score_col = "odds_ratio"
-            score_label = "Odds Ratio"
-        else:
-            # Check if this is truly GSEA (typical range -3 to +3) or ORA (larger values)
-            sample_values = pd.to_numeric(df[score_col], errors="coerce").dropna()
-            if len(sample_values) > 0 and sample_values.abs().mean() > 5:
-                # Large values suggest this is actually odds ratio
-                score_label = "Odds Ratio"
-            else:
-                score_label = "Normalized Enrichment Score (NES)"
-    # Check for ORA-specific columns
-    elif "odds_ratio" in df.columns:
-        score_col = "odds_ratio"
-        score_label = "Odds Ratio"
-    # Check for other enrichment score columns
-    elif "enrichment_score" in df.columns:
-        score_col = "enrichment_score"
-        score_label = "Enrichment Score"
-    elif "score" in df.columns:
-        score_col = "score"
-        score_label = "Enrichment Score"
-    else:
-        raise DataNotFoundError(
-            "No enrichment score column found. "
-            "Expected: 'NES', 'odds_ratio', 'enrichment_score', or 'score'"
-        )
-
-    # Convert score column to numeric type
-    df[score_col] = pd.to_numeric(df[score_col], errors="coerce")
-
-    # Fill NaN with small positive value for ORA, 0 for others (instead of dropping)
-    if "odds_ratio" in score_label.lower():
-        df[score_col] = df[score_col].fillna(0.01)
-    else:
-        df[score_col] = df[score_col].fillna(0.0)
-
-    # Remove rows that are still invalid after filling
-    df = df[df[score_col].notna()]
-
     if df.empty:
-        raise DataNotFoundError("No valid enrichment scores found in results")
+        raise DataNotFoundError("No enrichment results found")
 
-    # Sort by score and get top pathways
-    df_sorted = df.nlargest(min(n_top, len(df)), score_col)
+    # Determine the p-value column for gseapy.barplot
+    # gseapy expects: 'Adjusted P-value', 'P-value', 'NOM p-val', or 'FDR q-val'
+    pval_col = "Adjusted P-value"  # default
+    for col in ["Adjusted P-value", "FDR q-val", "fdr", "P-value", "NOM p-val", "pval"]:
+        if col in df.columns:
+            pval_col = col
+            break
 
-    # Create barplot
-    # Use user's figure size if provided, otherwise auto-calculate based on n_top
-    figsize = params.figure_size if params.figure_size else (10, max(6, n_top * 0.4))
-    fig, ax = plt.subplots(figsize=figsize)
+    # Ensure we have a 'Term' column (gseapy expects this)
+    if "Term" not in df.columns:
+        if "pathway" in df.columns:
+            df["Term"] = df["pathway"]
+        elif df.index.name or not df.index.equals(pd.RangeIndex(len(df))):
+            df["Term"] = df.index
+        else:
+            raise DataNotFoundError(
+                "No pathway/term column found in results. "
+                "Expected 'Term' or 'pathway' column."
+            )
 
-    y_pos = np.arange(len(df_sorted))
-    scores = df_sorted[score_col].values
-    # Handle different column names for pathways
-    if "pathway" in df_sorted.columns:
-        pathways = df_sorted["pathway"].values
-    elif "Term" in df_sorted.columns:
-        pathways = df_sorted["Term"].values
-    else:
-        pathways = df_sorted.index
+    # Use gseapy.barplot for professional visualization
+    figsize = params.figure_size if params.figure_size else (6, max(4, n_top * 0.4))
 
-    # Color based on score with method-appropriate thresholds
-    if "odds_ratio" in score_label.lower():
-        # Thresholds for odds ratios: 1, 2, 5
-        colors = [
-            "darkred" if s > 5 else "red" if s > 2 else "orange" if s > 1 else "gray"
-            for s in scores
-        ]
-    else:
-        # Thresholds for NES/enrichment scores: 1, 1.5, 2
-        colors = [
-            "darkred" if s > 2 else "red" if s > 1.5 else "orange" if s > 1 else "gray"
-            for s in scores
-        ]
-
-    ax.barh(y_pos, scores, color=colors, alpha=0.8)
-
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(pathways, fontsize=10)
-    ax.set_xlabel(score_label, fontsize=12)
-    ax.set_title("Top Enriched Pathways", fontsize=14, fontweight="bold")
-    ax.axvline(x=0, color="black", linewidth=0.8)
-
-    # Add significance markers
-    if "pval" in df_sorted.columns or "pvalue" in df_sorted.columns:
-        pval_col = "pval" if "pval" in df_sorted.columns else "pvalue"
-        pvals = df_sorted[pval_col].values
-
-        for i, (score, pval) in enumerate(zip(scores, pvals)):
-            if pval < 0.001:
-                sig_marker = "***"
-            elif pval < 0.01:
-                sig_marker = "**"
-            elif pval < 0.05:
-                sig_marker = "*"
-            else:
-                sig_marker = ""
-
-            if sig_marker:
-                ax.text(
-                    score + max(scores) * 0.02, i, sig_marker, va="center", fontsize=10
-                )
-
-    # Add FDR info if available
-    if "FDR" in df_sorted.columns or "fdr" in df_sorted.columns:
-        ax.text(
-            0.95,
-            0.05,
-            "FDR < 0.05",
-            transform=ax.transAxes,
-            ha="right",
-            va="bottom",
-            fontsize=10,
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+    try:
+        ax = gp.barplot(
+            df=df,
+            column=pval_col,
+            title=params.title or "Top Enriched Pathways",
+            cutoff=1.0,  # Show all, we control via top_term
+            top_term=n_top,
+            figsize=figsize,
+            color=params.colormap if params.colormap != "coolwarm" else "salmon",
+            ofname=None,  # Don't save to file, return axes
         )
 
-    plt.tight_layout()
-    return fig
+        # Get the figure from axes
+        fig = ax.get_figure()
+        plt.tight_layout()
+        return fig
+
+    except Exception as e:
+        # Fallback to simple barplot if gseapy fails
+        raise ProcessingError(
+            f"gseapy.barplot failed: {e}\n\n"
+            "This may be due to incompatible column names in the results DataFrame.\n"
+            f"Available columns: {list(df.columns)}"
+        ) from e
 
 
-def _create_gsea_dotplot(gsea_results):
-    """Create dotplot showing enrichment across multiple conditions"""
-    fig, ax = plt.subplots(figsize=(12, 8))
+def _create_gsea_dotplot(gsea_results, params=None):
+    """Create dotplot showing enrichment using gseapy.dotplot.
 
-    # This assumes results are organized by cluster/condition
-    if not isinstance(gsea_results, dict) or not all(
+    Uses the official gseapy visualization for professional, publication-ready output.
+    Supports both single-condition and multi-condition (grouped) results.
+    """
+    import gseapy as gp
+
+    n_top = getattr(params, "n_top_pathways", 10) if params else 10
+
+    # Handle nested dict structure (multi-condition)
+    if isinstance(gsea_results, dict) and all(
         isinstance(v, dict) for v in gsea_results.values()
     ):
-        raise ValueError(
-            "Dotplot requires nested dict structure: {condition: {pathway: scores}}"
+        # Convert nested dict to DataFrame with group column
+        rows = []
+        for condition, pathways in gsea_results.items():
+            for pathway, data in pathways.items():
+                if isinstance(data, dict):
+                    row = {"Term": pathway, "Group": condition}
+                    row.update(data)
+                    rows.append(row)
+        df = pd.DataFrame(rows)
+
+        if df.empty:
+            raise DataNotFoundError("No enrichment results found in nested structure")
+
+        # Use x parameter for grouped dotplot
+        x_col = "Group"
+    elif isinstance(gsea_results, pd.DataFrame):
+        df = gsea_results.copy()
+        x_col = None  # Single condition
+    elif isinstance(gsea_results, dict):
+        # Single-level dict
+        rows = []
+        for pathway, data in gsea_results.items():
+            if isinstance(data, dict):
+                row = {"Term": pathway}
+                row.update(data)
+                rows.append(row)
+        df = pd.DataFrame(rows)
+        x_col = None
+    else:
+        raise ValueError("Unsupported GSEA results format")
+
+    if df.empty:
+        raise DataNotFoundError("No enrichment results found")
+
+    # Ensure we have a 'Term' column
+    if "Term" not in df.columns:
+        if "pathway" in df.columns:
+            df["Term"] = df["pathway"]
+        elif df.index.name or not df.index.equals(pd.RangeIndex(len(df))):
+            df["Term"] = df.index
+
+    # Determine the p-value column
+    pval_col = "Adjusted P-value"
+    for col in ["Adjusted P-value", "FDR q-val", "fdr", "P-value", "NOM p-val", "pval"]:
+        if col in df.columns:
+            pval_col = col
+            break
+
+    figsize = params.figure_size if params and params.figure_size else (6, 8)
+    cmap = params.colormap if params and params.colormap != "coolwarm" else "viridis_r"
+
+    try:
+        ax = gp.dotplot(
+            df=df,
+            column=pval_col,
+            x=x_col,
+            y="Term",
+            title=params.title if params and params.title else "Pathway Enrichment",
+            cutoff=1.0,  # Show all, control via top_term
+            top_term=n_top,
+            figsize=figsize,
+            cmap=cmap,
+            size=5,
+            ofname=None,  # Don't save to file
         )
 
-    # Extract data for plotting
-    conditions = list(gsea_results.keys())
-    all_pathways = set()
-    for cond_results in gsea_results.values():
-        all_pathways.update(cond_results.keys())
-    pathways = sorted(all_pathways)[:20]  # Limit to top 20 pathways
+        fig = ax.get_figure()
+        plt.tight_layout()
+        return fig
 
-    # Create matrices for plotting
-    nes_matrix = np.zeros((len(conditions), len(pathways)))
-    pval_matrix = np.ones((len(conditions), len(pathways)))
-
-    for i, condition in enumerate(conditions):
-        for j, pathway in enumerate(pathways):
-            if pathway in gsea_results[condition]:
-                result = gsea_results[condition][pathway]
-                nes_matrix[i, j] = result.get("NES", result.get("nes", 0))
-                pval_matrix[i, j] = result.get("pval", result.get("pvalue", 1))
-
-    # Create dotplot
-    for i, condition in enumerate(conditions):
-        for j, pathway in enumerate(pathways):
-            nes = nes_matrix[i, j]
-            pval = pval_matrix[i, j]
-
-            if pval < 0.05:  # Only show significant results
-                size = -np.log10(pval) * 100  # Size based on significance
-                color = nes  # Color based on NES
-
-                scatter = ax.scatter(
-                    j,
-                    i,
-                    s=size,
-                    c=color,
-                    cmap="RdBu_r",
-                    vmin=-3,
-                    vmax=3,
-                    alpha=0.8,
-                    edgecolors="black",
-                    linewidth=0.5,
-                )
-
-    # Formatting
-    ax.set_xticks(range(len(pathways)))
-    ax.set_xticklabels(pathways, rotation=45, ha="right", fontsize=10)
-    ax.set_yticks(range(len(conditions)))
-    ax.set_yticklabels(conditions, fontsize=10)
-    ax.set_xlim(-0.5, len(pathways) - 0.5)
-    ax.set_ylim(-0.5, len(conditions) - 0.5)
-    ax.set_title("Pathway Enrichment Across Conditions", fontsize=14, fontweight="bold")
-
-    # Add colorbar
-    plt.colorbar(scatter, ax=ax, label="NES")
-
-    # Add size legend
-    for size, label in [(100, "p < 0.1"), (200, "p < 0.01"), (300, "p < 0.001")]:
-        ax.scatter(
-            [],
-            [],
-            s=size,
-            c="gray",
-            alpha=0.8,
-            edgecolors="black",
-            linewidth=0.5,
-            label=label,
-        )
-    ax.legend(loc="upper left", bbox_to_anchor=(1.2, 1), title="Significance")
-
-    plt.tight_layout()
-    return fig
+    except Exception as e:
+        raise ProcessingError(
+            f"gseapy.dotplot failed: {e}\n\n"
+            "This may be due to incompatible column names in the results DataFrame.\n"
+            f"Available columns: {list(df.columns)}"
+        ) from e
 
 
 def _create_gsea_spatial_plot(adata, params):
