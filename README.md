@@ -313,7 +313,7 @@ pip install -e ".[dev]"
 | Category | Methods |
 |----------|---------|
 | **Cell Type Annotation** | Tangram, scANVI, CellAssign, mLLMCellType, sc-type, SingleR |
-| **Spatial Domains** | SpaGCN, STAGATE, Leiden/Louvain clustering |
+| **Spatial Domains** | SpaGCN, STAGATE, Leiden clustering |
 | **Cell Communication** | LIANA+, CellPhoneDB, CellChat (via LIANA) |
 | **Deconvolution** | Cell2location, DestVI, RCTD, Tangram, Stereoscope, SPOTlight |
 | **CNV Analysis** | infercnvpy, Numbat (haplotype-aware CNV analysis) |
