@@ -1234,17 +1234,31 @@ async def _analyze_communication_cellchat_r(
         has_spatial = "spatial" in adata.obsm
 
         # Prepare expression matrix (genes x cells, normalized)
-        # CellChat requires normalized data
-        if hasattr(adata.X, "toarray"):
+        # CellChat requires normalized data with comprehensive gene coverage
+        # Use adata.raw if available (contains all genes before HVG filtering)
+        if adata.raw is not None:
+            data_source = adata.raw
+            if context:
+                await context.info(
+                    f"Using raw data with {data_source.n_vars} genes for CellChat"
+                )
+        else:
+            data_source = adata
+            if context:
+                await context.info(
+                    f"Using current data with {data_source.n_vars} genes for CellChat"
+                )
+
+        if hasattr(data_source.X, "toarray"):
             expr_matrix = pd.DataFrame(
-                adata.X.toarray().T,
-                index=adata.var_names,
+                data_source.X.toarray().T,
+                index=data_source.var_names,
                 columns=adata.obs_names,
             )
         else:
             expr_matrix = pd.DataFrame(
-                adata.X.T,
-                index=adata.var_names,
+                data_source.X.T,
+                index=data_source.var_names,
                 columns=adata.obs_names,
             )
 
