@@ -234,7 +234,7 @@ async def visualize_data(
         params: Visualization parameters including:
             - plot_type: Type of visualization. Available types:
                         * Basic plots: spatial, heatmap, violin, umap, dotplot
-                        * Analysis results: spatial_domains, cell_communication, deconvolution,
+                        * Analysis results: cell_communication, deconvolution,
                           trajectory, rna_velocity, spatial_statistics
                         * Multi-gene/correlation: multi_gene, lr_pairs, gene_correlation
                         * Enrichment: pathway_enrichment (use subtype for spatial EnrichMap)
@@ -243,7 +243,9 @@ async def visualize_data(
                         * High-resolution: card_imputation
             - feature: Gene or feature to visualize (single/multiple genes). For cell types,
                       use method-specific columns: 'cell_type_tangram', 'cell_type_scanvi',
-                      'cell_type_cellassign', or clustering: 'leiden', 'louvain'
+                      'cell_type_cellassign', or clustering: 'leiden', 'louvain'.
+                      For spatial domains: use the domain_key returned by identify_spatial_domains
+                      (e.g., 'spatial_domains_spagcn', 'spatial_domains_leiden')
             - cluster_key: Column in adata.obs for grouping (e.g., 'leiden', 'cell_type').
                           REQUIRED for heatmap, violin, and dotplot
             - subtype: Visualization variant. Required for certain plot_types:
@@ -281,6 +283,9 @@ async def visualize_data(
         # Dotplot - marker gene expression (cluster_key required)
         {"plot_type": "dotplot", "feature": ["Cd3d", "Cd4", "Cd8a", "Cd19"],
          "cluster_key": "cell_type", "colormap": "Reds"}
+
+        # Spatial domains (use domain_key from identify_spatial_domains result)
+        {"plot_type": "spatial", "feature": "spatial_domains_spagcn", "colormap": "tab20"}
 
         # Deconvolution results
         {"plot_type": "deconvolution", "subtype": "dominant_type", "deconv_method": "cell2location",

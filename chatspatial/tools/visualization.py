@@ -4,6 +4,7 @@ Visualization tools for spatial transcriptomics data.
 
 import os
 import traceback
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -132,6 +133,145 @@ def setup_multi_panel_figure(
         axes[i].axis("off")
 
     return fig, axes
+
+
+# =============================================================================
+# Unified Deconvolution Data Retrieval
+# =============================================================================
+
+
+@dataclass
+class DeconvolutionData:
+    """Unified representation of deconvolution results.
+
+    This dataclass provides a single, consistent interface for accessing
+    deconvolution data regardless of the method used.
+
+    Attributes:
+        proportions: DataFrame with cell type proportions (n_spots x n_cell_types)
+        method: Deconvolution method name (e.g., "cell2location", "rctd")
+        cell_types: List of cell type names
+        proportions_key: Key in adata.obsm where proportions are stored
+        dominant_type_key: Key in adata.obs for dominant cell type (if exists)
+    """
+
+    proportions: pd.DataFrame
+    method: str
+    cell_types: List[str]
+    proportions_key: str
+    dominant_type_key: Optional[str] = None
+
+
+async def get_deconvolution_data(
+    adata: ad.AnnData,
+    method: Optional[str] = None,
+    context: Optional[Context] = None,
+) -> DeconvolutionData:
+    """
+    Unified function to retrieve deconvolution results from AnnData.
+
+    This function consolidates all deconvolution data retrieval logic into
+    a single, consistent interface. It handles:
+    - Auto-detection when only one result exists
+    - Explicit method specification
+    - Clear error messages with solutions
+
+    Args:
+        adata: AnnData object with deconvolution results
+        method: Deconvolution method name (e.g., "cell2location", "rctd").
+                If None and only one result exists, auto-selects it.
+                If None and multiple results exist, raises ValueError.
+        context: MCP context for logging
+
+    Returns:
+        DeconvolutionData object with proportions and metadata
+
+    Raises:
+        DataNotFoundError: No deconvolution results found
+        ValueError: Multiple results found but method not specified
+
+    Example:
+        >>> data = await get_deconvolution_data(adata, method="cell2location")
+        >>> print(data.proportions.head())
+        >>> print(data.cell_types)
+    """
+    # 1. Find all deconvolution results in obsm
+    deconv_keys = [
+        key for key in adata.obsm.keys() if key.startswith("deconvolution_")
+    ]
+
+    # 2. Handle method specification
+    if method is not None:
+        # User specified method explicitly
+        target_key = f"deconvolution_{method}"
+        if target_key not in adata.obsm:
+            available = [k.replace("deconvolution_", "") for k in deconv_keys]
+            raise DataNotFoundError(
+                f"Deconvolution results for method '{method}' not found.\n\n"
+                f"Available methods: {available if available else 'None'}\n\n"
+                "SOLUTION: Run deconvolution first or specify an available method."
+            )
+        proportions_key = target_key
+    else:
+        # Auto-detect
+        if not deconv_keys:
+            raise DataNotFoundError(
+                "No deconvolution results found in adata.obsm.\n\n"
+                "SOLUTION: Run deconvolution first:\n"
+                '  deconvolve_data(data_id="your_data", '
+                'params={"method": "cell2location", "cell_type_key": "..."})\n\n'
+                "Available methods: cell2location, rctd, destvi, stereoscope, "
+                "spotlight, card, tangram"
+            )
+
+        if len(deconv_keys) > 1:
+            available = [k.replace("deconvolution_", "") for k in deconv_keys]
+            raise ValueError(
+                f"Multiple deconvolution results found: {available}\n\n"
+                f"SOLUTION: Specify which method to visualize:\n"
+                f"  params={{'deconv_method': '{available[0]}'}}\n\n"
+                f"NOTE: Different methods have different assumptions.\n"
+                f"      Always explicitly specify which result to visualize."
+            )
+
+        # Single result - auto-select
+        proportions_key = deconv_keys[0]
+        method = proportions_key.replace("deconvolution_", "")
+
+        if context:
+            await context.info(f"Auto-selected deconvolution method: {method}")
+
+    # 3. Get cell type names
+    cell_types_key = f"{proportions_key}_cell_types"
+    if cell_types_key in adata.uns:
+        cell_types = list(adata.uns[cell_types_key])
+    else:
+        # Fallback: generate generic names from shape
+        n_cell_types = adata.obsm[proportions_key].shape[1]
+        cell_types = [f"CellType_{i}" for i in range(n_cell_types)]
+        if context:
+            await context.warning(
+                f"Cell type names not found in adata.uns['{cell_types_key}']. "
+                f"Using generic names."
+            )
+
+    # 4. Create DataFrame
+    proportions = pd.DataFrame(
+        adata.obsm[proportions_key], index=adata.obs_names, columns=cell_types
+    )
+
+    # 5. Check if dominant type annotation exists
+    dominant_type_key = f"dominant_celltype_{method}"
+    if dominant_type_key not in adata.obs.columns:
+        dominant_type_key = None
+
+    return DeconvolutionData(
+        proportions=proportions,
+        method=method,
+        cell_types=cell_types,
+        proportions_key=proportions_key,
+        dominant_type_key=dominant_type_key,
+    )
 
 
 def _ensure_enrichmap_compatibility(adata: ad.AnnData) -> None:
@@ -378,221 +518,57 @@ async def validate_and_prepare_feature(
     context: Optional[Context] = None,
     default_feature: Optional[str] = None,
 ) -> Optional[str]:
-    """Validate and prepare a feature for visualization
+    """Validate and prepare a feature for visualization.
 
-    This function handles various feature formats including:
-    - Regular gene names or observation annotations
-    - Deconvolution results with cell type using colon format (deconvolution_key:cell_type)
-    - Deconvolution results with cell type using underscore format (deconvolution_key_cell_type)
-    - Deconvolution keys in obsm
+    This function validates that a feature exists in the dataset as either:
+    - A gene name in adata.var_names
+    - An observation column in adata.obs
+
+    For deconvolution visualization, use plot_type='deconvolution' with
+    the deconv_method parameter instead of passing deconvolution features here.
 
     Args:
         adata: AnnData object
-        feature: Feature name or None
+        feature: Feature name (gene or obs column) or None
         context: MCP context for logging
-        default_feature: Default feature to use if the provided feature is not found
+        default_feature: Default feature to use if feature is None
 
     Returns:
         Validated feature name or default_feature or None
+
+    Raises:
+        DataNotFoundError: If feature is not found in var_names or obs columns
     """
     if not feature:
         return default_feature
 
-    # Check if it's a deconvolution result with cell type using colon format
-    if ":" in feature:
-        # Format: "deconvolution_method:cell_type"
-        parts = feature.split(":")
-        if len(parts) == 2:
-            deconv_key, cell_type = parts
-
-            # First check if we already have this in obs (from previous deconvolution)
-            obs_key = f"{deconv_key}_{cell_type}"
-            if obs_key in adata.obs.columns:
-                if context:
-                    await context.info(
-                        f"Found cell type {cell_type} in obs as {obs_key}"
-                    )
-                return obs_key
-            else:
-                # Get deconvolution results as DataFrame
-                deconv_df = get_deconvolution_dataframe(adata, deconv_key)
-                if deconv_df is not None and cell_type in deconv_df.columns:
-                    # Add the cell type proportion to obs for visualization
-                    adata.obs[feature] = deconv_df[cell_type]
-                    return feature
-                else:
-                    # Deconvolution result specified but not found
-                    if default_feature is not None:
-                        if context:
-                            await context.warning(
-                                f"Deconvolution result {feature} not found. Using default feature."
-                            )
-                        return default_feature
-                    else:
-                        raise DataNotFoundError(
-                            f"Deconvolution result '{feature}' not found.\n\n"
-                            "SOLUTIONS:\n"
-                            "1. Run deconvolution analysis first\n"
-                            "2. Check the format: 'deconvolution_method:cell_type'\n"
-                            "3. Verify the cell type name is correct"
-                        )
-        else:
-            # Invalid deconvolution format
-            if default_feature is not None:
-                if context:
-                    await context.warning(
-                        f"Invalid feature format {feature}. Use 'deconvolution_key:cell_type'. Using default feature."
-                    )
-                return default_feature
-            else:
-                raise ValueError(
-                    f"Invalid feature format: '{feature}'\n\n"
-                    "For deconvolution results, use format:\n"
-                    "  'deconvolution_method:cell_type'\n\n"
-                    "Example: 'deconvolution_cell2location:T_cells'"
-                )
-
-    # Check if it's a deconvolution result with cell type using underscore format
-    elif "_" in feature and feature.startswith("deconvolution_"):
-        # Format: "deconvolution_method_cell_type"
-        if feature in adata.obs.columns:
-            if context:
-                await context.info(f"Found cell type proportion in obs as {feature}")
-            return feature
-        else:
-            # Deconvolution feature not found
-            if default_feature is not None:
-                if context:
-                    await context.warning(
-                        f"Feature {feature} not found in dataset. Using default feature."
-                    )
-                return default_feature
-            else:
-                raise DataNotFoundError(
-                    f"Deconvolution feature '{feature}' not found.\n\n"
-                    "SOLUTIONS:\n"
-                    "1. Run deconvolution analysis first\n"
-                    "2. Check the feature name format\n"
-                    "3. Use 'deconvolution_method:cell_type' format instead"
-                )
-
-    # Check if it's a deconvolution key
-    elif feature in adata.obsm:
-        # Try to get cell types from uns
-        cell_types_key = f"{feature}_cell_types"
-        if cell_types_key in adata.uns and len(adata.uns[cell_types_key]) > 0:
-            # Get top cell type by mean proportion
-            deconv_df = get_deconvolution_dataframe(adata, feature)
-            if deconv_df is not None:
-                top_cell_type = deconv_df.mean().sort_values(ascending=False).index[0]
-                obs_key = f"{feature}_{top_cell_type}"
-
-                # Add to obs if not already there
-                if obs_key not in adata.obs.columns:
-                    adata.obs[obs_key] = deconv_df[top_cell_type].values
-
-                if context:
-                    await context.info(
-                        f"Found deconvolution result {feature}. Showing top cell type: {top_cell_type}"
-                    )
-                return obs_key
-            else:
-                # Deconvolution found but cannot determine cell types
-                if default_feature is not None:
-                    if context:
-                        await context.info(
-                            f"Found deconvolution result {feature}, but could not determine cell types. Using default feature."
-                        )
-                    return default_feature
-                else:
-                    raise ValueError(
-                        f"Found deconvolution result '{feature}', but cannot determine cell types.\n\n"
-                        "SOLUTION: Specify a cell type explicitly:\n"
-                        "  Use format: 'deconvolution_method:cell_type'\n"
-                        "  Example: 'deconvolution_cell2location:T_cells'"
-                    )
-        else:
-            # Deconvolution found but no cell types info
-            if default_feature is not None:
-                if context:
-                    await context.info(
-                        f"Found deconvolution result {feature}. Using default feature."
-                    )
-                return default_feature
-            else:
-                raise ValueError(
-                    f"Found deconvolution result '{feature}', but no cell types information available.\n\n"
-                    "SOLUTION: Specify a cell type explicitly:\n"
-                    "  Use format: 'deconvolution_method:cell_type'\n"
-                    "  Example: 'deconvolution_cell2location:T_cells'"
-                )
-
-    # Check if it's a regular feature
-    elif feature not in adata.var_names and feature not in adata.obs.columns:
-        # Feature not found - raise error instead of silent fallback
-        available_genes = list(adata.var_names[:10])
-        available_obs = [
-            col
-            for col in adata.obs.columns
-            if adata.obs[col].dtype.name in ["object", "category"]
-        ][:10]
-        raise DataNotFoundError(
-            f"Feature '{feature}' not found in dataset.\n\n"
-            f"AVAILABLE DATA:\n"
-            f"  - Genes (example): {available_genes}\n"
-            f"  - Annotations (example): {available_obs}\n\n"
-            "SOLUTIONS:\n"
-            "1. Check spelling and capitalization of feature name\n"
-            "2. Use an available gene or annotation column\n"
-            "3. For deconvolution results, use format: 'deconvolution_method:cell_type'"
-        )
-    else:
+    # Check if it's a valid gene
+    if feature in adata.var_names:
         return feature
 
+    # Check if it's a valid obs column
+    if feature in adata.obs.columns:
+        return feature
 
-# Helper function to get deconvolution results as DataFrame
-def get_deconvolution_dataframe(adata, deconv_key):
-    """Get deconvolution results as DataFrame
+    # Feature not found - provide helpful error message
+    available_genes = list(adata.var_names[:10])
+    available_obs = [
+        col
+        for col in adata.obs.columns
+        if adata.obs[col].dtype.name in ["object", "category"]
+    ][:10]
 
-    Args:
-        adata: AnnData object
-        deconv_key: Key in adata.obsm for deconvolution results
-
-    Returns:
-        DataFrame with deconvolution results or None if not found
-    """
-    if deconv_key not in adata.obsm:
-        return None
-
-    # Get deconvolution results
-    deconv_results = adata.obsm[deconv_key]
-
-    # Convert to DataFrame if it's a numpy array
-    if isinstance(deconv_results, np.ndarray):
-        # Try to get cell types from uns
-        if f"{deconv_key}_cell_types" in adata.uns:
-            cell_types = adata.uns[f"{deconv_key}_cell_types"]
-            return pd.DataFrame(
-                deconv_results, index=adata.obs_names, columns=cell_types
-            )
-        else:
-            # Use generic column names
-            return pd.DataFrame(
-                deconv_results,
-                index=adata.obs_names,
-                columns=[f"Cell_Type_{i}" for i in range(deconv_results.shape[1])],
-            )
-
-    # If it's already a DataFrame, return it
-    elif isinstance(deconv_results, pd.DataFrame):
-        return deconv_results
-
-    # Otherwise, try to convert it
-    else:
-        try:
-            return pd.DataFrame(deconv_results, index=adata.obs_names)
-        except Exception:
-            return None
+    raise DataNotFoundError(
+        f"Feature '{feature}' not found in dataset.\n\n"
+        f"AVAILABLE DATA:\n"
+        f"  - Genes (example): {available_genes}\n"
+        f"  - Annotations (example): {available_obs}\n\n"
+        "SOLUTIONS:\n"
+        "1. Check spelling and capitalization of feature name\n"
+        "2. Use an available gene or annotation column\n"
+        "3. For deconvolution visualization, use:\n"
+        "   plot_type='deconvolution', deconv_method='cell2location'"
+    )
 
 
 # ============================================================
@@ -1778,212 +1754,68 @@ async def _create_heatmap_visualization(
     params: VisualizationParameters,
     context: Optional[Context] = None,
 ) -> plt.Figure:
-    """
-    Create heatmap visualization
-
-    Args:
-        adata: AnnData object
-        params: Visualization parameters
-        context: MCP context for logging
-
-    Returns:
-        matplotlib Figure object
-    """
-    if context:
-        await context.info("Creating heatmap plot")
-
-    # For heatmap, we need highly variable genes for meaningful clustering
+    """Create heatmap visualization using scanpy."""
+    # Check for highly variable genes
     hvg_exists = "highly_variable" in adata.var
     hvg_any = adata.var["highly_variable"].any() if hvg_exists else False
 
     if not hvg_exists or not hvg_any:
-        # Provide detailed diagnostic information
-        diagnostic_info = "\nDIAGNOSTIC INFO:\n"
-        diagnostic_info += f"  - 'highly_variable' column exists: {hvg_exists}\n"
-        if hvg_exists:
-            diagnostic_info += (
-                f"  - Number of HVGs marked: {adata.var['highly_variable'].sum()}\n"
-            )
-            diagnostic_info += f"  - Total genes in dataset: {adata.n_vars}\n"
-            diagnostic_info += (
-                f"  - HVG column dtype: {adata.var['highly_variable'].dtype}\n"
-            )
-        diagnostic_info += (
-            f"  - Available var columns: {list(adata.var.columns)[:10]}\n"
-        )
-
         raise ValueError(
-            "Heatmap requires highly variable genes but none found.\n\n"
-            "SOLUTIONS:\n"
-            "1. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n"
-            "2. Specify genes: visualize_data(data_id, params={'feature': ['CD3D']})\n"
-            "3. Use spatial plot: visualize_data(data_id, params={'plot_type': 'spatial'})\n"
-            + diagnostic_info
+            "Heatmap requires highly variable genes but none found.\n"
+            "Run preprocess_data first or specify genes via 'feature' parameter."
         )
 
-    # Create heatmap of top genes across groups
-    # REQUIRE explicit cluster_key specification for grouping
+    # Require cluster_key
     if not params.cluster_key:
         categorical_cols = [
-            col
-            for col in adata.obs.columns
+            col for col in adata.obs.columns
             if adata.obs[col].dtype.name in ["object", "category"]
-        ]
+        ][:15]
         raise ValueError(
-            "Heatmap visualization requires 'cluster_key' parameter.\n\n"
-            f"Available categorical columns ({len(categorical_cols)} total):\n"
-            f"  {', '.join(categorical_cols[:15])}\n\n"
-            "SOLUTION: Specify cluster_key explicitly:\n"
-            "  visualize_data(data_id, params={'plot_type': 'heatmap', 'cluster_key': 'your_column_name'})\n\n"
-            "NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
-            "   This maintains consistency with Squidpy spatial analysis functions."
+            f"cluster_key required. Available: {', '.join(categorical_cols)}"
         )
 
     if params.cluster_key not in adata.obs.columns:
-        raise ValueError(
-            f"Cluster key '{params.cluster_key}' not found in data.\n\n"
-            f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
-        )
+        raise ValueError(f"'{params.cluster_key}' not found in data.")
 
     groupby = params.cluster_key
-    # Limit the number of groups to avoid oversized responses
+
+    # Limit groups to avoid oversized plots
     n_groups = len(adata.obs[groupby].cat.categories)
     if n_groups > 10:
         if context:
-            await context.warning(
-                f"Too many groups ({n_groups}). Limiting to 10 groups."
-            )
-        # Get the 10 largest groups
+            await context.warning(f"Limiting to 10 largest groups (from {n_groups})")
         group_counts = adata.obs[groupby].value_counts().nlargest(10).index
-        # Subset the data to include only these groups
         adata = adata[adata.obs[groupby].isin(group_counts)].copy()
 
-    # Get genes for heatmap using unified validation function
-    # Default: use top 20 highly variable genes
+    # Get genes for heatmap
     n_genes = 20
     default_genes = adata.var_names[adata.var.highly_variable][:n_genes].tolist()
 
     available_genes = await get_validated_features(
+        adata, params, max_features=n_genes, allow_empty=True,
+        default_genes=default_genes, context=context,
+    )
+
+    # Use scanpy's heatmap directly
+    figsize = params.figure_size or (
+        max(8, len(available_genes) * 0.5),
+        max(6, len(adata.obs[groupby].cat.categories) * 0.3),
+    )
+
+    sc.pl.heatmap(
         adata,
-        params,
-        max_features=n_genes,
-        allow_empty=True,
-        default_genes=default_genes,
-        context=context,
+        var_names=available_genes,
+        groupby=groupby,
+        cmap=params.colormap,
+        show=False,
+        dendrogram=False,
+        standard_scale="var",
+        figsize=figsize,
     )
 
-    if context:
-        await context.info(
-            f"Creating heatmap with {len(available_genes)} genes: {available_genes[:5]}..."
-        )
-
-    # Create heatmap with improved settings
-    plt.figure(
-        figsize=(
-            max(8, len(available_genes) * 0.5),
-            (max(6, len(adata.obs[groupby].cat.categories) * 0.3) if groupby else 6),
-        ),
-        dpi=params.dpi,
-    )
-
-    # Use scanpy's heatmap with better parameters and enhanced annotations
-    heatmap_kwargs = {
-        "var_names": available_genes,
-        "groupby": groupby,
-        "cmap": params.colormap,
-        "show": False,
-        "dendrogram": False,
-        "standard_scale": "var",  # Standardize genes (rows)
-        "figsize": None,  # Let matplotlib handle the size
-        "swap_axes": False,  # Keep genes as rows
-        "vmin": None,  # Let scanpy determine range
-        "vmax": None,
-    }
-
-    # Add obs annotations if specified
-    if params.obs_annotation:
-        available_obs_annotations = [
-            col for col in params.obs_annotation if col in adata.obs.columns
-        ]
-        if available_obs_annotations:
-            # For scanpy heatmap, we can use the var_group_labels parameter
-            # But scanpy heatmap has limited annotation support, so we'll enhance post-creation
-            if context:
-                await context.info(
-                    f"Will add obs annotations: {available_obs_annotations}"
-                )
-
-    sc.pl.heatmap(adata, **heatmap_kwargs)
     fig = plt.gcf()
-
-    # Add custom annotations if requested
-    if params.obs_annotation or params.var_annotation:
-        try:
-            # Get the main heatmap axis
-            axes = fig.get_axes()
-            if axes:
-                main_ax = axes[0]  # Usually the main heatmap is the first axis
-
-                # Add obs annotations (column annotations)
-                if params.obs_annotation:
-                    available_obs = [
-                        col for col in params.obs_annotation if col in adata.obs.columns
-                    ]
-                    if available_obs:
-                        # Create a simple annotation bar above the heatmap
-                        # Get the position of the main heatmap
-                        pos = main_ax.get_position()
-
-                        # Create annotation axis above the heatmap
-                        ann_height = 0.02 * len(available_obs)
-                        ann_ax = fig.add_axes(
-                            [pos.x0, pos.y1 + 0.01, pos.width, ann_height]
-                        )
-
-                        # Create annotation data
-                        ann_data = adata.obs[available_obs].copy()
-
-                        # Convert categorical to numeric for visualization
-                        for col in available_obs:
-                            if (
-                                ann_data[col].dtype == "category"
-                                or ann_data[col].dtype == "object"
-                            ):
-                                unique_vals = ann_data[col].unique()
-                                color_map = {
-                                    val: i for i, val in enumerate(unique_vals)
-                                }
-                                ann_data[col] = ann_data[col].map(color_map)
-
-                        # Create annotation heatmap
-                        ann_ax.imshow(
-                            ann_data.T,
-                            aspect="auto",
-                            cmap="Set3",
-                            interpolation="nearest",
-                        )
-                        ann_ax.set_xlim(main_ax.get_xlim())
-                        ann_ax.set_xticks([])
-                        ann_ax.set_yticks(range(len(available_obs)))
-                        ann_ax.set_yticklabels(available_obs, fontsize=8)
-                        ann_ax.tick_params(left=False)
-
-                # Add var annotations (row annotations) - similar approach
-                if params.var_annotation:
-                    available_var = [
-                        col for col in params.var_annotation if col in adata.var.columns
-                    ]
-                    if available_var and context:
-                        await context.info(f"Adding var annotations: {available_var}")
-                        # This would require similar logic for row annotations
-
-        except Exception as e:
-            if context:
-                await context.warning(f"Failed to add annotations: {str(e)}")
-
-    # Improve the layout
     plt.tight_layout()
-
     return fig
 
 
@@ -2110,115 +1942,6 @@ async def visualize_data(
             ) from e
 
 
-async def get_deconvolution_proportions(
-    adata: ad.AnnData, method: Optional[str] = None, context=None
-) -> Tuple[pd.DataFrame, str]:
-    """
-    Get deconvolution proportions from AnnData
-
-    Args:
-        adata: AnnData object with deconvolution results
-        method: Specific method (e.g., "cell2location"). If None and only one
-                result exists, auto-select. If None and multiple results exist,
-                raise error requiring explicit specification.
-        context: MCP context for info/warning messages
-
-    Returns:
-        (proportions_df, method_name)
-
-    Raises:
-        DataNotFoundError: If no deconvolution results found
-        ValueError: If multiple results found but method not specified
-    """
-    # Auto-detect if method not specified
-    if method is None:
-        deconv_keys = [
-            key for key in adata.obsm.keys() if key.startswith("deconvolution_")
-        ]
-        if not deconv_keys:
-            raise DataNotFoundError(
-                "No deconvolution results found in adata.obsm.\n\n"
-                "SOLUTIONS:\n"
-                "1. Run deconvolution analysis first:\n"
-                '   deconvolve_spatial_data(data_id="your_data", '
-                'params={"method": "cell2location", ...})\n\n'
-                "Available methods: cell2location, rctd, destvi, stereoscope, "
-                "spotlight, card, tangram"
-            )
-
-        # CHECK FOR MULTIPLE RESULTS - Fail honestly!
-        if len(deconv_keys) > 1:
-            available_methods = [
-                key.replace("deconvolution_", "") for key in deconv_keys
-            ]
-            raise ValueError(
-                f"Multiple deconvolution results found: {available_methods}\n\n"
-                f"SOLUTION: Specify which method to visualize:\n\n"
-                f"  visualize_data(\n"
-                f"    data_id='your_data',\n"
-                f"    params={{\n"
-                f"      'plot_type': 'deconvolution',\n"
-                f"      'deconv_method': '{available_methods[0]}',  # or other method\n"
-                f"      'subtype': 'spatial_multi'  # optional\n"
-                f"    }}\n"
-                f"  )\n\n"
-                f"NOTE: Different deconvolution methods have different assumptions.\n"
-                f"      Always explicitly specify which method you want to visualize\n"
-                f"      to ensure reproducibility and scientific accuracy."
-            )
-
-        # Only auto-select when single result exists
-        proportions_key = deconv_keys[0]
-        method = proportions_key.replace("deconvolution_", "")
-
-        # Notify user about auto-selection
-        if context:
-            await context.info(f"Using deconvolution method: {method}")
-
-    else:
-        # User specified method explicitly
-        proportions_key = f"deconvolution_{method}"
-        if proportions_key not in adata.obsm:
-            available = [
-                key.replace("deconvolution_", "")
-                for key in adata.obsm.keys()
-                if key.startswith("deconvolution_")
-            ]
-            raise DataNotFoundError(
-                f"Deconvolution results for method '{method}' not found.\n\n"
-                f"Available methods: {available if available else 'None'}\n\n"
-                "Run deconvolution first or specify an available method."
-            )
-
-    # Get proportions
-    proportions_array = adata.obsm[proportions_key]
-
-    # Get cell type names
-    cell_types_key = f"{proportions_key}_cell_types"
-    if cell_types_key in adata.uns:
-        cell_types = adata.uns[cell_types_key]
-    else:
-        # Fallback: extract from obs columns
-        prefix = f"{proportions_key}_"
-        cell_type_cols = [
-            col.replace(prefix, "")
-            for col in adata.obs.columns
-            if col.startswith(prefix)
-        ]
-        cell_types = (
-            cell_type_cols
-            if cell_type_cols
-            else [f"CellType_{i}" for i in range(proportions_array.shape[1])]
-        )
-
-    # Create DataFrame
-    proportions = pd.DataFrame(
-        proportions_array, index=adata.obs_names, columns=cell_types
-    )
-
-    return proportions, method
-
-
 async def _create_dominant_celltype_map(
     adata: ad.AnnData,
     params: VisualizationParameters,
@@ -2241,15 +1964,13 @@ async def _create_dominant_celltype_map(
     Raises:
         DataNotFoundError: If deconvolution results not found
     """
-    # Get proportions
-    proportions, method = await get_deconvolution_proportions(
-        adata, params.deconv_method, context
-    )
+    # Get deconvolution data using unified function
+    data = await get_deconvolution_data(adata, params.deconv_method, context)
 
     # Get dominant cell type
-    dominant_idx = proportions.values.argmax(axis=1)
-    dominant_types = proportions.columns[dominant_idx].values
-    dominant_proportions = proportions.values.max(axis=1)
+    dominant_idx = data.proportions.values.argmax(axis=1)
+    dominant_types = data.proportions.columns[dominant_idx].values
+    dominant_proportions = data.proportions.values.max(axis=1)
 
     # Mark pure vs mixed spots
     if params.show_mixed_spots:
@@ -2335,10 +2056,10 @@ async def _create_dominant_celltype_map(
     ax.set_xlabel("Spatial X")
     ax.set_ylabel("Spatial Y")
     ax.set_title(
-        f"Dominant Cell Type Map ({method})\n"
+        f"Dominant Cell Type Map ({data.method})\n"
         f"Threshold: {params.min_proportion_threshold:.2f}"
         if params.show_mixed_spots
-        else f"Dominant Cell Type Map ({method})"
+        else f"Dominant Cell Type Map ({data.method})"
     )
     ax.legend(
         bbox_to_anchor=(1.05, 1),
@@ -2386,22 +2107,20 @@ async def _create_diversity_map(
     """
     from scipy.stats import entropy
 
-    # Get proportions
-    proportions, method = await get_deconvolution_proportions(
-        adata, params.deconv_method, context
-    )
+    # Get deconvolution data using unified function
+    data = await get_deconvolution_data(adata, params.deconv_method, context)
 
     # Calculate Shannon entropy for each spot
     # Add small epsilon to avoid log(0)
     epsilon = 1e-10
-    proportions_safe = proportions.values + epsilon
+    proportions_safe = data.proportions.values + epsilon
 
     # Shannon entropy: -sum(p * log(p))
     spot_entropy = entropy(proportions_safe.T, base=2)  # Base 2 for bits
 
     # Normalize to [0, 1] range
     # Max entropy = log2(n_cell_types)
-    max_entropy = np.log2(proportions.shape[1])
+    max_entropy = np.log2(data.proportions.shape[1])
     normalized_entropy = spot_entropy / max_entropy
 
     # Get spatial coordinates
@@ -2434,7 +2153,7 @@ async def _create_diversity_map(
     ax.set_xlabel("Spatial X")
     ax.set_ylabel("Spatial Y")
     ax.set_title(
-        f"Cell Type Diversity Map ({method})\n"
+        f"Cell Type Diversity Map ({data.method})\n"
         f"Shannon Entropy (0=homogeneous, 1=maximally diverse)"
     )
     ax.set_aspect("equal")
@@ -2484,24 +2203,22 @@ async def _create_stacked_barplot(
     Raises:
         DataNotFoundError: If deconvolution results not found
     """
-    # Get proportions
-    proportions, method = await get_deconvolution_proportions(
-        adata, params.deconv_method, context
-    )
+    # Get deconvolution data using unified function
+    data = await get_deconvolution_data(adata, params.deconv_method, context)
 
     # Limit number of spots for readability
-    n_spots = len(proportions)
+    n_spots = len(data.proportions)
     if n_spots > params.max_spots:
         # Sample spots
         sample_indices = np.random.choice(n_spots, size=params.max_spots, replace=False)
-        proportions_plot = proportions.iloc[sample_indices]
+        proportions_plot = data.proportions.iloc[sample_indices]
         if context:
             await context.warning(
                 f"Sampled {params.max_spots} spots out of {n_spots} for readability. "
                 f"Adjust max_spots parameter to show more."
             )
     else:
-        proportions_plot = proportions
+        proportions_plot = data.proportions
 
     # Sort spots based on sort_by parameter
     if params.sort_by == "dominant_type":
@@ -2577,7 +2294,7 @@ async def _create_stacked_barplot(
     )
     ax.set_ylabel("Cell Type Proportion")
     ax.set_title(
-        f"Cell Type Proportions ({method})\n"
+        f"Cell Type Proportions ({data.method})\n"
         f"Sorted by: {params.sort_by.replace('_', ' ').title()}"
     )
     ax.set_ylim([0, 1])
@@ -2629,10 +2346,8 @@ async def _create_scatterpie_plot(
     """
     from matplotlib.patches import Wedge
 
-    # Get proportions
-    proportions, method = await get_deconvolution_proportions(
-        adata, params.deconv_method, context
-    )
+    # Get deconvolution data using unified function
+    data = await get_deconvolution_data(adata, params.deconv_method, context)
 
     # Get spatial coordinates
     if "spatial" not in adata.obsm:
@@ -2642,7 +2357,7 @@ async def _create_scatterpie_plot(
     spatial_coords = adata.obsm["spatial"]
 
     # Use all spots (no sampling)
-    proportions_plot = proportions
+    proportions_plot = data.proportions
     coords_plot = spatial_coords
 
     # Get cell types
@@ -2709,7 +2424,7 @@ async def _create_scatterpie_plot(
     ax.set_xlabel("Spatial X")
     ax.set_ylabel("Spatial Y")
     ax.set_title(
-        f"Spatial Scatterpie Plot ({method})\n"
+        f"Spatial Scatterpie Plot ({data.method})\n"
         f"Cell Type Composition (pie scale: {params.pie_scale:.2f})"
     )
     ax.set_aspect("equal")
@@ -2758,10 +2473,8 @@ async def _create_umap_proportions(
     Raises:
         DataNotFoundError: If deconvolution or UMAP not found
     """
-    # Get proportions
-    proportions, method = await get_deconvolution_proportions(
-        adata, params.deconv_method, context
-    )
+    # Get deconvolution data using unified function
+    data = await get_deconvolution_data(adata, params.deconv_method, context)
 
     # Check for UMAP coordinates
     if "X_umap" not in adata.obsm:
@@ -2772,11 +2485,11 @@ async def _create_umap_proportions(
     umap_coords = adata.obsm["X_umap"]
 
     # Get cell types (limit to n_cell_types)
-    cell_types = proportions.columns.tolist()
+    cell_types = data.proportions.columns.tolist()
     n_cell_types_total = len(cell_types)
 
     # Select top cell types by mean proportion
-    mean_proportions = proportions.mean(axis=0).sort_values(ascending=False)
+    mean_proportions = data.proportions.mean(axis=0).sort_values(ascending=False)
     top_cell_types = mean_proportions.head(params.n_cell_types).index.tolist()
 
     # Create multi-panel figure
@@ -2794,7 +2507,7 @@ async def _create_umap_proportions(
         ax = axes[idx]
 
         # Get proportions for this cell type
-        prop_values = proportions[cell_type].values
+        prop_values = data.proportions[cell_type].values
 
         # Create scatter plot
         scatter = ax.scatter(
@@ -2825,7 +2538,7 @@ async def _create_umap_proportions(
 
     # Overall title
     fig.suptitle(
-        f"UMAP Cell Type Proportions ({method})\n"
+        f"UMAP Cell Type Proportions ({data.method})\n"
         f"Top {n_panels} cell types (out of {n_cell_types_total})",
         fontsize=12,
         y=0.995,
@@ -2889,7 +2602,9 @@ async def _create_deconvolution_visualization(
 async def _create_spatial_multi_deconvolution(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Original multi-panel spatial deconvolution visualization
+    """Multi-panel spatial deconvolution visualization.
+
+    Shows top N cell types as separate spatial plots.
 
     Args:
         adata: AnnData object with deconvolution results
@@ -2899,183 +2614,51 @@ async def _create_spatial_multi_deconvolution(
     Returns:
         Matplotlib figure with multi-panel spatial visualization
     """
-    # Import pandas at the top to ensure it's always available
-    import pandas as pd
-
-    # Find deconvolution results in obsm
-    # USE params.deconv_method FOR FILTERING
-    if params.deconv_method:
-        # User specified method - look for that specific result
-        target_key = f"deconvolution_{params.deconv_method}"
-        if target_key in adata.obsm:
-            deconv_keys = [target_key]
-        else:
-            # Will check obs columns later
-            deconv_keys = []
-    else:
-        # No method specified - find all available
-        deconv_keys = [
-            key
-            for key in adata.obsm.keys()
-            if "deconvolution" in key.lower() or "proportions" in key.lower()
-        ]
-
-    if not deconv_keys:
-        # Look for individual cell type proportions in obs
-        # Filter by params.deconv_method if specified
-        if params.deconv_method:
-            deconv_methods = [params.deconv_method]
-        else:
-            # Support all deconvolution methods
-            deconv_methods = [
-                "cell2location",
-                "rctd",
-                "destvi",
-                "stereoscope",
-                "spotlight",
-                "tangram",
-                "card",
-            ]
-
-        cell_type_cols = [
-            col
-            for col in adata.obs.columns
-            if any(method in col.lower() for method in deconv_methods)
-        ]
-
-        if not cell_type_cols:
-            if params.deconv_method:
-                raise DataNotFoundError(
-                    f"Deconvolution results for method '{params.deconv_method}' not found.\n\n"
-                    f"Available in obsm: {[k for k in adata.obsm.keys() if 'deconv' in k]}\n"
-                    f"Run deconvolution first or specify an available method."
-                )
-            else:
-                raise DataNotFoundError(
-                    f"No deconvolution results found in adata.obsm or adata.obs.\n"
-                    f"Looking for columns containing: {', '.join(deconv_methods)}\n"
-                    f"Available columns: {list(adata.obs.columns[:10])}"
-                )
-
-        # Create proportions DataFrame from obs columns
-        # Extract base key (e.g., 'deconvolution_cell2location' from 'deconvolution_cell2location_T_cell')
-        base_keys = set()
-        for col in cell_type_cols:
-            parts = col.split("_")
-            if len(parts) >= 3:
-                base_key = "_".join(parts[:-1])  # Remove last part (cell type name)
-                base_keys.add(base_key)
-
-        if not base_keys:
-            raise DataNotFoundError("Could not identify deconvolution result structure")
-
-        # CHECK FOR MULTIPLE RESULTS
-        if len(base_keys) > 1:
-            available = [key.split("_")[1] if "_" in key else key for key in base_keys]
-            raise ValueError(
-                f"Multiple deconvolution results found in obs: {list(base_keys)}\n\n"
-                f"Available methods: {available}\n\n"
-                f"SOLUTION: Specify deconv_method parameter:\n"
-                f"  params={{'deconv_method': '{available[0]}'}}"
-            )
-
-        # Single result - use it
-        base_key = list(base_keys)[0]
-        method_name = base_key.split("_")[1].upper() if "_" in base_key else "DECONV"
-
-        if context:
-            await context.info(f"Using deconvolution method: {method_name}")
-
-        # Get all columns for this base key
-        relevant_cols = [col for col in cell_type_cols if col.startswith(base_key)]
-        cell_types = [col.replace(f"{base_key}_", "") for col in relevant_cols]
-
-        # Create proportions DataFrame
-        proportions = pd.DataFrame(
-            {
-                cell_type: adata.obs[f"{base_key}_{cell_type}"].values
-                for cell_type in cell_types
-            },
-            index=adata.obs.index,
-        )
-    else:
-        # CHECK FOR MULTIPLE RESULTS IN OBSM
-        if len(deconv_keys) > 1:
-            available = [key.replace("deconvolution_", "") for key in deconv_keys]
-            raise ValueError(
-                f"Multiple deconvolution results found: {available}\n\n"
-                f"SOLUTION: Specify deconv_method parameter:\n"
-                f"  visualize_data(\n"
-                f"    data_id='your_data',\n"
-                f"    params={{\n"
-                f"      'plot_type': 'deconvolution',\n"
-                f"      'deconv_method': '{available[0]}',\n"
-                f"      'subtype': 'spatial_multi'\n"
-                f"    }}\n"
-                f"  )"
-            )
-
-        # Single result - use it
-        deconv_key = deconv_keys[0]
-        method_name = (
-            deconv_key.split("_")[1].upper() if "_" in deconv_key else "DECONV"
-        )
-
-        if context:
-            await context.info(f"Using deconvolution method: {method_name}")
-
-        proportions = pd.DataFrame(
-            adata.obsm[deconv_key],
-            index=adata.obs.index,
-            columns=adata.uns.get(
-                f"{deconv_key}_cell_types",
-                [f"CellType_{i}" for i in range(adata.obsm[deconv_key].shape[1])],
-            ),
-        )
+    # Use unified data retrieval function
+    data = await get_deconvolution_data(adata, params.deconv_method, context)
 
     # Get top cell types by mean proportion
-    n_cell_types = min(params.n_cell_types, proportions.shape[1])
+    n_cell_types = min(params.n_cell_types, len(data.cell_types))
     top_cell_types = (
-        proportions.mean().sort_values(ascending=False).index[:n_cell_types]
+        data.proportions.mean().sort_values(ascending=False).index[:n_cell_types]
     )
 
-    # USE THE NEW HELPER
+    # Setup multi-panel figure
     fig, axes = setup_multi_panel_figure(
         n_panels=len(top_cell_types),
         params=params,
-        default_title=f"{method_name} Cell Type Proportions",
+        default_title=f"{data.method.upper()} Cell Type Proportions",
     )
 
-    # Plot each cell type
-    # Use a more unique temporary column name to avoid conflicts
-    temp_feature_key = "deconv_prop_temp_viz_99_unique"
+    # Plot each cell type using temporary column
+    temp_feature_key = "_deconv_viz_temp"
 
     for i, cell_type in enumerate(top_cell_types):
         if i < len(axes):
             ax = axes[i]
             try:
                 # Get cell type proportions
-                proportions_values = proportions[cell_type].values
+                proportions_values = data.proportions[cell_type].values
 
-                # Check for NaN values
+                # Handle NaN values
                 if pd.isna(proportions_values).any():
                     proportions_values = pd.Series(proportions_values).fillna(0).values
 
-                # Add temporary column to original adata (more efficient than copying)
+                # Add temporary column for plotting
                 adata.obs[temp_feature_key] = proportions_values
 
                 # Plot spatial distribution
                 if "spatial" in adata.obsm:
-                    # USE THE NEW SPATIAL PLOT HELPER (but we'll override the title)
                     plot_spatial_feature(
                         adata, feature=temp_feature_key, ax=ax, params=params
                     )
-                    # Manually set title to show actual cell type name
                     ax.set_title(cell_type)
                     ax.invert_yaxis()
                 else:
-                    # Fallback: bar plot
-                    sorted_props = proportions[cell_type].sort_values(ascending=False)
+                    # Fallback: bar plot for non-spatial data
+                    sorted_props = data.proportions[cell_type].sort_values(
+                        ascending=False
+                    )
                     ax.bar(
                         range(len(sorted_props)),
                         sorted_props.values,
@@ -3086,7 +2669,6 @@ async def _create_spatial_multi_deconvolution(
                     ax.set_ylabel("Proportion")
 
             except Exception as e:
-                # Handle individual cell type plotting errors
                 ax.text(
                     0.5,
                     0.5,
@@ -3097,174 +2679,11 @@ async def _create_spatial_multi_deconvolution(
                 )
                 ax.set_title(f"{cell_type} (Error)")
 
-    # Clean up the temporary column
-    if temp_feature_key in adata.obs:
+    # Clean up temporary column
+    if temp_feature_key in adata.obs.columns:
         del adata.obs[temp_feature_key]
 
-    # Adjust spacing for compact layout with proper colorbar spacing
-    # Using subplots_adjust directly (same as LR pairs and multi-gene)
-    # Reduced wspace from 0.2 to 0.1 for tighter left-right spacing
     fig.subplots_adjust(top=0.92, wspace=0.1, hspace=0.3, right=0.98)
-    return fig
-
-
-async def _create_spatial_domains_visualization(
-    adata: ad.AnnData, params: VisualizationParameters, context=None
-) -> plt.Figure:
-    """Create spatial domains visualization"""
-    # Check if user explicitly specified cluster_key parameter
-    if params.cluster_key:
-        if params.cluster_key not in adata.obs.columns:
-            raise ValueError(
-                f"Specified cluster_key '{params.cluster_key}' not found in data.\n\n"
-                f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
-            )
-        domain_keys = [params.cluster_key]
-    else:
-        # Look for spatial domain results in adata.obs
-        domain_keys = [
-            col
-            for col in adata.obs.columns
-            if "spatial_domains" in col.lower() or "domain" in col.lower()
-        ]
-
-    # FAIL HONESTLY: Don't guess which column contains spatial domains
-    if not domain_keys:
-        # Show available categorical columns for user reference
-        categorical_cols = [
-            col
-            for col in adata.obs.columns
-            if adata.obs[col].dtype.name in ["object", "category"]
-        ]
-
-        error_msg = (
-            "No spatial domains found in dataset.\n\n"
-            f"Available categorical columns ({len(categorical_cols)} total):\n"
-            f"  {', '.join(categorical_cols[:15])}"
-        )
-
-        if len(categorical_cols) > 15:
-            error_msg += f"\n  ... and {len(categorical_cols) - 15} more"
-
-        error_msg += (
-            "\n\nSOLUTIONS:\n"
-            "1. Run spatial domain identification first:\n"
-            '   identify_spatial_domains(data_id="your_data_id", params={"method": "spagcn"})\n\n'
-            "2. Or specify an existing clustering column explicitly:\n"
-            '   visualize_data(data_id, params={"plot_type": "spatial_domains", "cluster_key": "leiden"})\n\n'
-            "NOTE: ChatSpatial uses 'cluster_key' parameter.\n"
-            "   This maintains consistency with other visualization functions."
-        )
-
-        raise ValueError(error_msg)
-
-    # Use the first available domain key
-    domain_key = domain_keys[0]
-    if context:
-        await context.info(f"Visualizing spatial domains using column: {domain_key}")
-
-    # Get spatial coordinates - STRICT: NO FALLBACK to non-spatial data
-    try:
-        x_coords, y_coords = get_spatial_coordinates(adata)
-        coord_type = "spatial"
-    except Exception as e:
-        # NO FALLBACK: Spatial domains require REAL spatial coordinates
-        error_msg = (
-            "Spatial domain visualization requires actual spatial coordinates.\n\n"
-            f"Error details: {str(e)}\n\n"
-            "SOLUTIONS:\n"
-            "1. Ensure your data contains spatial coordinates:\n"
-            "   - Standard location: adata.obsm['spatial']\n"
-            "   - Alternative: adata.obs['x'] and adata.obs['y']\n\n"
-            "2. For Visium data, ensure proper loading:\n"
-            "   sc.read_visium(path_to_data)\n\n"
-            "3. For other spatial platforms, add coordinates manually:\n"
-            "   adata.obsm['spatial'] = np.column_stack([x_coords, y_coords])\n\n"
-            "SCIENTIFIC INTEGRITY: Spatial domains are tissue regions defined by\n"
-            "PHYSICAL LOCATION. PCA coordinates represent gene expression similarity,\n"
-            "NOT spatial position. We cannot substitute one for the other.\n\n"
-            "• Spatial coords: Real (x,y) positions on tissue\n"
-            "• PCA coords: Abstract dimensions of gene expression variance\n"
-            "Using PCA as spatial would completely invalidate spatial analysis."
-        )
-        if context:
-            await context.error(error_msg)
-        raise ValueError(error_msg)
-
-    # Create figure
-    figsize = params.figure_size or (10, 8)
-    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
-
-    # Get domain labels
-    domains = adata.obs[domain_key].astype(str)
-    unique_domains = sorted(domains.unique())
-    n_domains = len(unique_domains)
-
-    if context:
-        await context.info(f"Found {n_domains} spatial domains: {unique_domains}")
-
-    # Use a colormap with distinct colors
-    if n_domains <= 10:
-        colors = plt.cm.tab10(np.linspace(0, 1, n_domains))
-    elif n_domains <= 20:
-        colors = plt.cm.tab20(np.linspace(0, 1, n_domains))
-    else:
-        colors = plt.cm.viridis(np.linspace(0, 1, n_domains))
-
-    # Create scatter plot
-    for i, domain in enumerate(unique_domains):
-        mask = domains == domain
-        n_spots = mask.sum()
-        ax.scatter(
-            x_coords[mask],
-            y_coords[mask],
-            c=[colors[i]],
-            label=f"Domain {domain} (n={n_spots})",
-            s=params.spot_size or 50,
-            alpha=params.alpha,
-            edgecolors="none",
-        )
-
-    # Set labels and title
-    if coord_type == "spatial":
-        ax.set_xlabel("Spatial X")
-        ax.set_ylabel("Spatial Y")
-        # Invert y-axis for proper spatial orientation
-        ax.invert_yaxis()
-    elif coord_type == "X_spatial":
-        ax.set_xlabel("Spatial X")
-        ax.set_ylabel("Spatial Y")
-        ax.invert_yaxis()
-    else:
-        # This should never happen due to earlier validation
-        raise ValueError(f"Unexpected coord_type: {coord_type}")
-
-    # Set title
-    title = params.title or f"Spatial Domains ({domain_key})"
-    ax.set_title(title, fontsize=14)
-
-    # Add legend
-    if (
-        params.show_legend and n_domains <= 15
-    ):  # Only show legend if not too many domains
-        ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=10)
-    elif n_domains > 15:
-        # Add text indicating number of domains
-        ax.text(
-            0.02,
-            0.98,
-            f"{n_domains} domains",
-            transform=ax.transAxes,
-            verticalalignment="top",
-            fontsize=10,
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
-        )
-
-    ax.set_aspect("equal")
-
-    # Adjust layout
-    plt.tight_layout()
-
     return fig
 
 
@@ -4360,186 +3779,51 @@ async def _create_spatial_statistics_visualization(
 async def _create_neighborhood_enrichment_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create neighborhood enrichment visualization with optional network view"""
-    # Infer cluster_key from params or from available results in adata.uns
+    """Create neighborhood enrichment visualization using squidpy."""
+    try:
+        import squidpy as sq
+    except ImportError:
+        raise ImportError(
+            "squidpy is required for neighborhood enrichment visualization. "
+            "Install with: pip install squidpy"
+        )
+
+    # Infer cluster_key from params or existing results
     cluster_key = params.cluster_key
     if not cluster_key:
-        # Try to infer from adata.uns keys
         enrichment_keys = [
             k for k in adata.uns.keys() if k.endswith("_nhood_enrichment")
         ]
         if enrichment_keys:
             cluster_key = enrichment_keys[0].replace("_nhood_enrichment", "")
             if context:
-                await context.info(
-                    f"Inferred cluster_key: '{cluster_key}' from existing results"
-                )
+                await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
+            categorical_cols = [
+                col for col in adata.obs.columns
+                if adata.obs[col].dtype.name in ["object", "category"]
+            ][:10]
             raise ValueError(
-                "cluster_key parameter is required but not provided.\n\n"
-                "Available categorical columns in data:\n  "
-                + ", ".join(
-                    [
-                        col
-                        for col in adata.obs.columns
-                        if adata.obs[col].dtype.name in ["object", "category"]
-                    ][:10]
-                )
-                + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
+                f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
 
     enrichment_key = f"{cluster_key}_nhood_enrichment"
     if enrichment_key not in adata.uns:
         raise DataNotFoundError(
-            f"Neighborhood enrichment results not found. Expected key: {enrichment_key}"
+            f"Neighborhood enrichment not found. Run analyze_spatial_statistics "
+            f"with cluster_key='{cluster_key}' first."
         )
 
-    enrichment_matrix = adata.uns[enrichment_key]["zscore"]
-    categories = adata.obs[cluster_key].cat.categories
-
-    # Check if network visualization is requested
-    if params.show_network:
-        if context:
-            await context.info(
-                "Creating network-style neighborhood enrichment visualization"
-            )
-        return await _create_neighborhood_network_visualization(
-            enrichment_matrix, categories, params, context
-        )
-    else:
-        # Standard heatmap visualization
-        figsize = params.figure_size or (10, 8)
-        fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
-
-        im = ax.imshow(enrichment_matrix, cmap=params.colormap)
-
-        if params.show_colorbar:
-            plt.colorbar(im, ax=ax, label="Z-score")
-
-        ax.set_xticks(np.arange(len(categories)))
-        ax.set_yticks(np.arange(len(categories)))
-        ax.set_xticklabels(categories, rotation=45, ha="right")
-        ax.set_yticklabels(categories)
-
-        title = params.title or f"Neighborhood Enrichment ({cluster_key})"
-        ax.set_title(title)
-        ax.set_xlabel("Cluster")
-        ax.set_ylabel("Cluster")
-
-        plt.tight_layout()
-        return fig
-
-
-async def _create_neighborhood_network_visualization(
-    enrichment_matrix: np.ndarray,
-    categories,
-    params: VisualizationParameters,
-    context=None,
-) -> plt.Figure:
-    """Create network-style visualization of neighborhood enrichment"""
-    try:
-        import networkx as nx
-    except ImportError:
-        raise ImportError(
-            "Network visualization requires NetworkX but it is not installed.\n\n"
-            "SOLUTION:\n"
-            "Install NetworkX: pip install networkx\n\n"
-            "ALTERNATIVE:\n"
-            "Use standard heatmap visualization by setting show_network=False\n\n"
-            "SCIENTIFIC INTEGRITY: Network graphs and heatmaps convey different information.\n"
-            "We refuse to silently substitute one for another as this could mislead interpretation."
-        )
-
-    # Create network graph
-    G = nx.Graph()
-
-    # Add nodes (cell types/clusters)
-    for i, category in enumerate(categories):
-        G.add_node(category)
-
-    # Add edges based on enrichment scores above threshold
-    threshold = params.network_threshold
-    for i in range(len(categories)):
-        for j in range(i + 1, len(categories)):
-            zscore = enrichment_matrix[i, j]
-            if abs(zscore) > threshold:
-                G.add_edge(
-                    categories[i], categories[j], weight=abs(zscore), zscore=zscore
-                )
-
-    # Create visualization
-    figsize = params.figure_size or (12, 10)
+    # Use squidpy's heatmap visualization
+    figsize = params.figure_size or (10, 8)
     fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
 
-    # Choose layout
-    if params.network_layout == "spring":
-        pos = nx.spring_layout(G, k=2, iterations=50)
-    elif params.network_layout == "circular":
-        pos = nx.circular_layout(G)
-    elif params.network_layout == "kamada_kawai":
-        pos = nx.kamada_kawai_layout(G)
-    elif params.network_layout == "fruchterman_reingold":
-        pos = nx.fruchterman_reingold_layout(G)
-    else:
-        pos = nx.spring_layout(G)
-
-    # Draw nodes
-    node_sizes = [
-        500 + 100 * len(categories) for _ in G.nodes()
-    ]  # Size based on number of categories
-    nx.draw_networkx_nodes(
-        G, pos, node_color="lightblue", node_size=node_sizes, alpha=0.8, ax=ax
-    )
-
-    # Draw edges with colors based on enrichment/depletion
-    edges = G.edges()
-    edge_colors = []
-    edge_widths = []
-
-    for edge in edges:
-        zscore = G[edge[0]][edge[1]]["zscore"]
-        weight = G[edge[0]][edge[1]]["weight"]
-
-        # Color: red for enrichment (positive), blue for depletion (negative)
-        edge_colors.append("red" if zscore > 0 else "blue")
-        # Width based on absolute z-score
-        edge_widths.append(min(5, max(0.5, weight / 2)))
-
-    if edges:
-        nx.draw_networkx_edges(
-            G, pos, edge_color=edge_colors, width=edge_widths, alpha=0.6, ax=ax
-        )
-
-    # Draw labels
-    nx.draw_networkx_labels(G, pos, font_size=10, font_weight="bold", ax=ax)
-
-    # Set title and clean up
-    title = params.title or f"Neighborhood Enrichment Network (threshold: {threshold})"
-    ax.set_title(title, fontsize=14, fontweight="bold")
-    ax.axis("off")
-
-    # Add legend
-    from matplotlib.lines import Line2D
-
-    legend_elements = [
-        Line2D([0], [0], color="red", lw=2, label="Enrichment (Z > 0)"),
-        Line2D([0], [0], color="blue", lw=2, label="Depletion (Z < 0)"),
-        Line2D([0], [0], color="gray", lw=1, label=f"|Z-score| > {threshold}"),
-    ]
-    ax.legend(handles=legend_elements, loc="upper right")
-
-    # Add network statistics as text
-    n_nodes = G.number_of_nodes()
-    n_edges = G.number_of_edges()
-    stats_text = f"Nodes: {n_nodes}\nEdges: {n_edges}\nThreshold: {threshold}"
-    ax.text(
-        0.02,
-        0.98,
-        stats_text,
-        transform=ax.transAxes,
-        verticalalignment="top",
-        fontsize=10,
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+    sq.pl.nhood_enrichment(
+        adata,
+        cluster_key=cluster_key,
+        cmap=params.colormap or "coolwarm",
+        ax=ax,
+        title=params.title or f"Neighborhood Enrichment ({cluster_key})",
     )
 
     plt.tight_layout()
@@ -4549,155 +3833,108 @@ async def _create_neighborhood_network_visualization(
 async def _create_co_occurrence_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create co-occurrence analysis visualization"""
-    # Infer cluster_key from params or from available results in adata.uns
+    """Create co-occurrence analysis visualization using squidpy."""
+    try:
+        import squidpy as sq
+    except ImportError:
+        raise ImportError(
+            "squidpy is required for co-occurrence visualization. "
+            "Install with: pip install squidpy"
+        )
+
+    # Infer cluster_key from params or existing results
     cluster_key = params.cluster_key
     if not cluster_key:
-        # Try to infer from adata.uns keys
         co_occurrence_keys = [
             k for k in adata.uns.keys() if k.endswith("_co_occurrence")
         ]
         if co_occurrence_keys:
             cluster_key = co_occurrence_keys[0].replace("_co_occurrence", "")
             if context:
-                await context.info(
-                    f"Inferred cluster_key: '{cluster_key}' from existing results"
-                )
+                await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
+            categorical_cols = [
+                col for col in adata.obs.columns
+                if adata.obs[col].dtype.name in ["object", "category"]
+            ][:10]
             raise ValueError(
-                "cluster_key parameter is required but not provided.\n\n"
-                "Available categorical columns in data:\n  "
-                + ", ".join(
-                    [
-                        col
-                        for col in adata.obs.columns
-                        if adata.obs[col].dtype.name in ["object", "category"]
-                    ][:10]
-                )
-                + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
+                f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
 
     co_occurrence_key = f"{cluster_key}_co_occurrence"
     if co_occurrence_key not in adata.uns:
         raise DataNotFoundError(
-            f"Co-occurrence results not found. Expected key: {co_occurrence_key}"
+            f"Co-occurrence not found. Run analyze_spatial_statistics "
+            f"with cluster_key='{cluster_key}' first."
         )
 
-    co_occurrence_matrix = adata.uns[co_occurrence_key]["occ"]
-    interval = adata.uns[co_occurrence_key]["interval"]
-    categories = adata.obs[cluster_key].cat.categories
+    # Use squidpy's co_occurrence plot
+    categories = adata.obs[cluster_key].cat.categories.tolist()
+    clusters_to_show = categories[:min(4, len(categories))]
 
-    # The co-occurrence matrix is 3D (clusters x clusters x distances)
-    n_clusters = co_occurrence_matrix.shape[0]
-    n_distances = co_occurrence_matrix.shape[2]
+    figsize = params.figure_size or (12, 10)
 
-    # Limit to at most 4 distance panels to keep the figure manageable
-    max_panels = min(4, n_distances)
-    selected_distances = np.linspace(0, n_distances - 1, max_panels, dtype=int)
-
-    fig, axes = setup_multi_panel_figure(
-        n_panels=max_panels,
-        params=params,
-        default_title=f"Co-occurrence at different distances ({cluster_key})",
+    # sq.pl.co_occurrence manages its own figure, doesn't accept ax parameter
+    sq.pl.co_occurrence(
+        adata,
+        cluster_key=cluster_key,
+        clusters=clusters_to_show,
+        figsize=figsize,
+        dpi=params.dpi,
     )
 
-    for i, dist_idx in enumerate(selected_distances):
-        if i < len(axes):
-            ax = axes[i]
-            dist_value = interval[dist_idx]
+    fig = plt.gcf()
+    if params.title:
+        fig.suptitle(params.title)
 
-            im = ax.imshow(
-                co_occurrence_matrix[:, :, dist_idx],
-                cmap=params.colormap,
-                vmin=0,
-                vmax=np.max(co_occurrence_matrix),
-            )
-
-            # Set ticks and labels
-            if n_clusters <= 10:
-                ax.set_xticks(np.arange(len(categories)))
-                ax.set_yticks(np.arange(len(categories)))
-                ax.set_xticklabels(categories, rotation=45, ha="right")
-                ax.set_yticklabels(categories)
-            else:
-                step = max(1, n_clusters // 5)
-                ax.set_xticks(np.arange(0, n_clusters, step))
-                ax.set_yticks(np.arange(0, n_clusters, step))
-                ax.set_xticklabels(categories[::step], rotation=45, ha="right")
-                ax.set_yticklabels(categories[::step])
-
-            ax.set_title(f"Distance: {dist_value:.2f}")
-
-            if i == 0:
-                ax.set_ylabel("Cluster")
-            if i == max_panels // 2:
-                ax.set_xlabel("Cluster")
-
-    # Add colorbar to the last subplot
-    if params.show_colorbar:
-        plt.colorbar(im, ax=axes[-1], label="Co-occurrence probability")
-
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.tight_layout()
     return fig
 
 
 async def _create_ripley_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create Ripley's function visualization"""
-    # Infer cluster_key from params or from available results in adata.uns
+    """Create Ripley's function visualization using squidpy."""
+    try:
+        import squidpy as sq
+    except ImportError:
+        raise ImportError(
+            "squidpy is required for Ripley visualization. "
+            "Install with: pip install squidpy"
+        )
+
+    # Infer cluster_key from params or existing results
     cluster_key = params.cluster_key
     if not cluster_key:
-        # Try to infer from adata.uns keys
         ripley_keys = [k for k in adata.uns.keys() if k.endswith("_ripley_L")]
         if ripley_keys:
             cluster_key = ripley_keys[0].replace("_ripley_L", "")
             if context:
-                await context.info(
-                    f"Inferred cluster_key: '{cluster_key}' from existing results"
-                )
+                await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
+            categorical_cols = [
+                col for col in adata.obs.columns
+                if adata.obs[col].dtype.name in ["object", "category"]
+            ][:10]
             raise ValueError(
-                "cluster_key parameter is required but not provided.\n\n"
-                "Available categorical columns in data:\n  "
-                + ", ".join(
-                    [
-                        col
-                        for col in adata.obs.columns
-                        if adata.obs[col].dtype.name in ["object", "category"]
-                    ][:10]
-                )
-                + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
+                f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
 
     ripley_key = f"{cluster_key}_ripley_L"
     if ripley_key not in adata.uns:
         raise DataNotFoundError(
-            f"Ripley analysis results not found. Expected key: {ripley_key}"
+            f"Ripley results not found. Run analyze_spatial_statistics "
+            f"with cluster_key='{cluster_key}' and analysis_type='ripley' first."
         )
 
-    try:
-        import squidpy as sq
+    # Use squidpy's ripley plot
+    figsize = params.figure_size or (10, 8)
+    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
 
-        figsize = params.figure_size or (10, 8)
-        fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+    sq.pl.ripley(adata, cluster_key=cluster_key, mode="L", plot_sims=True, ax=ax)
 
-        sq.pl.ripley(adata, cluster_key=cluster_key, mode="L", plot_sims=True, ax=ax)
-
-        title = params.title or f"Ripley's L Function ({cluster_key})"
-        ax.set_title(title)
-
-    except Exception as e:
-        # Ripley's L function plotting failed - fail honestly instead of generating fake data
-        error_msg = (
-            f"Ripley's L function visualization failed: {e}. "
-            f"This requires squidpy for proper spatial statistics calculation. "
-            f"Please install squidpy (pip install squidpy) and ensure Ripley analysis "
-            f"has been performed first using analyze_spatial_statistics with analysis_type='ripley'."
-        )
-        if context:
-            await context.error(error_msg)
-        raise RuntimeError(error_msg)
+    if params.title:
+        ax.set_title(params.title)
 
     plt.tight_layout()
     return fig
@@ -4760,64 +3997,55 @@ async def _create_moran_visualization(
 async def _create_centrality_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create centrality scores visualization"""
-    # Infer cluster_key from params or from available results in adata.uns
+    """Create centrality scores visualization using squidpy."""
+    try:
+        import squidpy as sq
+    except ImportError:
+        raise ImportError(
+            "squidpy is required for centrality visualization. "
+            "Install with: pip install squidpy"
+        )
+
+    # Infer cluster_key from params or existing results
     cluster_key = params.cluster_key
     if not cluster_key:
-        # Try to infer from adata.uns keys
         centrality_keys = [
             k for k in adata.uns.keys() if k.endswith("_centrality_scores")
         ]
         if centrality_keys:
             cluster_key = centrality_keys[0].replace("_centrality_scores", "")
             if context:
-                await context.info(
-                    f"Inferred cluster_key: '{cluster_key}' from existing results"
-                )
+                await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
+            categorical_cols = [
+                col for col in adata.obs.columns
+                if adata.obs[col].dtype.name in ["object", "category"]
+            ][:10]
             raise ValueError(
-                "cluster_key parameter is required but not provided.\n\n"
-                "Available categorical columns in data:\n  "
-                + ", ".join(
-                    [
-                        col
-                        for col in adata.obs.columns
-                        if adata.obs[col].dtype.name in ["object", "category"]
-                    ][:10]
-                )
-                + "\n\nPlease specify: params={'cluster_key': 'your_column_name'}"
+                f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
 
     centrality_key = f"{cluster_key}_centrality_scores"
     if centrality_key not in adata.uns:
         raise DataNotFoundError(
-            f"Centrality scores not found. Expected key: {centrality_key}"
+            f"Centrality scores not found. Run analyze_spatial_statistics "
+            f"with cluster_key='{cluster_key}' first."
         )
 
-    centrality_data = adata.uns[centrality_key]
-    categories = adata.obs[cluster_key].cat.categories
-
+    # Use squidpy's centrality_scores plot
     figsize = params.figure_size or (10, 8)
-    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
 
-    centrality_types = list(centrality_data.keys())
-    x = np.arange(len(categories))
-    width = 0.8 / len(centrality_types)
+    # sq.pl.centrality_scores manages its own figure, doesn't accept ax parameter
+    sq.pl.centrality_scores(
+        adata,
+        cluster_key=cluster_key,
+        figsize=figsize,
+        dpi=params.dpi,
+    )
 
-    for i, ctype in enumerate(centrality_types):
-        values = centrality_data[ctype]
-        offset = width * i - width * len(centrality_types) / 2 + width / 2
-        ax.bar(x + offset, values, width, label=ctype, alpha=params.alpha)
-
-    ax.set_xlabel("Cluster")
-    ax.set_ylabel("Centrality Score")
-    title = params.title or f"Centrality Scores by Cluster ({cluster_key})"
-    ax.set_title(title)
-    ax.set_xticks(x)
-    ax.set_xticklabels(categories, rotation=45, ha="right")
-
-    if params.show_legend:
-        ax.legend()
+    fig = plt.gcf()
+    if params.title:
+        fig.suptitle(params.title)
 
     plt.tight_layout()
     return fig
@@ -5089,25 +4317,14 @@ async def _create_trajectory_visualization(
 async def _create_gene_correlation_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create gene correlation visualization
+    """Create gene correlation visualization using seaborn clustermap."""
+    import seaborn as sns
+    import pandas as pd
 
-    Args:
-        adata: AnnData object
-        params: Visualization parameters
-        context: MCP context
-
-    Returns:
-        Matplotlib figure with gene correlation visualization
-    """
-    # USE THE NEW FEATURE HELPER
+    # Get validated genes
     available_genes = await get_validated_features(
         adata, params, max_features=10, context=context
     )
-
-    if context:
-        await context.info(
-            f"Computing correlations for {len(available_genes)} genes: {available_genes}"
-        )
 
     # Get expression matrix
     expr_matrix = adata[:, available_genes].X
@@ -5120,113 +4337,31 @@ async def _create_gene_correlation_visualization(
     elif params.color_scale == "sqrt":
         expr_matrix = np.sqrt(expr_matrix)
 
-    # Calculate correlation matrix
+    # Create DataFrame for correlation
+    expr_df = pd.DataFrame(expr_matrix, columns=available_genes)
 
-    n_genes = len(available_genes)
-    corr_matrix = np.zeros((n_genes, n_genes))
-    p_value_matrix = np.zeros((n_genes, n_genes))
+    # Calculate correlation using pandas (handles method selection)
+    corr_df = expr_df.corr(method=params.correlation_method)
 
-    for i in range(n_genes):
-        for j in range(n_genes):
-            if i == j:
-                corr_matrix[i, j] = 1.0
-                p_value_matrix[i, j] = 0.0
-            else:
-                if params.correlation_method == "pearson":
-                    corr, p_val = pearsonr(expr_matrix[:, i], expr_matrix[:, j])
-                else:  # spearman
-                    corr, p_val = spearmanr(expr_matrix[:, i], expr_matrix[:, j])
+    # Use seaborn clustermap for visualization with clustering
+    figsize = params.figure_size or (max(8, len(available_genes)), max(8, len(available_genes)))
 
-                corr_matrix[i, j] = corr
-                p_value_matrix[i, j] = p_val
-
-    # Determine figure size
-    if params.figure_size:
-        figsize = params.figure_size
-    else:
-        figsize = (max(8, n_genes), max(6, n_genes))
-
-    # Create figure with subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, dpi=params.dpi)
-
-    # Set figure title
-    title = (
-        params.title
-        or f"Gene Correlation Analysis ({params.correlation_method.title()})"
-    )
-    fig.suptitle(title, fontsize=16)
-
-    # Plot correlation heatmap
-    import seaborn as sns
-
-    # Correlation heatmap
-    sns.heatmap(
-        corr_matrix,
-        annot=True,
+    g = sns.clustermap(
+        corr_df,
         cmap=params.colormap,
         center=0,
+        annot=True,
+        fmt=".2f",
         square=True,
-        xticklabels=available_genes,
-        yticklabels=available_genes,
-        ax=ax1,
-        cbar_kws={"shrink": 0.8},
+        figsize=figsize,
+        dendrogram_ratio=0.15,
+        cbar_pos=(0.02, 0.8, 0.03, 0.15),
     )
-    ax1.set_title(f"{params.correlation_method.title()} Correlation")
-    ax1.tick_params(axis="x", rotation=45)
-    ax1.tick_params(axis="y", rotation=0)
 
-    # P-value heatmap
-    if params.show_correlation_stats:
-        # Create significance mask
-        sig_mask = p_value_matrix < 0.05
+    title = params.title or f"Gene Correlation ({params.correlation_method.title()})"
+    g.fig.suptitle(title, y=1.02, fontsize=14)
 
-        sns.heatmap(
-            -np.log10(p_value_matrix + 1e-10),  # -log10 p-values
-            annot=True,
-            cmap="Reds",
-            square=True,
-            xticklabels=available_genes,
-            yticklabels=available_genes,
-            ax=ax2,
-            cbar_kws={"shrink": 0.8, "label": "-log10(p-value)"},
-        )
-        ax2.set_title("Statistical Significance")
-        ax2.tick_params(axis="x", rotation=45)
-        ax2.tick_params(axis="y", rotation=0)
-
-        # Add significance markers
-        for i in range(n_genes):
-            for j in range(n_genes):
-                if sig_mask[i, j] and i != j:
-                    ax2.text(
-                        j + 0.5,
-                        i + 0.5,
-                        "*",
-                        ha="center",
-                        va="center",
-                        color="white",
-                        fontsize=16,
-                        fontweight="bold",
-                    )
-    else:
-        # Show clustered correlation
-        from scipy.cluster.hierarchy import dendrogram, linkage
-        from scipy.spatial.distance import squareform
-
-        # Convert correlation to distance
-        distance_matrix = 1 - np.abs(corr_matrix)
-        condensed_distances = squareform(distance_matrix, checks=False)
-
-        # Perform hierarchical clustering
-        linkage_matrix = linkage(condensed_distances, method="average")
-
-        # Plot dendrogram
-        dendrogram(linkage_matrix, labels=available_genes, ax=ax2, orientation="top")
-        ax2.set_title("Gene Clustering")
-        ax2.tick_params(axis="x", rotation=45)
-
-    plt.tight_layout()
-    return fig
+    return g.fig
 
 
 async def _create_enrichment_visualization(
@@ -6390,7 +5525,6 @@ PLOT_HANDLERS = {
     "spatial": _create_spatial_visualization,
     "heatmap": _create_heatmap_visualization,
     "deconvolution": _create_deconvolution_visualization,
-    "spatial_domains": _create_spatial_domains_visualization,
     "cell_communication": _create_cell_communication_visualization,
     "multi_gene": _create_multi_gene_visualization,
     "lr_pairs": _create_lr_pairs_visualization,

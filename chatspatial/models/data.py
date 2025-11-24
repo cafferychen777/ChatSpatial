@@ -269,7 +269,6 @@ class VisualizationParameters(BaseModel):
         "violin",
         "umap",
         "dotplot",  # Marker gene expression dotplot
-        "spatial_domains",
         "cell_communication",
         "deconvolution",
         "trajectory",
@@ -469,18 +468,6 @@ class VisualizationParameters(BaseModel):
     integration_method: Optional[str] = Field(
         None, description="Integration method used (for display)"
     )
-
-    # NEW: Network visualization parameters (for neighborhood analysis)
-    show_network: bool = Field(
-        False,
-        description="Show network-style visualization for neighborhood enrichment",
-    )
-    network_threshold: float = Field(
-        2.0, description="Z-score threshold for network edges"
-    )
-    network_layout: Literal[
-        "spring", "circular", "kamada_kawai", "fruchterman_reingold"
-    ] = Field("spring", description="Network layout algorithm")
 
     # Dotplot visualization parameters
     dotplot_dendrogram: bool = Field(
