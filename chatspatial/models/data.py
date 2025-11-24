@@ -364,6 +364,12 @@ class VisualizationParameters(BaseModel):
     # Ligand-receptor pair parameters
     lr_pairs: Optional[List[Tuple[str, str]]] = None  # List of (ligand, receptor) pairs
     lr_database: str = "cellchat"  # Database for LR pairs
+    plot_top_pairs: int = Field(
+        6,
+        gt=0,
+        le=20,
+        description="Number of top LR pairs to display in cell communication visualization. Default: 6",
+    )
 
     # Gene correlation parameters
     correlation_method: Literal["pearson", "spearman", "kendall"] = "pearson"
@@ -1525,7 +1531,11 @@ class CellCommunicationParameters(BaseModel):
     """Cell-cell communication analysis parameters model with explicit user control"""
 
     # ========== Basic Method Selection ==========
-    method: Literal["liana", "cellphonedb", "cellchat_liana"] = "liana"
+    method: Literal["liana", "cellphonedb", "cellchat_r"] = "liana"
+    # Methods:
+    # - "liana": LIANA+ framework (Python, supports multiple resources)
+    # - "cellphonedb": CellPhoneDB v5 (Python)
+    # - "cellchat_r": Native R CellChat (full features with mediator proteins & pathways)
 
     # ========== Species and Resource Control ==========
     species: Literal["human", "mouse", "zebrafish"]
@@ -1555,11 +1565,6 @@ class CellCommunicationParameters(BaseModel):
         "ramilowski2015",  # Ramilowski et al. 2015
     ] = "consensus"  # LR database resource
 
-    # ========== Data Usage Control ==========
-    # Explicit data source control
-    data_source: Literal["current", "raw"] = "current"
-    # current: Use adata.X, raw: Use adata.raw (if exists)
-
     # ========== Spatial Analysis Control ==========
     perform_spatial_analysis: bool = (
         True  # Whether to perform spatial bivariate analysis
@@ -1574,7 +1579,9 @@ class CellCommunicationParameters(BaseModel):
         "cosine"  # Local spatial metric
     )
     liana_global_metric: Literal["morans", "lee"] = "morans"  # Global spatial metric
-    liana_n_perms: Annotated[int, Field(gt=0)] = 1000  # Number of permutations for LIANA (1000 minimum for publication-quality p-values)
+    liana_n_perms: Annotated[int, Field(gt=0)] = (
+        1000  # Number of permutations for LIANA (1000 minimum for publication-quality p-values)
+    )
     liana_nz_prop: Annotated[float, Field(gt=0.0, le=1.0)] = (
         0.2  # Minimum expression proportion
     )
@@ -1625,6 +1632,53 @@ class CellCommunicationParameters(BaseModel):
     # - "bonferroni": Bonferroni correction (most conservative, controls FWER)
     # - "sidak": Šidák correction (similar to Bonferroni but more accurate for independent tests)
     # - "none": No correction (NOT recommended, leads to ~92% FPR with 7 clusters)
+
+    # ========== CellChat R Specific Parameters ==========
+    # These parameters are only used when method="cellchat_r"
+    cellchat_db_category: Literal[
+        "Secreted Signaling",
+        "ECM-Receptor",
+        "Cell-Cell Contact",
+        "All",
+    ] = "All"
+    # CellChatDB category to use:
+    # - "Secreted Signaling": Ligand-receptor pairs for secreted signaling
+    # - "ECM-Receptor": Extracellular matrix-receptor interactions
+    # - "Cell-Cell Contact": Direct cell-cell contact interactions
+    # - "All": Use all categories (default)
+
+    cellchat_type: Literal["triMean", "truncatedMean", "thresholdedMean", "median"] = (
+        "triMean"
+    )
+    # CellChat expression aggregation method:
+    # - "trimean": Tukey's trimean (robust, default, produces fewer interactions)
+    # - "truncatedMean": Truncated mean (more interactions, use with trim parameter)
+
+    cellchat_trim: Annotated[float, Field(ge=0.0, le=0.5)] = 0.1
+    # Trim proportion for truncatedMean method (0.1 = 10% truncated mean)
+
+    cellchat_population_size: bool = True
+    # Whether to consider cell population size effect in communication probability
+
+    cellchat_min_cells: Annotated[int, Field(ge=1)] = 10
+    # Minimum number of cells required in each cell group for filterCommunication
+
+    cellchat_distance_use: bool = True
+    # Whether to use spatial distance constraints (for spatial data)
+
+    cellchat_interaction_range: Annotated[float, Field(gt=0.0)] = 250.0
+    # Maximum interaction/diffusion range of ligands in microns (for spatial data)
+
+    cellchat_scale_distance: Annotated[float, Field(gt=0.0)] = 0.01
+    # Scale factor for distance calculation (adjust based on imaging technology)
+
+    cellchat_contact_knn_k: Annotated[int, Field(ge=1)] = 6
+    # Number of nearest neighbors for defining contact-dependent signaling
+    # Used for spatial data to determine which cells are in contact range
+
+    cellchat_contact_range: Optional[Annotated[float, Field(gt=0.0)]] = None
+    # Alternative to contact_knn_k: explicit distance threshold for contact signaling
+    # If None, uses contact_knn_k instead (recommended for most spatial data)
 
 
 class EnrichmentParameters(BaseModel):

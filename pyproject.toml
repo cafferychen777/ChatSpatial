@@ -53,6 +53,7 @@ dependencies = [
     # Cell communication (10 references combined)
     "liana",  # No version constraint - let pip choose compatible version
     "cellphonedb>=5.0.0,<6.0",
+    "ktplotspy>=0.3.0",  # Official CellPhoneDB visualization (heatmap, dotplot, chord)
     
     # Batch integration (frequently needed)
     "harmonypy>=0.0.9",

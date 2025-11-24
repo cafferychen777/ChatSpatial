@@ -28,6 +28,44 @@ except ImportError:
     CELLPHONEDB_AVAILABLE = False
 
 
+def is_cellchat_r_available() -> tuple[bool, str]:
+    """Check if CellChat R package is available through rpy2
+
+    Returns:
+        Tuple of (is_available, error_message)
+    """
+    try:
+        import rpy2.robjects as ro
+        from rpy2.robjects import pandas2ri
+        from rpy2.robjects.conversion import localconverter
+
+        # Test R connection
+        try:
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                ro.r("R.version.string")
+        except Exception as e:
+            return False, f"R is not accessible: {str(e)}"
+
+        # Check if CellChat is installed in R
+        try:
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                ro.r("library(CellChat)")
+        except Exception as e:
+            return (
+                False,
+                f"CellChat R package is not installed: {str(e)}. "
+                "Install in R with: devtools::install_github('jinworks/CellChat')",
+            )
+
+        return True, ""
+
+    except ImportError:
+        return (
+            False,
+            "rpy2 is not installed. Install with 'pip install rpy2' to use CellChat R",
+        )
+
+
 async def _validate_liana_requirements(
     adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
 ) -> None:
@@ -81,7 +119,7 @@ async def analyze_cell_communication(
 
     try:
         # Apply method-specific validation
-        if params.method in ["liana", "cellchat_liana"]:
+        if params.method == "liana":
             # LIANA-based methods need spatial connectivity validation
             await _validate_liana_requirements(adata, params, context)
         elif params.method == "cellphonedb":
@@ -90,15 +128,9 @@ async def analyze_cell_communication(
 
             # Provide data overview information
             if context:
+                n_genes = adata.raw.n_vars if adata.raw is not None else adata.n_vars
                 data_source_info = (
-                    "raw layer"
-                    if params.data_source == "raw" and adata.raw
-                    else "current layer"
-                )
-                n_genes = (
-                    adata.raw.n_vars
-                    if params.data_source == "raw" and adata.raw
-                    else adata.n_vars
+                    "raw layer" if adata.raw is not None else "current layer"
                 )
                 await context.info(
                     f"Running CellPhoneDB with {n_genes} genes from {data_source_info} "
@@ -118,31 +150,8 @@ async def analyze_cell_communication(
                         f"This may affect statistical power."
                     )
 
-        # Handle data source selection
-        if params.data_source == "raw":
-            if adata.raw is None:
-                raise ValueError(
-                    "data_source='raw' specified but adata.raw is None. "
-                    "Either use data_source='current' or load data with raw counts preserved."
-                )
-
-            # Create full dataset from raw
-            adata_full = adata.raw.to_adata()
-
-            # Transfer all metadata
-            adata_full.obs = adata.obs.copy()
-            adata_full.obsm = adata.obsm.copy()
-            adata_full.obsp = adata.obsp.copy()  # Critical for spatial connectivity
-            adata_full.uns = adata.uns.copy()
-
-            # Check if raw data needs normalization
-            if adata_full.X.max() > 100:
-                import scanpy as sc
-
-                sc.pp.normalize_total(adata_full, target_sum=1e4)
-                sc.pp.log1p(adata_full)
-
-            adata = adata_full
+        # Note: LIANA internally handles use_raw parameter automatically
+        # No need for manual data_source switching - consistent with other tools
 
         # Analyze cell communication using selected method
         if params.method == "liana":
@@ -161,18 +170,18 @@ async def analyze_cell_communication(
                 adata, params, context
             )
 
-        elif params.method == "cellchat_liana":
-            if not LIANA_AVAILABLE:
-                raise ImportError(
-                    "LIANA+ is not installed. Please install it with: pip install liana"
-                )
-            result_data = await _analyze_communication_cellchat_liana(
+        elif params.method == "cellchat_r":
+            is_available, error_message = is_cellchat_r_available()
+            if not is_available:
+                raise ImportError(f"CellChat R is not available: {error_message}")
+            result_data = await _analyze_communication_cellchat_r(
                 adata, params, context
             )
 
         else:
             raise ValueError(
-                f"Unsupported method: {params.method}. Supported methods: 'liana', 'cellphonedb', 'cellchat_liana'"
+                f"Unsupported method: {params.method}. "
+                f"Supported methods: 'liana', 'cellphonedb', 'cellchat_r'"
             )
 
         # Note: Visualizations should be created using the separate visualize_data tool
@@ -182,10 +191,10 @@ async def analyze_cell_communication(
                 "Cell communication analysis complete. Use visualize_data tool with plot_type='cell_communication' to visualize results"
             )
 
-        # When data_source="raw", a new adata object is created, so copy results back
+        # Copy results back to original adata to ensure persistence
         original_adata = data_store[data_id]["adata"]
 
-        # Copy all CellPhoneDB/LIANA results from the temporary adata to the original
+        # Copy all CellPhoneDB/LIANA/CellChat results from the temporary adata to the original
         # This ensures results are preserved when data is saved
         for key in [
             "cellphonedb_deconvoluted",
@@ -195,7 +204,16 @@ async def analyze_cell_communication(
             "cellphonedb_statistics",
             "liana_res",
             "lrdata",
-            "liana_spatial",
+            "liana_spatial_res",
+            "liana_spatial_interactions",
+            "detected_lr_pairs",
+            "cell_communication_results",
+            # CellChat R specific keys
+            "cellchat_r_lr_pairs",
+            "cellchat_r_prob",
+            "cellchat_r_pval",
+            "cellchat_r_top_pathways",
+            "cellchat_r_params",
         ]:
             if key in adata.uns:
                 original_adata.uns[key] = adata.uns[key]
@@ -214,7 +232,11 @@ async def analyze_cell_communication(
         elif params.method == "cellphonedb":
             database = "cellphonedb"
         elif params.method == "cellchat_liana":
-            database = "cellchatdb"  # Match actual LIANA resource name used in implementation (line 1801)
+            database = (
+                "cellchatdb"  # Match actual LIANA resource name used in implementation
+            )
+        elif params.method == "cellchat_r":
+            database = f"CellChatDB.{params.species}"  # Native R CellChat database
         else:
             database = "unknown"
 
@@ -229,6 +251,8 @@ async def analyze_cell_communication(
             results_keys_dict["obsm"].append(result_data["liana_spatial_scores_key"])
         if result_data.get("cellphonedb_results_key"):
             results_keys_dict["uns"].append(result_data["cellphonedb_results_key"])
+        if result_data.get("cellchat_r_results_key"):
+            results_keys_dict["uns"].append(result_data["cellchat_r_results_key"])
 
         # Store metadata
         store_analysis_metadata(
@@ -237,16 +261,8 @@ async def analyze_cell_communication(
             method=params.method,
             parameters={
                 "cell_type_key": params.cell_type_key,
-                "n_perms": (
-                    params.liana_n_perms
-                    if params.method in ["liana", "cellchat_liana"]
-                    else None
-                ),
-                "nz_prop": (
-                    params.liana_nz_prop
-                    if params.method in ["liana", "cellchat_liana"]
-                    else None
-                ),
+                "n_perms": (params.liana_n_perms if params.method == "liana" else None),
+                "nz_prop": (params.liana_nz_prop if params.method == "liana" else None),
                 "min_cells": params.min_cells,
                 "iterations": (
                     params.cellphonedb_iterations
@@ -322,10 +338,6 @@ async def _analyze_communication_liana(
         )
 
     try:
-        import time
-
-        time.time()
-
         # Ensure spatial connectivity is computed
         if "spatial_connectivities" not in adata.obsp:
             # Use parameters from user or determine optimal bandwidth based on data size
@@ -532,15 +544,59 @@ async def _run_liana_spatial_analysis(
     top_pairs_df = lrdata.var.nlargest(params.plot_top_pairs, global_metric)
     top_lr_pairs = top_pairs_df.index.tolist()
 
-    # Count significant pairs (high spatial autocorrelation)
-    # Use different thresholds based on metric
-    if global_metric == "morans":
-        threshold = 0.1
-    else:  # lee
-        threshold = 0.1
+    # Count significant pairs using statistical significance (p-values)
+    # Fix: Use p-values with FDR correction instead of effect size threshold
+    # See: MCP_TESTING_LOG.md for detailed investigation
 
-    # Both morans and lee use > threshold for significance
-    n_significant_pairs = len(lrdata.var[lrdata.var[global_metric] > threshold])
+    pvals_col = f"{global_metric}_pvals"
+
+    if pvals_col in lrdata.var.columns:
+        # Correct approach: Use p-values with FDR correction
+        from statsmodels.stats.multitest import multipletests
+
+        alpha = 0.05
+        pvals = lrdata.var[pvals_col]
+
+        # Diagnostic logging
+        if context:
+            await context.info(
+                f"📊 Statistical Significance Analysis:\n"
+                f"  - Total L-R pairs: {len(pvals)}\n"
+                f"  - P-value range: [{pvals.min():.6f}, {pvals.max():.6f}]\n"
+                f"  - P < 0.05 (uncorrected): {(pvals < alpha).sum()}/{len(pvals)}"
+            )
+
+        reject, pvals_corrected, _, _ = multipletests(
+            pvals, alpha=alpha, method="fdr_bh"  # Benjamini-Hochberg FDR correction
+        )
+
+        n_significant_pairs = reject.sum()
+
+        # Diagnostic logging for FDR results
+        if context:
+            await context.info(
+                f"  - FDR-corrected p-value range: [{pvals_corrected.min():.6f}, {pvals_corrected.max():.6f}]\n"
+                f"  - Significant pairs (FDR < {alpha}): {n_significant_pairs}/{len(pvals)} ({n_significant_pairs/len(pvals)*100:.1f}%)"
+            )
+
+        # Store corrected p-values and significance flags for downstream use
+        lrdata.var[f"{pvals_col}_corrected"] = pvals_corrected
+        lrdata.var[f"{global_metric}_significant"] = reject
+    else:
+        # Fallback: use threshold-based approach with warning
+        # This is not statistically rigorous but maintains backward compatibility
+        threshold = 0.1
+        n_significant_pairs = len(lrdata.var[lrdata.var[global_metric] > threshold])
+
+        import warnings
+
+        warnings.warn(
+            f"⚠️  P-values column '{pvals_col}' not found in LIANA results! "
+            f"Using threshold-based approach ({global_metric} > {threshold}). "
+            f"Results may not be statistically rigorous. "
+            f"This is a fallback for backward compatibility.",
+            UserWarning,
+        )
 
     # Store results in adata
     adata.uns["liana_spatial_res"] = lrdata.var
@@ -581,6 +637,13 @@ async def _run_liana_spatial_analysis(
         "n_permutations": n_perms,
         "nz_proportion": nz_prop,
         "resource": params.liana_resource,
+        "significance_method": (
+            "FDR-corrected p-values"
+            if pvals_col in lrdata.var.columns
+            else "threshold-based (deprecated)"
+        ),
+        "fdr_method": "Benjamini-Hochberg" if pvals_col in lrdata.var.columns else None,
+        "alpha": 0.05 if pvals_col in lrdata.var.columns else None,
     }
 
     return {
@@ -650,8 +713,7 @@ async def _analyze_communication_cellphonedb(
         import os
         import tempfile
 
-        from cellphonedb.src.core.methods import \
-            cpdb_statistical_analysis_method
+        from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
     except ImportError:
         raise ImportError(
             "CellPhoneDB is not installed. Please install it with: pip install cellphonedb"
@@ -780,33 +842,56 @@ async def _analyze_communication_cellphonedb(
                     debug_seed=debug_seed,
                     output_path=temp_dir,
                     microenvs_file_path=microenvs_file,
-                    score_interactions=True,  # New: Enable interaction scoring (v5 feature)
+                    score_interactions=False,  # Disabled: CellPhoneDB v5 scoring has bugs
                 )
-
-                # Validate CellPhoneDB v5 format
-                if not isinstance(result, dict):
-                    raise RuntimeError(
-                        f"CellPhoneDB returned unexpected format: {type(result).__name__}. "
-                        f"Expected dict from CellPhoneDB v5. Check installation: pip install 'cellphonedb>=5.0.0'"
-                    )
-
-                # Extract results from CellPhoneDB v5 dictionary format
-                deconvoluted = result.get("deconvoluted")
-                means = result.get("means")
-                pvalues = result.get("pvalues")
-                significant_means = result.get("significant_means")
-
-                # Validate CellPhoneDB API result completeness
-                if significant_means is None and "significant_means" not in result:
-                    raise RuntimeError(
-                        "CellPhoneDB returned incomplete results (missing 'significant_means'). "
-                        "Try method='liana' or data_source='raw' for better gene coverage."
-                    )
+            except KeyError as key_error:
+                # CellPhoneDB returns empty dict when no interactions found,
+                # then crashes trying to access 'significant_means' key
+                raise RuntimeError(
+                    f"CellPhoneDB found no matching ligand-receptor interactions in your data.\n\n"
+                    f"COMMON CAUSES:\n"
+                    f"  1. Species mismatch: CellPhoneDB database is primarily for HUMAN data.\n"
+                    f"     Your data appears to use non-human gene names.\n"
+                    f"  2. Gene name format: CellPhoneDB expects HGNC symbols (e.g., 'TGFB1', 'IL6').\n"
+                    f"     Check if your genes use Ensembl IDs or other formats.\n"
+                    f"  3. Low gene coverage: Too few genes overlap with the L-R database.\n\n"
+                    f"SOLUTION:\n"
+                    f"  Use method='liana' instead - it supports multiple species and resources:\n"
+                    f"    - For mouse: species='mouse', liana_resource='mouseconsensus'\n"
+                    f"    - For human: species='human', liana_resource='consensus'\n\n"
+                    f"Original error: {key_error}"
+                ) from key_error
             except Exception as api_error:
                 raise RuntimeError(
                     f"CellPhoneDB analysis failed: {str(api_error)}. "
                     f"Consider using method='liana' as alternative."
                 ) from api_error
+
+            # Validate CellPhoneDB v5 format
+            if not isinstance(result, dict):
+                raise RuntimeError(
+                    f"CellPhoneDB returned unexpected format: {type(result).__name__}. "
+                    f"Expected dict from CellPhoneDB v5. Check installation: pip install 'cellphonedb>=5.0.0'"
+                )
+
+            # Check for empty results (no interactions found)
+            if not result or "significant_means" not in result:
+                raise RuntimeError(
+                    f"CellPhoneDB found no ligand-receptor interactions in your data.\n\n"
+                    f"This typically happens when:\n"
+                    f"  1. Using mouse/non-human data (CellPhoneDB is human-focused)\n"
+                    f"  2. Gene names don't match HGNC symbols\n"
+                    f"  3. Very few genes overlap with the L-R database\n\n"
+                    f"SOLUTION: Use method='liana' with appropriate species setting:\n"
+                    f"  - Mouse: species='mouse', liana_resource='mouseconsensus'\n"
+                    f"  - Human: species='human', liana_resource='consensus'"
+                )
+
+            # Extract results from CellPhoneDB v5 dictionary format
+            deconvoluted = result.get("deconvoluted")
+            means = result.get("means")
+            pvalues = result.get("pvalues")
+            significant_means = result.get("significant_means")
 
             # Store results in AnnData object
             adata.uns["cellphonedb_deconvoluted"] = deconvoluted
@@ -1007,107 +1092,6 @@ async def _analyze_communication_cellphonedb(
         raise RuntimeError(f"CellPhoneDB analysis failed: {str(e)}")
 
 
-async def _analyze_communication_cellchat_liana(
-    adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
-) -> Dict[str, Any]:
-    """Analyze cell communication using CellChat via LIANA"""
-    try:
-        import liana as li
-    except ImportError:
-        raise ImportError(
-            "LIANA+ is not installed. Please install it with: pip install liana"
-        )
-
-    if context:
-        await context.info("Running CellChat analysis via LIANA...")
-
-    try:
-        import time
-
-        start_time = time.time()
-
-        # Use cell_type_key from params (required field, no auto-detect)
-        groupby_col = params.cell_type_key
-
-        validate_obs_column(adata, groupby_col, "Cell type column")
-
-        if context:
-            await context.info(
-                f"Running CellChat analysis grouped by '{groupby_col}'..."
-            )
-
-        # Use CellChatDB resource to match function name
-        # Hardcoded to ensure consistency with method name "cellchat_liana"
-        resource_name = "cellchatdb"
-        if context:
-            await context.info(
-                f"Using LIANA resource: {resource_name} (CellChatDB database)"
-            )
-
-        # Use parameters from user (respect user choice)
-        n_perms = params.liana_n_perms
-
-        # Run LIANA with CellChat resource
-        li.mt.rank_aggregate(
-            adata,
-            groupby=groupby_col,
-            resource_name=resource_name,
-            expr_prop=params.liana_nz_prop,
-            min_cells=params.min_cells,
-            n_perms=n_perms,
-            verbose=False,
-            use_raw=True if adata.raw is not None else False,
-        )
-
-        # Get results
-        liana_res = adata.uns["liana_res"]
-
-        # Calculate statistics using magnitude_rank (signal strength)
-        # NOT specificity_rank (which has non-uniform distribution)
-        n_lr_pairs = len(liana_res)
-        n_significant_pairs = len(liana_res[liana_res["magnitude_rank"] <= 0.05])
-
-        # Get top pairs
-        top_lr_pairs = []
-        if "magnitude_rank" in liana_res.columns:
-            top_pairs_df = liana_res.nsmallest(params.plot_top_pairs, "magnitude_rank")
-            top_lr_pairs = [
-                f"{row['ligand_complex']}_{row['receptor_complex']}"
-                for _, row in top_pairs_df.iterrows()
-            ]
-
-        end_time = time.time()
-        analysis_time = end_time - start_time
-
-        if context:
-            await context.info(
-                f"CellChat via LIANA analysis completed in {analysis_time:.2f} seconds"
-            )
-
-        statistics = {
-            "method": "cellchat_liana",
-            "groupby": groupby_col,
-            "n_lr_pairs_tested": n_lr_pairs,
-            "n_permutations": n_perms,
-            "significance_threshold": 0.05,
-            "resource": resource_name,  # Actual resource used (cellchatdb)
-            "significance_metric": "magnitude_rank",  # Clarify which metric is used
-            "analysis_time_seconds": analysis_time,
-        }
-
-        return {
-            "n_lr_pairs": n_lr_pairs,
-            "n_significant_pairs": n_significant_pairs,
-            "top_lr_pairs": top_lr_pairs,
-            # "liana_results_key": "liana_res",  # Removed to prevent DataFrame serialization overflow
-            "analysis_type": "cellchat_via_liana",
-            "statistics": statistics,
-        }
-
-    except Exception as e:
-        raise RuntimeError(f"CellChat via LIANA analysis failed: {str(e)}")
-
-
 async def _create_microenvironments_file(
     adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
 ) -> Optional[str]:
@@ -1211,3 +1195,394 @@ async def _create_microenvironments_file(
         if context:
             await context.warning(f"Failed to create microenvironments file: {str(e)}")
         return None
+
+
+async def _analyze_communication_cellchat_r(
+    adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
+) -> Dict[str, Any]:
+    """Analyze cell communication using native R CellChat package
+
+    This implementation uses rpy2 to call the original R CellChat package,
+    which includes full features like mediator proteins and signaling pathways
+    that are not available in the LIANA simplified implementation.
+
+    Args:
+        adata: AnnData object with expression data
+        params: Cell communication analysis parameters
+        context: MCP context for logging
+
+    Returns:
+        Dictionary with analysis results
+    """
+    import pandas as pd
+    import rpy2.robjects as ro
+    from rpy2.robjects import numpy2ri, pandas2ri
+    from rpy2.robjects.conversion import localconverter
+
+    if context:
+        await context.info("Running native R CellChat analysis...")
+
+    try:
+        import time
+
+        start_time = time.time()
+
+        # Validate cell type column
+        validate_obs_column(adata, params.cell_type_key, "Cell type column")
+
+        # Check for spatial data
+        has_spatial = "spatial" in adata.obsm
+
+        # Prepare expression matrix (genes x cells, normalized)
+        # CellChat requires normalized data
+        if hasattr(adata.X, "toarray"):
+            expr_matrix = pd.DataFrame(
+                adata.X.toarray().T,
+                index=adata.var_names,
+                columns=adata.obs_names,
+            )
+        else:
+            expr_matrix = pd.DataFrame(
+                adata.X.T,
+                index=adata.var_names,
+                columns=adata.obs_names,
+            )
+
+        # Prepare metadata
+        # CellChat doesn't allow labels starting with '0', so we add prefix for numeric labels
+        cell_labels = adata.obs[params.cell_type_key].astype(str).values
+        # Check if any label is '0' or starts with a digit - add 'cluster_' prefix
+        if any(label == "0" or (label and label[0].isdigit()) for label in cell_labels):
+            cell_labels = [f"cluster_{label}" for label in cell_labels]
+            if context:
+                await context.info(
+                    "Added 'cluster_' prefix to numeric labels (CellChat requirement)"
+                )
+        meta_df = pd.DataFrame(
+            {"labels": cell_labels},
+            index=adata.obs_names,
+        )
+
+        # Prepare spatial coordinates if available
+        spatial_locs = None
+        if has_spatial and params.cellchat_distance_use:
+            spatial_coords = adata.obsm["spatial"]
+            spatial_locs = pd.DataFrame(
+                spatial_coords[:, :2],
+                index=adata.obs_names,
+                columns=["x", "y"],
+            )
+
+        # Run CellChat in R
+        with localconverter(
+            ro.default_converter + pandas2ri.converter + numpy2ri.converter
+        ):
+            # Load CellChat
+            ro.r("library(CellChat)")
+
+            # Transfer data to R
+            ro.globalenv["expr_matrix"] = expr_matrix
+            ro.globalenv["meta_df"] = meta_df
+
+            # Set species-specific database
+            species_db_map = {
+                "human": "CellChatDB.human",
+                "mouse": "CellChatDB.mouse",
+                "zebrafish": "CellChatDB.zebrafish",
+            }
+            db_name = species_db_map.get(params.species, "CellChatDB.human")
+
+            if context:
+                await context.info(f"Using CellChatDB: {db_name}")
+
+            # Create CellChat object
+            if (
+                has_spatial
+                and params.cellchat_distance_use
+                and spatial_locs is not None
+            ):
+                # Spatial mode
+                ro.globalenv["spatial_locs"] = spatial_locs
+
+                # CellChat v2 requires spatial.factors with 'ratio' and 'tol':
+                # - ratio: conversion factor from pixels to micrometers (um)
+                #   For Visium: ~0.5 (1 pixel ≈ 0.5 um at full resolution)
+                # - tol: tolerance factor (half of spot/cell size in um)
+                #   For Visium: ~27.5 um (spot diameter ~55um, so half is ~27.5)
+                ro.r(
+                    """
+                    spatial.factors <- data.frame(
+                        ratio = 0.5,
+                        tol = 27.5
+                    )
+
+                    cellchat <- createCellChat(
+                        object = as.matrix(expr_matrix),
+                        meta = meta_df,
+                        group.by = "labels",
+                        datatype = "spatial",
+                        coordinates = as.matrix(spatial_locs),
+                        spatial.factors = spatial.factors
+                    )
+                """
+                )
+
+                if context:
+                    await context.info("Created CellChat object with spatial mode")
+            else:
+                # Non-spatial mode
+                ro.r(
+                    """
+                    cellchat <- createCellChat(
+                        object = as.matrix(expr_matrix),
+                        meta = meta_df,
+                        group.by = "labels"
+                    )
+                """
+                )
+
+                if context:
+                    await context.info("Created CellChat object (non-spatial mode)")
+
+            # Set database
+            ro.r(
+                f"""
+                CellChatDB <- {db_name}
+            """
+            )
+
+            # Subset database by category if specified
+            if params.cellchat_db_category != "All":
+                ro.r(
+                    f"""
+                    CellChatDB.use <- subsetDB(
+                        CellChatDB,
+                        search = "{params.cellchat_db_category}"
+                    )
+                    cellchat@DB <- CellChatDB.use
+                """
+                )
+                if context:
+                    await context.info(
+                        f"Using CellChatDB category: {params.cellchat_db_category}"
+                    )
+            else:
+                ro.r(
+                    """
+                    cellchat@DB <- CellChatDB
+                """
+                )
+
+            # Preprocessing
+            ro.r(
+                """
+                cellchat <- subsetData(cellchat)
+                cellchat <- identifyOverExpressedGenes(cellchat)
+                cellchat <- identifyOverExpressedInteractions(cellchat)
+            """
+            )
+
+            if context:
+                await context.info(
+                    "Completed preprocessing: identified overexpressed genes and interactions"
+                )
+
+            # Project data (optional but recommended)
+            ro.r(
+                """
+                # Project data onto PPI network (optional)
+                tryCatch({
+                    cellchat <- projectData(cellchat, PPI.human)
+                }, error = function(e) {
+                    message("Skipping data projection: ", e$message)
+                })
+            """
+            )
+
+            # Compute communication probability
+            if has_spatial and params.cellchat_distance_use:
+                # Spatial mode with distance constraints
+                # CellChat v2 requires either contact.range or contact.knn.k
+                if params.cellchat_contact_range is not None:
+                    contact_param = f"contact.range = {params.cellchat_contact_range}"
+                else:
+                    contact_param = f"contact.knn.k = {params.cellchat_contact_knn_k}"
+
+                ro.r(
+                    f"""
+                    cellchat <- computeCommunProb(
+                        cellchat,
+                        type = "{params.cellchat_type}",
+                        trim = {params.cellchat_trim},
+                        population.size = {str(params.cellchat_population_size).upper()},
+                        distance.use = TRUE,
+                        interaction.range = {params.cellchat_interaction_range},
+                        scale.distance = {params.cellchat_scale_distance},
+                        {contact_param}
+                    )
+                """
+                )
+            else:
+                # Non-spatial mode
+                ro.r(
+                    f"""
+                    cellchat <- computeCommunProb(
+                        cellchat,
+                        type = "{params.cellchat_type}",
+                        trim = {params.cellchat_trim},
+                        population.size = {str(params.cellchat_population_size).upper()}
+                    )
+                """
+                )
+
+            if context:
+                await context.info(
+                    f"Computed communication probability using {params.cellchat_type} method"
+                )
+
+            # Filter communication
+            ro.r(
+                f"""
+                cellchat <- filterCommunication(cellchat, min.cells = {params.cellchat_min_cells})
+            """
+            )
+
+            # Compute pathway-level communication
+            ro.r(
+                """
+                cellchat <- computeCommunProbPathway(cellchat)
+            """
+            )
+
+            # Aggregate network
+            ro.r(
+                """
+                cellchat <- aggregateNet(cellchat)
+            """
+            )
+
+            if context:
+                await context.info("Completed pathway analysis and network aggregation")
+
+            # Extract results
+            ro.r(
+                """
+                # Get LR pairs
+                lr_pairs <- cellchat@LR$LRsig
+
+                # Get communication probabilities
+                net <- cellchat@net
+
+                # Get pathway-level probabilities
+                netP <- cellchat@netP
+
+                # Count interactions
+                n_lr_pairs <- length(unique(lr_pairs$interaction_name))
+
+                # Get significant pairs (probability > 0)
+                prob_matrix <- net$prob
+                n_significant <- sum(prob_matrix > 0, na.rm = TRUE)
+
+                # Get top pathways
+                pathway_names <- rownames(netP$prob)
+                if (length(pathway_names) > 0) {
+                    # Sum probabilities across cell type pairs for each pathway
+                    pathway_sums <- rowSums(netP$prob, na.rm = TRUE)
+                    top_pathway_idx <- order(pathway_sums, decreasing = TRUE)[1:min(10, length(pathway_names))]
+                    top_pathways <- pathway_names[top_pathway_idx]
+                } else {
+                    top_pathways <- character(0)
+                }
+
+                # Get top LR pairs
+                if (nrow(lr_pairs) > 0) {
+                    top_lr <- head(lr_pairs$interaction_name, 10)
+                } else {
+                    top_lr <- character(0)
+                }
+            """
+            )
+
+            # Convert results back to Python
+            n_lr_pairs = int(ro.r("n_lr_pairs")[0])
+            n_significant_pairs = int(ro.r("n_significant")[0])
+            top_pathways = list(ro.r("top_pathways"))
+            top_lr_pairs = list(ro.r("top_lr"))
+
+            # Get full results for storage
+            lr_pairs_df = ro.r("as.data.frame(lr_pairs)")
+            prob_matrix = ro.r("as.matrix(net$prob)")
+            pval_matrix = ro.r("as.matrix(net$pval)")
+
+            # Store in adata
+            adata.uns["cellchat_r_lr_pairs"] = pd.DataFrame(lr_pairs_df)
+            adata.uns["cellchat_r_prob"] = np.array(prob_matrix)
+            adata.uns["cellchat_r_pval"] = np.array(pval_matrix)
+            adata.uns["cellchat_r_top_pathways"] = top_pathways
+            adata.uns["cellchat_r_params"] = {
+                "species": params.species,
+                "db_category": params.cellchat_db_category,
+                "type": params.cellchat_type,
+                "distance_use": params.cellchat_distance_use if has_spatial else False,
+            }
+
+            # Store detected LR pairs in standardized format for visualization
+            detected_lr_pairs = []
+            for pair_str in top_lr_pairs:
+                if "_" in pair_str:
+                    parts = pair_str.split("_", 1)
+                    if len(parts) == 2:
+                        detected_lr_pairs.append((parts[0], parts[1]))
+
+            adata.uns["detected_lr_pairs"] = detected_lr_pairs
+            adata.uns["cell_communication_results"] = {
+                "top_lr_pairs": top_lr_pairs,
+                "top_pathways": top_pathways,
+                "method": "cellchat_r",
+                "n_pairs": len(top_lr_pairs),
+                "species": params.species,
+            }
+
+        end_time = time.time()
+        analysis_time = end_time - start_time
+
+        if context:
+            await context.info(
+                f"CellChat R analysis completed in {analysis_time:.2f} seconds"
+            )
+            await context.info(
+                f"Found {n_significant_pairs} significant interactions from {n_lr_pairs} LR pairs"
+            )
+            if top_pathways:
+                await context.info(f"Top pathways: {', '.join(top_pathways[:5])}")
+
+        statistics = {
+            "method": "cellchat_r",
+            "species": params.species,
+            "db_category": params.cellchat_db_category,
+            "aggregation_type": params.cellchat_type,
+            "trim": params.cellchat_trim,
+            "population_size": params.cellchat_population_size,
+            "min_cells": params.cellchat_min_cells,
+            "spatial_mode": has_spatial and params.cellchat_distance_use,
+            "n_lr_pairs_tested": n_lr_pairs,
+            "analysis_time_seconds": analysis_time,
+            "top_pathways": top_pathways[:5] if top_pathways else [],
+        }
+
+        return {
+            "n_lr_pairs": n_lr_pairs,
+            "n_significant_pairs": n_significant_pairs,
+            "top_lr_pairs": top_lr_pairs,
+            "cellchat_r_results_key": "cellchat_r_lr_pairs",
+            "cellchat_r_prob_key": "cellchat_r_prob",
+            "cellchat_r_pval_key": "cellchat_r_pval",
+            "analysis_type": "cellchat_native",
+            "statistics": statistics,
+        }
+
+    except Exception as e:
+        error_msg = f"CellChat R analysis failed: {str(e)}"
+        if context:
+            await context.warning(error_msg)
+        raise RuntimeError(error_msg) from e
