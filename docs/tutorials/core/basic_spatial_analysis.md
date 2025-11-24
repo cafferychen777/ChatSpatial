@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Basic Spatial Analysis
-parent: Core Tutorials
-grand_parent: Tutorials
-nav_order: 1
-description: "Your first spatial transcriptomics analysis with ChatSpatial"
+description: Your first spatial transcriptomics analysis with ChatSpatial
 ---
 
 # Your First Spatial Analysis with ChatSpatial
@@ -26,7 +22,7 @@ By the end of this tutorial, you'll know how to:
 
 ### What You Need
 - ✅ **Claude Desktop** installed and running
-- ✅ **ChatSpatial configured** (see [Getting Started](../../getting-started/))
+- ✅ **ChatSpatial configured** (see [Getting Started](../../getting-started/index.md))
 - ✅ **Your spatial data** (we'll use a mouse brain example)
 - ✅ **Basic curiosity** about your tissue!
 
@@ -222,5 +218,4 @@ Would you like me to create a beautiful spatial map showing these domains?"
 - "What's unique about domain 3?"
 - "Show me domain boundaries more clearly"
 
-See also: [Getting Started](../../getting-started/)
-
+See also: [Getting Started](../../getting-started/index.md)

@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Cell Communication Analysis
-parent: Analysis Tutorials
-grand_parent: Tutorials
-nav_order: 2
-description: "Discovering cell-cell communication patterns in spatial data"
+description: Discovering cell-cell communication patterns in spatial data
 ---
 
 # Discovering Cell Communication with ChatSpatial
@@ -35,8 +31,6 @@ This tutorial assumes you're a biologist interested in understanding how cells c
 
 ### 💬 The Conversation Begins
 
----
-
 **👤 You:** "I've identified different cell types in my tissue. Now I'm curious - how do these cells communicate with each other?"
 
 **🤖 ChatSpatial:** "Excellent question! Cell communication is one of the most fascinating aspects of tissue biology. I can analyze ligand-receptor interactions to show you how your cells are 'talking' to each other. Let me run a communication analysis using LIANA."
@@ -66,8 +60,6 @@ ChatSpatial automatically:
 ## Step 2: Exploring Communication Networks
 
 ### 💬 Diving Deeper
-
----
 
 **👤 You:** "This is fascinating! Can you show me a visual network of how these cells communicate?"
 
@@ -107,8 +99,6 @@ These interactions suggest active synaptic support and neuroprotection. Would yo
 ## Step 3: Spatial Communication Patterns
 
 ### 💬 Understanding Spatial Context
-
----
 
 **👤 You:** "Yes! I want to see where in my tissue these communications are most active."
 
@@ -150,8 +140,6 @@ The **VEGF signaling** is especially interesting - it's concentrated in areas th
 ## Step 4: Pathway-Specific Analysis
 
 ### 💬 Focusing on Specific Pathways
-
----
 
 **👤 You:** "Yes, let's look at that VEGF signaling more closely. What's happening there?"
 
@@ -204,8 +192,6 @@ The VEGF pathway shows a unique **clustered spatial pattern** compared to the mo
 ## Step 5: Interpreting Results
 
 ### 💬 Understanding the Biology
-
----
 
 **👤 You:** "This is all very cool! But what does this mean for my research? How should I interpret these communication patterns?"
 

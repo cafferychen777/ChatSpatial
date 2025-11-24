@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Data Models
-parent: API Reference
-grand_parent: Reference
-nav_order: 1
-description: "Data models and schemas used throughout ChatSpatial"
+description: Data models and schemas used throughout ChatSpatial
 ---
 
 # Data Models
@@ -210,15 +206,15 @@ Spatial coordinate information.
     "plot_type": {
       "type": "string",
       "enum": [
-        "spatial", "heatmap", "violin", "umap",
-        "spatial_domains", "cell_communication", "deconvolution", "trajectory",
+        "spatial", "heatmap", "violin", "umap", "dotplot",
+        "cell_communication", "deconvolution", "trajectory",
         "rna_velocity", "spatial_statistics", "multi_gene", "lr_pairs",
         "gene_correlation", "pathway_enrichment", "spatial_enrichment",
         "spatial_interaction", "batch_integration", "cnv_heatmap",
         "spatial_cnv", "card_imputation"
       ],
       "default": "spatial",
-      "description": "Type of plot to generate (20 plot types available)"
+      "description": "Type of plot to generate (19 plot types available). For spatial domains visualization, use plot_type='spatial' with the domain_key returned by identify_spatial_domains"
     },
     "genes": {
       "type": "array",

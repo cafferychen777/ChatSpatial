@@ -1,14 +1,9 @@
----
-layout: default
+
 title: Beginner Path
-parent: Learning Paths
-grand_parent: Tutorials
-nav_order: 1
-description: "Complete beginner guide to spatial transcriptomics analysis"
+description: Complete beginner guide to spatial transcriptomics analysis
 ---
 
 # Beginner Learning Path: Your Journey into Spatial Transcriptomics
-{: .fs-6 }
 
 **Perfect for:** New users with no coding experience who want to explore spatial biology through conversation
 
@@ -20,7 +15,7 @@ description: "Complete beginner guide to spatial transcriptomics analysis"
 Before starting this path, ensure you have:
 
 - [ ] **Claude Desktop installed** and running
-- [ ] **ChatSpatial configured** (see [Getting Started Guide](../../getting-started/))
+- [ ] **ChatSpatial configured** (see [Getting Started Guide](../../getting-started/index.md))
 - [ ] **Sample spatial data** available (we provide examples)
 - [ ] **Basic biology knowledge** (cell types, gene expression concepts)
 - [ ] **Curiosity and patience** - learning through conversation is different!

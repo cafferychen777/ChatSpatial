@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Error Handling
-parent: API Reference
-grand_parent: Reference
-nav_order: 2
-description: "Error handling system and troubleshooting guide"
+description: Error handling system and troubleshooting guide
 ---
 
 # Error Handling

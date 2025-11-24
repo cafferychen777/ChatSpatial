@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Batch Integration
-parent: Advanced Tutorials
-grand_parent: Tutorials
-nav_order: 2
-description: "Batch effect correction and multi-sample integration"
+description: Batch effect correction and multi-sample integration
 ---
 
 # Batch Effect Correction and Data Integration with ChatSpatial
@@ -47,8 +43,6 @@ Batch effects are systematic differences between datasets that arise from techni
 ## Step 1: Loading and Exploring Multiple Datasets
 
 ### 💬 Starting Integration
-
----
 
 **👤 You:** "Hi! I have three mouse brain Visium samples from different experimental batches. I'm worried about batch effects and want to integrate them properly. Can you help?"
 
@@ -94,8 +88,6 @@ Batch effects are systematic differences between datasets that arise from techni
 ## Step 2: Batch Effect Assessment and Visualization
 
 ### 💬 Understanding the Problem
-
----
 
 **👤 You:** "Yes, please show me what these batch effects look like before we integrate the data."
 
@@ -144,8 +136,6 @@ Ready to fix this with Harmony integration?"
 ## Step 3: Basic Harmony Integration
 
 ### 💬 Your First Integration
-
----
 
 **👤 You:** "This is exactly what I was worried about! Yes, let's integrate these datasets with Harmony. Can you use the default settings first?"
 
@@ -226,8 +216,6 @@ The integration looks good! Samples now mix well in the embedding space, and I c
 
 ### 💬 Current Implementation Status
 
----
-
 **👤 You:** "The integration looks good, but I noticed some subtle clustering by batch still remains. Can we fine-tune the parameters to get better integration?"
 
 **🤖 ChatSpatial:** "I understand your concern! Let me be completely honest about what's currently available:
@@ -281,8 +269,6 @@ Parameter tuning and advanced quality metrics are planned for future releases."
 ## Step 5: Multi-Modal Integration Strategies
 
 ### 💬 Handling Different Platforms
-
----
 
 **👤 You:** "This is excellent! But I also have some MERFISH data from similar brain regions. Can Harmony integrate across different spatial transcriptomics platforms?"
 
@@ -388,8 +374,6 @@ This is functional multi-platform integration! Would you like to see comparative
 
 ### 💬 Integration Quality Assessment
 
----
-
 **👤 You:** "This multi-platform integration looks amazing! But how can I be sure it's working correctly and not removing important biological differences?"
 
 **🤖 ChatSpatial:** "Good question! Proper validation is important for integration quality. Let me run available quality control checks on your integrated data."
@@ -487,8 +471,6 @@ As advanced quality metrics become available, you will be able to perform more d
 
 #### Scenario 1: Over-Integration Detection
 
----
-
 **👤 You:** "I integrated my data with theta=5.0 but now my cell types look merged together. What happened?"
 
 **🤖 ChatSpatial:** "It sounds like you've over-integrated your data! High theta values can be too aggressive and merge distinct biological populations. Let me check your integration:
@@ -502,8 +484,6 @@ As advanced quality metrics become available, you will be able to perform more d
 **Solution**: Reduce theta to 2.0-3.0 and re-integrate. This will preserve biological differences while removing batch effects."
 
 #### Scenario 2: Under-Integration Issues
-
----
 
 **👤 You:** "My samples still cluster by batch after integration. Is Harmony not working?"
 
@@ -524,8 +504,6 @@ As advanced quality metrics become available, you will be able to perform more d
 **Current Limitation**: Parameter tuning is not available yet, so we use default settings that handle most cases adequately."
 
 #### Scenario 3: Platform-Specific Integration
-
----
 
 **👤 You:** "I'm trying to integrate Slide-seq and Visium data but getting poor results. Any specific advice?"
 
@@ -735,8 +713,6 @@ Current implementation may not preserve all treatment effects if they are confou
 ## Step 9: Results for Publication
 
 ### 💬 Publication Preparation
-
----
 
 **👤 You:** "My integration looks great! Now I need to create publication-quality figures and document the methods. Can you help?"
 

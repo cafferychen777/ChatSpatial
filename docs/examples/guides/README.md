@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Guides
-parent: Examples
-nav_order: 3
-has_children: true
-description: "Setup and integration guides for ChatSpatial"
+description: Setup and integration guides for ChatSpatial
 ---
 
 # Integration Guides
@@ -15,7 +11,7 @@ This section contains practical guides for integrating ChatSpatial with differen
 
 ### Setup and Testing
 
-#### [ChatSpatial Claude Desktop Testing Guide](ChatSpatial_Claude_Desktop_Testing_Guide.html)
+#### [ChatSpatial Claude Desktop Testing Guide](ChatSpatial_Claude_Desktop_Testing_Guide.md)
 Comprehensive testing procedures to verify your ChatSpatial installation and Claude Desktop integration.
 
 **Covers:**
@@ -27,7 +23,7 @@ Comprehensive testing procedures to verify your ChatSpatial installation and Cla
 
 ### Development and Optimization
 
-#### [GitHub Actions Optimization Guide](GITHUB_ACTIONS_OPTIMIZATION.html)
+#### [GitHub Actions Optimization Guide](GITHUB_ACTIONS_OPTIMIZATION.md)
 Best practices for optimizing GitHub Actions workflows when working with ChatSpatial development.
 
 **Covers:**
@@ -122,9 +118,9 @@ When creating new integration guides, please include:
 ## Getting Support
 
 ### Documentation Resources
-- **[Installation Guide](../../getting-started/installation.html)** - Basic setup instructions
-- **[API Reference](../../reference/api/README.html)** - Technical specifications
-- **[Troubleshooting](../../reference/troubleshooting/common_issues.html)** - Problem resolution
+- **[Installation Guide](../../getting-started/installation.md)** - Basic setup instructions
+- **[API Reference](../../reference/api/README.md)** - Technical specifications
+- **[Troubleshooting](../../reference/troubleshooting/common_issues.md)** - Problem resolution
 
 ### Community Support
 - **GitHub Issues** - Report integration problems

@@ -1,23 +1,12 @@
----
-layout: default
+
 title: Quick Start
-parent: Getting Started
-nav_order: 2
 ---
 
 # Quick Start Guide
-{: .no_toc }
 
 Get ChatSpatial running in minutes and perform your first spatial analysis.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
-
----
 
 ## Prerequisites
 
@@ -44,10 +33,8 @@ source chatspatial_env/bin/activate  # macOS/Linux
 pip install -e ".[full]"
 ```
 
-{: .highlight }
 💡 **Virtual environments prevent conflicts:** Always use a virtual environment for Python projects.
 
-{: .highlight }
 💡 For faster installation (80% features): `pip install -e .`
 
 ## Step 2: Configure MCP Client
@@ -113,7 +100,6 @@ python -m chatspatial server --transport sse --port 8000
 
 Once ChatSpatial is configured, try these example analyses:
 
-{: .important }
 > 💬 **How to use ChatSpatial**: All examples below are **natural language commands** you type in your Claude chat (Desktop or Code).
 >
 > **First**, tell Claude: "Use ChatSpatial MCP for all my spatial transcriptomics analysis" - this ensures Claude uses the MCP tools instead of writing scripts.
@@ -170,7 +156,6 @@ Annotate cell types using marker genes and show the spatial distribution
 
 ## Example Workflows
 
-{: .note }
 > 💬 **Conversational Analysis**: Copy and paste these natural language requests into your Claude chat. ChatSpatial MCP will execute each step automatically.
 
 ### Basic Spatial Analysis Workflow
@@ -238,7 +223,6 @@ ChatSpatial returns results in several formats:
 
 ### Server Won't Start
 
-{: .note }
 **Problem:** MCP server fails to start
 
 **Solutions:**
@@ -248,7 +232,6 @@ ChatSpatial returns results in several formats:
 
 ### Data Loading Errors
 
-{: .note }
 **Problem:** Cannot load spatial data
 
 **Solutions:**
@@ -258,7 +241,6 @@ ChatSpatial returns results in several formats:
 
 ### Memory Issues
 
-{: .note }
 **Problem:** Analysis fails with memory errors
 
 **Solutions:**
@@ -268,7 +250,6 @@ ChatSpatial returns results in several formats:
 
 ### Missing Dependencies
 
-{: .note }
 **Problem:** Method not available errors
 
 **Solutions:**
@@ -308,9 +289,9 @@ python scripts/benchmark_full.py
 
 Now that you have ChatSpatial running:
 
-1. **Explore Tutorials**: Check out the [tutorials section](../tutorials/) for detailed workflows
-2. **Learn Analysis Methods**: Dive into specific analysis types in the [reference guide](../reference/)
-3. **Try Advanced Features**: Experiment with [advanced analysis methods](../tutorials/advanced/)
+1. **Explore Tutorials**: Check out the [tutorials section](../tutorials/index.md) for detailed workflows
+2. **Learn Analysis Methods**: Dive into specific analysis types in the [reference guide](../reference/index.md)
+3. **Try Advanced Features**: Experiment with [advanced analysis methods](../tutorials/advanced/index.md)
 4. **Join the Community**: Participate in [discussions](https://github.com/cafferychen777/ChatSpatial/discussions)
 
 ## Getting Help
@@ -318,10 +299,10 @@ Now that you have ChatSpatial running:
 If you encounter issues:
 
 1. **Check the logs**: Look for error messages in the console output
-2. **Review documentation**: Browse the [troubleshooting guide](../reference/troubleshooting/)
+2. **Review documentation**: Browse the [troubleshooting guide](../reference/troubleshooting/index.md)
 3. **Search issues**: Check [existing GitHub issues](https://github.com/cafferychen777/ChatSpatial/issues)
 4. **Ask for help**: Create a new issue with detailed error information
 
 ---
 
-**Next:** [Configuration Guide](configuration.html) to customize your setup
+**Next:** [Configuration Guide](configuration.md) to customize your setup

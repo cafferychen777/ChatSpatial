@@ -457,9 +457,10 @@
 - `"violin"` - Violin plots by group
 - `"heatmap"` - Expression heatmap (requires `cluster_key`)
 
-**Spatial Domain & Cell Type** (2 types):
-- `"spatial_domains"` - Spatial domain boundaries and segmentation
+**Deconvolution** (1 type):
 - `"deconvolution"` - Cell type proportion visualization
+
+> **Note**: For spatial domains visualization, use `plot_type="spatial"` with `feature` set to the domain_key returned by `identify_spatial_domains` (e.g., `"spatial_domains_spagcn"`, `"spatial_domains_leiden"`)
 
 **Trajectory & Velocity** (2 types):
 - `"trajectory"` - Trajectory/pseudotime plots (CellRank/Palantir)

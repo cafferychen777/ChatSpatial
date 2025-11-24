@@ -1,9 +1,6 @@
----
-layout: default
+
 title: Performance
-parent: Reference
-nav_order: 5
-description: "Performance optimization tips and hardware recommendations"
+description: Performance optimization tips and hardware recommendations
 ---
 
 # Performance Tips

@@ -1,14 +1,9 @@
----
-layout: default
+
 title: API Reference
-parent: Reference
-nav_order: 1
-has_children: true
-description: "Complete API documentation for all ChatSpatial tools"
+description: Complete API documentation for all ChatSpatial tools
 ---
 
 # ChatSpatial API Reference
-{: .fs-7 }
 
 Complete reference for all ChatSpatial MCP tools, parameters, and data models.
 
@@ -706,7 +701,6 @@ for i in range(len(sections)-1):
 
 ## See Also
 
-- **[Getting Started](../../getting-started/)**: Installation and setup
-- **[Tutorials](../tutorials/README.html)**: Step-by-step guides
+- **[Getting Started](../../getting-started/index.md)**: Installation and setup
+- **[Tutorials](../tutorials/README.md)**: Step-by-step guides
 - **[GitHub Repository](https://github.com/cafferychen777/ChatSpatial)**: Source code and issues
-
