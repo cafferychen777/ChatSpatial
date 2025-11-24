@@ -355,7 +355,7 @@ Identify spatially variable genes using multiple methods.
 ```python
 find_spatial_genes(
     data_id: str,
-    method: str = "gaston",
+    method: str = "sparkx",
     n_genes: int = 1000,
     alpha: float = 0.05
 ) -> SpatialVariableGenesResult
@@ -365,10 +365,8 @@ find_spatial_genes(
 
 | Method | Description | Strengths |
 |--------|-------------|-----------|
-| `gaston` | Poisson regression with spatial binning | Fast, reliable |
+| `sparkx` | SPARK-X non-parametric method | Fast, accurate |
 | `spatialde` | Gaussian process models | Variable patterns |
-| `spark` | Generalized linear mixed models | Statistical rigor |
-| `trendsceek` | Marked point processes | Spatial trends |
 
 ### find_markers
 
@@ -622,9 +620,6 @@ visualize_data(
 | `rna_velocity` | RNA velocity plots | Trajectory inference |
 | `trajectory` | Developmental trajectories | Pseudotime analysis |
 | `spatial_analysis` | Spatial statistics (6 subtypes) | Pattern analysis |
-| `gaston_isodepth` | GASTON isodepth contours | Spatial gene patterns |
-| `gaston_domains` | GASTON domain visualization | Spatial domains |
-| `gaston_genes` | GASTON gene analysis | Spatially variable genes |
 | `spatial_enrichment` | Spatial enrichment maps | Functional enrichment |
 | `pathway_enrichment` | Pathway enrichment plots | GSEA visualization |
 | `spatial_interaction` | Cell-cell interactions | Spatial communication |

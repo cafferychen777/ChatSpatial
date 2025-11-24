@@ -153,7 +153,7 @@ Basic Analysis → Cell Types → Communication → Statistics → Trajectories 
 - **Next:** Cutting-edge ML and temporal analysis
 
 ### [Advanced Path](learning-paths/advanced.html) - Research Leadership
-- **Phase 1:** GASTON machine learning → Neural network approaches
+- **Phase 1:** Advanced spatial analysis → Neural network approaches
 - **Phase 2:** RNA velocity → Trajectory analysis → Temporal dynamics
 - **Phase 3:** Multi-modal integration → Publication workflows
 - **Success:** Design and execute research-quality studies

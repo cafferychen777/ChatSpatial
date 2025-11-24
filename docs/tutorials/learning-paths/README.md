@@ -50,7 +50,7 @@ Structured learning paths to guide you through ChatSpatial from beginner to expe
 **Focus:** Machine learning, temporal analysis, multi-modal integration
 
 **You'll master:**
-- GASTON neural network approaches
+- Advanced spatial statistics methods
 - RNA velocity and trajectory analysis
 - Multi-modal data integration
 - Research-quality workflow design

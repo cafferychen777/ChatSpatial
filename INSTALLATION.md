@@ -144,7 +144,7 @@ That's it! Start analyzing your spatial data with natural language.
 - ✅ Advanced deconvolution (Cell2location)
 - ✅ Advanced trajectory (CellRank, Palantir)
 - ✅ Spatial domains (SpaGCN, STAGATE)
-- ✅ Spatial variable genes (GASTON, SpatialDE)
+- ✅ Spatial variable genes (SPARK-X, SpatialDE)
 - ✅ R-based methods (RCTD, Spotlight)
 
 ## Requirements
