@@ -396,6 +396,16 @@ class VisualizationParameters(BaseModel):
             "Increase to 0.4-0.5 to emphasize tissue structure."
         ),
     )
+    show_tissue_image: bool = Field(
+        True,
+        description=(
+            "Whether to show tissue histology image in spatial plots. "
+            "If False, only plot spots on coordinates without background image. "
+            "This option only applies when tissue image is available. "
+            "When False, spots are plotted on a clean coordinate system for clearer visualization. "
+            "Default: True"
+        ),
+    )
 
     # Color parameters
     vmin: Optional[float] = None  # Minimum value for color scale
@@ -1520,7 +1530,7 @@ class CellCommunicationParameters(BaseModel):
         "cosine"  # Local spatial metric
     )
     liana_global_metric: Literal["morans", "lee"] = "morans"  # Global spatial metric
-    liana_n_perms: Annotated[int, Field(gt=0)] = 100  # Number of permutations for LIANA
+    liana_n_perms: Annotated[int, Field(gt=0)] = 1000  # Number of permutations for LIANA (1000 minimum for publication-quality p-values)
     liana_nz_prop: Annotated[float, Field(gt=0.0, le=1.0)] = (
         0.2  # Minimum expression proportion
     )
