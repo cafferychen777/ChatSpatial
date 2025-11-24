@@ -1972,6 +1972,52 @@ async def save_data(
     original_path = dataset_info.get("path", "")
 
     try:
+        # Safety fallback: Clean up uns data for H5AD compatibility
+        # Primary sanitization is done at the source (e.g., cell_communication.py)
+        # This serves as a safety net for any data that might slip through
+        # H5AD cannot handle:
+        # 1. NaN/None values in object columns
+        # 2. pd.Series objects (must be converted to DataFrame)
+        import pandas as pd
+
+        def sanitize_dataframe_for_h5ad(df: pd.DataFrame) -> pd.DataFrame:
+            """
+            Sanitize DataFrame for H5AD storage.
+
+            H5AD cannot handle:
+            1. NaN/None values in object columns
+            2. Non-string objects in object columns
+            3. Mixed types in object columns
+
+            Solution: Convert all object columns to string type,
+            replacing NaN/None with empty string.
+            """
+            df = df.copy()
+
+            for col in df.columns:
+                if df[col].dtype == "object":
+                    # Convert all values to string, handling NaN/None
+                    df[col] = df[col].fillna("").astype(str)
+
+            # Also ensure column names are strings
+            df.columns = df.columns.astype(str)
+
+            # Ensure index is string if it's object type
+            if df.index.dtype == "object":
+                df.index = df.index.astype(str)
+
+            return df
+
+        for key in list(adata.uns.keys()):
+            value = adata.uns[key]
+            # Convert pd.Series to DataFrame (H5AD cannot store Series directly)
+            if isinstance(value, pd.Series):
+                adata.uns[key] = value.to_frame()
+                value = adata.uns[key]
+            # Sanitize DataFrames
+            if isinstance(value, pd.DataFrame):
+                adata.uns[key] = sanitize_dataframe_for_h5ad(value)
+
         if output_path:
             # User specified custom path
             from pathlib import Path

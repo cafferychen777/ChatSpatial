@@ -95,6 +95,9 @@ def fig_to_image(
     buf = io.BytesIO()
 
     # Save figure with user's exact settings - no compromise
+    # Check for extra artists (e.g., legends positioned outside plot area)
+    extra_artists = getattr(fig, "_chatspatial_extra_artists", None)
+
     try:
         if format == "jpg":
             try:
@@ -104,6 +107,7 @@ def fig_to_image(
                     format=format,
                     dpi=dpi,
                     bbox_inches="tight",
+                    bbox_extra_artists=extra_artists,
                     transparent=False,
                     facecolor="white",
                     edgecolor="none",
@@ -118,6 +122,7 @@ def fig_to_image(
                     format=format,
                     dpi=dpi,
                     bbox_inches="tight",
+                    bbox_extra_artists=extra_artists,
                     transparent=False,
                     facecolor="white",
                     edgecolor="none",
@@ -130,6 +135,7 @@ def fig_to_image(
                 format=format,
                 dpi=dpi,
                 bbox_inches="tight",
+                bbox_extra_artists=extra_artists,
                 transparent=False,
                 facecolor="white",
                 edgecolor="none",
@@ -276,6 +282,9 @@ async def optimize_fig_to_image_with_cache(
     # Generate image once with ACTUAL parameters (not estimation)
     target_dpi = params.dpi if hasattr(params, "dpi") and params.dpi else 100
 
+    # Check for extra artists (e.g., legends positioned outside plot area)
+    extra_artists = getattr(fig, "_chatspatial_extra_artists", None)
+
     # Use fig_to_image to get actual image with full parameters
     actual_buf = io.BytesIO()
     fig.savefig(
@@ -283,6 +292,7 @@ async def optimize_fig_to_image_with_cache(
         format="png",
         dpi=target_dpi,
         bbox_inches="tight",
+        bbox_extra_artists=extra_artists,
         transparent=False,
         facecolor="white",
         edgecolor="none",

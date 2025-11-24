@@ -367,8 +367,8 @@ class VisualizationParameters(BaseModel):
     plot_top_pairs: int = Field(
         6,
         gt=0,
-        le=20,
-        description="Number of top LR pairs to display in cell communication visualization. Default: 6",
+        le=100,
+        description="Number of top LR pairs to display in cell communication visualization. Default: 6. For chord diagrams, use higher values (e.g., 50) to show more interactions.",
     )
 
     # Gene correlation parameters
@@ -1596,8 +1596,8 @@ class CellCommunicationParameters(BaseModel):
     )
 
     # ========== Result Control ==========
-    plot_top_pairs: Annotated[int, Field(gt=0, le=20)] = (
-        6  # Number of top LR pairs to include in results
+    plot_top_pairs: Annotated[int, Field(gt=0, le=100)] = (
+        6  # Number of top LR pairs to include in results (chord diagrams may use 50+)
     )
 
     # ========== CellPhoneDB Specific Parameters ==========

@@ -5,11 +5,46 @@ Cell-cell communication analysis tools for spatial transcriptomics data.
 from typing import Any, Dict, Optional
 
 import numpy as np
+import pandas as pd
 from mcp.server.fastmcp import Context
 
 from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
+
+
+def _sanitize_dataframe_for_h5ad(df: pd.DataFrame) -> pd.DataFrame:
+    """Sanitize DataFrame for H5AD storage.
+
+    H5AD cannot handle:
+    1. NaN/None values in object columns
+    2. Non-string objects in object columns
+    3. Mixed types in object columns
+
+    This function converts all object columns to string type,
+    replacing NaN with empty string.
+
+    Args:
+        df: DataFrame to sanitize
+
+    Returns:
+        Sanitized DataFrame safe for H5AD storage
+    """
+    df = df.copy()
+
+    for col in df.columns:
+        if df[col].dtype == "object":
+            # Convert all values to string, handling NaN/None
+            df[col] = df[col].fillna("").astype(str)
+
+    # Also ensure column names are strings
+    df.columns = df.columns.astype(str)
+
+    # Ensure index is string if it's object type
+    if df.index.dtype == "object":
+        df.index = df.index.astype(str)
+
+    return df
 
 # Import LIANA+ for cell communication analysis
 try:
@@ -893,11 +928,16 @@ async def _analyze_communication_cellphonedb(
             pvalues = result.get("pvalues")
             significant_means = result.get("significant_means")
 
-            # Store results in AnnData object
-            adata.uns["cellphonedb_deconvoluted"] = deconvoluted
-            adata.uns["cellphonedb_means"] = means
-            adata.uns["cellphonedb_pvalues"] = pvalues
-            adata.uns["cellphonedb_significant_means"] = significant_means
+            # Store results in AnnData object (sanitized for H5AD compatibility)
+            # CellPhoneDB DataFrames contain NaN in object columns which H5AD cannot handle
+            adata.uns["cellphonedb_deconvoluted"] = _sanitize_dataframe_for_h5ad(
+                deconvoluted
+            )
+            adata.uns["cellphonedb_means"] = _sanitize_dataframe_for_h5ad(means)
+            adata.uns["cellphonedb_pvalues"] = _sanitize_dataframe_for_h5ad(pvalues)
+            adata.uns["cellphonedb_significant_means"] = _sanitize_dataframe_for_h5ad(
+                significant_means
+            )
 
         # Calculate statistics
         n_lr_pairs = (
@@ -992,10 +1032,10 @@ async def _analyze_communication_cellphonedb(
         n_significant_pairs = int(np.sum(mask))
 
         # Store minimum corrected p-values for transparency
-        adata.uns["cellphonedb_pvalues_min_corrected"] = pd.Series(
-            min_pvals_corrected,
-            index=pvalues.index,
-            name=f"min_corrected_pvalue_{correction_method}",
+        # Convert Series to DataFrame for H5AD compatibility (H5AD cannot store pd.Series)
+        adata.uns["cellphonedb_pvalues_min_corrected"] = pd.DataFrame(
+            {f"min_corrected_pvalue_{correction_method}": min_pvals_corrected},
+            index=pvalues.index.astype(str),
         )
 
         # Update stored significant_means to match filtered results
@@ -1003,8 +1043,10 @@ async def _analyze_communication_cellphonedb(
             significant_indices = means.index[mask]
             significant_means_filtered = means.loc[significant_indices]
 
-            # Update stored significant_means
-            adata.uns["cellphonedb_significant_means"] = significant_means_filtered
+            # Update stored significant_means (sanitized for H5AD compatibility)
+            adata.uns["cellphonedb_significant_means"] = _sanitize_dataframe_for_h5ad(
+                significant_means_filtered
+            )
 
             # Also update the variable for downstream use
             significant_means = significant_means_filtered
