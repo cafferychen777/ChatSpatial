@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Visualization Tutorial
-parent: Core Tutorials
-grand_parent: Tutorials
-nav_order: 3
-description: "Creating beautiful visualizations with ChatSpatial"
+description: Creating beautiful visualizations with ChatSpatial
 ---
 
 # Creating Beautiful Visualizations with ChatSpatial
@@ -34,8 +30,6 @@ ChatSpatial handles all the technical details of creating beautiful plots. You j
 ## Step 1: Basic Spatial Visualizations
 
 ### 💬 Starting with Simple Requests
-
----
 
 **👤 You:** "I'd like to see my spatial data. Can you create a nice visualization showing the tissue structure?"
 
@@ -90,8 +84,6 @@ ChatSpatial automatically:
 
 ### 💬 Exploring Specific Genes
 
----
-
 **👤 You:** "This looks great! Now I'm curious about specific genes. Can you show me where GFAP is expressed in my tissue?"
 
 **🤖 ChatSpatial:** "Excellent choice! GFAP is a key astrocyte marker. Let me visualize its expression pattern."
@@ -140,8 +132,6 @@ This multi-gene view beautifully shows how different cell types organize your ti
 ## Step 3: Advanced Visualization Techniques
 
 ### 💬 Getting Creative with Plots
-
----
 
 **👤 You:** "These spatial plots are amazing! But can you create other types of visualizations? Maybe something showing the relationships between different regions?"
 
@@ -205,8 +195,6 @@ This figure tells the complete story: spatial organization → biological identi
 
 ### 💬 Making It Perfect
 
----
-
 **👤 You:** "This summary figure is great, but I'd like to customize it a bit. Can you change the colors and maybe adjust the layout?"
 
 **🤖 ChatSpatial:** "Of course! I love helping you get the perfect visualization. What specific changes would you like?"
@@ -266,8 +254,6 @@ Ready for submission!"
 ## Step 5: Specialized Analysis Visualizations
 
 ### 💬 Exploring Advanced Plot Types
-
----
 
 **👤 You:** "I've heard about spatial statistics and spatially variable genes. Can you show me what these advanced analyses look like?"
 
@@ -354,8 +340,6 @@ Your tissue shows highly organized, non-random spatial patterns!"
 
 ### 💬 Ensuring Data Quality
 
----
-
 **👤 You:** "These analyses look great, but I want to make sure my data integration worked properly. Can you show me quality control visualizations?"
 
 **🤖 ChatSpatial:** "Excellent practice! Quality control is crucial for reliable results. Let me create comprehensive QC visualizations."
@@ -433,8 +417,6 @@ Your tissue shows biologically relevant communication patterns that align with k
 ## Step 7: Interactive and Dynamic Visualizations
 
 ### 💬 Exploring Interactively
-
----
 
 **👤 You:** "These static figures are beautiful! But sometimes I want to explore the data interactively. Can you create something I can interact with?"
 
@@ -599,18 +581,18 @@ These specialized plots reveal patterns that basic visualizations might miss!"
 
 ## The Complete Visualization Arsenal
 
-### 🎯 All 17 Plot Types at Your Fingertips
+### 🎯 All 19 Plot Types at Your Fingertips
 
 ChatSpatial provides comprehensive visualization capabilities:
 
-**Core Spatial Plots (4 types):**
-1. `spatial` - Gene expression in tissue context
-2. `spatial_domains` - Tissue architecture and regions
-3. `umap` - Dimensionality reduction with annotations
-4. `heatmap` - Multi-gene expression matrices
+**Core Spatial Plots (5 types):**
+1. `spatial` - Gene expression in tissue context (also used for spatial domains visualization with domain_key)
+2. `umap` - Dimensionality reduction with annotations
+3. `heatmap` - Multi-gene expression matrices
+4. `violin` - Distribution comparisons
+5. `dotplot` - Marker gene expression (dot size=fraction expressed, color=expression level)
 
-**Statistical Analysis (4 types):**
-5. `violin` - Distribution comparisons
+**Statistical Analysis (3 types):**
 6. `gene_correlation` - Co-expression analysis
 7. `spatial_statistics` - 12 statistical sub-types (neighborhood, Moran's I, Ripley's K, etc.)
 8. `spatial_enrichment` - Functional enrichment mapping
@@ -630,11 +612,15 @@ ChatSpatial provides comprehensive visualization capabilities:
 16. `pathway_enrichment` - GSEA and pathway activity
 17. `batch_integration` - Batch correction assessment
 
+**CNV Analysis (2 types):**
+18. `cnv_heatmap` - CNV heatmap visualization
+19. `spatial_cnv` - Spatial CNV projection
+
 ### 🚀 Pro Tips for Maximum Impact
 
 **For Presentations:**
 - Use `multi_gene` plots to compare key markers
-- Combine `spatial_domains` with `cell_communication` for complete story
+- Use `spatial` with domain_key (e.g., `spatial_domains_spagcn`) for tissue architecture
 - Include `batch_integration` to show data quality
 
 **For Publications:**

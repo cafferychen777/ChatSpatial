@@ -353,6 +353,8 @@ Choose your primary goal:
 
 ---
 
+<!-- separator -->
+
 ---
 
 ## 🔧 Extended Workflow Patterns

@@ -1,14 +1,9 @@
----
-layout: default
+
 title: Intermediate Path
-parent: Learning Paths
-grand_parent: Tutorials
-nav_order: 2
-description: "Master advanced spatial analysis methods and techniques"
+description: Master advanced spatial analysis methods and techniques
 ---
 
 # Intermediate Learning Path: Mastering Spatial Analysis Methods
-{: .fs-6 }
 
 **Perfect for:** Users comfortable with basic spatial analysis who want to understand advanced methods and make informed decisions about analysis approaches
 

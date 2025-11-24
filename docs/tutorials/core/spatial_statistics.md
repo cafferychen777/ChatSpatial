@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Spatial Statistics
-parent: Core Tutorials
-grand_parent: Tutorials
-nav_order: 2
-description: "Statistical analysis of spatial patterns and autocorrelation"
+description: Statistical analysis of spatial patterns and autocorrelation
 ---
 
 # Spatial Statistics Methods with ChatSpatial
@@ -32,7 +28,7 @@ For each method, you'll learn:
 
 ### What You Need
 - ✅ **Claude Desktop** installed and running
-- ✅ **ChatSpatial configured** (see [Getting Started](../../getting-started/))
+- ✅ **ChatSpatial configured** (see [Getting Started](../../getting-started/index.md))
 - ✅ **Your spatial data** already loaded and preprocessed
 - ✅ **Basic spatial analysis completed** (see [Basic Spatial Analysis](basic_spatial_analysis.md))
 - ✅ **Interest in spatial patterns** in your tissue
@@ -63,8 +59,6 @@ This approach identifies:
 - Transcription factor-target relationships
 
 ### 💬 Real Conversation Example
-
----
 
 **👤 You:** "I have two genes, CREB1 and BDNF, that I think might be co-regulated in memory formation. Can you check if they show similar spatial patterns in my mouse brain data?"
 
@@ -127,8 +121,6 @@ This approach identifies:
 - Developmental organizing centers
 
 ### 💬 Real Conversation Example
-
----
 
 **👤 You:** "I want to find hotspots of immune activity in my tumor tissue. Can you identify where immune response genes are spatially clustered?"
 
@@ -198,8 +190,6 @@ This approach identifies:
 
 ### 💬 Real Conversation Example
 
----
-
 **👤 You:** "In my brain organoid data, I want to understand how different cell types organize themselves. Do neurons prefer to be near astrocytes? Can you analyze cell type neighborhoods?"
 
 **🤖 Claude:** "Good question for understanding brain tissue architecture! Let me perform neighborhood enrichment analysis to map how your brain organoid cell types organize spatially."
@@ -268,8 +258,6 @@ This approach identifies:
 
 ### 💬 Real Conversation Example
 
----
-
 **👤 You:** "I have cancer stem cells marked in my tumor tissue. Are they randomly scattered or do they form organized clusters? Can you analyze their spatial distribution pattern?"
 
 **🤖 Claude:** "Good question about cancer stem cell organization! Ripley's K function analysis will reveal whether your stem cells show clustering, regular spacing, or random distribution - each pattern has different biological implications."
@@ -336,8 +324,6 @@ This approach identifies:
 - Understanding information flow patterns
 
 ### 💬 Real Conversation Example
-
----
 
 **👤 You:** "In my brain tissue, I want to find the most important regions that connect different brain areas. Which locations act as hubs in the spatial network?"
 
@@ -411,8 +397,6 @@ This approach identifies:
 
 ### 💬 Real Conversation Example
 
----
-
 **👤 You:** "I have liver tissue with healthy, fibrotic, and necrotic regions marked. Do similar tissue states cluster together, or are they randomly mixed? Can you analyze the spatial organization of these tissue states?"
 
 **🤖 Claude:** "Good question for understanding tissue pathology organization! Join count analysis will reveal whether your liver tissue states show spatial clustering - this tells us about disease progression patterns and tissue organization principles."
@@ -474,8 +458,6 @@ This approach identifies:
 ## Specialized Integration: Combining Multiple Methods
 
 ### 💬 Multi-Method Analysis Example
-
----
 
 **👤 You:** "I want to do a complete spatial analysis of my brain development data. Can you combine multiple spatial statistics methods to give me the full picture?"
 
@@ -687,9 +669,9 @@ Ready to explore more advanced spatial analysis? Try these tutorials:
 
 ### 📚 Additional Resources
 
-- **[Spatial Statistics Theory](https://rspatial.org/raster/analysis/3-spauto.html)** - Mathematical background
-- **[PySAL Documentation](https://pysal.org/)** - Spatial analysis library details
-- **[Spatial Transcriptomics Best Practices](../guides/)** - Analysis guidelines
+- **[Spatial Statistics Theory](https://rspatial.org/raster/analysis/3-spauto.md)** - Mathematical background
+- **[PySAL Documentation](https://pysal.org/index.md)** - Spatial analysis library details
+- **[Spatial Transcriptomics Best Practices](../guides/index.md)** - Analysis guidelines
 
 ---
 

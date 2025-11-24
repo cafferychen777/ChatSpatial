@@ -189,6 +189,6 @@ uname -a
 
 - **[Complete Troubleshooting Guide](../troubleshooting/common_issues.md)** - Comprehensive solutions
 - **[Installation Guide](../../getting-started/installation.md)** - Setup instructions
-- **[API Reference](../api/)** - Technical documentation
+- **[API Reference](../api/index.md)** - Technical documentation
 - **[Common Workflows](./common-workflows.md)** - Standard analysis patterns
 - **[All Tools Reference](./all-tools.md)** - Complete tool documentation

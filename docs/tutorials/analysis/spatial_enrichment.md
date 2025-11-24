@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Spatial Enrichment
-parent: Analysis Tutorials
-grand_parent: Tutorials
-nav_order: 3
-description: "Spatial gene set enrichment analysis and pathway mapping"
+description: Spatial gene set enrichment analysis and pathway mapping
 ---
 
 # Spatial Gene Set Enrichment Analysis with ChatSpatial
@@ -26,7 +22,7 @@ By the end of this tutorial, you will know how to:
 
 ### What You Need
 - ✅ **Claude Desktop** installed and running
-- ✅ **ChatSpatial configured** (see [Getting Started](../../getting-started/))
+- ✅ **ChatSpatial configured** (see [Getting Started](../../getting-started/index.md))
 - ✅ **Your spatial data** already loaded and preprocessed
 - ✅ **Basic knowledge of gene sets** (pathways, GO terms, etc.)
 - ✅ **Knowledge of biological processes** in your tissue
@@ -700,9 +696,9 @@ Ready to explore more? Try these advanced tutorials:
 
 ### 📚 Additional Resources
 
-- **[EnrichMap Documentation](https://enrichmap.readthedocs.io/)** - Technical details
-- **[MSigDB Collections](https://www.gsea-msigdb.org/)** - Gene set databases
-- **[Spatial Transcriptomics Best Practices](../guides/)** - Analysis guidelines
+- **[EnrichMap Documentation](https://enrichmap.readthedocs.io/index.md)** - Technical details
+- **[MSigDB Collections](https://www.gsea-msigdb.org/index.md)** - Gene set databases
+- **[Spatial Transcriptomics Best Practices](../guides/index.md)** - Analysis guidelines
 
 ---
 

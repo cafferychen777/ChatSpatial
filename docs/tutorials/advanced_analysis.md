@@ -1,9 +1,6 @@
----
-layout: default
+
 title: Advanced Analysis
-parent: Tutorials
-nav_order: 6
-description: "Advanced multi-modal spatial transcriptomics workflows"
+description: Advanced multi-modal spatial transcriptomics workflows
 ---
 
 # Advanced Analysis
@@ -111,15 +108,18 @@ identify_spatial_domains(
 
 ```python
 # Create comprehensive visualization
+# Use domain_key from identify_spatial_domains result
 visualize_data(
     data_id=visium_result.id,
-    plot_type="spatial_domains",
+    plot_type="spatial",
+    feature="spatial_domains_spagcn",  # Use domain_key from identify_spatial_domains
     save_path="results/visium_domains.pdf"
 )
 
 visualize_data(
-    data_id=merfish_result.id, 
-    plot_type="spatial_domains",
+    data_id=merfish_result.id,
+    plot_type="spatial",
+    feature="spatial_domains_leiden",  # Use domain_key from identify_spatial_domains
     save_path="results/merfish_domains.pdf"
 )
 ```

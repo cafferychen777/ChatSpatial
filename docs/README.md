@@ -60,7 +60,7 @@ docs/
 
 ## Theme Customization
 
-This site uses the [Just the Docs](https://just-the-docs.github.io/just-the-docs/) theme.
+This site uses the [Just the Docs](https://just-the-docs.github.io/just-the-docs/index.md) theme.
 
 ### Custom Styling
 
@@ -89,13 +89,11 @@ Navigation is controlled by:
 Use Just the Docs callouts for highlights:
 
 ```markdown
-{: .highlight }
+
 Important information
 
-{: .note }
 Additional notes
 
-{: .warning }
 Warning messages
 ```
 
@@ -206,6 +204,6 @@ bundle audit
 
 ## Links
 
-- [Jekyll Documentation](https://jekyllrb.com/docs/)
-- [Just the Docs Theme](https://just-the-docs.github.io/just-the-docs/)
+- [Jekyll Documentation](https://jekyllrb.com/docs/index.md)
+- [Just the Docs Theme](https://just-the-docs.github.io/just-the-docs/index.md)
 - [GitHub Pages](https://docs.github.com/en/pages)

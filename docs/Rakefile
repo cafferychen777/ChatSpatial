@@ -1,7 +1,0 @@
-# Rakefile for ChatSpatial documentation
-# Imports Just the Docs search tasks
-
-require 'fileutils'
-
-# Import Just the Docs search tasks
-Dir.glob(File.join(Gem.loaded_specs['just-the-docs'].full_gem_path, 'lib', 'tasks', '*.rake')).each { |r| import r }

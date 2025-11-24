@@ -1,13 +1,16 @@
-# Jekyll build outputs
-_site/
-.sass-cache/
-.jekyll-cache/
-.jekyll-metadata
+# Sphinx build output
+_build/
+_autosummary/
 
-# Bundle
-vendor/
-.bundle/
-Gemfile.lock
+# Sphinx generated files
+.doctrees/
+.buildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
 
 # OS files
 .DS_Store

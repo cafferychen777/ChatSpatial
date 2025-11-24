@@ -1,9 +1,6 @@
----
-layout: default
+
 title: Data Formats
-parent: Reference
-nav_order: 2
-description: "Supported data formats and preparation guide"
+description: Supported data formats and preparation guide
 ---
 
 # Data Formats Guide

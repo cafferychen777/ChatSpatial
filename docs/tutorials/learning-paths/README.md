@@ -1,20 +1,15 @@
----
-layout: default
+
 title: Learning Paths
-parent: Tutorials
-nav_order: 4
-has_children: true
-description: "Structured learning paths from beginner to expert"
+description: Structured learning paths from beginner to expert
 ---
 
 # Learning Paths: Your Guided Journey Through Spatial Analysis
-{: .fs-7 }
 
 Structured learning paths to guide you through ChatSpatial from beginner to expert. Each path provides a complete curriculum with time estimates, practice exercises, and clear progression milestones.
 
 ## Choose Your Path
 
-### [🌱 Beginner Path](beginner.html)
+### [🌱 Beginner Path](beginner.md)
 **For:** New users with no coding experience  
 **Time:** 4-6 hours over 1-2 weeks  
 **Focus:** Conversation-based learning, basic analysis, visualization
@@ -29,7 +24,7 @@ Structured learning paths to guide you through ChatSpatial from beginner to expe
 
 ---
 
-### [🔬 Intermediate Path](intermediate.html)  
+### [🔬 Intermediate Path](intermediate.md)  
 **For:** Users comfortable with basics wanting advanced methods  
 **Time:** 6-8 hours over 2-3 weeks  
 **Focus:** Method selection, statistical analysis, integration
@@ -44,7 +39,7 @@ Structured learning paths to guide you through ChatSpatial from beginner to expe
 
 ---
 
-### [🚀 Advanced Path](advanced.html)
+### [🚀 Advanced Path](advanced.md)
 **For:** Experienced users ready for cutting-edge research  
 **Time:** 8-12 hours over 3-4 weeks  
 **Focus:** Machine learning, temporal analysis, multi-modal integration

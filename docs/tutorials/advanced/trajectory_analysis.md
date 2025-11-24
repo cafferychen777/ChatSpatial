@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Trajectory Analysis
-parent: Advanced Tutorials
-grand_parent: Tutorials
-nav_order: 4
-description: "RNA velocity and trajectory analysis in spatial data"
+description: RNA velocity and trajectory analysis in spatial data
 ---
 
 # RNA Velocity and Trajectory Analysis with ChatSpatial
@@ -61,8 +57,6 @@ Traditional RNA velocity analyzes cells in isolation, but **spatial velocity** r
 ## Step 1: Starting with RNA Velocity Analysis
 
 ### 💬 The Conversation Begins
-
----
 
 **👤 You:** "I have a developing brain tissue dataset and I am curious about cellular dynamics. Can you analyze RNA velocity to see how cells are changing over time?"
 
@@ -121,8 +115,6 @@ ChatSpatial automatically:
 ## Step 2: Exploring Velocity Patterns
 
 ### 💬 Diving Deeper into Dynamics
-
----
 
 **👤 You:** "This is interesting! Can you show me where the most dynamic changes are happening in my tissue?"
 
@@ -189,8 +181,6 @@ These genes tell the story of brain development: stem cells (Pax6) differentiati
 
 ### 💬 Understanding Developmental Paths
 
----
-
 **👤 You:** "This velocity analysis is informative! Now I want to understand the actual developmental trajectories. Can you trace how cells progress through different states?"
 
 **🤖 ChatSpatial:** "Good next step! Trajectory analysis will show you the developmental paths that cells follow. Let me infer pseudotime and cellular trajectories using the velocity information we just computed.
@@ -256,8 +246,6 @@ Your tissue captures a snapshot of brain development in action."
 ## Step 4: Detailed Velocity Analysis with VELOVI
 
 ### 💬 Deep Learning Approach to Velocity Computation
-
----
 
 **👤 You:** "This traditional approach is good! I am curious about the newer deep learning methods. Can you try VELOVI for better velocity computation?"
 
@@ -333,8 +321,6 @@ This uncertainty information helps you prioritize which findings to pursue exper
 ## Step 5: Method Comparison and Selection
 
 ### 💬 Choosing the Right Approach
-
----
 
 **👤 You:** "I have seen scVelo and VELOVI now. How do I know which method is best for my research question?"
 
@@ -481,8 +467,6 @@ This uncertainty information helps you prioritize which findings to pursue exper
 ## Step 6: Interpreting Biological Significance
 
 ### 💬 Making Sense of Your Results
-
----
 
 **👤 You:** "I have all these velocity and trajectory results now. How do I interpret them biologically? What do they mean for my research?"
 

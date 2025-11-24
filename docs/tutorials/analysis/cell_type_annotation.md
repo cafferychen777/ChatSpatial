@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Cell Type Annotation
-parent: Analysis Tutorials
-grand_parent: Tutorials
-nav_order: 1
-description: "Identifying cell types in spatial transcriptomics data"
+description: Identifying cell types in spatial transcriptomics data
 ---
 
 # Identifying Cell Types with ChatSpatial
@@ -25,7 +21,7 @@ By the end of this tutorial, you'll know how to:
 
 ### What You Need
 - ✅ **Spatial data loaded** in ChatSpatial
-- ✅ **Basic preprocessing completed** (see [Getting Started](../../getting-started/))
+- ✅ **Basic preprocessing completed** (see [Getting Started](../../getting-started/index.md))
 - ✅ **Curiosity about** what cell types are in your tissue!
 
 ### No Cell Biology PhD Required!
@@ -34,8 +30,6 @@ This tutorial is designed for anyone curious about their tissue composition. Cha
 ## Step 1: Starting Cell Type Identification
 
 ### 💬 The Discovery Begins
-
----
 
 **👤 You:** "I have my spatial data loaded and I can see different regions. Now I'm curious - what types of cells are actually in my tissue?"
 
@@ -68,8 +62,6 @@ ChatSpatial automatically:
 ## Step 2: Exploring Spatial Distribution
 
 ### 💬 Seeing Where Cell Types Live
-
----
 
 **👤 You:** "This is amazing! I'd love to see where these different cell types are located in my tissue. Can you show me a spatial map?"
 
@@ -124,8 +116,6 @@ This layered organization is a hallmark of healthy cortical development!"
 ## Step 3: Refining Cell Type Assignments
 
 ### 💬 Getting More Precise
-
----
 
 **👤 You:** "This is getting really detailed! But I want to make sure these cell type assignments are accurate. Can you use a more sophisticated method to validate them?"
 
@@ -188,8 +178,6 @@ Overall, 96% confident annotation is excellent for spatial data!"
 ## Step 4: Biological Validation
 
 ### 💬 Making Sure It Makes Sense
-
----
 
 **👤 You:** "This all looks great, but how do I know these cell type assignments actually make biological sense?"
 
@@ -254,8 +242,6 @@ These findings actually add biological richness to your dataset!"
 ## Step 5: Creating Publication-Ready Visualizations
 
 ### 💬 Showing Your Results
-
----
 
 **👤 You:** "This analysis is fantastic! Can you help me create some nice visualizations for my presentation or paper?"
 

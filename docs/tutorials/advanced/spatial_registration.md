@@ -1,10 +1,6 @@
----
-layout: default
+
 title: Spatial Registration
-parent: Advanced Tutorials
-grand_parent: Tutorials
-nav_order: 3
-description: "Spatial registration and multi-slice alignment"
+description: Spatial registration and multi-slice alignment
 ---
 
 # Spatial Registration and Multi-Slice Alignment with ChatSpatial
@@ -28,7 +24,7 @@ By the end of this tutorial, you will know how to:
 ### What You Need
 
 - ✅ **Claude Desktop** installed and running
-- ✅ **ChatSpatial configured** (see [Getting Started](../../getting-started/))
+- ✅ **ChatSpatial configured** (see [Getting Started](../../getting-started/index.md))
 - ✅ **Multiple spatial datasets** (adjacent slices or time points)
 - ✅ **Basic understanding** of your tissue structure
 
@@ -178,8 +174,6 @@ The alignment preserved the anatomical continuity - you can compare structures l
 
 ### 💬 Fine-Tuning Registration Parameters
 
----
-
 **👤 You:** "The alignment looks good, but I notice some distortion in the hippocampus region. Can we optimize the registration parameters?"
 
 **🤖 Claude:** "The hippocampus has complex curved geometry that can be challenging to align. I will optimize the PASTE parameters for better hippocampal preservation."
@@ -243,8 +237,6 @@ The hippocampus now shows continuity across all three sections, with preserved c
 ## Part 4: Quality Assessment Metrics
 
 ### 💬 Evaluating Registration Quality
-
----
 
 **👤 You:** "How can I quantitatively assess whether this registration is good enough for publication?"
 
@@ -315,8 +307,6 @@ For your publication, report: 'Spatial registration achieved high quality alignm
 ## Part 5: 2D Visualization Techniques
 
 ### 💬 Creating Publication-Quality 2D Visualizations
-
----
 
 **👤 You:** "Can you create a publication-quality 2D visualization showing the registered brain sections with specific cell types highlighted?"
 
@@ -476,8 +466,6 @@ Would you like me to create a detailed comparison showing the tissue evolution o
 ## Part 7: STalign Algorithm (Advanced)
 
 ### 💬 Using STalign for Image-Based Registration
-
----
 
 **👤 You:** "I also have histology images for each section. Can we use STalign to register using both expression and image data?"
 

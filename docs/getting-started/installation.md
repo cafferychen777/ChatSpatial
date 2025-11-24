@@ -1,20 +1,10 @@
----
-layout: default
+
 title: Installation
-parent: Getting Started
-nav_order: 1
 ---
 
 # Installation Guide
-{: .no_toc }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
-
----
 
 ## Quick Start
 
@@ -47,10 +37,8 @@ source .venv/bin/activate
 pip install -e ".[full]"
 ```
 
-{: .highlight }
 💡 **Why virtual environment?** Isolates dependencies, prevents conflicts, and makes configuration with MCP clients cleaner.
 
-{: .highlight }
 💡 **Why [full]?** Enables all 16+ analysis methods. **Installation time:** 6-10 minutes depending on your internet speed and system (includes compiling PETSc/SLEPc on first install).
 
 ## Installation Options
@@ -94,12 +82,10 @@ python3 --version
 # Should output: Python 3.10.x, 3.11.x, 3.12.x, or 3.13.x
 ```
 
-{: .note }
 💡 **Python 3.13 Support:** ChatSpatial is fully compatible with Python 3.13. Some minor FutureWarning messages from dependencies may appear but do not affect functionality.
 
 ### Platform-Specific Limitations
 
-{: .warning }
 **Windows Users:** SingleR and PETSc/SLEPc acceleration are not available on Windows due to C++ compilation limitations.
 
 #### Windows Limitations
@@ -117,7 +103,6 @@ python3 --version
 - All deconvolution methods (Cell2location, DestVI, Stereoscope, CARD)
 - All trajectory and spatial analysis methods
 
-{: .note }
 **Technical Note:** GitHub Actions CI installs R 4.4.1 on all platforms, enabling rpy2 compilation on Windows. However, SingleR's C++ dependencies still fail due to compiler limitations.
 
 ## Configure Your MCP Client
@@ -193,13 +178,11 @@ claude mcp list
 claude mcp add chatspatial -- /Users/alice/Projects/chatspatial_env/bin/python -m chatspatial server
 ```
 
-{: .note }
 💡 **Key points:**
 - The `--` separates Claude CLI options from the server command
 - Always use the **absolute path** from `which python` (not relative paths)
 - Use `--scope user` to make ChatSpatial available across all projects: `claude mcp add --scope user chatspatial -- ...`
 
-{: .warning }
 ⚠️ **Never use system Python:** Always use the Python from your virtual environment to avoid dependency conflicts. Test with `which python` to ensure you're using the right one.
 
 ## Verify Installation
@@ -243,7 +226,6 @@ print(f'  - numpy: {np.__version__}')
 "
 ```
 
-{: .note }
 **Expected output:** All commands should complete without errors. You may see some FutureWarning messages (especially with Python 3.13), which are normal and don't affect functionality.
 
 ## Troubleshooting
@@ -264,4 +246,4 @@ print(f'  - numpy: {np.__version__}')
 
 ---
 
-**Next:** [Quick Start Guide](quick-start.html) to run your first analysis
+**Next:** [Quick Start Guide](quick-start.md) to run your first analysis

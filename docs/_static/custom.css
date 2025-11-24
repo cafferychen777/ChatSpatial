@@ -1,0 +1,17 @@
+/* Custom CSS for ChatSpatial documentation */
+
+/* Improve code block styling */
+.highlight {
+    border-radius: 4px;
+}
+
+/* Better spacing for grid cards */
+.sd-card {
+    height: 100%;
+}
+
+/* Custom color scheme tweaks */
+:root {
+    --pst-color-primary: #2196F3;
+    --pst-color-secondary: #4CAF50;
+}

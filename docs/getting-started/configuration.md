@@ -1,23 +1,12 @@
----
-layout: default
+
 title: Configuration
-parent: Getting Started
-nav_order: 3
 ---
 
 # Configuration Guide
-{: .no_toc }
 
 Configure ChatSpatial for your specific needs and environment.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
-
----
 
 ## MCP Client Configuration
 
@@ -77,7 +66,6 @@ Configure ChatSpatial in Claude Desktop by editing the MCP configuration file:
 }
 ```
 
-{: .important }
 **Why use virtual environment path?** This ensures ChatSpatial uses the correct Python interpreter with all required packages installed, avoiding system-wide conflicts.
 
 ### Other MCP Clients
@@ -416,7 +404,6 @@ performance:
 
 ### Common Issues
 
-{: .note }
 **Problem:** Configuration file not found
 
 **Solution:** Create the configuration directory and file:
@@ -425,7 +412,6 @@ mkdir -p ~/.chatspatial
 cp /path/to/chatspatial/config/default.yml ~/.chatspatial/config.yml
 ```
 
-{: .note }
 **Problem:** Invalid YAML syntax
 
 **Solution:** Validate your configuration file:
@@ -433,7 +419,6 @@ cp /path/to/chatspatial/config/default.yml ~/.chatspatial/config.yml
 python -c "import yaml; yaml.safe_load(open('~/.chatspatial/config.yml'))"
 ```
 
-{: .note }
 **Problem:** Environment variables not recognized
 
 **Solution:** Check environment variable names and restart the MCP server.
@@ -455,4 +440,4 @@ rm ~/.chatspatial/config.yml
 
 ---
 
-**Next:** Explore the [Tutorials](../tutorials/) to start analyzing spatial data
+**Next:** Explore the [Tutorials](../tutorials/index.md) to start analyzing spatial data
