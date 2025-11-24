@@ -268,6 +268,7 @@ class VisualizationParameters(BaseModel):
         "heatmap",
         "violin",
         "umap",
+        "dotplot",  # Marker gene expression dotplot
         "spatial_domains",
         "cell_communication",
         "deconvolution",
@@ -480,6 +481,62 @@ class VisualizationParameters(BaseModel):
     network_layout: Literal[
         "spring", "circular", "kamada_kawai", "fruchterman_reingold"
     ] = Field("spring", description="Network layout algorithm")
+
+    # Dotplot visualization parameters
+    dotplot_dendrogram: bool = Field(
+        False,
+        description="Whether to show dendrogram for gene clustering in dotplot",
+    )
+    dotplot_swap_axes: bool = Field(
+        False,
+        description="Swap axes to show genes on x-axis and groups on y-axis",
+    )
+    dotplot_standard_scale: Optional[Literal["var", "group"]] = Field(
+        None,
+        description=(
+            "Standardize expression values for dotplot. "
+            "'var' = standardize per gene (row), "
+            "'group' = standardize per group (column)"
+        ),
+    )
+    dotplot_dot_max: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Maximum dot size as fraction (0-1). "
+            "If None, maximum observed fraction is used"
+        ),
+    )
+    dotplot_dot_min: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum dot size as fraction (0-1). "
+            "If None, minimum observed fraction is used"
+        ),
+    )
+    dotplot_smallest_dot: float = Field(
+        0.0,
+        ge=0.0,
+        le=50.0,
+        description=(
+            "Size of dot when expression fraction is 0. "
+            "Default 0 hides genes with no expression in a group"
+        ),
+    )
+    dotplot_var_groups: Optional[Dict[str, List[str]]] = Field(
+        None,
+        description=(
+            "Group genes by category for organized display. "
+            "Example: {'T cell markers': ['CD3D', 'CD4'], 'B cell markers': ['CD19', 'MS4A1']}"
+        ),
+    )
+    dotplot_categories_order: Optional[List[str]] = Field(
+        None,
+        description="Custom order for groups (clusters/cell types) on the axis",
+    )
 
     # Deconvolution visualization parameters
     n_cell_types: Annotated[
