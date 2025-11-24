@@ -233,7 +233,7 @@ async def visualize_data(
         data_id: Dataset ID
         params: Visualization parameters including:
             - plot_type: Type of visualization. Available types:
-                        * Basic plots: spatial, heatmap, violin, umap
+                        * Basic plots: spatial, heatmap, violin, umap, dotplot
                         * Analysis results: spatial_domains, cell_communication, deconvolution,
                           trajectory, rna_velocity, spatial_statistics
                         * Multi-gene/correlation: multi_gene, lr_pairs, gene_correlation
@@ -245,7 +245,7 @@ async def visualize_data(
                       use method-specific columns: 'cell_type_tangram', 'cell_type_scanvi',
                       'cell_type_cellassign', or clustering: 'leiden', 'louvain'
             - cluster_key: Column in adata.obs for grouping (e.g., 'leiden', 'cell_type').
-                          REQUIRED for heatmap and violin plots
+                          REQUIRED for heatmap, violin, and dotplot
             - subtype: Visualization variant. Required for certain plot_types:
                       * deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'
                       * spatial_statistics: 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality', 'getis_ord'
@@ -277,6 +277,10 @@ async def visualize_data(
 
         # Heatmap (cluster_key required)
         {"plot_type": "heatmap", "feature": ["Cd7", "Cd3d"], "cluster_key": "cell_type"}
+
+        # Dotplot - marker gene expression (cluster_key required)
+        {"plot_type": "dotplot", "feature": ["Cd3d", "Cd4", "Cd8a", "Cd19"],
+         "cluster_key": "cell_type", "colormap": "Reds"}
 
         # Deconvolution results
         {"plot_type": "deconvolution", "subtype": "dominant_type", "deconv_method": "cell2location",

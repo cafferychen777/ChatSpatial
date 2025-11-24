@@ -708,6 +708,223 @@ async def _create_violin_visualization(
     return fig
 
 
+async def _create_dotplot_visualization(
+    adata: ad.AnnData,
+    params: VisualizationParameters,
+    context: Optional[Context] = None,
+) -> plt.Figure:
+    """
+    Create dotplot visualization for marker gene expression.
+
+    Dotplot displays:
+    - Dot size: Fraction of cells expressing the gene (percent expressed)
+    - Dot color: Mean expression level in expressing cells
+
+    This is one of the most common visualizations for showing marker genes
+    across different cell types or clusters in single-cell/spatial analysis.
+
+    Args:
+        adata: AnnData object with gene expression data
+        params: Visualization parameters including:
+            - feature: Gene(s) to visualize (required, or uses HVGs)
+            - cluster_key: Column for grouping cells (required)
+            - colormap: Color scheme (default: 'Reds')
+            - dotplot_dendrogram: Show gene clustering dendrogram
+            - dotplot_swap_axes: Swap genes and groups axes
+            - dotplot_standard_scale: Standardize by 'var' or 'group'
+            - dotplot_var_groups: Dict for grouping genes by category
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure object
+
+    Raises:
+        DataNotFoundError: If specified genes not found
+        ValueError: If cluster_key not specified or not found
+
+    Examples:
+        # Basic dotplot
+        params = {"plot_type": "dotplot", "feature": ["CD3D", "CD4", "CD8A"],
+                  "cluster_key": "cell_type"}
+
+        # With gene grouping
+        params = {"plot_type": "dotplot", "cluster_key": "leiden",
+                  "dotplot_var_groups": {"T cells": ["CD3D", "CD4"],
+                                         "B cells": ["CD19", "MS4A1"]}}
+    """
+    if context:
+        await context.info(
+            f"Creating dotplot for "
+            f"{params.feature if params.feature else 'marker genes'}"
+        )
+
+    # Determine genes to plot
+    # If dotplot_var_groups is provided, use that structure
+    if params.dotplot_var_groups:
+        var_names = params.dotplot_var_groups
+        # Validate all genes exist
+        all_genes = []
+        for group_genes in var_names.values():
+            all_genes.extend(group_genes)
+        missing_genes = [g for g in all_genes if g not in adata.var_names]
+        if missing_genes:
+            if context:
+                await context.warning(
+                    f"Some genes not found and will be skipped: "
+                    f"{missing_genes[:10]}"
+                )
+            # Filter out missing genes from each group
+            var_names = {
+                group: [g for g in genes if g in adata.var_names]
+                for group, genes in var_names.items()
+            }
+            # Remove empty groups
+            var_names = {k: v for k, v in var_names.items() if v}
+            if not var_names:
+                raise DataNotFoundError(
+                    "No valid genes found in dotplot_var_groups. "
+                    "Please check gene names."
+                )
+    else:
+        # Use feature parameter or default to HVGs
+        default_genes = None
+        if "highly_variable" in adata.var.columns:
+            hvg_genes = adata.var_names[adata.var["highly_variable"]].tolist()
+            default_genes = hvg_genes[:20] if hvg_genes else None
+
+        if default_genes is None:
+            default_genes = list(adata.var_names[:20])
+
+        var_names = await get_validated_features(
+            adata,
+            params,
+            max_features=50,  # Reasonable limit for dotplot
+            allow_empty=True,
+            default_genes=default_genes,
+            context=context,
+        )
+
+    # REQUIRE explicit cluster_key specification for grouping
+    if not params.cluster_key:
+        categorical_cols = [
+            col
+            for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ["object", "category"]
+        ]
+        raise ValueError(
+            "Dotplot requires 'cluster_key' parameter for grouping.\n\n"
+            f"Available categorical columns ({len(categorical_cols)} total):\n"
+            f"  {', '.join(categorical_cols[:15])}\n\n"
+            "SOLUTION: Specify cluster_key explicitly:\n"
+            "  visualize_data(data_id, params={'plot_type': 'dotplot', "
+            "'feature': ['gene1', 'gene2'], 'cluster_key': 'your_column'})\n\n"
+            "Example: cluster_key='leiden' or cluster_key='cell_type'"
+        )
+
+    if params.cluster_key not in adata.obs.columns:
+        raise ValueError(
+            f"Cluster key '{params.cluster_key}' not found in data.\n\n"
+            f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
+        )
+
+    groupby = params.cluster_key
+
+    # Ensure groupby column is categorical
+    if adata.obs[groupby].dtype.name != "category":
+        adata.obs[groupby] = adata.obs[groupby].astype("category")
+
+    # Limit number of groups to avoid oversized plots
+    n_groups = len(adata.obs[groupby].cat.categories)
+    max_groups = 15
+    categories_order = params.dotplot_categories_order
+
+    if n_groups > max_groups and categories_order is None:
+        if context:
+            await context.warning(
+                f"Too many groups ({n_groups}). Limiting to {max_groups} "
+                f"largest groups."
+            )
+        # Get the largest groups
+        group_counts = adata.obs[groupby].value_counts().nlargest(max_groups)
+        categories_order = group_counts.index.tolist()
+
+    # Determine colormap - default to 'Reds' for dotplot
+    cmap = params.colormap if params.colormap != "coolwarm" else "Reds"
+
+    # Calculate figure size based on number of genes and groups
+    if params.figure_size:
+        figsize = params.figure_size
+    else:
+        n_genes = (
+            len(var_names)
+            if isinstance(var_names, list)
+            else sum(len(v) for v in var_names.values())
+        )
+        n_display_groups = (
+            len(categories_order) if categories_order else min(n_groups, max_groups)
+        )
+        # Width based on groups, height based on genes
+        width = max(4, min(12, n_display_groups * 0.8 + 2))
+        height = max(4, min(16, n_genes * 0.35 + 2))
+        figsize = (width, height)
+
+    # Create dotplot
+    plt.figure(figsize=figsize, dpi=params.dpi)
+
+    # Build kwargs for sc.pl.dotplot
+    dotplot_kwargs = {
+        "var_names": var_names,
+        "groupby": groupby,
+        "show": False,
+        "cmap": cmap,
+        "dendrogram": params.dotplot_dendrogram,
+        "swap_axes": params.dotplot_swap_axes,
+    }
+
+    # Add optional parameters if specified
+    if params.dotplot_standard_scale:
+        dotplot_kwargs["standard_scale"] = params.dotplot_standard_scale
+
+    if params.dotplot_dot_max is not None:
+        dotplot_kwargs["dot_max"] = params.dotplot_dot_max
+
+    if params.dotplot_dot_min is not None:
+        dotplot_kwargs["dot_min"] = params.dotplot_dot_min
+
+    if params.dotplot_smallest_dot > 0:
+        dotplot_kwargs["smallest_dot"] = params.dotplot_smallest_dot
+
+    if categories_order:
+        dotplot_kwargs["categories_order"] = categories_order
+
+    if params.vmin is not None:
+        dotplot_kwargs["vmin"] = params.vmin
+
+    if params.vmax is not None:
+        dotplot_kwargs["vmax"] = params.vmax
+
+    # Set title
+    if params.title:
+        dotplot_kwargs["title"] = params.title
+
+    # Create the dotplot
+    dp = sc.pl.dotplot(adata, **dotplot_kwargs)
+
+    # Get the figure
+    fig = plt.gcf()
+
+    # Adjust layout - use subplots_adjust instead of tight_layout
+    # because scanpy dotplot creates complex axes that aren't compatible
+    # with tight_layout
+    try:
+        plt.tight_layout()
+    except Exception:
+        # Fallback for complex layouts (e.g., with dendrogram)
+        fig.subplots_adjust(left=0.2, right=0.95, top=0.95, bottom=0.15)
+
+    return fig
+
+
 async def _create_card_imputation_visualization(
     adata: ad.AnnData,
     params: VisualizationParameters,
@@ -6165,6 +6382,7 @@ PLOT_HANDLERS = {
     # Main entry point: visualize_data()
     # ============================================================
     "violin": _create_violin_visualization,
+    "dotplot": _create_dotplot_visualization,
     "card_imputation": _create_card_imputation_visualization,
     "spatial_cnv": _create_spatial_cnv_visualization,
     "cnv_heatmap": _create_cnv_heatmap_visualization,
