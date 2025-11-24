@@ -185,16 +185,27 @@ def get_cached_figure(key: str) -> Optional["plt.Figure"]:
     return None
 
 
-def save_figure_pickle(fig: "plt.Figure", path: str):
+def save_figure_pickle(fig: "plt.Figure", path: str) -> bool:
     """Save figure object to pickle file (preserves all information)
 
     Args:
         fig: Matplotlib figure
         path: Path to save pickle file
+
+    Returns:
+        True if saved successfully, False if pickle failed (e.g., networkx figures)
     """
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb") as f:
-        pickle.dump(fig, f)
+    try:
+        with open(path, "wb") as f:
+            pickle.dump(fig, f)
+        return True
+    except (AttributeError, TypeError) as e:
+        # Some figures (e.g., networkx circle_plot) cannot be pickled
+        # This is not a fatal error - just skip caching
+        import logging
+        logging.debug(f"Figure pickle failed (non-fatal): {e}")
+        return False
 
 
 def load_figure_pickle(path: str) -> "plt.Figure":

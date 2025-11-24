@@ -31,21 +31,34 @@ from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
 from .models.analysis import CNVResult  # noqa: E402
 from .models.analysis import DeconvolutionResult  # noqa: E402
-from .models.analysis import (DifferentialExpressionResult, EnrichmentResult,
-                              IntegrationResult, PreprocessingResult,
-                              RNAVelocityResult, SpatialDomainResult,
-                              SpatialStatisticsResult,
-                              SpatialVariableGenesResult, TrajectoryResult)
+from .models.analysis import (
+    DifferentialExpressionResult,
+    EnrichmentResult,
+    IntegrationResult,
+    PreprocessingResult,
+    RNAVelocityResult,
+    SpatialDomainResult,
+    SpatialStatisticsResult,
+    SpatialVariableGenesResult,
+    TrajectoryResult,
+)
 from .models.data import AnnotationParameters  # noqa: E402
 from .models.data import CellCommunicationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
 from .models.data import DeconvolutionParameters  # noqa: E402
-from .models.data import (ColumnInfo, EnrichmentParameters,
-                          IntegrationParameters, PreprocessingParameters,
-                          RNAVelocityParameters, SpatialDataset,
-                          SpatialDomainParameters, SpatialStatisticsParameters,
-                          SpatialVariableGenesParameters, TrajectoryParameters,
-                          VisualizationParameters)
+from .models.data import (
+    ColumnInfo,
+    EnrichmentParameters,
+    IntegrationParameters,
+    PreprocessingParameters,
+    RNAVelocityParameters,
+    SpatialDataset,
+    SpatialDomainParameters,
+    SpatialStatisticsParameters,
+    SpatialVariableGenesParameters,
+    TrajectoryParameters,
+    VisualizationParameters,
+)
 from .spatial_mcp_adapter import MCPToolMetadata  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .utils.error_handling import ProcessingError  # noqa: E402
@@ -193,8 +206,7 @@ async def preprocess_data(
         Raw data is automatically preserved in adata.raw for downstream analyses requiring
         comprehensive gene coverage (e.g., cell communication analysis with LIANA+).
 
-        For cell communication analysis, you can later use data_source="raw" parameter
-        to access the full unfiltered gene set.
+        Cell communication analysis automatically uses adata.raw when available.
     """
     # Import to avoid name conflict
     from .tools.preprocessing import preprocess_data as preprocess_func
@@ -694,8 +706,9 @@ async def analyze_spatial_statistics(
     data_store = {data_id: dataset_info}
 
     # Lazy import spatial_statistics (squidpy is slow to import)
-    from .tools.spatial_statistics import \
-        analyze_spatial_statistics as _analyze_spatial_statistics
+    from .tools.spatial_statistics import (
+        analyze_spatial_statistics as _analyze_spatial_statistics,
+    )
 
     # Call spatial statistics analysis function
     result = await _analyze_spatial_statistics(data_id, data_store, params, context)
@@ -1204,8 +1217,7 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import \
-        identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1249,7 +1261,7 @@ async def analyze_cell_communication(
         Cell communication methods (status):
         - liana: Implemented (global/cluster and spatial bivariate modes; requires liana)
         - cellphonedb: Implemented (statistical analysis with spatial microenvironments; requires cellphonedb)
-        - cellchat_liana: Implemented (CellChat algorithm via LIANA framework; requires liana)
+        - cellchat_r: Implemented (native R CellChat with full features; requires rpy2 and CellChat R package)
         - nichenet / connectome / cytotalk / squidpy: Not implemented in this server
 
         IMPORTANT: For comprehensive cell communication analysis:
@@ -1270,13 +1282,9 @@ async def analyze_cell_communication(
         - "baccin2019", "cellcall", "cellinker", "embrace", "guide2pharma",
           "hpmr", "italk", "kirouac2010", "lrdb", "ramilowski2015": Additional resources
 
-        **Data source selection:**
-        - data_source="raw" - Use raw unfiltered data (recommended for comprehensive gene coverage)
-        - data_source="current" - Use current processed data (may have limited genes)
-
         **Common failure scenarios and solutions:**
         1. "Too few features from resource found in data":
-           - Use data_source="raw" to access full gene set
+           - adata.raw is automatically used when available for comprehensive gene coverage
            - Ensure species matches data (mouse vs human)
            - Use species-appropriate resource (mouseconsensus for mouse)
 
@@ -1347,8 +1355,7 @@ async def analyze_cell_communication(
           # Step 2: Analyze communication
           params = {
               "species": "human",
-              "liana_resource": "consensus",
-              "data_source": "raw"
+              "liana_resource": "consensus"
           }
 
         Visium - microenvironment analysis:
@@ -1358,8 +1365,7 @@ async def analyze_cell_communication(
 
           # Step 2: Analyze communication
           params = {
-              "species": "human",
-              "data_source": "raw"
+              "species": "human"
           }
 
         MERFISH - direct cell-cell contact:
@@ -1370,8 +1376,7 @@ async def analyze_cell_communication(
           # Step 2: Analyze communication
           params = {
               "species": "mouse",
-              "liana_resource": "mouseconsensus",
-              "data_source": "raw"
+              "liana_resource": "mouseconsensus"
           }
 
         **References:**
@@ -1381,8 +1386,9 @@ async def analyze_cell_communication(
           • Signaling ranges: Literature-based (Wnt/Wg: ~50-100 µm)
     """
     # Import cell communication function
-    from .tools.cell_communication import \
-        analyze_cell_communication as analyze_comm_func
+    from .tools.cell_communication import (
+        analyze_cell_communication as analyze_comm_func,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1468,8 +1474,9 @@ async def analyze_enrichment(
     """
     # Import enrichment analysis function
 
-    from .tools.enrichment import \
-        perform_spatial_enrichment as perform_enrichment_analysis
+    from .tools.enrichment import (
+        perform_spatial_enrichment as perform_enrichment_analysis,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1592,8 +1599,12 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (perform_enrichr, perform_gsea,
-                                       perform_ora, perform_ssgsea)
+        from .tools.enrichment import (
+            perform_enrichr,
+            perform_gsea,
+            perform_ora,
+            perform_ssgsea,
+        )
 
         if params.method == "pathway_gsea":
             result_dict = await perform_gsea(
