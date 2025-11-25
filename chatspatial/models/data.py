@@ -297,6 +297,13 @@ class VisualizationParameters(BaseModel):
         description=(
             "Unified subtype parameter for visualization variants. "
             "Usage depends on plot_type:\n"
+            "- rna_velocity: 'stream' (default, velocity embedding stream), "
+            "'phase' (spliced vs unspliced phase plot), 'proportions' (pie chart of spliced/unspliced ratios), "
+            "'heatmap' (gene expression by latent_time), 'paga' (PAGA with velocity arrows)\n"
+            "- trajectory: 'pseudotime' (default, pseudotime on embedding), "
+            "'circular' (CellRank circular projection), 'fate_map' (aggregated fate probabilities), "
+            "'gene_trends' (gene expression along lineages), 'fate_heatmap' (smoothed expression heatmap), "
+            "'palantir' (Palantir comprehensive results)\n"
             "- pathway_enrichment: 'barplot', 'dotplot' (traditional ORA/GSEA), "
             "'spatial_score', 'spatial_correlogram', 'spatial_variogram', 'spatial_cross_correlation' (spatial EnrichMap)\n"
             "- deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'\n"
