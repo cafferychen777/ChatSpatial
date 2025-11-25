@@ -1,7 +1,6 @@
 # Examples
 
-Real-world analysis workflows demonstrating ChatSpatial capabilities.
+Complete analysis workflows demonstrating ChatSpatial capabilities.
 
 **Available:**
-- [Workflows](workflows/) - Complete analysis examples and case studies
-- [Guides](guides/) - Testing and integration guides
+- [Workflows](workflows/) - Real-world analysis examples and case studies
