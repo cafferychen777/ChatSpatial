@@ -193,15 +193,6 @@ class PreprocessingParameters(BaseModel):
     scvi_dropout_rate: float = 0.1
     scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
 
-    # ResolVI preprocessing parameters
-    use_resolvi_preprocessing: bool = Field(
-        default=False,
-        description="Use ResolVI for spatial denoising (high-resolution spatial data only)",
-    )
-    resolvi_params: Optional["ResolVIPreprocessingParameters"] = Field(
-        default=None, description="ResolVI-specific parameters (uses defaults if None)"
-    )
-
     # Key naming parameters (configurable hard-coded keys)
     cluster_key: str = Field(
         "leiden", alias="clustering_key"
@@ -230,22 +221,6 @@ class PreprocessingParameters(BaseModel):
             "lower values (0.2-0.5) produce fewer, broader clusters. "
             "Common values: 0.25, 0.5, 1.0. Default 1.0 matches scanpy standard and works well for most spatial datasets."
         ),
-    )
-
-    # Advanced preprocessing options
-    enable_rna_velocity: bool = False  # Whether to include RNA velocity preprocessing
-    velocity_params: Optional["RNAVelocityParameters"] = (
-        None  # RNA velocity parameters. If None and enable_rna_velocity=True, defaults will be used
-    )
-
-    enable_trajectory_analysis: bool = (
-        False  # Whether to include trajectory analysis preprocessing
-    )
-    dpt_root_cell: Optional[str] = (
-        None  # Root cell for diffusion pseudotime (cell barcode)
-    )
-    enable_spatial_domains: bool = (
-        False  # Whether to include spatial domain-specific preprocessing
     )
 
 
@@ -1857,82 +1832,4 @@ class CNVParameters(BaseModel):
     )
     numbat_skip_nj: bool = Field(
         False, description="Skip neighbor-joining tree reconstruction (default: False)"
-    )
-
-
-class ResolVIPreprocessingParameters(BaseModel):
-    """ResolVI preprocessing parameters for high-resolution spatial transcriptomics
-
-    ResolVI is a deep learning method for denoising and correcting molecular
-    misassignment in cellular-resolved spatial transcriptomics data.
-
-    Requirements:
-    - High-resolution cellular-resolved spatial data (Xenium, MERFISH, CosMx, etc.)
-    - Real spatial coordinates
-    - Raw count data (not log-transformed)
-    - Minimum ~1000 cells recommended
-    """
-
-    # Core model parameters
-    n_latent: int = Field(
-        default=30,
-        gt=0,
-        le=100,
-        description="Number of latent dimensions for ResolVI representation",
-    )
-    n_hidden: int = Field(
-        default=128,
-        gt=0,
-        le=512,
-        description="Number of hidden units in neural network layers",
-    )
-    n_epochs: int = Field(
-        default=100,
-        gt=0,
-        le=1000,
-        description="Number of training epochs (100 recommended by official docs)",
-    )
-
-    # Data specifications
-    spatial_key: Optional[str] = Field(
-        default=None,
-        description="Spatial coordinate key in obsm (auto-detected if None)",
-    )
-    count_layer: Optional[str] = Field(
-        default=None, description="Layer containing count data (uses X if None)"
-    )
-
-    # Semi-supervised options
-    labels_key: Optional[str] = Field(
-        default=None, description="Cell type labels column for semi-supervised mode"
-    )
-    batch_key: Optional[str] = Field(
-        default=None, description="Batch key for multi-sample integration"
-    )
-    semisupervised: bool = Field(
-        default=False, description="Enable semi-supervised mode with cell type labels"
-    )
-
-    # Output options
-    compute_corrected_counts: bool = Field(
-        default=True, description="Compute and store molecularly corrected counts"
-    )
-    compute_differential_abundance: bool = Field(
-        default=False, description="Enable differential abundance computation"
-    )
-
-    # Hardware configuration
-    use_gpu: bool = Field(
-        default=False, description="Use GPU acceleration (highly recommended for speed)"
-    )
-
-    # Data validation
-    require_spatial: bool = Field(
-        default=True,
-        description="Require real spatial coordinates (should always be True for ResolVI)",
-    )
-    min_cells: int = Field(
-        default=1000,
-        gt=0,
-        description="Minimum cells required for meaningful ResolVI analysis",
     )
