@@ -80,6 +80,18 @@ What Can ChatSpatial Do?
 
 ----
 
+Architecture Overview
+---------------------
+
+.. image:: _static/architecture.png
+   :width: 100%
+   :align: center
+   :alt: ChatSpatial Architecture
+
+**ChatSpatial solves the data format barrier problem** through schema-enforced MCP execution, providing a unified interface to 60+ spatial transcriptomics methods across Python and R ecosystems.
+
+----
+
 Example Conversation
 --------------------
 
