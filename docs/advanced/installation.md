@@ -1,41 +1,10 @@
 # Installation Guide
 
-## Table of contents
+Detailed installation instructions and platform-specific guidance.
 
-## Quick Start
+**Quick start?** See [Quick Start](../quickstart.md) for 5-minute setup.
 
-### 1. Create Virtual Environment (Strongly Recommended)
-
-```bash
-# Clone repository
-git clone https://github.com/cafferychen777/ChatSpatial.git
-cd chatspatial
-
-# Create virtual environment (choose one method)
-# Option A: Using venv (Python built-in)
-python3 -m venv chatspatial_env
-source chatspatial_env/bin/activate  # On macOS/Linux
-# chatspatial_env\Scripts\activate    # On Windows
-
-# Option B: Using conda
-conda create -n chatspatial python=3.10
-conda activate chatspatial
-
-# Option C: Using uv (fast and modern)
-uv venv
-source .venv/bin/activate
-```
-
-### 2. Install ChatSpatial
-
-```bash
-# Recommended: Install with all features (in activated virtual environment)
-pip install -e ".[full]"
-```
-
-**Why virtual environment?** Isolates dependencies, prevents conflicts, and makes configuration with MCP clients cleaner.
-
-**Why [full]?** Enables all 16+ analysis methods. **Installation time:** 6-10 minutes depending on your internet speed and system (includes compiling PETSc/SLEPc on first install).
+---
 
 ## Installation Options
 
@@ -44,7 +13,7 @@ pip install -e ".[full]"
 | **Full (Recommended)** | `pip install -e ".[full]"` | 100% features | 6-10 min |
 | Standard | `pip install -e .` | 80% features | 3-5 min |
 
-### Standard Installation (Default)
+### Standard Installation
 - Core spatial analysis (Moran's I, Getis-Ord)
 - Basic deconvolution with scvi-tools
 - RNA velocity with scVelo
@@ -61,62 +30,99 @@ Everything in Standard, plus:
 - Spatial variable genes (SPARK-X, SpatialDE)
 - CNV analysis (inferCNVpy, Numbat)
 
+---
+
 ## Requirements
 
-- Python 3.10-3.13 (MCP requires Python 3.10+)
-- 5-10 GB disk space (for full installation)
-- macOS, Linux, or Windows
+- **Python 3.10-3.13** (MCP requires 3.10+)
+- **5-10 GB disk space** (for full installation)
+- **macOS, Linux, or Windows**
 
-### Check Your Python Version
+### Check Python Version
 
 ```bash
-# Check your Python version
 python --version
-# or
-python3 --version
-
-# Should output: Python 3.10.x, 3.11.x, 3.12.x, or 3.13.x
+# Should show: Python 3.10.x, 3.11.x, 3.12.x, or 3.13.x
 ```
 
-**Python 3.13 Support:** ChatSpatial is fully compatible with Python 3.13. Some minor FutureWarning messages from dependencies may appear but do not affect functionality.
+**Python 3.13 Support:** ChatSpatial is fully compatible with Python 3.13. Some FutureWarning messages from dependencies may appear but do not affect functionality.
 
-### Platform-Specific Limitations
+---
 
-**Windows Users:** SingleR and PETSc/SLEPc acceleration are not available on Windows due to C++ compilation limitations.
+## Platform-Specific Limitations
 
-#### Windows Limitations
+### Windows Limitations
 
 **Not Available on Windows:**
-- **SingleR** cell type annotation - C++ dependencies (mattress, knncolle) fail to compile due to MinGW compiler limitations
-- **PETSc/SLEPc** acceleration for CellRank - Requires Cygwin Python (not native Windows Python)
+- **SingleR** cell type annotation - C++ compilation issues
+- **PETSc/SLEPc** acceleration for CellRank
 
 **Windows Alternatives:**
 - Cell type annotation: Use Tangram, scANVI, CellAssign, or mllmcelltype instead of SingleR
-- CellRank: Works without PETSc (automatically uses 'brandts' method for small-medium datasets)
+- CellRank: Works without PETSc (uses 'brandts' method for small-medium datasets)
 
 **All other features work on Windows** including:
 - R-based methods (RCTD, SPOTlight, Numbat) via rpy2
 - All deconvolution methods (Cell2location, DestVI, Stereoscope, CARD)
 - All trajectory and spatial analysis methods
 
-**Technical Note:** GitHub Actions CI installs R 4.4.1 on all platforms, enabling rpy2 compilation on Windows. However, SingleR's C++ dependencies still fail due to compiler limitations.
+---
 
-## Configure Your MCP Client
+## Detailed Installation Steps
 
-**Important:** Use your virtual environment's Python path for reliable operation.
+### 1. Create Virtual Environment
 
-### Find Your Virtual Environment Python Path
+**Using venv (Python built-in):**
+```bash
+git clone https://github.com/cafferychen777/ChatSpatial.git
+cd chatspatial
+
+python3 -m venv chatspatial_env
+source chatspatial_env/bin/activate  # macOS/Linux
+# chatspatial_env\Scripts\activate  # Windows
+```
+
+**Using conda:**
+```bash
+conda create -n chatspatial python=3.10
+conda activate chatspatial
+```
+
+**Using uv (fast and modern):**
+```bash
+uv venv
+source .venv/bin/activate
+```
+
+**Why virtual environment?** Isolates dependencies, prevents conflicts, and makes MCP configuration cleaner.
+
+### 2. Install ChatSpatial
+
+```bash
+# Full installation (recommended)
+pip install -e ".[full]"
+
+# Standard installation (faster, fewer features)
+pip install -e .
+```
+
+---
+
+## Configure MCP Client
+
+**Important:** Use your virtual environment's Python path.
+
+### Find Virtual Environment Python Path
 
 ```bash
 # After activating your virtual environment
 which python
-# This will output something like:
-# /Users/yourname/Projects/chatspatial_env/bin/python
+# Output: /Users/yourname/Projects/chatspatial_env/bin/python
 ```
 
-### Option A: Claude Desktop (GUI Application)
+### Claude Desktop
 
-Edit Claude Desktop configuration file:
+Edit configuration file:
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
@@ -132,85 +138,58 @@ Edit Claude Desktop configuration file:
 }
 ```
 
-**Real Example:**
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial", "server"]
-    }
-  }
-}
-```
+**Restart Claude Desktop** after configuration changes.
 
-### Option B: Claude Code (Terminal/IDE)
-
-Install Claude Code CLI and add ChatSpatial:
+### Claude Code
 
 ```bash
-# Install Claude Code CLI (if not installed)
-npm install -g @anthropic-ai/claude-code
+# Find Python path
+source chatspatial_env/bin/activate
+which python  # Copy this path
 
-# Step 1: Find your virtual environment Python path
-# (Make sure your virtual environment is activated first)
-which python
-# Copy the output path (e.g., /Users/yourname/chatspatial_env/bin/python)
-
-# Step 2: Add ChatSpatial MCP server using the FULL path
+# Add ChatSpatial MCP server
 claude mcp add chatspatial -- /Users/yourname/chatspatial_env/bin/python -m chatspatial server
 
-# Step 3: Verify the server is connected
+# Verify
 claude mcp list
-# You should see "chatspatial: ... - ✓ Connected"
+# Should show: chatspatial: ... - ✓ Connected
 ```
 
-**Real Example:**
-```bash
-# After running "which python" in activated environment
-# Output: /Users/alice/Projects/chatspatial_env/bin/python
+**Key points:**
+- The `--` separates Claude CLI options from server command
+- Always use **absolute path** from `which python`
+- Use `--scope user` for global availability: `claude mcp add --scope user chatspatial -- ...`
 
-# Add the server with that exact path:
-claude mcp add chatspatial -- /Users/alice/Projects/chatspatial_env/bin/python -m chatspatial server
-```
-
-💡 **Key points:**
-- The `--` separates Claude CLI options from the server command
-- Always use the **absolute path** from `which python` (not relative paths)
-- Use `--scope user` to make ChatSpatial available across all projects: `claude mcp add --scope user chatspatial -- ...`
-
-⚠️ **Never use system Python:** Always use the Python from your virtual environment to avoid dependency conflicts. Test with `which python` to ensure you're using the right one.
+---
 
 ## Verify Installation
 
 ### Step 1: Check Virtual Environment
 
 ```bash
-# First, ensure you're in the virtual environment
+# Ensure you're in virtual environment
 which python
-# Should output path to your virtual environment, not system Python
-# Example: /Users/yourname/chatspatial_env/bin/python
+# Should show: /path/to/chatspatial_env/bin/python (NOT system Python)
 
-# Verify Python version
+# Check Python version
 python --version
-# Should show Python 3.10.x, 3.11.x, 3.12.x, or 3.13.x
+# Should show: Python 3.10.x, 3.11.x, 3.12.x, or 3.13.x
 ```
 
-### Step 2: Test ChatSpatial Installation
+### Step 2: Test ChatSpatial
 
 ```bash
-# Test the command-line interface
+# Test command-line interface
 python -m chatspatial server --help
-# Should display server options without errors
+# Should display server options
 
 # Test Python import
-python -c "import chatspatial; print(f'✅ ChatSpatial {chatspatial.__version__} installed successfully')"
+python -c "import chatspatial; print(f'✅ ChatSpatial {chatspatial.__version__} ready')"
 ```
 
 ### Step 3: Test Core Dependencies
 
 ```bash
-# Quick functionality test
 python -c "
 import scanpy as sc
 import squidpy as sq
@@ -222,24 +201,29 @@ print(f'  - numpy: {np.__version__}')
 "
 ```
 
-**Expected output:** All commands should complete without errors. You may see some FutureWarning messages (especially with Python 3.13), which are normal and don't affect functionality.
+**Expected:** All commands complete without errors. FutureWarning messages (especially with Python 3.13) are normal.
+
+---
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| Import errors | `pip install --upgrade pip` |
+| Import errors | `pip install --upgrade pip` then reinstall |
 | Package conflicts | `pip install --force-reinstall -e ".[full]"` |
-| Claude Desktop doesn't see server | Check that command path points to virtual environment Python |
+| Claude Desktop doesn't see server | Verify command path points to virtual environment Python |
 | Claude Code "command not found" | Install CLI: `npm install -g @anthropic-ai/claude-code` |
-| Claude Code connection error | Use absolute path to Python; run `claude mcp list` to verify |
-| Wrong Python version | Recreate virtual environment with correct Python version |
+| Claude Code connection error | Use absolute path; verify with `claude mcp list` |
+| Wrong Python version | Recreate virtual environment with correct Python |
+
+---
 
 ## Getting Help
 
 - **GitHub Issues**: [Report problems](https://github.com/cafferychen777/ChatSpatial/issues)
-- **Documentation**: Check docstrings with `help(function_name)`
+- **Troubleshooting Guide**: [Advanced troubleshooting](troubleshooting.md)
+- **FAQ**: [Common questions](faq.md)
 
 ---
 
-**Next:** [Quick Start Guide](quick-start.md) to run your first analysis
+**Next:** [Quick Start](../quickstart.md) to run your first analysis
