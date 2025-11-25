@@ -1,4 +1,4 @@
-# ChatSpatial MCP Tools Quick Reference
+# MCP Tools Quick Reference
 
 **Quick Link**: Keep this page bookmarked for instant access to all 20 MCP tools.
 

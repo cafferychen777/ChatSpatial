@@ -1,6 +1,6 @@
-# ChatSpatial Troubleshooting Guide
+# Troubleshooting Guide
 
-Welcome to the ChatSpatial troubleshooting guide! This comprehensive resource will help you resolve common issues and get back to analyzing spatial transcriptomics data quickly.
+This comprehensive resource will help you resolve common issues and get back to analyzing spatial transcriptomics data quickly.
 
 ## Quick Problem Finder
 

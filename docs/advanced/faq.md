@@ -1,6 +1,6 @@
-# Frequently Asked Questions (FAQ)
+# Frequently Asked Questions
 
-Common questions about ChatSpatial and their answers.
+Common questions and their answers.
 
 ## General Questions
 
