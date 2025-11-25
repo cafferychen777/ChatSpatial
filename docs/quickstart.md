@@ -4,6 +4,17 @@ Get ChatSpatial running and analyze your first spatial dataset.
 
 ---
 
+## How ChatSpatial Works
+
+![ChatSpatial Architecture](_static/architecture.png)
+
+**ChatSpatial bridges the gap** between natural language and complex spatial transcriptomics analysis through:
+- **Schema-enforced MCP execution** - Type-safe tool calls prevent hallucinations
+- **Unified Python/R interface** - Access 60+ methods from both ecosystems seamlessly
+- **14 analysis categories** - From data loading to CNV analysis
+
+---
+
 ## Step 1: Install (2 minutes)
 
 ```bash
