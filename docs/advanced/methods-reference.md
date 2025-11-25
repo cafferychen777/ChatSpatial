@@ -1,8 +1,8 @@
-# 🔧 ChatSpatial MCP Tools Quick Reference
+# ChatSpatial MCP Tools Quick Reference
 
-> **Quick Link**: Keep this page bookmarked for instant access to all 15 MCP tools.
+**Quick Link**: Keep this page bookmarked for instant access to all 15 MCP tools.
 
-## 📋 Tool Categories Overview
+## Tool Categories Overview
 
 | Category | Tools | Use Cases |
 |----------|-------|-----------|
@@ -18,11 +18,11 @@
 
 ---
 
-## 🔵 Data Management Tools
+## Data Management Tools
 
 ### `load_data`
 **Purpose**: Load spatial transcriptomics data from various formats
-**Difficulty**: 🟢 Beginner
+**Difficulty**: Beginner
 
 **Key Parameters**:
 - `data_path`: Path to data file/directory
@@ -48,7 +48,7 @@
 
 ### `preprocess_data`
 **Purpose**: Normalize, filter, and prepare data for analysis
-**Difficulty**: 🟡 Intermediate
+**Difficulty**: Intermediate
 
 **Key Parameters**:
 - `data_id`: Dataset ID from load_data
@@ -63,7 +63,7 @@
 - **log** (default): Standard log(x+1) normalization - robust and widely used
 - **pearson_residuals**: GLM-based variance stabilization for UMI data - best for single-cell resolution
 - **none**: Skip normalization (use when data is already normalized)
-- ⚠️ **sct/scvi**: NOT directly available - use `use_scvi_preprocessing=True` for scVI
+- **sct/scvi**: NOT directly available - use `use_scvi_preprocessing=True` for scVI
 
 **Important**:
 - Raw count data recommended for pearson_residuals
@@ -81,11 +81,11 @@
 
 ---
 
-## 🔴 Core Analysis Tools
+## Core Analysis Tools
 
 ### `analyze_spatial_data`
-**Purpose**: Analyze spatial patterns and relationships  
-**Difficulty**: 🟡 Intermediate
+**Purpose**: Analyze spatial patterns and relationships
+**Difficulty**: Intermediate
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -94,7 +94,7 @@
   - `"local_moran"` - Local Moran's I / LISA (gene-based)
   - `"geary"` - Geary's C autocorrelation (gene-based)
   - `"getis_ord"` - Getis-Ord Gi* hotspot detection (gene-based)
-  - `"neighborhood"` ⭐ - Neighborhood enrichment (requires `cluster_key`)
+  - `"neighborhood"` - Neighborhood enrichment (requires `cluster_key`)
   - `"co_occurrence"` - Co-occurrence patterns (requires `cluster_key`)
   - `"ripley"` - Ripley's K/L point patterns (requires `cluster_key`)
   - `"centrality"` - Graph centrality (optional `cluster_key`)
@@ -124,7 +124,7 @@
 
 ### `find_markers`
 **Purpose**: Identify differentially expressed genes between groups  
-**Difficulty**: 🟢 Beginner
+**Difficulty**: Beginner
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -146,7 +146,7 @@
 
 ### `find_spatial_genes`
 **Purpose**: Identify spatially variable genes  
-**Difficulty**: 🔴 Advanced
+**Difficulty**: Advanced
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -165,11 +165,11 @@
 ---
 
 
-## 🟣 Cell Annotation Tools
+## Cell Annotation Tools
 
 ### `annotate_cell_types`
 **Purpose**: Identify cell types using multiple methods
-**Difficulty**: 🟡 Intermediate
+**Difficulty**: Intermediate
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -194,15 +194,15 @@
 
 ---
 
-## 🟠 Advanced Analysis Tools
+## Advanced Analysis Tools
 
 ### `analyze_velocity_data`
 **Purpose**: RNA velocity analysis for cellular dynamics  
-**Difficulty**: 🔴 Advanced
+**Difficulty**: Advanced
 
 **Key Parameters**:
 - `data_id`: Dataset ID
-- `params.method`: `"scvelo"` (standard, tested ✅), `"velovi"` (deep learning, tested ✅)
+- `params.method`: `"scvelo"` (standard, tested Yes), `"velovi"` (deep learning, tested Yes)
 - `params.mode`: `"dynamical"`, `"stochastic"`, `"deterministic"` (for scVelo)
 - `params.n_top_genes`: Velocity genes to use
 - `params.velovi_n_epochs`: Training epochs (for VeloVI)
@@ -222,7 +222,7 @@
 
 ### `analyze_trajectory_data`
 **Purpose**: Infer cellular trajectories and pseudotime  
-**Difficulty**: 🔴 Advanced
+**Difficulty**: Advanced
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -245,7 +245,7 @@
 
 ### `analyze_cell_communication`
 **Purpose**: Cell-cell communication analysis
-**Difficulty**: 🔴 Advanced
+**Difficulty**: Advanced
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -276,7 +276,7 @@
 
 ### `analyze_enrichment`
 **Purpose**: Gene set enrichment analysis
-**Difficulty**: 🟡 Intermediate
+**Difficulty**: Intermediate
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -305,7 +305,7 @@
 
 ### `analyze_cnv`
 **Purpose**: Detect copy number variations (CNVs) from spatial transcriptomics
-**Difficulty**: 🔴 Advanced
+**Difficulty**: Advanced
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -318,7 +318,7 @@
 - `params.cluster_cells`: Cluster cells by CNV pattern (default: False)
 
 **Method Comparison**:
-- **infercnvpy**: Expression-based, fast, GPU-friendly ⭐ (default)
+- **infercnvpy**: Expression-based, fast, GPU-friendly (default)
 - **numbat**: Haplotype-aware, requires allele data, more accurate (R-based)
 
 **Example Queries**:
@@ -335,11 +335,11 @@
 
 ---
 
-## 🟡 Integration & Registration Tools
+## Integration & Registration Tools
 
 ### `integrate_samples`
 **Purpose**: Integrate multiple spatial samples  
-**Difficulty**: 🔴 Advanced
+**Difficulty**: Advanced
 
 **Key Parameters**:
 - `data_ids`: List of dataset IDs
@@ -360,7 +360,7 @@
 
 ### `register_spatial_data`
 **Purpose**: Align spatial sections or time points
-**Difficulty**: 🔴 Advanced
+**Difficulty**: Advanced
 
 **Key Parameters**:
 - `source_id`: Source dataset ID
@@ -383,11 +383,11 @@
 
 ---
 
-## 🟤 Deconvolution & Domain Tools
+## Deconvolution & Domain Tools
 
 ### `deconvolve_data`
 **Purpose**: Deconvolve spots into cell type proportions
-**Difficulty**: 🔴 Advanced
+**Difficulty**: Advanced
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -415,7 +415,7 @@
 
 ### `identify_spatial_domains`
 **Purpose**: Find tissue domains and spatial niches
-**Difficulty**: 🟡 Intermediate
+**Difficulty**: Intermediate
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -434,11 +434,11 @@
 
 ---
 
-## 🎨 Visualization Tools
+## Visualization Tools
 
 ### `visualize_data`
 **Purpose**: Create all types of spatial plots and visualizations
-**Difficulty**: 🟢 Beginner
+**Difficulty**: Beginner
 
 **Key Parameters**:
 - `data_id`: Dataset ID
@@ -452,7 +452,7 @@
 #### Complete List of 20 Plot Types:
 
 **Basic Spatial & Dimensionality Reduction** (4 types):
-- `"spatial"` ⭐ - Basic spatial gene/metadata expression (default)
+- `"spatial"` - Basic spatial gene/metadata expression (default)
 - `"umap"` - UMAP dimensionality reduction embedding
 - `"violin"` - Violin plots by group
 - `"heatmap"` - Expression heatmap (requires `cluster_key`)
@@ -541,7 +541,7 @@
 
 ---
 
-## 💡 Pro Tips
+## Pro Tips
 
 ### Natural Language Examples
 - **Specific**: "Find spatial domains in my mouse brain data using SpaGCN"
@@ -559,7 +559,7 @@
 - **GPU acceleration available for:**
   - **Annotation**: Tangram (tangram_device='cuda:0')
   - **Spatial Domains**: STAGATE, GraphST
-  - **Deconvolution**: Cell2location ⭐, CARD
+  - **Deconvolution**: Cell2location, CARD
   - **Integration**: All scVI-based methods (scVI, scANVI)
   - **Velocity**: VeloVI, scVelo (partial)
   - **CNV**: inferCNVpy (GPU-friendly)
@@ -592,23 +592,23 @@ These parameters are available across multiple tools:
 
 | Tool | 10X Visium | Slide-seq | MERFISH | seqFISH | H5AD | Notes |
 |------|------------|-----------|---------|---------|------|-------|
-| `load_data` | ✅ | ✅ | ✅ | ✅ | ✅ | Universal loader |
-| `preprocess_data` | ✅ | ✅ | ✅ | ✅ | ✅ | All spatial formats |
-| `identify_spatial_domains` | ✅ | ✅ | ⚠️ | ⚠️ | ✅ | Best with continuous coordinates |
-| `deconvolve_data` | ✅ | ✅ | ❌ | ❌ | ✅ | Requires spot-level data |
-| `analyze_cell_communication` | ✅ | ✅ | ✅ | ✅ | ✅ | Universal |
+| `load_data` | Yes | Yes | Yes | Yes | Yes | Universal loader |
+| `preprocess_data` | Yes | Yes | Yes | Yes | Yes | All spatial formats |
+| `identify_spatial_domains` | Yes | Yes | Limited | Limited | Yes | Best with continuous coordinates |
+| `deconvolve_data` | Yes | Yes | No | No | Yes | Requires spot-level data |
+| `analyze_cell_communication` | Yes | Yes | Yes | Yes | Yes | Universal |
 
 ### Method Compatibility
 
 **Spatial Domain Methods:**
-- `spagcn`: Best with histology images ⭐
+- `spagcn`: Best with histology images
 - `stagate`: High-resolution, GPU recommended
 - `leiden`: Fast, CPU-friendly clustering
 - `louvain`: Alternative clustering method
 - `graphst`: Graph-based spatial transcriptomics
 
 **Cell Annotation Methods:**
-- `tangram`: Best with scRNA reference ⭐
+- `tangram`: Best with scRNA reference
 - `scanvi`: Deep learning label transfer
 - `cellassign`: Probabilistic, custom markers
 - `sctype`: Automatic, good for exploration (R-based)
@@ -616,7 +616,7 @@ These parameters are available across multiple tools:
 - `mllmcelltype`: LLM-based multimodal annotation
 
 **Deconvolution Methods:**
-- `cell2location`: GPU recommended, high accuracy ⭐
+- `cell2location`: GPU recommended, high accuracy
 - `rctd`: CPU-friendly, robust (R-based)
 - `destvi`: Deep learning, experimental
 - `stereoscope`: Fast, good baseline
