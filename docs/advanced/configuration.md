@@ -60,7 +60,7 @@ claude mcp add chatspatial -- /Users/yourname/chatspatial_env/bin/python -m chat
 
 # Verify connection
 claude mcp list
-# Should show: chatspatial: ... - ✓ Connected
+# Should show: chatspatial: ... - Connected
 ```
 
 **Key points:**
