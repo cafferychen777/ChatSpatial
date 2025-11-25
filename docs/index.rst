@@ -7,7 +7,7 @@ ChatSpatial is a Model Context Protocol (MCP) server that integrates 60+ spatial
 
 ----
 
-🚀 Getting Started
+Getting Started
 ------------------
 
 Choose your path:
@@ -15,15 +15,15 @@ Choose your path:
 .. grid:: 2
     :gutter: 3
 
-    .. grid-item-card:: 🎯 New Users
+    .. grid-item-card:: New Users
         :link: quickstart
         :link-type: doc
 
-        **5-minute setup** → Get ChatSpatial running and analyze your first dataset
+        **5-minute setup** - Get ChatSpatial running and analyze your first dataset
 
         Perfect for: Researchers, biologists, anyone new to ChatSpatial
 
-    .. grid-item-card:: 🔧 Advanced Users
+    .. grid-item-card:: Advanced Users
         :link: advanced/methods-reference
         :link-type: doc
 
@@ -85,20 +85,20 @@ Example Conversation
 
 .. code-block:: text
 
-    👤 "Load /path/to/visium_data.h5ad and identify spatial domains"
+    User: "Load /path/to/visium_data.h5ad and identify spatial domains"
 
-    🤖 ✅ Loaded 3,456 spots, 18,078 genes
-        ✅ Identified 7 spatial domains using SpaGCN
-        ✅ Generated visualization
+    ChatSpatial: Loaded 3,456 spots, 18,078 genes
+                Identified 7 spatial domains using SpaGCN
+                Generated visualization
 
-    👤 "Find marker genes for domain 3 and show me what cell type it is"
+    User: "Find marker genes for domain 3 and show me what cell type it is"
 
-    🤖 ✅ Found 23 significant markers (adj. p < 0.05)
-        Top markers: GFAP, S100B, AQP4
-        ✅ Domain 3 shows astrocyte signature
-        ✅ Created expression heatmap
+    ChatSpatial: Found 23 significant markers (adj. p < 0.05)
+                Top markers: GFAP, S100B, AQP4
+                Domain 3 shows astrocyte signature
+                Created expression heatmap
 
-**That's ChatSpatial. Natural conversation → Scientific results.** 🎉
+**That's ChatSpatial. Natural conversation to scientific results.**
 
 ----
 
@@ -166,6 +166,6 @@ Community & Support
 
 ----
 
-**Ready to start?** → :doc:`quickstart`
+**Ready to start?** See :doc:`quickstart`
 
-Made with ❤️ for the spatial transcriptomics community
+Made for the spatial transcriptomics community
