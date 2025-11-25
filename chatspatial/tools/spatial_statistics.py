@@ -848,7 +848,7 @@ async def _analyze_bivariate_moran(
         await context.info("Running Bivariate Moran's I analysis...")
 
     # Get gene pairs from parameters - NO ARBITRARY DEFAULTS
-    if not hasattr(params, "gene_pairs") or not params.gene_pairs:
+    if not params.gene_pairs:
         raise ValueError(
             "Bivariate Moran's I analysis requires explicit gene pairs.\n\n"
             "This tool analyzes spatial correlation between TWO specific genes. "
@@ -857,8 +857,7 @@ async def _analyze_bivariate_moran(
             "Note: This tool does NOT create arbitrary gene pairs from HVG list.\n"
             "Only scientifically justified gene pairs should be analyzed."
         )
-    else:
-        gene_pairs = params.gene_pairs
+    gene_pairs = params.gene_pairs
 
     results = {}
 
