@@ -2085,9 +2085,7 @@ async def visualize_data(
             await context.info(f"Converting {params.plot_type} figure...")
 
         # Generate plot_type_key with subtype if applicable (for cache consistency)
-        subtype = (
-            params.subtype if hasattr(params, "subtype") and params.subtype else None
-        )
+        subtype = params.subtype
         plot_type_key = f"{params.plot_type}_{subtype}" if subtype else params.plot_type
 
         # Use the optimized conversion function
@@ -4931,7 +4929,7 @@ async def _create_enrichment_visualization(
     # Check if user wants violin plot by cluster
     if params.plot_type == "violin":
         # Determine grouping variable - require explicit specification
-        if hasattr(params, "cluster_key") and params.cluster_key:
+        if params.cluster_key:
             group_by = params.cluster_key
         else:
             # No cluster_key provided - show error with available options

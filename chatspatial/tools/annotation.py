@@ -1215,7 +1215,7 @@ async def _annotate_with_scanvi(
                 adata_ref,
                 labels_key=cell_type_key,  # Important: include labels_key
                 batch_key=batch_key,
-                layer=params.layer if hasattr(params, "layer") else None,
+                layer=params.layer,
             )
 
             # Train SCVI
