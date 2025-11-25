@@ -73,22 +73,24 @@ class PreprocessingParameters(BaseModel):
             "AVAILABLE OPTIONS:\n"
             "• 'log' (default): Standard log(x+1) normalization after library size correction. "
             "Robust and widely used for most analyses.\n"
-            "• 'pearson_residuals': GLM-based variance stabilization for sparse UMI data. "
-            "Requires raw integer counts and scanpy>=1.9.0. Best for single-cell resolution data.\n"
-            "• 'none': Skip normalization. Use when data is already pre-normalized.\n\n"
-            "NOT IMPLEMENTED (will raise error):\n"
-            "• 'sct': SCTransform normalization - not implemented. Will raise NotImplementedError.\n"
-            "• 'scvi': scVI normalization - use use_scvi_preprocessing=True instead. Will raise NotImplementedError.\n\n"
+            "• 'sct': SCTransform v2 variance-stabilizing normalization via R's sctransform package. "
+            "Best for raw UMI counts from 10x platforms. Based on regularized negative binomial regression.\n"
+            "• 'pearson_residuals': Analytic Pearson residuals (scanpy built-in, similar to SCTransform). "
+            "Requires raw integer counts and scanpy>=1.9.0. Faster than SCTransform with similar results.\n"
+            "• 'none': Skip normalization. Use when data is already pre-normalized.\n"
+            "• 'scvi': Deep learning-based normalization using scVI variational autoencoder. "
+            "Learns a latent representation (X_scvi) that replaces PCA. Best for batch correction and denoising.\n\n"
             "REQUIREMENTS:\n"
-            "• pearson_residuals: Raw count data (integers only), scanpy>=1.9.0, sufficient memory for dense operations\n"
+            "• sct: R with sctransform package (R -e 'install.packages(\"sctransform\")') + rpy2\n"
+            "• pearson_residuals: Raw count data (integers only), scanpy>=1.9.0\n"
+            "• scvi: scvi-tools package (pip install scvi-tools), raw count data\n"
             "• none: Data should already be normalized (will warn if raw counts detected)\n\n"
-            "ERROR HANDLING:\n"
-            "If the requested normalization fails, an error will be raised with specific reasons "
-            "and suggested alternatives. No silent fallbacks will occur.\n\n"
             "RECOMMENDATIONS:\n"
-            "• For raw Visium/Xenium/MERFISH data: 'pearson_residuals' or 'log'\n"
+            "• For raw Visium/Xenium/MERFISH data: 'sct', 'pearson_residuals', or 'log'\n"
+            "• For Seurat workflow compatibility: 'sct' (SCTransform v2)\n"
+            "• For speed with similar results: 'pearson_residuals'\n"
             "• For pre-processed data: 'none'\n"
-            "• For batch effect correction: use 'log' with batch correction or use_scvi_preprocessing=True"
+            "• For batch effect correction and denoising: 'scvi' (deep learning-based)"
         ),
     )
     scale: bool = True
@@ -153,6 +155,34 @@ class PreprocessingParameters(BaseModel):
             "This prevents a few extreme values from dominating PCA and clustering. "
             "Lower values increase robustness but may remove biological signal."
         ),
+    )
+
+    # SCTransform preprocessing parameters (requires R + sctransform package via rpy2)
+    # Installation: R -e 'install.packages("sctransform")' && pip install rpy2
+    sct_var_features_n: int = Field(
+        default=3000,
+        ge=100,
+        le=10000,
+        description="Number of highly variable features for SCTransform (default: 3000)",
+    )
+    sct_method: Literal["offset", "fix-slope"] = Field(
+        default="fix-slope",
+        description=(
+            "SCTransform regularization method:\n"
+            "• 'fix-slope' (default, v2): Fixed slope regularization, more robust and recommended.\n"
+            "• 'offset': Original offset model from v1."
+        ),
+    )
+    sct_exclude_poisson: bool = Field(
+        default=True,
+        description="Exclude Poisson genes from regularization (v2 default: True). "
+        "Improves robustness by excluding genes where variance ≤ mean.",
+    )
+    sct_n_cells: Optional[int] = Field(
+        default=5000,
+        ge=100,
+        description="Number of cells to subsample for parameter estimation (default: 5000). "
+        "Set to None to use all cells (slower but may be more accurate for small datasets).",
     )
 
     # scVI preprocessing parameters

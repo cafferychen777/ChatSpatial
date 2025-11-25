@@ -187,10 +187,20 @@ async def preprocess_data(
     Notes:
         Available normalization methods:
         - log: Standard log normalization (default)
-        - sct: SCTransform normalization
-        - pearson_residuals: Modern Pearson residuals normalization (recommended for UMI data)
+        - sct: SCTransform v2 variance-stabilizing normalization (requires pysctransform)
+              Install: pip install 'chatspatial[sct]'
+              Best for raw UMI counts from 10x platforms (Visium, etc.)
+              Based on regularized negative binomial regression (Hafemeister & Satija 2019)
+        - pearson_residuals: Analytic Pearson residuals (built-in, similar to SCTransform)
+              Faster than SCTransform with comparable results for most analyses
         - none: No normalization
         - scvi: Use scVI for normalization and dimensionality reduction
+
+        SCTransform-specific parameters (only used when normalization='sct'):
+        - sct_method: 'fix-slope' (v2, default) or 'offset' (v1)
+        - sct_var_features_n: Number of variable features (default: 3000)
+        - sct_exclude_poisson: Exclude Poisson genes from regularization (default: True)
+        - sct_n_cells: Number of cells for parameter estimation (default: 5000)
 
         When use_scvi_preprocessing=True, scVI will be used for advanced preprocessing
         including denoising and batch effect correction.

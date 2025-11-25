@@ -140,6 +140,12 @@ full = [
     "spatialdata>=0.2.0",  # Emerging spatial data format standard
 ]
 
+# SCTransform normalization (variance-stabilizing transformation)
+# Note: SCTransform now uses R's sctransform package via rpy2 (more stable than pySCTransform)
+# Requirements: R with sctransform package installed
+# Install R package: R -e 'install.packages("sctransform")'
+# rpy2 is already included in the [full] optional dependencies
+
 # Development dependencies
 dev = [
     "pytest>=8.0.0",
