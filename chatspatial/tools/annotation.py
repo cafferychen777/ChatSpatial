@@ -1492,9 +1492,7 @@ async def _annotate_with_mllmcelltype(
 
         # Extract top marker genes for each cluster
         marker_genes_dict = {}
-        n_genes = (
-            params.mllm_n_marker_genes if hasattr(params, "mllm_n_marker_genes") else 20
-        )
+        n_genes = params.mllm_n_marker_genes
 
         for cluster in adata.obs[cluster_key].unique():
             # Get top genes for this cluster
@@ -1507,65 +1505,33 @@ async def _annotate_with_mllmcelltype(
             )
 
         # Prepare parameters for mllmcelltype
-        species = params.mllm_species if hasattr(params, "mllm_species") else "human"
-        tissue = params.mllm_tissue if hasattr(params, "mllm_tissue") else None
-        additional_context = (
-            params.mllm_additional_context
-            if hasattr(params, "mllm_additional_context")
-            else None
-        )
-        use_cache = params.mllm_use_cache if hasattr(params, "mllm_use_cache") else True
-        base_urls = params.mllm_base_urls if hasattr(params, "mllm_base_urls") else None
-        verbose = params.mllm_verbose if hasattr(params, "mllm_verbose") else False
-        force_rerun = (
-            params.mllm_force_rerun if hasattr(params, "mllm_force_rerun") else False
-        )
-        clusters_to_analyze = (
-            params.mllm_clusters_to_analyze
-            if hasattr(params, "mllm_clusters_to_analyze")
-            else None
-        )
+        species = params.mllm_species
+        tissue = params.mllm_tissue
+        additional_context = params.mllm_additional_context
+        use_cache = params.mllm_use_cache
+        base_urls = params.mllm_base_urls
+        verbose = params.mllm_verbose
+        force_rerun = params.mllm_force_rerun
+        clusters_to_analyze = params.mllm_clusters_to_analyze
 
         # Check if using multi-model consensus or single model
-        use_consensus = (
-            params.mllm_use_consensus
-            if hasattr(params, "mllm_use_consensus")
-            else False
-        )
+        use_consensus = params.mllm_use_consensus
 
         try:
             if use_consensus:
                 # Use interactive_consensus_annotation with multiple models
-                models = params.mllm_models if hasattr(params, "mllm_models") else None
+                models = params.mllm_models
                 if not models:
                     raise ValueError(
                         "mllm_models parameter is required when mllm_use_consensus=True. "
                         "Provide a list of model names, e.g., ['gpt-5', 'claude-sonnet-4-5-20250929', 'gemini-2.5-pro']"
                     )
 
-                api_keys = (
-                    params.mllm_api_keys if hasattr(params, "mllm_api_keys") else None
-                )
-                consensus_threshold = (
-                    params.mllm_consensus_threshold
-                    if hasattr(params, "mllm_consensus_threshold")
-                    else 0.7
-                )
-                entropy_threshold = (
-                    params.mllm_entropy_threshold
-                    if hasattr(params, "mllm_entropy_threshold")
-                    else 1.0
-                )
-                max_discussion_rounds = (
-                    params.mllm_max_discussion_rounds
-                    if hasattr(params, "mllm_max_discussion_rounds")
-                    else 3
-                )
-                consensus_model = (
-                    params.mllm_consensus_model
-                    if hasattr(params, "mllm_consensus_model")
-                    else None
-                )
+                api_keys = params.mllm_api_keys
+                consensus_threshold = params.mllm_consensus_threshold
+                entropy_threshold = params.mllm_entropy_threshold
+                max_discussion_rounds = params.mllm_max_discussion_rounds
+                consensus_model = params.mllm_consensus_model
 
                 if context:
                     await context.info(
@@ -1607,15 +1573,9 @@ async def _annotate_with_mllmcelltype(
                     )
             else:
                 # Use single model annotation
-                provider = (
-                    params.mllm_provider
-                    if hasattr(params, "mllm_provider")
-                    else "openai"
-                )
-                model = params.mllm_model if hasattr(params, "mllm_model") else None
-                api_key = (
-                    params.mllm_api_key if hasattr(params, "mllm_api_key") else None
-                )
+                provider = params.mllm_provider
+                model = params.mllm_model
+                api_key = params.mllm_api_key
 
                 if context:
                     await context.info(
