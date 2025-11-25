@@ -59,7 +59,7 @@ html_theme_options = {
     "github_repo": "ChatSpatial",
     "github_button": True,
     "github_banner": False,
-    "description": "AI-Powered Spatial Transcriptomics Analysis",
+    "description": "LLM Agent for Spatial Transcriptomics via MCP",
     "fixed_sidebar": True,
 }
 
