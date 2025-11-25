@@ -39,6 +39,7 @@ source_suffix = {
 # Patterns to exclude from source files
 exclude_patterns = [
     "_build",
+    "_archive",  # Exclude archived documentation from indexing
     "Thumbs.db",
     ".DS_Store",
 ]
