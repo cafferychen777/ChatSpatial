@@ -33,9 +33,9 @@ source .venv/bin/activate
 pip install -e ".[full]"
 ```
 
-💡 **Why virtual environment?** Isolates dependencies, prevents conflicts, and makes configuration with MCP clients cleaner.
+**Why virtual environment?** Isolates dependencies, prevents conflicts, and makes configuration with MCP clients cleaner.
 
-💡 **Why [full]?** Enables all 16+ analysis methods. **Installation time:** 6-10 minutes depending on your internet speed and system (includes compiling PETSc/SLEPc on first install).
+**Why [full]?** Enables all 16+ analysis methods. **Installation time:** 6-10 minutes depending on your internet speed and system (includes compiling PETSc/SLEPc on first install).
 
 ## Installation Options
 
@@ -45,21 +45,21 @@ pip install -e ".[full]"
 | Standard | `pip install -e .` | 80% features | 3-5 min |
 
 ### Standard Installation (Default)
-- ✅ Core spatial analysis (Moran's I, Getis-Ord)
-- ✅ Basic deconvolution with scvi-tools
-- ✅ RNA velocity with scVelo
-- ✅ Cell communication (LIANA, CellPhoneDB)
-- ✅ Batch integration (Harmony, BBKNN)
-- ✅ Gene enrichment analysis
+- Core spatial analysis (Moran's I, Getis-Ord)
+- Basic deconvolution with scvi-tools
+- RNA velocity with scVelo
+- Cell communication (LIANA, CellPhoneDB)
+- Batch integration (Harmony, BBKNN)
+- Gene enrichment analysis
 
 ### Full Installation (Recommended)
 Everything in Standard, plus:
-- ✅ Deep learning methods (PyTorch)
-- ✅ Advanced deconvolution (Cell2location, CARD)
-- ✅ Advanced trajectory (CellRank, Palantir)
-- ✅ Spatial domains (SpaGCN, STAGATE, GraphST)
-- ✅ Spatial variable genes (SPARK-X, SpatialDE)
-- ✅ CNV analysis (inferCNVpy, Numbat)
+- Deep learning methods (PyTorch)
+- Advanced deconvolution (Cell2location, CARD)
+- Advanced trajectory (CellRank, Palantir)
+- Spatial domains (SpaGCN, STAGATE, GraphST)
+- Spatial variable genes (SPARK-X, SpatialDE)
+- CNV analysis (inferCNVpy, Numbat)
 
 ## Requirements
 
@@ -78,7 +78,7 @@ python3 --version
 # Should output: Python 3.10.x, 3.11.x, 3.12.x, or 3.13.x
 ```
 
-💡 **Python 3.13 Support:** ChatSpatial is fully compatible with Python 3.13. Some minor FutureWarning messages from dependencies may appear but do not affect functionality.
+**Python 3.13 Support:** ChatSpatial is fully compatible with Python 3.13. Some minor FutureWarning messages from dependencies may appear but do not affect functionality.
 
 ### Platform-Specific Limitations
 
@@ -86,15 +86,15 @@ python3 --version
 
 #### Windows Limitations
 
-**❌ Not Available on Windows:**
+**Not Available on Windows:**
 - **SingleR** cell type annotation - C++ dependencies (mattress, knncolle) fail to compile due to MinGW compiler limitations
 - **PETSc/SLEPc** acceleration for CellRank - Requires Cygwin Python (not native Windows Python)
 
-**✅ Windows Alternatives:**
+**Windows Alternatives:**
 - Cell type annotation: Use Tangram, scANVI, CellAssign, or mllmcelltype instead of SingleR
 - CellRank: Works without PETSc (automatically uses 'brandts' method for small-medium datasets)
 
-**✅ All other features work on Windows** including:
+**All other features work on Windows** including:
 - R-based methods (RCTD, SPOTlight, Numbat) via rpy2
 - All deconvolution methods (Cell2location, DestVI, Stereoscope, CARD)
 - All trajectory and spatial analysis methods

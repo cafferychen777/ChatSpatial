@@ -6,13 +6,13 @@ Welcome to the ChatSpatial troubleshooting guide! This comprehensive resource wi
 
 **Having issues right now?** Jump to the relevant section:
 
-- 🚀 [Installation Problems](#installation-and-dependency-issues)
-- 💾 [Memory and Performance](#memory-and-performance-problems)  
-- 🔬 [Analysis Not Working](#analysis-specific-issues)
-- 🔗 [Cell Communication Errors](#cell-communication-analysis)
-- 📁 [Data Loading Issues](#data-format-and-loading-problems)
-- ⚠️ [Error Messages](#common-error-messages-with-solutions)
-- 💬 [Agent Conversation Issues](#conversation-troubleshooting)
+- [Installation Problems](#installation-and-dependency-issues)
+- [Memory and Performance](#memory-and-performance-problems)
+- [Analysis Not Working](#analysis-specific-issues)
+- [Cell Communication Errors](#cell-communication-analysis)
+- [Data Loading Issues](#data-format-and-loading-problems)
+- [Error Messages](#common-error-messages-with-solutions)
+- [Agent Conversation Issues](#conversation-troubleshooting)
 
 ## Installation and Dependency Issues
 
@@ -55,10 +55,10 @@ ImportError: cannot import name 'X' from 'Y'
    pip install -e ".[advanced]"  # For full features
    ```
 
-> **💡 Prevention Tips:**
-> - Always use conda environments: `conda create -n chatspatial python=3.10`
-> - Install with dependency groups: `pip install -e ".[advanced]"` for most users
-> - Regularly update: `pip install --upgrade -e ".[advanced]"`
+**Prevention Tips:**
+- Always use conda environments: `conda create -n chatspatial python=3.10`
+- Install with dependency groups: `pip install -e ".[advanced]"` for most users
+- Regularly update: `pip install --upgrade -e ".[advanced]"`
 
 #### Problem: Conda vs Pip Conflicts
 **Common symptoms:**
@@ -84,7 +84,7 @@ ImportError: cannot import name 'X' from 'Y'
    pip install -e ".[advanced]"
    ```
 
-> **💡 Prevention Tip:** Stick to one package manager per environment when possible.
+**Prevention Tip:** Stick to one package manager per environment when possible.
 
 ### R Dependencies (for Advanced Features)
 
@@ -119,7 +119,7 @@ fatal error: 'R.h' file not found
    pip install rpy2>=3.4.0
    ```
 
-> **💡 Prevention Tip:** Only install R dependencies if you need RCTD deconvolution.
+**Prevention Tip:** Only install R dependencies if you need RCTD deconvolution.
 
 ### macOS Library Loading Issues
 
