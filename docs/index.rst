@@ -1,158 +1,172 @@
 ChatSpatial Documentation
 ==========================
 
-**Agentic Workflow Orchestration for Spatial Transcriptomics Analysis**
+**Chat with your spatial transcriptomics data. No coding required.**
+
+ChatSpatial is a Model Context Protocol (MCP) server that integrates 60+ spatial analysis methods into Claude. Analyze your data through natural language conversation.
+
+----
+
+🚀 Getting Started
+------------------
+
+Choose your path:
 
 .. grid:: 2
     :gutter: 3
 
-    .. grid-item-card:: 🚀 Get Started
-        :link: getting-started/installation
+    .. grid-item-card:: 🎯 New Users
+        :link: quickstart
         :link-type: doc
 
-        Install ChatSpatial and start analyzing spatial data with natural language commands.
+        **5-minute setup** → Get ChatSpatial running and analyze your first dataset
 
-    .. grid-item-card:: 📚 View on GitHub
-        :link: https://github.com/cafferychen777/ChatSpatial
+        Perfect for: Researchers, biologists, anyone new to ChatSpatial
 
-        Check out the source code and contribute to the project.
+    .. grid-item-card:: 🔧 Advanced Users
+        :link: advanced/methods-reference
+        :link-type: doc
+
+        **Detailed documentation** → All tools, parameters, and configuration
+
+        Perfect for: Power users, developers, troubleshooting
+
+----
+
+Quick Links
+-----------
+
+**Essential:**
+
+- :doc:`quickstart` - Get running in 5 minutes
+- :doc:`examples` - Real analysis workflows
+- :doc:`advanced/methods-reference` - All 60+ tools
+
+**Support:**
+
+- :doc:`advanced/troubleshooting` - Problem solving
+- :doc:`advanced/faq` - Common questions
+- `GitHub Issues <https://github.com/cafferychen777/ChatSpatial/issues>`_ - Report bugs
+
+----
+
+What Can ChatSpatial Do?
+-------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Analysis Type
+     - Natural Language Example
+   * - **Load Data**
+     - "Load my Visium dataset"
+   * - **Spatial Domains**
+     - "Identify tissue regions"
+   * - **Cell Types**
+     - "Annotate cell types using reference"
+   * - **Deconvolution**
+     - "Deconvolve spots with Cell2location"
+   * - **Communication**
+     - "Analyze cell-cell interactions"
+   * - **Trajectories**
+     - "Find developmental paths"
+   * - **Enrichment**
+     - "Run pathway analysis"
+   * - **Visualization**
+     - "Create spatial heatmap"
+
+**60+ methods across 12 analysis categories** - all through conversation!
+
+----
+
+Example Conversation
+--------------------
+
+.. code-block:: text
+
+    👤 "Load /path/to/visium_data.h5ad and identify spatial domains"
+
+    🤖 ✅ Loaded 3,456 spots, 18,078 genes
+        ✅ Identified 7 spatial domains using SpaGCN
+        ✅ Generated visualization
+
+    👤 "Find marker genes for domain 3 and show me what cell type it is"
+
+    🤖 ✅ Found 23 significant markers (adj. p < 0.05)
+        Top markers: GFAP, S100B, AQP4
+        ✅ Domain 3 shows astrocyte signature
+        ✅ Created expression heatmap
+
+**That's ChatSpatial. Natural conversation → Scientific results.** 🎉
+
+----
+
+Learning Paths
+--------------
+
+**Path 1: First-Time User (30 minutes)**
+
+1. :doc:`quickstart` - Setup and first analysis
+2. :doc:`Basic Analysis Examples <examples>` - Learn fundamentals
+3. Try your own data!
+
+**Path 2: Intermediate User (1 hour)**
+
+1. :doc:`Cell Type Analysis <examples>` - Annotation methods
+2. :doc:`Deconvolution <examples>` - Estimate compositions
+3. :doc:`Complete Workflows <examples>` - Multi-step analysis
+
+**Path 3: Advanced User (2+ hours)**
+
+1. :doc:`Advanced Analysis <examples>` - Trajectories, CNV, etc.
+2. :doc:`advanced/methods-reference` - Deep dive into all tools
+3. Combine multiple methods for publication-quality analysis
 
 ----
 
 Key Features
 ------------
 
-- **Natural Language Interface**: Analyze spatial data using conversational commands with Claude and other LLMs
-- **Comprehensive Analysis Tools**: Cell type annotation, spatial domains, trajectory analysis, and advanced spatial statistics
-- **Multiple Data Formats**: Support for H5AD, 10X Visium, Slide-seq, MERFISH, and other spatial transcriptomics formats
+- **Natural Language Interface**: Analyze spatial data using conversational commands with Claude
+- **60+ Methods**: Cell type annotation, spatial domains, trajectories, communication, and more
+- **Multiple Formats**: H5AD, 10x Visium, Slide-seq, MERFISH, seqFISH
+- **No Coding Required**: Just chat naturally with Claude
+- **Publication Ready**: High-quality visualizations and comprehensive analysis
 
-What is ChatSpatial?
---------------------
+----
 
-ChatSpatial is an agentic workflow orchestration platform that eliminates the "implementation tax" in spatial transcriptomics research. Built on the Model Context Protocol (MCP), it integrates 60 state-of-the-art methods from fragmented Python and R ecosystems into a unified conversational interface. Unlike autonomous agents, ChatSpatial prioritizes human-steered discovery through schema-enforced tool-calling that ensures reproducibility and analytical fidelity.
-
-Advanced Capabilities
-~~~~~~~~~~~~~~~~~~~~~
-
-- **Advanced Algorithms**: Integration with state-of-the-art spatial analysis methods
-- **Visualization**: Built-in plotting and visualization capabilities
-
-Supported Analysis Types
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-- **Cell Type Annotation**: Marker-based, reference-based (Tangram, scANVI), and ML approaches
-- **Spatial Domain Identification**: SpaGCN, STAGATE, Leiden/Louvain clustering
-- **Cell Communication**: LIANA, CellPhoneDB, and spatial interaction analysis
-- **Trajectory Analysis**: RNA velocity, pseudotime, and developmental trajectories
-- **Spatial Statistics**: Moran's I, spatial autocorrelation, and neighborhood analysis
-- **Deconvolution**: Cell2location, RCTD, Stereoscope for cell type proportions
-
-Getting Started
----------------
-
-Prerequisites
-~~~~~~~~~~~~~
-
-- Python 3.10 or higher (required for MCP)
-- Claude Desktop or compatible MCP client
-- Git for installation
-
-Quick Installation
-~~~~~~~~~~~~~~~~~~
-
-.. code-block:: bash
-
-    # Clone the repository
-    git clone https://github.com/cafferychen777/ChatSpatial.git
-    cd ChatSpatial
-
-    # Create virtual environment (strongly recommended)
-    python3 -m venv chatspatial_env
-    source chatspatial_env/bin/activate  # macOS/Linux
-
-    # Install dependencies (recommended: full installation)
-    pip install -e ".[full]"
-
-    # Run the MCP server
-    python -m chatspatial
-
-For detailed installation instructions, see the :doc:`Installation Guide <getting-started/installation>`.
-
-Your First Analysis
-~~~~~~~~~~~~~~~~~~~
-
-Once installed, you can start analyzing spatial data immediately:
-
-.. code-block:: text
-
-    Load the mouse brain Visium dataset and show me a spatial plot of the top variable genes
-
-.. code-block:: text
-
-    Identify spatial domains in my data using spagcn method and visualize the results
-
-.. code-block:: text
-
-    Perform cell type annotation using marker genes and show the spatial distribution
-
-Documentation Structure
------------------------
-
-.. grid:: 2
-    :gutter: 3
-
-    .. grid-item-card:: 🎯 Getting Started
-        :link: getting-started/index
-        :link-type: doc
-
-        Installation, quick start, and basic configuration
-
-    .. grid-item-card:: 📖 Tutorials
-        :link: tutorials/index
-        :link-type: doc
-
-        Step-by-step guides for core analysis workflows
-
-    .. grid-item-card:: 📘 Reference
-        :link: reference/index
-        :link-type: doc
-
-        API documentation and technical reference
-
-    .. grid-item-card:: 💡 Examples
-        :link: examples/index
-        :link-type: doc
-
-        Real-world analysis examples and case studies
-
-Community and Support
----------------------
+Community & Support
+-------------------
 
 - **GitHub Issues**: `Report bugs and request features <https://github.com/cafferychen777/ChatSpatial/issues>`_
-- **Discussions**: `Community Q&A and discussions <https://github.com/cafferychen777/ChatSpatial/discussions>`_
-- **Documentation**: This site and inline help
-
-License
--------
-
-ChatSpatial is distributed under the MIT License. See `LICENSE <https://github.com/cafferychen777/ChatSpatial/blob/main/LICENSE>`_ for more information.
+- **Discussions**: `Community Q&A <https://github.com/cafferychen777/ChatSpatial/discussions>`_
+- **Documentation**: Browse the guides below
 
 ----
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents
+   :maxdepth: 1
+   :caption: Core Documentation
    :hidden:
 
-   getting-started/index
-   tutorials/index
-   reference/index
-   examples/index
-   resources/README
+   quickstart
+   examples
+   NAVIGATION
 
-Indices and tables
-==================
+.. toctree::
+   :maxdepth: 1
+   :caption: Advanced Documentation
+   :hidden:
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+   advanced/methods-reference
+   advanced/installation
+   advanced/configuration
+   advanced/troubleshooting
+   advanced/faq
+
+----
+
+**Ready to start?** → :doc:`quickstart`
+
+Made with ❤️ for the spatial transcriptomics community

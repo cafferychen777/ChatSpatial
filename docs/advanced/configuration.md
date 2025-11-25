@@ -1,7 +1,3 @@
-
-title: Configuration
----
-
 # Configuration Guide
 
 Configure ChatSpatial for your specific needs and environment.
