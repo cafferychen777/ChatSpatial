@@ -521,7 +521,7 @@
 
 ---
 
-## 🚀 Quick Start Combinations
+## Quick Start Combinations
 
 ### Basic Analysis Workflow
 ```
@@ -577,7 +577,7 @@ All analysis results are automatically saved as MCP resources:
 
 ---
 
-## 🔍 Parameter Quick Reference
+## Parameter Quick Reference
 
 ### Universal Parameters
 These parameters are available across multiple tools:
@@ -639,9 +639,9 @@ These parameters are available across multiple tools:
 
 ---
 
-## 🚀 Natural Language Query Examples
+## Natural Language Query Examples
 
-### 🎯 Beginner Queries
+### Beginner Queries
 ```text
 "Load my Visium data and show me what's in it"
 "Find spatial domains in my brain tissue"
@@ -650,7 +650,7 @@ These parameters are available across multiple tools:
 "Show me quality control metrics"
 ```
 
-### 🎯 Intermediate Queries
+### Intermediate Queries
 ```text
 "Compare spatial domains using SpaGCN vs STAGATE"
 "Deconvolve spots with Cell2location using my scRNA reference"
@@ -659,7 +659,7 @@ These parameters are available across multiple tools:
 "Perform pathway enrichment on spatially variable genes"
 ```
 
-### 🎯 Advanced Queries
+### Advanced Queries
 ```text
 "Build complete analysis pipeline: domains → annotation → communication → pathways"
 "Compare cell communication networks between treated vs control samples"
@@ -668,7 +668,7 @@ These parameters are available across multiple tools:
 "Create publication-ready figure panels with spatial domains, cell types, and communication networks"
 ```
 
-### 🎯 Troubleshooting Queries
+### Troubleshooting Queries
 ```text
 "My clustering produced 50+ domains, how do I optimize parameters?"
 "Cell2location failed with CUDA error, suggest CPU alternatives"
