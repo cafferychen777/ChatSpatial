@@ -4,7 +4,7 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-## 📊 Basic Spatial Analysis
+## Basic Spatial Analysis
 
 ### Load and Explore Data
 ```text
@@ -38,7 +38,7 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-## 🗺️ Spatial Domain Analysis
+## Spatial Domain Analysis
 
 ### Identify Tissue Regions
 ```text
@@ -63,7 +63,7 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-## 🔬 Cell Type Analysis
+## Cell Type Analysis
 
 ### Cell Type Annotation
 ```text
@@ -82,7 +82,7 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-## 🧬 Deconvolution Analysis
+## Deconvolution Analysis
 
 ### Spatial Deconvolution
 ```text
@@ -101,7 +101,7 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-## 💬 Cell Communication Analysis
+## Cell Communication Analysis
 
 ### Identify Interactions
 ```text
@@ -126,7 +126,7 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-## 🧭 Advanced Analysis
+## Advanced Analysis
 
 ### RNA Velocity & Trajectories
 ```text
@@ -161,7 +161,7 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-## 🔄 Multi-Sample Analysis
+## Multi-Sample Analysis
 
 ### Batch Integration
 ```text
@@ -179,7 +179,7 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-## 📈 Visualization
+## Visualization
 
 ### Spatial Plots
 ```text
@@ -213,7 +213,7 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-## 🎯 Complete Workflows
+## Complete Workflows
 
 ### Workflow 1: Basic Spatial Analysis (5 minutes)
 ```text
@@ -256,34 +256,34 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-## 💡 Tips for Best Results
+## Tips for Best Results
 
 ### Data Loading
-- ✅ Always use absolute paths: `/Users/name/data.h5ad`
-- ✅ Verify spatial coordinates exist in data
-- ✅ Check data quality before analysis
+- Always use absolute paths: `/Users/name/data.h5ad`
+- Verify spatial coordinates exist in data
+- Check data quality before analysis
 
 ### Analysis Strategy
-- ✅ Start with preprocessing and clustering
-- ✅ Try multiple methods for robust results
-- ✅ Use reference data when available
-- ✅ Validate findings with marker genes
+- Start with preprocessing and clustering
+- Try multiple methods for robust results
+- Use reference data when available
+- Validate findings with marker genes
 
 ### Asking Questions
-- ✅ Be specific about what you want to see
-- ✅ Mention method names if you have preferences
-- ✅ Ask for visualizations to understand results
-- ✅ Request comparisons between conditions
+- Be specific about what you want to see
+- Mention method names if you have preferences
+- Ask for visualizations to understand results
+- Request comparisons between conditions
 
 ### Troubleshooting
-- ✅ If analysis fails, try preprocessing first
-- ✅ Check data format and required fields
-- ✅ See [Troubleshooting Guide](advanced/troubleshooting.md)
-- ✅ Ask Claude to explain errors
+- If analysis fails, try preprocessing first
+- Check data format and required fields
+- See [Troubleshooting Guide](advanced/troubleshooting.md)
+- Ask Claude to explain errors
 
 ---
 
-## 🔗 Related Resources
+## Related Resources
 
 - **[Quick Start](quickstart.md)** - Get ChatSpatial running in 5 minutes
 - **[Methods Reference](advanced/methods-reference.md)** - Complete tool documentation
@@ -292,4 +292,4 @@ All examples are **natural language commands** you type in Claude chat. No codin
 
 ---
 
-**Remember**: ChatSpatial understands natural language. Don't memorize commands - just describe what you want to do! 💬
+**Remember**: ChatSpatial understands natural language. Don't memorize commands - just describe what you want to do!

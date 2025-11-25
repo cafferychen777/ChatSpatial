@@ -19,7 +19,7 @@ pip install -e ".[full]"  # All features (recommended)
 # pip install -e .         # Core features only (faster)
 ```
 
-**That's it for installation!** ✅
+**That's it for installation!**
 
 ---
 
@@ -68,24 +68,24 @@ Get example datasets from [ChatSpatial Releases](https://github.com/cafferychen7
 Open Claude and start chatting naturally:
 
 ```text
-👤 "Load /Users/yourname/Downloads/card_spatial.h5ad and show me what's in it"
+User: "Load /Users/yourname/Downloads/card_spatial.h5ad and show me what's in it"
 
-🤖 ✅ Loaded 428 spots, 1,926 genes
-    Tissue: Mouse pancreas
-    Platform: Spatial transcriptomics
+ChatSpatial: Loaded 428 spots, 1,926 genes
+             Tissue: Mouse pancreas
+             Platform: Spatial transcriptomics
 
-👤 "Identify spatial domains"
+User: "Identify spatial domains"
 
-🤖 ✅ Found 7 distinct spatial domains
-    ✅ Generated visualization
+ChatSpatial: Found 7 distinct spatial domains
+             Generated visualization
 
-👤 "Find marker genes for domain 3"
+User: "Find marker genes for domain 3"
 
-🤖 ✅ Found 15 significant markers
-    Top genes: Ins1, Ins2, Gcg (pancreatic islet signature)
+ChatSpatial: Found 15 significant markers
+             Top genes: Ins1, Ins2, Gcg (pancreatic islet signature)
 ```
 
-**That's it! You're analyzing spatial data through conversation.** 🎉
+**That's it! You're analyzing spatial data through conversation.**
 
 ---
 
@@ -117,19 +117,19 @@ Open Claude and start chatting naturally:
 ## Common Issues
 
 **Problem: ChatSpatial tools not appearing**
-- ✅ Restart Claude after configuration
-- ✅ Verify Python path in config is correct
-- ✅ Check virtual environment is activated
+- Restart Claude after configuration
+- Verify Python path in config is correct
+- Check virtual environment is activated
 
 **Problem: Cannot load data**
-- ✅ Use absolute paths (e.g., `/Users/name/data.h5ad`)
-- ✅ Verify file exists at the path
-- ✅ Check file format is supported (H5AD, H5, MTX, Visium)
+- Use absolute paths (e.g., `/Users/name/data.h5ad`)
+- Verify file exists at the path
+- Check file format is supported (H5AD, H5, MTX, Visium)
 
 **Problem: Analysis fails**
-- ✅ Make sure you ran preprocessing first
-- ✅ Check data quality (minimum cells/genes)
-- ✅ See [Troubleshooting Guide](advanced/troubleshooting.md) for details
+- Make sure you ran preprocessing first
+- Check data quality (minimum cells/genes)
+- See [Troubleshooting Guide](advanced/troubleshooting.md) for details
 
 ---
 
