@@ -446,6 +446,8 @@ async def preprocess_data(
                     # Convert output to dense matrix for transfer
                     pearson_residuals <- as.matrix(vst_result$y)
                     residual_variance <- vst_result$gene_attr$residual_variance
+                    # Extract gene names that survived SCTransform filtering
+                    kept_genes <- rownames(vst_result$y)
                 """
                 )
 
@@ -453,6 +455,22 @@ async def preprocess_data(
                 with localconverter(ro.default_converter + numpy2ri.converter):
                     pearson_residuals = np.array(ro.r("pearson_residuals"))
                     residual_variance = np.array(ro.r("residual_variance"))
+                    kept_genes = list(ro.r("kept_genes"))
+
+                # CRITICAL FIX: Subset adata to match genes returned by SCTransform
+                # R's sctransform internally filters genes, so we need to subset
+                n_genes_before_sct = adata.n_vars
+                if len(kept_genes) != adata.n_vars:
+                    n_filtered = adata.n_vars - len(kept_genes)
+                    if context:
+                        await context.info(
+                            f"SCTransform filtered {n_filtered} additional genes internally. "
+                            f"Keeping {len(kept_genes)} genes for analysis."
+                        )
+                    # Subset adata to keep only genes returned by SCTransform
+                    adata = adata[:, kept_genes].copy()
+                else:
+                    n_filtered = 0
 
                 # Transpose back to cells × genes for AnnData format
                 adata.X = pearson_residuals.T
@@ -464,9 +482,21 @@ async def preprocess_data(
                     "var_features_n": params.sct_var_features_n,
                     "exclude_poisson": params.sct_exclude_poisson,
                     "n_cells": params.sct_n_cells,
+                    "n_genes_before": n_genes_before_sct,
+                    "n_genes_after": len(kept_genes),
+                    "n_genes_filtered_by_sct": n_filtered,
                 }
 
                 # Mark highly variable genes based on residual variance
+                # Now adata has been subset, so residual_variance should match adata.n_vars
+                if len(residual_variance) != adata.n_vars:
+                    error_msg = (
+                        f"Dimension mismatch after SCTransform: "
+                        f"residual_variance has {len(residual_variance)} values "
+                        f"but adata has {adata.n_vars} genes"
+                    )
+                    raise ValueError(error_msg)
+
                 adata.var["sct_residual_variance"] = residual_variance
 
                 # Select top N genes by residual variance
