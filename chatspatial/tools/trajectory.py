@@ -42,6 +42,90 @@ except ImportError:
     VELOVI = None
 
 
+def prepare_gam_model_for_visualization(
+    adata,
+    genes: list,
+    time_key: str = "latent_time",
+    fate_key: str = "lineages_fwd",
+):
+    """
+    Prepare a GAM model for CellRank gene trends visualization.
+
+    This function handles the computation logic needed for CellRank 2.0 gene trends
+    and fate heatmap visualizations. Requires data to be analyzed in memory via
+    analyze_rna_velocity (dynamical mode) and analyze_trajectory (cellrank method).
+
+    Note: CellRank's cr.pl.gene_trends() handles model.prepare() internally,
+    so we just need to validate data and create the GAM model.
+
+    Parameters
+    ----------
+    adata : AnnData
+        The annotated data matrix with CellRank results (fate probabilities).
+    genes : list
+        List of gene names to prepare the model for.
+    time_key : str, default 'latent_time'
+        Key in adata.obs for pseudotime/latent time values.
+    fate_key : str, default 'lineages_fwd'
+        Key in adata.obsm for fate probabilities (CellRank Lineage object).
+
+    Returns
+    -------
+    tuple
+        (model, lineage_names) - The GAM model and list of lineage names.
+
+    Raises
+    ------
+    ValueError
+        If required data (time_key, fate_key, genes) is missing from adata.
+    """
+    try:
+        from cellrank.models import GAM
+    except ImportError:
+        raise ImportError(
+            "CellRank is required for GAM model preparation. "
+            "Install with: pip install cellrank>=2.0.0"
+        )
+
+    # Validate required data
+    if time_key not in adata.obs.columns:
+        raise ValueError(
+            f"Time key '{time_key}' not found in adata.obs. "
+            "Please run: analyze_rna_velocity with scvelo_mode='dynamical'"
+        )
+
+    if fate_key not in adata.obsm:
+        raise ValueError(
+            f"Fate probabilities '{fate_key}' not found in adata.obsm. "
+            "Please run: analyze_trajectory with method='cellrank'"
+        )
+
+    # Validate Lineage object has names (must be from in-memory analysis)
+    fate_probs = adata.obsm[fate_key]
+    if not hasattr(fate_probs, "names") or fate_probs.names is None:
+        raise ValueError(
+            "Fate probabilities must be a CellRank Lineage object with names. "
+            "This requires running the full analysis pipeline in memory:\n"
+            "1. analyze_rna_velocity(data_id, params={'scvelo_mode': 'dynamical'})\n"
+            "2. analyze_trajectory(data_id, params={'method': 'cellrank'})\n"
+            "3. Then visualize with plot_type='trajectory', subtype='gene_trends'"
+        )
+    lineage_names = list(fate_probs.names)
+
+    # Validate genes exist
+    missing_genes = [g for g in genes if g not in adata.var_names]
+    if missing_genes:
+        raise ValueError(
+            f"Genes not found in data: {missing_genes}. "
+            f"Available genes: {list(adata.var_names[:10])}..."
+        )
+
+    # Create GAM model - don't call prepare(), let cr.pl functions handle it
+    model = GAM(adata)
+
+    return model, lineage_names
+
+
 def preprocess_for_velocity(
     adata, min_shared_counts=30, n_top_genes=2000, n_pcs=30, n_neighbors=30, params=None
 ):
@@ -145,6 +229,8 @@ def compute_rna_velocity(adata, mode="stochastic", params=None):
     if mode == "dynamical":
         scv.tl.recover_dynamics(adata)
         scv.tl.velocity(adata, mode="dynamical")
+        # Compute latent time (required for gene_trends visualization)
+        scv.tl.latent_time(adata)
     else:
         scv.tl.velocity(adata, mode=mode)
 

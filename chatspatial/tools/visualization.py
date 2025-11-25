@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
-
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
 
@@ -36,22 +35,18 @@ except ImportError:
     INFERCNVPY_AVAILABLE = False
 
 from ..models.data import VisualizationParameters  # noqa: E402
-
 # Import spatial coordinates helper from data adapter
 from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
-
 # Import error handling utilities
 from ..utils.error_handling import DataCompatibilityError  # noqa: E402
 from ..utils.error_handling import DataNotFoundError  # noqa: E402
-from ..utils.error_handling import InvalidParameterError, ProcessingError  # noqa: E402
-
+from ..utils.error_handling import (InvalidParameterError,  # noqa: E402
+                                    ProcessingError)
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
-
 # Import path utilities for safe file operations
 from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
 from ..utils.path_utils import get_safe_output_path  # noqa: E402
-
 # Import color utilities for categorical data
 from ._color_utils import _ensure_categorical_colors  # noqa: E402
 
@@ -4142,7 +4137,52 @@ async def _create_lr_pairs_visualization(
 async def _create_rna_velocity_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
-    """Create RNA velocity stream plot
+    """Create RNA velocity visualization based on subtype
+
+    Dispatcher function that routes to appropriate scVelo visualization based on subtype.
+
+    Args:
+        adata: AnnData object with computed RNA velocity
+        params: Visualization parameters including subtype
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with RNA velocity visualization
+
+    Subtypes:
+        - stream (default): Velocity embedding stream plot (scv.pl.velocity_embedding_stream)
+        - phase: Phase plot showing spliced vs unspliced (scv.pl.velocity)
+        - proportions: Pie chart of spliced/unspliced ratios (scv.pl.proportions)
+        - heatmap: Gene expression ordered by latent_time (scv.pl.heatmap)
+        - paga: PAGA with velocity arrows (scv.pl.paga)
+    """
+    # Default to stream if no subtype specified
+    subtype = params.subtype or "stream"
+
+    if context:
+        await context.info(f"Creating RNA velocity visualization (subtype: {subtype})")
+
+    if subtype == "stream":
+        return await _create_velocity_stream_plot(adata, params, context)
+    elif subtype == "phase":
+        return await _create_velocity_phase_plot(adata, params, context)
+    elif subtype == "proportions":
+        return await _create_velocity_proportions_plot(adata, params, context)
+    elif subtype == "heatmap":
+        return await _create_velocity_heatmap(adata, params, context)
+    elif subtype == "paga":
+        return await _create_velocity_paga_plot(adata, params, context)
+    else:
+        raise InvalidParameterError(
+            f"Unsupported subtype for rna_velocity: '{subtype}'. "
+            f"Available subtypes: stream, phase, proportions, heatmap, paga"
+        )
+
+
+async def _create_velocity_stream_plot(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Create RNA velocity stream plot using scv.pl.velocity_embedding_stream
 
     Args:
         adata: AnnData object with computed RNA velocity
@@ -4151,22 +4191,24 @@ async def _create_rna_velocity_visualization(
 
     Returns:
         Matplotlib figure with RNA velocity stream plot
+
+    Data requirements:
+        - adata.uns['velocity_graph']: Velocity transition graph
+        - adata.obsm['X_umap'] or 'spatial': Embedding for visualization
     """
     try:
         import scvelo as scv
     except ImportError:
         raise DataCompatibilityError(
-            "scvelo package is required for RNA velocity visualization. Install it with: pip install scvelo>=0.2.5"
+            "scvelo package is required for RNA velocity visualization. "
+            "Install with: pip install scvelo>=0.2.5"
         )
 
     # Check if RNA velocity has been computed
     if "velocity_graph" not in adata.uns:
         raise DataNotFoundError(
-            "RNA velocity has not been computed. Please run 'analyze_rna_velocity' first."
+            "RNA velocity has not been computed. Please run 'analyze_velocity_data' first."
         )
-
-    if context:
-        await context.info("Creating RNA velocity stream plot")
 
     # Determine basis for plotting
     basis = params.basis or "spatial"
@@ -4177,32 +4219,26 @@ async def _create_rna_velocity_visualization(
         if "spatial" in adata.obsm:
             basis = "spatial"
             if context:
-                await context.info(
-                    "Using 'spatial' as basis for RNA velocity visualization"
-                )
+                await context.info("Using 'spatial' as basis")
         elif "X_umap" in adata.obsm:
             basis = "umap"
             if context:
-                await context.info(
-                    "Using 'umap' as basis for RNA velocity visualization"
-                )
+                await context.info("Using 'umap' as basis")
         elif "X_pca" in adata.obsm:
             basis = "pca"
             if context:
-                await context.info(
-                    "Using 'pca' as basis for RNA velocity visualization"
-                )
+                await context.info("Using 'pca' as basis")
         else:
             available_bases = [
                 k.replace("X_", "") for k in adata.obsm.keys() if k.startswith("X_")
             ]
             available_bases.extend([k for k in adata.obsm.keys() if k == "spatial"])
             raise DataCompatibilityError(
-                f"Basis '{params.basis or 'spatial'}' not found. Available bases: {available_bases}"
+                f"Basis '{params.basis or 'spatial'}' not found. "
+                f"Available bases: {available_bases}"
             )
 
     # Prepare feature for coloring
-    # Find first categorical column as default (no hardcoded assumptions)
     default_feature = None
     if not params.feature:
         categorical_cols = [
@@ -4223,7 +4259,7 @@ async def _create_rna_velocity_visualization(
     figsize = params.figure_size or (10, 8)
     fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
 
-    # Create RNA velocity stream plot
+    # Create RNA velocity stream plot using official scVelo function
     scv.pl.velocity_embedding_stream(
         adata,
         basis=basis,
@@ -4233,12 +4269,379 @@ async def _create_rna_velocity_visualization(
         alpha=params.alpha,
         legend_loc="right margin" if feature and feature in adata.obs.columns else None,
         frameon=params.show_axes,
-        title="",  # We'll set our own title
+        title="",
     )
 
     # Set title
     title = params.title or f"RNA Velocity Stream on {basis.capitalize()}"
     ax.set_title(title, fontsize=14)
+
+    # Handle spatial coordinates orientation
+    if basis == "spatial":
+        ax.invert_yaxis()
+
+    plt.tight_layout()
+    return fig
+
+
+async def _create_velocity_phase_plot(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Create velocity phase plot using scv.pl.velocity
+
+    Shows spliced vs unspliced counts with fitted velocity model for specified genes.
+
+    Args:
+        adata: AnnData object with computed RNA velocity
+        params: Visualization parameters (feature should be gene name(s))
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with phase plot
+
+    Data requirements:
+        - adata.layers['velocity']: Velocity vectors
+        - adata.layers['Ms']: Smoothed spliced counts
+        - adata.layers['Mu']: Smoothed unspliced counts
+        - adata.var_names: Gene names for feature parameter
+    """
+    try:
+        import scvelo as scv
+    except ImportError:
+        raise DataCompatibilityError(
+            "scvelo package is required for velocity phase plots. "
+            "Install with: pip install scvelo>=0.2.5"
+        )
+
+    # Check required layers
+    required_layers = ["velocity", "Ms", "Mu"]
+    missing_layers = [l for l in required_layers if l not in adata.layers]
+    if missing_layers:
+        raise DataNotFoundError(
+            f"Missing required layers for phase plot: {missing_layers}. "
+            f"Please run 'analyze_velocity_data' first."
+        )
+
+    # Get genes to plot
+    if params.feature:
+        if isinstance(params.feature, str):
+            var_names = [params.feature]
+        else:
+            var_names = list(params.feature)
+    else:
+        # Select top velocity genes if no feature specified
+        if "velocity_genes" in adata.var.columns:
+            velocity_genes = adata.var_names[adata.var["velocity_genes"]]
+            var_names = list(velocity_genes[:4])  # Top 4 velocity genes
+        else:
+            var_names = list(adata.var_names[:4])
+
+    # Validate genes exist
+    valid_genes = [g for g in var_names if g in adata.var_names]
+    if not valid_genes:
+        raise DataNotFoundError(
+            f"None of the specified genes found in data: {var_names}. "
+            f"Available genes (first 10): {list(adata.var_names[:10])}"
+        )
+
+    if context:
+        await context.info(f"Creating phase plot for genes: {valid_genes}")
+
+    # Determine basis for background embedding
+    basis = params.basis or "umap"
+    if f"X_{basis}" not in adata.obsm and basis != "spatial":
+        if "X_umap" in adata.obsm:
+            basis = "umap"
+        elif "spatial" in adata.obsm:
+            basis = "spatial"
+
+    # Create figure using scVelo's velocity plot (phase plot)
+    # scv.pl.velocity creates its own figure when multiple genes specified
+    figsize = params.figure_size or (4 * len(valid_genes), 4)
+
+    # Determine color for plots
+    color = params.cluster_key if params.cluster_key else None
+
+    # scv.pl.velocity handles multi-gene layouts internally
+    scv.pl.velocity(
+        adata,
+        var_names=valid_genes,
+        basis=basis,
+        color=color,
+        figsize=figsize,
+        dpi=params.dpi,
+        show=False,
+        ncols=len(valid_genes),
+    )
+
+    fig = plt.gcf()
+    title = params.title or "RNA Velocity Phase Plot"
+    fig.suptitle(title, fontsize=14, y=1.02)
+    plt.tight_layout()
+    return fig
+
+
+async def _create_velocity_proportions_plot(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Create velocity proportions plot using scv.pl.proportions
+
+    Shows pie chart of spliced/unspliced RNA proportions per cluster.
+
+    Args:
+        adata: AnnData object with spliced/unspliced layers
+        params: Visualization parameters (cluster_key for grouping)
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with proportions pie chart
+
+    Data requirements:
+        - adata.layers['spliced']: Spliced counts
+        - adata.layers['unspliced']: Unspliced counts
+        - adata.obs[cluster_key]: Cluster labels for grouping
+    """
+    try:
+        import scvelo as scv
+    except ImportError:
+        raise DataCompatibilityError(
+            "scvelo package is required for proportions plot. "
+            "Install with: pip install scvelo>=0.2.5"
+        )
+
+    # Check required layers
+    if "spliced" not in adata.layers or "unspliced" not in adata.layers:
+        raise DataNotFoundError(
+            "Spliced and unspliced layers are required for proportions plot. "
+            "Your data may not contain RNA velocity information."
+        )
+
+    # Determine cluster key
+    cluster_key = params.cluster_key
+    if not cluster_key:
+        # Try to find a categorical column
+        categorical_cols = [
+            col
+            for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ["object", "category"]
+        ]
+        if categorical_cols:
+            cluster_key = categorical_cols[0]
+            if context:
+                await context.info(f"Using cluster_key: '{cluster_key}'")
+        else:
+            raise InvalidParameterError(
+                "cluster_key is required for proportions plot. "
+                f"Available columns: {list(adata.obs.columns)[:10]}"
+            )
+
+    if cluster_key not in adata.obs.columns:
+        raise DataNotFoundError(
+            f"Cluster key '{cluster_key}' not found in data. "
+            f"Available columns: {list(adata.obs.columns)[:10]}"
+        )
+
+    if context:
+        await context.info(f"Creating proportions plot grouped by '{cluster_key}'")
+
+    # Create figure using scVelo's proportions plot
+    # Note: scv.pl.proportions does NOT support ax parameter - it creates its own figure
+    figsize = params.figure_size or (12, 4)
+
+    scv.pl.proportions(
+        adata,
+        groupby=cluster_key,
+        figsize=figsize,
+        dpi=params.dpi,
+        show=False,
+    )
+
+    fig = plt.gcf()
+    title = params.title or f"Spliced/Unspliced Proportions by {cluster_key}"
+    fig.suptitle(title, fontsize=14, y=1.02)
+    plt.tight_layout()
+    return fig
+
+
+async def _create_velocity_heatmap(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Create velocity heatmap using scv.pl.heatmap
+
+    Shows gene expression patterns ordered by latent time.
+
+    Args:
+        adata: AnnData object with latent_time computed
+        params: Visualization parameters (feature for gene selection)
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with velocity heatmap
+
+    Data requirements:
+        - adata.obs['latent_time']: Latent time from dynamical model
+        - adata.var['velocity_genes']: Velocity genes (optional, for gene selection)
+    """
+    try:
+        import scvelo as scv
+    except ImportError:
+        raise DataCompatibilityError(
+            "scvelo package is required for velocity heatmap. "
+            "Install with: pip install scvelo>=0.2.5"
+        )
+
+    # Check for latent_time
+    if "latent_time" not in adata.obs.columns:
+        raise DataNotFoundError(
+            "latent_time is required for velocity heatmap. "
+            "Please run 'analyze_velocity_data' with dynamical mode first, "
+            "or use analyze_trajectory_data for pseudotime calculation."
+        )
+
+    # Get genes to plot
+    if params.feature:
+        if isinstance(params.feature, str):
+            var_names = [params.feature]
+        else:
+            var_names = list(params.feature)
+        # Validate genes
+        valid_genes = [g for g in var_names if g in adata.var_names]
+        if not valid_genes:
+            raise DataNotFoundError(f"None of the specified genes found: {var_names}")
+        var_names = valid_genes
+    else:
+        # Select top velocity genes
+        if "velocity_genes" in adata.var.columns:
+            velocity_genes = adata.var_names[adata.var["velocity_genes"]]
+            var_names = list(velocity_genes[:50])  # Top 50 velocity genes
+        else:
+            # Select highly variable genes
+            if "highly_variable" in adata.var.columns:
+                hvg = adata.var_names[adata.var["highly_variable"]]
+                var_names = list(hvg[:50])
+            else:
+                var_names = list(adata.var_names[:50])
+
+    if context:
+        await context.info(f"Creating velocity heatmap with {len(var_names)} genes")
+
+    # Create figure using scVelo's heatmap
+    figsize = params.figure_size or (12, 8)
+
+    # scvelo.pl.heatmap creates its own figure, capture it
+    scv.pl.heatmap(
+        adata,
+        var_names=var_names,
+        sortby="latent_time",
+        col_color=params.cluster_key,
+        n_convolve=30,
+        show=False,
+        figsize=figsize,
+    )
+
+    fig = plt.gcf()
+    fig.set_dpi(params.dpi)
+
+    # Only add title if explicitly provided by user
+    if params.title:
+        fig.suptitle(params.title, fontsize=14, y=1.02)
+    plt.tight_layout()
+    return fig
+
+
+async def _create_velocity_paga_plot(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Create PAGA plot with velocity using scv.pl.paga
+
+    Shows partition-based graph abstraction with directed velocity arrows.
+
+    Args:
+        adata: AnnData object with velocity and PAGA computed
+        params: Visualization parameters (cluster_key for PAGA groups)
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with velocity PAGA plot
+
+    Data requirements:
+        - adata.uns['velocity_graph']: Velocity transition graph
+        - adata.uns['paga']: PAGA results (computed by scv.tl.paga)
+        - adata.obs[cluster_key]: Cluster labels used for PAGA
+    """
+    try:
+        import scvelo as scv
+    except ImportError:
+        raise DataCompatibilityError(
+            "scvelo package is required for velocity PAGA plot. "
+            "Install with: pip install scvelo>=0.2.5"
+        )
+
+    # Check for velocity graph
+    if "velocity_graph" not in adata.uns:
+        raise DataNotFoundError(
+            "velocity_graph is required for PAGA visualization. "
+            "Please run 'analyze_velocity_data' first."
+        )
+
+    # Determine cluster key
+    cluster_key = params.cluster_key
+    if not cluster_key:
+        # Try to find from PAGA results
+        if "paga" in adata.uns and "groups" in adata.uns.get("paga", {}):
+            cluster_key = adata.uns["paga"].get("groups")
+        else:
+            categorical_cols = [
+                col
+                for col in adata.obs.columns
+                if adata.obs[col].dtype.name in ["object", "category"]
+            ]
+            if categorical_cols:
+                cluster_key = categorical_cols[0]
+
+    if not cluster_key or cluster_key not in adata.obs.columns:
+        raise InvalidParameterError(
+            f"cluster_key is required for PAGA plot. "
+            f"Available columns: {list(adata.obs.columns)[:10]}"
+        )
+
+    # Compute PAGA if not already done
+    if "paga" not in adata.uns:
+        if context:
+            await context.info(f"Computing PAGA for cluster_key='{cluster_key}'")
+        import scanpy as sc
+
+        sc.tl.paga(adata, groups=cluster_key)
+        scv.tl.paga(adata, groups=cluster_key)
+
+    if context:
+        await context.info(f"Creating velocity PAGA plot for '{cluster_key}'")
+
+    # Determine basis
+    basis = params.basis or "umap"
+    if f"X_{basis}" not in adata.obsm:
+        if "X_umap" in adata.obsm:
+            basis = "umap"
+        elif "spatial" in adata.obsm:
+            basis = "spatial"
+
+    # Create figure
+    figsize = params.figure_size or (10, 8)
+    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+
+    # Create PAGA plot using scVelo
+    scv.pl.paga(
+        adata,
+        basis=basis,
+        color=cluster_key,
+        ax=ax,
+        show=False,
+        frameon=params.show_axes,
+    )
+
+    # Only add title if explicitly provided by user
+    if params.title:
+        ax.set_title(params.title, fontsize=14)
 
     # Handle spatial coordinates orientation
     if basis == "spatial":
@@ -4673,7 +5076,58 @@ async def _create_getis_ord_visualization(
 async def _create_trajectory_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
+    """Create trajectory visualization based on subtype
+
+    Dispatcher function that routes to appropriate trajectory visualization based on subtype.
+
+    Args:
+        adata: AnnData object with computed trajectory/pseudotime
+        params: Visualization parameters including subtype
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with trajectory visualization
+
+    Subtypes:
+        - pseudotime (default): Pseudotime on embedding with optional velocity stream
+        - circular: CellRank circular projection of fate probabilities
+        - fate_map: CellRank aggregated fate probabilities (bar/paga/heatmap)
+        - gene_trends: CellRank gene expression trends along lineages
+        - fate_heatmap: CellRank smoothed expression heatmap by pseudotime
+        - palantir: Palantir comprehensive results (pseudotime, entropy, fate probs)
+    """
+    # Default to pseudotime if no subtype specified
+    subtype = params.subtype or "pseudotime"
+
+    if context:
+        await context.info(f"Creating trajectory visualization (subtype: {subtype})")
+
+    if subtype == "pseudotime":
+        return await _create_trajectory_pseudotime_plot(adata, params, context)
+    elif subtype == "circular":
+        return await _create_cellrank_circular_projection(adata, params, context)
+    elif subtype == "fate_map":
+        return await _create_cellrank_fate_map(adata, params, context)
+    elif subtype == "gene_trends":
+        return await _create_cellrank_gene_trends(adata, params, context)
+    elif subtype == "fate_heatmap":
+        return await _create_cellrank_fate_heatmap(adata, params, context)
+    elif subtype == "palantir":
+        return await _create_palantir_results(adata, params, context)
+    else:
+        raise InvalidParameterError(
+            f"Unsupported subtype for trajectory: '{subtype}'. "
+            f"Available subtypes: pseudotime, circular, fate_map, gene_trends, "
+            f"fate_heatmap, palantir"
+        )
+
+
+async def _create_trajectory_pseudotime_plot(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
     """Create trajectory pseudotime visualization
+
+    Shows pseudotime on embedding with optional velocity stream plot.
 
     Args:
         adata: AnnData object with computed trajectory/pseudotime
@@ -4681,11 +5135,13 @@ async def _create_trajectory_visualization(
         context: MCP context
 
     Returns:
-        Matplotlib figure with trajectory visualization
-    """
-    if context:
-        await context.info("Creating trajectory pseudotime visualization")
+        Matplotlib figure with pseudotime visualization
 
+    Data requirements:
+        - adata.obs['*pseudotime*']: Any pseudotime column
+        - adata.obsm['X_umap'] or 'spatial': Embedding for visualization
+        - adata.uns['velocity_graph']: Optional, for velocity stream panel
+    """
     # Find pseudotime key
     pseudotime_key = params.feature
     if not pseudotime_key:
@@ -4699,12 +5155,14 @@ async def _create_trajectory_visualization(
                 await context.info(f"Found pseudotime column: {pseudotime_key}")
         else:
             raise DataNotFoundError(
-                "No pseudotime information found. Please run trajectory analysis first or specify a pseudotime column in the 'feature' parameter."
+                "No pseudotime information found. Please run trajectory analysis "
+                "first or specify a pseudotime column in the 'feature' parameter."
             )
 
     if pseudotime_key not in adata.obs.columns:
         raise DataNotFoundError(
-            f"Pseudotime column '{pseudotime_key}' not found. Please run trajectory analysis first."
+            f"Pseudotime column '{pseudotime_key}' not found. "
+            "Please run trajectory analysis first."
         )
 
     # Check if RNA velocity is available
@@ -4715,34 +5173,24 @@ async def _create_trajectory_visualization(
     basis_key = f"X_{basis}" if basis != "spatial" else "spatial"
 
     if basis_key not in adata.obsm:
-        # Try to find an alternative basis
         if "spatial" in adata.obsm:
             basis = "spatial"
-            if context:
-                await context.info(
-                    "Using 'spatial' as basis for trajectory visualization"
-                )
         elif "X_umap" in adata.obsm:
             basis = "umap"
-            if context:
-                await context.info("Using 'umap' as basis for trajectory visualization")
         elif "X_pca" in adata.obsm:
             basis = "pca"
-            if context:
-                await context.info("Using 'pca' as basis for trajectory visualization")
         else:
             available_bases = [
                 k.replace("X_", "") for k in adata.obsm.keys() if k.startswith("X_")
             ]
             available_bases.extend([k for k in adata.obsm.keys() if k == "spatial"])
             raise DataCompatibilityError(
-                f"Basis '{params.basis or 'spatial'}' not found. Available bases: {available_bases}"
+                f"Basis not found. Available bases: {available_bases}"
             )
 
     # Setup figure: 1 panel if no velocity, 2 panels if velocity exists
     n_panels = 2 if has_velocity else 1
 
-    # USE THE NEW PANEL HELPER
     fig, axes = setup_multi_panel_figure(
         n_panels=n_panels,
         params=params,
@@ -4763,10 +5211,7 @@ async def _create_trajectory_visualization(
             alpha=params.alpha,
             colorbar_loc="right" if params.show_colorbar else None,
         )
-        # Don't set individual panel title since we have a comprehensive main title
-        # ax1.set_title(f"Pseudotime ({pseudotime_key})", fontsize=12)
 
-        # Handle spatial coordinates orientation
         if basis == "spatial":
             ax1.invert_yaxis()
 
@@ -4799,7 +5244,6 @@ async def _create_trajectory_visualization(
             )
             ax2.set_title("RNA Velocity Stream", fontsize=12)
 
-            # Handle spatial coordinates orientation
             if basis == "spatial":
                 ax2.invert_yaxis()
 
@@ -4807,24 +5251,543 @@ async def _create_trajectory_visualization(
             ax2.text(
                 0.5,
                 0.5,
-                "scvelo not installed\nfor velocity visualization",
+                "scvelo not installed",
                 ha="center",
                 va="center",
                 transform=ax2.transAxes,
             )
-            ax2.set_title("Velocity Stream - Error", fontsize=12)
         except Exception as e:
             ax2.text(
                 0.5,
                 0.5,
-                f"Error plotting velocity:\n{str(e)}",
+                f"Error: {str(e)[:50]}",
                 ha="center",
                 va="center",
                 transform=ax2.transAxes,
             )
-            ax2.set_title("Velocity Stream - Error", fontsize=12)
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
+    return fig
+
+
+async def _create_cellrank_circular_projection(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Create CellRank circular projection using cr.pl.circular_projection
+
+    Shows fate probabilities in a circular layout.
+
+    Args:
+        adata: AnnData object with CellRank analysis
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with circular projection
+
+    Data requirements:
+        - adata.obs['terminal_states'] or 'term_states_fwd': Terminal state labels
+        - adata.obsm['lineages_fwd'] or 'to_terminal_states': Fate probabilities
+    """
+    try:
+        import cellrank as cr
+    except ImportError:
+        raise DataCompatibilityError(
+            "cellrank package is required for circular projection. "
+            "Install with: pip install cellrank>=2.0.0"
+        )
+
+    # Check for CellRank results
+    fate_key_candidates = ["lineages_fwd", "to_terminal_states"]
+    fate_key = None
+    for key in fate_key_candidates:
+        if key in adata.obsm:
+            fate_key = key
+            break
+
+    if not fate_key:
+        raise DataNotFoundError(
+            "CellRank fate probabilities not found. "
+            "Please run 'analyze_trajectory_data' with method='cellrank' first."
+        )
+
+    if context:
+        await context.info("Creating CellRank circular projection")
+
+    # Determine keys for coloring
+    keys = [params.cluster_key] if params.cluster_key else None
+    if not keys:
+        # Try to find categorical columns
+        categorical_cols = [
+            col
+            for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ["object", "category"]
+        ][:3]
+        keys = categorical_cols if categorical_cols else None
+
+    # Create figure - CellRank creates its own figure, no ax parameter supported
+    # Note: CellRank has compatibility issues with show parameter in some versions
+    figsize = params.figure_size or (10, 10)
+
+    import matplotlib
+    backend = matplotlib.get_backend()
+    matplotlib.use('Agg')  # Force non-interactive backend
+
+    cr.pl.circular_projection(
+        adata,
+        keys=keys,
+        figsize=figsize,
+        dpi=params.dpi,
+    )
+    fig = plt.gcf()
+    matplotlib.use(backend)  # Restore backend
+
+    if params.title:
+        fig.suptitle(params.title, fontsize=14, y=1.02)
+
+    plt.tight_layout()
+    return fig
+
+
+async def _create_cellrank_fate_map(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Create CellRank aggregated fate probabilities using cr.pl.aggregate_fate_probabilities
+
+    Shows fate probabilities aggregated by cluster as bar, paga, or heatmap.
+
+    Args:
+        adata: AnnData object with CellRank analysis
+        params: Visualization parameters (cluster_key for grouping)
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with aggregated fate map
+
+    Data requirements:
+        - adata.obsm['lineages_fwd'] or 'to_terminal_states': Fate probabilities
+        - adata.obs[cluster_key]: Cluster labels for aggregation
+    """
+    try:
+        import cellrank as cr
+    except ImportError:
+        raise DataCompatibilityError(
+            "cellrank package is required for fate map. "
+            "Install with: pip install cellrank>=2.0.0"
+        )
+
+    # Check for CellRank results
+    fate_key_candidates = ["lineages_fwd", "to_terminal_states"]
+    fate_key = None
+    for key in fate_key_candidates:
+        if key in adata.obsm:
+            fate_key = key
+            break
+
+    if not fate_key:
+        raise DataNotFoundError(
+            "CellRank fate probabilities not found. "
+            "Please run 'analyze_trajectory_data' with method='cellrank' first."
+        )
+
+    # Determine cluster key
+    cluster_key = params.cluster_key
+    if not cluster_key:
+        categorical_cols = [
+            col
+            for col in adata.obs.columns
+            if adata.obs[col].dtype.name in ["object", "category"]
+        ]
+        if categorical_cols:
+            cluster_key = categorical_cols[0]
+            if context:
+                await context.info(f"Using cluster_key: '{cluster_key}'")
+        else:
+            raise InvalidParameterError(
+                "cluster_key is required for fate map visualization."
+            )
+
+    if context:
+        await context.info(f"Creating CellRank fate map for '{cluster_key}'")
+
+    # Create figure - CellRank creates its own figure, no ax parameter supported
+    # Note: CellRank has compatibility issues with show parameter in some versions
+    figsize = params.figure_size or (12, 6)
+
+    import matplotlib
+    backend = matplotlib.get_backend()
+    matplotlib.use('Agg')  # Force non-interactive backend
+
+    # Default to 'bar' mode - most informative
+    cr.pl.aggregate_fate_probabilities(
+        adata,
+        cluster_key=cluster_key,
+        mode="bar",
+        figsize=figsize,
+        dpi=params.dpi,
+    )
+    fig = plt.gcf()
+    matplotlib.use(backend)  # Restore backend
+
+    title = params.title or f"CellRank Fate Probabilities by {cluster_key}"
+    fig.suptitle(title, fontsize=14, y=1.02)
+
+    plt.tight_layout()
+    return fig
+
+
+async def _create_cellrank_gene_trends(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Create CellRank gene expression trends using cr.pl.gene_trends
+
+    Shows gene expression trends along lineages/pseudotime.
+
+    Args:
+        adata: AnnData object with CellRank analysis
+        params: Visualization parameters (feature for gene selection)
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with gene trends
+
+    Data requirements:
+        - adata.obsm['lineages_fwd'] or 'to_terminal_states': Fate probabilities
+        - adata.obs['latent_time'] or similar pseudotime
+        - Gene expression in adata.X
+    """
+    try:
+        import cellrank as cr
+    except ImportError:
+        raise DataCompatibilityError(
+            "cellrank package is required for gene trends. "
+            "Install with: pip install cellrank>=2.0.0"
+        )
+
+    # Import GAM model preparation from trajectory module (separation of concerns)
+    from .trajectory import prepare_gam_model_for_visualization
+
+    # Check for fate probabilities
+    fate_key_candidates = ["lineages_fwd", "to_terminal_states"]
+    fate_key = None
+    for key in fate_key_candidates:
+        if key in adata.obsm:
+            fate_key = key
+            break
+
+    if not fate_key:
+        raise DataNotFoundError(
+            "CellRank fate probabilities not found. "
+            "Please run 'analyze_trajectory_data' with method='cellrank' first."
+        )
+
+    # Find time key
+    time_key = None
+    time_candidates = ["latent_time", "palantir_pseudotime", "dpt_pseudotime"]
+    for key in time_candidates:
+        if key in adata.obs.columns:
+            time_key = key
+            break
+
+    if not time_key:
+        raise DataNotFoundError(
+            "No pseudotime found for gene trends. "
+            "Please ensure trajectory analysis has been run."
+        )
+
+    # Get genes to plot
+    if params.feature:
+        if isinstance(params.feature, str):
+            genes = [params.feature]
+        else:
+            genes = list(params.feature)
+        # Validate genes
+        valid_genes = [g for g in genes if g in adata.var_names]
+        if not valid_genes:
+            raise DataNotFoundError(f"None of the specified genes found: {genes}")
+        genes = valid_genes[:6]  # Limit to 6 genes
+    else:
+        # Select highly variable genes
+        if "highly_variable" in adata.var.columns:
+            hvg = adata.var_names[adata.var["highly_variable"]]
+            genes = list(hvg[:6])
+        else:
+            genes = list(adata.var_names[:6])
+
+    if context:
+        await context.info(f"Creating gene trends for: {genes}")
+
+    # Create figure - CellRank creates its own
+    figsize = params.figure_size or (12, 3 * len(genes))
+
+    # Force Agg backend to avoid display issues
+    import matplotlib
+    backend = matplotlib.get_backend()
+    matplotlib.use('Agg')
+
+    # Use trajectory module for GAM model preparation (computation logic)
+    model, lineage_names = prepare_gam_model_for_visualization(
+        adata, genes, time_key=time_key, fate_key=fate_key
+    )
+
+    if context:
+        await context.info(f"Lineages: {lineage_names}")
+
+    cr.pl.gene_trends(
+        adata,
+        model=model,
+        genes=genes,
+        time_key=time_key,
+        figsize=figsize,
+        n_jobs=1,  # Avoid multiprocessing issues in MCP context
+        show_progress_bar=False,
+    )
+
+    fig = plt.gcf()
+    fig.set_dpi(params.dpi)
+    matplotlib.use(backend)  # Restore backend
+
+    # Only add title if explicitly provided by user
+    if params.title:
+        fig.suptitle(params.title, fontsize=14, y=1.02)
+
+    plt.tight_layout()
+    return fig
+
+
+async def _create_cellrank_fate_heatmap(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Create CellRank fate heatmap using cr.pl.heatmap
+
+    Shows smoothed gene expression ordered by pseudotime per lineage.
+
+    Args:
+        adata: AnnData object with CellRank analysis
+        params: Visualization parameters (feature for gene selection)
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with fate heatmap
+
+    Data requirements:
+        - adata.obsm['lineages_fwd'] or 'to_terminal_states': Fate probabilities
+        - adata.obs['latent_time'] or similar pseudotime
+        - Gene expression in adata.X
+    """
+    try:
+        import cellrank as cr
+    except ImportError:
+        raise DataCompatibilityError(
+            "cellrank package is required for fate heatmap. "
+            "Install with: pip install cellrank>=2.0.0"
+        )
+
+    # Import GAM model preparation from trajectory module (separation of concerns)
+    from .trajectory import prepare_gam_model_for_visualization
+
+    # Check for fate probabilities
+    fate_key_candidates = ["lineages_fwd", "to_terminal_states"]
+    fate_key = None
+    for key in fate_key_candidates:
+        if key in adata.obsm:
+            fate_key = key
+            break
+
+    if not fate_key:
+        raise DataNotFoundError(
+            "CellRank fate probabilities not found. "
+            "Please run 'analyze_trajectory_data' with method='cellrank' first."
+        )
+
+    # Find time key
+    time_key = None
+    time_candidates = ["latent_time", "palantir_pseudotime", "dpt_pseudotime"]
+    for key in time_candidates:
+        if key in adata.obs.columns:
+            time_key = key
+            break
+
+    if not time_key:
+        raise DataNotFoundError("No pseudotime found for fate heatmap.")
+
+    # Get genes
+    if params.feature:
+        if isinstance(params.feature, str):
+            genes = [params.feature]
+        else:
+            genes = list(params.feature)
+        valid_genes = [g for g in genes if g in adata.var_names]
+        if not valid_genes:
+            raise DataNotFoundError(f"None of the genes found: {genes}")
+        genes = valid_genes[:50]
+    else:
+        if "highly_variable" in adata.var.columns:
+            hvg = adata.var_names[adata.var["highly_variable"]]
+            genes = list(hvg[:50])
+        else:
+            genes = list(adata.var_names[:50])
+
+    if context:
+        await context.info(f"Creating fate heatmap with {len(genes)} genes")
+
+    figsize = params.figure_size or (12, 10)
+
+    # Force Agg backend to avoid display issues
+    import matplotlib
+    backend = matplotlib.get_backend()
+    matplotlib.use('Agg')
+
+    # Use trajectory module for GAM model preparation (computation logic)
+    model, lineage_names = prepare_gam_model_for_visualization(
+        adata, genes, time_key=time_key, fate_key=fate_key
+    )
+
+    if context:
+        await context.info(f"Lineages: {lineage_names}")
+
+    cr.pl.heatmap(
+        adata,
+        model=model,
+        genes=genes,
+        time_key=time_key,
+        figsize=figsize,
+        n_jobs=1,  # Avoid multiprocessing issues in MCP context
+        show_progress_bar=False,
+    )
+
+    fig = plt.gcf()
+    fig.set_dpi(params.dpi)
+    matplotlib.use(backend)  # Restore backend
+
+    # Only add title if explicitly provided by user
+    if params.title:
+        fig.suptitle(params.title, fontsize=14, y=1.02)
+
+    plt.tight_layout()
+    return fig
+
+
+async def _create_palantir_results(
+    adata: ad.AnnData, params: VisualizationParameters, context=None
+) -> plt.Figure:
+    """Create Palantir comprehensive results visualization
+
+    Shows pseudotime, entropy, and fate probabilities in a multi-panel figure.
+
+    Args:
+        adata: AnnData object with Palantir analysis
+        params: Visualization parameters
+        context: MCP context
+
+    Returns:
+        Matplotlib figure with Palantir results
+
+    Data requirements:
+        - adata.obs['palantir_pseudotime']: Pseudotime
+        - adata.obs['palantir_entropy']: Differentiation entropy
+        - adata.obsm['palantir_fate_probs'] or 'palantir_branch_probs': Fate probabilities
+    """
+    # Check for Palantir results
+    has_pseudotime = "palantir_pseudotime" in adata.obs.columns
+    has_entropy = "palantir_entropy" in adata.obs.columns
+    fate_key = None
+    for key in ["palantir_fate_probs", "palantir_branch_probs"]:
+        if key in adata.obsm:
+            fate_key = key
+            break
+
+    if not has_pseudotime:
+        raise DataNotFoundError(
+            "Palantir results not found. "
+            "Please run 'analyze_trajectory_data' with method='palantir' first."
+        )
+
+    if context:
+        await context.info("Creating Palantir results visualization")
+
+    # Determine basis
+    basis = params.basis or "umap"
+    if f"X_{basis}" not in adata.obsm:
+        if "X_umap" in adata.obsm:
+            basis = "umap"
+        elif "spatial" in adata.obsm:
+            basis = "spatial"
+        else:
+            basis = "pca"
+
+    # Determine number of panels
+    n_panels = 1 + int(has_entropy) + (1 if fate_key else 0)
+    n_fate_cols = adata.obsm[fate_key].shape[1] if fate_key else 0
+
+    # Create figure
+    figsize = params.figure_size or (5 * n_panels, 5)
+    fig, axes = plt.subplots(1, n_panels, figsize=figsize, dpi=params.dpi)
+    if n_panels == 1:
+        axes = [axes]
+
+    panel_idx = 0
+
+    # Panel 1: Pseudotime
+    ax = axes[panel_idx]
+    sc.pl.embedding(
+        adata,
+        basis=basis,
+        color="palantir_pseudotime",
+        cmap="viridis",
+        ax=ax,
+        show=False,
+        frameon=params.show_axes,
+        title="Palantir Pseudotime",
+    )
+    if basis == "spatial":
+        ax.invert_yaxis()
+    panel_idx += 1
+
+    # Panel 2: Entropy (if available)
+    if has_entropy and panel_idx < n_panels:
+        ax = axes[panel_idx]
+        sc.pl.embedding(
+            adata,
+            basis=basis,
+            color="palantir_entropy",
+            cmap="magma",
+            ax=ax,
+            show=False,
+            frameon=params.show_axes,
+            title="Differentiation Entropy",
+        )
+        if basis == "spatial":
+            ax.invert_yaxis()
+        panel_idx += 1
+
+    # Panel 3: Fate probabilities summary (if available)
+    if fate_key and panel_idx < n_panels:
+        ax = axes[panel_idx]
+        # Show dominant fate
+        fate_probs = adata.obsm[fate_key]
+        dominant_fate = fate_probs.argmax(axis=1)
+        adata.obs["_dominant_fate"] = dominant_fate.astype(str)
+
+        sc.pl.embedding(
+            adata,
+            basis=basis,
+            color="_dominant_fate",
+            ax=ax,
+            show=False,
+            frameon=params.show_axes,
+            title="Dominant Fate",
+        )
+        if basis == "spatial":
+            ax.invert_yaxis()
+
+        # Clean up temporary column
+        del adata.obs["_dominant_fate"]
+
+    title = params.title or "Palantir Trajectory Analysis"
+    fig.suptitle(title, fontsize=14, y=1.02)
+
+    plt.tight_layout()
     return fig
 
 
@@ -4832,8 +5795,8 @@ async def _create_gene_correlation_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create gene correlation visualization using seaborn clustermap."""
-    import seaborn as sns
     import pandas as pd
+    import seaborn as sns
 
     # Get validated genes
     available_genes = await get_validated_features(
