@@ -1,20 +1,21 @@
 # ChatSpatial MCP Tools Quick Reference
 
-**Quick Link**: Keep this page bookmarked for instant access to all 15 MCP tools.
+**Quick Link**: Keep this page bookmarked for instant access to all 20 MCP tools.
 
 ## Tool Categories Overview
 
 | Category | Tools | Use Cases |
 |----------|-------|-----------|
-| **Data Management** | `load_data`, `preprocess_data` | Loading and preparing datasets |
-| **Analysis** | `analyze_spatial_data`, `find_markers`, `find_spatial_genes` | Core spatial analysis |
-| **Annotation** | `annotate_cell_types` | Cell type identification |
-| **Advanced Analysis** | `analyze_velocity_data`, `analyze_trajectory_data`, `analyze_cell_communication`, `analyze_enrichment` | RNA velocity, trajectories, communication |
-| **Integration** | `integrate_samples`, `register_spatial_data` | Multi-sample and alignment |
-| **Deconvolution** | `deconvolve_data`, `identify_spatial_domains` | Spot deconvolution and domain identification |
-| **Visualization** | `visualize_data` | All plotting and visualization |
+| **Data Management** | `load_data`, `preprocess_data`, `save_data` | Loading, preparing, and saving datasets |
+| **Spatial Analysis** | `analyze_spatial_statistics`, `find_spatial_genes`, `identify_spatial_domains` | Spatial patterns, variable genes, domain identification |
+| **Cell Type Analysis** | `annotate_cell_types`, `deconvolve_data` | Cell type annotation and deconvolution |
+| **Gene Analysis** | `find_markers`, `analyze_enrichment` | Differential expression and pathway analysis |
+| **Cell Communication** | `analyze_cell_communication` | Ligand-receptor interactions |
+| **Advanced Analysis** | `analyze_velocity_data`, `analyze_trajectory_data`, `analyze_cnv` | RNA velocity, trajectories, CNV analysis |
+| **Multi-Sample** | `integrate_samples`, `register_spatial_data` | Batch integration and spatial registration |
+| **Visualization** | `visualize_data`, `save_visualization`, `export_all_visualizations`, `clear_visualization_cache` | All plotting and visualization management |
 
-**Total: 14 Core MCP Tools** covering the complete spatial transcriptomics analysis pipeline.
+**Total: 20 Core MCP Tools** covering the complete spatial transcriptomics analysis pipeline.
 
 ---
 
@@ -52,38 +53,41 @@
 
 **Key Parameters**:
 - `data_id`: Dataset ID from load_data
-- `params.normalization`: `"log"`, `"pearson_residuals"`, `"none"`
+- `params.normalization`: `"log"`, `"sct"`, `"pearson_residuals"`, `"scvi"`, `"none"`
 - `params.n_hvgs`: Number of highly variable genes (default: 2000)
 - `params.n_pcs`: Number of principal components (default: 30)
 - `params.n_neighbors`: Number of neighbors for graph (default: 15)
 - `params.clustering_resolution`: Leiden clustering resolution (default: 1.0)
-- `params.use_scvi_preprocessing`: Use scVI for batch correction (default: False)
 
 **Normalization Options**:
 - **log** (default): Standard log(x+1) normalization - robust and widely used
-- **pearson_residuals**: GLM-based variance stabilization for UMI data - best for single-cell resolution
+- **sct**: SCTransform v2 variance-stabilizing normalization via R's sctransform package - best for raw UMI counts from 10x platforms
+- **pearson_residuals**: Analytic Pearson residuals (scanpy built-in, similar to SCTransform) - faster with comparable results
+- **scvi**: Deep learning-based normalization using scVI variational autoencoder - best for batch correction and denoising
 - **none**: Skip normalization (use when data is already normalized)
-- **sct/scvi**: NOT directly available - use `use_scvi_preprocessing=True` for scVI
 
 **Important**:
-- Raw count data recommended for pearson_residuals
-- For batch correction: use `use_scvi_preprocessing=True`
+- **sct** requires R and sctransform package: `install.packages('sctransform')`
+- **scvi** requires scvi-tools package: `pip install scvi-tools`
+- Raw count data recommended for sct, pearson_residuals, and scvi
 - Automatically saves `.raw` for downstream analyses requiring full gene set
 
 **Example Queries**:
 ```
 "Preprocess the data with log normalization"
+"Normalize using SCTransform for Visium data"
 "Filter cells and normalize using Pearson residuals"
-"Use scVI for batch correction preprocessing"
+"Use scVI normalization for batch correction"
+"Preprocess with sct normalization"
 ```
 
 **Returns**: Preprocessed data with QC metrics
 
 ---
 
-## Core Analysis Tools
+## Spatial Analysis Tools
 
-### `analyze_spatial_data`
+### `analyze_spatial_statistics`
 **Purpose**: Analyze spatial patterns and relationships
 **Difficulty**: Intermediate
 
