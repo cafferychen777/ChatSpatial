@@ -184,7 +184,7 @@ python -m chatspatial server --help
 # Should display server options
 
 # Test Python import
-python -c "import chatspatial; print(f'✅ ChatSpatial {chatspatial.__version__} ready')"
+python -c "import chatspatial; print(f'ChatSpatial {chatspatial.__version__} ready')"
 ```
 
 ### Step 3: Test Core Dependencies
@@ -194,7 +194,7 @@ python -c "
 import scanpy as sc
 import squidpy as sq
 import numpy as np
-print('✅ Core packages working:')
+print('Core packages working:')
 print(f'  - scanpy: {sc.__version__}')
 print(f'  - squidpy: {sq.__version__}')
 print(f'  - numpy: {np.__version__}')
