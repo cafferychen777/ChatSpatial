@@ -1,4 +1,4 @@
-# ChatSpatial Examples
+# Examples
 
 All examples are **natural language commands** you type in Claude chat. No coding required!
 

@@ -1,4 +1,4 @@
-# Quick Start (5 Minutes)
+# Quick Start
 
 Get ChatSpatial running and analyze your first spatial dataset.
 
