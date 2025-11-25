@@ -152,7 +152,6 @@ Community & Support
 
    quickstart
    examples
-   NAVIGATION
 
 .. toctree::
    :maxdepth: 1
