@@ -14,8 +14,7 @@ from anndata import AnnData
 from mcp.server.fastmcp import Context
 
 from ..models.analysis import PreprocessingResult
-from ..models.data import (PreprocessingParameters,
-                           ResolVIPreprocessingParameters)
+from ..models.data import PreprocessingParameters
 from ..utils.data_adapter import standardize_adata
 from ..utils.tool_error_handling import mcp_tool_error_handler
 
@@ -23,11 +22,9 @@ from ..utils.tool_error_handling import mcp_tool_error_handler
 try:
     import scvi
     import torch
-    from scvi.external import RESOLVI
 except ImportError:
     torch = None
     scvi = None
-    RESOLVI = None
 
 # Import scvelo for RNA velocity preprocessing
 try:
@@ -259,524 +256,487 @@ async def preprocess_data(
             }
         )
 
-        # 3. Advanced preprocessing with ResolVI (if enabled)
-        resolvi_used = False
-        if params.use_resolvi_preprocessing and params.resolvi_params:
+        # 3. Normalize data
+        # Log normalization configuration
+        logger.info("=" * 50)
+        logger.info("Normalization Configuration:")
+        logger.info(f"  Method: {params.normalization}")
+        if params.normalize_target_sum is not None:
+            logger.info(f"  Target sum: {params.normalize_target_sum:.0f}")
+        else:
+            logger.info("  Target sum: ADAPTIVE (using median counts)")
+        if params.scale:
+            if params.scale_max_value is not None:
+                logger.info(f"  Scale clipping: ±{params.scale_max_value} SD")
+            else:
+                logger.info("  Scale clipping: NONE (preserving all outliers)")
+        logger.info("=" * 50)
+
+        if context:
+            await context.info(
+                f"Normalizing data using {params.normalization} method..."
+            )
+
+        if params.normalization == "log":
+            # Standard log normalization
+            # Check if data appears to be already normalized
+            if scipy.sparse.issparse(adata.X):
+                X_sample = (
+                    adata.X.data[: min(1000, len(adata.X.data))]
+                    if hasattr(adata.X, "data")
+                    else adata.X[:1000].toarray().flatten()
+                )
+            else:
+                X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+
+            # Check for negative values (indicates already log-normalized data)
+            if np.any(X_sample < 0):
+                error_msg = (
+                    "Log normalization requires non-negative data (raw or normalized counts). "
+                    "Data contains negative values, suggesting it has already been log-normalized. "
+                    "Options:\n"
+                    "• Use normalization='none' if data is already pre-processed\n"
+                    "• Load raw count data instead of processed data\n"
+                    "• Remove the log transformation from your data before re-processing"
+                )
+                if context:
+                    await context.error(error_msg)
+                raise ValueError(error_msg)
+
+            if params.normalize_target_sum is not None:
+                sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
+                logger.info(
+                    f"✓ Normalized to target_sum={params.normalize_target_sum:.0f}"
+                )
+            else:
+                # Calculate median and inform user transparently
+                calculated_median = np.median(
+                    np.array(adata.X.sum(axis=1)).flatten()
+                )
+                if context:
+                    await context.info(
+                        f"normalize_target_sum not specified. Using adaptive normalization:\n"
+                        f"   • Calculated median counts: {calculated_median:.0f}\n"
+                        f"   • This value was automatically determined from your data\n"
+                        f"   • For reproducible results, use: normalize_target_sum={calculated_median:.0f}"
+                    )
+                sc.pp.normalize_total(adata, target_sum=calculated_median)
+                logger.info(
+                    f"✓ Normalized to adaptive target_sum={calculated_median:.0f}"
+                )
+            sc.pp.log1p(adata)
+            logger.info("Applied log1p transformation")
+        elif params.normalization == "sct":
+            # SCTransform v2 variance-stabilizing normalization via R's sctransform
+            # Check R sctransform availability
+            is_available, error_msg = _is_r_sctransform_available()
+            if not is_available:
+                full_error = (
+                    f"SCTransform requires R and the sctransform package.\n\n"
+                    f"ERROR: {error_msg}\n\n"
+                    "INSTALLATION:\n"
+                    "  1. Install R (https://cran.r-project.org/)\n"
+                    "  2. In R: install.packages('sctransform')\n"
+                    "  3. pip install 'rpy2>=3.5.0'\n\n"
+                    "ALTERNATIVES:\n"
+                    "• Use normalization='pearson_residuals' (built-in, similar results)\n"
+                    "• Use normalization='log' (standard method)"
+                )
+                if context:
+                    await context.error(full_error)
+                raise ImportError(full_error)
+
+            # Check if data appears to be raw counts (required for SCTransform)
+            if scipy.sparse.issparse(adata.X):
+                X_sample = (
+                    adata.X.data[: min(1000, len(adata.X.data))]
+                    if hasattr(adata.X, "data")
+                    else adata.X[:1000].toarray().flatten()
+                )
+            else:
+                X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+
+            # Check for non-integer values (indicates normalized data)
+            if np.any((X_sample % 1) != 0):
+                error_msg = (
+                    "SCTransform requires raw count data (integers).\n"
+                    "Your data contains non-integer values.\n\n"
+                    "SOLUTIONS:\n"
+                    "• Load raw count data instead of normalized data\n"
+                    "• Use normalization='none' if data is pre-normalized\n"
+                    "• Use normalization='log' for already-processed data"
+                )
+                if context:
+                    await context.error(error_msg)
+                raise ValueError(error_msg)
+
+            # Map method parameter to vst.flavor
+            vst_flavor = "v2" if params.sct_method == "fix-slope" else "v1"
             if context:
                 await context.info(
-                    "Using ResolVI for advanced molecular reassignment correction..."
+                    f"Applying SCTransform (vst.flavor={vst_flavor}, "
+                    f"var_features={params.sct_var_features_n})"
                 )
 
             try:
-                # Run ResolVI preprocessing
-                await preprocess_with_resolvi(adata, params.resolvi_params, context)
+                # Import rpy2 modules
+                import rpy2.robjects as ro
+                from rpy2.robjects import numpy2ri
+                from rpy2.robjects.conversion import localconverter
 
-                # Verify that ResolVI actually created the expected outputs
-                if "X_resolvi" not in adata.obsm:
-                    raise RuntimeError(
-                        "ResolVI preprocessing completed but did not create X_resolvi. "
-                        "This indicates a critical error in ResolVI execution."
-                    )
+                # Store raw counts before replacing X
+                adata.layers["counts"] = adata.X.copy()
 
-                # ResolVI creates a latent representation in adata.obsm['X_resolvi']
-                # and corrected counts in adata.layers['resolvi_corrected']
-                if context:
-                    await context.info("ResolVI preprocessing completed successfully")
-                    await context.info(
-                        f"Created latent representation with shape {adata.obsm['X_resolvi'].shape}"
-                    )
-
-                # Skip standard normalization since ResolVI handles it
-                resolvi_used = True
-            except Exception as e:
-                if context:
-                    await context.warning(
-                        f"ResolVI preprocessing failed: {e}. Falling back to standard normalization."
-                    )
-                resolvi_used = False
-
-        # 3. Normalize data (skip if ResolVI was used)
-        if not resolvi_used:
-            # Log normalization configuration
-            logger.info("=" * 50)
-            logger.info("Normalization Configuration:")
-            logger.info(f"  Method: {params.normalization}")
-            if params.normalize_target_sum is not None:
-                logger.info(f"  Target sum: {params.normalize_target_sum:.0f}")
-            else:
-                logger.info("  Target sum: ADAPTIVE (using median counts)")
-            if params.scale:
-                if params.scale_max_value is not None:
-                    logger.info(f"  Scale clipping: ±{params.scale_max_value} SD")
+                # Convert to sparse CSC matrix (genes × cells) for R's dgCMatrix
+                if scipy.sparse.issparse(adata.X):
+                    counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
                 else:
-                    logger.info("  Scale clipping: NONE (preserving all outliers)")
-            logger.info("=" * 50)
+                    counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
+
+                # Transfer sparse matrix components to R
+                with localconverter(ro.default_converter + numpy2ri.converter):
+                    ro.globalenv["sp_data"] = counts_sparse.data.astype(np.float64)
+                    ro.globalenv["sp_indices"] = counts_sparse.indices.astype(
+                        np.int32
+                    )
+                    ro.globalenv["sp_indptr"] = counts_sparse.indptr.astype(
+                        np.int32
+                    )
+                    ro.globalenv["n_genes"] = counts_sparse.shape[0]
+                    ro.globalenv["n_cells"] = counts_sparse.shape[1]
+                    ro.globalenv["gene_names"] = ro.StrVector(
+                        adata.var_names.tolist()
+                    )
+                    ro.globalenv["cell_names"] = ro.StrVector(
+                        adata.obs_names.tolist()
+                    )
+                    ro.globalenv["vst_flavor"] = vst_flavor
+                    ro.globalenv["n_cells_param"] = (
+                        params.sct_n_cells if params.sct_n_cells else ro.NULL
+                    )
+
+                # Reconstruct sparse matrix and run SCTransform in R
+                ro.r(
+                    """
+                    library(Matrix)
+                    library(sctransform)
+
+                    # Create dgCMatrix from components
+                    umi_matrix <- new(
+                        "dgCMatrix",
+                        x = as.numeric(sp_data),
+                        i = as.integer(sp_indices),
+                        p = as.integer(sp_indptr),
+                        Dim = as.integer(c(n_genes, n_cells)),
+                        Dimnames = list(gene_names, cell_names)
+                    )
+
+                    # Run SCTransform
+                    suppressWarnings({
+                        vst_result <- sctransform::vst(
+                            umi = umi_matrix,
+                            vst.flavor = vst_flavor,
+                            return_gene_attr = TRUE,
+                            return_cell_attr = TRUE,
+                            n_cells = n_cells_param,
+                            verbosity = 0
+                        )
+                    })
+
+                    # Convert output to dense matrix for transfer
+                    pearson_residuals <- as.matrix(vst_result$y)
+                    residual_variance <- vst_result$gene_attr$residual_variance
+                """
+                )
+
+                # Extract results from R
+                with localconverter(ro.default_converter + numpy2ri.converter):
+                    pearson_residuals = np.array(ro.r("pearson_residuals"))
+                    residual_variance = np.array(ro.r("residual_variance"))
+
+                # Transpose back to cells × genes for AnnData format
+                adata.X = pearson_residuals.T
+
+                # Store SCTransform metadata
+                adata.uns["sctransform"] = {
+                    "method": params.sct_method,
+                    "vst_flavor": vst_flavor,
+                    "var_features_n": params.sct_var_features_n,
+                    "exclude_poisson": params.sct_exclude_poisson,
+                    "n_cells": params.sct_n_cells,
+                }
+
+                # Mark highly variable genes based on residual variance
+                adata.var["sct_residual_variance"] = residual_variance
+
+                # Select top N genes by residual variance
+                n_hvg = min(params.sct_var_features_n, len(residual_variance))
+                top_hvg_indices = np.argsort(residual_variance)[-n_hvg:]
+                adata.var["highly_variable"] = False
+                adata.var.iloc[top_hvg_indices, adata.var.columns.get_loc(
+                    "highly_variable"
+                )] = True
+
+                if context:
+                    await context.info(
+                        f"✓ SCTransform: {n_hvg} highly variable genes identified"
+                    )
+
+                logger.info("Applied SCTransform normalization via R")
+
+            except MemoryError:
+                error_msg = (
+                    f"Insufficient memory for SCTransform on "
+                    f"{adata.n_obs}×{adata.n_vars} matrix.\n"
+                    "SOLUTIONS:\n"
+                    "• Reduce dataset size with subsample_spots parameter\n"
+                    "• Use normalization='pearson_residuals' (more memory efficient)\n"
+                    "• Use normalization='log' (minimal memory usage)"
+                )
+                if context:
+                    await context.error(error_msg)
+                raise MemoryError(error_msg)
+            except Exception as e:
+                error_msg = f"SCTransform failed: {str(e)}"
+                if context:
+                    await context.error(error_msg)
+                    await context.info(f"Error details: {traceback.format_exc()}")
+                raise RuntimeError(error_msg) from e
+        elif params.normalization == "pearson_residuals":
+            # Modern Pearson residuals normalization (recommended for UMI data)
+            if context:
+                await context.info("Using Pearson residuals normalization...")
+
+            # Check if method is available
+            if not hasattr(sc.experimental.pp, "normalize_pearson_residuals"):
+                error_msg = (
+                    "Pearson residuals normalization not available (requires scanpy>=1.9.0).\n"
+                    "Options:\n"
+                    "• Install newer scanpy: pip install 'scanpy>=1.9.0'\n"
+                    "• Use log normalization instead: params.normalization='log'\n"
+                    "• Skip normalization if data is pre-processed: params.normalization='none'"
+                )
+                if context:
+                    await context.error(error_msg)
+                raise ValueError(error_msg)
+
+            # Check if data appears to be raw counts
+            if scipy.sparse.issparse(adata.X):
+                # Sample first 1000 values for efficiency
+                X_sample = (
+                    adata.X.data[: min(1000, len(adata.X.data))]
+                    if hasattr(adata.X, "data")
+                    else adata.X[:1000].toarray().flatten()
+                )
+            else:
+                X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+
+            # Check for non-integer values (indicates normalized data)
+            if np.any((X_sample % 1) != 0):
+                error_msg = (
+                    "Pearson residuals requires raw count data (integers). "
+                    "Data contains non-integer values. "
+                    "Use params.normalization='none' if data is already normalized, "
+                    "or params.normalization='log' for standard normalization."
+                )
+                if context:
+                    await context.error(error_msg)
+                raise ValueError(error_msg)
+
+            # Execute normalization
+            try:
+                # Apply Pearson residuals normalization (to all genes)
+                # Note: High variable gene selection happens later in the pipeline
+                sc.experimental.pp.normalize_pearson_residuals(adata)
+                logger.info("Applied Pearson residuals normalization")
+            except MemoryError:
+                raise MemoryError(
+                    f"Insufficient memory for Pearson residuals on {adata.n_obs}×{adata.n_vars} matrix. "
+                    "Try reducing n_hvgs or use 'log' normalization."
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"Pearson residuals normalization failed: {e}. "
+                    "Consider using 'log' normalization instead."
+                )
+        elif params.normalization == "none":
+            # Explicitly skip normalization
+            if context:
+                await context.info(
+                    "Skipping normalization (data assumed to be pre-normalized)"
+                )
+            logger.info("Normalization skipped (using pre-normalized data)")
+
+            # CRITICAL: Check if data appears to be raw counts
+            # HVG selection requires normalized data for statistical validity
+            if scipy.sparse.issparse(adata.X):
+                X_sample = (
+                    adata.X.data[: min(1000, len(adata.X.data))]
+                    if hasattr(adata.X, "data")
+                    else adata.X[:1000].toarray().flatten()
+                )
+            else:
+                X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+
+            # Check if data looks raw (all integers and high values)
+            if np.all((X_sample % 1) == 0) and np.max(X_sample) > 100:
+                error_msg = (
+                    "STATISTICAL ERROR: Cannot perform HVG selection on raw counts with normalization='none'\n\n"
+                    "Your data appears to be raw counts (integer values with max > 100), but you specified "
+                    "normalization='none'. Highly variable gene (HVG) selection requires normalized data "
+                    "for statistical validity because:\n"
+                    "• Raw count variance scales non-linearly with expression level\n"
+                    "• This prevents accurate comparison of variability across genes\n"
+                    "• Scanpy's HVG algorithm will fail with 'infinity' errors\n\n"
+                    "REQUIRED ACTIONS:\n"
+                    "Option 1 (Recommended): Use normalization='log' for standard log-normalization\n"
+                    "Option 2: Use normalization='pearson_residuals' for variance-stabilizing normalization\n"
+                    "Option 3: Pre-normalize your data externally, then reload with normalized values\n\n"
+                    "WARNING: If your data is already normalized but appears raw, verify data integrity."
+                )
+                if context:
+                    await context.error(error_msg)
+                raise ValueError(error_msg)
+        elif params.normalization == "scvi":
+            # scVI deep learning-based normalization
+            # Uses variational autoencoder to learn latent representation
+            if scvi is None:
+                error_msg = (
+                    "scVI normalization requires scvi-tools package.\n\n"
+                    "INSTALLATION:\n"
+                    "  pip install scvi-tools\n\n"
+                    "ALTERNATIVES:\n"
+                    "• Use normalization='log' (standard method)\n"
+                    "• Use normalization='pearson_residuals' (variance-stabilizing)"
+                )
+                if context:
+                    await context.error(error_msg)
+                raise ImportError(error_msg)
+
+            # Check if data appears to be raw counts (required for scVI)
+            if scipy.sparse.issparse(adata.X):
+                X_sample = (
+                    adata.X.data[: min(1000, len(adata.X.data))]
+                    if hasattr(adata.X, "data")
+                    else adata.X[:1000].toarray().flatten()
+                )
+            else:
+                X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+
+            # Check for negative values (indicates already normalized data)
+            if np.any(X_sample < 0):
+                error_msg = (
+                    "scVI requires non-negative count data.\n"
+                    "Data contains negative values, suggesting log-normalization.\n\n"
+                    "SOLUTIONS:\n"
+                    "• Load raw count data instead of normalized data\n"
+                    "• Use normalization='none' if data is pre-normalized"
+                )
+                if context:
+                    await context.error(error_msg)
+                raise ValueError(error_msg)
 
             if context:
                 await context.info(
-                    f"Normalizing data using {params.normalization} method..."
+                    f"Applying scVI normalization "
+                    f"(n_latent={params.scvi_n_latent}, "
+                    f"n_hidden={params.scvi_n_hidden}, "
+                    f"gene_likelihood={params.scvi_gene_likelihood})"
                 )
 
-            if params.normalization == "log":
-                # Standard log normalization
-                # Check if data appears to be already normalized
-                if scipy.sparse.issparse(adata.X):
-                    X_sample = (
-                        adata.X.data[: min(1000, len(adata.X.data))]
-                        if hasattr(adata.X, "data")
-                        else adata.X[:1000].toarray().flatten()
-                    )
-                else:
-                    X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+            try:
+                # Store raw counts before any modification
+                adata.layers["counts"] = adata.X.copy()
 
-                # Check for negative values (indicates already log-normalized data)
-                if np.any(X_sample < 0):
-                    error_msg = (
-                        "Log normalization requires non-negative data (raw or normalized counts). "
-                        "Data contains negative values, suggesting it has already been log-normalized. "
-                        "Options:\n"
-                        "• Use normalization='none' if data is already pre-processed\n"
-                        "• Load raw count data instead of processed data\n"
-                        "• Remove the log transformation from your data before re-processing"
-                    )
-                    if context:
-                        await context.error(error_msg)
-                    raise ValueError(error_msg)
-
-                if params.normalize_target_sum is not None:
-                    sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
-                    logger.info(
-                        f"✓ Normalized to target_sum={params.normalize_target_sum:.0f}"
-                    )
-                else:
-                    # Calculate median and inform user transparently
-                    calculated_median = np.median(
-                        np.array(adata.X.sum(axis=1)).flatten()
-                    )
-                    if context:
-                        await context.info(
-                            f"normalize_target_sum not specified. Using adaptive normalization:\n"
-                            f"   • Calculated median counts: {calculated_median:.0f}\n"
-                            f"   • This value was automatically determined from your data\n"
-                            f"   • For reproducible results, use: normalize_target_sum={calculated_median:.0f}"
-                        )
-                    sc.pp.normalize_total(adata, target_sum=calculated_median)
-                    logger.info(
-                        f"✓ Normalized to adaptive target_sum={calculated_median:.0f}"
-                    )
-                sc.pp.log1p(adata)
-                logger.info("Applied log1p transformation")
-            elif params.normalization == "sct":
-                # SCTransform v2 variance-stabilizing normalization via R's sctransform
-                # Check R sctransform availability
-                is_available, error_msg = _is_r_sctransform_available()
-                if not is_available:
-                    full_error = (
-                        f"SCTransform requires R and the sctransform package.\n\n"
-                        f"ERROR: {error_msg}\n\n"
-                        "INSTALLATION:\n"
-                        "  1. Install R (https://cran.r-project.org/)\n"
-                        "  2. In R: install.packages('sctransform')\n"
-                        "  3. pip install 'rpy2>=3.5.0'\n\n"
-                        "ALTERNATIVES:\n"
-                        "• Use normalization='pearson_residuals' (built-in, similar results)\n"
-                        "• Use normalization='log' (standard method)"
-                    )
-                    if context:
-                        await context.error(full_error)
-                    raise ImportError(full_error)
-
-                # Check if data appears to be raw counts (required for SCTransform)
-                if scipy.sparse.issparse(adata.X):
-                    X_sample = (
-                        adata.X.data[: min(1000, len(adata.X.data))]
-                        if hasattr(adata.X, "data")
-                        else adata.X[:1000].toarray().flatten()
-                    )
-                else:
-                    X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
-
-                # Check for non-integer values (indicates normalized data)
-                if np.any((X_sample % 1) != 0):
-                    error_msg = (
-                        "SCTransform requires raw count data (integers).\n"
-                        "Your data contains non-integer values.\n\n"
-                        "SOLUTIONS:\n"
-                        "• Load raw count data instead of normalized data\n"
-                        "• Use normalization='none' if data is pre-normalized\n"
-                        "• Use normalization='log' for already-processed data"
-                    )
-                    if context:
-                        await context.error(error_msg)
-                    raise ValueError(error_msg)
-
-                # Map method parameter to vst.flavor
-                vst_flavor = "v2" if params.sct_method == "fix-slope" else "v1"
-                if context:
-                    await context.info(
-                        f"Applying SCTransform (vst.flavor={vst_flavor}, "
-                        f"var_features={params.sct_var_features_n})"
-                    )
-
-                try:
-                    # Import rpy2 modules
-                    import rpy2.robjects as ro
-                    from rpy2.robjects import numpy2ri
-                    from rpy2.robjects.conversion import localconverter
-
-                    # Store raw counts before replacing X
-                    adata.layers["counts"] = adata.X.copy()
-
-                    # Convert to sparse CSC matrix (genes × cells) for R's dgCMatrix
-                    if scipy.sparse.issparse(adata.X):
-                        counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
-                    else:
-                        counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
-
-                    # Transfer sparse matrix components to R
-                    with localconverter(ro.default_converter + numpy2ri.converter):
-                        ro.globalenv["sp_data"] = counts_sparse.data.astype(np.float64)
-                        ro.globalenv["sp_indices"] = counts_sparse.indices.astype(
-                            np.int32
-                        )
-                        ro.globalenv["sp_indptr"] = counts_sparse.indptr.astype(
-                            np.int32
-                        )
-                        ro.globalenv["n_genes"] = counts_sparse.shape[0]
-                        ro.globalenv["n_cells"] = counts_sparse.shape[1]
-                        ro.globalenv["gene_names"] = ro.StrVector(
-                            adata.var_names.tolist()
-                        )
-                        ro.globalenv["cell_names"] = ro.StrVector(
-                            adata.obs_names.tolist()
-                        )
-                        ro.globalenv["vst_flavor"] = vst_flavor
-                        ro.globalenv["n_cells_param"] = (
-                            params.sct_n_cells if params.sct_n_cells else ro.NULL
-                        )
-
-                    # Reconstruct sparse matrix and run SCTransform in R
-                    ro.r(
-                        """
-                        library(Matrix)
-                        library(sctransform)
-
-                        # Create dgCMatrix from components
-                        umi_matrix <- new(
-                            "dgCMatrix",
-                            x = as.numeric(sp_data),
-                            i = as.integer(sp_indices),
-                            p = as.integer(sp_indptr),
-                            Dim = as.integer(c(n_genes, n_cells)),
-                            Dimnames = list(gene_names, cell_names)
-                        )
-
-                        # Run SCTransform
-                        suppressWarnings({
-                            vst_result <- sctransform::vst(
-                                umi = umi_matrix,
-                                vst.flavor = vst_flavor,
-                                return_gene_attr = TRUE,
-                                return_cell_attr = TRUE,
-                                n_cells = n_cells_param,
-                                verbosity = 0
-                            )
-                        })
-
-                        # Convert output to dense matrix for transfer
-                        pearson_residuals <- as.matrix(vst_result$y)
-                        residual_variance <- vst_result$gene_attr$residual_variance
-                    """
-                    )
-
-                    # Extract results from R
-                    with localconverter(ro.default_converter + numpy2ri.converter):
-                        pearson_residuals = np.array(ro.r("pearson_residuals"))
-                        residual_variance = np.array(ro.r("residual_variance"))
-
-                    # Transpose back to cells × genes for AnnData format
-                    adata.X = pearson_residuals.T
-
-                    # Store SCTransform metadata
-                    adata.uns["sctransform"] = {
-                        "method": params.sct_method,
-                        "vst_flavor": vst_flavor,
-                        "var_features_n": params.sct_var_features_n,
-                        "exclude_poisson": params.sct_exclude_poisson,
-                        "n_cells": params.sct_n_cells,
-                    }
-
-                    # Mark highly variable genes based on residual variance
-                    adata.var["sct_residual_variance"] = residual_variance
-
-                    # Select top N genes by residual variance
-                    n_hvg = min(params.sct_var_features_n, len(residual_variance))
-                    top_hvg_indices = np.argsort(residual_variance)[-n_hvg:]
-                    adata.var["highly_variable"] = False
-                    adata.var.iloc[top_hvg_indices, adata.var.columns.get_loc(
-                        "highly_variable"
-                    )] = True
-
-                    if context:
-                        await context.info(
-                            f"✓ SCTransform: {n_hvg} highly variable genes identified"
-                        )
-
-                    logger.info("Applied SCTransform normalization via R")
-
-                except MemoryError:
-                    error_msg = (
-                        f"Insufficient memory for SCTransform on "
-                        f"{adata.n_obs}×{adata.n_vars} matrix.\n"
-                        "SOLUTIONS:\n"
-                        "• Reduce dataset size with subsample_spots parameter\n"
-                        "• Use normalization='pearson_residuals' (more memory efficient)\n"
-                        "• Use normalization='log' (minimal memory usage)"
-                    )
-                    if context:
-                        await context.error(error_msg)
-                    raise MemoryError(error_msg)
-                except Exception as e:
-                    error_msg = f"SCTransform failed: {str(e)}"
-                    if context:
-                        await context.error(error_msg)
-                        await context.info(f"Error details: {traceback.format_exc()}")
-                    raise RuntimeError(error_msg) from e
-            elif params.normalization == "pearson_residuals":
-                # Modern Pearson residuals normalization (recommended for UMI data)
-                if context:
-                    await context.info("Using Pearson residuals normalization...")
-
-                # Check if method is available
-                if not hasattr(sc.experimental.pp, "normalize_pearson_residuals"):
-                    error_msg = (
-                        "Pearson residuals normalization not available (requires scanpy>=1.9.0).\n"
-                        "Options:\n"
-                        "• Install newer scanpy: pip install 'scanpy>=1.9.0'\n"
-                        "• Use log normalization instead: params.normalization='log'\n"
-                        "• Skip normalization if data is pre-processed: params.normalization='none'"
-                    )
-                    if context:
-                        await context.error(error_msg)
-                    raise ValueError(error_msg)
-
-                # Check if data appears to be raw counts
-                if scipy.sparse.issparse(adata.X):
-                    # Sample first 1000 values for efficiency
-                    X_sample = (
-                        adata.X.data[: min(1000, len(adata.X.data))]
-                        if hasattr(adata.X, "data")
-                        else adata.X[:1000].toarray().flatten()
-                    )
-                else:
-                    X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
-
-                # Check for non-integer values (indicates normalized data)
-                if np.any((X_sample % 1) != 0):
-                    error_msg = (
-                        "Pearson residuals requires raw count data (integers). "
-                        "Data contains non-integer values. "
-                        "Use params.normalization='none' if data is already normalized, "
-                        "or params.normalization='log' for standard normalization."
-                    )
-                    if context:
-                        await context.error(error_msg)
-                    raise ValueError(error_msg)
-
-                # Execute normalization
-                try:
-                    # Apply Pearson residuals normalization (to all genes)
-                    # Note: High variable gene selection happens later in the pipeline
-                    sc.experimental.pp.normalize_pearson_residuals(adata)
-                    logger.info("Applied Pearson residuals normalization")
-                except MemoryError:
-                    raise MemoryError(
-                        f"Insufficient memory for Pearson residuals on {adata.n_obs}×{adata.n_vars} matrix. "
-                        "Try reducing n_hvgs or use 'log' normalization."
-                    )
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Pearson residuals normalization failed: {e}. "
-                        "Consider using 'log' normalization instead."
-                    )
-            elif params.normalization == "none":
-                # Explicitly skip normalization
-                if context:
-                    await context.info(
-                        "Skipping normalization (data assumed to be pre-normalized)"
-                    )
-                logger.info("Normalization skipped (using pre-normalized data)")
-
-                # CRITICAL: Check if data appears to be raw counts
-                # HVG selection requires normalized data for statistical validity
-                if scipy.sparse.issparse(adata.X):
-                    X_sample = (
-                        adata.X.data[: min(1000, len(adata.X.data))]
-                        if hasattr(adata.X, "data")
-                        else adata.X[:1000].toarray().flatten()
-                    )
-                else:
-                    X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
-
-                # Check if data looks raw (all integers and high values)
-                if np.all((X_sample % 1) == 0) and np.max(X_sample) > 100:
-                    error_msg = (
-                        "STATISTICAL ERROR: Cannot perform HVG selection on raw counts with normalization='none'\n\n"
-                        "Your data appears to be raw counts (integer values with max > 100), but you specified "
-                        "normalization='none'. Highly variable gene (HVG) selection requires normalized data "
-                        "for statistical validity because:\n"
-                        "• Raw count variance scales non-linearly with expression level\n"
-                        "• This prevents accurate comparison of variability across genes\n"
-                        "• Scanpy's HVG algorithm will fail with 'infinity' errors\n\n"
-                        "REQUIRED ACTIONS:\n"
-                        "Option 1 (Recommended): Use normalization='log' for standard log-normalization\n"
-                        "Option 2: Use normalization='pearson_residuals' for variance-stabilizing normalization\n"
-                        "Option 3: Pre-normalize your data externally, then reload with normalized values\n\n"
-                        "WARNING: If your data is already normalized but appears raw, verify data integrity."
-                    )
-                    if context:
-                        await context.error(error_msg)
-                    raise ValueError(error_msg)
-            elif params.normalization == "scvi":
-                # scVI deep learning-based normalization
-                # Uses variational autoencoder to learn latent representation
-                if scvi is None:
-                    error_msg = (
-                        "scVI normalization requires scvi-tools package.\n\n"
-                        "INSTALLATION:\n"
-                        "  pip install scvi-tools\n\n"
-                        "ALTERNATIVES:\n"
-                        "• Use normalization='log' (standard method)\n"
-                        "• Use normalization='pearson_residuals' (variance-stabilizing)"
-                    )
-                    if context:
-                        await context.error(error_msg)
-                    raise ImportError(error_msg)
-
-                # Check if data appears to be raw counts (required for scVI)
-                if scipy.sparse.issparse(adata.X):
-                    X_sample = (
-                        adata.X.data[: min(1000, len(adata.X.data))]
-                        if hasattr(adata.X, "data")
-                        else adata.X[:1000].toarray().flatten()
-                    )
-                else:
-                    X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
-
-                # Check for negative values (indicates already normalized data)
-                if np.any(X_sample < 0):
-                    error_msg = (
-                        "scVI requires non-negative count data.\n"
-                        "Data contains negative values, suggesting log-normalization.\n\n"
-                        "SOLUTIONS:\n"
-                        "• Load raw count data instead of normalized data\n"
-                        "• Use normalization='none' if data is pre-normalized"
-                    )
-                    if context:
-                        await context.error(error_msg)
-                    raise ValueError(error_msg)
-
-                if context:
-                    await context.info(
-                        f"Applying scVI normalization "
-                        f"(n_latent={params.scvi_n_latent}, "
-                        f"n_hidden={params.scvi_n_hidden}, "
-                        f"gene_likelihood={params.scvi_gene_likelihood})"
-                    )
-
-                try:
-                    # Store raw counts before any modification
-                    adata.layers["counts"] = adata.X.copy()
-
-                    # Setup AnnData for scVI
-                    # Use counts layer since we just saved it
-                    scvi.model.SCVI.setup_anndata(
-                        adata,
-                        layer="counts",
-                        batch_key=(
-                            params.batch_key
-                            if params.batch_key in adata.obs.columns
-                            else None
-                        ),
-                    )
-
-                    # Create scVI model with user-specified parameters
-                    scvi_model = scvi.model.SCVI(
-                        adata,
-                        n_hidden=params.scvi_n_hidden,
-                        n_latent=params.scvi_n_latent,
-                        n_layers=params.scvi_n_layers,
-                        dropout_rate=params.scvi_dropout_rate,
-                        gene_likelihood=params.scvi_gene_likelihood,
-                    )
-
-                    if context:
-                        await context.info("Training scVI model...")
-
-                    # Train the model
-                    # Use reasonable defaults for training
-                    scvi_model.train(
-                        max_epochs=400,
-                        early_stopping=True,
-                        early_stopping_patience=20,
-                        early_stopping_monitor="elbo_validation",
-                        train_size=0.9,
-                    )
-
-                    if context:
-                        await context.info("scVI training completed")
-
-                    # Get latent representation (replaces PCA)
-                    adata.obsm["X_scvi"] = scvi_model.get_latent_representation()
-
-                    # Get normalized expression for downstream analysis
-                    # This is the denoised, batch-corrected expression
-                    normalized_expr = scvi_model.get_normalized_expression(
-                        library_size=1e4  # Normalize to 10k counts
-                    )
-                    # Store as dense array (normalized expression is typically dense)
-                    if hasattr(normalized_expr, "values"):
-                        adata.X = normalized_expr.values
-                    else:
-                        adata.X = np.array(normalized_expr)
-
-                    # Apply log1p for downstream compatibility
-                    adata.X = np.log1p(adata.X)
-
-                    # Store scVI metadata
-                    adata.uns["scvi"] = {
-                        "n_hidden": params.scvi_n_hidden,
-                        "n_latent": params.scvi_n_latent,
-                        "n_layers": params.scvi_n_layers,
-                        "dropout_rate": params.scvi_dropout_rate,
-                        "gene_likelihood": params.scvi_gene_likelihood,
-                        "training_completed": True,
-                    }
-
-                    if context:
-                        await context.info(
-                            f"✓ scVI: Latent representation stored in X_scvi "
-                            f"(shape: {adata.obsm['X_scvi'].shape})"
-                        )
-                        await context.info(
-                            "✓ scVI: Normalized expression stored in adata.X"
-                        )
-
-                    logger.info("Applied scVI normalization")
-
-                except Exception as e:
-                    error_msg = f"scVI normalization failed: {str(e)}"
-                    if context:
-                        await context.error(error_msg)
-                        await context.info(f"Error details: {traceback.format_exc()}")
-                    raise RuntimeError(error_msg) from e
-            else:
-                # Catch unknown normalization methods
-                valid_methods = ["log", "sct", "pearson_residuals", "none", "scvi"]
-                raise ValueError(
-                    f"Unknown normalization method: '{params.normalization}'. "
-                    f"Valid options are: {', '.join(valid_methods)}"
+                # Setup AnnData for scVI
+                # Use counts layer since we just saved it
+                scvi.model.SCVI.setup_anndata(
+                    adata,
+                    layer="counts",
+                    batch_key=(
+                        params.batch_key
+                        if params.batch_key in adata.obs.columns
+                        else None
+                    ),
                 )
+
+                # Create scVI model with user-specified parameters
+                scvi_model = scvi.model.SCVI(
+                    adata,
+                    n_hidden=params.scvi_n_hidden,
+                    n_latent=params.scvi_n_latent,
+                    n_layers=params.scvi_n_layers,
+                    dropout_rate=params.scvi_dropout_rate,
+                    gene_likelihood=params.scvi_gene_likelihood,
+                )
+
+                if context:
+                    await context.info("Training scVI model...")
+
+                # Train the model
+                # Use reasonable defaults for training
+                scvi_model.train(
+                    max_epochs=400,
+                    early_stopping=True,
+                    early_stopping_patience=20,
+                    early_stopping_monitor="elbo_validation",
+                    train_size=0.9,
+                )
+
+                if context:
+                    await context.info("scVI training completed")
+
+                # Get latent representation (replaces PCA)
+                adata.obsm["X_scvi"] = scvi_model.get_latent_representation()
+
+                # Get normalized expression for downstream analysis
+                # This is the denoised, batch-corrected expression
+                normalized_expr = scvi_model.get_normalized_expression(
+                    library_size=1e4  # Normalize to 10k counts
+                )
+                # Store as dense array (normalized expression is typically dense)
+                if hasattr(normalized_expr, "values"):
+                    adata.X = normalized_expr.values
+                else:
+                    adata.X = np.array(normalized_expr)
+
+                # Apply log1p for downstream compatibility
+                adata.X = np.log1p(adata.X)
+
+                # Store scVI metadata
+                adata.uns["scvi"] = {
+                    "n_hidden": params.scvi_n_hidden,
+                    "n_latent": params.scvi_n_latent,
+                    "n_layers": params.scvi_n_layers,
+                    "dropout_rate": params.scvi_dropout_rate,
+                    "gene_likelihood": params.scvi_gene_likelihood,
+                    "training_completed": True,
+                }
+
+                if context:
+                    await context.info(
+                        f"✓ scVI: Latent representation stored in X_scvi "
+                        f"(shape: {adata.obsm['X_scvi'].shape})"
+                    )
+                    await context.info(
+                        "✓ scVI: Normalized expression stored in adata.X"
+                    )
+
+                logger.info("Applied scVI normalization")
+
+            except Exception as e:
+                error_msg = f"scVI normalization failed: {str(e)}"
+                if context:
+                    await context.error(error_msg)
+                    await context.info(f"Error details: {traceback.format_exc()}")
+                raise RuntimeError(error_msg) from e
+        else:
+            # Catch unknown normalization methods
+            valid_methods = ["log", "sct", "pearson_residuals", "none", "scvi"]
+            raise ValueError(
+                f"Unknown normalization method: '{params.normalization}'. "
+                f"Valid options are: {', '.join(valid_methods)}"
+            )
 
         # 4. Find highly variable genes and apply gene subsampling
         if context:
@@ -953,19 +913,9 @@ async def preprocess_data(
                         f"Scaling failed: {e}. Continuing without scaling."
                     )
 
-        # 7. Run PCA (skip if ResolVI or scVI was used)
+        # 7. Run PCA (skip if scVI was used - it provides its own latent representation)
         scvi_used = params.normalization == "scvi" and "X_scvi" in adata.obsm
-        if resolvi_used:
-            # ResolVI already created a latent representation
-            if context:
-                await context.info("Skipping PCA (using ResolVI latent representation)")
-            # Use ResolVI latent dimensions for downstream analysis
-            n_pcs = (
-                params.resolvi_params.n_latent
-                if params.resolvi_params
-                else params.n_pcs
-            )
-        elif scvi_used:
+        if scvi_used:
             # scVI already created a latent representation
             if context:
                 await context.info("Skipping PCA (using scVI latent representation)")
@@ -1036,11 +986,7 @@ async def preprocess_data(
             )
 
         if context:
-            if resolvi_used:
-                await context.info(
-                    f"Using {n_neighbors} neighbors with ResolVI latent representation for graph construction..."
-                )
-            elif scvi_used:
+            if scvi_used:
                 await context.info(
                     f"Using {n_neighbors} neighbors with scVI latent representation for graph construction..."
                 )
@@ -1050,10 +996,7 @@ async def preprocess_data(
                 )
 
         try:
-            if resolvi_used:
-                # Use ResolVI latent representation for neighbors
-                sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep="X_resolvi")
-            elif scvi_used:
+            if scvi_used:
                 # Use scVI latent representation for neighbors
                 sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep="X_scvi")
             else:
@@ -1096,103 +1039,7 @@ async def preprocess_data(
                 "Please check data quality or try different preprocessing parameters."
             )
 
-        # 11. Add RNA velocity preprocessing if requested
-        if getattr(params, "enable_rna_velocity", False):
-            if context:
-                await context.info("Adding RNA velocity preprocessing...")
-            try:
-                # Check for velocity data (spliced/unspliced layers)
-                has_velocity_data = (
-                    "spliced" in adata.layers and "unspliced" in adata.layers
-                )
-
-                if has_velocity_data:
-                    # Use unified velocity computation from trajectory module
-                    from ..models.data import RNAVelocityParameters
-                    from .trajectory import compute_rna_velocity
-
-                    # Use velocity_params or create with defaults - TRANSPARENT
-                    velocity_params = params.velocity_params or RNAVelocityParameters()
-
-                    if params.velocity_params is None and context:
-                        default_params = RNAVelocityParameters()
-                        await context.info(
-                            f"velocity_params not specified. Using default parameters:\n"
-                            f"   • Method: {default_params.method}\n"
-                            f"   • Mode: {default_params.scvelo_mode}\n"
-                            f"   • N top genes: {default_params.n_top_genes}\n"
-                            f"   • N neighbors: {default_params.n_neighbors}\n"
-                            f"   • Min shared counts: {default_params.min_shared_counts}\n"
-                            f"   For custom settings, provide velocity_params parameter"
-                        )
-
-                    # Compute velocity with unified function
-                    adata = compute_rna_velocity(adata, params=velocity_params)
-
-                    if context:
-                        await context.info(
-                            f"RNA velocity preprocessing completed using {velocity_params.scvelo_mode} mode"
-                        )
-                else:
-                    if context:
-                        await context.warning(
-                            "RNA velocity requested but no spliced/unspliced layers found"
-                        )
-            except Exception as e:
-                if context:
-                    await context.warning(f"RNA velocity preprocessing failed: {e}")
-
-        # 12. Add trajectory analysis preprocessing if requested
-        if getattr(params, "enable_trajectory_analysis", False):
-            if context:
-                await context.info("Adding trajectory analysis preprocessing...")
-            try:
-                # Compute diffusion map for pseudotime analysis
-                sc.tl.diffmap(adata)
-
-                # Optionally compute DPT if root cell is specified
-                if (
-                    hasattr(params, "dpt_root_cell")
-                    and params.dpt_root_cell is not None
-                ):
-                    if params.dpt_root_cell in adata.obs_names:
-                        adata.uns["iroot"] = np.where(
-                            adata.obs_names == params.dpt_root_cell
-                        )[0][0]
-                        sc.tl.dpt(adata)
-                        if context:
-                            await context.info(
-                                "Diffusion pseudotime computed with specified root cell"
-                            )
-                    else:
-                        if context:
-                            await context.warning(
-                                f"Root cell {params.dpt_root_cell} not found"
-                            )
-
-                if context:
-                    await context.info("Trajectory analysis preprocessing completed")
-            except Exception as e:
-                if context:
-                    await context.warning(
-                        f"Trajectory analysis preprocessing failed: {e}"
-                    )
-
-        # 13. Add spatial domain-specific preprocessing if requested
-        if getattr(params, "enable_spatial_domains", False) and spg is not None:
-            if context:
-                await context.info("Adding spatial domain-specific preprocessing...")
-            try:
-                # Apply SpaGCN-specific gene filtering
-                spg.prefilter_genes(adata, min_cells=3)
-                spg.prefilter_specialgenes(adata)
-                if context:
-                    await context.info("SpaGCN gene filtering completed")
-            except Exception as e:
-                if context:
-                    await context.warning(f"Spatial domain preprocessing failed: {e}")
-
-        # 14. For spatial data, compute spatial neighbors if not already done
+        # 11. For spatial data, compute spatial neighbors if not already done
         if params.spatial_key and (
             params.spatial_key in adata.uns
             or any(params.spatial_key in key for key in adata.obsm.keys())
@@ -1248,315 +1095,3 @@ async def preprocess_data(
             await context.warning(error_msg)
             await context.info(f"Error details: {tb}")
         raise RuntimeError(f"{error_msg}\n{tb}")
-
-
-def detect_spatial_key(adata: AnnData, user_key: Optional[str] = None) -> Optional[str]:
-    """
-    Intelligently detect spatial coordinate key in the AnnData object
-
-    Priority:
-    1. User-specified key (if exists)
-    2. Common spatial key names in obsm
-    3. Create from obs columns if x,y coordinates exist
-
-    Args:
-        adata: AnnData object
-        user_key: User-specified spatial key name
-
-    Returns:
-        Spatial key name if found, None otherwise
-    """
-    # If user specified a key, validate it exists
-    if user_key:
-        if user_key in adata.obsm:
-            coords = adata.obsm[user_key]
-            if coords.shape[1] >= 2:
-                logger.info(f"Using user-specified spatial key: '{user_key}'")
-                return user_key
-        else:
-            logger.warning(f"User-specified spatial key '{user_key}' not found in obsm")
-
-    # Auto-detect common spatial key names
-    common_keys = [
-        "X_spatial",  # ResolVI standard
-        "spatial",  # Common default
-        "coordinates",  # Some formats
-        "spatial_coords",  # Variant
-        "X_coordinates",  # Another variant
-        "xy_coords",  # Additional variant
-    ]
-
-    for key in common_keys:
-        if key in adata.obsm:
-            coords = adata.obsm[key]
-            # Validate it's proper spatial coordinates (at least 2D)
-            if coords.shape[1] >= 2:
-                logger.info(f"Auto-detected spatial coordinates in '{key}'")
-                return key
-
-    # Check if coordinates exist in obs columns and create obsm entry
-    if "x" in adata.obs.columns and "y" in adata.obs.columns:
-        adata.obsm["X_spatial"] = adata.obs[["x", "y"]].values.astype(np.float32)
-        logger.info("Created X_spatial from x,y columns in obs")
-        return "X_spatial"
-
-    if "x_centroid" in adata.obs.columns and "y_centroid" in adata.obs.columns:
-        adata.obsm["X_spatial"] = adata.obs[["x_centroid", "y_centroid"]].values.astype(
-            np.float32
-        )
-        logger.info("Created X_spatial from x_centroid,y_centroid columns in obs")
-        return "X_spatial"
-
-    # Check for other coordinate column naming conventions
-    if "X" in adata.obs.columns and "Y" in adata.obs.columns:
-        adata.obsm["X_spatial"] = adata.obs[["X", "Y"]].values.astype(np.float32)
-        logger.info("Created X_spatial from X,Y columns in obs")
-        return "X_spatial"
-
-    return None
-
-
-async def preprocess_with_resolvi(
-    adata,
-    params: Optional["ResolVIPreprocessingParameters"] = None,
-    context: Optional[Context] = None,
-) -> Dict[str, Any]:
-    """Preprocess spatial transcriptomics data using ResolVI
-
-    ResolVI addresses noise and bias in single-cell resolved spatial
-    transcriptomics data through molecular reassignment correction.
-
-    Scientific Requirements:
-    - High-resolution cellular-resolved spatial data (Xenium, MERFISH, etc.)
-    - Real spatial coordinates (cannot work without spatial information)
-    - Preferably raw count data (not log-transformed)
-
-    Args:
-        adata: Spatial transcriptomics AnnData object
-        params: ResolVI parameters (uses defaults if None)
-        context: MCP context for logging
-
-    Returns:
-        Dictionary containing ResolVI preprocessing results
-
-    Raises:
-        ImportError: If scvi-tools package is not available
-        ValueError: If data doesn't meet ResolVI requirements
-        RuntimeError: If RESOLVI computation fails
-    """
-    try:
-        # Import the parameter model if needed
-        from ..models.data import ResolVIPreprocessingParameters
-
-        if scvi is None or RESOLVI is None:
-            raise ImportError(
-                "scvi-tools package is required for ResolVI preprocessing. "
-                "Install with 'pip install scvi-tools'"
-            )
-
-        # Use default parameters if none provided
-        if params is None:
-            params = ResolVIPreprocessingParameters()
-
-        if context:
-            await context.info("Starting ResolVI spatial data preprocessing...")
-
-        # 1. Validate data size
-        if adata.n_obs < params.min_cells:
-            raise ValueError(
-                f"ResolVI requires at least {params.min_cells} cells for meaningful analysis. "
-                f"Found only {adata.n_obs} cells. "
-                "For small datasets, consider using standard denoising methods instead."
-            )
-
-        # 2. Detect and validate spatial coordinates (CRITICAL)
-        spatial_key = detect_spatial_key(adata, params.spatial_key)
-
-        if spatial_key is None:
-            if params.require_spatial:
-                # No spatial coordinates found - this is a critical error for ResolVI
-                raise ValueError(
-                    "ResolVI REQUIRES real spatial coordinates for molecular reassignment.\n"
-                    "No spatial coordinates found in adata.obsm.\n"
-                    "ResolVI is specifically designed for high-resolution spatial transcriptomics:\n"
-                    "  - Xenium (10X Genomics)\n"
-                    "  - MERFISH (Vizgen)\n"
-                    "  - CosMx (NanoString)\n"
-                    "  - Visium HD (10X Genomics)\n"
-                    "\nFor non-spatial data, consider alternatives:\n"
-                    "  - scVI for general denoising\n"
-                    "  - MAGIC for imputation\n"
-                    "  - DCA for count data denoising"
-                )
-            else:
-                # require_spatial is False but no spatial coordinates found
-                raise ValueError(
-                    "No spatial coordinates found in dataset. "
-                    "ResolVI requires spatial information. "
-                    "Please check that your data has spatial coordinates in adata.obsm."
-                )
-
-        if context:
-            await context.info(f"Using spatial coordinates from '{spatial_key}'")
-
-        # MEMORY OPTIMIZATION: ResolVI natively supports sparse matrices
-        # Verified with scvi-tools v1.3.0 - both CSR and dense formats work correctly
-        #
-        # Memory savings for typical spatial transcriptomics datasets:
-        #   - 10K cells × 5K genes: ~181 MB saved (95% reduction)
-        #   - 50K cells × 10K genes: ~1.8 GB saved (95% reduction)
-        #   - Xenium/MERFISH (100K+ cells): ~5-10 GB saved
-        #
-        # ResolVI will handle both sparse and dense formats correctly during training.
-        # We only need to ensure integer counts (conversion below preserves sparsity).
-        import scipy.sparse as sp
-
-        # RESOLVI expects count data (integers)
-        # Check if data appears to be normalized (has decimals)
-        # This check works for both sparse and dense matrices
-        if sp.issparse(adata.X):
-            # For sparse matrices, check only non-zero values
-            has_decimals = np.any(adata.X.data != np.round(adata.X.data))
-        else:
-            # For dense matrices, check all values
-            has_decimals = np.any(adata.X != adata.X.astype(int))
-
-        if has_decimals:
-            if context:
-                await context.warning(
-                    "RESOLVI expects integer count data, but found decimals. Converting to integer counts."
-                )
-            # Round to nearest integer and ensure non-negative
-            # Sparse-aware conversion preserves memory efficiency
-            if sp.issparse(adata.X):
-                # For sparse: only modify non-zero data values
-                adata.X.data = np.maximum(0, np.round(adata.X.data)).astype(np.int32)
-                adata.X.eliminate_zeros()  # Remove any zeros created by rounding
-            else:
-                # For dense: standard numpy operations
-                adata.X = np.maximum(0, np.round(adata.X)).astype(np.int32)
-        else:
-            # Ensure integer type (preserves sparsity if already sparse)
-            adata.X = adata.X.astype(np.int32)
-
-        if context:
-            await context.info(
-                f"Preprocessing {adata.n_obs} spots and {adata.n_vars} genes with RESOLVI"
-            )
-
-        # Setup RESOLVI - at this point spatial_key is guaranteed to be not None
-        # and should exist in adata.obsm due to detect_spatial_key validation
-        if spatial_key not in adata.obsm:
-            raise RuntimeError(
-                f"Internal error: Spatial key '{spatial_key}' not found in adata.obsm. "
-                f"Available keys: {list(adata.obsm.keys())}. "
-                "This should not happen - please report this issue."
-            )
-
-        # Ensure spatial coordinates are in the correct format for RESOLVI
-        spatial_coords = adata.obsm[spatial_key]
-        if spatial_coords.shape[1] != 2:
-            raise ValueError(
-                f"ResolVI requires 2D spatial coordinates, but got shape {spatial_coords.shape}. "
-                "Expected (n_cells, 2) for x,y coordinates."
-            )
-
-        # Add spatial coordinates as X_spatial for RESOLVI (required by the model)
-        adata.obsm["X_spatial"] = spatial_coords
-
-        # RESOLVI setup without spatial_key parameter (not supported in current version)
-        RESOLVI.setup_anndata(adata)
-
-        # Create RESOLVI model with proper parameter types
-        # Disable downsample_counts to avoid the LogNormal parameter issue
-        resolvi_model = RESOLVI(
-            adata,
-            n_hidden=int(params.n_hidden),
-            n_latent=int(params.n_latent),
-            downsample_counts=False,  # Disable to avoid torch tensor type issues
-        )
-
-        if context:
-            await context.info("Training RESOLVI model...")
-
-        # Train model
-        if params.use_gpu and torch.cuda.is_available():
-            resolvi_model.train(max_epochs=params.n_epochs, accelerator="gpu")
-        else:
-            resolvi_model.train(max_epochs=params.n_epochs)
-
-        if context:
-            await context.info("RESOLVI training completed")
-
-        # Get results
-        if context:
-            await context.info("Extracting RESOLVI denoised data...")
-
-        # Get denoised expression
-        denoised_expression = resolvi_model.get_normalized_expression()
-
-        # Get latent representation (without distribution parameters)
-        latent = resolvi_model.get_latent_representation(return_dist=False)
-
-        # Store results in adata
-        adata.layers["resolvi_denoised"] = denoised_expression
-        adata.obsm["X_resolvi"] = latent  # Store as X_resolvi for downstream use
-
-        # Calculate preprocessing statistics
-        original_mean = np.mean(adata.X)
-        denoised_mean = np.mean(denoised_expression)
-
-        # Calculate noise reduction metrics
-        # get_normalized_expression() returns pandas DataFrame with dense values
-        # Convert original data to dense only for this statistical computation
-        if sp.issparse(adata.X):
-            orig_data = adata.X.toarray()
-        else:
-            orig_data = adata.X
-
-        if hasattr(denoised_expression, "toarray"):
-            denoised_data = denoised_expression.toarray()
-        else:
-            # DataFrame case - extract underlying numpy array
-            denoised_data = (
-                denoised_expression.values
-                if hasattr(denoised_expression, "values")
-                else denoised_expression
-            )
-
-        noise_reduction = np.mean(np.abs(orig_data - denoised_data))
-
-        # Calculate summary statistics
-        results = {
-            "method": "RESOLVI",
-            "n_latent_dims": params.n_latent,
-            "n_epochs": params.n_epochs,
-            "denoising_completed": True,
-            "original_mean_expression": float(original_mean),
-            "denoised_mean_expression": float(denoised_mean),
-            "noise_reduction_metric": float(noise_reduction),
-            "latent_shape": latent.shape,
-            "denoised_shape": denoised_expression.shape,
-            "training_completed": True,
-            "device": (
-                "GPU" if (params.use_gpu and torch.cuda.is_available()) else "CPU"
-            ),
-        }
-
-        if context:
-            await context.info("RESOLVI preprocessing completed successfully")
-            await context.info(
-                "Stored denoised data in adata.layers['resolvi_denoised']"
-            )
-            await context.info(
-                "Stored latent representation in adata.obsm['X_resolvi']"
-            )
-            await context.info(f"Noise reduction metric: {noise_reduction:.4f}")
-
-        return results
-
-    except Exception as e:
-        error_msg = f"RESOLVI preprocessing failed: {str(e)}"
-        if context:
-            await context.error(error_msg)
-        raise RuntimeError(error_msg) from e
