@@ -1,209 +1,209 @@
 # ChatSpatial Documentation
 
-This directory contains the Jekyll-based documentation for ChatSpatial using the Just the Docs theme.
+**Chat with your spatial transcriptomics data. No coding required.**
 
-## Local Development
+ChatSpatial is a Model Context Protocol (MCP) server that integrates 60+ spatial analysis methods into Claude. Analyze your data through natural language conversation.
 
-### Prerequisites
+---
 
-- Ruby 3.1+
-- Bundler gem
-- Git
+## 🚀 Getting Started (Choose Your Path)
 
-### Setup
+<table>
+<tr>
+<td width="50%">
 
-1. Install dependencies:
-   ```bash
-   cd docs
-   bundle install
-   ```
+### 🎯 **New Users Start Here**
 
-2. Serve locally:
-   ```bash
-   bundle exec jekyll serve
-   ```
+**I want to analyze data quickly:**
 
-3. Open http://localhost:4000 in your browser
+1. [**Quick Start**](quickstart.md) - 5-minute setup
+2. [**Examples**](examples.md) - Copy-paste workflows
+3. Start chatting with your data!
 
-### Live Reload
+✅ Perfect for: Researchers, biologists, anyone new to ChatSpatial
 
-For automatic rebuilds during development:
-```bash
-bundle exec jekyll serve --livereload
-```
+</td>
+<td width="50%">
 
-## Project Structure
+### 🔧 **Advanced Users**
+
+**I need detailed documentation:**
+
+- [**Methods Reference**](advanced/methods-reference.md) - All tools and parameters
+- [**Installation Guide**](advanced/installation.md) - Detailed setup options
+- [**Configuration**](advanced/configuration.md) - Advanced settings
+- [**Troubleshooting**](advanced/troubleshooting.md) - Problem solving
+- [**FAQ**](advanced/faq.md) - Common questions
+
+✅ Perfect for: Power users, developers, troubleshooting
+
+</td>
+</tr>
+</table>
+
+---
+
+## 📖 Documentation Structure
+
+This documentation is organized for **quick access**:
 
 ```
 docs/
-├── _config.yml          # Jekyll configuration
-├── Gemfile              # Ruby dependencies
-├── index.md             # Homepage
-├── getting-started/     # Getting started guides
-│   ├── index.md
-│   ├── installation.md
-│   ├── quick-start.md
-│   └── configuration.md
-├── tutorials/           # Tutorial content
-│   ├── index.md
-│   ├── core/           # Core analysis tutorials
-│   ├── analysis/       # Method-specific tutorials
-│   ├── advanced/       # Advanced methods
-│   └── learning-paths/ # Structured learning paths
-├── reference/           # Reference documentation
-│   ├── index.md
-│   ├── api/            # API documentation
-│   ├── quick-reference/ # Quick reference guides
-│   └── troubleshooting/ # Problem-solving guides
-└── examples/            # Example workflows
+├── quickstart.md              # Start here! (5 minutes)
+├── examples.md                # Real analysis examples
+├── advanced/                  # Detailed documentation
+│   ├── methods-reference.md  # Complete tool reference
+│   ├── installation.md       # Detailed setup guide
+│   ├── configuration.md      # Advanced configuration
+│   ├── troubleshooting.md    # Problem solving
+│   └── faq.md                # Frequently asked questions
+└── examples/                  # Sample datasets and workflows
 ```
 
-## Theme Customization
+**80% of users only need:** `quickstart.md` + `examples.md`
 
-This site uses the [Just the Docs](https://just-the-docs.github.io/just-the-docs/index.md) theme.
-
-### Custom Styling
-
-Add custom CSS in `_sass/custom/custom.scss`:
-
-```scss
-// Custom variables
-$body-font-family: -apple-system, BlinkMacSystemFont, "helvetica neue", helvetica, roboto, noto, "segoe ui", arial, sans-serif;
-$mono-font-family: "SFMono-Regular", Menlo, Consolas, Monospace;
-
-// Custom styles
-.site-header {
-  background-color: #f8f9fa;
-}
-```
-
-### Navigation
-
-Navigation is controlled by:
-- `nav_order` in frontmatter
-- `has_children: true` for parent pages
-- `parent: Page Name` for child pages
-
-### Callouts
-
-Use Just the Docs callouts for highlights:
-
-```markdown
-
-Important information
-
-Additional notes
-
-Warning messages
-```
-
-## Content Guidelines
-
-### File Naming
-- Use lowercase with hyphens: `quick-start.md`
-- Match navigation structure
-- Include index.md for directories
-
-### Frontmatter
-Required for all pages:
-```yaml
 ---
-layout: default
-title: Page Title
-nav_order: 1
-parent: Parent Page (if applicable)
+
+## 💡 Quick Reference
+
+### What Can ChatSpatial Do?
+
+| Analysis Type | Natural Language Example |
+|--------------|--------------------------|
+| **Load Data** | "Load my Visium dataset" |
+| **Spatial Domains** | "Identify tissue regions" |
+| **Cell Types** | "Annotate cell types using reference" |
+| **Deconvolution** | "Deconvolve spots with Cell2location" |
+| **Communication** | "Analyze cell-cell interactions" |
+| **Trajectories** | "Find developmental paths" |
+| **Enrichment** | "Run pathway analysis" |
+| **Visualization** | "Create spatial heatmap" |
+
+**60+ methods across 12 analysis categories** - all through conversation!
+
 ---
+
+## 🎓 Learning Paths
+
+### Path 1: First-Time User (30 minutes)
+1. [Quick Start](quickstart.md) - Setup and first analysis
+2. [Examples - Basic Analysis](examples.md#-basic-spatial-analysis) - Learn fundamentals
+3. [Examples - Spatial Domains](examples.md#%EF%B8%8F-spatial-domain-analysis) - Identify tissue regions
+4. Try your own data!
+
+### Path 2: Intermediate User (1 hour)
+1. [Examples - Cell Type Analysis](examples.md#-cell-type-analysis) - Annotation methods
+2. [Examples - Deconvolution](examples.md#-deconvolution-analysis) - Estimate compositions
+3. [Examples - Communication](examples.md#-cell-communication-analysis) - Interactions
+4. [Complete Workflows](examples.md#-complete-workflows) - Multi-step analysis
+
+### Path 3: Advanced User (2+ hours)
+1. [Examples - Advanced Analysis](examples.md#-advanced-analysis) - Trajectories, CNV, etc.
+2. [Methods Reference](advanced/methods-reference.md) - Deep dive into all tools
+3. [Configuration](advanced/configuration.md) - Optimize for your use case
+4. Combine multiple methods for publication-quality analysis
+
+---
+
+## 🆘 Getting Help
+
+### Quick Troubleshooting
+
+**Problem: ChatSpatial not showing up in Claude**
+- ✅ Restart Claude after configuration
+- ✅ Check Python path is correct
+- ✅ See [Troubleshooting Guide](advanced/troubleshooting.md)
+
+**Problem: Analysis failing**
+- ✅ Run preprocessing first
+- ✅ Use absolute file paths
+- ✅ Check data format
+- ✅ See [FAQ](advanced/faq.md)
+
+**Problem: Don't know which method to use**
+- ✅ Just ask Claude naturally!
+- ✅ Claude will pick the right tool
+- ✅ See [Examples](examples.md) for ideas
+
+### Need More Help?
+
+- **Search**: Use the search box (top of page)
+- **Issues**: [GitHub Issues](https://github.com/cafferychen777/ChatSpatial/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/cafferychen777/ChatSpatial/discussions)
+
+---
+
+## 🎯 Common Questions
+
+**Q: Do I need to know Python?**
+A: No! ChatSpatial understands natural language. Just chat with Claude.
+
+**Q: What data formats are supported?**
+A: H5AD, 10x Visium, Slide-seq, MERFISH, seqFISH, and more. [Details →](advanced/methods-reference.md)
+
+**Q: How do I choose between methods?**
+A: Just describe what you want. Claude and ChatSpatial will pick the right tool.
+
+**Q: Can I use my own reference data?**
+A: Yes! Load your reference and ask ChatSpatial to use it for annotation or deconvolution.
+
+**Q: Is ChatSpatial free?**
+A: Yes! MIT license. Free for academic and commercial use.
+
+[**More Questions →**](advanced/faq.md)
+
+---
+
+## 📊 Example Conversation
+
+```text
+👤 "Load /path/to/visium_data.h5ad and identify spatial domains"
+
+🤖 ✅ Loaded 3,456 spots, 18,078 genes
+    ✅ Identified 7 spatial domains using SpaGCN
+    ✅ Generated visualization
+
+👤 "Find marker genes for domain 3 and show me what cell type it is"
+
+🤖 ✅ Found 23 significant markers (adj. p < 0.05)
+    Top markers: GFAP, S100B, AQP4
+    ✅ Domain 3 shows astrocyte signature
+    ✅ Created expression heatmap
+
+👤 "Now analyze cell communication between all domains"
+
+🤖 ✅ Analyzed 142 ligand-receptor pairs using LIANA
+    ✅ Found 18 significant interactions (p < 0.05)
+    ✅ Generated communication network diagram
 ```
 
-### Images
-- Store in `assets/images/`
-- Use descriptive filenames
-- Include alt text for accessibility
+**That's ChatSpatial. Natural conversation → Scientific results.** 🎉
 
-### Code Examples
-- Use language-specific syntax highlighting
-- Include working examples that users can copy
-- Test all code examples before publishing
+---
 
-## Deployment
+## 🔗 Quick Links
 
-### GitHub Pages
+**Essential:**
+- [Quick Start](quickstart.md) - Get running in 5 minutes
+- [Examples](examples.md) - Real analysis workflows
+- [Methods Reference](advanced/methods-reference.md) - All tools
 
-The site is automatically deployed via GitHub Actions when changes are pushed to the main branch.
+**Resources:**
+- [Main README](../README.md) - Project overview
+- [GitHub Repository](https://github.com/cafferychen777/ChatSpatial)
+- [Sample Datasets](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.3.0-data)
 
-Configuration in `.github/workflows/deploy-docs.yml`:
-- Builds on push to main
-- Uses Ruby setup action
-- Deploys to GitHub Pages
+**Support:**
+- [Troubleshooting](advanced/troubleshooting.md)
+- [FAQ](advanced/faq.md)
+- [GitHub Issues](https://github.com/cafferychen777/ChatSpatial/issues)
 
-### Manual Deployment
+---
 
-To deploy manually:
-```bash
-# Build the site
-bundle exec jekyll build
+<div align="center">
 
-# Deploy _site directory to your hosting provider
-```
+**Ready to start?** [→ Quick Start Guide](quickstart.md)
 
-## Contributing
+Made with ❤️ for the spatial transcriptomics community
 
-### Adding New Content
-
-1. Create new markdown files following the structure
-2. Add appropriate frontmatter
-3. Update navigation if needed
-4. Test locally before committing
-
-### Updating Existing Content
-
-1. Edit the relevant markdown files
-2. Check links and references
-3. Test locally
-4. Commit changes
-
-### Style Guide
-
-- Use clear, concise language
-- Include code examples for all procedures
-- Add troubleshooting sections where appropriate
-- Link between related pages
-- Use consistent formatting and terminology
-
-## Troubleshooting
-
-### Bundle Install Issues
-
-```bash
-# Clear bundle cache
-bundle clean --force
-
-# Reinstall dependencies
-bundle install
-```
-
-### Jekyll Build Errors
-
-```bash
-# Clean Jekyll cache
-bundle exec jekyll clean
-
-# Rebuild with verbose output
-bundle exec jekyll build --verbose
-```
-
-### Dependency Conflicts
-
-```bash
-# Update all gems
-bundle update
-
-# Check for security issues
-bundle audit
-```
-
-## Links
-
-- [Jekyll Documentation](https://jekyllrb.com/docs/index.md)
-- [Just the Docs Theme](https://just-the-docs.github.io/just-the-docs/index.md)
-- [GitHub Pages](https://docs.github.com/en/pages)
+</div>
