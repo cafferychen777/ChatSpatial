@@ -90,19 +90,21 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
 
     # Merge datasets
     if isinstance(adatas, list):
-        # Validate that each dataset has batch labels - NO AUTOMATIC CREATION
-        for i, adata in enumerate(adatas):
-            if batch_key not in adata.obs:
-                raise ValueError(
-                    f"Dataset {i} missing batch information in column '{batch_key}'.\n\n"
-                    f"DEBUG:SAMPLE INTEGRATION REQUIRES BATCH LABELS\n"
-                    f"Each dataset must have batch information for proper integration.\n\n"
-                    f"🛠️ HOW TO ADD BATCH LABELS:\n"
-                    f"• Same batch: adata.obs['{batch_key}'] = 'experiment_1'\n"
-                    f"• Different batches: adata.obs['{batch_key}'] = 'batch_A', 'batch_B', etc.\n\n"
-                    f"IMPORTANT: Only use real batch information from your experiment.\n"
-                    f"Don't create fake batch labels - this violates scientific integrity."
-                )
+        # Check if datasets have batch labels
+        has_batch_labels = all(batch_key in adata.obs for adata in adatas)
+
+        if not has_batch_labels:
+            # Auto-create batch labels for multi-sample integration
+            # Each sample becomes its own batch (scientifically correct for independent samples)
+            logging.info(
+                f"No batch labels found. Auto-creating batch labels: each sample = 1 batch.\n"
+                f"This is scientifically appropriate when integrating independent samples."
+            )
+            for i, adata in enumerate(adatas):
+                if batch_key not in adata.obs:
+                    # Use sample index as batch label
+                    adata.obs[batch_key] = f"sample_{i}"
+                    logging.info(f"Dataset {i}: assigned batch label 'sample_{i}'")
 
         # Merge datasets
         combined = adatas[0].concatenate(
@@ -110,6 +112,26 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
             batch_key=batch_key,
             join="outer",  # Use outer join to keep all genes
         )
+
+        # FIX: Clean var columns with NA values in object dtype
+        # Problem: outer join creates NA values in var columns when genes don't exist in all samples
+        # When object columns contain NA, H5AD save corrupts var.index (becomes 0,1,2...)
+        # and moves gene names to _index column
+        # Solution: Fill NA with appropriate values or convert types
+        import pandas as pd
+
+        for col in combined.var.columns:
+            if combined.var[col].dtype == "object" and combined.var[col].isna().any():
+                # For boolean-like columns (highly_variable, etc.), fill NA with False
+                unique_vals = combined.var[col].dropna().unique()
+                if set(unique_vals).issubset({True, False, "True", "False"}):
+                    combined.var[col] = combined.var[col].fillna(False).astype(bool)
+                else:
+                    # For string columns, fill NA with empty string
+                    combined.var[col] = combined.var[col].fillna("").astype(str)
+                logging.info(
+                    f"Cleaned var column '{col}' with NA values for H5AD compatibility"
+                )
 
         # FIX: Remove incomplete diffmap artifacts created by concatenation (scanpy issue #1021)
         # Problem: concatenate() copies obsm['X_diffmap'] but NOT uns['diffmap_evals']
@@ -256,6 +278,9 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
         n_batches = combined.obs[batch_key].nunique()
         batch_sizes = combined.obs[batch_key].value_counts().to_dict()
 
+        # CRITICAL FIX: Convert dict keys to strings for H5AD compatibility
+        batch_sizes = {str(k): int(v) for k, v in batch_sizes.items()}
+
         store_analysis_metadata(
             combined,
             analysis_name="integration_scvi",
@@ -270,10 +295,10 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
             },
             results_keys={"obsm": ["X_scVI"], "uns": ["neighbors"]},
             statistics={
-                "n_batches": n_batches,
+                "n_batches": int(n_batches),
                 "batch_sizes": batch_sizes,
-                "n_cells_total": combined.n_obs,
-                "n_genes": combined.n_vars,
+                "n_cells_total": int(combined.n_obs),
+                "n_genes": int(combined.n_vars),
             },
         )
 
@@ -582,6 +607,11 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
     n_batches = combined.obs[batch_key].nunique()
     batch_sizes = combined.obs[batch_key].value_counts().to_dict()
 
+    # CRITICAL FIX: Convert dict keys to strings for H5AD compatibility
+    # H5AD requires all dictionary keys to be strings
+    # Without this, save_data() fails with "Can't implicitly convert non-string objects to strings"
+    batch_sizes = {str(k): int(v) for k, v in batch_sizes.items()}
+
     store_analysis_metadata(
         combined,
         analysis_name=f"integration_{method}",
@@ -593,10 +623,10 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
         },
         results_keys=results_keys,
         statistics={
-            "n_batches": n_batches,
+            "n_batches": int(n_batches),  # Also ensure int types for H5AD
             "batch_sizes": batch_sizes,
-            "n_cells_total": combined.n_obs,
-            "n_genes": combined.n_vars,
+            "n_cells_total": int(combined.n_obs),
+            "n_genes": int(combined.n_vars),
         },
     )
 
