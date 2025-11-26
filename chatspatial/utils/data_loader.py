@@ -254,20 +254,26 @@ async def load_spatial_data(
     n_genes = adata.n_vars
 
     # Check if spatial coordinates are available
+    # Priority: obsm["spatial"] is the actual coordinate storage location
+    # uns["spatial"] only contains metadata (scalefactors, images) not coordinates
     spatial_coordinates_available = (
-        "spatial" in adata.uns
-        or hasattr(adata, "obsm")
-        and any("spatial" in key for key in adata.obsm.keys())
+        hasattr(adata, "obsm")
+        and "spatial" in adata.obsm
+        and adata.obsm["spatial"] is not None
+        and len(adata.obsm["spatial"]) > 0
     )
 
     # Check if tissue image is available (for Visium data)
-    # Check actual data structure instead of relying on data_type
+    # Structure: adata.uns["spatial"][library_id]["images"]["hires"/"lowres"]
     tissue_image_available = False
-    if "spatial" in adata.uns:
-        for sample_key in adata.uns["spatial"].keys():
-            if "images" in adata.uns["spatial"][sample_key]:
-                tissue_image_available = True
-                break
+    if "spatial" in adata.uns and isinstance(adata.uns["spatial"], dict):
+        for sample_key, sample_data in adata.uns["spatial"].items():
+            # Each sample_data should be a dict with "images" key
+            if isinstance(sample_data, dict) and "images" in sample_data:
+                # Check if images dict is non-empty
+                if isinstance(sample_data["images"], dict) and sample_data["images"]:
+                    tissue_image_available = True
+                    break
 
     # Make variable names unique to avoid reindexing issues
     if hasattr(adata, "var_names_make_unique"):
