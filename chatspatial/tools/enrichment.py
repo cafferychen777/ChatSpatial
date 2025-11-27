@@ -32,6 +32,7 @@ def _filter_significant_statistics(
     enrichment_scores: dict,
     pvalues: dict,
     adjusted_pvalues: dict,
+    method: str,
     fdr_threshold: Optional[float] = None,
 ) -> tuple:
     """
@@ -46,11 +47,12 @@ def _filter_significant_statistics(
         enrichment_scores: Enrichment scores for all gene sets
         pvalues: P-values for all gene sets
         adjusted_pvalues: FDR-corrected p-values for all gene sets
-        fdr_threshold: FDR threshold for significance (default: None for auto-detection)
-                       Auto thresholds:
-                       - Small databases (< 200 gene sets): FDR < 0.25
-                       - Medium databases (200-1000): FDR < 0.10
-                       - Large databases (> 1000): FDR < 0.05
+        method: Enrichment method used ('gsea', 'ora', 'enrichr', 'ssgsea')
+        fdr_threshold: FDR threshold for significance (default: None for method-based auto)
+                       Method-based defaults (based on statistical best practices):
+                       - GSEA: FDR < 0.25 (official recommendation from Subramanian et al. 2005)
+                       - ORA/Enrichr: FDR < 0.05 (standard statistical threshold)
+                       - ssGSEA: No filtering (no p-values produced)
 
     Returns:
         Tuple of (filtered_statistics, filtered_scores, filtered_pvals, filtered_adj_pvals)
@@ -58,22 +60,35 @@ def _filter_significant_statistics(
     Example:
         Before: 311 pathways × 4 dicts × 100 chars = 124KB (KEGG)
         After: ~15 significant pathways × 4 dicts × 100 chars = 6KB (95% reduction)
+
+    References:
+        - GSEA: Subramanian et al. (2005) PNAS 102(43):15545-15550
+          "We recommend an FDR cutoff of 25% when dealing with a single database"
+        - ORA: Standard multiple testing correction threshold (Benjamini & Hochberg 1995)
     """
     if not adjusted_pvalues:
-        # No p-values available (e.g., ssGSEA), return empty
-        return {}, enrichment_scores, pvalues, adjusted_pvalues
+        # No p-values available (e.g., ssGSEA), return all results without filtering
+        return gene_set_statistics, enrichment_scores, pvalues, adjusted_pvalues
 
-    # Auto-determine threshold based on database size if not specified
+    # Auto-determine threshold based on ANALYSIS METHOD if not specified
+    # This is statistically principled: different methods have different FDR standards
     if fdr_threshold is None:
-        n_gene_sets = len(adjusted_pvalues)
-        if n_gene_sets < 200:
-            fdr_threshold = 0.25  # Small database: allow more results
-        elif n_gene_sets < 1000:
-            fdr_threshold = 0.10  # Medium database: moderate filtering
+        method_lower = method.lower()
+        if method_lower == "gsea":
+            # GSEA official recommendation: FDR < 0.25
+            # From Subramanian et al. 2005: "An FDR of 25% indicates that the result
+            # is likely to be valid 3 out of 4 times"
+            fdr_threshold = 0.25
+        elif method_lower in ("ora", "enrichr", "pathway_ora", "pathway_enrichr"):
+            # ORA and Enrichr: standard statistical threshold
+            # Based on Benjamini-Hochberg FDR control at 5%
+            fdr_threshold = 0.05
         else:
-            fdr_threshold = 0.05  # Large database (GO, etc.): strict filtering
+            # Default fallback for unknown methods
+            fdr_threshold = 0.05
         logger.info(
-            f"Auto-selected FDR threshold {fdr_threshold} for {n_gene_sets} gene sets"
+            f"Auto-selected FDR threshold {fdr_threshold} for method '{method}' "
+            f"(method-based default, not database-size-based)"
         )
 
     # Find significant pathways
@@ -516,7 +531,7 @@ async def perform_gsea(
             )
 
         # Filter all result dictionaries to only significant pathways (reduces MCP response size)
-        # Auto-determines threshold based on database size
+        # Uses method-based FDR threshold: GSEA = 0.25 (Subramanian et al. 2005)
         (
             filtered_statistics,
             filtered_scores,
@@ -527,7 +542,7 @@ async def perform_gsea(
             enrichment_scores,
             pvalues,
             adjusted_pvalues,
-            fdr_threshold=None,  # Auto-detect based on database size
+            method="gsea",  # Method-based FDR: 0.25 for GSEA
         )
 
         return EnrichmentResult(
@@ -799,7 +814,7 @@ async def perform_ora(
         )
 
     # Filter all result dictionaries to only significant pathways (reduces MCP response size)
-    # Auto-determines threshold based on database size
+    # Uses method-based FDR threshold: ORA = 0.05 (standard statistical threshold)
     (
         filtered_statistics,
         filtered_scores,
@@ -810,7 +825,7 @@ async def perform_ora(
         enrichment_scores,
         pvalues,
         adjusted_pvalues,
-        fdr_threshold=None,  # Auto-detect based on database size
+        method="ora",  # Method-based FDR: 0.05 for ORA
     )
 
     return EnrichmentResult(
@@ -993,7 +1008,11 @@ async def perform_ssgsea(
         return EnrichmentResult(
             method="ssgsea",
             n_gene_sets=len(gene_sets),
-            n_significant=len(gene_sets),  # All gene sets get scores in ssGSEA
+            # IMPORTANT: ssGSEA does NOT perform significance testing
+            # Setting n_significant=0 is honest: no pathways are "statistically significant"
+            # All gene sets receive enrichment scores, but these are sample-level metrics
+            # without associated p-values. Use GSEA or ORA for significance testing.
+            n_significant=0,  # ssGSEA doesn't test significance - no p-values produced
             enrichment_scores=enrichment_scores,  # Mean scores per gene set
             pvalues=pvalues,
             adjusted_pvalues=adjusted_pvalues,
@@ -1107,7 +1126,7 @@ async def perform_enrichr(
             gene_set_statistics[term]["odds_ratio"] = row.get("Odds Ratio", 1.0)
 
         # Filter all result dictionaries to only significant pathways (reduces MCP response size)
-        # Auto-determines threshold based on database size
+        # Uses method-based FDR threshold: Enrichr = 0.05 (same as ORA, hypergeometric-based)
         (
             filtered_statistics,
             filtered_scores,
@@ -1118,7 +1137,7 @@ async def perform_enrichr(
             enrichment_scores,
             pvalues,
             adjusted_pvalues,
-            fdr_threshold=None,  # Auto-detect based on database size
+            method="enrichr",  # Method-based FDR: 0.05 for Enrichr
         )
 
         return EnrichmentResult(

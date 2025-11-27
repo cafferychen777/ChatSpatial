@@ -21,6 +21,8 @@ async def differential_expression(
     group2: Optional[str] = None,
     method: str = "wilcoxon",
     n_top_genes: int = 50,
+    pseudocount: float = 1.0,
+    min_cells: int = 3,
     context: Optional[Context] = None,
 ) -> DifferentialExpressionResult:
     """Perform differential expression analysis
@@ -33,6 +35,14 @@ async def differential_expression(
         group2: Second group for comparison (if None, compare against rest)
         n_top_genes: Number of top differentially expressed genes to return
         method: Statistical method for DE analysis
+        pseudocount: Pseudocount added before log2 fold change calculation.
+                    Default: 1.0 (standard practice, prevents log(0)).
+                    Lower values (0.1-0.5): More sensitive to low-expression changes.
+                    Higher values (1-10): More stable for sparse/noisy data.
+        min_cells: Minimum number of cells per group for statistical testing.
+                  Default: 3 (minimum required for Wilcoxon test).
+                  Increase to 10-30 for more robust results.
+                  Groups with fewer cells are skipped with a warning.
         context: MCP context
 
     Returns:
@@ -63,9 +73,9 @@ async def differential_expression(
         if context:
             await context.info(f"Finding marker genes for all groups in '{group_key}'")
 
-        # Filter out groups with too few cells
+        # Filter out groups with too few cells (user-configurable threshold)
         group_sizes = adata.obs[group_key].value_counts()
-        min_cells = 3  # Minimum for Wilcoxon test
+        # min_cells is now a parameter (default=3, minimum for Wilcoxon test)
         valid_groups = group_sizes[group_sizes >= min_cells]
         skipped_groups = group_sizes[group_sizes < min_cells]
 
@@ -318,8 +328,10 @@ async def differential_expression(
             mean_group2 = float(gene_norm_counts[group2_mask].mean())
 
             # Calculate true log2 fold change from normalized counts
-            # Add pseudocount of 1 to avoid log(0)
-            true_log2fc = np.log2((mean_group1 + 1) / (mean_group2 + 1))
+            # Add user-configurable pseudocount to avoid log(0)
+            true_log2fc = np.log2(
+                (mean_group1 + pseudocount) / (mean_group2 + pseudocount)
+            )
             log2fc_values.append(float(true_log2fc))
         else:
             # Gene not in raw data (should not happen, but handle gracefully)
@@ -374,6 +386,7 @@ async def differential_expression(
             "group2": group2,
             "comparison_type": "specific_groups",
             "n_top_genes": n_top_genes,
+            "pseudocount": pseudocount,  # Track for reproducibility
         },
         results_keys={"uns": ["rank_genes_groups"]},
         statistics={
@@ -387,6 +400,7 @@ async def differential_expression(
             "median_pvalue": (
                 float(median_pvalue) if median_pvalue is not None else None
             ),
+            "pseudocount_used": pseudocount,  # Document in statistics
         },
     )
 
