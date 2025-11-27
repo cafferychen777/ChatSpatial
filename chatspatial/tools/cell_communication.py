@@ -497,7 +497,9 @@ async def _run_liana_cluster_analysis(
     # Calculate statistics using magnitude_rank (signal strength)
     # NOT specificity_rank (which has non-uniform distribution)
     n_lr_pairs = len(liana_res)
-    n_significant_pairs = len(liana_res[liana_res["magnitude_rank"] <= 0.05])
+    # Use configurable significance threshold (default: 0.05)
+    significance_alpha = params.liana_significance_alpha
+    n_significant_pairs = len(liana_res[liana_res["magnitude_rank"] <= significance_alpha])
 
     # Get top pairs
     top_lr_pairs = []
@@ -530,7 +532,7 @@ async def _run_liana_cluster_analysis(
         "groupby": groupby_col,
         "n_lr_pairs_tested": n_lr_pairs,
         "n_permutations": n_perms,
-        "significance_threshold": 0.05,
+        "significance_threshold": significance_alpha,
         "resource": params.liana_resource,
     }
 
@@ -585,20 +587,21 @@ async def _run_liana_spatial_analysis(
 
     pvals_col = f"{global_metric}_pvals"
 
+    # Use configurable significance threshold (default: 0.05)
+    alpha = params.liana_significance_alpha
+
     if pvals_col in lrdata.var.columns:
         # Correct approach: Use p-values with FDR correction
         from statsmodels.stats.multitest import multipletests
-
-        alpha = 0.05
         pvals = lrdata.var[pvals_col]
 
         # Diagnostic logging
         if context:
             await context.info(
-                f"📊 Statistical Significance Analysis:\n"
+                f"Statistical Significance Analysis:\n"
                 f"  - Total L-R pairs: {len(pvals)}\n"
                 f"  - P-value range: [{pvals.min():.6f}, {pvals.max():.6f}]\n"
-                f"  - P < 0.05 (uncorrected): {(pvals < alpha).sum()}/{len(pvals)}"
+                f"  - P < {alpha} (uncorrected): {(pvals < alpha).sum()}/{len(pvals)}"
             )
 
         reject, pvals_corrected, _, _ = multipletests(
@@ -678,7 +681,7 @@ async def _run_liana_spatial_analysis(
             else "threshold-based (deprecated)"
         ),
         "fdr_method": "Benjamini-Hochberg" if pvals_col in lrdata.var.columns else None,
-        "alpha": 0.05 if pvals_col in lrdata.var.columns else None,
+        "alpha": alpha if pvals_col in lrdata.var.columns else None,
     }
 
     return {
@@ -1362,14 +1365,17 @@ async def _analyze_communication_cellchat_r(
 
                 # CellChat v2 requires spatial.factors with 'ratio' and 'tol':
                 # - ratio: conversion factor from pixels to micrometers (um)
-                #   For Visium: ~0.5 (1 pixel ≈ 0.5 um at full resolution)
                 # - tol: tolerance factor (half of spot/cell size in um)
-                #   For Visium: ~27.5 um (spot diameter ~55um, so half is ~27.5)
+                # Use user-configurable parameters for platform flexibility
+                pixel_ratio = params.cellchat_pixel_ratio
+                spatial_tol = params.cellchat_spatial_tol
+                ro.globalenv["pixel_ratio"] = pixel_ratio
+                ro.globalenv["spatial_tol"] = spatial_tol
                 ro.r(
                     """
                     spatial.factors <- data.frame(
-                        ratio = 0.5,
-                        tol = 27.5
+                        ratio = pixel_ratio,
+                        tol = spatial_tol
                     )
 
                     cellchat <- createCellChat(

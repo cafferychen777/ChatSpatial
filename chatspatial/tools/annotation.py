@@ -1242,8 +1242,9 @@ async def _annotate_with_scanvi(
             )
 
             # Train SCANVI (fewer epochs needed after pretraining)
+            # Use configurable epochs (default: 20, official recommendation after pretraining)
             model.train(
-                max_epochs=20,
+                max_epochs=params.scanvi_scanvi_epochs,
                 n_samples_per_label=params.scanvi_n_samples_per_label,
                 early_stopping=True,
             )
@@ -2537,6 +2538,17 @@ async def _assign_sctype_celltypes(scores_df, context: Optional[Context] = None)
         cell_types = []
         confidence_scores = []
 
+        # Helper function: softmax normalization for confidence scores
+        # Converts raw sc-type scores to probabilities that sum to 1
+        # This is statistically meaningful as it represents relative evidence for each cell type
+        # Reference: sc-type scores are z-score weighted sums without fixed range
+        def _softmax(scores_array):
+            """Compute softmax probabilities from raw scores."""
+            # Shift by max for numerical stability
+            shifted = scores_array - np.max(scores_array)
+            exp_scores = np.exp(shifted)
+            return exp_scores / np.sum(exp_scores)
+
         # Handle both DataFrame and numpy array cases
         if hasattr(scores_df, "columns"):
             # DataFrame case
@@ -2555,7 +2567,8 @@ async def _assign_sctype_celltypes(scores_df, context: Optional[Context] = None)
                     cell_score = scores_df.iloc[0, col_idx]
                     if cell_score > 0:
                         cell_types.append(single_celltype)
-                        confidence_scores.append(min(cell_score / 10.0, 1.0))
+                        # Single cell type: confidence = 1.0 if positive (no alternatives)
+                        confidence_scores.append(1.0)
                     else:
                         cell_types.append("Unknown")
                         confidence_scores.append(0.0)
@@ -2574,8 +2587,11 @@ async def _assign_sctype_celltypes(scores_df, context: Optional[Context] = None)
                     # If max score is positive, assign cell type, otherwise "Unknown"
                     if max_score > 0:
                         cell_types.append(str(max_score_idx))
-                        # Normalize confidence score to 0-1 range
-                        confidence_scores.append(min(max_score / 10.0, 1.0))
+                        # Use softmax to convert scores to probability distribution
+                        # This gives a statistically meaningful confidence measure
+                        softmax_probs = _softmax(cell_scores.values)
+                        max_idx = cell_scores.index.get_loc(max_score_idx)
+                        confidence_scores.append(float(softmax_probs[max_idx]))
                     else:
                         cell_types.append("Unknown")
                         confidence_scores.append(0.0)
@@ -2615,8 +2631,9 @@ async def _assign_sctype_celltypes(scores_df, context: Optional[Context] = None)
                 # If max score is positive, assign cell type, otherwise "Unknown"
                 if max_score > 0:
                     cell_types.append(f"CellType_{max_score_idx}")
-                    # Normalize confidence score to 0-1 range
-                    confidence_scores.append(min(max_score / 10.0, 1.0))
+                    # Use softmax to convert scores to probability distribution
+                    softmax_probs = _softmax(cell_scores)
+                    confidence_scores.append(float(softmax_probs[max_score_idx]))
                 else:
                     cell_types.append("Unknown")
                     confidence_scores.append(0.0)

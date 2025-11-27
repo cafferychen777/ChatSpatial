@@ -2371,6 +2371,9 @@ async def deconvolve_spatial_data(
                     n_layers=params.destvi_n_layers,
                     dropout_rate=params.destvi_dropout_rate,
                     learning_rate=params.destvi_learning_rate,
+                    train_size=params.destvi_train_size,
+                    vamp_prior_p=params.destvi_vamp_prior_p,
+                    l1_reg=params.destvi_l1_reg,
                     use_gpu=params.use_gpu,
                     context=context,
                 )
@@ -2682,6 +2685,9 @@ async def deconvolve_destvi(
     n_layers: int = 1,
     dropout_rate: float = 0.1,
     learning_rate: float = 1e-3,
+    train_size: float = 0.9,
+    vamp_prior_p: int = 15,
+    l1_reg: float = 10.0,
     use_gpu: bool = False,
     context: Optional[Context] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
@@ -2704,6 +2710,9 @@ async def deconvolve_destvi(
         n_layers: Number of layers in neural networks
         dropout_rate: Dropout rate
         learning_rate: Learning rate for optimization
+        train_size: Fraction of data for training (default: 0.9)
+        vamp_prior_p: Number of VampPrior components (default: 15)
+        l1_reg: L1 regularization for sparsity (default: 10.0)
         use_gpu: Whether to use GPU for training
         context: MCP context for logging
 
@@ -2794,11 +2803,12 @@ async def deconvolve_destvi(
         )
 
         # Train CondSCVI model (scvi-tools 1.3.x compatible syntax)
+        # Use user-configurable train_size for scientific control
         plan_kwargs = {"lr": learning_rate}
         condscvi_model.train(
             max_epochs=condscvi_epochs,
             accelerator="gpu" if use_gpu else "cpu",  # Correct parameter name for 1.3.x
-            train_size=0.9,
+            train_size=train_size,
             plan_kwargs=plan_kwargs,
         )
 
@@ -2813,11 +2823,12 @@ async def deconvolve_destvi(
         scvi.model.DestVI.setup_anndata(spatial_data)
 
         # Step 3: Create DestVI model using from_rna_model (official pattern)
+        # Use user-configurable vamp_prior_p and l1_reg for advanced control
         destvi_model = scvi.model.DestVI.from_rna_model(
             spatial_data,
             condscvi_model,
-            vamp_prior_p=15,  # Number of VampPrior components (official default)
-            l1_reg=10.0,  # L1 regularization for sparsity (official default)
+            vamp_prior_p=vamp_prior_p,
+            l1_reg=l1_reg,
         )
 
         if context:
@@ -2832,7 +2843,7 @@ async def deconvolve_destvi(
         destvi_model.train(
             max_epochs=destvi_epochs,
             accelerator="gpu" if use_gpu else "cpu",  # Correct parameter name for 1.3.x
-            train_size=0.9,
+            train_size=train_size,
             plan_kwargs=plan_kwargs,
         )
 
@@ -2879,8 +2890,9 @@ async def deconvolve_destvi(
             n_latent=n_latent,
             n_layers=n_layers,
             dropout_rate=dropout_rate,
-            vamp_prior_p=15,
-            l1_reg=10.0,
+            train_size=train_size,
+            vamp_prior_p=vamp_prior_p,
+            l1_reg=l1_reg,
             scvi_version="1.3.x_compatible",
         )
 
