@@ -701,16 +701,19 @@ async def preprocess_data(
                 )
 
                 if context:
-                    await context.info("Training scVI model...")
+                    await context.info(
+                        f"Training scVI model (max_epochs={params.scvi_max_epochs}, "
+                        f"early_stopping={params.scvi_early_stopping}, "
+                        f"train_size={params.scvi_train_size})..."
+                    )
 
-                # Train the model
-                # Use reasonable defaults for training
+                # Train the model with user-configurable parameters
                 scvi_model.train(
-                    max_epochs=400,
-                    early_stopping=True,
-                    early_stopping_patience=20,
+                    max_epochs=params.scvi_max_epochs,
+                    early_stopping=params.scvi_early_stopping,
+                    early_stopping_patience=params.scvi_early_stopping_patience,
                     early_stopping_monitor="elbo_validation",
-                    train_size=0.9,
+                    train_size=params.scvi_train_size,
                 )
 
                 if context:
@@ -886,18 +889,32 @@ async def preprocess_data(
                     await context.info(
                         "Batch effect correction completed using Harmony"
                     )
-            except ImportError:
-                if context:
-                    await context.warning(
-                        "Harmony not available (pip install harmonypy). "
-                        "Skipping batch correction."
-                    )
+            except ImportError as e:
+                # Harmony not installed - raise error with clear instructions
+                raise ImportError(
+                    "Harmony is required for batch correction but not installed.\n\n"
+                    "Your data has batch information that requires correction. "
+                    "Batch effects can severely impact downstream analyses.\n\n"
+                    "SOLUTION: Install harmonypy:\n"
+                    "  pip install harmonypy\n\n"
+                    "If you want to skip batch correction (NOT RECOMMENDED), "
+                    "remove the batch column from your data before preprocessing."
+                ) from e
             except Exception as e:
-                if context:
-                    await context.warning(
-                        f"Batch effect correction failed: {e}. "
-                        "Continuing without correction."
-                    )
+                # Harmony failed - raise error, don't silently continue
+                raise RuntimeError(
+                    f"Batch effect correction with Harmony failed: {e}\n\n"
+                    "Batch effects can severely impact downstream analyses. "
+                    "Continuing without correction would produce unreliable results.\n\n"
+                    "POSSIBLE CAUSES:\n"
+                    "1. Insufficient cells per batch (need at least 30-50 per batch)\n"
+                    "2. Too many batches relative to cells\n"
+                    "3. PCA dimensionality issues\n\n"
+                    "SOLUTIONS:\n"
+                    "1. Check batch sizes: adata.obs['batch'].value_counts()\n"
+                    "2. Merge small batches before preprocessing\n"
+                    "3. Try alternative integration methods (scVI, BBKNN)"
+                ) from e
 
         # 6. Scale data (if requested)
         if params.scale:

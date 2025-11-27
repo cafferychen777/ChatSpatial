@@ -185,13 +185,47 @@ class PreprocessingParameters(BaseModel):
         "Set to None to use all cells (slower but may be more accurate for small datasets).",
     )
 
-    # scVI preprocessing parameters
+    # scVI preprocessing parameters - architecture
     use_scvi_preprocessing: bool = False  # Whether to use scVI for preprocessing
     scvi_n_hidden: int = 128
     scvi_n_latent: int = 10
     scvi_n_layers: int = 1
     scvi_dropout_rate: float = 0.1
     scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
+
+    # scVI preprocessing parameters - training (user-configurable)
+    scvi_max_epochs: Annotated[int, Field(gt=0, le=2000)] = Field(
+        default=400,
+        description=(
+            "Maximum number of training epochs for scVI. "
+            "Default 400 is sufficient for most datasets with early stopping enabled. "
+            "Increase to 600-800 for large/complex datasets without early stopping."
+        ),
+    )
+    scvi_early_stopping: bool = Field(
+        default=True,
+        description=(
+            "Whether to enable early stopping based on validation ELBO. "
+            "STRONGLY RECOMMENDED: Prevents overfitting and reduces training time. "
+            "Set to False only for debugging or when you need exact epoch control."
+        ),
+    )
+    scvi_early_stopping_patience: Annotated[int, Field(gt=0, le=100)] = Field(
+        default=20,
+        description=(
+            "Number of epochs to wait for validation improvement before stopping. "
+            "Default 20 balances convergence detection with training stability. "
+            "Increase to 30-50 for noisy data, decrease to 10-15 for faster training."
+        ),
+    )
+    scvi_train_size: Annotated[float, Field(gt=0.5, le=1.0)] = Field(
+        default=0.9,
+        description=(
+            "Fraction of data used for training (rest for validation). "
+            "Default 0.9 (90% train, 10% validation) is standard practice. "
+            "Use 1.0 to disable validation (NOT RECOMMENDED - no early stopping)."
+        ),
+    )
 
     # Key naming parameters (configurable hard-coded keys)
     cluster_key: str = Field(

@@ -533,14 +533,25 @@ async def _analyze_gearys_c(
         if not genes:
             raise ValueError(f"None of the specified genes found: {params.genes}")
     else:
-        # Use highly variable genes
+        # Use highly variable genes - REQUIRE them to exist
         if "highly_variable" in adata.var and adata.var["highly_variable"].any():
             genes = adata.var_names[adata.var["highly_variable"]][
                 : params.n_top_genes
             ].tolist()
         else:
-            # Fallback to top genes
-            genes = adata.var_names[: params.n_top_genes].tolist()
+            # NO SILENT FALLBACK - require HVGs or explicit gene list
+            raise ValueError(
+                "No highly variable genes (HVGs) found in data.\n\n"
+                "Geary's C analysis requires either:\n"
+                "1. HVGs computed via preprocessing (recommended)\n"
+                "2. Explicit gene list via 'genes' parameter\n\n"
+                "SOLUTIONS:\n"
+                "1. Run preprocess_data() first to compute HVGs\n"
+                "2. Specify genes explicitly: genes=['GENE1', 'GENE2', ...]\n\n"
+                "WHY THIS MATTERS:\n"
+                "Without HVGs, the analysis would use arbitrary genes based on\n"
+                "file order, producing meaningless results."
+            )
 
     sq.gr.spatial_autocorr(
         adata,
@@ -1486,15 +1497,18 @@ async def _analyze_local_moran(
                     )
                     significant = p_corrected < alpha
                     p_threshold = alpha  # After FDR correction
-                except ImportError:
-                    # Fallback: use uncorrected p-values with warning
-                    if context:
-                        await context.warning(
-                            "statsmodels not available for FDR correction. "
-                            "Using uncorrected p-values."
-                        )
-                    significant = p_values < alpha
-                    p_threshold = alpha
+                except ImportError as e:
+                    # statsmodels is required for proper statistical analysis
+                    raise ImportError(
+                        "statsmodels is required for FDR correction but not installed.\n\n"
+                        "FDR correction is ESSENTIAL for Local Moran's I analysis because\n"
+                        "each spatial location is tested separately, creating a massive\n"
+                        "multiple testing problem. Without FDR correction, results would\n"
+                        "have unacceptably high false positive rates.\n\n"
+                        "SOLUTION: Install statsmodels:\n"
+                        "  pip install statsmodels\n\n"
+                        "This is a core ChatSpatial dependency and should be installed."
+                    ) from e
             else:
                 significant = p_values < alpha
                 p_threshold = alpha
