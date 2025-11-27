@@ -1361,12 +1361,38 @@ async def _analyze_local_moran(
     -------
     Dict[str, Any]
         Results including Local Moran's I values and statistics for each gene
+
+    Notes
+    -----
+    This implementation uses PySAL's esda.Moran_Local with permutation-based
+    significance testing, following best practices from:
+    - GeoDa Center: https://geodacenter.github.io/workbook/6a_local_auto/lab6a.html
+    - PySAL documentation: https://pysal.org/esda/generated/esda.Moran_Local.html
+
+    The permutation approach holds each observation fixed while randomly permuting
+    the remaining n-1 values to generate a reference distribution for significance
+    testing. This is more robust than parametric approaches as it makes fewer
+    distributional assumptions.
+
+    Quadrant classification (LISA clusters):
+    - HH (High-High): Hot spots - high values surrounded by high values
+    - LL (Low-Low): Cold spots - low values surrounded by low values
+    - HL (High-Low): High outliers - high values surrounded by low values
+    - LH (Low-High): Low outliers - low values surrounded by high values
     """
-    import numpy as np
     from scipy.sparse import issparse
-    from scipy.stats import zscore
 
     try:
+        # Import PySAL components for proper LISA analysis
+        try:
+            from esda.moran import Moran_Local
+            from libpysal.weights import W as PySALWeights
+        except ImportError:
+            raise ImportError(
+                "Local Moran's I analysis requires PySAL packages. "
+                "Install with: pip install esda libpysal"
+            )
+
         # Ensure spatial neighbors exist
         await _ensure_spatial_neighbors(adata, params.n_neighbors, context)
 
@@ -1392,75 +1418,166 @@ async def _analyze_local_moran(
         if not valid_genes:
             return {"error": "No valid genes found for analysis"}
 
-        # Get spatial weights
-        W = adata.obsp["spatial_connectivities"]
+        # Convert spatial connectivity matrix to PySAL weights format
+        W_sparse = adata.obsp["spatial_connectivities"]
 
-        # OPTIMIZATION: Extract all genes at once before loop (batch extraction)
-        # This provides 50-150x speedup by avoiding repeated sparse matrix conversion
-        # See test_spatial_statistics_extreme_scale.py for performance validation
+        # Create PySAL weights from sparse matrix
+        # PySAL W requires neighbors dict and weights dict
+        neighbors_dict = {}
+        weights_dict = {}
+        n_obs = W_sparse.shape[0]
+
+        for i in range(n_obs):
+            row = W_sparse[i]
+            if issparse(row):
+                indices = row.indices.tolist()
+                data = row.data.tolist()
+            else:
+                nonzero = np.nonzero(row)[0]
+                indices = nonzero.tolist()
+                data = row[nonzero].tolist() if len(nonzero) > 0 else []
+
+            neighbors_dict[i] = indices if indices else []
+            weights_dict[i] = data if data else []
+
+        w = PySALWeights(neighbors_dict, weights_dict)
+
+        # Get analysis parameters
+        permutations = params.local_moran_permutations
+        alpha = params.local_moran_alpha
+        use_fdr = params.local_moran_fdr_correction
+
         if context:
             await context.info(
-                f"Extracting {len(valid_genes)} genes for batch processing..."
+                f"Running Local Moran's I (LISA) with {permutations} permutations, "
+                f"alpha={alpha}, FDR correction={'enabled' if use_fdr else 'disabled'}"
             )
 
+        # Extract all genes at once for efficiency
         if issparse(adata.X):
             expr_all_genes = adata[:, valid_genes].X.toarray()
         else:
             expr_all_genes = adata[:, valid_genes].X
 
+        # CRITICAL: Convert to float64 for PySAL/numba compatibility
+        # PySAL's Moran_Local uses numba JIT compilation which requires
+        # consistent dtypes (float64) for matrix operations
+        expr_all_genes = np.asarray(expr_all_genes, dtype=np.float64)
+
         results = {}
-        for i, gene in enumerate(valid_genes):
-            # OPTIMIZATION: Direct indexing from pre-extracted matrix (fast!)
-            expr = expr_all_genes[:, i]
+        for gene_idx, gene in enumerate(valid_genes):
+            expr = expr_all_genes[:, gene_idx].flatten()
 
-            # Standardize expression
-            z_expr = zscore(expr)
+            # Run PySAL Local Moran's I with permutation testing
+            lisa = Moran_Local(expr, w, permutations=permutations)
 
-            # Calculate local Moran's I
-            n = len(expr)
-            local_i = np.zeros(n)
+            # Store local I values in adata.obs
+            adata.obs[f"{gene}_local_morans"] = lisa.Is
 
-            for i in range(n):
-                neighbors = W[i].nonzero()[1]
-                if len(neighbors) > 0:
-                    local_i[i] = z_expr[i] * np.mean(z_expr[neighbors])
+            # Get p-values from permutation test
+            p_values = lisa.p_sim
 
-            # Store in adata.obs
-            adata.obs[f"{gene}_local_morans"] = local_i
+            # Apply FDR correction if requested
+            if use_fdr and permutations > 0:
+                try:
+                    from statsmodels.stats.multitest import multipletests
+                    _, p_corrected, _, _ = multipletests(
+                        p_values, alpha=alpha, method='fdr_bh'
+                    )
+                    significant = p_corrected < alpha
+                    p_threshold = alpha  # After FDR correction
+                except ImportError:
+                    # Fallback: use uncorrected p-values with warning
+                    if context:
+                        await context.warning(
+                            "statsmodels not available for FDR correction. "
+                            "Using uncorrected p-values."
+                        )
+                    significant = p_values < alpha
+                    p_threshold = alpha
+            else:
+                significant = p_values < alpha
+                p_threshold = alpha
 
-            # Identify clusters (significant positive values) and outliers (significant negative values)
-            threshold = np.percentile(np.abs(local_i), 95)
-            hotspots = np.where(local_i > threshold)[0].tolist()
-            coldspots = np.where(local_i < -threshold)[0].tolist()
+            # Classify by quadrant AND significance
+            # PySAL quadrant codes: 1=HH, 2=LH, 3=LL, 4=HL
+            q = lisa.q
+
+            # Hot spots: High-High clusters (significant positive spatial autocorrelation)
+            hotspots = np.where((q == 1) & significant)[0].tolist()
+            # Cold spots: Low-Low clusters (significant positive spatial autocorrelation)
+            coldspots = np.where((q == 3) & significant)[0].tolist()
+            # High outliers: High values surrounded by low values
+            high_outliers = np.where((q == 4) & significant)[0].tolist()
+            # Low outliers: Low values surrounded by high values
+            low_outliers = np.where((q == 2) & significant)[0].tolist()
+
+            # Store quadrant classification in adata.obs
+            quadrant_labels = np.array(["Not Significant"] * n_obs)
+            quadrant_labels[(q == 1) & significant] = "HH (Hot Spot)"
+            quadrant_labels[(q == 3) & significant] = "LL (Cold Spot)"
+            quadrant_labels[(q == 4) & significant] = "HL (High Outlier)"
+            quadrant_labels[(q == 2) & significant] = "LH (Low Outlier)"
+            adata.obs[f"{gene}_lisa_cluster"] = pd.Categorical(quadrant_labels)
+
+            # Store p-values
+            adata.obs[f"{gene}_lisa_pvalue"] = p_values
 
             results[gene] = {
-                "mean": float(np.mean(local_i)),
-                "std": float(np.std(local_i)),
-                "min": float(np.min(local_i)),
-                "max": float(np.max(local_i)),
-                "n_hotspots": len(hotspots),
-                "n_coldspots": len(coldspots),
+                "mean_I": float(np.mean(lisa.Is)),
+                "std_I": float(np.std(lisa.Is)),
+                "min_I": float(np.min(lisa.Is)),
+                "max_I": float(np.max(lisa.Is)),
+                "n_significant": int(np.sum(significant)),
+                "n_hotspots": len(hotspots),  # HH clusters
+                "n_coldspots": len(coldspots),  # LL clusters
+                "n_high_outliers": len(high_outliers),  # HL
+                "n_low_outliers": len(low_outliers),  # LH
+                "permutations": permutations,
+                "alpha": alpha,
+                "fdr_corrected": use_fdr,
             }
 
         # Store summary in uns
         adata.uns["local_moran"] = {
             "genes_analyzed": valid_genes,
             "n_neighbors": params.n_neighbors,
+            "permutations": permutations,
+            "alpha": alpha,
+            "fdr_corrected": use_fdr,
             "results": results,
+            "method": "PySAL esda.Moran_Local",
+            "reference": "Anselin, L. (1995). Local Indicators of Spatial Association - LISA",
         }
 
         if context:
+            total_significant = sum(r["n_significant"] for r in results.values())
+            total_hotspots = sum(r["n_hotspots"] for r in results.values())
+            total_coldspots = sum(r["n_coldspots"] for r in results.values())
             await context.info(
-                f"Calculated Local Moran's I for {len(valid_genes)} genes"
+                f"Local Moran's I completed for {len(valid_genes)} genes: "
+                f"{total_significant} significant locations "
+                f"({total_hotspots} hot spots, {total_coldspots} cold spots)"
             )
 
         return {
             "analysis_type": "local_moran",
             "genes_analyzed": valid_genes,
             "results": results,
+            "parameters": {
+                "permutations": permutations,
+                "alpha": alpha,
+                "fdr_corrected": use_fdr,
+                "n_neighbors": params.n_neighbors,
+            },
             "interpretation": (
-                "Positive values indicate spatial clustering (similar values nearby), "
-                "negative values indicate spatial outliers (different values nearby)"
+                "LISA (Local Indicators of Spatial Association) identifies statistically "
+                "significant spatial clusters and outliers using permutation-based testing. "
+                "HH (Hot Spots): high values clustered together. "
+                "LL (Cold Spots): low values clustered together. "
+                "HL/LH (Outliers): values significantly different from neighbors. "
+                f"Significance determined by {permutations} permutations "
+                f"with alpha={alpha}{' and FDR correction' if use_fdr else ''}."
             ),
         }
 

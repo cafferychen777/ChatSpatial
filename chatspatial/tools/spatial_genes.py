@@ -373,8 +373,23 @@ async def _identify_spatial_genes_spatialde(
 
     results = SpatialDE.run(coords.values, resid_expr)
 
-    # Multiple testing correction
-    results["qval"] = qvalue(results["pval"].values, pi0=0.1)
+    # Multiple testing correction using Storey q-value method
+    # pi0 = proportion of genes under null hypothesis (no spatial pattern)
+    if params.spatialde_pi0 is not None:
+        # User-specified pi0 value
+        results["qval"] = qvalue(results["pval"].values, pi0=params.spatialde_pi0)
+        if context:
+            await context.info(
+                f"Using user-specified pi0={params.spatialde_pi0} for q-value estimation"
+            )
+    else:
+        # Adaptive pi0 estimation (SpatialDE default, recommended)
+        # This estimates pi0 from the p-value distribution
+        results["qval"] = qvalue(results["pval"].values)
+        if context:
+            await context.info(
+                "Using adaptive pi0 estimation for q-value calculation (recommended)"
+            )
 
     # Sort by q-value
     results = results.sort_values("qval")
@@ -412,6 +427,7 @@ async def _identify_spatial_genes_spatialde(
             "gene_filter_threshold": 3,
             "n_genes_tested": n_genes,
             "n_spots": n_spots,
+            "pi0": params.spatialde_pi0 if params.spatialde_pi0 is not None else "adaptive",
         },
         results_keys={
             "var": ["spatialde_pval", "spatialde_qval", "spatialde_l"],
@@ -805,96 +821,78 @@ async def _identify_spatial_genes_sparkx(
                     await context.info("SPARK-X analysis completed successfully")
 
                 # Extract p-values from results (inside context for proper conversion)
+                # SPARK-X returns res_mtest as a data.frame with columns:
+                # - combinedPval: combined p-values across spatial kernels
+                # - adjustedPval: BY-adjusted p-values (Benjamini-Yekutieli FDR correction)
+                # Reference: SPARK R package documentation
                 try:
                     pvals = results.rx2("res_mtest")
-                    if pvals:
-                        # SPARK-X returns res_mtest as a data.frame with columns:
-                        # - combinedPval: combined p-values across kernels
-                        # - adjustedPval: adjusted p-values
-                        # We need to extract the combinedPval column
-
-                        # Check if it's a data.frame (which it should be for SPARK-X)
-                        is_dataframe = ro.r["is.data.frame"](pvals)[0]
-
-                        if is_dataframe:
-                            # Extract combinedPval column
-                            combined_pvals = ro.r["$"](pvals, "combinedPval")
-                            pval_list = [float(p) for p in combined_pvals]
-
-                            # Also extract adjustedPval if available
-                            adjusted_pvals = ro.r["$"](pvals, "adjustedPval")
-                            adjusted_pval_list = [float(p) for p in adjusted_pvals]
-
-                            # Create results dataframe
-                            results_df = pd.DataFrame(
-                                {
-                                    "gene": gene_names[: len(pval_list)],
-                                    "pvalue": pval_list,
-                                    "adjusted_pvalue": adjusted_pval_list,
-                                }
-                            )
-                        else:
-                            # Fallback for older format (numeric vector)
-                            pval_list = []
-                            try:
-                                pvals_numeric = ro.r["as.numeric"](pvals)
-                            except Exception:
-                                pvals_numeric = pvals
-
-                            for i in range(len(pvals_numeric)):
-                                val = pvals_numeric[i]
-                                if hasattr(val, "__len__") and hasattr(
-                                    val, "__getitem__"
-                                ):
-                                    try:
-                                        pval_list.append(float(val[0]))
-                                    except Exception:
-                                        pval_list.append(float(val))
-                                else:
-                                    pval_list.append(float(val))
-
-                            # Create results dataframe
-                            results_df = pd.DataFrame(
-                                {
-                                    "gene": gene_names[: len(pval_list)],
-                                    "pvalue": pval_list,
-                                }
-                            )
-
-                            # Add adjusted p-values (Bonferroni correction)
-                            n_tests = len(pval_list)
-                            results_df["adjusted_pvalue"] = results_df["pvalue"].apply(
-                                lambda p: min(p * n_tests, 1.0)
-                            )
-
-                        if context:
-                            await context.info(
-                                f"Extracted results for {len(results_df)} genes"
-                            )
-                            # Warn if returned genes much fewer than input genes
-                            if len(results_df) < n_genes * 0.5:
-                                await context.warning(
-                                    f"SPARK-X returned results for only {len(results_df)}/{n_genes} genes. "
-                                    f"This may indicate a problem with the R environment, SPARK package, or input data. "
-                                    f"Consider checking R logs or trying SpatialDE as an alternative method."
-                                )
-                    else:
-                        # SPARK-X results format not recognized - fail honestly instead of fake results
-                        error_msg = (
-                            "SPARK-X results format not recognized. Expected 'res_mtest' component with p-values. "
-                            "This may indicate an issue with the SPARK-X R package, rpy2 integration, or input data. "
-                            "Please check the R environment and SPARK-X installation."
+                    if pvals is None:
+                        raise RuntimeError(
+                            "SPARK-X returned None for res_mtest. "
+                            "This may indicate the analysis failed silently."
                         )
-                        if context:
-                            await context.error(error_msg)
-                        raise RuntimeError(error_msg)
+
+                    # Verify expected data.frame format
+                    is_dataframe = ro.r["is.data.frame"](pvals)[0]
+                    if not is_dataframe:
+                        raise RuntimeError(
+                            f"SPARK-X res_mtest is not a data.frame (got {type(pvals)}). "
+                            "Expected standard SPARK-X output format. "
+                            "Please check SPARK package version (requires SPARK >= 1.1.0)."
+                        )
+
+                    # Extract combinedPval (raw p-values combined across kernels)
+                    combined_pvals = ro.r["$"](pvals, "combinedPval")
+                    if combined_pvals is None:
+                        raise RuntimeError(
+                            "SPARK-X res_mtest missing 'combinedPval' column. "
+                            "This is required for spatial gene identification."
+                        )
+                    pval_list = [float(p) for p in combined_pvals]
+
+                    # Extract adjustedPval (BY-corrected p-values from SPARK-X)
+                    adjusted_pvals = ro.r["$"](pvals, "adjustedPval")
+                    if adjusted_pvals is None:
+                        raise RuntimeError(
+                            "SPARK-X res_mtest missing 'adjustedPval' column. "
+                            "This column contains BY-corrected p-values for multiple testing."
+                        )
+                    adjusted_pval_list = [float(p) for p in adjusted_pvals]
+
+                    # Create results dataframe
+                    results_df = pd.DataFrame(
+                        {
+                            "gene": gene_names[: len(pval_list)],
+                            "pvalue": pval_list,
+                            "adjusted_pvalue": adjusted_pval_list,  # BY-corrected by SPARK-X
+                        }
+                    )
+
+                    if context:
+                        await context.info(
+                            f"Extracted results for {len(results_df)} genes "
+                            f"(p-values BY-corrected by SPARK-X)"
+                        )
+                        # Warn if returned genes much fewer than input genes
+                        if len(results_df) < n_genes * 0.5:
+                            await context.warning(
+                                f"SPARK-X returned results for only {len(results_df)}/{n_genes} genes. "
+                                f"This may indicate a problem with the R environment, SPARK package, or input data. "
+                                f"Consider checking R logs or trying SpatialDE as an alternative method."
+                            )
 
                 except Exception as e:
-                    # P-value extraction failed - fail honestly instead of creating fake results
+                    # P-value extraction failed - provide clear error message
                     error_msg = (
-                        f"SPARK-X p-value extraction failed: {e}. "
-                        f"This indicates an issue with R-Python communication or SPARK-X result format. "
-                        f"Please check rpy2 installation and R package versions."
+                        f"SPARK-X p-value extraction failed: {e}\n\n"
+                        f"Expected SPARK-X output format:\n"
+                        f"  res_mtest: data.frame with columns 'combinedPval' and 'adjustedPval'\n\n"
+                        f"Possible causes:\n"
+                        f"  1. SPARK package version incompatibility (requires >= 1.1.0)\n"
+                        f"  2. R-Python communication issue with rpy2\n"
+                        f"  3. Invalid input data format\n\n"
+                        f"Please check SPARK package installation: R -e 'packageVersion(\"SPARK\")'"
                     )
                     if context:
                         await context.error(error_msg)
