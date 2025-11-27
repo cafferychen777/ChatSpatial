@@ -255,6 +255,7 @@ async def _annotate_with_singler(
 
         ref_data = None
         ref_labels = None
+        ref_features_to_use = None  # Only set when using custom reference (not celldex)
 
         # Priority: reference_name > reference_data_id > default
         if reference_name and celldex:
@@ -413,7 +414,7 @@ async def _annotate_with_singler(
             }
 
             # Add ref_features if we're using custom reference data (not celldex)
-            if "ref_features_to_use" in locals() and ref_features_to_use is not None:
+            if ref_features_to_use is not None:
                 annotate_kwargs["ref_features"] = ref_features_to_use
                 if context:
                     await context.info(
@@ -445,7 +446,8 @@ async def _annotate_with_singler(
         confidence_scores = {}
 
         # First try to use delta scores (more meaningful confidence measure)
-        if "delta_scores" in locals() and delta_scores is not None:
+        # delta_scores is always defined by the try-except block above (line 429 or 437)
+        if delta_scores is not None:
             try:
                 for cell_type in unique_types:
                     type_indices = [

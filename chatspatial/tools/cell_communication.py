@@ -581,60 +581,44 @@ async def _run_liana_spatial_analysis(
     top_pairs_df = lrdata.var.nlargest(params.plot_top_pairs, global_metric)
     top_lr_pairs = top_pairs_df.index.tolist()
 
-    # Count significant pairs using statistical significance (p-values)
-    # Fix: Use p-values with FDR correction instead of effect size threshold
-    # See: MCP_TESTING_LOG.md for detailed investigation
+    # Count significant pairs using statistical significance (p-values with FDR correction)
+    #
+    # P-values are ALWAYS available because:
+    # 1. We always pass global_name (params.liana_global_metric, default: "morans")
+    # 2. We always pass n_perms > 0 (params.liana_n_perms, default: 1000, Field(gt=0))
+    # 3. LIANA computes p-values via permutation test when n_perms > 0
+    #    (see liana/method/sp/_bivariate/_global_functions.py lines 104-128)
+    from statsmodels.stats.multitest import multipletests
 
     pvals_col = f"{global_metric}_pvals"
-
-    # Use configurable significance threshold (default: 0.05)
     alpha = params.liana_significance_alpha
+    pvals = lrdata.var[pvals_col]
 
-    if pvals_col in lrdata.var.columns:
-        # Correct approach: Use p-values with FDR correction
-        from statsmodels.stats.multitest import multipletests
-        pvals = lrdata.var[pvals_col]
-
-        # Diagnostic logging
-        if context:
-            await context.info(
-                f"Statistical Significance Analysis:\n"
-                f"  - Total L-R pairs: {len(pvals)}\n"
-                f"  - P-value range: [{pvals.min():.6f}, {pvals.max():.6f}]\n"
-                f"  - P < {alpha} (uncorrected): {(pvals < alpha).sum()}/{len(pvals)}"
-            )
-
-        reject, pvals_corrected, _, _ = multipletests(
-            pvals, alpha=alpha, method="fdr_bh"  # Benjamini-Hochberg FDR correction
+    # Diagnostic logging
+    if context:
+        await context.info(
+            f"Statistical Significance Analysis:\n"
+            f"  - Total L-R pairs: {len(pvals)}\n"
+            f"  - P-value range: [{pvals.min():.6f}, {pvals.max():.6f}]\n"
+            f"  - P < {alpha} (uncorrected): {(pvals < alpha).sum()}/{len(pvals)}"
         )
 
-        n_significant_pairs = reject.sum()
+    reject, pvals_corrected, _, _ = multipletests(
+        pvals, alpha=alpha, method="fdr_bh"  # Benjamini-Hochberg FDR correction
+    )
 
-        # Diagnostic logging for FDR results
-        if context:
-            await context.info(
-                f"  - FDR-corrected p-value range: [{pvals_corrected.min():.6f}, {pvals_corrected.max():.6f}]\n"
-                f"  - Significant pairs (FDR < {alpha}): {n_significant_pairs}/{len(pvals)} ({n_significant_pairs/len(pvals)*100:.1f}%)"
-            )
+    n_significant_pairs = reject.sum()
 
-        # Store corrected p-values and significance flags for downstream use
-        lrdata.var[f"{pvals_col}_corrected"] = pvals_corrected
-        lrdata.var[f"{global_metric}_significant"] = reject
-    else:
-        # Fallback: use threshold-based approach with warning
-        # This is not statistically rigorous but maintains backward compatibility
-        threshold = 0.1
-        n_significant_pairs = len(lrdata.var[lrdata.var[global_metric] > threshold])
-
-        import warnings
-
-        warnings.warn(
-            f"⚠️  P-values column '{pvals_col}' not found in LIANA results! "
-            f"Using threshold-based approach ({global_metric} > {threshold}). "
-            f"Results may not be statistically rigorous. "
-            f"This is a fallback for backward compatibility.",
-            UserWarning,
+    # Diagnostic logging for FDR results
+    if context:
+        await context.info(
+            f"  - FDR-corrected p-value range: [{pvals_corrected.min():.6f}, {pvals_corrected.max():.6f}]\n"
+            f"  - Significant pairs (FDR < {alpha}): {n_significant_pairs}/{len(pvals)} ({n_significant_pairs/len(pvals)*100:.1f}%)"
         )
+
+    # Store corrected p-values and significance flags for downstream use
+    lrdata.var[f"{pvals_col}_corrected"] = pvals_corrected
+    lrdata.var[f"{global_metric}_significant"] = reject
 
     # Store results in adata
     adata.uns["liana_spatial_res"] = lrdata.var
@@ -1092,16 +1076,13 @@ async def _analyze_communication_cellphonedb(
         n_cell_type_pairs = n_cell_types**2
 
         # Add correction statistics (useful for understanding results)
+        # When correction_method != "none", n_uncorrected_sig and n_corrected_sig
+        # are always defined in the else branch above (lines 1008-1009)
         correction_stats = {}
-        if correction_method != "none" and "n_uncorrected_sig" in locals():
+        if correction_method != "none":
             correction_stats["n_uncorrected_significant"] = int(n_uncorrected_sig)
-            correction_stats["n_corrected_significant"] = (
-                int(n_corrected_sig) if "n_corrected_sig" in locals() else None
-            )
-            if (
-                correction_stats["n_corrected_significant"] is not None
-                and n_uncorrected_sig > 0
-            ):
+            correction_stats["n_corrected_significant"] = int(n_corrected_sig)
+            if n_uncorrected_sig > 0:
                 correction_stats["reduction_percentage"] = round(
                     (1 - n_corrected_sig / n_uncorrected_sig) * 100, 2
                 )
