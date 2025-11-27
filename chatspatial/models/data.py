@@ -919,6 +919,33 @@ class SpatialStatisticsParameters(BaseModel):
     )
     moran_two_tailed: bool = Field(False, description="Use two-tailed test")
 
+    # Local Moran's I (LISA) specific parameters
+    local_moran_permutations: Annotated[int, Field(gt=0, le=9999)] = Field(
+        999,
+        description=(
+            "Number of permutations for pseudo p-value calculation in Local Moran's I. "
+            "Higher values increase precision: 99 -> precision 0.01, 999 -> precision 0.001. "
+            "Default 999 is standard practice. Use 9999 for publication-quality results."
+        ),
+    )
+    local_moran_alpha: Annotated[float, Field(gt=0.0, lt=1.0)] = Field(
+        0.05,
+        description=(
+            "Significance level (alpha) for Local Moran's I hotspot/coldspot detection. "
+            "Used with FDR correction to determine significant spatial clusters. "
+            "Common values: 0.05 (standard), 0.01 (conservative), 0.10 (exploratory)."
+        ),
+    )
+    local_moran_fdr_correction: bool = Field(
+        True,
+        description=(
+            "Whether to apply FDR (False Discovery Rate) correction for multiple testing. "
+            "STRONGLY RECOMMENDED: Each location is tested separately, creating a multiple "
+            "testing problem. FDR correction controls the expected proportion of false positives. "
+            "Set to False only for exploratory analysis."
+        ),
+    )
+
     # Getis-Ord Gi* specific parameters
     getis_ord_correction: Literal["bonferroni", "fdr_bh", "none"] = Field(
         "fdr_bh",
@@ -1509,6 +1536,28 @@ class SpatialVariableGenesParameters(BaseModel):
     # SpatialDE-specific parameters
     spatialde_normalized: bool = True  # Whether data is already normalized
     spatialde_kernel: str = "SE"  # Kernel function type for SpatialDE
+    spatialde_pi0: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "Prior probability of null hypothesis for SpatialDE q-value estimation. "
+            "This represents the expected proportion of genes WITHOUT spatial patterns. "
+            "\n\n"
+            "VALUES:\n"
+            "- None (default, RECOMMENDED): Uses adaptive pi0 estimation from SpatialDE\n"
+            "- 0.9: Assumes 10% of genes have spatial patterns (conservative)\n"
+            "- 0.5: Assumes 50% of genes have spatial patterns (moderate)\n"
+            "- 0.1: Assumes 90% of genes have spatial patterns (aggressive, may increase false positives)\n"
+            "\n"
+            "SCIENTIFIC NOTE:\n"
+            "The pi0 parameter directly affects the stringency of FDR correction. "
+            "Lower pi0 values assume more genes are truly spatial, leading to more "
+            "liberal q-value estimates and potentially more false positives. "
+            "The default adaptive estimation (None) is recommended for most analyses "
+            "as it learns pi0 from the data distribution."
+        ),
+    )
 
     # SPARK-X specific parameters
     sparkx_percentage: Annotated[float, Field(gt=0.0, le=1.0)] = (
