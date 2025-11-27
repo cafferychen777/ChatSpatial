@@ -768,6 +768,15 @@ class AnnotationParameters(BaseModel):
     scanvi_scvi_epochs: int = Field(
         default=200, description="Number of epochs for SCVI pretraining. Default: 200"
     )
+    scanvi_scanvi_epochs: int = Field(
+        default=20,
+        description=(
+            "Number of epochs for SCANVI model training after SCVI pretraining. Default: 20\n"
+            "This is the second stage training that fine-tunes the model for label transfer.\n"
+            "Official scvi-tools recommendation: 20 epochs is usually sufficient after pretraining.\n"
+            "Increase to 50-100 for complex datasets or if label transfer accuracy is low."
+        ),
+    )
     scanvi_n_samples_per_label: int = Field(
         default=100,
         description="Number of samples per label for semi-supervised training",
@@ -1368,6 +1377,35 @@ class DeconvolutionParameters(BaseModel):
     destvi_dropout_rate: float = 0.1
     destvi_learning_rate: float = 1e-3
 
+    # DestVI advanced parameters (official scvi-tools defaults)
+    destvi_train_size: Annotated[float, Field(gt=0.0, le=1.0)] = Field(
+        default=0.9,
+        description=(
+            "Fraction of data to use for training DestVI (rest for validation). "
+            "Official scvi-tools default: 0.9. "
+            "Lower values (0.8) provide more robust validation but less training data. "
+            "ONLY USED BY DESTVI METHOD."
+        ),
+    )
+    destvi_vamp_prior_p: Annotated[int, Field(ge=1)] = Field(
+        default=15,
+        description=(
+            "Number of VampPrior components for DestVI. "
+            "Official scvi-tools default: 15. "
+            "Higher values may improve modeling of complex cell type distributions. "
+            "ONLY USED BY DESTVI METHOD."
+        ),
+    )
+    destvi_l1_reg: Annotated[float, Field(ge=0.0)] = Field(
+        default=10.0,
+        description=(
+            "L1 regularization strength for DestVI to encourage sparsity. "
+            "Official scvi-tools default: 10.0. "
+            "Higher values encourage sparser cell type assignments per spot. "
+            "ONLY USED BY DESTVI METHOD."
+        ),
+    )
+
     # Stereoscope parameters
     stereoscope_n_epochs: int = 150000
     stereoscope_learning_rate: float = 0.01
@@ -1684,6 +1722,15 @@ class CellCommunicationParameters(BaseModel):
     liana_cutoff: Annotated[float, Field(gt=0.0, le=1.0)] = (
         0.1  # Cutoff for spatial connectivity
     )
+    liana_significance_alpha: Annotated[float, Field(gt=0.0, lt=1.0)] = Field(
+        default=0.05,
+        description=(
+            "Significance threshold (alpha) for FDR-corrected p-values in LIANA analysis.\n"
+            "Default: 0.05 (standard statistical threshold).\n"
+            "Use 0.01 for more stringent filtering, 0.10 for exploratory analysis.\n"
+            "This controls both cluster-level (magnitude_rank) and spatial (FDR-corrected) significance."
+        ),
+    )
 
     # ========== Expression Filtering Parameters ==========
     min_cells: Annotated[int, Field(ge=0)] = (
@@ -1774,6 +1821,33 @@ class CellCommunicationParameters(BaseModel):
     cellchat_contact_range: Optional[Annotated[float, Field(gt=0.0)]] = None
     # Alternative to contact_knn_k: explicit distance threshold for contact signaling
     # If None, uses contact_knn_k instead (recommended for most spatial data)
+
+    # CellChat spatial conversion factors (platform-specific)
+    cellchat_pixel_ratio: Annotated[float, Field(gt=0.0)] = Field(
+        default=0.5,
+        description=(
+            "Conversion factor from image pixels to micrometers (um).\n"
+            "Platform-specific defaults:\n"
+            "  - Visium (10x): 0.5 (1 pixel ≈ 0.5 um at full resolution)\n"
+            "  - MERFISH: Varies by imaging setup, typically 0.1-1.0\n"
+            "  - Slide-seq: ~0.5 (10 um beads)\n"
+            "  - CosMx: 0.18 (imaging resolution)\n"
+            "Used in CellChat's spatial.factors for coordinate conversion."
+        ),
+    )
+
+    cellchat_spatial_tol: Annotated[float, Field(gt=0.0)] = Field(
+        default=27.5,
+        description=(
+            "Spatial tolerance (half of spot/cell diameter) in micrometers.\n"
+            "Platform-specific defaults:\n"
+            "  - Visium (10x): 27.5 um (spot diameter ~55um, half is ~27.5)\n"
+            "  - MERFISH: 5-10 um (single cell resolution)\n"
+            "  - Slide-seq: 5 um (10 um bead diameter / 2)\n"
+            "  - CosMx: 5-10 um (single cell resolution)\n"
+            "Used in CellChat's spatial.factors.tol for defining spatial proximity."
+        ),
+    )
 
 
 class EnrichmentParameters(BaseModel):

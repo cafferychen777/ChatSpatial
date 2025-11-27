@@ -69,7 +69,13 @@ def validate_data_quality(adata, min_cells=10, min_genes=10):
     )
 
 
-def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pcs=30):
+def integrate_multiple_samples(
+    adatas,
+    batch_key="batch",
+    method="harmony",
+    n_pcs=30,
+    params: Optional[IntegrationParameters] = None,
+):
     """Integrate multiple spatial transcriptomics samples
 
     This function expects preprocessed data (normalized, log-transformed, with HVGs marked).
@@ -80,6 +86,7 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
         batch_key: Batch information key
         method: Integration method, options: 'harmony', 'bbknn', 'scanorama', 'scvi'
         n_pcs: Number of principal components for integration
+        params: Optional IntegrationParameters for method-specific settings (scVI, etc.)
 
     Returns:
         Integrated AnnData object with batch correction applied
@@ -243,17 +250,27 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
         logging.info("Using scVI method - skipping scale and PCA")
         logging.info(f"Gene count before scVI processing: {combined.n_vars}")
 
+        # Use user-configurable parameters if provided, otherwise use defaults
+        # This ensures scientific reproducibility and user control
+        scvi_n_hidden = params.scvi_n_hidden if params else 128
+        scvi_n_latent = params.scvi_n_latent if params else 10
+        scvi_n_layers = params.scvi_n_layers if params else 1
+        scvi_dropout_rate = params.scvi_dropout_rate if params else 0.1
+        scvi_gene_likelihood = params.scvi_gene_likelihood if params else "zinb"
+        scvi_n_epochs = params.n_epochs if params else None
+        scvi_use_gpu = params.use_gpu if params else False
+
         try:
             combined = integrate_with_scvi(
                 combined,
                 batch_key=batch_key,
-                n_hidden=128,
-                n_latent=10,
-                n_layers=1,
-                dropout_rate=0.1,
-                gene_likelihood="zinb",
-                n_epochs=None,
-                use_gpu=False,
+                n_hidden=scvi_n_hidden,
+                n_latent=scvi_n_latent,
+                n_layers=scvi_n_layers,
+                dropout_rate=scvi_dropout_rate,
+                gene_likelihood=scvi_gene_likelihood,
+                n_epochs=scvi_n_epochs,
+                use_gpu=scvi_use_gpu,
             )
             logging.info("scVI integration completed successfully")
         except ImportError as e:
@@ -287,11 +304,13 @@ def integrate_multiple_samples(adatas, batch_key="batch", method="harmony", n_pc
             method="scvi",
             parameters={
                 "batch_key": batch_key,
-                "n_hidden": 128,
-                "n_latent": 10,
-                "n_layers": 1,
-                "dropout_rate": 0.1,
-                "gene_likelihood": "zinb",
+                "n_hidden": scvi_n_hidden,
+                "n_latent": scvi_n_latent,
+                "n_layers": scvi_n_layers,
+                "dropout_rate": scvi_dropout_rate,
+                "gene_likelihood": scvi_gene_likelihood,
+                "n_epochs": scvi_n_epochs,
+                "use_gpu": scvi_use_gpu,
             },
             results_keys={"obsm": ["X_scVI"], "uns": ["neighbors"]},
             statistics={
@@ -1031,9 +1050,13 @@ async def integrate_samples(
             raise ValueError(f"Dataset {data_id} not found in data store")
         adatas.append(data_store[data_id]["adata"])
 
-    # Integrate samples
+    # Integrate samples (pass full params for method-specific settings like scVI)
     combined_adata = integrate_multiple_samples(
-        adatas, batch_key=params.batch_key, method=params.method, n_pcs=params.n_pcs
+        adatas,
+        batch_key=params.batch_key,
+        method=params.method,
+        n_pcs=params.n_pcs,
+        params=params,
     )
 
     if context:
