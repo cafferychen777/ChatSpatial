@@ -7,7 +7,7 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/pages.yml'
-      - 'README.md'
+      # README.md 改动不需要重新部署文档网站
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
