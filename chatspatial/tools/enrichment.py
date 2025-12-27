@@ -16,6 +16,7 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
+from ..utils.dependency_manager import get as get_dependency, is_available
 from ..utils.error_handling import ProcessingError
 from ..utils.metadata_storage import store_analysis_metadata
 
@@ -301,13 +302,10 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
 
 
 def is_gseapy_available() -> Tuple[bool, str]:
-    """Check if gseapy is available."""
-    try:
-        import gseapy  # noqa: F401
-
+    """Check if gseapy is available using centralized dependency manager."""
+    if is_available("gseapy"):
         return True, ""
-    except ImportError:
-        return False, "gseapy not installed. Install with: pip install gseapy"
+    return False, "gseapy not installed. Install with: pip install gseapy"
 
 
 async def perform_gsea(
@@ -367,10 +365,14 @@ async def perform_gsea(
         ranking = adata.var[ranking_key].to_dict()
     else:
         # Compute ranking from expression data
-        if "log1p" in adata.uns:
-            X = adata.X
+        # Use raw data when available and not log-normalized (full gene set for GSEA)
+        # IMPORTANT: Keep X and var_names consistent to avoid dimension mismatch
+        if "log1p" not in adata.uns and adata.raw is not None:
+            X = adata.raw.X
+            var_names = adata.raw.var_names
         else:
-            X = adata.raw.X if adata.raw else adata.X
+            X = adata.X
+            var_names = adata.var_names
 
         # Compute gene ranking metric
         # IMPORTANT: GSEA requires biologically meaningful ranking, not just variance
@@ -403,7 +405,7 @@ async def perform_gsea(
 
                 # Compute Signal-to-Noise Ratio
                 s2n = (mean1 - mean2) / (std1 + std2)
-                ranking = dict(zip(adata.var_names, s2n))
+                ranking = dict(zip(var_names, s2n))
 
             else:
                 # Multi-group: Use Coefficient of Variation (normalized variance)
@@ -417,7 +419,7 @@ async def perform_gsea(
                 nonzero_mask = np.abs(mean) > 1e-10
                 cv[nonzero_mask] = std[nonzero_mask] / np.abs(mean[nonzero_mask])
 
-                ranking = dict(zip(adata.var_names, cv))
+                ranking = dict(zip(var_names, cv))
         else:
             # No group information: Use best available ranking method
             if "highly_variable_rank" in adata.var:
@@ -436,7 +438,7 @@ async def perform_gsea(
                 nonzero_mask = np.abs(mean) > 1e-10
                 cv[nonzero_mask] = std[nonzero_mask] / np.abs(mean[nonzero_mask])
 
-                ranking = dict(zip(adata.var_names, cv))
+                ranking = dict(zip(var_names, cv))
 
     # Run GSEA preranked
     try:
@@ -1163,37 +1165,34 @@ async def perform_enrichr(
 
 
 def is_enrichmap_available() -> Tuple[bool, str]:
-    """Check if EnrichMap is available and all dependencies are met."""
-    try:
-        import enrichmap as em  # noqa: F401
-
-        # Check for required dependencies
-        # Map package names to their import names
-        module_mapping = {
-            "scanpy": "scanpy",
-            "squidpy": "squidpy",
-            "scipy": "scipy",
-            "scikit-learn": "sklearn",
-            "statsmodels": "statsmodels",
-            "pygam": "pygam",
-            "scikit-gstat": "skgstat",
-            "adjustText": "adjustText",
-            "splot": "splot",
-        }
-
-        missing = []
-        for package, module in module_mapping.items():
-            try:
-                __import__(module)
-            except ImportError:
-                missing.append(package)
-
-        if missing:
-            return False, f"Missing EnrichMap dependencies: {', '.join(missing)}"
-
-        return True, ""
-    except ImportError:
+    """Check if EnrichMap is available and all dependencies are met using centralized dependency manager."""
+    # Use centralized dependency manager for consistent availability checks
+    if not is_available("enrichmap"):
         return False, "EnrichMap not installed. Install with: pip install enrichmap"
+
+    # Check for required dependencies using dependency manager
+    # Map dependency names (as in registry) to their pip package names
+    dependencies = {
+        "scanpy": "scanpy",
+        "squidpy": "squidpy",
+        "scipy": "scipy",
+        "sklearn": "scikit-learn",
+        "statsmodels": "statsmodels",
+        "pygam": "pygam",
+        "skgstat": "scikit-gstat",
+        "adjustText": "adjustText",
+        "splot": "splot",
+    }
+
+    missing = []
+    for dep_name, package_name in dependencies.items():
+        if not is_available(dep_name):
+            missing.append(package_name)
+
+    if missing:
+        return False, f"Missing EnrichMap dependencies: {', '.join(missing)}"
+
+    return True, ""
 
 
 async def perform_spatial_enrichment(

@@ -16,27 +16,16 @@ from mcp.server.fastmcp import Context
 from ..models.analysis import PreprocessingResult
 from ..models.data import PreprocessingParameters
 from ..utils.data_adapter import standardize_adata
+from ..utils.dependency_manager import get as get_dependency, is_available, require
 from ..utils.tool_error_handling import mcp_tool_error_handler
 
-# Import scvi-tools for advanced preprocessing
-try:
-    import scvi
-    import torch
-except ImportError:
-    torch = None
-    scvi = None
+# Module-level placeholders for optional dependencies (lazily loaded)
+# Use get_dependency() in functions to actually import these modules
+scvi = None  # Lazily loaded via get_dependency("scvi-tools")
+torch = None  # Lazily loaded via get_dependency("torch")
+scv = None  # Lazily loaded via get_dependency("scvelo")
+spg = None  # Lazily loaded via get_dependency("SpaGCN")
 
-# Import scvelo for RNA velocity preprocessing
-try:
-    import scvelo as scv
-except ImportError:
-    scv = None
-
-# Import SpaGCN for spatial domain-specific preprocessing
-try:
-    import SpaGCN as spg
-except ImportError:
-    spg = None
 
 # Check for R sctransform availability via rpy2
 def _is_r_sctransform_available() -> tuple[bool, str]:
@@ -45,6 +34,12 @@ def _is_r_sctransform_available() -> tuple[bool, str]:
     Returns:
         Tuple of (is_available, error_message)
     """
+    # Use centralized dependency manager for rpy2 check
+    if not is_available("rpy2"):
+        return False, (
+            "rpy2 is not installed. Install with: pip install 'rpy2>=3.5.0'"
+        )
+
     try:
         import rpy2.robjects as ro
         import rpy2.robjects.packages as rpackages
@@ -54,10 +49,6 @@ def _is_r_sctransform_available() -> tuple[bool, str]:
             rpackages.importr("sctransform")
             rpackages.importr("Matrix")
         return True, ""
-    except ImportError:
-        return False, (
-            "rpy2 is not installed. Install with: pip install 'rpy2>=3.5.0'"
-        )
     except Exception as e:
         if "sctransform" in str(e).lower():
             return False, (
@@ -162,11 +153,69 @@ async def preprocess_data(
             if context:
                 await context.info(f"Fixed {n_duplicates} duplicate gene names")
 
-        # 1. Calculate QC metrics
+        # 1. Calculate QC metrics (including mitochondrial percentage)
         if context:
             await context.info("Calculating QC metrics...")
         try:
-            sc.pp.calculate_qc_metrics(adata, inplace=True)
+            # Identify mitochondrial genes (MT-* for human, mt-* for mouse)
+            # This is needed for both QC metrics and optional filtering
+            adata.var["mt"] = adata.var_names.str.startswith(("MT-", "mt-"))
+            n_mt_genes = adata.var["mt"].sum()
+            if context and n_mt_genes > 0:
+                await context.info(
+                    f"Identified {n_mt_genes} mitochondrial genes (MT-*/mt-*)"
+                )
+
+            # Identify ribosomal genes (RPS*, RPL* for human, Rps*, Rpl* for mouse)
+            adata.var["ribo"] = adata.var_names.str.startswith(
+                ("RPS", "RPL", "Rps", "Rpl")
+            )
+            n_ribo_genes = adata.var["ribo"].sum()
+            if context and n_ribo_genes > 0:
+                await context.info(
+                    f"Identified {n_ribo_genes} ribosomal genes (RPS*/RPL*/Rps*/Rpl*)"
+                )
+
+            # FIX: Adjust percent_top for small datasets
+            #
+            # Problem: sc.pp.calculate_qc_metrics() uses default percent_top=[50, 100, 200, 500]
+            # to calculate "percentage of counts in top N genes". When n_genes < 500,
+            # scanpy raises IndexError: "Positions outside range of features"
+            # (see scanpy/preprocessing/_qc.py line 392: check_ns decorator)
+            #
+            # Solution: Dynamically adjust percent_top to only include values < n_genes
+            n_genes = adata.n_vars
+            default_percent_top = [50, 100, 200, 500]
+
+            # Filter to only include values that are valid for this dataset
+            safe_percent_top = [p for p in default_percent_top if p < n_genes]
+
+            # For very small datasets (n_genes < 50), create proportional values
+            if not safe_percent_top:
+                safe_percent_top = []
+                for fraction in [0.1, 0.25, 0.5]:
+                    val = max(1, int(n_genes * fraction))
+                    if val < n_genes and val not in safe_percent_top:
+                        safe_percent_top.append(val)
+
+            # Add the largest possible value (n_genes - 1) if reasonable
+            if n_genes > 1 and (n_genes - 1) not in safe_percent_top:
+                safe_percent_top.append(n_genes - 1)
+
+            safe_percent_top = sorted(set(safe_percent_top)) if safe_percent_top else None
+
+            if context and safe_percent_top != default_percent_top[:len(safe_percent_top)]:
+                await context.info(
+                    f"Small dataset ({n_genes} genes): using percent_top={safe_percent_top}"
+                )
+
+            # Calculate QC metrics including mitochondrial and ribosomal percentages
+            sc.pp.calculate_qc_metrics(
+                adata,
+                qc_vars=["mt", "ribo"],
+                percent_top=safe_percent_top,
+                inplace=True,
+            )
         except Exception as e:
             # Don't fallback with fake data - fail fast with actionable error message
             # calculate_qc_metrics failures are typically dependency issues, not data issues
@@ -188,13 +237,19 @@ async def preprocess_data(
                 await context.error(error_msg)
             raise RuntimeError(error_msg) from e
 
-        # Store original QC metrics before filtering
+        # Store original QC metrics before filtering (including mito stats)
+        mito_pct_col = "pct_counts_mt" if "pct_counts_mt" in adata.obs else None
         qc_metrics = {
             "n_cells_before_filtering": int(adata.n_obs),
             "n_genes_before_filtering": int(adata.n_vars),
             "median_genes_per_cell": float(np.median(adata.obs.n_genes_by_counts)),
             "median_umi_per_cell": float(np.median(adata.obs.total_counts)),
         }
+        # Add mitochondrial stats if available
+        if mito_pct_col:
+            qc_metrics["median_mito_pct"] = float(np.median(adata.obs[mito_pct_col]))
+            qc_metrics["max_mito_pct"] = float(np.max(adata.obs[mito_pct_col]))
+            qc_metrics["n_mt_genes"] = int(adata.var["mt"].sum())
 
         # 2. Apply user-controlled data filtering and subsampling
         if context:
@@ -213,6 +268,34 @@ async def preprocess_data(
             if context:
                 await context.info(f"Filtering cells: min_genes={min_genes}")
             sc.pp.filter_cells(adata, min_genes=min_genes)
+
+        # Apply mitochondrial percentage filtering (BEST PRACTICE for spatial data)
+        # High mito% indicates damaged cells that have lost cytoplasmic mRNA
+        if params.filter_mito_pct is not None and mito_pct_col:
+            n_before = adata.n_obs
+            high_mito_mask = adata.obs[mito_pct_col] > params.filter_mito_pct
+            n_high_mito = high_mito_mask.sum()
+
+            if n_high_mito > 0:
+                adata = adata[~high_mito_mask].copy()
+                if context:
+                    await context.info(
+                        f"Filtered {n_high_mito} spots with mito% > {params.filter_mito_pct}% "
+                        f"({n_before} → {adata.n_obs} spots)"
+                    )
+                # Update qc_metrics with mito filtering info
+                qc_metrics["n_spots_filtered_mito"] = int(n_high_mito)
+            else:
+                if context:
+                    await context.info(
+                        f"No spots exceeded mito% threshold of {params.filter_mito_pct}%"
+                    )
+        elif params.filter_mito_pct is not None and not mito_pct_col:
+            if context:
+                await context.warning(
+                    "Mitochondrial filtering requested but no mito genes detected. "
+                    "This may indicate non-standard gene naming or imaging-based data."
+                )
 
         # Apply spot subsampling if requested
         if params.subsample_spots is not None and params.subsample_spots < adata.n_obs:
@@ -247,6 +330,28 @@ async def preprocess_data(
             obs=adata.obs.copy(),  # Must copy - will be modified by clustering/annotation
             uns={},  # Empty dict - raw doesn't need uns metadata
         )
+
+        # Store counts layer for scVI-tools compatibility (Cell2location, scANVI, DestVI)
+        # Note: This layer follows adata through HVG subsetting, complementing adata.raw
+        # - adata.raw: Full gene set (for cell communication needing complete L-R coverage)
+        # - adata.layers["counts"]: HVG subset after filtering (for scVI-tools alignment)
+        adata.layers["counts"] = adata.X.copy()
+
+        # Store preprocessing metadata following scanpy/anndata conventions
+        # This metadata enables downstream tools to reuse gene annotations
+        adata.uns["preprocessing"] = {
+            "normalization": params.normalization,
+            "raw_preserved": True,
+            "counts_layer": True,
+            "n_genes_before_norm": adata.n_vars,
+            # Gene type annotations - downstream tools should reuse these
+            "gene_annotations": {
+                "mt_column": "mt" if "mt" in adata.var.columns else None,
+                "ribo_column": "ribo" if "ribo" in adata.var.columns else None,
+                "n_mt_genes": int(adata.var["mt"].sum()) if "mt" in adata.var.columns else 0,
+                "n_ribo_genes": int(adata.var["ribo"].sum()) if "ribo" in adata.var.columns else 0,
+            },
+        }
 
         # Update QC metrics after filtering
         qc_metrics.update(
@@ -384,8 +489,8 @@ async def preprocess_data(
                 from rpy2.robjects import numpy2ri
                 from rpy2.robjects.conversion import localconverter
 
-                # Store raw counts before replacing X
-                adata.layers["counts"] = adata.X.copy()
+                # Note: counts layer already saved in unified preprocessing step (line 338)
+                # It will be properly subsetted if SCT filters genes
 
                 # Convert to sparse CSC matrix (genes × cells) for R's dgCMatrix
                 if scipy.sparse.issparse(adata.X):
@@ -675,11 +780,10 @@ async def preprocess_data(
                 )
 
             try:
-                # Store raw counts before any modification
-                adata.layers["counts"] = adata.X.copy()
+                # Note: counts layer already saved in unified preprocessing step (line 338)
+                # scVI requires this layer for proper count-based modeling
 
-                # Setup AnnData for scVI
-                # Use counts layer since we just saved it
+                # Setup AnnData for scVI using the pre-saved counts layer
                 scvi.model.SCVI.setup_anndata(
                     adata,
                     layer="counts",
@@ -837,6 +941,34 @@ async def preprocess_data(
                     await context.error(error_msg)
                 raise RuntimeError(error_msg) from e
 
+        # Exclude mitochondrial genes from HVG selection (BEST PRACTICE)
+        # Mito genes can dominate HVG due to high expression and technical variation
+        if params.remove_mito_genes and "mt" in adata.var.columns:
+            n_mito_hvg = (adata.var["highly_variable"] & adata.var["mt"]).sum()
+            if n_mito_hvg > 0:
+                adata.var.loc[adata.var["mt"], "highly_variable"] = False
+                if context:
+                    await context.info(
+                        f"Excluded {n_mito_hvg} mitochondrial genes from HVG selection "
+                        f"(genes retained in adata.raw for downstream analysis)"
+                    )
+
+        # Exclude ribosomal genes from HVG selection (optional)
+        if params.remove_ribo_genes and "ribo" in adata.var.columns:
+            n_ribo_hvg = (adata.var["highly_variable"] & adata.var["ribo"]).sum()
+            if n_ribo_hvg > 0:
+                adata.var.loc[adata.var["ribo"], "highly_variable"] = False
+                if context:
+                    await context.info(
+                        f"Excluded {n_ribo_hvg} ribosomal genes from HVG selection "
+                        f"(genes retained in adata.raw for downstream analysis)"
+                    )
+
+        # Log final HVG count after exclusions
+        final_hvg_count = adata.var["highly_variable"].sum()
+        if context:
+            await context.info(f"Final HVG count after exclusions: {final_hvg_count}")
+
         # Apply gene subsampling if requested
         if gene_subsample_requested and params.subsample_genes < adata.n_vars:
             # Ensure HVG selection was successful
@@ -878,6 +1010,8 @@ async def preprocess_data(
             try:
                 # Use Harmony for batch correction (modern standard, works on PCA space)
                 # Harmony is more robust than ComBat for single-cell/spatial data
+                # Use centralized dependency manager for consistent error handling
+                require("harmonypy")  # Raises ImportError with install instructions if missing
                 import scanpy.external as sce
 
                 # Harmony requires PCA to be computed first
@@ -889,17 +1023,6 @@ async def preprocess_data(
                     await context.info(
                         "Batch effect correction completed using Harmony"
                     )
-            except ImportError as e:
-                # Harmony not installed - raise error with clear instructions
-                raise ImportError(
-                    "Harmony is required for batch correction but not installed.\n\n"
-                    "Your data has batch information that requires correction. "
-                    "Batch effects can severely impact downstream analyses.\n\n"
-                    "SOLUTION: Install harmonypy:\n"
-                    "  pip install harmonypy\n\n"
-                    "If you want to skip batch correction (NOT RECOMMENDED), "
-                    "remove the batch column from your data before preprocessing."
-                ) from e
             except Exception as e:
                 # Harmony failed - raise error, don't silently continue
                 raise RuntimeError(
