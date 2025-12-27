@@ -265,13 +265,17 @@ async def load_spatial_data(
 
     # Check if tissue image is available (for Visium data)
     # Structure: adata.uns["spatial"][library_id]["images"]["hires"/"lowres"]
+    # Must check for actual hires or lowres images, not just non-empty dict
     tissue_image_available = False
     if "spatial" in adata.uns and isinstance(adata.uns["spatial"], dict):
         for sample_key, sample_data in adata.uns["spatial"].items():
             # Each sample_data should be a dict with "images" key
             if isinstance(sample_data, dict) and "images" in sample_data:
-                # Check if images dict is non-empty
-                if isinstance(sample_data["images"], dict) and sample_data["images"]:
+                images_dict = sample_data["images"]
+                # Check if images dict has actual hires or lowres images
+                if isinstance(images_dict, dict) and (
+                    "hires" in images_dict or "lowres" in images_dict
+                ):
                     tissue_image_available = True
                     break
 
