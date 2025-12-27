@@ -26,13 +26,11 @@ from mcp.server.fastmcp import Context  # noqa: E402
 from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
 from scipy.stats import pearsonr, spearmanr  # noqa: E402
 
-# Optional CNV analysis visualization
-try:
-    import infercnvpy as cnv
+# Use centralized dependency manager
+from ..utils.dependency_manager import is_available  # noqa: E402
 
-    INFERCNVPY_AVAILABLE = True
-except ImportError:
-    INFERCNVPY_AVAILABLE = False
+# Optional CNV analysis visualization (check availability via dependency manager)
+INFERCNVPY_AVAILABLE = is_available("infercnvpy")
 
 from ..models.data import VisualizationParameters  # noqa: E402
 # Import spatial coordinates helper from data adapter
@@ -606,20 +604,35 @@ def plot_spatial_feature(
         params: Visualization parameters
         force_no_colorbar: If True, disable colorbar even if params.show_colorbar is True.
                           Used when caller wants to manually add colorbar with make_axes_locatable.
+
+    Raises:
+        DataNotFoundError: If spatial coordinates are not available in adata.obsm
     """
+    # Check for spatial coordinates first
+    if "spatial" not in adata.obsm:
+        raise DataNotFoundError(
+            "Spatial coordinates not found in adata.obsm['spatial']. "
+            "Spatial visualization requires 2D coordinates.\n\n"
+            "Solutions:\n"
+            "1. For single-cell data without spatial info, use plot_type='umap' or 'heatmap'\n"
+            "2. Ensure your data has spatial coordinates in obsm['spatial']\n"
+            "3. For Visium data, load with the spatial folder containing tissue_positions_list.csv"
+        )
+
     # CRITICAL FIX: Check for tissue images correctly
     # Structure is: adata.uns["spatial"][library_id]["images"]
     # NOT: adata.uns["spatial"]["images"]
+    # Must also verify that the images dict is not empty and contains actual image data
     has_image = False
     if "spatial" in adata.uns and isinstance(adata.uns["spatial"], dict):
         # Check if any library has images
         for lib_id in adata.uns["spatial"].keys():
-            if (
-                isinstance(adata.uns["spatial"][lib_id], dict)
-                and "images" in adata.uns["spatial"][lib_id]
-            ):
-                has_image = True
-                break
+            if isinstance(adata.uns["spatial"][lib_id], dict):
+                images_dict = adata.uns["spatial"][lib_id].get("images", {})
+                # Check that images dict is not empty and has hires or lowres
+                if images_dict and ("hires" in images_dict or "lowres" in images_dict):
+                    has_image = True
+                    break
 
     # Detect if feature is categorical or continuous
     is_categorical = False
@@ -677,7 +690,14 @@ def plot_spatial_feature(
         if sample_key:
             plot_kwargs["library_id"] = sample_key
 
-        sc.pl.spatial(adata, img_key="hires", **plot_kwargs)
+        # Determine which image key to use (prefer hires, fallback to lowres)
+        img_key = "hires"
+        if sample_key and sample_key in adata.uns.get("spatial", {}):
+            images_dict = adata.uns["spatial"][sample_key].get("images", {})
+            if "hires" not in images_dict and "lowres" in images_dict:
+                img_key = "lowres"
+
+        sc.pl.spatial(adata, img_key=img_key, **plot_kwargs)
     else:
         # No image available, or user chose not to show tissue image
         # For embeddings, use 'size' parameter if spot_size is set
@@ -1856,19 +1876,23 @@ async def _create_spatial_visualization(
                     f"Adding cluster outline overlay for {params.outline_cluster_key}"
                 )
             try:
-                # Check if we have tissue images
+                # Check if we have tissue images (must have actual hires or lowres)
                 has_tissue_image = False
+                img_key_to_use = "hires"
                 if "spatial" in adata.uns:
                     for key in adata.uns["spatial"].keys():
-                        if "images" in adata.uns["spatial"][key]:
+                        images_dict = adata.uns["spatial"][key].get("images", {})
+                        if images_dict and ("hires" in images_dict or "lowres" in images_dict):
                             has_tissue_image = True
+                            # Prefer hires, fallback to lowres
+                            img_key_to_use = "hires" if "hires" in images_dict else "lowres"
                             break
 
                 if has_tissue_image and params.show_tissue_image:
                     # Use scanpy's add_outline functionality for tissue data with image
                     sc.pl.spatial(
                         adata,
-                        img_key="hires",
+                        img_key=img_key_to_use,
                         color=params.outline_cluster_key,
                         add_outline=True,
                         outline_color=params.outline_color,
@@ -6943,6 +6967,43 @@ PLOT_HANDLERS = {
 # ============================================================================
 
 
+async def _regenerate_figure_for_export(
+    adata: ad.AnnData,
+    params: "VisualizationParameters",
+    context: Optional[Context] = None,
+) -> plt.Figure:
+    """Regenerate a matplotlib figure from saved parameters for high-quality export.
+
+    This is an internal helper function used by save_visualization to recreate
+    figures from JSON metadata. It directly returns the matplotlib Figure object
+    (instead of ImageContent) so it can be exported at arbitrary DPI/format.
+
+    Args:
+        adata: AnnData object containing the data
+        params: VisualizationParameters reconstructed from saved metadata
+        context: MCP context for logging
+
+    Returns:
+        Matplotlib Figure object ready for export
+
+    Raises:
+        ValueError: If plot_type is unknown
+    """
+    plot_type = params.plot_type
+
+    if plot_type not in VISUALIZATION_REGISTRY:
+        raise ValueError(f"Unknown plot type: {plot_type}")
+
+    # Get the appropriate visualization function
+    viz_func = VISUALIZATION_REGISTRY[plot_type]
+
+    # Call the visualization function to get the figure
+    # These functions return matplotlib Figure objects
+    fig = viz_func(adata, params, context)
+
+    return fig
+
+
 async def save_visualization(
     data_id: str,
     plot_type: str,
@@ -6952,13 +7013,20 @@ async def save_visualization(
     format: str = "png",
     dpi: Optional[int] = None,
     visualization_cache: Optional[Dict[str, Any]] = None,
+    data_store: Optional[Dict[str, Any]] = None,
     context: Optional[Context] = None,
 ) -> str:
-    """Save a visualization from cache to disk at publication quality
+    """Save a visualization to disk at publication quality by regenerating from metadata.
 
-    This function exports cached visualizations using the original matplotlib figure
-    for high-quality output. Supports multiple formats including vector (PDF, SVG, EPS)
-    and raster (PNG, JPEG, TIFF) with publication-ready metadata.
+    This function regenerates visualizations from stored metadata (JSON) and the original
+    data, then exports at the requested quality. This approach is more secure than
+    loading serialized figure objects (pickle) because:
+    1. JSON metadata cannot contain executable code
+    2. Regeneration uses the trusted visualization codebase
+    3. All parameters are human-readable and auditable
+
+    Supports multiple formats including vector (PDF, SVG, EPS) and raster (PNG, JPEG, TIFF)
+    with publication-ready metadata.
 
     Args:
         data_id: Dataset ID
@@ -6971,15 +7039,16 @@ async def save_visualization(
         format: Image format (png, jpg, jpeg, pdf, svg, eps, ps, tiff)
         dpi: DPI for raster formats (default: 300 for publication quality)
               Vector formats (PDF, SVG, EPS, PS) ignore DPI
-        visualization_cache: Cache dictionary containing visualizations
+        visualization_cache: Cache dictionary containing visualizations (for in-session cache)
+        data_store: Dictionary containing loaded datasets (required for regeneration)
         context: MCP context for logging
 
     Returns:
         Path to the saved file
 
     Raises:
-        DataNotFoundError: If visualization not found in cache
-        ProcessingError: If figure not cached or saving fails
+        DataNotFoundError: If visualization metadata not found or dataset not available
+        ProcessingError: If regeneration or saving fails
 
     Examples:
         # Simple visualization
@@ -7071,29 +7140,63 @@ async def save_visualization(
         # Full path for the file
         file_path = output_path / filename
 
-        # Get cached figure object for export (pickle files are PRIMARY source)
-        from ..utils.image_utils import get_cached_figure, load_figure_pickle
+        # Get cached figure object for export
+        from ..utils.image_utils import get_cached_figure, load_visualization_metadata
 
-        # 1. Try to get figure from in-memory cache (fast path)
+        # 1. Try to get figure from in-memory cache (fast path, within same session)
         cached_fig = get_cached_figure(cache_key) if cache_key_exists else None
 
-        # 2. If not in memory, try pickle file (PRIMARY SOURCE - persistent storage)
+        # 2. If not in memory, regenerate from JSON metadata (secure approach)
         if cached_fig is None:
-            pickle_path = f"/tmp/chatspatial/figures/{cache_key}.pkl"
-            if os.path.exists(pickle_path):
+            metadata_path = f"/tmp/chatspatial/figures/{cache_key}.json"
+            if os.path.exists(metadata_path):
                 try:
-                    cached_fig = load_figure_pickle(pickle_path)
+                    # Load metadata
+                    metadata = load_visualization_metadata(metadata_path)
+
                     if context:
                         await context.info(
-                            "Loaded figure from pickle file (persistent storage)"
+                            "Regenerating figure from saved metadata (secure approach)"
                         )
+
+                    # Check if data is available for regeneration
+                    if data_store is None or data_id not in data_store:
+                        raise DataNotFoundError(
+                            f"Dataset '{data_id}' not loaded. "
+                            f"Please load the dataset first using load_data tool."
+                        )
+
+                    # Reconstruct VisualizationParameters from saved metadata
+                    from ..models.data import VisualizationParameters
+
+                    saved_params = metadata.get("params", {})
+
+                    # Override DPI with user's request for export
+                    if dpi is not None:
+                        saved_params["dpi"] = dpi
+
+                    viz_params = VisualizationParameters(**saved_params)
+
+                    # Regenerate the figure (this creates a new matplotlib figure)
+                    # We need direct access to the figure for export, not the ImageContent
+                    adata = data_store[data_id]["adata"]
+                    fig = await _regenerate_figure_for_export(
+                        adata, viz_params, context
+                    )
+                    cached_fig = fig
+
+                    if context:
+                        await context.info(
+                            f"Successfully regenerated {plot_type} visualization"
+                        )
+
                 except Exception as e:
                     if context:
                         await context.warning(
-                            f"Failed to load figure from pickle: {str(e)}"
+                            f"Failed to regenerate figure from metadata: {str(e)}"
                         )
 
-        # Figure must exist (either in memory or pickle)
+        # Figure must exist (either in memory or regenerated)
         if cached_fig is None:
             # Provide helpful error message
             if not cache_key_exists:
@@ -7103,9 +7206,8 @@ async def save_visualization(
                 )
             else:
                 raise ProcessingError(
-                    f"Figure pickle file not found for {cache_key}. "
-                    f"The visualization may have been created in a previous session. "
-                    f"Please regenerate the visualization using visualize_data tool."
+                    f"Cannot regenerate visualization for {cache_key}. "
+                    f"Please ensure the dataset is loaded and regenerate using visualize_data tool."
                 )
 
         # Export from cached figure with format-specific parameters
@@ -7204,6 +7306,7 @@ async def export_all_visualizations(
     format: str = "png",
     dpi: Optional[int] = None,
     visualization_cache: Optional[Dict[str, Any]] = None,
+    data_store: Optional[Dict[str, Any]] = None,
     context: Optional[Context] = None,
 ) -> List[str]:
     """Export all cached visualizations for a dataset to disk
@@ -7214,6 +7317,7 @@ async def export_all_visualizations(
         format: Image format (png, jpg, pdf, svg)
         dpi: DPI for saved images (default: 300 for publication quality)
         visualization_cache: Cache dictionary containing visualizations
+        data_store: Dictionary containing loaded datasets (required for regeneration)
         context: MCP context for logging
 
     Returns:
@@ -7228,35 +7332,35 @@ async def export_all_visualizations(
             k for k in visualization_cache.keys() if k.startswith(f"{data_id}_")
         ]
 
-        # Strategy 2: Fallback to pickle files (persistent storage)
+        # Strategy 2: Fallback to JSON metadata files (persistent storage)
         if not relevant_keys:
             if context:
                 await context.info(
-                    f"Session cache empty, scanning pickle files for dataset '{data_id}'..."
+                    f"Session cache empty, scanning metadata files for dataset '{data_id}'..."
                 )
 
-            # Scan pickle directory for this dataset
+            # Scan metadata directory for this dataset
             import glob
 
-            pickle_dir = "/tmp/chatspatial/figures"
-            pickle_pattern = f"{pickle_dir}/{data_id}_*.pkl"
-            pickle_files = glob.glob(pickle_pattern)
+            metadata_dir = "/tmp/chatspatial/figures"
+            metadata_pattern = f"{metadata_dir}/{data_id}_*.json"
+            metadata_files = glob.glob(metadata_pattern)
 
-            if pickle_files:
-                # Extract cache keys from pickle filenames
+            if metadata_files:
+                # Extract cache keys from metadata filenames
                 relevant_keys = [
-                    os.path.basename(f).replace(".pkl", "") for f in pickle_files
+                    os.path.basename(f).replace(".json", "") for f in metadata_files
                 ]
 
                 if context:
                     await context.info(
-                        f"Found {len(relevant_keys)} visualization(s) from pickle files"
+                        f"Found {len(relevant_keys)} visualization(s) from metadata files"
                     )
             else:
                 if context:
                     await context.warning(
                         f"No visualizations found for dataset '{data_id}' "
-                        f"(neither in session cache nor pickle files)"
+                        f"(neither in session cache nor metadata files)"
                     )
                 return []
 
@@ -7294,6 +7398,7 @@ async def export_all_visualizations(
                     format=format,
                     dpi=dpi,
                     visualization_cache=visualization_cache,
+                    data_store=data_store,
                     context=context,
                 )
                 saved_files.append(saved_path)
