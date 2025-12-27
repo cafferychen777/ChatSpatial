@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 from ..models.analysis import SpatialVariableGenesResult  # noqa: E402
 from ..models.data import SpatialVariableGenesParameters  # noqa: E402
 from ..utils import validate_var_column  # noqa: E402
+from ..utils.dependency_manager import (  # noqa: E402
+    get as get_dependency,
+    is_available,
+    require,
+)
 from ..utils.error_handling import suppress_output  # noqa: E402
 
 
@@ -198,14 +203,11 @@ async def _identify_spatial_genes_spatialde(
     import numpy as np
     import pandas as pd
 
-    try:
-        import NaiveDE
-        import SpatialDE
-        from SpatialDE.util import qvalue
-    except ImportError:
-        raise ImportError(
-            "SpatialDE not installed. Install with: pip install spatialde"
-        )
+    # Use centralized dependency manager for consistent error handling
+    require("spatialde")  # Raises ImportError with install instructions if missing
+    import NaiveDE
+    import SpatialDE
+    from SpatialDE.util import qvalue
 
     adata = data_store[data_id]["adata"]
 
@@ -575,13 +577,12 @@ async def _identify_spatial_genes_sparkx(
     import numpy as np
     import pandas as pd
 
-    try:
-        from rpy2 import robjects as ro
-        from rpy2.rinterface_lib import openrlib  # For thread safety
-        from rpy2.robjects import conversion, default_converter
-        from rpy2.robjects.packages import importr
-    except ImportError:
-        raise ImportError("rpy2 not installed. Install with: pip install rpy2")
+    # Use centralized dependency manager for consistent error handling
+    require("rpy2")  # Raises ImportError with install instructions if missing
+    from rpy2 import robjects as ro
+    from rpy2.rinterface_lib import openrlib  # For thread safety
+    from rpy2.robjects import conversion, default_converter
+    from rpy2.robjects.packages import importr
 
     if context:
         await context.info("Running SPARK-X non-parametric analysis")
@@ -645,28 +646,57 @@ async def _identify_spatial_genes_sparkx(
     # Initialize gene mask (all True = keep all genes initially)
     gene_mask = np.ones(len(gene_names), dtype=bool)
 
+    # Get var annotation source (prefer raw for complete gene annotations)
+    var_source = adata.raw if adata.raw is not None else adata
+
     # TIER 1: Mitochondrial gene filtering (SPARK-X paper standard practice)
+    # Reuse preprocessing annotations when available for consistency
     if params.filter_mt_genes:
-        mt_mask = np.array([gene.startswith(("MT-", "mt-")) for gene in gene_names])
+        mt_mask = None
+
+        # Try to reuse preprocessing annotations (elegant consistency)
+        if "mt" in var_source.var.columns:
+            mt_mask = var_source.var["mt"].values
+            annotation_source = "preprocessing"
+        else:
+            # Fallback to pattern-based detection
+            mt_mask = np.array(
+                [gene.startswith(("MT-", "mt-")) for gene in gene_names]
+            )
+            annotation_source = "pattern detection"
+
         n_mt_genes = mt_mask.sum()
         if n_mt_genes > 0:
             gene_mask &= ~mt_mask  # Exclude MT genes
             if context:
                 await context.info(
-                    f"Marked {n_mt_genes} mitochondrial genes for filtering (SPARK-X paper standard)"
+                    f"Marked {n_mt_genes} mitochondrial genes for filtering "
+                    f"(via {annotation_source}, SPARK-X paper standard)"
                 )
 
     # TIER 1: Ribosomal gene filtering (optional)
+    # Reuse preprocessing annotations when available for consistency
     if params.filter_ribo_genes:
-        ribo_mask = np.array(
-            [gene.startswith(("RPS", "RPL", "Rps", "Rpl")) for gene in gene_names]
-        )
+        ribo_mask = None
+
+        # Try to reuse preprocessing annotations (elegant consistency)
+        if "ribo" in var_source.var.columns:
+            ribo_mask = var_source.var["ribo"].values
+            annotation_source = "preprocessing"
+        else:
+            # Fallback to pattern-based detection
+            ribo_mask = np.array(
+                [gene.startswith(("RPS", "RPL", "Rps", "Rpl")) for gene in gene_names]
+            )
+            annotation_source = "pattern detection"
+
         n_ribo_genes = ribo_mask.sum()
         if n_ribo_genes > 0:
             gene_mask &= ~ribo_mask  # Exclude ribosomal genes
             if context:
                 await context.info(
-                    f"Marked {n_ribo_genes} ribosomal genes for filtering (reduces housekeeping dominance)"
+                    f"Marked {n_ribo_genes} ribosomal genes for filtering "
+                    f"(via {annotation_source}, reduces housekeeping dominance)"
                 )
 
     # TIER 2: HVG-only testing (2024 best practice from PMC11537352)
@@ -704,6 +734,39 @@ async def _identify_spatial_genes_sparkx(
         if context:
             await context.info(
                 f"Marked for HVG-only testing: {n_hvg} highly variable genes (2024 best practice - PMC11537352)"
+            )
+
+        # Smart detection: Check if preprocessing already excluded mt/ribo from HVGs
+        # This provides transparency about the filtering pipeline
+        preprocessing_info = adata.uns.get("preprocessing", {})
+        gene_annot = preprocessing_info.get("gene_annotations", {})
+
+        excluded_from_hvg = []
+        if gene_annot.get("mt_column") and gene_annot.get("n_mt_genes", 0) > 0:
+            # Check if any mt genes are in HVGs (if not, preprocessing excluded them)
+            if "mt" in var_source.var.columns:
+                mt_in_hvg = (
+                    var_source.var["mt"] & adata.var.get("highly_variable", False)
+                ).sum()
+                if mt_in_hvg == 0:
+                    excluded_from_hvg.append(
+                        f"mitochondrial ({gene_annot.get('n_mt_genes', 0)} genes)"
+                    )
+
+        if gene_annot.get("ribo_column") and gene_annot.get("n_ribo_genes", 0) > 0:
+            if "ribo" in var_source.var.columns:
+                ribo_in_hvg = (
+                    var_source.var["ribo"] & adata.var.get("highly_variable", False)
+                ).sum()
+                if ribo_in_hvg == 0:
+                    excluded_from_hvg.append(
+                        f"ribosomal ({gene_annot.get('n_ribo_genes', 0)} genes)"
+                    )
+
+        if excluded_from_hvg and context:
+            await context.info(
+                f"Note: {' and '.join(excluded_from_hvg)} already excluded from HVGs "
+                "during preprocessing (unified filtering pipeline)"
             )
 
     # TIER 1: Apply SPARK-X standard filtering (expression-based) - ON SPARSE MATRIX
