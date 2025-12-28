@@ -137,6 +137,132 @@ def get_spatial_coordinates(adata: "ad.AnnData") -> Tuple[np.ndarray, np.ndarray
     )
 
 
+def sample_expression_values(
+    adata: "ad.AnnData",
+    n_samples: int = 1000,
+    layer: Optional[str] = None,
+) -> np.ndarray:
+    """
+    Sample expression values from data matrix for validation checks.
+
+    Efficiently samples values from sparse or dense matrices without
+    materializing the full matrix. Used for data type detection
+    (integer vs float, negative values, etc.).
+
+    Args:
+        adata: AnnData object
+        n_samples: Maximum number of values to sample (default: 1000)
+        layer: Optional layer name. If None, uses adata.X
+
+    Returns:
+        1D numpy array of sampled expression values
+
+    Examples:
+        # Check for negative values (indicates log-normalized data)
+        sample = sample_expression_values(adata)
+        if np.any(sample < 0):
+            raise ValueError("Log normalization requires non-negative data")
+
+        # Check for non-integer values (indicates normalized data)
+        sample = sample_expression_values(adata)
+        if np.any((sample % 1) != 0):
+            raise ValueError("Method requires raw count data (integers)")
+    """
+    # Get the data matrix
+    X = adata.layers[layer] if layer is not None else adata.X
+
+    # Handle sparse matrices efficiently
+    if sparse.issparse(X):
+        # For sparse matrices, sample from .data array (non-zero values only)
+        # This is efficient as it doesn't require converting to dense
+        if hasattr(X, "data") and len(X.data) > 0:
+            return X.data[: min(n_samples, len(X.data))]
+        else:
+            # Fallback for empty or unusual sparse matrix
+            return X[:n_samples].toarray().flatten()
+    else:
+        # For dense matrices, flatten and sample
+        return X.flatten()[: min(n_samples, X.size)]
+
+
+def require_spatial_coords(
+    adata: "ad.AnnData",
+    spatial_key: Optional[str] = None,
+    validate: bool = True,
+) -> np.ndarray:
+    """
+    Get validated spatial coordinates array from AnnData.
+
+    Unlike get_spatial_coordinates() which returns (x, y) tuple, this
+    returns the full coordinates array and provides optional validation.
+
+    Args:
+        adata: AnnData object
+        spatial_key: Optional key in obsm. If None, auto-detects using
+            ALTERNATIVE_SPATIAL_KEYS
+        validate: If True (default), validates coordinates for:
+            - At least 2 dimensions
+            - No NaN values
+            - Not all identical
+
+    Returns:
+        Spatial coordinates as 2D numpy array (n_cells, n_dims)
+
+    Raises:
+        DataError: If spatial coordinates not found or validation fails
+
+    Examples:
+        # Auto-detect spatial key
+        coords = require_spatial_coords(adata)
+
+        # Use specific key without validation
+        coords = require_spatial_coords(adata, spatial_key="X_spatial", validate=False)
+    """
+    # Find spatial key if not specified
+    if spatial_key is None:
+        spatial_key = get_spatial_key(adata)
+        if spatial_key is None:
+            # Also check obs for x/y columns
+            if "x" in adata.obs and "y" in adata.obs:
+                x = pd.to_numeric(adata.obs["x"], errors="coerce").values
+                y = pd.to_numeric(adata.obs["y"], errors="coerce").values
+                coords = np.column_stack([x, y])
+                if validate and np.any(np.isnan(coords)):
+                    raise DataError("Spatial coordinates in obs['x'/'y'] contain NaN")
+                return coords
+
+            raise DataError(
+                "No spatial coordinates found. Expected in adata.obsm['spatial'] "
+                "or similar key. Available obsm keys: "
+                f"{list(adata.obsm.keys()) if adata.obsm else 'none'}"
+            )
+
+    # Check if key exists
+    if spatial_key not in adata.obsm:
+        raise DataError(
+            f"Spatial coordinates '{spatial_key}' not found in adata.obsm. "
+            f"Available keys: {list(adata.obsm.keys())}"
+        )
+
+    coords = adata.obsm[spatial_key]
+
+    # Validate if requested
+    if validate:
+        if coords.shape[1] < 2:
+            raise DataError(
+                f"Spatial coordinates should have at least 2 dimensions, "
+                f"found {coords.shape[1]}"
+            )
+        if np.any(np.isnan(coords)):
+            raise DataError("Spatial coordinates contain NaN values")
+        if np.any(np.isinf(coords)):
+            raise DataError("Spatial coordinates contain infinite values")
+        if np.std(coords[:, 0]) == 0 and np.std(coords[:, 1]) == 0:
+            raise DataError("All spatial coordinates are identical")
+
+    return coords
+
+
 # =============================================================================
 # Validation: Check and validate AnnData
 # =============================================================================

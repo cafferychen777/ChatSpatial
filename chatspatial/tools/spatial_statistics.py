@@ -22,6 +22,8 @@ All 12 analysis types are accessible through this unified interface with a
 new unified 'genes' parameter for consistent gene selection across methods.
 """
 
+from __future__ import annotations
+
 import traceback
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -37,8 +39,11 @@ if TYPE_CHECKING:
 
 from ..models.analysis import SpatialStatisticsResult
 from ..models.data import SpatialStatisticsParameters
-from ..utils.adata_utils import (select_genes_for_analysis,
-                                 validate_adata_basics)
+from ..utils.adata_utils import (
+    require_spatial_coords,
+    select_genes_for_analysis,
+    validate_adata_basics,
+)
 from ..utils.exceptions import (DataCompatibilityError, DataNotFoundError,
                                 ParameterError, ProcessingError)
 
@@ -117,15 +122,7 @@ async def analyze_spatial_statistics(
 
         # Basic validation: min 10 cells, spatial coordinates exist
         validate_adata_basics(adata, min_obs=10)
-        if "spatial" not in adata.obsm:
-            raise DataNotFoundError(
-                "Dataset missing spatial coordinates in adata.obsm['spatial']"
-            )
-        coords = adata.obsm["spatial"]
-        if np.any(np.isnan(coords)) or np.any(np.isinf(coords)):
-            raise DataCompatibilityError(
-                "Spatial coordinates contain NaN or infinite values"
-            )
+        coords = require_spatial_coords(adata)  # Validates and returns coords
 
         # Determine if cluster_key is required for this analysis type
         analyses_requiring_cluster_key = {
