@@ -11,7 +11,7 @@ from mcp.server.fastmcp import Context
 
 from ..models.analysis import IntegrationResult
 from ..models.data import IntegrationParameters
-from ..utils.metadata_storage import store_analysis_metadata
+from ..utils.adata_utils import store_analysis_metadata
 
 logger = logging.getLogger(__name__)
 

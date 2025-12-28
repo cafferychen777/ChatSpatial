@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import anndata as ad
 import numpy as np
+
 # Note: anndata2ri is imported lazily inside R-based methods (RCTD, SPOTlight, CARD)
 import pandas as pd
 import scipy.sparse as sp
@@ -1081,7 +1082,9 @@ async def deconvolve_cell2location(
                 ].copy()
             ref_signatures.columns = ref.uns["mod"]["factor_names"]
         except Exception as e:
-            raise RuntimeError(f"Failed to export reference signatures: {str(e)}") from e
+            raise RuntimeError(
+                f"Failed to export reference signatures: {str(e)}"
+            ) from e
 
         # Prepare spatial data for cell2location model
         try:
@@ -1170,7 +1173,9 @@ async def deconvolve_cell2location(
                 sp, sample_kwargs={"num_samples": 1000, "batch_size": 2500}
             )
         except Exception as e:
-            raise RuntimeError(f"Failed to export Cell2location results: {str(e)}") from e
+            raise RuntimeError(
+                f"Failed to export Cell2location results: {str(e)}"
+            ) from e
 
         # Get cell abundance - try different possible keys
         cell_abundance = None
