@@ -39,6 +39,12 @@ from .cnv import (
 from .deconvolution import create_deconvolution_visualization
 from .enrichment import create_pathway_enrichment_visualization
 from .integration import create_batch_integration_visualization
+from .multi_gene import (
+    create_gene_correlation_visualization,
+    create_lr_pairs_visualization,
+    create_multi_gene_visualization,
+    create_spatial_interaction_visualization,
+)
 from .spatial_stats import create_spatial_statistics_visualization
 from .trajectory import create_trajectory_visualization
 from .velocity import create_rna_velocity_visualization
@@ -68,6 +74,11 @@ PLOT_HANDLERS = {
     "cnv_heatmap": create_cnv_heatmap_visualization,
     # Integration plots
     "batch_integration": create_batch_integration_visualization,
+    # Multi-gene plots
+    "multi_gene": create_multi_gene_visualization,
+    "lr_pairs": create_lr_pairs_visualization,
+    "gene_correlation": create_gene_correlation_visualization,
+    "spatial_interaction": create_spatial_interaction_visualization,
 }
 
 
