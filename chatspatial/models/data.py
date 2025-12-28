@@ -1099,7 +1099,9 @@ class SpatialStatisticsParameters(BaseModel):
 class RNAVelocityParameters(BaseModel):
     """RNA velocity analysis parameters model"""
 
-    model_config = ConfigDict(extra="forbid")  # Strict validation - no extra parameters allowed
+    model_config = ConfigDict(
+        extra="forbid"
+    )  # Strict validation - no extra parameters allowed
 
     # Velocity computation method selection
     method: Literal["scvelo", "velovi"] = "scvelo"
@@ -1186,7 +1188,14 @@ class DeconvolutionParameters(BaseModel):
     """Spatial deconvolution parameters model"""
 
     method: Literal[
-        "flashdeconv", "cell2location", "rctd", "destvi", "stereoscope", "spotlight", "tangram", "card"
+        "flashdeconv",
+        "cell2location",
+        "rctd",
+        "destvi",
+        "stereoscope",
+        "spotlight",
+        "tangram",
+        "card",
     ] = "flashdeconv"
     reference_data_id: Optional[str] = (
         None  # Reference single-cell data for deconvolution
@@ -2119,4 +2128,64 @@ class CNVParameters(BaseModel):
     )
     numbat_skip_nj: bool = Field(
         False, description="Skip neighbor-joining tree reconstruction (default: False)"
+    )
+
+
+class RegistrationParameters(BaseModel):
+    """Spatial registration parameters for aligning multiple tissue slices."""
+
+    method: Literal["paste", "stalign"] = Field(
+        "paste",
+        description=(
+            "Registration method. 'paste': Probabilistic Alignment of ST Experiments "
+            "(optimal transport-based, recommended). 'stalign': STalign diffeomorphic "
+            "mapping (LDDMM-based, for complex deformations)."
+        ),
+    )
+    reference_idx: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Index of reference slice (0-indexed). If None, uses first slice.",
+    )
+
+    # PASTE-specific parameters
+    paste_alpha: Annotated[float, Field(gt=0, le=1)] = Field(
+        0.1,
+        description=(
+            "Spatial regularization parameter for PASTE (0-1). "
+            "Higher values give more weight to spatial coordinates vs expression. "
+            "Default: 0.1 (expression-dominated alignment)."
+        ),
+    )
+    paste_n_components: Annotated[int, Field(gt=0, le=100)] = Field(
+        30,
+        description="Number of PCA components for PASTE center alignment (default: 30).",
+    )
+    paste_numItermax: Annotated[int, Field(gt=0, le=1000)] = Field(
+        200,
+        description="Maximum iterations for optimal transport solver (default: 200).",
+    )
+
+    # STalign-specific parameters
+    stalign_image_size: Tuple[int, int] = Field(
+        (128, 128),
+        description="Image size for STalign rasterization (height, width).",
+    )
+    stalign_niter: Annotated[int, Field(gt=0, le=500)] = Field(
+        50,
+        description="Number of LDDMM iterations for STalign (default: 50).",
+    )
+    stalign_a: Annotated[float, Field(gt=0)] = Field(
+        500.0,
+        description="Regularization parameter 'a' for STalign (default: 500).",
+    )
+    stalign_use_expression: bool = Field(
+        True,
+        description="Use gene expression for STalign intensity (vs uniform).",
+    )
+
+    # Common parameters
+    use_gpu: bool = Field(
+        False,
+        description="Use GPU acceleration (PASTE with PyTorch backend, STalign).",
     )
