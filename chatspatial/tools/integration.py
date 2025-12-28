@@ -5,6 +5,7 @@ Integration tools for spatial transcriptomics data.
 import logging
 from typing import TYPE_CHECKING, List, Optional
 
+import anndata as ad
 import numpy as np
 import scanpy as sc
 
@@ -240,8 +241,15 @@ def integrate_multiple_samples(
     logging.info(f"Using {n_hvg} highly variable genes for integration")
 
     # Save raw data if not already saved
+    # IMPORTANT: Create a proper frozen copy for .raw to preserve counts
+    # Using `combined.raw = combined` creates a view that gets modified during normalization
     if combined.raw is None:
-        combined.raw = combined
+        combined.raw = ad.AnnData(
+            X=combined.X.copy(),  # Must copy - will be modified during normalization
+            var=combined.var,  # No copy needed - AnnData internally creates independent copy
+            obs=combined.obs.copy(),  # Must copy - will be modified by clustering/annotation
+            uns={},  # Empty dict - raw doesn't need uns metadata
+        )
 
     # ========================================================================
     # EARLY BRANCH FOR scVI-TOOLS METHODS
