@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 from ..models.analysis import SpatialDomainResult
 from ..models.data import SpatialDomainParameters
+from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 
 
@@ -529,25 +530,13 @@ async def _identify_domains_clustering(
         n_neighbors = params.cluster_n_neighbors or 15
         spatial_weight = params.cluster_spatial_weight or 0.3
 
-        # Validate PCA requirement (Leiden/Louvain clustering official requirement)
-        if "X_pca" not in adata.obsm:
-            raise ValueError(
-                f"{params.method} clustering requires PCA but X_pca not found. "
-                "Please run PCA in preprocessing.py: "
-                "sc.tl.pca(adata, n_comps=50)"
-            )
+        # Ensure PCA and neighbors are computed (lazy computation)
+        if ensure_pca(adata):
+            await ctx.info("Computed PCA for clustering")
+        if ensure_neighbors(adata, n_neighbors=n_neighbors):
+            await ctx.info(f"Computed neighbor graph with {n_neighbors} neighbors")
 
-        # Validate neighborhood graph requirement (Leiden/Louvain clustering official requirement)
-        if "neighbors" not in adata.uns:
-            raise ValueError(
-                f"{params.method} clustering requires neighborhood graph but neighbors not found. "
-                "Please compute neighbors in preprocessing.py: "
-                f"sc.pp.neighbors(adata, n_neighbors={n_neighbors}, use_rep='X_pca')"
-            )
-
-        await ctx.info(
-            f"Using pre-computed PCA and neighborhood graph for {params.method} clustering"
-        )
+        await ctx.info(f"Running {params.method} clustering with spatial constraints")
 
         # Add spatial information to the neighborhood graph
         if "spatial" in adata.obsm:

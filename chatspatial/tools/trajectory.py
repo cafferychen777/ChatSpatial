@@ -29,8 +29,9 @@ if TYPE_CHECKING:
 
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
-from ..utils.dependency_manager import require
 from ..utils.adata_utils import validate_adata
+from ..utils.compute import ensure_diffmap, ensure_neighbors, ensure_pca
+from ..utils.dependency_manager import require
 from ..utils.exceptions import DataNotFoundError, ProcessingError
 from ..utils.mcp_utils import suppress_output
 
@@ -432,9 +433,8 @@ def spatial_aware_embedding(adata, spatial_weight=0.3):
 
     spatial_coords = adata.obsm["spatial"]
 
-    # Ensure PCA has been computed
-    if "X_pca" not in adata.obsm:
-        raise ValueError("PCA has not been computed. Run preprocessing first.")
+    # Ensure PCA has been computed (lazy computation)
+    ensure_pca(adata)
 
     # Calculate expression-based distance matrix
     expr_dist = euclidean_distances(adata.obsm["X_pca"])
@@ -483,12 +483,8 @@ def infer_pseudotime_palantir(
     """
     import palantir
 
-    # Validate PCA requirement
-    if "X_pca" not in adata.obsm:
-        raise ValueError(
-            "Palantir trajectory analysis requires PCA but X_pca not found. "
-            "Please run PCA in preprocessing.py: sc.tl.pca(adata)"
-        )
+    # Ensure PCA has been computed (lazy computation)
+    ensure_pca(adata)
 
     # Convert PCA projections to DataFrame for Palantir
     pca_df = pd.DataFrame(adata.obsm["X_pca"], index=adata.obs_names)
@@ -527,35 +523,13 @@ async def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = No
     import numpy as np
     import scanpy as sc
 
-    # Validate trajectory analysis prerequisites
-    if "X_pca" not in adata.obsm:
-        raise ValueError(
-            "Diffusion pseudotime requires PCA but X_pca not found. "
-            "Please run PCA in preprocessing.py: sc.tl.pca(adata)"
-        )
-
-    if "neighbors" not in adata.uns:
-        raise ValueError(
-            "Diffusion pseudotime requires neighborhood graph but neighbors not found. "
-            "Please run in preprocessing.py: sc.pp.neighbors(adata, use_rep='X_pca')"
-        )
-
-    # Check if diffusion map has been computed, compute if missing
-    if "X_diffmap" not in adata.obsm:
-        await ctx.info("DPT requires diffusion map. Computing automatically...")
-        try:
-            import scanpy as sc
-
-            # Auto-compute diffusion map for user convenience
-            sc.tl.diffmap(adata)
-            await ctx.info("Diffusion map computed successfully for DPT analysis")
-        except Exception as e:
-            error_msg = (
-                f"DPT requires diffusion map but failed to compute it automatically: {e}. "
-                "Please ensure neighbors graph is computed (sc.pp.neighbors) before running DPT."
-            )
-            await ctx.error(error_msg)
-            raise ValueError(error_msg)
+    # Ensure trajectory analysis prerequisites (lazy computation)
+    if ensure_pca(adata):
+        await ctx.info("Computed PCA for trajectory analysis")
+    if ensure_neighbors(adata):
+        await ctx.info("Computed neighbor graph for trajectory analysis")
+    if ensure_diffmap(adata):
+        await ctx.info("Computed diffusion map for DPT analysis")
 
     # Set root cell if provided
     if root_cells is not None and len(root_cells) > 0:

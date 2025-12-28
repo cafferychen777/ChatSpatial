@@ -35,6 +35,8 @@ from ..models.data import VisualizationParameters  # noqa: E402
 from ..utils.adata_utils import ensure_categorical  # noqa: E402
 from ..utils.adata_utils import ensure_unique_var_names  # noqa: E402
 from ..utils.adata_utils import get_spatial_coordinates  # noqa: E402
+from ..utils.adata_utils import require_spatial_coords  # noqa: E402
+from ..utils.adata_utils import validate_obs_column  # noqa: E402
 
 # Use centralized dependency manager
 from ..utils.dependency_manager import require  # noqa: E402
@@ -612,15 +614,7 @@ def plot_spatial_feature(
         DataNotFoundError: If spatial coordinates are not available in adata.obsm
     """
     # Check for spatial coordinates first
-    if "spatial" not in adata.obsm:
-        raise DataNotFoundError(
-            "Spatial coordinates not found in adata.obsm['spatial']. "
-            "Spatial visualization requires 2D coordinates.\n\n"
-            "Solutions:\n"
-            "1. For single-cell data without spatial info, use plot_type='umap' or 'heatmap'\n"
-            "2. Ensure your data has spatial coordinates in obsm['spatial']\n"
-            "3. For Visium data, load with the spatial folder containing tissue_positions_list.csv"
-        )
+    require_spatial_coords(adata)  # Validates spatial coordinates exist
 
     # CRITICAL FIX: Check for tissue images correctly
     # Structure is: adata.uns["spatial"][library_id]["images"]
@@ -837,11 +831,7 @@ async def _create_violin_visualization(
             "   This maintains consistency with Squidpy spatial analysis functions."
         )
 
-    if params.cluster_key not in adata.obs.columns:
-        raise ValueError(
-            f"Cluster key '{params.cluster_key}' not found in data.\n\n"
-            f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
-        )
+    validate_obs_column(adata, params.cluster_key, f"Cluster key '{params.cluster_key}'")
 
     groupby = params.cluster_key
     # Limit the number of groups to avoid oversized responses
@@ -997,11 +987,7 @@ async def _create_dotplot_visualization(
             "Example: cluster_key='leiden' or cluster_key='cell_type'"
         )
 
-    if params.cluster_key not in adata.obs.columns:
-        raise ValueError(
-            f"Cluster key '{params.cluster_key}' not found in data.\n\n"
-            f"Available columns: {', '.join(list(adata.obs.columns)[:20])}"
-        )
+    validate_obs_column(adata, params.cluster_key, f"Cluster key '{params.cluster_key}'")
 
     groupby = params.cluster_key
 
@@ -1261,15 +1247,8 @@ async def _create_spatial_cnv_visualization(
     if context:
         await context.info("Creating spatial CNV projection visualization")
 
-    # Check if spatial coordinates exist
-    if "spatial" not in adata.obsm:
-        error_msg = (
-            "Spatial coordinates not found in adata.obsm['spatial']. "
-            "This plot type requires spatial transcriptomics data."
-        )
-        if context:
-            await context.warning(error_msg)
-        raise DataNotFoundError(error_msg)
+    # Validate spatial coordinates
+    require_spatial_coords(adata)
 
     # Determine feature to visualize
     feature_to_plot = params.feature
@@ -1899,7 +1878,7 @@ async def _create_spatial_visualization(
                         legend_loc=None,
                         colorbar=False,
                     )
-                else:
+                elif "spatial" in adata.obsm:
                     # For non-tissue data, create manual outlines using ConvexHull
                     spatial_coords = adata.obsm["spatial"]
                     cluster_labels = adata.obs[params.outline_cluster_key].values
@@ -1977,8 +1956,7 @@ async def _create_heatmap_visualization(
             f"cluster_key required. Available: {', '.join(categorical_cols)}"
         )
 
-    if params.cluster_key not in adata.obs.columns:
-        raise ValueError(f"'{params.cluster_key}' not found in data.")
+    validate_obs_column(adata, params.cluster_key, f"Cluster key '{params.cluster_key}'")
 
     groupby = params.cluster_key
 
@@ -2171,11 +2149,7 @@ async def _create_dominant_celltype_map(
         spot_categories = dominant_types
 
     # Get spatial coordinates
-    if "spatial" not in adata.obsm:
-        raise DataNotFoundError(
-            "Spatial coordinates not found in adata.obsm['spatial']"
-        )
-    spatial_coords = adata.obsm["spatial"]
+    spatial_coords = require_spatial_coords(adata)
 
     # Create figure
     figsize = params.figure_size if params.figure_size else (10, 8)
@@ -2312,11 +2286,7 @@ async def _create_diversity_map(
     normalized_entropy = spot_entropy / max_entropy
 
     # Get spatial coordinates
-    if "spatial" not in adata.obsm:
-        raise DataNotFoundError(
-            "Spatial coordinates not found in adata.obsm['spatial']"
-        )
-    spatial_coords = adata.obsm["spatial"]
+    spatial_coords = require_spatial_coords(adata)
 
     # Create figure
     figsize = params.figure_size if params.figure_size else (10, 8)
@@ -2538,11 +2508,7 @@ async def _create_scatterpie_plot(
     data = await get_deconvolution_data(adata, params.deconv_method, context)
 
     # Get spatial coordinates
-    if "spatial" not in adata.obsm:
-        raise DataNotFoundError(
-            "Spatial coordinates not found in adata.obsm['spatial']"
-        )
-    spatial_coords = adata.obsm["spatial"]
+    spatial_coords = require_spatial_coords(adata)
 
     # Use all spots (no sampling)
     proportions_plot = data.proportions
@@ -3429,12 +3395,7 @@ def _create_cellphonedb_dotplot(
 
         # Get cell types from cluster_key
         cluster_key = params.cluster_key or "leiden"
-        if cluster_key not in adata.obs.columns:
-            # Try to find a suitable column
-            for key in ["cell_type", "celltype", "leiden", "louvain"]:
-                if key in adata.obs.columns:
-                    cluster_key = key
-                    break
+        validate_obs_column(adata, cluster_key, "cluster_key")
 
         # ktplotspy.plot_cpdb returns a plotnine ggplot object, not matplotlib Figure
         # We need to convert it to matplotlib Figure
@@ -3518,11 +3479,7 @@ def _create_cellphonedb_chord(
 
         # Get cell types from cluster_key
         cluster_key = params.cluster_key or "leiden"
-        if cluster_key not in adata.obs.columns:
-            for key in ["cell_type", "celltype", "leiden", "louvain"]:
-                if key in adata.obs.columns:
-                    cluster_key = key
-                    break
+        validate_obs_column(adata, cluster_key, "cluster_key")
 
         # Generate link_colors dict for coloring links
         # We will create our own legend AFTER ktplotspy returns the circos object
@@ -4395,11 +4352,7 @@ async def _create_velocity_proportions_plot(
                 f"Available columns: {list(adata.obs.columns)[:10]}"
             )
 
-    if cluster_key not in adata.obs.columns:
-        raise DataNotFoundError(
-            f"Cluster key '{cluster_key}' not found in data. "
-            f"Available columns: {list(adata.obs.columns)[:10]}"
-        )
+    validate_obs_column(adata, cluster_key, f"Cluster key '{cluster_key}'")
 
     if context:
         await context.info(f"Creating proportions plot grouped by '{cluster_key}'")
@@ -4940,12 +4893,7 @@ async def _create_getis_ord_visualization(
         default_title="Getis-Ord Gi* Hotspots/Coldspots",
     )
 
-    if "spatial" not in adata.obsm:
-        raise DataCompatibilityError(
-            "Spatial coordinates not found in adata.obsm['spatial']"
-        )
-
-    coords = adata.obsm["spatial"]
+    coords = require_spatial_coords(adata)
 
     for i, gene in enumerate(genes_to_plot):
         if i < len(axes):
@@ -6491,7 +6439,7 @@ async def _create_spatial_interaction_visualization(
 
     try:
         # Get spatial coordinates
-        spatial_coords = adata.obsm["spatial"]
+        spatial_coords = require_spatial_coords(adata)
 
         # Validate that lr_pairs are provided
         if not params.lr_pairs or len(params.lr_pairs) == 0:

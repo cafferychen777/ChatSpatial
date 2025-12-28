@@ -31,34 +31,21 @@ from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
 from .models.analysis import CNVResult  # noqa: E402
 from .models.analysis import DeconvolutionResult  # noqa: E402
-from .models.analysis import (  # noqa: E402
-    DifferentialExpressionResult,
-    EnrichmentResult,
-    IntegrationResult,
-    PreprocessingResult,
-    RNAVelocityResult,
-    SpatialDomainResult,
-    SpatialStatisticsResult,
-    SpatialVariableGenesResult,
-    TrajectoryResult,
-)
+from .models.analysis import (DifferentialExpressionResult,  # noqa: E402
+                              EnrichmentResult, IntegrationResult,
+                              PreprocessingResult, RNAVelocityResult,
+                              SpatialDomainResult, SpatialStatisticsResult,
+                              SpatialVariableGenesResult, TrajectoryResult)
 from .models.data import AnnotationParameters  # noqa: E402
 from .models.data import CellCommunicationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
 from .models.data import DeconvolutionParameters  # noqa: E402
-from .models.data import (  # noqa: E402
-    ColumnInfo,
-    EnrichmentParameters,
-    IntegrationParameters,
-    PreprocessingParameters,
-    RNAVelocityParameters,
-    SpatialDataset,
-    SpatialDomainParameters,
-    SpatialStatisticsParameters,
-    SpatialVariableGenesParameters,
-    TrajectoryParameters,
-    VisualizationParameters,
-)
+from .models.data import (ColumnInfo, EnrichmentParameters,  # noqa: E402
+                          IntegrationParameters, PreprocessingParameters,
+                          RNAVelocityParameters, SpatialDataset,
+                          SpatialDomainParameters, SpatialStatisticsParameters,
+                          SpatialVariableGenesParameters, TrajectoryParameters,
+                          VisualizationParameters)
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .spatial_mcp_adapter import get_tool_annotations  # noqa: E402
@@ -229,6 +216,78 @@ async def preprocess_data(
     await data_manager.save_result(data_id, "preprocessing", result)
 
     return result
+
+
+@mcp.tool(annotations=get_tool_annotations("compute_embeddings"))
+@mcp_tool_error_handler()
+async def compute_embeddings(
+    data_id: str,
+    compute_pca: bool = True,
+    compute_neighbors: bool = True,
+    compute_umap: bool = True,
+    compute_clustering: bool = True,
+    compute_diffmap: bool = False,
+    compute_spatial_neighbors: bool = True,
+    n_pcs: int = 30,
+    n_neighbors: int = 15,
+    clustering_resolution: float = 1.0,
+    clustering_method: str = "leiden",
+    force: bool = False,
+    context: Optional[Context] = None,
+) -> Dict[str, Any]:
+    """Compute dimensionality reduction, clustering, and neighbor graphs.
+
+    This tool provides explicit control over embedding computations.
+    Analysis tools compute these lazily on-demand, but you can use this tool to:
+    - Control computation parameters (n_pcs, n_neighbors, resolution)
+    - Force recomputation with different parameters
+    - Compute specific embeddings independently
+
+    Args:
+        data_id: Dataset ID
+        compute_pca: Compute PCA dimensionality reduction
+        compute_neighbors: Compute k-NN neighbor graph
+        compute_umap: Compute UMAP embedding
+        compute_clustering: Compute Leiden/Louvain clustering
+        compute_diffmap: Compute diffusion map for trajectory analysis
+        compute_spatial_neighbors: Compute spatial neighborhood graph
+        n_pcs: Number of principal components (default: 30)
+        n_neighbors: Number of neighbors for k-NN graph (default: 15)
+        clustering_resolution: Clustering resolution (default: 1.0)
+        clustering_method: Clustering algorithm ('leiden' or 'louvain')
+        force: Force recomputation even if results already exist
+
+    Returns:
+        Summary of computed embeddings
+    """
+    from .tools.embeddings import EmbeddingParameters
+    from .tools.embeddings import compute_embeddings as compute_embeddings_func
+
+    # Validate dataset
+    validate_dataset(data_id)
+
+    # Create parameters
+    params = EmbeddingParameters(
+        compute_pca=compute_pca,
+        compute_neighbors=compute_neighbors,
+        compute_umap=compute_umap,
+        compute_clustering=compute_clustering,
+        compute_diffmap=compute_diffmap,
+        compute_spatial_neighbors=compute_spatial_neighbors,
+        n_pcs=n_pcs,
+        n_neighbors=n_neighbors,
+        clustering_resolution=clustering_resolution,
+        clustering_method=clustering_method,
+        force=force,
+    )
+
+    # Create ToolContext
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
+    # Call function
+    result = await compute_embeddings_func(data_id, ctx, params)
+
+    return result.model_dump()
 
 
 @mcp.tool(annotations=get_tool_annotations("visualize_data"))
@@ -720,9 +779,8 @@ async def analyze_spatial_statistics(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import spatial_statistics (squidpy is slow to import)
-    from .tools.spatial_statistics import (
-        analyze_spatial_statistics as _analyze_spatial_statistics,
-    )
+    from .tools.spatial_statistics import \
+        analyze_spatial_statistics as _analyze_spatial_statistics
 
     # Call spatial statistics analysis function with ToolContext
     result = await _analyze_spatial_statistics(data_id, ctx, params)
@@ -1224,7 +1282,8 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import \
+        identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1391,9 +1450,8 @@ async def analyze_cell_communication(
           • Signaling ranges: Literature-based (Wnt/Wg: ~50-100 µm)
     """
     # Import cell communication function
-    from .tools.cell_communication import (
-        analyze_cell_communication as analyze_comm_func,
-    )
+    from .tools.cell_communication import \
+        analyze_cell_communication as analyze_comm_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1477,9 +1535,8 @@ async def analyze_enrichment(
     """
     # Import enrichment analysis function
 
-    from .tools.enrichment import (
-        perform_spatial_enrichment as perform_enrichment_analysis,
-    )
+    from .tools.enrichment import \
+        perform_spatial_enrichment as perform_enrichment_analysis
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1585,12 +1642,8 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (
-            perform_enrichr,
-            perform_gsea,
-            perform_ora,
-            perform_ssgsea,
-        )
+        from .tools.enrichment import (perform_enrichr, perform_gsea,
+                                       perform_ora, perform_ssgsea)
 
         if params.method == "pathway_gsea":
             result_dict = await perform_gsea(
