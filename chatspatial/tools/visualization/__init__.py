@@ -9,6 +9,9 @@ This module provides visualization functions organized by analysis type:
 - trajectory: Trajectory and pseudotime visualizations
 - spatial_stats: Spatial statistics visualizations
 - enrichment: Pathway enrichment visualizations
+- cnv: Copy number variation visualizations
+- integration: Batch integration quality visualizations
+- persistence: Visualization saving and export
 
 Usage:
     from chatspatial.tools.visualization import (
@@ -63,6 +66,23 @@ from .enrichment import (
     create_pathway_enrichment_visualization,
 )
 
+# CNV visualizations
+from .cnv import (
+    create_card_imputation_visualization,
+    create_cnv_heatmap_visualization,
+    create_spatial_cnv_visualization,
+)
+
+# Batch integration visualizations
+from .integration import create_batch_integration_visualization
+
+# Persistence functions
+from .persistence import (
+    clear_visualization_cache,
+    export_all_visualizations,
+    save_visualization,
+)
+
 # Handler registry for dispatch
 PLOT_HANDLERS = {
     # Basic plots
@@ -78,6 +98,12 @@ PLOT_HANDLERS = {
     "trajectory": create_trajectory_visualization,
     "spatial_statistics": create_spatial_statistics_visualization,
     "pathway_enrichment": create_pathway_enrichment_visualization,
+    # CNV plots
+    "card_imputation": create_card_imputation_visualization,
+    "spatial_cnv": create_spatial_cnv_visualization,
+    "cnv_heatmap": create_cnv_heatmap_visualization,
+    # Integration plots
+    "batch_integration": create_batch_integration_visualization,
 }
 
 __all__ = [
@@ -107,6 +133,16 @@ __all__ = [
     "create_spatial_statistics_visualization",
     "create_enrichment_visualization",
     "create_pathway_enrichment_visualization",
+    # CNV visualizations
+    "create_card_imputation_visualization",
+    "create_spatial_cnv_visualization",
+    "create_cnv_heatmap_visualization",
+    # Integration visualizations
+    "create_batch_integration_visualization",
+    # Persistence functions
+    "save_visualization",
+    "export_all_visualizations",
+    "clear_visualization_cache",
     # Handler registry
     "PLOT_HANDLERS",
 ]
