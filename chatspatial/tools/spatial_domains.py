@@ -9,78 +9,18 @@ function, which handles data preparation and dispatches to the selected method.
 """
 
 import traceback
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-
-if TYPE_CHECKING:
-    from ..spatial_mcp_adapter import ToolContext
 import pandas as pd
 import scanpy as sc
 
-# Import squidpy with fallback
-try:
-    import squidpy as sq
-
-    SQUIDPY_AVAILABLE = True
-except ImportError:
-    SQUIDPY_AVAILABLE = False
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import SpatialDomainResult
 from ..models.data import SpatialDomainParameters
-
-# Import optional dependencies with fallbacks
-try:
-    import SpaGCN as spg
-
-    SPAGCN_AVAILABLE = True
-except ImportError:
-    SPAGCN_AVAILABLE = False
-
-try:
-    import STAGATE_pyG  # noqa: F401
-
-    STAGATE_AVAILABLE = True
-except ImportError:
-    STAGATE_AVAILABLE = False
-
-try:
-    from GraphST.GraphST import GraphST
-    from GraphST.utils import clustering as graphst_clustering
-
-    GRAPHST_AVAILABLE = True
-except ImportError:
-    GRAPHST_AVAILABLE = False
-
-def _check_environment_compatibility():
-    """Check environment compatibility for spatial domain identification"""
-    issues = []
-
-    # Check squidpy availability
-    if not SQUIDPY_AVAILABLE:
-        issues.append(
-            "squidpy not available - spatial graph functionality will be limited"
-        )
-
-    # Check SpaGCN availability
-    if not SPAGCN_AVAILABLE:
-        issues.append("SpaGCN not available - only clustering methods available")
-
-    # Check STAGATE availability
-    if not STAGATE_AVAILABLE:
-        issues.append("STAGATE not available - graph attention method unavailable")
-
-    # Check version compatibility
-    try:
-        import dask
-
-        dask_version = tuple(map(int, dask.__version__.split(".")[:2]))
-        if dask_version >= (2025, 1):
-            issues.append(f"dask {dask.__version__} may cause squidpy import issues")
-    except ImportError:
-        pass
-
-    return issues
+from ..utils.dependency_manager import require
 
 
 async def identify_spatial_domains(
@@ -108,12 +48,6 @@ async def identify_spatial_domains(
         A SpatialDomainResult object containing the identified domains and
         associated metadata.
     """
-    # Check environment compatibility
-    env_issues = _check_environment_compatibility()
-    if env_issues:
-        for issue in env_issues:
-            await ctx.warning(f"Environment issue: {issue}")
-
     await ctx.info(f"Identifying spatial domains using {params.method} method")
 
     # COW FIX: Direct reference instead of copy
@@ -190,9 +124,7 @@ async def identify_spatial_domains(
 
         # Ensure data is float type for SpaGCN compatibility
         if adata_subset.X.dtype != np.float32 and adata_subset.X.dtype != np.float64:
-            await ctx.info(
-                "Converting data to float32 for SpaGCN compatibility..."
-            )
+            await ctx.info("Converting data to float32 for SpaGCN compatibility...")
             adata_subset.X = adata_subset.X.astype(np.float32)
 
         # Check for problematic values that can cause SpaGCN to hang
@@ -241,19 +173,7 @@ async def identify_spatial_domains(
                 adata_subset = adata_subset[
                     :, adata_subset.var["highly_variable"]
                 ].copy()
-                await ctx.info(
-                    f"Using {hvg_count} pre-selected highly variable genes"
-                )
-
-        # Apply SpaGCN-specific gene filtering (algorithm requirement)
-        await ctx.info("Applying SpaGCN-specific gene filtering...")
-        try:
-            spg.prefilter_genes(adata_subset, min_cells=3)
-            spg.prefilter_specialgenes(adata_subset)
-        except Exception as e:
-            await ctx.warning(
-                f"SpaGCN gene filtering failed: {e}. Continuing without filtering."
-            )
+                await ctx.info(f"Using {hvg_count} pre-selected highly variable genes")
 
         # Identify domains based on method
         if params.method == "spagcn":
@@ -289,9 +209,7 @@ async def identify_spatial_domains(
         # Refine domains if requested
         refined_domain_key = None
         if params.refine_domains:
-            await ctx.info(
-                "Refining spatial domains using spatial smoothing..."
-            )
+            await ctx.info("Refining spatial domains using spatial smoothing...")
             try:
                 refined_domain_key = f"{domain_key}_refined"
                 refined_labels = _refine_spatial_domains(
@@ -329,9 +247,7 @@ async def identify_spatial_domains(
             embeddings_key=embeddings_key,
         )
 
-        await ctx.info(
-            f"Successfully identified {len(domain_counts)} spatial domains"
-        )
+        await ctx.info(f"Successfully identified {len(domain_counts)} spatial domains")
 
         return result
 
@@ -353,12 +269,18 @@ async def _identify_domains_spagcn(
     and optionally histology image features. The final domains are obtained by
     clustering these learned embeddings. This method requires the `SpaGCN` package.
     """
-    if not SPAGCN_AVAILABLE:
-        raise ImportError(
-            "SpaGCN is not installed. Please install it with: pip install SpaGCN"
-        )
+    spg = require("SpaGCN", ctx, feature="SpaGCN spatial domain identification")
 
     await ctx.info("Running SpaGCN for spatial domain identification...")
+
+    # Apply SpaGCN-specific gene filtering (algorithm requirement)
+    try:
+        spg.prefilter_genes(adata, min_cells=3)
+        spg.prefilter_specialgenes(adata)
+    except Exception as e:
+        await ctx.warning(
+            f"SpaGCN gene filtering failed: {e}. Continuing without filtering."
+        )
 
     try:
         # Get spatial coordinates
@@ -382,9 +304,7 @@ async def _identify_domains_spagcn(
             )
 
         # Adaptive parameter adjustment based on data characteristics
-        await ctx.info(
-            "Adjusting SpaGCN parameters based on data characteristics..."
-        )
+        await ctx.info("Adjusting SpaGCN parameters based on data characteristics...")
 
         # Adjust parameters based on dataset size and spatial spread
         n_spots = len(x_array)
@@ -479,9 +399,7 @@ async def _identify_domains_spagcn(
 
         if img is None:
             # Create dummy image or disable histology
-            await ctx.info(
-                "No histology image found, running SpaGCN without histology"
-            )
+            await ctx.info("No histology image found, running SpaGCN without histology")
             params.spagcn_use_histology = False
             img = np.ones((100, 100, 3), dtype=np.uint8) * 255  # White dummy image
         else:
@@ -545,9 +463,7 @@ async def _identify_domains_spagcn(
                     params.timeout if params.timeout else 600
                 )  # Default 10 minutes
 
-                await ctx.info(
-                    f"Running SpaGCN with {timeout_seconds}s timeout"
-                )
+                await ctx.info(f"Running SpaGCN with {timeout_seconds}s timeout")
 
                 try:
                     domain_labels = await asyncio.wait_for(
@@ -569,9 +485,7 @@ async def _identify_domains_spagcn(
             await ctx.warning(error_msg)
             raise RuntimeError(error_msg) from spagcn_error
 
-        await ctx.info(
-            f"SpaGCN completed, got {len(set(domain_labels))} domains"
-        )
+        await ctx.info(f"SpaGCN completed, got {len(set(domain_labels))} domains")
 
         domain_labels = pd.Series(domain_labels, index=adata.obs.index).astype(str)
 
@@ -637,22 +551,10 @@ async def _identify_domains_clustering(
 
         # Add spatial information to the neighborhood graph
         if "spatial" in adata.obsm:
-            await ctx.info(
-                "Adding spatial constraints to neighborhood graph..."
-            )
+            await ctx.info("Adding spatial constraints to neighborhood graph...")
 
             try:
-                if not SQUIDPY_AVAILABLE:
-                    # Squidpy is a core dependency for spatial analysis
-                    raise ImportError(
-                        "CRITICAL: squidpy is required for spatial domain analysis but not available.\n\n"
-                        "SCIENTIFIC INTEGRITY NOTICE:\n"
-                        "Spatial domain identification requires proper spatial neighbor graphs.\n"
-                        "Alternative methods would compromise scientific validity.\n\n"
-                        "SOLUTION:\n"
-                        "Install squidpy: pip install 'squidpy>=1.2.0'\n\n"
-                        "Cannot proceed with spatial domain analysis without squidpy."
-                    )
+                sq = require("squidpy", ctx, feature="spatial neighborhood graph")
 
                 # Use squidpy's scientifically validated spatial neighbors
                 sq.gr.spatial_neighbors(adata, coord_type="generic")
@@ -830,16 +732,14 @@ async def _identify_domains_stagate(
     clustered to define spatial domains. This method requires the `STAGATE_pyG`
     package.
     """
-    if not STAGATE_AVAILABLE:
-        raise ImportError(
-            "STAGATE_pyG is not installed. Please install it from: https://github.com/QIFEIDKN/STAGATE_pyG"
-        )
+    STAGATE_pyG = require(
+        "STAGATE_pyG", ctx, feature="STAGATE spatial domain identification"
+    )
+    import torch
 
     await ctx.info("Running STAGATE_pyG for spatial domain identification...")
 
     try:
-        import STAGATE_pyG
-        import torch
 
         # STAGATE_pyG works with preprocessed data
         adata_stagate = adata.copy()
@@ -872,9 +772,7 @@ async def _identify_domains_stagate(
         with concurrent.futures.ThreadPoolExecutor() as executor:
             timeout_seconds = params.timeout or 600
 
-            await ctx.info(
-                f"Running STAGATE with {timeout_seconds}s timeout"
-            )
+            await ctx.info(f"Running STAGATE with {timeout_seconds}s timeout")
 
             adata_stagate = await asyncio.wait_for(
                 loop.run_in_executor(
@@ -942,19 +840,17 @@ async def _identify_domains_graphst(
     relationships. The learned embeddings are then clustered to define spatial
     domains. This method requires the `GraphST` package.
     """
-    if not GRAPHST_AVAILABLE:
-        raise ImportError(
-            "GraphST is not installed. Please install it with: pip install GraphST"
-        )
+    require("GraphST", ctx, feature="GraphST spatial domain identification")
+    import asyncio
+    import concurrent.futures
+
+    import torch
+    from GraphST import GraphST
+    from GraphST.utils import clustering as graphst_clustering
 
     await ctx.info("Running GraphST for spatial domain identification...")
 
     try:
-        import asyncio
-        import concurrent.futures
-
-        import torch
-
         # GraphST works with preprocessed data
         adata_graphst = adata.copy()
 
@@ -966,9 +862,7 @@ async def _identify_domains_graphst(
                 device = torch.device("mps")
             else:
                 device = torch.device("cpu")
-                await ctx.warning(
-                    "GPU requested but not available. Using CPU instead."
-                )
+                await ctx.warning("GPU requested but not available. Using CPU instead.")
         else:
             device = torch.device("cpu")
         await ctx.info(f"Using device: {device}")
@@ -987,9 +881,7 @@ async def _identify_domains_graphst(
         )
 
         # Train model (this is blocking, run in executor)
-        await ctx.info(
-            "Training GraphST model (this may take a few minutes)..."
-        )
+        await ctx.info("Training GraphST model (this may take a few minutes)...")
 
         # Run training in thread pool to avoid blocking
         loop = asyncio.get_running_loop()
