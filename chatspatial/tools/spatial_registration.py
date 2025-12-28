@@ -11,10 +11,14 @@ import anndata as ad
 import numpy as np
 
 if TYPE_CHECKING:
-    pass
+    from ..spatial_mcp_adapter import ToolContext
 
-from ..utils.exceptions import (DataNotFoundError, DependencyError,
-                                ParameterError, ProcessingError)
+from ..utils.exceptions import (
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,22 +33,8 @@ class SpatialRegistration:
     - Spatial coordinate transformation
     """
 
-    def __init__(self):
-        """Initialize the SpatialRegistration tool."""
-        self.method_info = {
-            "paste": {
-                "name": "PASTE",
-                "description": "Probabilistic Alignment of Spatial Transcriptomics Experiments",
-                "reference": "Zeira et al., Nature Methods 2022",
-                "type": "python",
-            },
-            "stalign": {
-                "name": "STalign",
-                "description": "Spatial transcriptomics alignment using image registration",
-                "reference": "Clifton et al., bioRxiv 2023",
-                "type": "python",
-            },
-        }
+    # Supported registration methods
+    SUPPORTED_METHODS = {"paste", "stalign"}
 
     def register_slices(
         self,
@@ -72,9 +62,9 @@ class SpatialRegistration:
         List[ad.AnnData]
             List of registered AnnData objects with aligned coordinates
         """
-        if method not in self.method_info:
-            raise ValueError(
-                f"Unknown method: {method}. Available methods: {list(self.method_info.keys())}"
+        if method not in self.SUPPORTED_METHODS:
+            raise ParameterError(
+                f"Unknown method: {method}. Available methods: {list(self.SUPPORTED_METHODS)}"
             )
 
         logger.info(f"Performing spatial registration using {method}")
@@ -602,20 +592,19 @@ def register_spatial_slices(
 async def register_spatial_slices_mcp(
     source_id: str,
     target_id: str,
-    data_store: dict,
+    ctx: "ToolContext",
     method: str = "paste",
-    context=None,
 ) -> dict:
     """
     Register spatial slices following the standard MCP tool architecture.
 
     This function follows the standard pattern used by other tools:
-    - Accepts data IDs and data_store dictionary
-    - Extracts AnnData objects internally
+    - Accepts data IDs and ToolContext
+    - Retrieves AnnData objects via ctx.get_adata()
     - Returns results in standard format
 
     IMPORTANT - Data Modification Behavior:
-        This function replaces the original datasets in data_store with registered
+        This function modifies the original datasets in the data manager with registered
         versions containing aligned spatial coordinates. The original datasets are
         not preserved. This is consistent with other modifying tools (e.g., preprocessing).
 
@@ -624,14 +613,13 @@ async def register_spatial_slices_mcp(
     Memory Optimization:
         - No initial data copying at wrapper level (saves ~2.4 GB for typical Visium data)
         - Internal registration methods create necessary copies for algorithm safety
-        - Registered data replaces original data in data_store (no duplicate storage)
+        - Registered data replaces original data in data manager (no duplicate storage)
 
     Args:
         source_id: Source dataset ID
         target_id: Target dataset ID to align to
-        data_store: Dictionary containing dataset information
+        ctx: Tool context for data access and logging
         method: Registration method (paste, stalign)
-        context: MCP context for logging
 
     Returns:
         Dictionary with registration results including:
@@ -643,52 +631,47 @@ async def register_spatial_slices_mcp(
             - registration_completed: Boolean success flag
             - spatial_key_registered: Key for registered coordinates in obsm
     """
-    if context:
-        await context.info(
-            f"Registering {source_id} to {target_id} using method: {method}"
-        )
+    await ctx.info(f"Registering {source_id} to {target_id} using method: {method}")
 
-    # Validate data exists
-    if source_id not in data_store:
-        raise DataNotFoundError(f"Source dataset {source_id} not found in data store")
-    if target_id not in data_store:
-        raise DataNotFoundError(f"Target dataset {target_id} not found in data store")
-
-    # Extract AnnData objects (no copy - internal methods will create necessary copies)
-    # Memory optimization: Saves ~2.4 GB for typical Visium data
-    # Safe because register_slices() creates internal copies for algorithm safety
-    source_adata = data_store[source_id]["adata"]
-    target_adata = data_store[target_id]["adata"]
+    # Retrieve AnnData objects via ToolContext
+    # Note: ctx.get_adata() raises DataNotFoundError if not found
+    source_adata = await ctx.get_adata(source_id)
+    target_adata = await ctx.get_adata(target_id)
     adata_list = [source_adata, target_adata]
 
     try:
         # Call the core registration function
         registered_adata_list = register_spatial_slices(adata_list, method=method)
 
-        # Update data store with registered data
-        data_store[source_id]["adata"] = registered_adata_list[0]  # source (registered)
-        data_store[target_id]["adata"] = registered_adata_list[1]  # target (reference)
+        # Copy registered spatial coordinates back to original adata objects
+        # This ensures in-place modification since ctx.get_adata() returns references
+        if "spatial_registered" in registered_adata_list[0].obsm:
+            source_adata.obsm["spatial_registered"] = registered_adata_list[0].obsm[
+                "spatial_registered"
+            ]
+        if "spatial_registered" in registered_adata_list[1].obsm:
+            target_adata.obsm["spatial_registered"] = registered_adata_list[1].obsm[
+                "spatial_registered"
+            ]
 
         # Create result dictionary
         result = {
             "method": method,
             "source_id": source_id,
             "target_id": target_id,
-            "n_source_spots": registered_adata_list[0].n_obs,
-            "n_target_spots": registered_adata_list[1].n_obs,
+            "n_source_spots": source_adata.n_obs,
+            "n_target_spots": target_adata.n_obs,
             "registration_completed": True,
             "spatial_key_registered": "spatial_registered",
         }
 
-        if context:
-            await context.info(
-                "Registration completed. Registered coordinates stored in 'spatial_registered' key."
-            )
+        await ctx.info(
+            "Registration completed. Registered coordinates stored in 'spatial_registered' key."
+        )
 
         return result
 
     except Exception as e:
         error_msg = f"Registration failed: {str(e)}"
-        if context:
-            await context.error(error_msg)
+        await ctx.error(error_msg)
         raise ProcessingError(error_msg) from e

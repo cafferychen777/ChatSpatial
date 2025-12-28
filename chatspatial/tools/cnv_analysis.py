@@ -2,26 +2,25 @@
 Copy Number Variation (CNV) analysis tools for spatial transcriptomics data.
 """
 
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import scanpy as sc
-from mcp.server.fastmcp import Context
+
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import CNVResult
 from ..models.data import CNVParameters
 from ..utils import validate_obs_column
-from ..utils.exceptions import (DataCompatibilityError, DataNotFoundError,
-                                DependencyError, ParameterError,
-                                ProcessingError)
-
-# Dependency checking for infercnvpy
-try:
-    import infercnvpy as cnv
-
-    INFERCNVPY_AVAILABLE = True
-except ImportError:
-    INFERCNVPY_AVAILABLE = False
+from ..utils.dependency_manager import is_available, require
+from ..utils.exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 # Numbat availability is checked lazily in _infer_cnv_numbat to avoid
 # import-time failures when rpy2/R is not installed
@@ -29,9 +28,8 @@ except ImportError:
 
 async def infer_cnv(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: "ToolContext",
     params: CNVParameters,
-    context: Optional[Context] = None,
 ) -> CNVResult:
     """Infer copy number variations using selected method
 
@@ -41,9 +39,8 @@ async def infer_cnv(
 
     Args:
         data_id: Dataset identifier
-        data_store: Dictionary storing loaded datasets
+        ctx: Tool context for data access and logging
         params: CNV analysis parameters including method selection
-        context: MCP context for logging
 
     Returns:
         CNVResult containing method-specific CNV analysis results
@@ -52,11 +49,8 @@ async def infer_cnv(
         ValueError: If dataset not found or parameters are invalid
         RuntimeError: If selected method is not available
     """
-    # Retrieve the AnnData object from data store
-    if data_id not in data_store:
-        raise DataNotFoundError(f"Dataset '{data_id}' not found in data store")
-
-    adata = data_store[data_id]["adata"]
+    # Retrieve the AnnData object via ToolContext
+    adata = await ctx.get_adata(data_id)
 
     # Validate common parameters
     validate_obs_column(adata, params.reference_key, "Reference cell type key")
@@ -72,9 +66,9 @@ async def infer_cnv(
 
     # Dispatch to appropriate method
     if params.method == "infercnvpy":
-        return await _infer_cnv_infercnvpy(data_id, data_store, params, context)
+        return await _infer_cnv_infercnvpy(data_id, adata, params, ctx)
     elif params.method == "numbat":
-        return await _infer_cnv_numbat(data_id, data_store, params, context)
+        return await _infer_cnv_numbat(data_id, adata, params, ctx)
     else:
         raise ParameterError(
             f"Unknown CNV method: {params.method}. "
@@ -84,9 +78,9 @@ async def infer_cnv(
 
 async def _infer_cnv_infercnvpy(
     data_id: str,
-    data_store: Dict[str, Any],
+    adata,
     params: CNVParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> CNVResult:
     """Infer copy number variations using infercnvpy
 
@@ -95,40 +89,31 @@ async def _infer_cnv_infercnvpy(
     gene expression patterns across chromosomes between tumor and normal cells.
 
     Args:
-        data_id: Dataset identifier
-        data_store: Dictionary storing loaded datasets
+        data_id: Dataset identifier (for result creation)
+        adata: AnnData object (already retrieved via ctx.get_adata)
         params: CNV analysis parameters
-        context: MCP context for logging
+        ctx: Tool context for logging
 
     Returns:
         CNVResult containing CNV analysis results and statistics
     """
-    # Check if infercnvpy is available
-    if not INFERCNVPY_AVAILABLE:
-        raise DependencyError(
-            "infercnvpy is not installed. Please install it with:\n"
-            "  pip install 'chatspatial[cnv]'\n"
-            "or:\n"
-            "  pip install infercnvpy>=0.4.0"
-        )
+    # Check if infercnvpy is available using centralized dependency manager
+    require("infercnvpy", ctx, feature="CNV analysis")
+    import infercnvpy as cnv
 
-    # Note: data_id, reference_key, and reference_categories are already
-    # validated in infer_cnv() before dispatch - no need to re-validate
-    adata = data_store[data_id]["adata"]
+    # Note: adata is already validated in infer_cnv() before dispatch
 
-    if context:
-        await context.info(
-            f"Running CNV inference with {len(params.reference_categories)} "
-            f"reference cell types: {', '.join(params.reference_categories)}"
-        )
+    await ctx.info(
+        f"Running CNV inference with {len(params.reference_categories)} "
+        f"reference cell types: {', '.join(params.reference_categories)}"
+    )
 
     # Create a copy of adata for CNV analysis
     adata_cnv = adata.copy()
 
     # Check if gene position information is available
     if "chromosome" not in adata_cnv.var.columns:
-        if context:
-            await context.warning(
+        await ctx.warning(
                 "No chromosome information found in adata.var. "
                 "Attempting to infer from gene names..."
             )
@@ -152,8 +137,8 @@ async def _infer_cnv_infercnvpy(
             ) from e
     else:
         # Gene positions are available, run CNV inference
-        if context:
-            await context.info("Running infercnvpy CNV inference...")
+        if ctx:
+            await ctx.info("Running infercnvpy CNV inference...")
 
         # Exclude chromosomes if specified
         if params.exclude_chromosomes:
@@ -161,8 +146,8 @@ async def _infer_cnv_infercnvpy(
                 params.exclude_chromosomes
             )
             adata_cnv = adata_cnv[:, genes_to_keep].copy()
-            if context:
-                await context.info(
+            if ctx:
+                await ctx.info(
                     f"Excluded chromosomes: {', '.join(params.exclude_chromosomes)}"
                 )
 
@@ -178,31 +163,31 @@ async def _infer_cnv_infercnvpy(
 
     # Optional: Cluster cells by CNV pattern
     if params.cluster_cells:
-        if context:
-            await context.info("Clustering cells by CNV pattern...")
+        if ctx:
+            await ctx.info("Clustering cells by CNV pattern...")
         try:
             sc.pp.neighbors(adata_cnv, use_rep="X_cnv", n_neighbors=15)
             sc.tl.leiden(adata_cnv, key_added="cnv_clusters")
-            if context:
+            if ctx:
                 n_clusters = len(adata_cnv.obs["cnv_clusters"].unique())
-                await context.info(f"Identified {n_clusters} CNV-based clusters")
+                await ctx.info(f"Identified {n_clusters} CNV-based clusters")
         except Exception as e:
-            if context:
-                await context.warning(f"Failed to cluster cells by CNV: {str(e)}")
+            if ctx:
+                await ctx.warning(f"Failed to cluster cells by CNV: {str(e)}")
 
     # Optional: Compute dendrogram
     if params.dendrogram and params.cluster_cells:
-        if context:
-            await context.info("Computing hierarchical clustering dendrogram...")
+        if ctx:
+            await ctx.info("Computing hierarchical clustering dendrogram...")
         try:
             sc.tl.dendrogram(adata_cnv, groupby="cnv_clusters")
         except Exception as e:
-            if context:
-                await context.warning(f"Failed to compute dendrogram: {str(e)}")
+            if ctx:
+                await ctx.warning(f"Failed to compute dendrogram: {str(e)}")
 
     # Extract CNV statistics
-    if context:
-        await context.info("Extracting CNV statistics...")
+    if ctx:
+        await ctx.info("Extracting CNV statistics...")
 
     # Check what data is available
     cnv_score_key = None
@@ -303,8 +288,8 @@ async def _infer_cnv_infercnvpy(
         "cnv_score_key": cnv_score_key,
     }
 
-    if context:
-        await context.info(
+    if ctx:
+        await ctx.info(
             f"CNV analysis complete. Analyzed {n_genes_analyzed} genes "
             f"across {n_chromosomes} chromosomes."
         )
@@ -324,9 +309,9 @@ async def _infer_cnv_infercnvpy(
 
 async def _infer_cnv_numbat(
     data_id: str,
-    data_store: Dict[str, Any],
+    adata,
     params: CNVParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> CNVResult:
     """Infer copy number variations using Numbat (haplotype-aware)
 
@@ -335,10 +320,10 @@ async def _infer_cnv_numbat(
     reconstruction of tumor phylogeny.
 
     Args:
-        data_id: Dataset identifier
-        data_store: Dictionary storing loaded datasets
+        data_id: Dataset identifier (for result creation)
+        adata: AnnData object (already retrieved via ctx.get_adata)
         params: CNV analysis parameters
-        context: MCP context for logging
+        ctx: Tool context for logging
 
     Returns:
         CNVResult containing Numbat CNV analysis results
@@ -348,6 +333,7 @@ async def _infer_cnv_numbat(
         ValueError: If dataset or parameters are invalid
     """
     # Lazy import and check for Numbat availability
+    # Note: Numbat requires rpy2 + R + Numbat R package - cannot use centralized manager
     try:
         import anndata2ri
         import rpy2.robjects as ro
@@ -370,17 +356,12 @@ async def _infer_cnv_numbat(
             "  R -e \"devtools::install_github('kharchenkolab/numbat')\""
         ) from e
 
-    # Retrieve the AnnData object from data store
-    if data_id not in data_store:
-        raise DataNotFoundError(f"Dataset '{data_id}' not found in data store")
+    # Note: adata is already retrieved in infer_cnv() before dispatch
 
-    adata = data_store[data_id]["adata"]
-
-    if context:
-        await context.info(
-            f"Running Numbat CNV inference (haplotype-aware) with genome: "
-            f"{params.numbat_genome}"
-        )
+    await ctx.info(
+        f"Running Numbat CNV inference (haplotype-aware) with genome: "
+        f"{params.numbat_genome}"
+    )
 
     # Validate allele data exists
     # Numbat requires long-format allele dataframe (from pileup_and_phase or similar)
@@ -391,8 +372,8 @@ async def _infer_cnv_numbat(
 
         df_allele = adata.uns["numbat_allele_data_raw"]
 
-        if context:
-            await context.info(
+        if ctx:
+            await ctx.info(
                 f"Found Numbat allele dataframe in adata.uns['numbat_allele_data_raw']\n"
                 f"  - {len(df_allele)} SNP-cell pairs"
             )
@@ -440,9 +421,9 @@ async def _infer_cnv_numbat(
 
     # Log sparse vs dense matrix info
     is_sparse = sp.issparse(count_mat)
-    if context:
+    if ctx:
         matrix_type = "sparse" if is_sparse else "dense"
-        await context.info(
+        await ctx.info(
             f"Preparing Numbat analysis:\n"
             f"  - {len(cell_barcodes)} cells × {len(gene_names)} genes\n"
             f"  - {len(ref_indices_r)} reference cells\n"
@@ -469,12 +450,12 @@ async def _infer_cnv_numbat(
                 + numpy2ri.converter
             ):
                 # Transfer data to R environment (inside context!)
-                if context:
+                if ctx:
                     transfer_msg = (
                         f"Using anndata2ri for {'sparse' if is_sparse else 'dense'} matrix transfer to Numbat\n"
                         f"  (spatial: ({count_mat.shape[0]}, {count_mat.shape[1]}))"
                     )
-                    await context.info(transfer_msg)
+                    await ctx.info(transfer_msg)
 
                 ro.globalenv["count_mat"] = count_mat.T  # R expects genes × cells
                 ro.globalenv["df_allele_python"] = (
@@ -493,8 +474,8 @@ async def _infer_cnv_numbat(
                 ro.globalenv["ncores"] = params.numbat_ncores
                 ro.globalenv["skip_nj"] = params.numbat_skip_nj
 
-                if context:
-                    await context.info(
+                if ctx:
+                    await ctx.info(
                         "Running Numbat analysis (this may take several minutes)..."
                     )
 
@@ -549,8 +530,8 @@ async def _infer_cnv_numbat(
                     """
                 )
 
-        if context:
-            await context.info("Numbat analysis complete. Reading output files...")
+        if ctx:
+            await ctx.info("Numbat analysis complete. Reading output files...")
 
         # Read results from output files (Numbat saves to TSV files, not R objects)
         import pandas as pd
@@ -585,8 +566,8 @@ async def _infer_cnv_numbat(
         tree_file = os.path.join(out_dir, "tree_final_2.rds")
         has_phylo = os.path.exists(tree_file)
 
-        if context:
-            await context.info(
+        if ctx:
+            await ctx.info(
                 f"Results extracted:\n"
                 f"  - Clone assignments: {len(clone_post)} cells\n"
                 f"  - CNV segments: {geno.shape[1] - 1} segments\n"
@@ -682,8 +663,8 @@ async def _infer_cnv_numbat(
             "cnv_score_key": "X_cnv_numbat",
         }
 
-        if context:
-            await context.info(
+        if ctx:
+            await ctx.info(
                 f"Numbat CNV analysis complete:\n"
                 f"  - Detected {statistics['n_clones']} clones\n"
                 f"  - Mean P(CNV): {statistics['mean_p_cnv']:.3f}\n"
@@ -704,12 +685,12 @@ async def _infer_cnv_numbat(
         if os.path.exists(out_dir):
             try:
                 shutil.rmtree(out_dir)
-                if context:
-                    await context.info(f"Cleaned up temporary directory: {out_dir}")
+                if ctx:
+                    await ctx.info(f"Cleaned up temporary directory: {out_dir}")
             except Exception as cleanup_error:
                 # Log but don't fail if cleanup fails
-                if context:
-                    await context.info(
+                if ctx:
+                    await ctx.info(
                         f"Warning: Failed to cleanup temp dir: {cleanup_error}"
                     )
 
