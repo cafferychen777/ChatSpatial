@@ -19,16 +19,6 @@ from ..utils.dependency_manager import (
 )
 from ..utils.mcp_utils import mcp_tool_error_handler
 
-# Module-level placeholders for optional dependencies (lazily loaded)
-# Use get_dependency() in functions to actually import these modules
-scvi = None  # Lazily loaded via get_dependency("scvi-tools")
-torch = None  # Lazily loaded via get_dependency("torch")
-scv = None  # Lazily loaded via get_dependency("scvelo")
-spg = None  # Lazily loaded via get_dependency("SpaGCN")
-
-MIN_KMEANS_CLUSTERS = 2
-MAX_TSNE_PCA_COMPONENTS = 50
-
 
 def _should_use_all_genes_for_hvg(adata) -> bool:
     """
@@ -90,12 +80,8 @@ async def preprocess_data(
         # Must be done BEFORE any gene-based operations (QC, HVG selection, etc.)
         if not adata.var_names.is_unique:
             n_duplicates = len(adata.var_names) - len(set(adata.var_names))
-            await ctx.warning(
-                f"Found {n_duplicates} duplicate gene names in data"
-            )
-            await ctx.info(
-                "Fixing duplicate gene names with unique suffixes..."
-            )
+            await ctx.warning(f"Found {n_duplicates} duplicate gene names in data")
+            await ctx.info("Fixing duplicate gene names with unique suffixes...")
             adata.var_names_make_unique()
             await ctx.info(f"Fixed {n_duplicates} duplicate gene names")
 
@@ -147,9 +133,11 @@ async def preprocess_data(
             if n_genes > 1 and (n_genes - 1) not in safe_percent_top:
                 safe_percent_top.append(n_genes - 1)
 
-            safe_percent_top = sorted(set(safe_percent_top)) if safe_percent_top else None
+            safe_percent_top = (
+                sorted(set(safe_percent_top)) if safe_percent_top else None
+            )
 
-            if safe_percent_top != default_percent_top[:len(safe_percent_top)]:
+            if safe_percent_top != default_percent_top[: len(safe_percent_top)]:
                 await ctx.info(
                     f"Small dataset ({n_genes} genes): using percent_top={safe_percent_top}"
                 )
@@ -284,8 +272,12 @@ async def preprocess_data(
             "gene_annotations": {
                 "mt_column": "mt" if "mt" in adata.var.columns else None,
                 "ribo_column": "ribo" if "ribo" in adata.var.columns else None,
-                "n_mt_genes": int(adata.var["mt"].sum()) if "mt" in adata.var.columns else 0,
-                "n_ribo_genes": int(adata.var["ribo"].sum()) if "ribo" in adata.var.columns else 0,
+                "n_mt_genes": (
+                    int(adata.var["mt"].sum()) if "mt" in adata.var.columns else 0
+                ),
+                "n_ribo_genes": (
+                    int(adata.var["ribo"].sum()) if "ribo" in adata.var.columns else 0
+                ),
             },
         }
 
@@ -315,9 +307,7 @@ async def preprocess_data(
             )
         ctx.log_config("Normalization Configuration", norm_config)
 
-        await ctx.info(
-            f"Normalizing data using {params.normalization} method..."
-        )
+        await ctx.info(f"Normalizing data using {params.normalization} method...")
 
         if params.normalization == "log":
             # Standard log normalization
@@ -348,9 +338,7 @@ async def preprocess_data(
                 sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
             else:
                 # Calculate median and inform user transparently
-                calculated_median = np.median(
-                    np.array(adata.X.sum(axis=1)).flatten()
-                )
+                calculated_median = np.median(np.array(adata.X.sum(axis=1)).flatten())
                 await ctx.info(
                     f"normalize_target_sum not specified. Using adaptive normalization:\n"
                     f"   • Calculated median counts: {calculated_median:.0f}\n"
@@ -428,20 +416,12 @@ async def preprocess_data(
                 # Transfer sparse matrix components to R
                 with localconverter(ro.default_converter + numpy2ri.converter):
                     ro.globalenv["sp_data"] = counts_sparse.data.astype(np.float64)
-                    ro.globalenv["sp_indices"] = counts_sparse.indices.astype(
-                        np.int32
-                    )
-                    ro.globalenv["sp_indptr"] = counts_sparse.indptr.astype(
-                        np.int32
-                    )
+                    ro.globalenv["sp_indices"] = counts_sparse.indices.astype(np.int32)
+                    ro.globalenv["sp_indptr"] = counts_sparse.indptr.astype(np.int32)
                     ro.globalenv["n_genes"] = counts_sparse.shape[0]
                     ro.globalenv["n_cells"] = counts_sparse.shape[1]
-                    ro.globalenv["gene_names"] = ro.StrVector(
-                        adata.var_names.tolist()
-                    )
-                    ro.globalenv["cell_names"] = ro.StrVector(
-                        adata.obs_names.tolist()
-                    )
+                    ro.globalenv["gene_names"] = ro.StrVector(adata.var_names.tolist())
+                    ro.globalenv["cell_names"] = ro.StrVector(adata.obs_names.tolist())
                     ro.globalenv["vst_flavor"] = vst_flavor
                     ro.globalenv["n_cells_param"] = (
                         params.sct_n_cells if params.sct_n_cells else ro.NULL
@@ -534,9 +514,9 @@ async def preprocess_data(
                 n_hvg = min(params.sct_var_features_n, len(residual_variance))
                 top_hvg_indices = np.argsort(residual_variance)[-n_hvg:]
                 adata.var["highly_variable"] = False
-                adata.var.iloc[top_hvg_indices, adata.var.columns.get_loc(
-                    "highly_variable"
-                )] = True
+                adata.var.iloc[
+                    top_hvg_indices, adata.var.columns.get_loc("highly_variable")
+                ] = True
 
                 await ctx.info(
                     f"[OK]SCTransform: {n_hvg} highly variable genes identified"
@@ -613,9 +593,7 @@ async def preprocess_data(
                 )
         elif params.normalization == "none":
             # Explicitly skip normalization
-            await ctx.info(
-                "Skipping normalization (data assumed to be pre-normalized)"
-            )
+            await ctx.info("Skipping normalization (data assumed to be pre-normalized)")
 
             # CRITICAL: Check if data appears to be raw counts
             # HVG selection requires normalized data for statistical validity
@@ -649,17 +627,8 @@ async def preprocess_data(
         elif params.normalization == "scvi":
             # scVI deep learning-based normalization
             # Uses variational autoencoder to learn latent representation
-            if scvi is None:
-                error_msg = (
-                    "scVI normalization requires scvi-tools package.\n\n"
-                    "INSTALLATION:\n"
-                    "  pip install scvi-tools\n\n"
-                    "ALTERNATIVES:\n"
-                    "• Use normalization='log' (standard method)\n"
-                    "• Use normalization='pearson_residuals' (variance-stabilizing)"
-                )
-                await ctx.error(error_msg)
-                raise ImportError(error_msg)
+            require("scvi", feature="scVI normalization")
+            import scvi
 
             # Check if data appears to be raw counts (required for scVI)
             if scipy.sparse.issparse(adata.X):
@@ -763,9 +732,7 @@ async def preprocess_data(
                     f"[OK]scVI: Latent representation stored in X_scvi "
                     f"(shape: {adata.obsm['X_scvi'].shape})"
                 )
-                await ctx.info(
-                    "[OK]scVI: Normalized expression stored in adata.X"
-                )
+                await ctx.info("[OK]scVI: Normalized expression stored in adata.X")
 
             except Exception as e:
                 error_msg = f"scVI normalization failed: {str(e)}"
@@ -886,9 +853,7 @@ async def preprocess_data(
 
             # Use properly identified HVGs
             adata = adata[:, adata.var["highly_variable"]].copy()
-            await ctx.info(
-                f"Subsampled to {adata.n_vars} highly variable genes"
-            )
+            await ctx.info(f"Subsampled to {adata.n_vars} highly variable genes")
 
         # 5. Batch effect correction (if applicable)
         if (
@@ -902,7 +867,9 @@ async def preprocess_data(
                 # Use Harmony for batch correction (modern standard, works on PCA space)
                 # Harmony is more robust than ComBat for single-cell/spatial data
                 # Use centralized dependency manager for consistent error handling
-                require("harmonypy")  # Raises ImportError with install instructions if missing
+                require(
+                    "harmonypy"
+                )  # Raises ImportError with install instructions if missing
                 import scanpy.external as sce
 
                 # Harmony requires PCA to be computed first
@@ -910,9 +877,7 @@ async def preprocess_data(
                     sc.tl.pca(adata, n_comps=min(50, adata.n_vars - 1))
 
                 sce.pp.harmony_integrate(adata, key=params.batch_key)
-                await ctx.info(
-                    "Batch effect correction completed using Harmony"
-                )
+                await ctx.info("Batch effect correction completed using Harmony")
             except Exception as e:
                 # Harmony failed - raise error, don't silently continue
                 raise RuntimeError(
@@ -957,9 +922,7 @@ async def preprocess_data(
                         )
 
             except Exception as e:
-                await ctx.warning(
-                    f"Scaling failed: {e}. Continuing without scaling."
-                )
+                await ctx.warning(f"Scaling failed: {e}. Continuing without scaling.")
 
         # 7. Run PCA (skip if scVI was used - it provides its own latent representation)
         scvi_used = params.normalization == "scvi" and "X_scvi" in adata.obsm
@@ -1023,9 +986,7 @@ async def preprocess_data(
                 f"   • General guidelines: 5-50 (UMAP), 10-15 default (Scanpy)"
             )
 
-        await ctx.info(
-            f"Using n_neighbors: {n_neighbors} (Scanpy industry standard)"
-        )
+        await ctx.info(f"Using n_neighbors: {n_neighbors} (Scanpy industry standard)")
 
         if scvi_used:
             await ctx.info(
@@ -1054,9 +1015,7 @@ async def preprocess_data(
             resolution = params.clustering_resolution
             await ctx.info(f"Using clustering resolution: {resolution}")
 
-            await ctx.info(
-                f"Using Leiden clustering with resolution {resolution}..."
-            )
+            await ctx.info(f"Using Leiden clustering with resolution {resolution}...")
 
             sc.tl.leiden(adata, resolution=resolution, key_added=params.cluster_key)
 
@@ -1099,9 +1058,7 @@ async def preprocess_data(
                         # Use default parameters if spatial key is in uns but not in obsm
                         sq.gr.spatial_neighbors(adata)
             except Exception as e:
-                await ctx.warning(
-                    f"Could not compute spatial neighbors: {str(e)}"
-                )
+                await ctx.warning(f"Could not compute spatial neighbors: {str(e)}")
                 await ctx.info("Continuing without spatial neighbors...")
 
         # Store the processed AnnData object back via ToolContext
