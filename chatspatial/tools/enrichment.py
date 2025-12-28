@@ -16,9 +16,9 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
+from ..utils.adata_utils import store_analysis_metadata
 from ..utils.dependency_manager import is_available
-from ..utils.error_handling import ProcessingError
-from ..utils.metadata_storage import store_analysis_metadata
+from ..utils.exceptions import DependencyError, ParameterError, ProcessingError
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +126,38 @@ def _filter_significant_statistics(
     )
 
     return filtered_stats, filtered_scores, filtered_pvals, filtered_adj_pvals
+
+
+# ============================================================================
+# GENE SET UTILITIES
+# ============================================================================
+
+
+def _filter_gene_sets_by_size(
+    gene_sets: Dict[str, List[str]], min_size: int, max_size: int
+) -> Dict[str, List[str]]:
+    """
+    Filter gene sets by size constraints.
+
+    Parameters
+    ----------
+    gene_sets : Dict[str, List[str]]
+        Dictionary mapping gene set names to gene lists
+    min_size : int
+        Minimum number of genes required
+    max_size : int
+        Maximum number of genes allowed
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        Filtered gene sets within size constraints
+    """
+    return {
+        name: genes
+        for name, genes in gene_sets.items()
+        if min_size <= len(genes) <= max_size
+    }
 
 
 # ============================================================================
@@ -288,7 +320,7 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
 
     if database_name not in mapping:
         available_options = list(mapping.keys())
-        raise ValueError(
+        raise ParameterError(
             f"Unknown gene set database: {database_name}. "
             f"Available options: {available_options}"
         )
@@ -352,7 +384,7 @@ async def perform_gsea(
     """
     is_available, error_msg = is_gseapy_available()
     if not is_available:
-        raise ImportError(error_msg)
+        raise DependencyError(error_msg)
 
     import gseapy as gp
 
@@ -763,8 +795,6 @@ async def perform_ora(
 
     # Save results to adata.uns for visualization
     # Create DataFrame for visualization compatibility
-    import pandas as pd
-
     ora_df = pd.DataFrame(
         {
             "pathway": list(enrichment_scores.keys()),
@@ -882,7 +912,7 @@ async def perform_ssgsea(
     """
     is_available, error_msg = is_gseapy_available()
     if not is_available:
-        raise ImportError(error_msg)
+        raise DependencyError(error_msg)
 
     import gseapy as gp
 
@@ -1054,7 +1084,7 @@ async def perform_enrichr(
     """
     is_available, error_msg = is_gseapy_available()
     if not is_available:
-        raise ImportError(error_msg)
+        raise DependencyError(error_msg)
 
     import gseapy as gp
 
@@ -1549,10 +1579,7 @@ def load_msigdb_gene_sets(
             )
 
         # Filter by size
-        filtered_sets = {}
-        for name, genes in gene_sets_dict.items():
-            if min_size <= len(genes) <= max_size:
-                filtered_sets[name] = genes
+        filtered_sets = _filter_gene_sets_by_size(gene_sets_dict, min_size, max_size)
 
         logger.info(f"Loaded {len(filtered_sets)} gene sets from MSigDB {collection}")
         return filtered_sets
@@ -1595,7 +1622,7 @@ def load_go_gene_sets(
     }
 
     if aspect not in aspect_map:
-        raise ValueError(f"Invalid GO aspect: {aspect}")
+        raise ParameterError(f"Invalid GO aspect: {aspect}")
 
     try:
         import gseapy as gp
@@ -1604,10 +1631,7 @@ def load_go_gene_sets(
         gene_sets = gp.get_library(aspect_map[aspect], organism=organism)
 
         # Filter by size
-        filtered_sets = {}
-        for name, genes in gene_sets.items():
-            if min_size <= len(genes) <= max_size:
-                filtered_sets[name] = genes
+        filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
 
         logger.info(f"Loaded {len(filtered_sets)} GO {aspect} gene sets")
         return filtered_sets
@@ -1648,10 +1672,7 @@ def load_kegg_gene_sets(
             gene_sets = gp.get_library("KEGG_2019_Mouse", organism=organism)
 
         # Filter by size
-        filtered_sets = {}
-        for name, genes in gene_sets.items():
-            if min_size <= len(genes) <= max_size:
-                filtered_sets[name] = genes
+        filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
 
         logger.info(f"Loaded {len(filtered_sets)} KEGG pathways")
         return filtered_sets
@@ -1728,10 +1749,7 @@ def load_cell_marker_gene_sets(
         gene_sets = gp.get_library("CellMarker_Augmented_2021", organism=organism)
 
         # Filter by size
-        filtered_sets = {}
-        for name, genes in gene_sets.items():
-            if min_size <= len(genes) <= max_size:
-                filtered_sets[name] = genes
+        filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
 
         logger.info(f"Loaded {len(filtered_sets)} cell type marker sets")
         return filtered_sets
@@ -1798,7 +1816,7 @@ async def load_gene_sets(
     }
 
     if database not in database_map:
-        raise ValueError(
+        raise ParameterError(
             f"Unknown database: {database}. Available: {list(database_map.keys())}"
         )
 

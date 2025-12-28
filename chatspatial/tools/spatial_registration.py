@@ -5,10 +5,16 @@ This module provides functionality for aligning and registering multiple spatial
 """
 
 import logging
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import anndata as ad
 import numpy as np
+
+if TYPE_CHECKING:
+    pass
+
+from ..utils.exceptions import (DataNotFoundError, DependencyError,
+                                ParameterError, ProcessingError)
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +84,7 @@ class SpatialRegistration:
         elif method == "stalign":
             return self._register_with_stalign(adata_list, reference_idx, **kwargs)
         else:
-            raise NotImplementedError(f"Method {method} not yet implemented")
+            raise ParameterError(f"Method {method} not yet implemented")
 
     def _register_with_paste(
         self,
@@ -116,7 +122,7 @@ class SpatialRegistration:
             import paste as pst
         except ImportError:
             logger.error("PASTE not installed. Install with: pip install paste-bio")
-            raise ImportError("Please install paste-bio: pip install paste-bio")
+            raise DependencyError("Please install paste-bio: pip install paste-bio")
 
         if reference_idx is None:
             reference_idx = 0
@@ -128,7 +134,7 @@ class SpatialRegistration:
         # Ensure all slices have spatial coordinates
         for i, adata in enumerate(registered_list):
             if "spatial" not in adata.obsm:
-                raise ValueError(
+                raise ParameterError(
                     f"Slice {i} missing spatial coordinates in obsm['spatial']"
                 )
 
@@ -306,7 +312,7 @@ class SpatialRegistration:
             logger.error(
                 "STalign not available. Install with: pip install git+https://github.com/JEFworks-Lab/STalign.git"
             )
-            raise ImportError("STalign is required for STalign registration")
+            raise DependencyError("STalign is required for STalign registration")
 
         logger.info("Starting STalign diffeomorphic registration")
 
@@ -341,7 +347,7 @@ class SpatialRegistration:
         # Ensure all slices have spatial coordinates
         for i, adata in enumerate(registered_list):
             if "spatial" not in adata.obsm:
-                raise ValueError(
+                raise ParameterError(
                     f"Slice {i} missing spatial coordinates in obsm['spatial']"
                 )
 
@@ -505,7 +511,7 @@ class SpatialRegistration:
 
                         logger.info("STalign LDDMM registration successful")
                     else:
-                        raise ValueError(
+                        raise ProcessingError(
                             "STalign did not return valid transformation components"
                         )
 
@@ -518,17 +524,17 @@ class SpatialRegistration:
                         f"or 3) Consider using PASTE method instead for more robust registration."
                     )
                     logger.error(error_msg)
-                    raise RuntimeError(error_msg)
+                    raise ProcessingError(error_msg) from stalign_error
 
             except Exception as e:
                 # Re-raise the error instead of masking it with fake success
                 error_msg = f"STalign registration failed: {e}. Please check your data or try PASTE method."
                 logger.error(error_msg)
-                raise RuntimeError(error_msg)
+                raise ProcessingError(error_msg) from e
 
         else:
             # Explicitly reject multi-slice registration instead of faking it
-            raise NotImplementedError(
+            raise ParameterError(
                 f"STalign does not support multi-slice registration ({len(registered_list)} slices provided). "
                 f"STalign only supports pairwise registration (2 slices). "
                 f"Please use pairwise registration or switch to PASTE method for multi-slice registration."
@@ -644,9 +650,9 @@ async def register_spatial_slices_mcp(
 
     # Validate data exists
     if source_id not in data_store:
-        raise ValueError(f"Source dataset {source_id} not found in data store")
+        raise DataNotFoundError(f"Source dataset {source_id} not found in data store")
     if target_id not in data_store:
-        raise ValueError(f"Target dataset {target_id} not found in data store")
+        raise DataNotFoundError(f"Target dataset {target_id} not found in data store")
 
     # Extract AnnData objects (no copy - internal methods will create necessary copies)
     # Memory optimization: Saves ~2.4 GB for typical Visium data
@@ -685,4 +691,4 @@ async def register_spatial_slices_mcp(
         error_msg = f"Registration failed: {str(e)}"
         if context:
             await context.error(error_msg)
-        raise RuntimeError(error_msg) from e
+        raise ProcessingError(error_msg) from e

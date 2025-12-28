@@ -11,6 +11,9 @@ from mcp.server.fastmcp import Context
 from ..models.analysis import CNVResult
 from ..models.data import CNVParameters
 from ..utils import validate_obs_column
+from ..utils.exceptions import (DataCompatibilityError, DataNotFoundError,
+                                DependencyError, ParameterError,
+                                ProcessingError)
 
 # Dependency checking for infercnvpy
 try:
@@ -20,19 +23,8 @@ try:
 except ImportError:
     INFERCNVPY_AVAILABLE = False
 
-# Dependency checking for Numbat (via rpy2)
-try:
-    import anndata2ri
-    import rpy2.robjects as ro
-    from rpy2.rinterface_lib import openrlib  # For thread safety
-    from rpy2.robjects import (conversion, default_converter, numpy2ri,
-                               pandas2ri)
-
-    # Test if Numbat R package is available
-    ro.r("library(numbat)")
-    NUMBAT_AVAILABLE = True
-except Exception:
-    NUMBAT_AVAILABLE = False
+# Numbat availability is checked lazily in _infer_cnv_numbat to avoid
+# import-time failures when rpy2/R is not installed
 
 
 async def infer_cnv(
@@ -62,7 +54,7 @@ async def infer_cnv(
     """
     # Retrieve the AnnData object from data store
     if data_id not in data_store:
-        raise ValueError(f"Dataset '{data_id}' not found in data store")
+        raise DataNotFoundError(f"Dataset '{data_id}' not found in data store")
 
     adata = data_store[data_id]["adata"]
 
@@ -72,7 +64,7 @@ async def infer_cnv(
     available_categories = set(adata.obs[params.reference_key].unique())
     missing_categories = set(params.reference_categories) - available_categories
     if missing_categories:
-        raise ValueError(
+        raise ParameterError(
             f"Reference categories {missing_categories} not found in "
             f"adata.obs['{params.reference_key}'].\n"
             f"Available categories: {sorted(available_categories)}"
@@ -84,7 +76,7 @@ async def infer_cnv(
     elif params.method == "numbat":
         return await _infer_cnv_numbat(data_id, data_store, params, context)
     else:
-        raise ValueError(
+        raise ParameterError(
             f"Unknown CNV method: {params.method}. "
             "Available methods: 'infercnvpy', 'numbat'"
         )
@@ -113,31 +105,16 @@ async def _infer_cnv_infercnvpy(
     """
     # Check if infercnvpy is available
     if not INFERCNVPY_AVAILABLE:
-        raise RuntimeError(
+        raise DependencyError(
             "infercnvpy is not installed. Please install it with:\n"
             "  pip install 'chatspatial[cnv]'\n"
             "or:\n"
             "  pip install infercnvpy>=0.4.0"
         )
 
-    # Retrieve the AnnData object from data store
-    if data_id not in data_store:
-        raise ValueError(f"Dataset '{data_id}' not found in data store")
-
+    # Note: data_id, reference_key, and reference_categories are already
+    # validated in infer_cnv() before dispatch - no need to re-validate
     adata = data_store[data_id]["adata"]
-
-    # Validate reference_key exists
-    validate_obs_column(adata, params.reference_key, "Reference cell type key")
-
-    # Validate reference_categories exist in the reference_key column
-    available_categories = set(adata.obs[params.reference_key].unique())
-    missing_categories = set(params.reference_categories) - available_categories
-    if missing_categories:
-        raise ValueError(
-            f"Reference categories {missing_categories} not found in "
-            f"adata.obs['{params.reference_key}'].\n"
-            f"Available categories: {sorted(available_categories)}"
-        )
 
     if context:
         await context.info(
@@ -166,13 +143,13 @@ async def _infer_cnv_infercnvpy(
                 dynamic_threshold=params.dynamic_threshold,
             )
         except Exception as e:
-            raise RuntimeError(
+            raise ProcessingError(
                 "Failed to run CNV inference. Gene position information is "
                 "required but not found in adata.var.\n"
                 "Please ensure your data includes chromosome and position "
                 "information, or use infercnvpy's built-in gene annotation.\n"
                 f"Error: {str(e)}"
-            )
+            ) from e
     else:
         # Gene positions are available, run CNV inference
         if context:
@@ -370,20 +347,32 @@ async def _infer_cnv_numbat(
         RuntimeError: If Numbat is not available or allele data is missing
         ValueError: If dataset or parameters are invalid
     """
-    # Check if Numbat is available
-    if not NUMBAT_AVAILABLE:
-        raise RuntimeError(
-            "Numbat is not available. Please ensure:\n"
-            "  1. rpy2 is installed: pip install rpy2\n"
-            "  2. Numbat R package is installed:\n"
-            "     R -e \"install.packages('numbat')\"\n"
-            "     or\n"
-            "     R -e \"devtools::install_github('kharchenkolab/numbat')\""
-        )
+    # Lazy import and check for Numbat availability
+    try:
+        import anndata2ri
+        import rpy2.robjects as ro
+        from rpy2.rinterface_lib import openrlib
+        from rpy2.robjects import (conversion, default_converter, numpy2ri,
+                                   pandas2ri)
+
+        # Test if Numbat R package is available
+        ro.r("suppressPackageStartupMessages(library(numbat))")
+    except ImportError as e:
+        raise DependencyError(
+            f"rpy2 is not installed: {e}\n" "Please install with: pip install rpy2"
+        ) from e
+    except Exception as e:
+        raise DependencyError(
+            f"Numbat R package is not available: {e}\n"
+            "Please ensure Numbat R package is installed:\n"
+            "  R -e \"install.packages('numbat')\"\n"
+            "  or\n"
+            "  R -e \"devtools::install_github('kharchenkolab/numbat')\""
+        ) from e
 
     # Retrieve the AnnData object from data store
     if data_id not in data_store:
-        raise ValueError(f"Dataset '{data_id}' not found in data store")
+        raise DataNotFoundError(f"Dataset '{data_id}' not found in data store")
 
     adata = data_store[data_id]["adata"]
 
@@ -413,7 +402,7 @@ async def _infer_cnv_numbat(
         missing_cols = [col for col in required_cols if col not in df_allele.columns]
 
         if missing_cols:
-            raise ValueError(
+            raise ParameterError(
                 f"Allele dataframe missing required columns: {missing_cols}\n"
                 f"Available columns: {list(df_allele.columns)}\n"
                 "Numbat requires: cell, CHROM, POS, REF, ALT, AD (alt count), "
@@ -422,7 +411,7 @@ async def _infer_cnv_numbat(
 
     else:
         # Fallback: try to use matrix format (less ideal for Numbat)
-        raise ValueError(
+        raise ParameterError(
             "Numbat requires long-format allele dataframe in adata.uns['numbat_allele_data_raw'].\n"
             "This should be created during data preparation (e.g., from pileup_and_phase).\n"
             "The dataframe should have columns: cell, CHROM, POS, REF, ALT, AD, DP, etc.\n"
@@ -444,7 +433,7 @@ async def _infer_cnv_numbat(
     ref_indices_r = [i + 1 for i in ref_indices_python]  # R is 1-indexed
 
     if not ref_indices_r:
-        raise ValueError(
+        raise ParameterError(
             f"No reference cells found with key '{params.reference_key}' and "
             f"categories {params.reference_categories}"
         )
@@ -569,7 +558,7 @@ async def _infer_cnv_numbat(
         # 1. Read clone posteriors (cell-level assignments)
         clone_post_file = os.path.join(out_dir, "clone_post_2.tsv")
         if not os.path.exists(clone_post_file):
-            raise FileNotFoundError(
+            raise DataNotFoundError(
                 f"Numbat output file not found: {clone_post_file}\n"
                 f"Expected output files in: {out_dir}"
             )
@@ -579,7 +568,7 @@ async def _infer_cnv_numbat(
         # 2. Read genotype matrix (CNV states per segment)
         geno_file = os.path.join(out_dir, "geno_2.tsv")
         if not os.path.exists(geno_file):
-            raise FileNotFoundError(
+            raise DataNotFoundError(
                 f"Numbat output file not found: {geno_file}\n"
                 f"Expected output files in: {out_dir}"
             )
@@ -615,7 +604,9 @@ async def _infer_cnv_numbat(
         geno_sorted_indices = [cell_order.get(cell, -1) for cell in geno_cells]
 
         if -1 in geno_sorted_indices:
-            raise ValueError("Mismatch between genotype cells and AnnData cells")
+            raise DataCompatibilityError(
+                "Mismatch between genotype cells and AnnData cells"
+            )
 
         # Reorder genotype matrix to match AnnData cell order
         cnv_matrix = np.zeros((len(cell_barcodes), geno_segments.shape[1]))
@@ -700,14 +691,14 @@ async def _infer_cnv_numbat(
             )
 
     except Exception as e:
-        raise RuntimeError(
+        raise ProcessingError(
             f"Numbat analysis failed: {str(e)}\n"
             "Common issues:\n"
             "  - Allele data format incompatible\n"
             "  - Missing genomic position information\n"
             "  - Insufficient reference cells\n"
             "  - R environment configuration issues"
-        )
+        ) from e
     finally:
         # Cleanup: Remove temporary output directory
         if os.path.exists(out_dir):
