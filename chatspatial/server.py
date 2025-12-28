@@ -1530,7 +1530,7 @@ async def analyze_enrichment(
                 species=species,
                 min_genes=params.min_genes,
                 max_genes=params.max_genes if hasattr(params, "max_genes") else 500,
-                context=context,
+                ctx=ctx,
             )
 
             if context:
@@ -1615,7 +1615,7 @@ async def analyze_enrichment(
                 max_size=params.max_genes,
                 species=params.species,
                 database=params.gene_set_database,
-                context=context,
+                ctx=ctx,
             )
             if context:
                 await context.info(
@@ -1630,7 +1630,7 @@ async def analyze_enrichment(
                 max_size=params.max_genes,
                 species=params.species,
                 database=params.gene_set_database,
-                context=context,
+                ctx=ctx,
             )
             if context:
                 await context.info(
@@ -1644,7 +1644,7 @@ async def analyze_enrichment(
                 max_size=params.max_genes,
                 species=params.species,
                 database=params.gene_set_database,
-                context=context,
+                ctx=ctx,
             )
             if context:
                 await context.info(
@@ -1671,7 +1671,7 @@ async def analyze_enrichment(
                 gene_list=gene_list,
                 gene_sets=params.gene_set_database,
                 organism=params.species,  # Use explicit species from params
-                context=context,
+                ctx=ctx,
             )
             if context:
                 await context.info(

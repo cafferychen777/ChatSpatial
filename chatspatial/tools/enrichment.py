@@ -7,12 +7,14 @@ This module provides both standard and spatially-aware enrichment analysis metho
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
-from mcp.server.fastmcp import Context
 from scipy import stats
+
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
@@ -350,7 +352,7 @@ async def perform_gsea(
     max_size: int = 500,
     species: Optional[str] = None,
     database: Optional[str] = None,
-    context=None,
+    ctx: "ToolContext" = None,
 ) -> "EnrichmentResult":
     """
     Perform Gene Set Enrichment Analysis (GSEA).
@@ -375,21 +377,21 @@ async def perform_gsea(
         Species for the analysis (e.g., 'mouse', 'human')
     database : Optional[str]
         Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
-    context : Optional
-        MCP context
+    ctx : ToolContext
+        MCP tool context for logging
 
     Returns
     -------
     Dict containing enrichment results
     """
-    is_available, error_msg = is_gseapy_available()
-    if not is_available:
+    gseapy_available, error_msg = is_gseapy_available()
+    if not gseapy_available:
         raise DependencyError(error_msg)
 
     import gseapy as gp
 
-    if context:
-        await context.info("Running GSEA analysis...")
+    if ctx:
+        await ctx.info("Running GSEA analysis...")
 
     # Prepare ranking
     if ranking_key and ranking_key in adata.var:
@@ -559,8 +561,8 @@ async def perform_gsea(
         )
 
         # Inform user about visualization options
-        if context:
-            await context.info(
+        if ctx:
+            await ctx.info(
                 "GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
             )
 
@@ -605,7 +607,7 @@ async def perform_ora(
     max_size: int = 500,
     species: Optional[str] = None,
     database: Optional[str] = None,
-    context=None,
+    ctx: "ToolContext" = None,
 ) -> "EnrichmentResult":
     """
     Perform Over-Representation Analysis (ORA).
@@ -628,8 +630,8 @@ async def perform_ora(
         Species for the analysis (e.g., 'mouse', 'human')
     database : Optional[str]
         Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
-    context : Optional
-        MCP context
+    ctx : ToolContext
+        MCP tool context for logging
 
     Returns
     -------
@@ -642,8 +644,8 @@ async def perform_ora(
     making a fixed threshold inappropriate. Gene filtering is the responsibility of
     differential expression analysis, not enrichment analysis.
     """
-    if context:
-        await context.info("Running Over-Representation Analysis...")
+    if ctx:
+        await ctx.info("Running Over-Representation Analysis...")
 
     # Get gene list if not provided
     if gene_list is None:
@@ -685,14 +687,14 @@ async def perform_ora(
 
             gene_list = degs
 
-            if context:
+            if ctx:
                 if pvals is not None:
-                    await context.info(
+                    await ctx.info(
                         f"Using {len(gene_list)} DEGs for ORA "
                         f"(filtered by p-value < {pvalue_threshold})"
                     )
                 else:
-                    await context.info(
+                    await ctx.info(
                         f"Using top {len(gene_list)} ranked genes for ORA "
                         "(no p-values available)"
                     )
@@ -736,8 +738,8 @@ async def perform_ora(
             if gene.upper() in gene_name_map:
                 query_genes.add(gene_name_map[gene.upper()])
 
-        if context and len(query_genes) > 0:
-            await context.info(
+        if ctx and len(query_genes) > 0:
+            await ctx.info(
                 f"Applied case-insensitive gene matching: "
                 f"{len(gene_list)} query genes → {len(query_genes)} matched"
             )
@@ -840,8 +842,8 @@ async def perform_ora(
     )
 
     # Inform user about visualization options
-    if context:
-        await context.info(
+    if ctx:
+        await ctx.info(
             "ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
         )
 
@@ -882,7 +884,7 @@ async def perform_ssgsea(
     max_size: int = 500,
     species: Optional[str] = None,
     database: Optional[str] = None,
-    context=None,
+    ctx: "ToolContext" = None,
 ) -> "EnrichmentResult":
     """
     Perform single-sample Gene Set Enrichment Analysis (ssGSEA).
@@ -903,21 +905,21 @@ async def perform_ssgsea(
         Species for the analysis (e.g., 'mouse', 'human')
     database : Optional[str]
         Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
-    context : Optional
-        MCP context
+    ctx : ToolContext
+        MCP tool context for logging
 
     Returns
     -------
     Dict containing enrichment results
     """
-    is_available, error_msg = is_gseapy_available()
-    if not is_available:
+    gseapy_available, error_msg = is_gseapy_available()
+    if not gseapy_available:
         raise DependencyError(error_msg)
 
     import gseapy as gp
 
-    if context:
-        await context.info("Running ssGSEA analysis...")
+    if ctx:
+        await ctx.info("Running ssGSEA analysis...")
 
     # Prepare expression data
     if hasattr(adata.X, "toarray"):
@@ -1062,7 +1064,7 @@ async def perform_enrichr(
     gene_list: List[str],
     gene_sets: Optional[str] = None,
     organism: str = "human",
-    context=None,
+    ctx: "ToolContext" = None,
 ) -> "EnrichmentResult":
     """
     Perform enrichment analysis using Enrichr web service.
@@ -1075,21 +1077,21 @@ async def perform_enrichr(
         Enrichr library name. If None, use default libraries
     organism : str
         Organism ('human' or 'mouse')
-    context : Optional
-        MCP context
+    ctx : ToolContext
+        MCP tool context for logging
 
     Returns
     -------
     Dict containing enrichment results
     """
-    is_available, error_msg = is_gseapy_available()
-    if not is_available:
+    gseapy_available, error_msg = is_gseapy_available()
+    if not gseapy_available:
         raise DependencyError(error_msg)
 
     import gseapy as gp
 
-    if context:
-        await context.info("Running Enrichr analysis...")
+    if ctx:
+        await ctx.info("Running Enrichr analysis...")
 
     # Default gene set libraries
     if gene_sets is None:
@@ -1227,7 +1229,7 @@ def is_enrichmap_available() -> Tuple[bool, str]:
 
 async def perform_spatial_enrichment(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: "ToolContext",
     gene_sets: Union[List[str], Dict[str, List[str]]],
     score_keys: Optional[Union[str, List[str]]] = None,
     spatial_key: str = "spatial",
@@ -1237,7 +1239,6 @@ async def perform_spatial_enrichment(
     batch_key: Optional[str] = None,
     species: str = "unknown",
     database: Optional[str] = None,
-    context: Optional[Context] = None,
 ) -> "EnrichmentResult":
     """
     Perform spatially-aware gene set enrichment analysis using EnrichMap.
@@ -1246,8 +1247,8 @@ async def perform_spatial_enrichment(
     ----------
     data_id : str
         Identifier for the spatial data in the data store
-    data_store : Dict[str, Any]
-        Dictionary containing the data
+    ctx : ToolContext
+        MCP tool context for data access and logging
     gene_sets : Union[List[str], Dict[str, List[str]]]
         Either a single gene list or a dictionary of gene sets where keys are
         signature names and values are lists of genes
@@ -1268,8 +1269,6 @@ async def perform_spatial_enrichment(
         Species for the analysis (e.g., 'mouse', 'human')
     database : Optional[str]
         Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
-    context : Optional[Context]
-        Execution context
 
     Returns
     -------
@@ -1282,18 +1281,15 @@ async def perform_spatial_enrichment(
         - summary_stats: Summary statistics for each signature
     """
     # Check if EnrichMap is available
-    is_available, error_msg = is_enrichmap_available()
-    if not is_available:
+    enrichmap_available, error_msg = is_enrichmap_available()
+    if not enrichmap_available:
         raise ProcessingError(f"EnrichMap is not available: {error_msg}")
 
     # Import EnrichMap
     import enrichmap as em
 
-    # Get data
-    if data_id not in data_store:
-        raise ProcessingError(f"Data '{data_id}' not found in data store")
-
-    adata = data_store[data_id]["adata"]
+    # Get data using standard ctx pattern
+    adata = await ctx.get_adata(data_id)
 
     # Validate spatial coordinates
     if spatial_key not in adata.obsm:
@@ -1324,8 +1320,8 @@ async def perform_spatial_enrichment(
             if len(dataset_format_genes) > len(common_genes):
                 # Format conversion helped, use dataset format genes for EnrichMap
                 common_genes = dataset_format_genes
-                if context:
-                    await context.info(
+                if ctx:
+                    await ctx.info(
                         f"Applied gene format conversion for '{sig_name}': "
                         f"{len(dataset_format_genes)}/{len(genes)} genes matched after conversion"
                     )
@@ -1356,8 +1352,8 @@ async def perform_spatial_enrichment(
 
     for sig_name, genes in validated_gene_sets.items():
         try:
-            if context:
-                await context.info(
+            if ctx:
+                await ctx.info(
                     f"Processing gene set '{sig_name}' with {len(genes)} genes"
                 )
 
@@ -1395,8 +1391,8 @@ async def perform_spatial_enrichment(
         sig: validated_gene_sets[sig] for sig in successful_signatures
     }
 
-    if context and failed_signatures:
-        await context.warning(
+    if ctx and failed_signatures:
+        await ctx.warning(
             f"Failed to process {len(failed_signatures)} gene sets: {[name for name, _ in failed_signatures]}"
         )
 
@@ -1449,8 +1445,8 @@ async def perform_spatial_enrichment(
     )
 
     # Inform user about visualization options
-    if context:
-        await context.info(
+    if ctx:
+        await ctx.info(
             "Spatial enrichment analysis complete. Use visualize_data with plot_type='pathway_enrichment' "
             "and subtype='spatial_score' (or 'spatial_correlogram', 'spatial_variogram', 'spatial_cross_correlation') to visualize results"
         )
@@ -1764,7 +1760,7 @@ async def load_gene_sets(
     species: str = "human",
     min_genes: int = 10,
     max_genes: int = 500,
-    context=None,
+    ctx: "ToolContext" = None,
 ) -> Dict[str, List[str]]:
     """
     Load gene sets from specified database.
@@ -1784,8 +1780,8 @@ async def load_gene_sets(
         Minimum gene set size
     max_genes : int
         Maximum gene set size
-    context : Optional
-        MCP context for logging
+    ctx : ToolContext
+        MCP tool context for logging
 
     Returns
     -------
@@ -1820,12 +1816,12 @@ async def load_gene_sets(
             f"Unknown database: {database}. Available: {list(database_map.keys())}"
         )
 
-    if context:
-        await context.info(f"Loading gene sets from {database} for {species}")
+    if ctx:
+        await ctx.info(f"Loading gene sets from {database} for {species}")
 
     gene_sets = database_map[database]()
 
-    if context:
-        await context.info(f"Loaded {len(gene_sets)} gene sets from {database}")
+    if ctx:
+        await ctx.info(f"Loaded {len(gene_sets)} gene sets from {database}")
 
     return gene_sets
