@@ -34,11 +34,6 @@ from ..utils.adata_utils import validate_adata
 from ..utils.exceptions import DataNotFoundError, ProcessingError
 from ..utils.mcp_utils import suppress_output
 
-# Module-level placeholders for optional dependencies (lazily loaded)
-# Use get_dependency() in functions to actually import these modules
-scvi = None  # Lazily loaded via get_dependency("scvi-tools")
-VELOVI = None  # Lazily loaded via scvi.external.VELOVI
-
 
 def prepare_gam_model_for_visualization(
     adata,
@@ -553,9 +548,7 @@ async def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = No
 
             # Auto-compute diffusion map for user convenience
             sc.tl.diffmap(adata)
-            await ctx.info(
-                "Diffusion map computed successfully for DPT analysis"
-            )
+            await ctx.info("Diffusion map computed successfully for DPT analysis")
         except Exception as e:
             error_msg = (
                 f"DPT requires diffusion map but failed to compute it automatically: {e}. "
@@ -678,15 +671,10 @@ async def analyze_rna_velocity(
 
     elif params.method == "velovi":
         # VELOVI deep learning velocity computation
-        await ctx.info(
-            "Computing RNA velocity using VELOVI deep learning method..."
-        )
+        await ctx.info("Computing RNA velocity using VELOVI deep learning method...")
 
         # Check for required dependencies
-        if scvi is None or VELOVI is None:
-            raise ProcessingError(
-                "VELOVI requires scvi-tools. Install with: pip install scvi-tools"
-            )
+        require("scvi", feature="VELOVI velocity analysis")
 
         try:
             # Call VELOVI analysis (moved from trajectory analysis)
@@ -1006,14 +994,10 @@ async def analyze_velocity_with_velovi(
         RuntimeError: If an error occurs during model training or result extraction.
     """
     try:
-        if scvi is None or VELOVI is None:
-            raise ImportError(
-                "scvi-tools package is required for VELOVI analysis. Install with 'pip install scvi-tools'"
-            )
+        require("scvi", feature="VELOVI velocity analysis")
+        from scvi.external import VELOVI
 
-        await ctx.info(
-            "Starting VELOVI velocity analysis with complete fixes..."
-        )
+        await ctx.info("Starting VELOVI velocity analysis with complete fixes...")
 
         # Step 1: Data preprocessing fix
         adata_prepared = await _prepare_velovi_data(adata, ctx)
