@@ -13,23 +13,18 @@ The module integrates these tools into the ChatSpatial MCP framework, handling d
 execution, result formatting, and error management across different computational backends.
 """
 
-import logging
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    pass
-
-logger = logging.getLogger(__name__)
+    from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import SpatialVariableGenesResult  # noqa: E402
 from ..models.data import SpatialVariableGenesParameters  # noqa: E402
 from ..utils import validate_var_column  # noqa: E402
 from ..utils.dependency_manager import (  # noqa: E402
-    get as get_dependency,
-    is_available,
     require,
 )
-from ..utils.error_handling import suppress_output  # noqa: E402
+from ..utils.mcp_utils import suppress_output  # noqa: E402
 
 
 def _extract_counts_matrix(X):
@@ -55,9 +50,8 @@ def _extract_counts_matrix(X):
 
 async def identify_spatial_genes(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: "ToolContext",
     params: SpatialVariableGenesParameters,
-    context=None,
 ) -> SpatialVariableGenesResult:
     """
     Identify spatial variable genes using statistical methods.
@@ -75,9 +69,8 @@ async def identify_spatial_genes(
 
     Args:
         data_id: Dataset identifier in data store
-        data_store: Dictionary containing loaded datasets
+        ctx: ToolContext for data access and logging
         params: Method-specific parameters (see SpatialVariableGenesParameters)
-        context: MCP context for logging and status updates
 
     Returns:
         SpatialVariableGenesResult containing:
@@ -93,17 +86,12 @@ async def identify_spatial_genes(
         - SPARK-X: ~2-5 min for 3000 spots × 20000 genes
         - SpatialDE: ~15-30 min (scales with spot count squared)
     """
-    if context:
-        await context.info(
-            f"Starting spatial variable genes identification using {params.method}"
-        )
+    await ctx.info(
+        f"Starting spatial variable genes identification using {params.method}"
+    )
 
-    # Get data
-    if data_id not in data_store:
-        raise ValueError(f"Dataset {data_id} not found in data store")
-
-    # Work with the original adata object, not a copy
-    adata = data_store[data_id]["adata"]
+    # Get data via ToolContext
+    adata = await ctx.get_adata(data_id)
 
     # Validate spatial coordinates
     if params.spatial_key not in adata.obsm:
@@ -117,20 +105,13 @@ async def identify_spatial_genes(
         raise ValueError("Spatial coordinates must be 2D (x, y)")
 
     # Log data information
-    if context:
-        await context.info(
-            f"Processing data: {adata.n_obs} spots, {adata.n_vars} genes"
-        )
+    await ctx.info(f"Processing data: {adata.n_obs} spots, {adata.n_vars} genes")
 
-    # Route to appropriate method
+    # Route to appropriate method (pass ctx for logging)
     if params.method == "spatialde":
-        return await _identify_spatial_genes_spatialde(
-            data_id, data_store, params, context
-        )
+        return await _identify_spatial_genes_spatialde(data_id, adata, params, ctx)
     elif params.method == "sparkx":
-        return await _identify_spatial_genes_sparkx(
-            data_id, data_store, params, context
-        )
+        return await _identify_spatial_genes_sparkx(data_id, adata, params, ctx)
     else:
         raise ValueError(
             f"Unsupported method: {params.method}. Available methods: spatialde, sparkx"
@@ -139,9 +120,9 @@ async def identify_spatial_genes(
 
 async def _identify_spatial_genes_spatialde(
     data_id: str,
-    data_store: Dict[str, Any],
+    adata: Any,
     params: SpatialVariableGenesParameters,
-    context=None,
+    ctx: "ToolContext",
 ) -> SpatialVariableGenesResult:
     """
     Identify spatial variable genes using the SpatialDE statistical framework.
@@ -209,10 +190,9 @@ async def _identify_spatial_genes_spatialde(
     import SpatialDE
     from SpatialDE.util import qvalue
 
-    adata = data_store[data_id]["adata"]
+    # adata is now passed directly from main function (via ctx.get_adata())
 
-    if context:
-        await context.info("Running SpatialDE analysis")
+    await ctx.info("Running SpatialDE analysis")
 
     # Prepare data
     coords = pd.DataFrame(
@@ -224,16 +204,14 @@ async def _identify_spatial_genes_spatialde(
     # Get raw count data for SpatialDE preprocessing
     # OPTIMIZATION: Filter genes on SPARSE matrix first, then convert only selected genes to dense
     # This provides 95%+ memory savings for large datasets (tested with 5000×20000 genes)
-    if context:
-        await context.info("Preparing count data for SpatialDE (memory-optimized)")
+    await ctx.info("Preparing count data for SpatialDE (memory-optimized)")
 
     # Get raw data source (keep as sparse matrix)
     if adata.raw is not None:
         raw_data = adata.raw.X
         var_names = adata.raw.var_names
         var_df = adata.var  # For HVG lookup
-        if context:
-            await context.info("Using raw count matrix from adata.raw")
+        await ctx.info("Using raw count matrix from adata.raw")
     else:
         # Check if current data appears to be raw counts
         data_max = adata.X.max() if hasattr(adata.X, "max") else np.max(adata.X)
@@ -246,8 +224,7 @@ async def _identify_spatial_genes_spatialde(
         raw_data = adata.X
         var_names = adata.var_names
         var_df = adata.var
-        if context:
-            await context.info("Using current count matrix from adata.X")
+        await ctx.info("Using current count matrix from adata.X")
 
     # Step 1: Filter low-expression genes ON SPARSE MATRIX (Official recommendation)
     # SpatialDE README: "Filter practically unobserved genes" with total_counts >= 3
@@ -266,8 +243,8 @@ async def _identify_spatial_genes_spatialde(
     n_filtered = keep_genes_mask.sum()
     n_total = len(keep_genes_mask)
 
-    if n_filtered < n_total and context:
-        await context.info(
+    if n_filtered < n_total:
+        await ctx.info(
             f"Filtered to {n_filtered}/{n_total} genes (total counts ≥ 3, official threshold)"
         )
 
@@ -284,10 +261,9 @@ async def _identify_spatial_genes_spatialde(
             if len(hvg_genes) >= params.n_top_genes:
                 # Use HVGs
                 final_genes = hvg_genes[: params.n_top_genes]
-                if context:
-                    await context.info(
-                        f"Selected {params.n_top_genes} highly variable genes (for performance)"
-                    )
+                await ctx.info(
+                    f"Selected {params.n_top_genes} highly variable genes (for performance)"
+                )
             else:
                 # Not enough HVGs, select by expression
                 gene_totals_filtered = gene_totals[keep_genes_mask]
@@ -295,19 +271,17 @@ async def _identify_spatial_genes_spatialde(
                     ::-1
                 ]
                 final_genes = selected_var_names[top_indices]
-                if context:
-                    await context.info(
-                        f"Selected top {params.n_top_genes} expressed genes (performance optimization)"
-                    )
+                await ctx.info(
+                    f"Selected top {params.n_top_genes} expressed genes (performance optimization)"
+                )
         else:
             # Select by expression
             gene_totals_filtered = gene_totals[keep_genes_mask]
             top_indices = np.argsort(gene_totals_filtered)[-params.n_top_genes :][::-1]
             final_genes = selected_var_names[top_indices]
-            if context:
-                await context.info(
-                    f"Selected top {params.n_top_genes} expressed genes (performance optimization)"
-                )
+            await ctx.info(
+                f"Selected top {params.n_top_genes} expressed genes (performance optimization)"
+            )
 
     # Step 3: Slice sparse matrix to final genes, THEN convert to dense
     # This is where the memory optimization happens: only convert selected genes
@@ -330,9 +304,9 @@ async def _identify_spatial_genes_spatialde(
     # Performance warning for large gene sets
     n_genes = counts.shape[1]
     n_spots = counts.shape[0]
-    if n_genes > 5000 and context:
+    if n_genes > 5000:
         estimated_time = int(n_genes / 14000 * 10)  # Based on 14k genes = 10 min
-        await context.warning(
+        await ctx.warning(
             f"WARNING:Running SpatialDE on {n_genes} genes × {n_spots} spots may take {estimated_time}-{estimated_time*2} minutes.\n"
             f"   • Official benchmark: ~10 min for 14,000 genes\n"
             f"   • Tip: Use n_top_genes=1000-3000 to test fewer genes\n"
@@ -344,34 +318,30 @@ async def _identify_spatial_genes_spatialde(
         {"total_counts": counts.sum(axis=1)}, index=counts.index
     )
 
-    if context:
-        await context.info(
-            "Applying SpatialDE official preprocessing workflow (variance stabilization + regress_out)"
-        )
+    await ctx.info(
+        "Applying SpatialDE official preprocessing workflow (variance stabilization + regress_out)"
+    )
 
     # Step 1: Variance stabilization (Official: NaiveDE.stabilize)
     # This transforms count data to approximately normal distribution
-    if context:
-        await context.info("Step 1/3: Variance stabilization (NaiveDE.stabilize)")
+    await ctx.info("Step 1/3: Variance stabilization (NaiveDE.stabilize)")
 
     norm_expr = NaiveDE.stabilize(counts.T).T
 
     # Step 2: Regress out library size effects (Official: NaiveDE.regress_out)
     # This removes technical variation from sequencing depth differences
-    if context:
-        await context.info(
-            "Step 2/3: Regressing out library size effects (NaiveDE.regress_out)"
-        )
+    await ctx.info(
+        "Step 2/3: Regressing out library size effects (NaiveDE.regress_out)"
+    )
 
     resid_expr = NaiveDE.regress_out(
         total_counts, norm_expr.T, "np.log(total_counts)"
     ).T
 
     # Step 3: Run SpatialDE with preprocessed data
-    if context:
-        await context.info(
-            f"Step 3/3: Running SpatialDE on {n_genes} genes × {n_spots} spots"
-        )
+    await ctx.info(
+        f"Step 3/3: Running SpatialDE on {n_genes} genes × {n_spots} spots"
+    )
 
     results = SpatialDE.run(coords.values, resid_expr)
 
@@ -380,18 +350,16 @@ async def _identify_spatial_genes_spatialde(
     if params.spatialde_pi0 is not None:
         # User-specified pi0 value
         results["qval"] = qvalue(results["pval"].values, pi0=params.spatialde_pi0)
-        if context:
-            await context.info(
-                f"Using user-specified pi0={params.spatialde_pi0} for q-value estimation"
-            )
+        await ctx.info(
+            f"Using user-specified pi0={params.spatialde_pi0} for q-value estimation"
+        )
     else:
         # Adaptive pi0 estimation (SpatialDE default, recommended)
         # This estimates pi0 from the p-value distribution
         results["qval"] = qvalue(results["pval"].values)
-        if context:
-            await context.info(
-                "Using adaptive pi0 estimation for q-value calculation (recommended)"
-            )
+        await ctx.info(
+            "Using adaptive pi0 estimation for q-value calculation (recommended)"
+        )
 
     # Sort by q-value
     results = results.sort_values("qval")
@@ -417,7 +385,7 @@ async def _identify_spatial_genes_spatialde(
     adata.var["spatialde_l"] = results.set_index("g")["l"]
 
     # Store scientific metadata for reproducibility
-    from ..utils.metadata_storage import store_analysis_metadata
+    from ..utils.adata_utils import store_analysis_metadata
 
     store_analysis_metadata(
         adata,
@@ -488,24 +456,23 @@ async def _identify_spatial_genes_spatialde(
         spatialde_results=spatialde_results,
     )
 
-    if context:
-        await context.info("SpatialDE analysis completed")
-        await context.info(
-            f"Found {len(significant_genes_all)} significant spatial genes"
+    await ctx.info("SpatialDE analysis completed")
+    await ctx.info(
+        f"Found {len(significant_genes_all)} significant spatial genes"
+    )
+    if len(significant_genes_all) > MAX_GENES_TO_RETURN:
+        await ctx.info(
+            f"Returning top {MAX_GENES_TO_RETURN} genes (full results in adata.var)"
         )
-        if len(significant_genes_all) > MAX_GENES_TO_RETURN:
-            await context.info(
-                f"Returning top {MAX_GENES_TO_RETURN} genes (full results in adata.var)"
-            )
 
     return result
 
 
 async def _identify_spatial_genes_sparkx(
     data_id: str,
-    data_store: Dict[str, Any],
+    adata: Any,
     params: SpatialVariableGenesParameters,
-    context=None,
+    ctx: "ToolContext",
 ) -> SpatialVariableGenesResult:
     """
     Identify spatial variable genes using the SPARK-X non-parametric method.
@@ -584,17 +551,15 @@ async def _identify_spatial_genes_sparkx(
     from rpy2.robjects import conversion, default_converter
     from rpy2.robjects.packages import importr
 
-    if context:
-        await context.info("Running SPARK-X non-parametric analysis")
+    await ctx.info("Running SPARK-X non-parametric analysis")
 
-    adata = data_store[data_id]["adata"]
+    # adata is now passed directly from main function (via ctx.get_adata())
 
     # Prepare spatial coordinates - SPARK needs data.frame format
     coords_array = adata.obsm[params.spatial_key][:, :2].astype(float)
     n_spots, n_genes = adata.shape
 
-    if context:
-        await context.info(f"Preparing data: {n_spots} spots × {n_genes} genes")
+    await ctx.info(f"Preparing data: {n_spots} spots × {n_genes} genes")
 
     # ==================== OPTIMIZED: Filter on sparse matrix, then convert ====================
     # Strategy: Keep data sparse throughout filtering, only convert final filtered result
@@ -629,15 +594,13 @@ async def _identify_spatial_genes_sparkx(
             else:
                 unique_names.append(gene)
         gene_names = unique_names
-        if context:
-            await context.info(
-                f"Made duplicate gene names unique (found {sum(1 for c in gene_counts.values() if c > 1)} duplicates)"
-            )
-
-    if context:
-        await context.info(
-            f"Using {'raw' if adata.raw is not None else 'current'} count matrix (keeping sparse for efficient filtering)"
+        await ctx.info(
+            f"Made duplicate gene names unique (found {sum(1 for c in gene_counts.values() if c > 1)} duplicates)"
         )
+
+    await ctx.info(
+        f"Using {'raw' if adata.raw is not None else 'current'} count matrix (keeping sparse for efficient filtering)"
+    )
 
     # ==================== Gene Filtering Pipeline (ON SPARSE MATRIX) ====================
     # Following SPARK-X paper best practices + 2024 literature recommendations
@@ -668,11 +631,10 @@ async def _identify_spatial_genes_sparkx(
         n_mt_genes = mt_mask.sum()
         if n_mt_genes > 0:
             gene_mask &= ~mt_mask  # Exclude MT genes
-            if context:
-                await context.info(
-                    f"Marked {n_mt_genes} mitochondrial genes for filtering "
-                    f"(via {annotation_source}, SPARK-X paper standard)"
-                )
+            await ctx.info(
+                f"Marked {n_mt_genes} mitochondrial genes for filtering "
+                f"(via {annotation_source}, SPARK-X paper standard)"
+            )
 
     # TIER 1: Ribosomal gene filtering (optional)
     # Reuse preprocessing annotations when available for consistency
@@ -693,11 +655,10 @@ async def _identify_spatial_genes_sparkx(
         n_ribo_genes = ribo_mask.sum()
         if n_ribo_genes > 0:
             gene_mask &= ~ribo_mask  # Exclude ribosomal genes
-            if context:
-                await context.info(
-                    f"Marked {n_ribo_genes} ribosomal genes for filtering "
-                    f"(via {annotation_source}, reduces housekeeping dominance)"
-                )
+            await ctx.info(
+                f"Marked {n_ribo_genes} ribosomal genes for filtering "
+                f"(via {annotation_source}, reduces housekeeping dominance)"
+            )
 
     # TIER 2: HVG-only testing (2024 best practice from PMC11537352)
     if params.test_only_hvg:
@@ -731,10 +692,9 @@ async def _identify_spatial_genes_sparkx(
             )
 
         gene_mask &= hvg_mask  # Keep only HVGs
-        if context:
-            await context.info(
-                f"Marked for HVG-only testing: {n_hvg} highly variable genes (2024 best practice - PMC11537352)"
-            )
+        await ctx.info(
+            f"Marked for HVG-only testing: {n_hvg} highly variable genes (2024 best practice - PMC11537352)"
+        )
 
         # Smart detection: Check if preprocessing already excluded mt/ribo from HVGs
         # This provides transparency about the filtering pipeline
@@ -763,8 +723,8 @@ async def _identify_spatial_genes_sparkx(
                         f"ribosomal ({gene_annot.get('n_ribo_genes', 0)} genes)"
                     )
 
-        if excluded_from_hvg and context:
-            await context.info(
+        if excluded_from_hvg:
+            await ctx.info(
                 f"Note: {' and '.join(excluded_from_hvg)} already excluded from HVGs "
                 "during preprocessing (unified filtering pipeline)"
             )
@@ -786,8 +746,8 @@ async def _identify_spatial_genes_sparkx(
     gene_mask &= expr_mask  # Combine with previous filters
 
     n_filtered_out = len(gene_names) - gene_mask.sum()
-    if n_filtered_out > 0 and context:
-        await context.info(
+    if n_filtered_out > 0:
+        await ctx.info(
             f"Marked {n_filtered_out} genes for filtering (expression threshold: >{percentage*100:.0f}% cells, >{min_total_counts} counts)"
         )
 
@@ -797,10 +757,9 @@ async def _identify_spatial_genes_sparkx(
         gene_names = [gene for gene, keep in zip(gene_names, gene_mask) if keep]
         n_genes_after_filter = len(gene_names)
 
-        if context:
-            await context.info(
-                f"Filtered {len(gene_mask)} → {n_genes_after_filter} genes (saved {len(gene_mask) - n_genes_after_filter} genes = {(1 - n_genes_after_filter/len(gene_mask))*100:.1f}% reduction)"
-            )
+        await ctx.info(
+            f"Filtered {len(gene_mask)} → {n_genes_after_filter} genes (saved {len(gene_mask) - n_genes_after_filter} genes = {(1 - n_genes_after_filter/len(gene_mask))*100:.1f}% reduction)"
+        )
     else:
         filtered_sparse = sparse_counts
         n_genes_after_filter = len(gene_names)
@@ -811,10 +770,9 @@ async def _identify_spatial_genes_sparkx(
     # Ensure counts are non-negative integers
     counts_matrix = np.maximum(counts_matrix, 0).astype(int)
 
-    if context:
-        await context.info(
-            f"Converted filtered sparse matrix to dense: {counts_matrix.shape} (saves ~{(len(gene_mask) - n_genes_after_filter) * n_spots * 4 / (1024**3):.1f}GB vs converting before filtering)"
-        )
+    await ctx.info(
+        f"Converted filtered sparse matrix to dense: {counts_matrix.shape} (saves ~{(len(gene_mask) - n_genes_after_filter) * n_spots * 4 / (1024**3):.1f}GB vs converting before filtering)"
+    )
 
     # Update gene count after filtering
     n_genes = len(gene_names)
@@ -822,11 +780,10 @@ async def _identify_spatial_genes_sparkx(
     # Transpose for SPARK format (genes × spots)
     counts_transposed = counts_matrix.T
 
-    if context:
-        await context.info(
-            f"Count matrix shape: {counts_transposed.shape} (genes × spots)"
-        )
-        await context.info(f"Passing {n_genes} genes to SPARK-X for analysis")
+    await ctx.info(
+        f"Count matrix shape: {counts_transposed.shape} (genes × spots)"
+    )
+    await ctx.info(f"Passing {n_genes} genes to SPARK-X for analysis")
 
     # Create spot names
     spot_names = [str(name) for name in adata.obs_names]
@@ -862,10 +819,9 @@ async def _identify_spatial_genes_sparkx(
                 row_names=ro.StrVector(coords_df.index),
             )
 
-            if context:
-                await context.info(
-                    "Running SPARK-X analysis using sparkx function (output suppressed for MCP compatibility)"
-                )
+            await ctx.info(
+                "Running SPARK-X analysis using sparkx function (output suppressed for MCP compatibility)"
+            )
 
             try:
                 # Execute SPARK-X analysis inside context (FIX for contextvars issue)
@@ -880,8 +836,7 @@ async def _identify_spatial_genes_sparkx(
                         verbose=False,  # Ensure verbose is off for cleaner MCP communication
                     )
 
-                if context:
-                    await context.info("SPARK-X analysis completed successfully")
+                await ctx.info("SPARK-X analysis completed successfully")
 
                 # Extract p-values from results (inside context for proper conversion)
                 # SPARK-X returns res_mtest as a data.frame with columns:
@@ -932,18 +887,17 @@ async def _identify_spatial_genes_sparkx(
                         }
                     )
 
-                    if context:
-                        await context.info(
-                            f"Extracted results for {len(results_df)} genes "
-                            f"(p-values BY-corrected by SPARK-X)"
+                    await ctx.info(
+                        f"Extracted results for {len(results_df)} genes "
+                        f"(p-values BY-corrected by SPARK-X)"
+                    )
+                    # Warn if returned genes much fewer than input genes
+                    if len(results_df) < n_genes * 0.5:
+                        await ctx.warning(
+                            f"SPARK-X returned results for only {len(results_df)}/{n_genes} genes. "
+                            f"This may indicate a problem with the R environment, SPARK package, or input data. "
+                            f"Consider checking R logs or trying SpatialDE as an alternative method."
                         )
-                        # Warn if returned genes much fewer than input genes
-                        if len(results_df) < n_genes * 0.5:
-                            await context.warning(
-                                f"SPARK-X returned results for only {len(results_df)}/{n_genes} genes. "
-                                f"This may indicate a problem with the R environment, SPARK package, or input data. "
-                                f"Consider checking R logs or trying SpatialDE as an alternative method."
-                            )
 
                 except Exception as e:
                     # P-value extraction failed - provide clear error message
@@ -957,13 +911,11 @@ async def _identify_spatial_genes_sparkx(
                         f"  3. Invalid input data format\n\n"
                         f"Please check SPARK package installation: R -e 'packageVersion(\"SPARK\")'"
                     )
-                    if context:
-                        await context.error(error_msg)
+                    await ctx.error(error_msg)
                     raise RuntimeError(error_msg)
 
             except Exception as e:
-                if context:
-                    await context.info(f"SPARK-X analysis failed: {e}")
+                await ctx.info(f"SPARK-X analysis failed: {e}")
                 raise RuntimeError(f"SPARK-X analysis failed: {e}")
 
     # Sort by adjusted p-value
@@ -1020,8 +972,8 @@ async def _identify_spatial_genes_sparkx(
         housekeeping_ratio = n_housekeeping / n_top if n_top > 0 else 0
 
         # Warn if >30% are housekeeping genes
-        if housekeeping_ratio > 0.3 and context:
-            await context.warning(
+        if housekeeping_ratio > 0.3:
+            await ctx.warning(
                 f"WARNING:Housekeeping gene dominance detected: {n_housekeeping}/{n_top} ({housekeeping_ratio*100:.1f}%) of top genes are housekeeping genes.\n"
                 f"   • Housekeeping genes found: {', '.join(housekeeping_genes[:10])}{'...' if len(housekeeping_genes) > 10 else ''}\n"
                 f"   • These genes may not represent true spatial patterns\n"
@@ -1043,7 +995,7 @@ async def _identify_spatial_genes_sparkx(
     ).reindex(adata.var_names, fill_value=1.0)
 
     # Store scientific metadata for reproducibility
-    from ..utils.metadata_storage import store_analysis_metadata
+    from ..utils.adata_utils import store_analysis_metadata
 
     store_analysis_metadata(
         adata,
@@ -1118,15 +1070,14 @@ async def _identify_spatial_genes_sparkx(
         sparkx_results=sparkx_results,
     )
 
-    if context:
-        await context.info("SPARK-X analysis completed successfully")
-        await context.info(f"Analyzed {len(results_df)} genes")
-        await context.info(
-            f"Found {len(significant_genes_all)} significant spatial genes (q < 0.05)"
+    await ctx.info("SPARK-X analysis completed successfully")
+    await ctx.info(f"Analyzed {len(results_df)} genes")
+    await ctx.info(
+        f"Found {len(significant_genes_all)} significant spatial genes (q < 0.05)"
+    )
+    if len(significant_genes_all) > MAX_GENES_TO_RETURN:
+        await ctx.info(
+            f"Returning top {MAX_GENES_TO_RETURN} genes (full results in adata.var)"
         )
-        if len(significant_genes_all) > MAX_GENES_TO_RETURN:
-            await context.info(
-                f"Returning top {MAX_GENES_TO_RETURN} genes (full results in adata.var)"
-            )
 
     return result

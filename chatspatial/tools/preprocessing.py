@@ -2,22 +2,22 @@
 Preprocessing tools for spatial transcriptomics data.
 """
 
-import logging
 import traceback
-from typing import Any, Dict, Optional
 
 import numpy as np
 import scanpy as sc
 import scipy.sparse
 import squidpy as sq
-from anndata import AnnData
-from mcp.server.fastmcp import Context
 
 from ..models.analysis import PreprocessingResult
 from ..models.data import PreprocessingParameters
-from ..utils.data_adapter import standardize_adata
-from ..utils.dependency_manager import get as get_dependency, is_available, require
-from ..utils.tool_error_handling import mcp_tool_error_handler
+from ..spatial_mcp_adapter import ToolContext
+from ..utils.adata_utils import standardize_adata
+from ..utils.dependency_manager import (
+    require,
+    validate_r_package,
+)
+from ..utils.mcp_utils import mcp_tool_error_handler
 
 # Module-level placeholders for optional dependencies (lazily loaded)
 # Use get_dependency() in functions to actually import these modules
@@ -26,48 +26,6 @@ torch = None  # Lazily loaded via get_dependency("torch")
 scv = None  # Lazily loaded via get_dependency("scvelo")
 spg = None  # Lazily loaded via get_dependency("SpaGCN")
 
-
-# Check for R sctransform availability via rpy2
-def _is_r_sctransform_available() -> tuple[bool, str]:
-    """Check if R sctransform package is available via rpy2.
-
-    Returns:
-        Tuple of (is_available, error_message)
-    """
-    # Use centralized dependency manager for rpy2 check
-    if not is_available("rpy2"):
-        return False, (
-            "rpy2 is not installed. Install with: pip install 'rpy2>=3.5.0'"
-        )
-
-    try:
-        import rpy2.robjects as ro
-        import rpy2.robjects.packages as rpackages
-        from rpy2.robjects.conversion import localconverter
-
-        with localconverter(ro.default_converter):
-            rpackages.importr("sctransform")
-            rpackages.importr("Matrix")
-        return True, ""
-    except Exception as e:
-        if "sctransform" in str(e).lower():
-            return False, (
-                "R package 'sctransform' is not installed.\n"
-                "Install in R: install.packages('sctransform')"
-            )
-        elif "matrix" in str(e).lower():
-            return False, (
-                "R package 'Matrix' is not installed.\n"
-                "Install in R: install.packages('Matrix')"
-            )
-        return False, f"R sctransform check failed: {e}"
-
-
-# Lazy check - only validate when actually used
-R_SCTRANSFORM_AVAILABLE: Optional[bool] = None
-
-# Setup logger
-logger = logging.getLogger(__name__)
 MIN_KMEANS_CLUSTERS = 2
 MAX_TSNE_PCA_COMPONENTS = 50
 
@@ -85,51 +43,41 @@ def _should_use_all_genes_for_hvg(adata) -> bool:
 @mcp_tool_error_handler()
 async def preprocess_data(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: ToolContext,
     params: PreprocessingParameters = PreprocessingParameters(),
-    context: Optional[Context] = None,
 ) -> PreprocessingResult:
     """Preprocess spatial transcriptomics data
 
     Args:
         data_id: Dataset ID
-        data_store: Dictionary storing loaded datasets
+        ctx: Tool context for data access and logging
         params: Preprocessing parameters
-        context: MCP context
 
     Returns:
         Preprocessing result summary
     """
     try:
-        if context:
-            await context.info(
-                f"Preprocessing dataset {data_id} with {params.normalization} normalization"
-            )
+        await ctx.info(
+            f"Preprocessing dataset {data_id} with {params.normalization} normalization"
+        )
 
-        # Retrieve the AnnData object from data store
-        if data_id not in data_store:
-            raise ValueError(f"Dataset {data_id} not found in data store")
-
+        # Get AnnData directly via ToolContext (no redundant dict wrapping)
         # Memory optimization: Preprocessing modifies dataset in-place (by design)
-        # The preprocessed result replaces the original at line 982, so no copy needed
-        # Original counts are preserved in adata.raw (line 311-316)
-        adata = data_store[data_id]["adata"]
+        # Original counts are preserved in adata.raw
+        adata = await ctx.get_adata(data_id)
 
-        # LINUS FIX: Standardize data format at the entry point
+        # Standardize data format at the entry point
         # This eliminates all downstream special cases for data format handling
-        if context:
-            await context.info("Standardizing data structure to ChatSpatial format...")
+        await ctx.info("Standardizing data structure to ChatSpatial format...")
         try:
             adata = standardize_adata(
                 adata, copy=False, strict=False, preserve_original=True
             )
-            if context:
-                await context.info("Data structure standardized successfully")
+            await ctx.info("Data structure standardized successfully")
         except Exception as e:
-            if context:
-                await context.warning(
-                    f"Data standardization failed: {e}. Proceeding with original data."
-                )
+            await ctx.warning(
+                f"Data standardization failed: {e}. Proceeding with original data."
+            )
             # Continue with original data if standardization fails
 
         # Validate input data
@@ -142,27 +90,24 @@ async def preprocess_data(
         # Must be done BEFORE any gene-based operations (QC, HVG selection, etc.)
         if not adata.var_names.is_unique:
             n_duplicates = len(adata.var_names) - len(set(adata.var_names))
-            if context:
-                await context.warning(
-                    f"Found {n_duplicates} duplicate gene names in data"
-                )
-                await context.info(
-                    "Fixing duplicate gene names with unique suffixes..."
-                )
+            await ctx.warning(
+                f"Found {n_duplicates} duplicate gene names in data"
+            )
+            await ctx.info(
+                "Fixing duplicate gene names with unique suffixes..."
+            )
             adata.var_names_make_unique()
-            if context:
-                await context.info(f"Fixed {n_duplicates} duplicate gene names")
+            await ctx.info(f"Fixed {n_duplicates} duplicate gene names")
 
         # 1. Calculate QC metrics (including mitochondrial percentage)
-        if context:
-            await context.info("Calculating QC metrics...")
+        await ctx.info("Calculating QC metrics...")
         try:
             # Identify mitochondrial genes (MT-* for human, mt-* for mouse)
             # This is needed for both QC metrics and optional filtering
             adata.var["mt"] = adata.var_names.str.startswith(("MT-", "mt-"))
             n_mt_genes = adata.var["mt"].sum()
-            if context and n_mt_genes > 0:
-                await context.info(
+            if n_mt_genes > 0:
+                await ctx.info(
                     f"Identified {n_mt_genes} mitochondrial genes (MT-*/mt-*)"
                 )
 
@@ -171,8 +116,8 @@ async def preprocess_data(
                 ("RPS", "RPL", "Rps", "Rpl")
             )
             n_ribo_genes = adata.var["ribo"].sum()
-            if context and n_ribo_genes > 0:
-                await context.info(
+            if n_ribo_genes > 0:
+                await ctx.info(
                     f"Identified {n_ribo_genes} ribosomal genes (RPS*/RPL*/Rps*/Rpl*)"
                 )
 
@@ -204,8 +149,8 @@ async def preprocess_data(
 
             safe_percent_top = sorted(set(safe_percent_top)) if safe_percent_top else None
 
-            if context and safe_percent_top != default_percent_top[:len(safe_percent_top)]:
-                await context.info(
+            if safe_percent_top != default_percent_top[:len(safe_percent_top)]:
+                await ctx.info(
                     f"Small dataset ({n_genes} genes): using percent_top={safe_percent_top}"
                 )
 
@@ -233,8 +178,7 @@ async def preprocess_data(
                 "SCIENTIFIC INTEGRITY: We refuse to create fake QC metrics.\n"
                 "Please fix the underlying issue before proceeding."
             )
-            if context:
-                await context.error(error_msg)
+            await ctx.error(error_msg)
             raise RuntimeError(error_msg) from e
 
         # Store original QC metrics before filtering (including mito stats)
@@ -252,21 +196,18 @@ async def preprocess_data(
             qc_metrics["n_mt_genes"] = int(adata.var["mt"].sum())
 
         # 2. Apply user-controlled data filtering and subsampling
-        if context:
-            await context.info("Applying data filtering and subsampling...")
+        await ctx.info("Applying data filtering and subsampling...")
 
         # Apply gene filtering using LLM-controlled parameters
         min_cells = params.filter_genes_min_cells
         if min_cells is not None and min_cells > 0:
-            if context:
-                await context.info(f"Filtering genes: min_cells={min_cells}")
+            await ctx.info(f"Filtering genes: min_cells={min_cells}")
             sc.pp.filter_genes(adata, min_cells=min_cells)
 
         # Apply cell filtering using LLM-controlled parameters
         min_genes = params.filter_cells_min_genes
         if min_genes is not None and min_genes > 0:
-            if context:
-                await context.info(f"Filtering cells: min_genes={min_genes}")
+            await ctx.info(f"Filtering cells: min_genes={min_genes}")
             sc.pp.filter_cells(adata, min_genes=min_genes)
 
         # Apply mitochondrial percentage filtering (BEST PRACTICE for spatial data)
@@ -278,31 +219,27 @@ async def preprocess_data(
 
             if n_high_mito > 0:
                 adata = adata[~high_mito_mask].copy()
-                if context:
-                    await context.info(
-                        f"Filtered {n_high_mito} spots with mito% > {params.filter_mito_pct}% "
-                        f"({n_before} → {adata.n_obs} spots)"
-                    )
+                await ctx.info(
+                    f"Filtered {n_high_mito} spots with mito% > {params.filter_mito_pct}% "
+                    f"({n_before} → {adata.n_obs} spots)"
+                )
                 # Update qc_metrics with mito filtering info
                 qc_metrics["n_spots_filtered_mito"] = int(n_high_mito)
             else:
-                if context:
-                    await context.info(
-                        f"No spots exceeded mito% threshold of {params.filter_mito_pct}%"
-                    )
-        elif params.filter_mito_pct is not None and not mito_pct_col:
-            if context:
-                await context.warning(
-                    "Mitochondrial filtering requested but no mito genes detected. "
-                    "This may indicate non-standard gene naming or imaging-based data."
+                await ctx.info(
+                    f"No spots exceeded mito% threshold of {params.filter_mito_pct}%"
                 )
+        elif params.filter_mito_pct is not None and not mito_pct_col:
+            await ctx.warning(
+                "Mitochondrial filtering requested but no mito genes detected. "
+                "This may indicate non-standard gene naming or imaging-based data."
+            )
 
         # Apply spot subsampling if requested
         if params.subsample_spots is not None and params.subsample_spots < adata.n_obs:
-            if context:
-                await context.info(
-                    f"Subsampling from {adata.n_obs} to {params.subsample_spots} spots"
-                )
+            await ctx.info(
+                f"Subsampling from {adata.n_obs} to {params.subsample_spots} spots"
+            )
             sc.pp.subsample(
                 adata,
                 n_obs=params.subsample_spots,
@@ -313,8 +250,7 @@ async def preprocess_data(
         gene_subsample_requested = params.subsample_genes is not None
 
         # Save raw data before normalization (required for some analysis methods)
-        if context:
-            await context.info("Saving raw data for downstream analysis...")
+        await ctx.info("Saving raw data for downstream analysis...")
 
         # IMPORTANT: Create a proper frozen copy for .raw to preserve counts
         # Using `adata.raw = adata` creates a view that gets modified during normalization
@@ -362,25 +298,26 @@ async def preprocess_data(
         )
 
         # 3. Normalize data
-        # Log normalization configuration
-        logger.info("=" * 50)
-        logger.info("Normalization Configuration:")
-        logger.info(f"  Method: {params.normalization}")
-        if params.normalize_target_sum is not None:
-            logger.info(f"  Target sum: {params.normalize_target_sum:.0f}")
-        else:
-            logger.info("  Target sum: ADAPTIVE (using median counts)")
+        # Log normalization configuration (developer log)
+        norm_config = {
+            "Method": params.normalization,
+            "Target sum": (
+                f"{params.normalize_target_sum:.0f}"
+                if params.normalize_target_sum is not None
+                else "ADAPTIVE (using median counts)"
+            ),
+        }
         if params.scale:
-            if params.scale_max_value is not None:
-                logger.info(f"  Scale clipping: ±{params.scale_max_value} SD")
-            else:
-                logger.info("  Scale clipping: NONE (preserving all outliers)")
-        logger.info("=" * 50)
-
-        if context:
-            await context.info(
-                f"Normalizing data using {params.normalization} method..."
+            norm_config["Scale clipping"] = (
+                f"±{params.scale_max_value} SD"
+                if params.scale_max_value is not None
+                else "NONE (preserving all outliers)"
             )
+        ctx.log_config("Normalization Configuration", norm_config)
+
+        await ctx.info(
+            f"Normalizing data using {params.normalization} method..."
+        )
 
         if params.normalization == "log":
             # Standard log normalization
@@ -404,41 +341,34 @@ async def preprocess_data(
                     "• Load raw count data instead of processed data\n"
                     "• Remove the log transformation from your data before re-processing"
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise ValueError(error_msg)
 
             if params.normalize_target_sum is not None:
                 sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
-                logger.info(
-                    f"✓ Normalized to target_sum={params.normalize_target_sum:.0f}"
-                )
             else:
                 # Calculate median and inform user transparently
                 calculated_median = np.median(
                     np.array(adata.X.sum(axis=1)).flatten()
                 )
-                if context:
-                    await context.info(
-                        f"normalize_target_sum not specified. Using adaptive normalization:\n"
-                        f"   • Calculated median counts: {calculated_median:.0f}\n"
-                        f"   • This value was automatically determined from your data\n"
-                        f"   • For reproducible results, use: normalize_target_sum={calculated_median:.0f}"
-                    )
-                sc.pp.normalize_total(adata, target_sum=calculated_median)
-                logger.info(
-                    f"✓ Normalized to adaptive target_sum={calculated_median:.0f}"
+                await ctx.info(
+                    f"normalize_target_sum not specified. Using adaptive normalization:\n"
+                    f"   • Calculated median counts: {calculated_median:.0f}\n"
+                    f"   • This value was automatically determined from your data\n"
+                    f"   • For reproducible results, use: normalize_target_sum={calculated_median:.0f}"
                 )
+                sc.pp.normalize_total(adata, target_sum=calculated_median)
             sc.pp.log1p(adata)
-            logger.info("Applied log1p transformation")
         elif params.normalization == "sct":
             # SCTransform v2 variance-stabilizing normalization via R's sctransform
-            # Check R sctransform availability
-            is_available, error_msg = _is_r_sctransform_available()
-            if not is_available:
+            # Check R sctransform availability using centralized dependency manager
+            try:
+                validate_r_package("sctransform", ctx)
+                validate_r_package("Matrix", ctx)
+            except ImportError as e:
                 full_error = (
                     f"SCTransform requires R and the sctransform package.\n\n"
-                    f"ERROR: {error_msg}\n\n"
+                    f"ERROR: {str(e)}\n\n"
                     "INSTALLATION:\n"
                     "  1. Install R (https://cran.r-project.org/)\n"
                     "  2. In R: install.packages('sctransform')\n"
@@ -447,9 +377,8 @@ async def preprocess_data(
                     "• Use normalization='pearson_residuals' (built-in, similar results)\n"
                     "• Use normalization='log' (standard method)"
                 )
-                if context:
-                    await context.error(full_error)
-                raise ImportError(full_error)
+                await ctx.error(full_error)
+                raise ImportError(full_error) from e
 
             # Check if data appears to be raw counts (required for SCTransform)
             if scipy.sparse.issparse(adata.X):
@@ -471,17 +400,15 @@ async def preprocess_data(
                     "• Use normalization='none' if data is pre-normalized\n"
                     "• Use normalization='log' for already-processed data"
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise ValueError(error_msg)
 
             # Map method parameter to vst.flavor
             vst_flavor = "v2" if params.sct_method == "fix-slope" else "v1"
-            if context:
-                await context.info(
-                    f"Applying SCTransform (vst.flavor={vst_flavor}, "
-                    f"var_features={params.sct_var_features_n})"
-                )
+            await ctx.info(
+                f"Applying SCTransform (vst.flavor={vst_flavor}, "
+                f"var_features={params.sct_var_features_n})"
+            )
 
             try:
                 # Import rpy2 modules
@@ -567,11 +494,10 @@ async def preprocess_data(
                 n_genes_before_sct = adata.n_vars
                 if len(kept_genes) != adata.n_vars:
                     n_filtered = adata.n_vars - len(kept_genes)
-                    if context:
-                        await context.info(
-                            f"SCTransform filtered {n_filtered} additional genes internally. "
-                            f"Keeping {len(kept_genes)} genes for analysis."
-                        )
+                    await ctx.info(
+                        f"SCTransform filtered {n_filtered} additional genes internally. "
+                        f"Keeping {len(kept_genes)} genes for analysis."
+                    )
                     # Subset adata to keep only genes returned by SCTransform
                     adata = adata[:, kept_genes].copy()
                 else:
@@ -612,12 +538,9 @@ async def preprocess_data(
                     "highly_variable"
                 )] = True
 
-                if context:
-                    await context.info(
-                        f"✓ SCTransform: {n_hvg} highly variable genes identified"
-                    )
-
-                logger.info("Applied SCTransform normalization via R")
+                await ctx.info(
+                    f"[OK]SCTransform: {n_hvg} highly variable genes identified"
+                )
 
             except MemoryError:
                 error_msg = (
@@ -628,19 +551,16 @@ async def preprocess_data(
                     "• Use normalization='pearson_residuals' (more memory efficient)\n"
                     "• Use normalization='log' (minimal memory usage)"
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise MemoryError(error_msg)
             except Exception as e:
                 error_msg = f"SCTransform failed: {str(e)}"
-                if context:
-                    await context.error(error_msg)
-                    await context.info(f"Error details: {traceback.format_exc()}")
+                await ctx.error(error_msg)
+                await ctx.info(f"Error details: {traceback.format_exc()}")
                 raise RuntimeError(error_msg) from e
         elif params.normalization == "pearson_residuals":
             # Modern Pearson residuals normalization (recommended for UMI data)
-            if context:
-                await context.info("Using Pearson residuals normalization...")
+            await ctx.info("Using Pearson residuals normalization...")
 
             # Check if method is available
             if not hasattr(sc.experimental.pp, "normalize_pearson_residuals"):
@@ -651,8 +571,7 @@ async def preprocess_data(
                     "• Use log normalization instead: params.normalization='log'\n"
                     "• Skip normalization if data is pre-processed: params.normalization='none'"
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise ValueError(error_msg)
 
             # Check if data appears to be raw counts
@@ -674,8 +593,7 @@ async def preprocess_data(
                     "Use params.normalization='none' if data is already normalized, "
                     "or params.normalization='log' for standard normalization."
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise ValueError(error_msg)
 
             # Execute normalization
@@ -683,7 +601,6 @@ async def preprocess_data(
                 # Apply Pearson residuals normalization (to all genes)
                 # Note: High variable gene selection happens later in the pipeline
                 sc.experimental.pp.normalize_pearson_residuals(adata)
-                logger.info("Applied Pearson residuals normalization")
             except MemoryError:
                 raise MemoryError(
                     f"Insufficient memory for Pearson residuals on {adata.n_obs}×{adata.n_vars} matrix. "
@@ -696,11 +613,9 @@ async def preprocess_data(
                 )
         elif params.normalization == "none":
             # Explicitly skip normalization
-            if context:
-                await context.info(
-                    "Skipping normalization (data assumed to be pre-normalized)"
-                )
-            logger.info("Normalization skipped (using pre-normalized data)")
+            await ctx.info(
+                "Skipping normalization (data assumed to be pre-normalized)"
+            )
 
             # CRITICAL: Check if data appears to be raw counts
             # HVG selection requires normalized data for statistical validity
@@ -729,8 +644,7 @@ async def preprocess_data(
                     "Option 3: Pre-normalize your data externally, then reload with normalized values\n\n"
                     "WARNING: If your data is already normalized but appears raw, verify data integrity."
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise ValueError(error_msg)
         elif params.normalization == "scvi":
             # scVI deep learning-based normalization
@@ -744,8 +658,7 @@ async def preprocess_data(
                     "• Use normalization='log' (standard method)\n"
                     "• Use normalization='pearson_residuals' (variance-stabilizing)"
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise ImportError(error_msg)
 
             # Check if data appears to be raw counts (required for scVI)
@@ -767,17 +680,15 @@ async def preprocess_data(
                     "• Load raw count data instead of normalized data\n"
                     "• Use normalization='none' if data is pre-normalized"
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise ValueError(error_msg)
 
-            if context:
-                await context.info(
-                    f"Applying scVI normalization "
-                    f"(n_latent={params.scvi_n_latent}, "
-                    f"n_hidden={params.scvi_n_hidden}, "
-                    f"gene_likelihood={params.scvi_gene_likelihood})"
-                )
+            await ctx.info(
+                f"Applying scVI normalization "
+                f"(n_latent={params.scvi_n_latent}, "
+                f"n_hidden={params.scvi_n_hidden}, "
+                f"gene_likelihood={params.scvi_gene_likelihood})"
+            )
 
             try:
                 # Note: counts layer already saved in unified preprocessing step (line 338)
@@ -804,12 +715,11 @@ async def preprocess_data(
                     gene_likelihood=params.scvi_gene_likelihood,
                 )
 
-                if context:
-                    await context.info(
-                        f"Training scVI model (max_epochs={params.scvi_max_epochs}, "
-                        f"early_stopping={params.scvi_early_stopping}, "
-                        f"train_size={params.scvi_train_size})..."
-                    )
+                await ctx.info(
+                    f"Training scVI model (max_epochs={params.scvi_max_epochs}, "
+                    f"early_stopping={params.scvi_early_stopping}, "
+                    f"train_size={params.scvi_train_size})..."
+                )
 
                 # Train the model with user-configurable parameters
                 scvi_model.train(
@@ -820,8 +730,7 @@ async def preprocess_data(
                     train_size=params.scvi_train_size,
                 )
 
-                if context:
-                    await context.info("scVI training completed")
+                await ctx.info("scVI training completed")
 
                 # Get latent representation (replaces PCA)
                 adata.obsm["X_scvi"] = scvi_model.get_latent_representation()
@@ -850,22 +759,18 @@ async def preprocess_data(
                     "training_completed": True,
                 }
 
-                if context:
-                    await context.info(
-                        f"✓ scVI: Latent representation stored in X_scvi "
-                        f"(shape: {adata.obsm['X_scvi'].shape})"
-                    )
-                    await context.info(
-                        "✓ scVI: Normalized expression stored in adata.X"
-                    )
-
-                logger.info("Applied scVI normalization")
+                await ctx.info(
+                    f"[OK]scVI: Latent representation stored in X_scvi "
+                    f"(shape: {adata.obsm['X_scvi'].shape})"
+                )
+                await ctx.info(
+                    "[OK]scVI: Normalized expression stored in adata.X"
+                )
 
             except Exception as e:
                 error_msg = f"scVI normalization failed: {str(e)}"
-                if context:
-                    await context.error(error_msg)
-                    await context.info(f"Error details: {traceback.format_exc()}")
+                await ctx.error(error_msg)
+                await ctx.info(f"Error details: {traceback.format_exc()}")
                 raise RuntimeError(error_msg) from e
         else:
             # Catch unknown normalization methods
@@ -876,30 +781,27 @@ async def preprocess_data(
             )
 
         # 4. Find highly variable genes and apply gene subsampling
-        if context:
-            await context.info("Finding highly variable genes...")
+        await ctx.info("Finding highly variable genes...")
 
         # Determine number of HVGs to select
         if gene_subsample_requested:
             # User wants to subsample genes
             n_hvgs = min(params.subsample_genes, adata.n_vars - 1, params.n_hvgs)
-            if context:
-                await context.info(
-                    f"User requested {params.subsample_genes} genes, selecting {n_hvgs} highly variable genes"
-                )
+            await ctx.info(
+                f"User requested {params.subsample_genes} genes, selecting {n_hvgs} highly variable genes"
+            )
         else:
             # Use standard HVG selection
             n_hvgs = min(params.n_hvgs, adata.n_vars - 1)
-            if context:
-                await context.info(f"Using {n_hvgs} highly variable genes...")
+            await ctx.info(f"Using {n_hvgs} highly variable genes...")
 
         # Statistical warning: Very low HVG count may lead to unstable clustering
         # Based on literature consensus: 500-5000 genes recommended, 1000-2000 typical
         # References:
         # - Bioconductor OSCA: "any value from 500 to 5000 is reasonable"
         # - Single-cell best practices: typical range 1000-2000
-        if n_hvgs < 500 and context:
-            await context.warning(
+        if n_hvgs < 500:
+            await ctx.warning(
                 f"Using only {n_hvgs} HVGs is below the recommended minimum of 500 genes.\n"
                 f"   • Literature consensus: 500-5000 genes (typical: 1000-2000)\n"
                 f"   • Low gene counts may lead to unstable clustering results\n"
@@ -909,16 +811,14 @@ async def preprocess_data(
 
         # Check if we should use all genes (for very small gene sets)
         if _should_use_all_genes_for_hvg(adata):
-            if context:
-                await context.info(
-                    f"Small gene set detected ({adata.n_vars} genes), using all genes for analysis"
-                )
+            await ctx.info(
+                f"Small gene set detected ({adata.n_vars} genes), using all genes for analysis"
+            )
             adata.var["highly_variable"] = True
         else:
             # Attempt HVG selection - no fallback for failures
             try:
                 sc.pp.highly_variable_genes(adata, n_top_genes=n_hvgs)
-                logger.info(f"Selected {n_hvgs} highly variable genes")
             except Exception as e:
                 # Provide clear error message without overly complex diagnostics
                 # scanpy's highly_variable_genes is robust - if it fails, the data has issues
@@ -937,8 +837,7 @@ async def preprocess_data(
                     "• Check that normalization step completed without errors\n"
                     "• Verify input data contains meaningful expression variation"
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise RuntimeError(error_msg) from e
 
         # Exclude mitochondrial genes from HVG selection (BEST PRACTICE)
@@ -947,27 +846,24 @@ async def preprocess_data(
             n_mito_hvg = (adata.var["highly_variable"] & adata.var["mt"]).sum()
             if n_mito_hvg > 0:
                 adata.var.loc[adata.var["mt"], "highly_variable"] = False
-                if context:
-                    await context.info(
-                        f"Excluded {n_mito_hvg} mitochondrial genes from HVG selection "
-                        f"(genes retained in adata.raw for downstream analysis)"
-                    )
+                await ctx.info(
+                    f"Excluded {n_mito_hvg} mitochondrial genes from HVG selection "
+                    f"(genes retained in adata.raw for downstream analysis)"
+                )
 
         # Exclude ribosomal genes from HVG selection (optional)
         if params.remove_ribo_genes and "ribo" in adata.var.columns:
             n_ribo_hvg = (adata.var["highly_variable"] & adata.var["ribo"]).sum()
             if n_ribo_hvg > 0:
                 adata.var.loc[adata.var["ribo"], "highly_variable"] = False
-                if context:
-                    await context.info(
-                        f"Excluded {n_ribo_hvg} ribosomal genes from HVG selection "
-                        f"(genes retained in adata.raw for downstream analysis)"
-                    )
+                await ctx.info(
+                    f"Excluded {n_ribo_hvg} ribosomal genes from HVG selection "
+                    f"(genes retained in adata.raw for downstream analysis)"
+                )
 
         # Log final HVG count after exclusions
         final_hvg_count = adata.var["highly_variable"].sum()
-        if context:
-            await context.info(f"Final HVG count after exclusions: {final_hvg_count}")
+        await ctx.info(f"Final HVG count after exclusions: {final_hvg_count}")
 
         # Apply gene subsampling if requested
         if gene_subsample_requested and params.subsample_genes < adata.n_vars:
@@ -977,8 +873,7 @@ async def preprocess_data(
                     "Gene subsampling requested but no highly variable genes were identified. "
                     "This indicates a failure in the HVG selection step."
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise RuntimeError(error_msg)
 
             if not adata.var["highly_variable"].any():
@@ -986,27 +881,23 @@ async def preprocess_data(
                     "Gene subsampling requested but no genes were marked as highly variable. "
                     "Check HVG selection parameters or data quality."
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise RuntimeError(error_msg)
 
             # Use properly identified HVGs
             adata = adata[:, adata.var["highly_variable"]].copy()
-            if context:
-                await context.info(
-                    f"Subsampled to {adata.n_vars} highly variable genes"
-                )
-            logger.info(f"Gene subsampling: kept {adata.n_vars} HVGs")
+            await ctx.info(
+                f"Subsampled to {adata.n_vars} highly variable genes"
+            )
 
         # 5. Batch effect correction (if applicable)
         if (
             params.batch_key in adata.obs
             and len(adata.obs[params.batch_key].unique()) > 1
         ):
-            if context:
-                await context.info(
-                    "Detected batch information. Applying batch effect correction with Harmony..."
-                )
+            await ctx.info(
+                "Detected batch information. Applying batch effect correction with Harmony..."
+            )
             try:
                 # Use Harmony for batch correction (modern standard, works on PCA space)
                 # Harmony is more robust than ComBat for single-cell/spatial data
@@ -1019,10 +910,9 @@ async def preprocess_data(
                     sc.tl.pca(adata, n_comps=min(50, adata.n_vars - 1))
 
                 sce.pp.harmony_integrate(adata, key=params.batch_key)
-                if context:
-                    await context.info(
-                        "Batch effect correction completed using Harmony"
-                    )
+                await ctx.info(
+                    "Batch effect correction completed using Harmony"
+                )
             except Exception as e:
                 # Harmony failed - raise error, don't silently continue
                 raise RuntimeError(
@@ -1041,21 +931,10 @@ async def preprocess_data(
 
         # 6. Scale data (if requested)
         if params.scale:
-            if context:
-                await context.info("Scaling data...")
+            await ctx.info("Scaling data...")
             try:
                 # Trust scanpy's internal zero-variance handling and sparse matrix optimization
                 sc.pp.scale(adata, max_value=params.scale_max_value)
-
-                # Log scaling results
-                if params.scale_max_value is not None:
-                    logger.info(
-                        f"✓ Scaled to unit variance with clipping at ±{params.scale_max_value} SD"
-                    )
-                else:
-                    logger.info(
-                        "✓ Scaled to unit variance without clipping (preserving all outliers)"
-                    )
 
                 # Clean up any NaN/Inf values that might remain (sparse-matrix safe)
                 # Only apply if we have a max_value for clipping
@@ -1078,30 +957,26 @@ async def preprocess_data(
                         )
 
             except Exception as e:
-                if context:
-                    await context.warning(
-                        f"Scaling failed: {e}. Continuing without scaling."
-                    )
+                await ctx.warning(
+                    f"Scaling failed: {e}. Continuing without scaling."
+                )
 
         # 7. Run PCA (skip if scVI was used - it provides its own latent representation)
         scvi_used = params.normalization == "scvi" and "X_scvi" in adata.obsm
         if scvi_used:
             # scVI already created a latent representation
-            if context:
-                await context.info("Skipping PCA (using scVI latent representation)")
+            await ctx.info("Skipping PCA (using scVI latent representation)")
             # Use scVI latent dimensions for downstream analysis
             n_pcs = params.scvi_n_latent
         else:
-            if context:
-                await context.info("Running PCA...")
+            await ctx.info("Running PCA...")
 
             # Adjust n_pcs based on dataset size
             n_pcs = min(
                 params.n_pcs, adata.n_vars - 1, adata.n_obs - 1
             )  # Ensure we don't use more PCs than possible
 
-            if context:
-                await context.info(f"Using {n_pcs} principal components...")
+            await ctx.info(f"Using {n_pcs} principal components...")
 
             try:
                 sc.tl.pca(adata, n_comps=n_pcs)
@@ -1117,13 +992,11 @@ async def preprocess_data(
                     f"3) Ensure sufficient gene expression variation "
                     f"4) Check for memory limitations with large datasets"
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise RuntimeError(error_msg)
 
         # 8. Compute neighbors graph
-        if context:
-            await context.info("Computing neighbors graph...")
+        await ctx.info("Computing neighbors graph...")
 
         # Use scientifically-informed n_neighbors with validation
         n_neighbors = params.n_neighbors
@@ -1141,8 +1014,8 @@ async def preprocess_data(
         # - GitHub discussion (scverse/scanpy#223): small datasets (~1000 cells) use n_neighbors=5
         # Examples: 100 cells → k≈10, 50 cells → k≈7, 20 cells → k≈4-5
         recommended_max = int(np.sqrt(adata.n_obs))
-        if n_neighbors > recommended_max and context:
-            await context.warning(
+        if n_neighbors > recommended_max:
+            await ctx.warning(
                 f"n_neighbors={n_neighbors} exceeds the sqrt(N) rule of thumb (√{adata.n_obs} ≈ {recommended_max}).\n"
                 f"   • High neighbor counts may reduce clustering resolution for small datasets\n"
                 f"   • Rule of thumb: k ≈ √N (based on KNN literature)\n"
@@ -1150,20 +1023,18 @@ async def preprocess_data(
                 f"   • General guidelines: 5-50 (UMAP), 10-15 default (Scanpy)"
             )
 
-        if context:
-            await context.info(
-                f"Using n_neighbors: {n_neighbors} (Scanpy industry standard)"
-            )
+        await ctx.info(
+            f"Using n_neighbors: {n_neighbors} (Scanpy industry standard)"
+        )
 
-        if context:
-            if scvi_used:
-                await context.info(
-                    f"Using {n_neighbors} neighbors with scVI latent representation for graph construction..."
-                )
-            else:
-                await context.info(
-                    f"Using {n_neighbors} neighbors and {n_pcs} PCs for graph construction..."
-                )
+        if scvi_used:
+            await ctx.info(
+                f"Using {n_neighbors} neighbors with scVI latent representation for graph construction..."
+            )
+        else:
+            await ctx.info(
+                f"Using {n_neighbors} neighbors and {n_pcs} PCs for graph construction..."
+            )
 
         try:
             if scvi_used:
@@ -1173,23 +1044,19 @@ async def preprocess_data(
                 sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
 
             # 9. Run UMAP for visualization
-            if context:
-                await context.info("Running UMAP...")
+            await ctx.info("Running UMAP...")
             sc.tl.umap(adata)
 
             # 10. Run clustering
-            if context:
-                await context.info("Running Leiden clustering...")
+            await ctx.info("Running Leiden clustering...")
 
             # Use explicit clustering resolution
             resolution = params.clustering_resolution
-            if context:
-                await context.info(f"Using clustering resolution: {resolution}")
+            await ctx.info(f"Using clustering resolution: {resolution}")
 
-            if context:
-                await context.info(
-                    f"Using Leiden clustering with resolution {resolution}..."
-                )
+            await ctx.info(
+                f"Using Leiden clustering with resolution {resolution}..."
+            )
 
             sc.tl.leiden(adata, resolution=resolution, key_added=params.cluster_key)
 
@@ -1197,12 +1064,10 @@ async def preprocess_data(
             n_clusters = len(adata.obs[params.cluster_key].unique())
 
             # Compute diffusion map for trajectory analysis
-            if context:
-                await context.info("Computing diffusion map for trajectory analysis...")
+            await ctx.info("Computing diffusion map for trajectory analysis...")
             sc.tl.diffmap(adata)
         except Exception as e:
-            if context:
-                await context.error(f"Clustering failed: {str(e)}")
+            await ctx.error(f"Clustering failed: {str(e)}")
             # Don't silently create fallback clustering - let the LLM handle the failure
             raise RuntimeError(
                 f"Clustering failed: {str(e)}. "
@@ -1214,8 +1079,7 @@ async def preprocess_data(
             params.spatial_key in adata.uns
             or any(params.spatial_key in key for key in adata.obsm.keys())
         ):
-            if context:
-                await context.info("Computing spatial neighbors...")
+            await ctx.info("Computing spatial neighbors...")
             try:
                 # Check if spatial neighbors already exist
                 if "spatial_connectivities" not in adata.obsp:
@@ -1235,14 +1099,13 @@ async def preprocess_data(
                         # Use default parameters if spatial key is in uns but not in obsm
                         sq.gr.spatial_neighbors(adata)
             except Exception as e:
-                if context:
-                    await context.warning(
-                        f"Could not compute spatial neighbors: {str(e)}"
-                    )
-                    await context.info("Continuing without spatial neighbors...")
+                await ctx.warning(
+                    f"Could not compute spatial neighbors: {str(e)}"
+                )
+                await ctx.info("Continuing without spatial neighbors...")
 
-        # Store the processed AnnData object back in the data store
-        data_store[data_id]["adata"] = adata
+        # Store the processed AnnData object back via ToolContext
+        await ctx.set_adata(data_id, adata)
 
         # Return preprocessing result
         return PreprocessingResult(
@@ -1261,7 +1124,6 @@ async def preprocess_data(
     except Exception as e:
         error_msg = f"Error in preprocessing: {str(e)}"
         tb = traceback.format_exc()
-        if context:
-            await context.warning(error_msg)
-            await context.info(f"Error details: {tb}")
+        await ctx.warning(error_msg)
+        await ctx.info(f"Error details: {tb}")
         raise RuntimeError(f"{error_msg}\n{tb}")

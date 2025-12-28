@@ -19,27 +19,25 @@ Key functionalities are organized into two main analysis pipelines:
    should be explicitly selected.
 """
 
-import logging
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict
 
 import numpy as np
 import pandas as pd
-from mcp.server.fastmcp import Context
+
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
-from ..utils.error_handling import (DataNotFoundError, ProcessingError,
-                                    suppress_output, validate_adata)
+from ..utils.dependency_manager import require
+from ..utils.adata_utils import validate_adata
+from ..utils.exceptions import DataNotFoundError, ProcessingError
+from ..utils.mcp_utils import suppress_output
 
-logger = logging.getLogger(__name__)
-
-# Import scvi-tools for advanced trajectory analysis
-try:
-    import scvi
-    from scvi.external import VELOVI
-except ImportError:
-    scvi = None
-    VELOVI = None
+# Module-level placeholders for optional dependencies (lazily loaded)
+# Use get_dependency() in functions to actually import these modules
+scvi = None  # Lazily loaded via get_dependency("scvi-tools")
+VELOVI = None  # Lazily loaded via scvi.external.VELOVI
 
 
 def prepare_gam_model_for_visualization(
@@ -79,13 +77,9 @@ def prepare_gam_model_for_visualization(
     ValueError
         If required data (time_key, fate_key, genes) is missing from adata.
     """
-    try:
-        from cellrank.models import GAM
-    except ImportError:
-        raise ImportError(
-            "CellRank is required for GAM model preparation. "
-            "Install with: pip install cellrank>=2.0.0"
-        )
+    # Use centralized dependency manager for consistent error handling
+    require("cellrank")  # Raises ImportError with install instructions if missing
+    from cellrank.models import GAM
 
     # Validate required data
     if time_key not in adata.obs.columns:
@@ -271,10 +265,7 @@ def infer_spatial_trajectory_cellrank(
 
     # Adjust spatial_weight if no spatial data
     if not has_spatial and spatial_weight > 0:
-        logger.warning(
-            f"Spatial weight {spatial_weight} specified but no spatial coordinates found. "
-            "Proceeding with velocity + connectivity kernels only (spatial_weight=0)."
-        )
+        # No spatial coordinates found, fall back to velocity + connectivity kernels only
         spatial_weight = 0
 
     # Create RNA velocity kernel
@@ -536,7 +527,7 @@ def infer_pseudotime_palantir(
     return adata
 
 
-async def compute_dpt_trajectory(adata, root_cells=None, context=None):
+async def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = None):
     """Compute Diffusion Pseudotime trajectory analysis."""
     import numpy as np
     import scanpy as sc
@@ -556,24 +547,21 @@ async def compute_dpt_trajectory(adata, root_cells=None, context=None):
 
     # Check if diffusion map has been computed, compute if missing
     if "X_diffmap" not in adata.obsm:
-        if context:
-            await context.info("DPT requires diffusion map. Computing automatically...")
+        await ctx.info("DPT requires diffusion map. Computing automatically...")
         try:
             import scanpy as sc
 
             # Auto-compute diffusion map for user convenience
             sc.tl.diffmap(adata)
-            if context:
-                await context.info(
-                    "Diffusion map computed successfully for DPT analysis"
-                )
+            await ctx.info(
+                "Diffusion map computed successfully for DPT analysis"
+            )
         except Exception as e:
             error_msg = (
                 f"DPT requires diffusion map but failed to compute it automatically: {e}. "
                 "Please ensure neighbors graph is computed (sc.pp.neighbors) before running DPT."
             )
-            if context:
-                await context.error(error_msg)
+            await ctx.error(error_msg)
             raise ValueError(error_msg)
 
     # Set root cell if provided
@@ -624,9 +612,8 @@ async def compute_dpt_trajectory(adata, root_cells=None, context=None):
 
 async def analyze_rna_velocity(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: "ToolContext",
     params: RNAVelocityParameters = RNAVelocityParameters(),
-    context: Optional[Context] = None,
 ) -> RNAVelocityResult:
     """
     Computes RNA velocity for spatial transcriptomics data.
@@ -637,9 +624,8 @@ async def analyze_rna_velocity(
 
     Args:
         data_id: The identifier for the dataset.
-        data_store: A dictionary that stores the loaded datasets.
+        ctx: ToolContext for data access and logging.
         params: An object containing parameters for the RNA velocity analysis.
-        context: The MCP context for logging and communication.
 
     Returns:
         An RNAVelocityResult object containing metadata about the computation.
@@ -648,23 +634,14 @@ async def analyze_rna_velocity(
         ProcessingError: If scVelo is not installed or if the velocity computation fails.
         DataNotFoundError: If the input data lacks the required 'spliced'/'unspliced' layers.
     """
-    try:
-        import scvelo as scv  # noqa: F401
-    except ImportError:
-        raise ProcessingError(
-            "scvelo package not found. Install it with: pip install scvelo>=0.2.5"
-        )
+    # Use centralized dependency manager for consistent error handling
+    require("scvelo")  # Raises ImportError with install instructions if missing
+    import scvelo as scv  # noqa: F401
 
-    if context:
-        await context.info(f"Analyzing RNA velocity using {params.scvelo_mode} mode")
+    await ctx.info(f"Analyzing RNA velocity using {params.scvelo_mode} mode")
 
-    # Get AnnData object
-    if data_id not in data_store:
-        raise DataNotFoundError(f"Dataset {data_id} not found in data store")
-
-    # COW FIX: Direct reference instead of copy
-    # Only add metadata to adata.obs/uns/obsm, never overwrite entire adata
-    adata = data_store[data_id]["adata"]
+    # Get AnnData object via ToolContext
+    adata = await ctx.get_adata(data_id)
 
     # Validate data for velocity analysis
     try:
@@ -675,8 +652,7 @@ async def analyze_rna_velocity(
             f"Specific issues: {e}. Please ensure the data "
             "contains both 'spliced' and 'unspliced' count layers."
         )
-        if context:
-            await context.error(error_message)
+        await ctx.error(error_message)
         raise DataNotFoundError(error_message)
 
     velocity_computed = False
@@ -686,10 +662,9 @@ async def analyze_rna_velocity(
     if params.method == "scvelo":
         with suppress_output():
             try:
-                if context:
-                    await context.info(
-                        f"Computing RNA velocity using scVelo ({params.scvelo_mode} mode)..."
-                    )
+                await ctx.info(
+                    f"Computing RNA velocity using scVelo ({params.scvelo_mode} mode)..."
+                )
                 # Use existing scVelo computation
                 adata = compute_rna_velocity(
                     adata, mode=params.scvelo_mode, params=params
@@ -698,16 +673,14 @@ async def analyze_rna_velocity(
 
             except Exception as e:
                 error_msg = f"scVelo RNA velocity analysis failed: {str(e)}"
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise ProcessingError(error_msg) from e
 
     elif params.method == "velovi":
         # VELOVI deep learning velocity computation
-        if context:
-            await context.info(
-                "Computing RNA velocity using VELOVI deep learning method..."
-            )
+        await ctx.info(
+            "Computing RNA velocity using VELOVI deep learning method..."
+        )
 
         # Check for required dependencies
         if scvi is None or VELOVI is None:
@@ -723,7 +696,7 @@ async def analyze_rna_velocity(
                 n_hidden=params.velovi_n_hidden,
                 n_latent=params.velovi_n_latent,
                 use_gpu=params.velovi_use_gpu,
-                context=context,
+                ctx=ctx,
             )
 
             # Check if velocity was successfully computed
@@ -740,8 +713,7 @@ async def analyze_rna_velocity(
 
         except Exception as e:
             error_msg = f"VELOVI velocity analysis failed: {str(e)}"
-            if context:
-                await context.error(error_msg)
+            await ctx.error(error_msg)
             raise ProcessingError(error_msg) from e
 
     else:
@@ -761,31 +733,23 @@ async def analyze_rna_velocity(
 
 async def analyze_trajectory(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: "ToolContext",
     params: TrajectoryParameters = TrajectoryParameters(),
-    context: Optional[Context] = None,
 ) -> TrajectoryResult:
     """Analyze trajectory and cell state transitions in spatial transcriptomics data
 
     Args:
         data_id: Dataset ID
-        data_store: Dictionary storing datasets
+        ctx: ToolContext for data access and logging
         params: Trajectory analysis parameters
-        context: MCP context
 
     Returns:
         Trajectory analysis result (computation metadata only, no visualization)
     """
-    if context:
-        await context.info(f"Analyzing trajectory using {params.method} method")
+    await ctx.info(f"Analyzing trajectory using {params.method} method")
 
-    # Get AnnData object
-    if data_id not in data_store:
-        raise ValueError(f"Dataset {data_id} not found in data store")
-
-    # COW FIX: Direct reference instead of copy
-    # Only add metadata to adata.obs/uns/obsm, never overwrite entire adata
-    adata = data_store[data_id]["adata"]
+    # Get AnnData object via ToolContext
+    adata = await ctx.get_adata(data_id)
 
     # Check if RNA velocity has been computed (by any method)
     has_velocity = (
@@ -805,15 +769,11 @@ async def analyze_trajectory(
                 "or choose a method that doesn't require velocity (palantir, dpt)."
             )
 
-        if context:
-            await context.info("Attempting trajectory inference with CellRank...")
+        await ctx.info("Attempting trajectory inference with CellRank...")
 
-        try:
-            import cellrank as cr  # noqa: F401
-        except ImportError:
-            raise ProcessingError(
-                "cellrank package not found. Install it with: pip install cellrank>=2.0.0"
-            )
+        # Use centralized dependency manager for consistent error handling
+        require("cellrank")  # Raises ImportError with install instructions if missing
+        import cellrank as cr  # noqa: F401
 
         try:
             with suppress_output():
@@ -825,37 +785,32 @@ async def analyze_trajectory(
                 )
             pseudotime_key = "pseudotime"
             method_used = "cellrank"
-            if context:
-                await context.info("CellRank analysis completed successfully.")
+            await ctx.info("CellRank analysis completed successfully.")
         except Exception as cellrank_error:
-            if context:
-                await context.error(f"CellRank analysis failed: {cellrank_error}")
+            await ctx.error(f"CellRank analysis failed: {cellrank_error}")
             raise ProcessingError(
                 f"CellRank trajectory inference failed: {cellrank_error}"
             ) from cellrank_error
 
     elif params.method == "palantir":
-        if context:
-            await context.info("Attempting trajectory inference with Palantir...")
+        await ctx.info("Attempting trajectory inference with Palantir...")
 
         try:
             with suppress_output():
                 # Optional: Run spatially-aware embedding if spatial data available
                 has_spatial = "spatial" in adata.obsm
                 if has_spatial and params.spatial_weight > 0:
-                    if context:
-                        await context.info(
-                            f"Using spatial-aware embedding with weight {params.spatial_weight}"
-                        )
+                    await ctx.info(
+                        f"Using spatial-aware embedding with weight {params.spatial_weight}"
+                    )
                     adata = spatial_aware_embedding(
                         adata, spatial_weight=params.spatial_weight
                     )
                 elif not has_spatial and params.spatial_weight > 0:
-                    if context:
-                        await context.info(
-                            f"Spatial weight {params.spatial_weight} specified but no spatial "
-                            "coordinates found. Proceeding with expression-only Palantir."
-                        )
+                    await ctx.info(
+                        f"Spatial weight {params.spatial_weight} specified but no spatial "
+                        "coordinates found. Proceeding with expression-only Palantir."
+                    )
 
                 # Run Palantir with configurable parameters
                 # Palantir works with expression data only, spatial is optional enhancement
@@ -868,28 +823,24 @@ async def analyze_trajectory(
 
             pseudotime_key = "palantir_pseudotime"
             method_used = "palantir"
-            if context:
-                await context.info("Palantir analysis completed successfully.")
+            await ctx.info("Palantir analysis completed successfully.")
 
         except Exception as palantir_error:
-            if context:
-                await context.error(f"Palantir analysis failed: {palantir_error}")
+            await ctx.error(f"Palantir analysis failed: {palantir_error}")
             raise ProcessingError(
                 f"Palantir trajectory inference failed: {palantir_error}"
             ) from palantir_error
 
     elif params.method == "dpt":
-        if context:
-            await context.info("Attempting trajectory inference with DPT...")
+        await ctx.info("Attempting trajectory inference with DPT...")
         try:
             with suppress_output():
                 adata = await compute_dpt_trajectory(
-                    adata, root_cells=params.root_cells, context=context
+                    adata, root_cells=params.root_cells, ctx=ctx
                 )
             pseudotime_key = "dpt_pseudotime"
             method_used = "dpt"
-            if context:
-                await context.info("DPT analysis completed successfully.")
+            await ctx.info("DPT analysis completed successfully.")
         except Exception as dpt_error:
             raise ProcessingError(f"DPT analysis failed: {dpt_error}") from dpt_error
 
@@ -904,7 +855,7 @@ async def analyze_trajectory(
     # All modifications to adata.obs/uns/obsm are in-place and preserved
 
     # Store scientific metadata for reproducibility
-    from ..utils.metadata_storage import store_analysis_metadata
+    from ..utils.adata_utils import store_analysis_metadata
 
     # Determine results keys based on method
     results_keys_dict = {"obs": [pseudotime_key], "obsm": [], "uns": []}
@@ -965,12 +916,11 @@ async def analyze_trajectory(
     )
 
 
-async def _prepare_velovi_data(adata, context=None):
+async def _prepare_velovi_data(adata, ctx: "ToolContext"):
     """Prepare data for VELOVI according to official standards"""
     import scvelo as scv
 
-    if context:
-        await context.info("Preparing data for VELOVI using scvelo preprocessing...")
+    await ctx.info("Preparing data for VELOVI using scvelo preprocessing...")
 
     adata_velovi = adata.copy()
 
@@ -978,33 +928,27 @@ async def _prepare_velovi_data(adata, context=None):
     if "spliced" in adata_velovi.layers and "unspliced" in adata_velovi.layers:
         adata_velovi.layers["Ms"] = adata_velovi.layers["spliced"]
         adata_velovi.layers["Mu"] = adata_velovi.layers["unspliced"]
-        if context:
-            await context.info("Converted layer names: spliced->Ms, unspliced->Mu")
+        await ctx.info("Converted layer names: spliced->Ms, unspliced->Mu")
     else:
         raise ValueError("Missing required 'spliced' and 'unspliced' layers")
 
     # 2. scvelo preprocessing
-    if context:
-        await context.info("Applying scvelo preprocessing...")
+    await ctx.info("Applying scvelo preprocessing...")
 
     try:
         scv.pp.filter_and_normalize(
             adata_velovi, min_shared_counts=30, n_top_genes=2000, enforce=False
         )
-        if context:
-            await context.info("scvelo filter_and_normalize completed")
+        await ctx.info("scvelo filter_and_normalize completed")
     except Exception as e:
-        if context:
-            await context.info(f"scvelo preprocessing warning: {e}")
+        await ctx.info(f"scvelo preprocessing warning: {e}")
 
     # 3. Compute moments
     try:
         scv.pp.moments(adata_velovi, n_pcs=30, n_neighbors=30)
-        if context:
-            await context.info("scvelo moments computation completed")
+        await ctx.info("scvelo moments computation completed")
     except Exception as e:
-        if context:
-            await context.info(f"moments computation warning: {e}")
+        await ctx.info(f"moments computation warning: {e}")
 
     return adata_velovi
 
@@ -1034,7 +978,7 @@ async def analyze_velocity_with_velovi(
     n_hidden: int = 128,
     n_latent: int = 10,
     use_gpu: bool = False,
-    context: Optional[Context] = None,
+    ctx: "ToolContext" = None,
 ) -> Dict[str, Any]:
     """
     Analyzes RNA velocity using the deep learning model VELOVI.
@@ -1051,7 +995,7 @@ async def analyze_velocity_with_velovi(
         n_hidden: The number of hidden units in the neural network layers.
         n_latent: The dimensionality of the latent space.
         use_gpu: If True, training will be performed on a GPU if available.
-        context: The MCP context for logging.
+        ctx: ToolContext for data access and logging.
 
     Returns:
         A dictionary containing the results and metadata from the VELOVI analysis.
@@ -1067,22 +1011,19 @@ async def analyze_velocity_with_velovi(
                 "scvi-tools package is required for VELOVI analysis. Install with 'pip install scvi-tools'"
             )
 
-        if context:
-            await context.info(
-                "Starting VELOVI velocity analysis with complete fixes..."
-            )
+        await ctx.info(
+            "Starting VELOVI velocity analysis with complete fixes..."
+        )
 
         # Step 1: Data preprocessing fix
-        adata_prepared = await _prepare_velovi_data(adata, context)
+        adata_prepared = await _prepare_velovi_data(adata, ctx)
 
         # Step 2: Data validation
         _validate_velovi_data(adata_prepared)
-        if context:
-            await context.info("Data validation passed")
+        await ctx.info("Data validation passed")
 
         # Step 3: VELOVI setup (using correct layer names)
-        if context:
-            await context.info("Setting up VELOVI with corrected layer names...")
+        await ctx.info("Setting up VELOVI with corrected layer names...")
 
         VELOVI.setup_anndata(
             adata_prepared,
@@ -1091,19 +1032,16 @@ async def analyze_velocity_with_velovi(
         )
 
         # Step 4: Model creation
-        if context:
-            await context.info(
-                f"Creating VELOVI model (hidden={n_hidden}, latent={n_latent})..."
-            )
+        await ctx.info(
+            f"Creating VELOVI model (hidden={n_hidden}, latent={n_latent})..."
+        )
 
         velovi_model = VELOVI(adata_prepared, n_hidden=n_hidden, n_latent=n_latent)
 
-        if context:
-            await context.info("VELOVI model created successfully")
+        await ctx.info("VELOVI model created successfully")
 
         # Step 5: Model training (fix training parameters)
-        if context:
-            await context.info(f"Training VELOVI model for {n_epochs} epochs...")
+        await ctx.info(f"Training VELOVI model for {n_epochs} epochs...")
 
         # Fix: use correct training parameters
         if use_gpu:
@@ -1113,22 +1051,19 @@ async def analyze_velocity_with_velovi(
         else:
             velovi_model.train(max_epochs=n_epochs)
 
-        if context:
-            await context.info("VELOVI training completed")
+        await ctx.info("VELOVI training completed")
 
         # Step 6: Result extraction (using official recommended methods)
-        if context:
-            await context.info("Extracting VELOVI results...")
+        await ctx.info("Extracting VELOVI results...")
 
         # Use official recommended result extraction methods
         latent_time = velovi_model.get_latent_time(n_samples=25)
         velocities = velovi_model.get_velocity(n_samples=25, velo_statistic="mean")
         latent_repr = velovi_model.get_latent_representation()
 
-        if context:
-            await context.info(
-                f"Raw results shapes: latent_time={latent_time.shape}, velocities={velocities.shape}"
-            )
+        await ctx.info(
+            f"Raw results shapes: latent_time={latent_time.shape}, velocities={velocities.shape}"
+        )
 
         # Handle pandas/numpy compatibility issues
         if hasattr(latent_time, "values"):
@@ -1141,10 +1076,9 @@ async def analyze_velocity_with_velovi(
         velocities = np.asarray(velocities)
         latent_repr = np.asarray(latent_repr)
 
-        if context:
-            await context.info(
-                f"Converted shapes: latent_time={latent_time.shape}, velocities={velocities.shape}"
-            )
+        await ctx.info(
+            f"Converted shapes: latent_time={latent_time.shape}, velocities={velocities.shape}"
+        )
 
         # Fix: safe scaling calculation (solve dimension issues)
         t = latent_time
@@ -1167,8 +1101,7 @@ async def analyze_velocity_with_velovi(
             scaling = scaling.to_numpy()
         scaling = np.asarray(scaling)
 
-        if context:
-            await context.info(f"Scaling computed: shape={scaling.shape}")
+        await ctx.info(f"Scaling computed: shape={scaling.shape}")
 
         # Calculate final scaled velocities
         if scaling.ndim == 0:
@@ -1178,7 +1111,7 @@ async def analyze_velocity_with_velovi(
         else:
             scaled_velocities = velocities / scaling
 
-        # ⭐ Key fix: store results in preprocessed data object (dimension matching)
+        # Key fix: store results in preprocessed data object (dimension matching)
         adata_prepared.layers["velocity_velovi"] = scaled_velocities
         adata_prepared.layers["latent_time_velovi"] = latent_time
         adata_prepared.obsm["X_velovi_latent"] = latent_repr
@@ -1187,7 +1120,7 @@ async def analyze_velocity_with_velovi(
         velocity_norm = np.linalg.norm(scaled_velocities, axis=1)
         adata_prepared.obs["velocity_velovi_norm"] = velocity_norm
 
-        # ⭐ Solution: transfer key information back to original data object, avoiding dimension conflicts
+        # Solution: transfer key information back to original data object, avoiding dimension conflicts
         # Only transfer cell-related information (obs info), not gene-related layer information
         adata.obs["velocity_velovi_norm"] = velocity_norm
         adata.obsm["X_velovi_latent"] = latent_repr
@@ -1196,17 +1129,16 @@ async def analyze_velocity_with_velovi(
         adata.uns["velovi_adata"] = adata_prepared
         adata.uns["velovi_gene_names"] = adata_prepared.var_names.tolist()
 
-        if context:
-            await context.info("Stored VELOVI results:")
-            await context.info(
-                f"  - Original adata.obs['velocity_velovi_norm']: {velocity_norm.shape}"
-            )
-            await context.info(
-                f"  - Original adata.obsm['X_velovi_latent']: {latent_repr.shape}"
-            )
-            await context.info(
-                f"  - Full results in adata.uns['velovi_adata'] with shape {adata_prepared.shape}"
-            )
+        await ctx.info("Stored VELOVI results:")
+        await ctx.info(
+            f"  - Original adata.obs['velocity_velovi_norm']: {velocity_norm.shape}"
+        )
+        await ctx.info(
+            f"  - Original adata.obsm['X_velovi_latent']: {latent_repr.shape}"
+        )
+        await ctx.info(
+            f"  - Full results in adata.uns['velovi_adata'] with shape {adata_prepared.shape}"
+        )
 
         # Build results dictionary
         results = {
@@ -1228,14 +1160,12 @@ async def analyze_velocity_with_velovi(
             "storage_note": "Full velocity results stored in adata.uns['velovi_adata']",
         }
 
-        if context:
-            await context.info("VELOVI velocity analysis completed successfully")
-            await context.info("Results stored without dimension conflicts")
+        await ctx.info("VELOVI velocity analysis completed successfully")
+        await ctx.info("Results stored without dimension conflicts")
 
         return results
 
     except Exception as e:
         error_msg = f"VELOVI velocity analysis failed: {str(e)}"
-        if context:
-            await context.error(error_msg)
+        await ctx.error(error_msg)
         raise RuntimeError(error_msg) from e

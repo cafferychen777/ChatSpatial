@@ -4,7 +4,7 @@ Analysis result models for spatial transcriptomics data.
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 try:
     from mcp.types import ImageContent
@@ -61,8 +61,7 @@ class AnnotationResult(BaseModel):
     confidence_scores: Optional[Dict[str, float]] = None
     tangram_mapping_score: Optional[float] = None  # For Tangram method - mapping score
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class SpatialStatisticsResult(BaseModel):
@@ -85,8 +84,7 @@ class RNAVelocityResult(BaseModel):
     velocity_graph_key: Optional[str] = None  # Key for velocity graph in adata.uns
     mode: str  # RNA velocity computation mode
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class TrajectoryResult(BaseModel):
@@ -99,8 +97,7 @@ class TrajectoryResult(BaseModel):
     method: str  # Trajectory analysis method used
     spatial_weight: float  # Spatial information weight
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class IntegrationResult(BaseModel):
@@ -110,8 +107,7 @@ class IntegrationResult(BaseModel):
     n_samples: int
     integration_method: str
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class DeconvolutionResult(BaseModel):
@@ -135,8 +131,7 @@ class DeconvolutionResult(BaseModel):
     proportions_key: str  # Key in adata.obsm where cell type proportions are stored
     statistics: Dict[str, Any]  # Statistics about the deconvolution results
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class SpatialDomainResult(BaseModel):
@@ -155,8 +150,7 @@ class SpatialDomainResult(BaseModel):
         None  # Key in adata.obsm where embeddings are stored
     )
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class SpatialVariableGenesResult(BaseModel):
@@ -183,8 +177,7 @@ class SpatialVariableGenesResult(BaseModel):
     spatialde_results: Optional[Dict[str, Any]] = None  # SpatialDE-specific results
     sparkx_results: Optional[Dict[str, Any]] = None  # SPARK-X specific results
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class CellCommunicationResult(BaseModel):
@@ -236,8 +229,7 @@ class CellCommunicationResult(BaseModel):
     # Statistics
     statistics: Dict[str, Any]  # General statistics about the communication analysis
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class EnrichmentResult(BaseModel):
@@ -297,7 +289,7 @@ class EnrichmentResult(BaseModel):
         exclude=True,
     )
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class CNVResult(BaseModel):
@@ -325,5 +317,4 @@ class CNVResult(BaseModel):
     statistics: Optional[Dict[str, Any]] = None  # CNV statistics
     visualization_available: bool = False  # Whether visualization is available
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -2,65 +2,22 @@
 Cell-cell communication analysis tools for spatial transcriptomics data.
 """
 
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
-import pandas as pd
-from mcp.server.fastmcp import Context
+
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
+from ..utils.dependency_manager import is_available, require
 
 
-def _sanitize_dataframe_for_h5ad(df: pd.DataFrame) -> pd.DataFrame:
-    """Sanitize DataFrame for H5AD storage.
-
-    H5AD cannot handle:
-    1. NaN/None values in object columns
-    2. Non-string objects in object columns
-    3. Mixed types in object columns
-
-    This function converts all object columns to string type,
-    replacing NaN with empty string.
-
-    Args:
-        df: DataFrame to sanitize
-
-    Returns:
-        Sanitized DataFrame safe for H5AD storage
-    """
-    df = df.copy()
-
-    for col in df.columns:
-        if df[col].dtype == "object":
-            # Convert all values to string, handling NaN/None
-            df[col] = df[col].fillna("").astype(str)
-
-    # Also ensure column names are strings
-    df.columns = df.columns.astype(str)
-
-    # Ensure index is string if it's object type
-    if df.index.dtype == "object":
-        df.index = df.index.astype(str)
-
-    return df
-
-# Import LIANA+ for cell communication analysis
-try:
-    import liana as li  # noqa: F401
-
-    LIANA_AVAILABLE = True
-except ImportError:
-    LIANA_AVAILABLE = False
-
-# Check CellPhoneDB availability
-try:
-    import importlib.util
-
-    CELLPHONEDB_AVAILABLE = importlib.util.find_spec("cellphonedb") is not None
-except ImportError:
-    CELLPHONEDB_AVAILABLE = False
+# Use centralized dependency manager for consistent availability checks
+LIANA_AVAILABLE = is_available("liana")
+CELLPHONEDB_AVAILABLE = is_available("cellphonedb")
 
 
 def is_cellchat_r_available() -> tuple[bool, str]:
@@ -69,40 +26,41 @@ def is_cellchat_r_available() -> tuple[bool, str]:
     Returns:
         Tuple of (is_available, error_message)
     """
-    try:
-        import rpy2.robjects as ro
-        from rpy2.robjects import pandas2ri
-        from rpy2.robjects.conversion import localconverter
-
-        # Test R connection
-        try:
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                ro.r("R.version.string")
-        except Exception as e:
-            return False, f"R is not accessible: {str(e)}"
-
-        # Check if CellChat is installed in R
-        try:
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                ro.r("library(CellChat)")
-        except Exception as e:
-            return (
-                False,
-                f"CellChat R package is not installed: {str(e)}. "
-                "Install in R with: devtools::install_github('jinworks/CellChat')",
-            )
-
-        return True, ""
-
-    except ImportError:
+    # Use centralized dependency manager for rpy2 check
+    if not is_available("rpy2"):
         return (
             False,
             "rpy2 is not installed. Install with 'pip install rpy2' to use CellChat R",
         )
 
+    # rpy2 is already checked via is_available above, so we can import directly
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri
+    from rpy2.robjects.conversion import localconverter
+
+    # Test R connection
+    try:
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            ro.r("R.version.string")
+    except Exception as e:
+        return False, f"R is not accessible: {str(e)}"
+
+    # Check if CellChat is installed in R
+    try:
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            ro.r("library(CellChat)")
+    except Exception as e:
+        return (
+            False,
+            f"CellChat R package is not installed: {str(e)}. "
+            "Install in R with: devtools::install_github('jinworks/CellChat')",
+        )
+
+    return True, ""
+
 
 async def _validate_liana_requirements(
-    adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
+    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> None:
     """Validate LIANA+ requirements"""
     # Spatial connectivity validation
@@ -122,68 +80,61 @@ async def _validate_liana_requirements(
     validate_obs_column(adata, params.cell_type_key, "Cell type column")
 
     # Warning for resource matching
-    if params.species == "mouse" and params.liana_resource == "consensus" and context:
-        await context.warning(
+    if params.species == "mouse" and params.liana_resource == "consensus":
+        await ctx.warning(
             "Using 'consensus' for mouse data. Consider liana_resource='mouseconsensus'."
         )
 
 
 async def analyze_cell_communication(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: "ToolContext",
     params: CellCommunicationParameters,  # No default - must be provided by caller (LLM)
-    context: Optional[Context] = None,
 ) -> CellCommunicationResult:
     """Analyze cell-cell communication in spatial transcriptomics data
 
     Args:
         data_id: Dataset ID
-        data_store: Dictionary storing loaded datasets
+        ctx: ToolContext for data access and logging
         params: Cell communication analysis parameters
-        context: MCP context
 
     Returns:
         Cell communication analysis result
     """
-    # Retrieve the AnnData object from data store
-    if data_id not in data_store:
-        raise ValueError(f"Dataset {data_id} not found in data store")
-
-    # Direct reference to avoid unnecessary copies
-    adata = data_store[data_id]["adata"]
+    # Get data via ToolContext
+    adata = await ctx.get_adata(data_id)
 
     try:
         # Apply method-specific validation
         if params.method == "liana":
             # LIANA-based methods need spatial connectivity validation
-            await _validate_liana_requirements(adata, params, context)
+            await _validate_liana_requirements(adata, params, ctx)
         elif params.method == "cellphonedb":
             # Check if cell type column exists
             validate_obs_column(adata, params.cell_type_key, "Cell type column")
 
             # Provide data overview information
-            if context:
-                n_genes = adata.raw.n_vars if adata.raw is not None else adata.n_vars
-                data_source_info = (
-                    "raw layer" if adata.raw is not None else "current layer"
-                )
-                await context.info(
-                    f"Running CellPhoneDB with {n_genes} genes from {data_source_info} "
-                    f"and {adata.n_obs} cells"
+            n_genes = adata.raw.n_vars if adata.raw is not None else adata.n_vars
+            data_source_info = (
+                "raw layer" if adata.raw is not None else "current layer"
+            )
+            await ctx.info(
+                f"Running CellPhoneDB with {n_genes} genes from {data_source_info} "
+                f"and {adata.n_obs} cells"
+            )
+
+            # Warnings for low counts
+            if n_genes < 5000:
+                await ctx.warning(
+                    f"Gene count ({n_genes}) is relatively low. "
+                    f"This may limit the number of interactions found."
                 )
 
-                # Warnings for low counts
-                if n_genes < 5000:
-                    await context.warning(
-                        f"Gene count ({n_genes}) is relatively low. "
-                        f"This may limit the number of interactions found."
-                    )
-
-                if adata.n_obs < 100:
-                    await context.warning(
-                        f"Cell count ({adata.n_obs}) is relatively low. "
-                        f"This may affect statistical power."
-                    )
+            if adata.n_obs < 100:
+                await ctx.warning(
+                    f"Cell count ({adata.n_obs}) is relatively low. "
+                    f"This may affect statistical power."
+                )
 
         # Note: LIANA internally handles use_raw parameter automatically
         # No need for manual data_source switching - consistent with other tools
@@ -194,7 +145,7 @@ async def analyze_cell_communication(
                 raise ImportError(
                     "LIANA+ is not installed. Please install it with: pip install liana"
                 )
-            result_data = await _analyze_communication_liana(adata, params, context)
+            result_data = await _analyze_communication_liana(adata, params, ctx)
 
         elif params.method == "cellphonedb":
             if not CELLPHONEDB_AVAILABLE:
@@ -202,7 +153,7 @@ async def analyze_cell_communication(
                     "CellPhoneDB is not installed. Please install it with: pip install cellphonedb"
                 )
             result_data = await _analyze_communication_cellphonedb(
-                adata, params, context
+                adata, params, ctx
             )
 
         elif params.method == "cellchat_r":
@@ -210,7 +161,7 @@ async def analyze_cell_communication(
             if not is_available:
                 raise ImportError(f"CellChat R is not available: {error_message}")
             result_data = await _analyze_communication_cellchat_r(
-                adata, params, context
+                adata, params, ctx
             )
 
         else:
@@ -221,45 +172,16 @@ async def analyze_cell_communication(
 
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
-        if context:
-            await context.info(
+        await ctx.info(
                 "Cell communication analysis complete. Use visualize_data tool with plot_type='cell_communication' to visualize results"
             )
 
-        # Copy results back to original adata to ensure persistence
-        original_adata = data_store[data_id]["adata"]
-
-        # Copy all CellPhoneDB/LIANA/CellChat results from the temporary adata to the original
-        # This ensures results are preserved when data is saved
-        for key in [
-            "cellphonedb_deconvoluted",
-            "cellphonedb_means",
-            "cellphonedb_pvalues",
-            "cellphonedb_significant_means",
-            "cellphonedb_statistics",
-            "liana_res",
-            "lrdata",
-            "liana_spatial_res",
-            "liana_spatial_interactions",
-            "detected_lr_pairs",
-            "cell_communication_results",
-            # CellChat R specific keys
-            "cellchat_r_lr_pairs",
-            "cellchat_r_prob",
-            "cellchat_r_pval",
-            "cellchat_r_top_pathways",
-            "cellchat_r_params",
-        ]:
-            if key in adata.uns:
-                original_adata.uns[key] = adata.uns[key]
-
-        # Also copy any obsm keys that were added
-        for key in adata.obsm.keys():
-            if key not in original_adata.obsm or key.startswith("liana_"):
-                original_adata.obsm[key] = adata.obsm[key]
+        # Note: Results are already stored in adata.uns by the analysis methods
+        # Since ctx.get_adata() returns a reference to the stored object,
+        # modifications to adata.uns are automatically persisted
 
         # Store scientific metadata for reproducibility
-        from ..utils.metadata_storage import store_analysis_metadata
+        from ..utils.adata_utils import store_analysis_metadata
 
         # Determine database used
         if params.method == "liana":
@@ -345,32 +267,27 @@ async def analyze_cell_communication(
             statistics=result_data.get("statistics", {}),
         )
 
-        if context:
-            await context.info(
-                f"Successfully analyzed {result.n_significant_pairs} significant LR pairs"
-            )
-            if result.top_lr_pairs:
-                await context.info(f"Top LR pair: {result.top_lr_pairs[0]}")
+        await ctx.info(
+            f"Successfully analyzed {result.n_significant_pairs} significant LR pairs"
+        )
+        if result.top_lr_pairs:
+            await ctx.info(f"Top LR pair: {result.top_lr_pairs[0]}")
 
         return result
 
     except Exception as e:
         error_msg = f"Error in cell communication analysis: {str(e)}"
-        if context:
-            await context.warning(error_msg)
+        await ctx.warning(error_msg)
         raise RuntimeError(error_msg)
 
 
 async def _analyze_communication_liana(
-    adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
+    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> Dict[str, Any]:
     """Analyze cell communication using LIANA+"""
-    try:
-        import liana as li  # noqa: F401
-    except ImportError:
-        raise ImportError(
-            "LIANA+ is not installed. Please install it with: pip install liana"
-        )
+    # Use centralized dependency manager for consistent error handling
+    require("liana")  # Raises ImportError with install instructions if missing
+    import liana as li  # noqa: F401
 
     try:
         # Ensure spatial connectivity is computed
@@ -387,28 +304,23 @@ async def _analyze_communication_liana(
 
             # Use Squidpy for spatial neighbor computation
             # Note: Spatial analysis requires spatial neighbors (physical coordinates), not expression neighbors
-            try:
-                import squidpy as sq
+            # Use centralized dependency manager for consistent error handling
+            require("squidpy")  # Raises ImportError with install instructions if missing
+            import squidpy as sq
 
-                # Squidpy's spatial_neighbors uses PHYSICAL coordinates
-                sq.gr.spatial_neighbors(
-                    adata,
-                    coord_type="generic",
-                    n_neighs=min(
-                        30, max(6, adata.n_obs // 100)
-                    ),  # Adaptive neighbor count
-                    radius=bandwidth if bandwidth else None,
-                    delaunay=True,  # Use Delaunay triangulation for spatial data
-                    set_diag=False,  # Standard practice for spatial graphs
-                )
-            except ImportError:
-                raise ImportError(
-                    "Squidpy required for spatial analysis (computes neighbors based on physical coordinates). "
-                    "Install: pip install squidpy"
-                )
+            # Squidpy's spatial_neighbors uses PHYSICAL coordinates
+            sq.gr.spatial_neighbors(
+                adata,
+                coord_type="generic",
+                n_neighs=min(
+                    30, max(6, adata.n_obs // 100)
+                ),  # Adaptive neighbor count
+                radius=bandwidth if bandwidth else None,
+                delaunay=True,  # Use Delaunay triangulation for spatial data
+                set_diag=False,  # Standard practice for spatial graphs
+            )
 
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Spatial connectivity computed with bandwidth={bandwidth}, cutoff={cutoff}"
                 )
 
@@ -433,10 +345,10 @@ async def _analyze_communication_liana(
 
         if has_clusters and not params.perform_spatial_analysis:
             # Single-cell style analysis with clusters
-            return await _run_liana_cluster_analysis(adata, params, context)
+            return await _run_liana_cluster_analysis(adata, params, ctx)
         else:
             # Spatial bivariate analysis
-            return await _run_liana_spatial_analysis(adata, params, context)
+            return await _run_liana_spatial_analysis(adata, params, ctx)
 
     except Exception as e:
         raise RuntimeError(f"LIANA+ analysis failed: {str(e)}")
@@ -463,7 +375,7 @@ def _get_liana_resource_name(species: str, resource_preference: str) -> str:
 
 
 async def _run_liana_cluster_analysis(
-    adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
+    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> Dict[str, Any]:
     """Run LIANA+ cluster-based analysis"""
     import liana as li
@@ -547,7 +459,7 @@ async def _run_liana_cluster_analysis(
 
 
 async def _run_liana_spatial_analysis(
-    adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
+    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> Dict[str, Any]:
     """Run LIANA+ spatial bivariate analysis"""
     import liana as li
@@ -595,8 +507,7 @@ async def _run_liana_spatial_analysis(
     pvals = lrdata.var[pvals_col]
 
     # Diagnostic logging
-    if context:
-        await context.info(
+    await ctx.info(
             f"Statistical Significance Analysis:\n"
             f"  - Total L-R pairs: {len(pvals)}\n"
             f"  - P-value range: [{pvals.min():.6f}, {pvals.max():.6f}]\n"
@@ -610,8 +521,7 @@ async def _run_liana_spatial_analysis(
     n_significant_pairs = reject.sum()
 
     # Diagnostic logging for FDR results
-    if context:
-        await context.info(
+    await ctx.info(
             f"  - FDR-corrected p-value range: [{pvals_corrected.min():.6f}, {pvals_corrected.max():.6f}]\n"
             f"  - Significant pairs (FDR < {alpha}): {n_significant_pairs}/{len(pvals)} ({n_significant_pairs/len(pvals)*100:.1f}%)"
         )
@@ -680,15 +590,12 @@ async def _run_liana_spatial_analysis(
 
 
 async def _ensure_cellphonedb_database(
-    output_dir: str, context: Optional[Context] = None
+    output_dir: str, ctx: "ToolContext"
 ) -> str:
     """Ensure CellPhoneDB database is available, download if not exists"""
-    try:
-        from cellphonedb.utils import db_utils
-    except ImportError:
-        raise ImportError(
-            "CellPhoneDB utils not available. Please install with: pip install cellphonedb"
-        )
+    # Use centralized dependency manager for consistent error handling
+    require("cellphonedb")  # Raises ImportError with install instructions if missing
+    from cellphonedb.utils import db_utils
 
     import os
 
@@ -696,19 +603,16 @@ async def _ensure_cellphonedb_database(
     db_path = os.path.join(output_dir, "cellphonedb.zip")
 
     if os.path.exists(db_path):
-        if context:
-            await context.info(f"Using existing CellPhoneDB database: {db_path}")
+        await ctx.info(f"Using existing CellPhoneDB database: {db_path}")
         return db_path
 
     try:
-        if context:
-            await context.info("Downloading CellPhoneDB database (v5.0.0)...")
+        await ctx.info("Downloading CellPhoneDB database (v5.0.0)...")
 
         # Download latest database
         db_utils.download_database(output_dir, "v5.0.0")
 
-        if context:
-            await context.info(
+        await ctx.info(
                 f"Successfully downloaded CellPhoneDB database to: {db_path}"
             )
 
@@ -728,18 +632,15 @@ async def _ensure_cellphonedb_database(
 
 
 async def _analyze_communication_cellphonedb(
-    adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
+    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> Dict[str, Any]:
     """Analyze cell communication using CellPhoneDB"""
-    try:
-        import os
-        import tempfile
+    # Use centralized dependency manager for consistent error handling
+    require("cellphonedb")  # Raises ImportError with install instructions if missing
+    import os
+    import tempfile
 
-        from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
-    except ImportError:
-        raise ImportError(
-            "CellPhoneDB is not installed. Please install it with: pip install cellphonedb"
-        )
+    from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
 
     try:
         import time
@@ -778,8 +679,7 @@ async def _analyze_communication_cellphonedb(
             }
         )
 
-        if context:
-            await context.info(
+        await ctx.info(
                 f"Preparing {matrix_type} expression data for CellPhoneDB\n"
                 f"  Data: {n_genes} genes × {n_cells} cells\n"
                 f"  Cell types: {meta_df['cell_type'].nunique()}"
@@ -791,10 +691,9 @@ async def _analyze_communication_cellphonedb(
             params.cellphonedb_use_microenvironments
             and "spatial" in adata_for_analysis.obsm
         ):
-            if context:
-                await context.info("Creating spatial microenvironments...")
+            await ctx.info("Creating spatial microenvironments...")
             microenvs_file = await _create_microenvironments_file(
-                adata_for_analysis, params, context
+                adata_for_analysis, params, ctx
             )
 
         # Set random seed for reproducibility
@@ -838,7 +737,7 @@ async def _analyze_communication_cellphonedb(
             meta_df.to_csv(meta_file, sep="\t", index=False)
 
             try:
-                db_path = await _ensure_cellphonedb_database(temp_dir, context)
+                db_path = await _ensure_cellphonedb_database(temp_dir, ctx)
             except Exception as db_error:
                 error_msg = (
                     f"Failed to setup CellPhoneDB database: {str(db_error)}\n\n"
@@ -899,14 +798,14 @@ async def _analyze_communication_cellphonedb(
             # Check for empty results (no interactions found)
             if not result or "significant_means" not in result:
                 raise RuntimeError(
-                    f"CellPhoneDB found no ligand-receptor interactions in your data.\n\n"
-                    f"This typically happens when:\n"
-                    f"  1. Using mouse/non-human data (CellPhoneDB is human-focused)\n"
-                    f"  2. Gene names don't match HGNC symbols\n"
-                    f"  3. Very few genes overlap with the L-R database\n\n"
-                    f"SOLUTION: Use method='liana' with appropriate species setting:\n"
-                    f"  - Mouse: species='mouse', liana_resource='mouseconsensus'\n"
-                    f"  - Human: species='human', liana_resource='consensus'"
+                    "CellPhoneDB found no ligand-receptor interactions in your data.\n\n"
+                    "This typically happens when:\n"
+                    "  1. Using mouse/non-human data (CellPhoneDB is human-focused)\n"
+                    "  2. Gene names don't match HGNC symbols\n"
+                    "  3. Very few genes overlap with the L-R database\n\n"
+                    "SOLUTION: Use method='liana' with appropriate species setting:\n"
+                    "  - Mouse: species='mouse', liana_resource='mouseconsensus'\n"
+                    "  - Human: species='human', liana_resource='consensus'"
                 )
 
             # Extract results from CellPhoneDB v5 dictionary format
@@ -915,16 +814,11 @@ async def _analyze_communication_cellphonedb(
             pvalues = result.get("pvalues")
             significant_means = result.get("significant_means")
 
-            # Store results in AnnData object (sanitized for H5AD compatibility)
-            # CellPhoneDB DataFrames contain NaN in object columns which H5AD cannot handle
-            adata.uns["cellphonedb_deconvoluted"] = _sanitize_dataframe_for_h5ad(
-                deconvoluted
-            )
-            adata.uns["cellphonedb_means"] = _sanitize_dataframe_for_h5ad(means)
-            adata.uns["cellphonedb_pvalues"] = _sanitize_dataframe_for_h5ad(pvalues)
-            adata.uns["cellphonedb_significant_means"] = _sanitize_dataframe_for_h5ad(
-                significant_means
-            )
+            # Store results in AnnData object
+            adata.uns["cellphonedb_deconvoluted"] = deconvoluted
+            adata.uns["cellphonedb_means"] = means
+            adata.uns["cellphonedb_pvalues"] = pvalues
+            adata.uns["cellphonedb_significant_means"] = significant_means
 
         # Calculate statistics
         n_lr_pairs = (
@@ -971,8 +865,7 @@ async def _analyze_communication_cellphonedb(
             min_pvals = np.nanmin(pval_array, axis=1)
             mask = min_pvals < threshold
 
-            if context:
-                await context.warning(
+            await ctx.warning(
                     f"Multiple testing correction disabled. With {n_cell_type_pairs} cell type pairs, consider using 'fdr_bh' or 'bonferroni'."
                 )
 
@@ -1030,23 +923,19 @@ async def _analyze_communication_cellphonedb(
             significant_indices = means.index[mask]
             significant_means_filtered = means.loc[significant_indices]
 
-            # Update stored significant_means (sanitized for H5AD compatibility)
-            adata.uns["cellphonedb_significant_means"] = _sanitize_dataframe_for_h5ad(
-                significant_means_filtered
-            )
+            # Update stored significant_means
+            adata.uns["cellphonedb_significant_means"] = significant_means_filtered
 
             # Also update the variable for downstream use
             significant_means = significant_means_filtered
 
             # Log filtering results
-            if context:
-                await context.info(
+            await ctx.info(
                     f"CellPhoneDB: {n_significant_pairs}/{n_lr_pairs} significant pairs (p < {threshold}, {correction_method} correction)"
                 )
         else:
             # No significant interactions found
-            if context:
-                await context.warning(
+            await ctx.warning(
                     f"No significant interactions found at p < {threshold}. Consider adjusting threshold or using method='liana'."
                 )
 
@@ -1064,13 +953,12 @@ async def _analyze_communication_cellphonedb(
         end_time = time.time()
         analysis_time = end_time - start_time
 
-        if context:
-            await context.info(
-                f"CellPhoneDB analysis completed in {analysis_time:.2f} seconds"
-            )
-            await context.info(
-                f"Found {n_significant_pairs} significant interactions out of {n_lr_pairs} tested"
-            )
+        await ctx.info(
+            f"CellPhoneDB analysis completed in {analysis_time:.2f} seconds"
+        )
+        await ctx.info(
+            f"Found {n_significant_pairs} significant interactions out of {n_lr_pairs} tested"
+        )
 
         n_cell_types = meta_df["cell_type"].nunique()
         n_cell_type_pairs = n_cell_types**2
@@ -1119,7 +1007,7 @@ async def _analyze_communication_cellphonedb(
 
 
 async def _create_microenvironments_file(
-    adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
+    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> Optional[str]:
     """Create microenvironments file for CellPhoneDB spatial analysis"""
     try:
@@ -1143,8 +1031,7 @@ async def _create_microenvironments_file(
             distances, _ = nn.kneighbors(spatial_coords)
             radius = np.median(distances[:, 5]) * 2  # 5th neighbor (0-indexed), doubled
 
-        if context:
-            await context.info(f"Using spatial radius: {radius:.2f}")
+        await ctx.info(f"Using spatial radius: {radius:.2f}")
 
         # Find spatial neighbors for each cell
         nn = NearestNeighbors(radius=radius)
@@ -1208,23 +1095,21 @@ async def _create_microenvironments_file(
             )  # FIXED: cell_type not cell barcode
         temp_file.close()
 
-        if context:
-            n_microenvs = len(set([m[1] for m in microenvs]))
-            n_cell_types = len(set([m[0] for m in microenvs]))
-            await context.info(
-                f"Created microenvironments file with {n_microenvs} microenvironments covering {n_cell_types} cell types"
-            )
+        n_microenvs = len(set([m[1] for m in microenvs]))
+        n_cell_types = len(set([m[0] for m in microenvs]))
+        await ctx.info(
+            f"Created microenvironments file with {n_microenvs} microenvironments covering {n_cell_types} cell types"
+        )
 
         return temp_file.name
 
     except Exception as e:
-        if context:
-            await context.warning(f"Failed to create microenvironments file: {str(e)}")
+        await ctx.warning(f"Failed to create microenvironments file: {str(e)}")
         return None
 
 
 async def _analyze_communication_cellchat_r(
-    adata: Any, params: CellCommunicationParameters, context: Optional[Context] = None
+    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> Dict[str, Any]:
     """Analyze cell communication using native R CellChat package
 
@@ -1235,7 +1120,7 @@ async def _analyze_communication_cellchat_r(
     Args:
         adata: AnnData object with expression data
         params: Cell communication analysis parameters
-        context: MCP context for logging
+        ctx: ToolContext for logging and data access
 
     Returns:
         Dictionary with analysis results
@@ -1245,8 +1130,7 @@ async def _analyze_communication_cellchat_r(
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
 
-    if context:
-        await context.info("Running native R CellChat analysis...")
+    await ctx.info("Running native R CellChat analysis...")
 
     try:
         import time
@@ -1264,14 +1148,12 @@ async def _analyze_communication_cellchat_r(
         # Use adata.raw if available (contains all genes before HVG filtering)
         if adata.raw is not None:
             data_source = adata.raw
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Using raw data with {data_source.n_vars} genes for CellChat"
                 )
         else:
             data_source = adata
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Using current data with {data_source.n_vars} genes for CellChat"
                 )
 
@@ -1294,8 +1176,7 @@ async def _analyze_communication_cellchat_r(
         # Check if any label is '0' or starts with a digit - add 'cluster_' prefix
         if any(label == "0" or (label and label[0].isdigit()) for label in cell_labels):
             cell_labels = [f"cluster_{label}" for label in cell_labels]
-            if context:
-                await context.info(
+            await ctx.info(
                     "Added 'cluster_' prefix to numeric labels (CellChat requirement)"
                 )
         meta_df = pd.DataFrame(
@@ -1332,8 +1213,7 @@ async def _analyze_communication_cellchat_r(
             }
             db_name = species_db_map.get(params.species, "CellChatDB.human")
 
-            if context:
-                await context.info(f"Using CellChatDB: {db_name}")
+            await ctx.info(f"Using CellChatDB: {db_name}")
 
             # Create CellChat object
             if (
@@ -1370,8 +1250,7 @@ async def _analyze_communication_cellchat_r(
                 """
                 )
 
-                if context:
-                    await context.info("Created CellChat object with spatial mode")
+                await ctx.info("Created CellChat object with spatial mode")
             else:
                 # Non-spatial mode
                 ro.r(
@@ -1384,8 +1263,7 @@ async def _analyze_communication_cellchat_r(
                 """
                 )
 
-                if context:
-                    await context.info("Created CellChat object (non-spatial mode)")
+                await ctx.info("Created CellChat object (non-spatial mode)")
 
             # Set database
             ro.r(
@@ -1405,8 +1283,7 @@ async def _analyze_communication_cellchat_r(
                     cellchat@DB <- CellChatDB.use
                 """
                 )
-                if context:
-                    await context.info(
+                await ctx.info(
                         f"Using CellChatDB category: {params.cellchat_db_category}"
                     )
             else:
@@ -1425,8 +1302,7 @@ async def _analyze_communication_cellchat_r(
             """
             )
 
-            if context:
-                await context.info(
+            await ctx.info(
                     "Completed preprocessing: identified overexpressed genes and interactions"
                 )
 
@@ -1478,8 +1354,7 @@ async def _analyze_communication_cellchat_r(
                 """
                 )
 
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Computed communication probability using {params.cellchat_type} method"
                 )
 
@@ -1504,8 +1379,7 @@ async def _analyze_communication_cellchat_r(
             """
             )
 
-            if context:
-                await context.info("Completed pathway analysis and network aggregation")
+            await ctx.info("Completed pathway analysis and network aggregation")
 
             # Extract results
             ro.r(
@@ -1589,15 +1463,14 @@ async def _analyze_communication_cellchat_r(
         end_time = time.time()
         analysis_time = end_time - start_time
 
-        if context:
-            await context.info(
-                f"CellChat R analysis completed in {analysis_time:.2f} seconds"
-            )
-            await context.info(
-                f"Found {n_significant_pairs} significant interactions from {n_lr_pairs} LR pairs"
-            )
-            if top_pathways:
-                await context.info(f"Top pathways: {', '.join(top_pathways[:5])}")
+        await ctx.info(
+            f"CellChat R analysis completed in {analysis_time:.2f} seconds"
+        )
+        await ctx.info(
+            f"Found {n_significant_pairs} significant interactions from {n_lr_pairs} LR pairs"
+        )
+        if top_pathways:
+            await ctx.info(f"Top pathways: {', '.join(top_pathways[:5])}")
 
         statistics = {
             "method": "cellchat_r",
@@ -1626,6 +1499,5 @@ async def _analyze_communication_cellchat_r(
 
     except Exception as e:
         error_msg = f"CellChat R analysis failed: {str(e)}"
-        if context:
-            await context.warning(error_msg)
+        await ctx.warning(error_msg)
         raise RuntimeError(error_msg) from e

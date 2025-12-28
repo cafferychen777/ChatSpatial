@@ -16,7 +16,7 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
-from ..utils.dependency_manager import get as get_dependency, is_available
+from ..utils.dependency_manager import is_available
 from ..utils.error_handling import ProcessingError
 from ..utils.metadata_storage import store_analysis_metadata
 

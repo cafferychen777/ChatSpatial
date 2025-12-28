@@ -5,52 +5,29 @@ This module provides functions for deconvolving spatial transcriptomics data
 to estimate cell type proportions in each spatial location.
 """
 
-import traceback
-import warnings
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import anndata as ad
-import anndata2ri  # For sparse matrix support in R deconvolution methods
 import numpy as np
+# Note: anndata2ri is imported lazily inside R-based methods (RCTD, SPOTlight, CARD)
 import pandas as pd
 import scipy.sparse as sp
-from mcp.server.fastmcp import Context
 
-from ..utils.error_handling import suppress_output
-
-# Try importing deep learning dependencies
-try:
-    import scvi
-except ImportError:
-    scvi = None
-
-try:
-    import torch
-except ImportError:
-    torch = None
-
-# Import specific scvi modules if available
-Stereoscope = None
-Tangram = None
-DestVI = None
-
-if scvi:
-    try:
-        from scvi.external import SpatialStereoscope as Stereoscope
-        from scvi.external import Tangram
-        from scvi.model import DestVI  # noqa: F401
-    except ImportError as e:
-        # scvi-tools version compatibility issue
-        warnings.warn(f"scvi-tools import issue: {e}. Some methods may be unavailable.")
-
-# Import cell2location with graceful fallback
-try:
-    import cell2location
-except ImportError:
-    cell2location = None
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import DeconvolutionResult  # noqa: E402
 from ..models.data import DeconvolutionParameters  # noqa: E402
+from ..utils.dependency_manager import get as get_dependency
+from ..utils.dependency_manager import is_available, require
+from ..utils.mcp_utils import suppress_output
+
+# Lazy loading of optional dependencies using centralized dependency manager
+# Usage pattern in functions:
+#   if not is_available("scvi-tools"):
+#       raise ImportError("scvi-tools required for this method")
+#   import scvi  # Safe to import after availability check
+
 
 # No longer need local context manager utilities - using centralized version
 # Note: cell2location 0.1.4+ includes official one_hot compatibility fix,
@@ -60,59 +37,71 @@ from ..models.data import DeconvolutionParameters  # noqa: E402
 # Helper functions to eliminate redundancy
 
 
-def _validate_deconvolution_inputs(
-    spatial_adata: ad.AnnData,
+def _validate_cell_type_key(
     reference_adata: ad.AnnData,
     cell_type_key: str,
-    min_common_genes: int = 100,
-) -> List[str]:
-    """Validate inputs and return a list of common genes.
+) -> None:
+    """Validate that cell type key exists in reference data.
 
     Args:
-        spatial_adata: Spatial transcriptomics AnnData object
-        reference_adata: Reference single-cell RNA-seq AnnData object
-        cell_type_key: Key in reference_adata.obs for cell type information
-        min_common_genes: Minimum number of common genes required
-
-    Returns:
-        List of common genes
+        reference_adata: Reference AnnData object
+        cell_type_key: Column name for cell type annotations
 
     Raises:
-        ValueError: If input data is invalid or insufficient common genes
+        ValueError: If cell_type_key not found in reference_adata.obs
     """
-    if spatial_adata is None:
-        raise ValueError("Spatial AnnData object cannot be None")
-    if reference_adata is None:
-        raise ValueError("Reference AnnData object cannot be None")
-    if spatial_adata.n_obs == 0:
-        raise ValueError("Spatial data contains no observations")
-    if reference_adata.n_obs == 0:
-        raise ValueError("Reference data contains no observations")
     if cell_type_key not in reference_adata.obs:
-        raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
-    if len(reference_adata.obs[cell_type_key].unique()) < 2:
-        raise ValueError(
-            f"Reference data must contain at least 2 cell types, found {len(reference_adata.obs[cell_type_key].unique())}"
-        )
+        available_keys = [
+            k
+            for k in reference_adata.obs.columns
+            if "type" in k.lower() or "cell" in k.lower()
+        ]
+        msg = f"Cell type key '{cell_type_key}' not found in reference data."
+        if available_keys:
+            msg += f" Similar keys found: {available_keys}"
+        else:
+            msg += f" Available keys: {list(reference_adata.obs.columns)[:10]}"
+        raise ValueError(msg)
 
-    # Find common genes
-    common_genes = list(set(spatial_adata.var_names) & set(reference_adata.var_names))
+
+def _validate_common_genes(
+    common_genes: List[str],
+    min_common_genes: int,
+    spatial_n_vars: int,
+    reference_n_vars: int,
+) -> None:
+    """Validate sufficient common genes between spatial and reference data.
+
+    Args:
+        common_genes: List of common gene names
+        min_common_genes: Minimum required common genes
+        spatial_n_vars: Number of genes in spatial data
+        reference_n_vars: Number of genes in reference data
+
+    Raises:
+        ValueError: If insufficient common genes
+    """
     if len(common_genes) < min_common_genes:
         raise ValueError(
-            f"Only {len(common_genes)} genes in common between spatial data and reference data. "
-            f"Need at least {min_common_genes}. Consider using a different reference dataset or "
-            f"reducing the min_common_genes parameter."
+            f"Insufficient common genes after data preparation.\n"
+            f"  Found: {len(common_genes)} genes\n"
+            f"  Required: {min_common_genes} genes\n"
+            f"  Reference data: {reference_n_vars} genes\n"
+            f"  Spatial data: {spatial_n_vars} genes\n\n"
+            f"TIPS:\n"
+            f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
+            f"2. Ensure both datasets are from the same species\n"
+            f"3. Try using different reference dataset\n"
+            f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
         )
 
-    return common_genes
 
-
-def _apply_gene_filtering(
+async def _apply_gene_filtering(
     adata: ad.AnnData,
+    ctx: "ToolContext",
     cell_count_cutoff: int = 5,
     cell_percentage_cutoff2: float = 0.03,
     nonz_mean_cutoff: float = 1.12,
-    context=None,
 ) -> ad.AnnData:
     """Apply cell2location's official gene filtering
 
@@ -124,7 +113,7 @@ def _apply_gene_filtering(
         cell_count_cutoff: Minimum cells expressing a gene (default: 5)
         cell_percentage_cutoff2: Minimum percentage of cells expressing (default: 0.03 = 3%)
         nonz_mean_cutoff: Minimum non-zero mean expression (default: 1.12)
-        context: MCP context for logging
+        ctx: ToolContext for logging and data access
 
     Returns:
         Filtered AnnData object (copy)
@@ -133,25 +122,24 @@ def _apply_gene_filtering(
         Filters genes that are lowly expressed or noisy, which can degrade
         model performance. This is official cell2location preprocessing.
     """
-    try:
-        from cell2location.utils.filtering import filter_genes
-    except ImportError:
-        warnings.warn(
+    if not is_available("cell2location"):
+        await ctx.warning(
             "cell2location.utils.filtering not available. "
             "Skipping gene filtering (may degrade results). "
             "Install with: pip install cell2location>=0.1.4"
         )
         return adata.copy()
 
+    from cell2location.utils.filtering import filter_genes
+
     n_genes_before = adata.n_vars
 
-    if context:
-        context.info(
-            f"🔍 Applying cell2location gene filtering "
-            f"(cell_count>={cell_count_cutoff}, "
-            f"cell_pct>={cell_percentage_cutoff2*100:.1f}%, "
-            f"nonz_mean>={nonz_mean_cutoff})"
-        )
+    await ctx.info(
+        f"Applying cell2location gene filtering "
+        f"(cell_count>={cell_count_cutoff}, "
+        f"cell_pct>={cell_percentage_cutoff2*100:.1f}%, "
+        f"nonz_mean>={nonz_mean_cutoff})"
+    )
 
     # Apply official filtering
     selected = filter_genes(
@@ -165,11 +153,10 @@ def _apply_gene_filtering(
     n_genes_after = adata_filtered.n_vars
     n_genes_removed = n_genes_before - n_genes_after
 
-    if context:
-        context.info(
-            f"Gene filtering: {n_genes_before} → {n_genes_after} genes "
-            f"({n_genes_removed} removed, {n_genes_removed/n_genes_before*100:.1f}%)"
-        )
+    await ctx.info(
+        f"Gene filtering: {n_genes_before} → {n_genes_after} genes "
+        f"({n_genes_removed} removed, {n_genes_removed/n_genes_before*100:.1f}%)"
+    )
 
     return adata_filtered
 
@@ -177,9 +164,9 @@ def _apply_gene_filtering(
 def _check_convergence(
     model,
     model_name: str,
+    ctx: "ToolContext",
     convergence_threshold: float = 0.001,
     convergence_window: int = 50,
-    context=None,
 ) -> Tuple[bool, Optional[str]]:
     """Check if model training has converged based on ELBO history
 
@@ -192,7 +179,7 @@ def _check_convergence(
         convergence_threshold: Maximum relative change in ELBO to be considered converged
                               Default 0.001 = 0.1% change
         convergence_window: Number of epochs to examine for convergence
-        context: MCP context for logging warnings
+        ctx: ToolContext for logging and data access warnings
 
     Returns:
         Tuple of (is_converged, warning_message)
@@ -258,8 +245,8 @@ def _check_convergence(
 def _generate_qc_plots(
     ref_model,
     cell2loc_model,
+    ctx: "ToolContext",
     output_dir: Optional[str] = None,
-    context=None,
 ) -> Optional[Dict[str, Any]]:
     """Generate quality control diagnostic plots for Cell2location training
 
@@ -272,7 +259,7 @@ def _generate_qc_plots(
         ref_model: Trained RegressionModel
         cell2loc_model: Trained Cell2location model
         output_dir: Directory to save plots (if None, plots not saved to disk)
-        context: MCP context for logging
+        ctx: ToolContext for logging and data access
 
     Returns:
         Dictionary containing:
@@ -286,11 +273,11 @@ def _generate_qc_plots(
         >>> qc_results = _generate_qc_plots(ref_model, cell2loc_model)
         >>> print(f"Reference model converged: {qc_results['ref_converged']}")
     """
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
+    if not is_available("matplotlib"):
         # matplotlib not available, return None
         return None
+
+    import matplotlib.pyplot as plt
 
     qc_results = {}
 
@@ -311,9 +298,9 @@ def _generate_qc_plots(
             qc_results["cell2loc_elbo_history"] = cell2loc_elbo
 
     # Check convergence
-    ref_converged, _ = _check_convergence(ref_model, "ReferenceModel", context=None)
+    ref_converged, _ = _check_convergence(ref_model, "ReferenceModel", ctx=None)
     cell2loc_converged, _ = _check_convergence(
-        cell2loc_model, "Cell2location", context=None
+        cell2loc_model, "Cell2location", ctx=None
     )
 
     qc_results["ref_converged"] = ref_converged
@@ -390,50 +377,33 @@ def _generate_qc_plots(
     return qc_results
 
 
-def _get_device(use_gpu: bool, method: str) -> str:
+def _get_device(use_gpu: bool) -> str:
     """Determine the appropriate compute device.
 
     Args:
         use_gpu: Whether to use GPU for training
-        method: Name of the method (for logging purposes)
 
     Returns:
-        Device string ('cuda', 'mps', or 'cpu')
+        Device string ('cuda' or 'cpu'). MPS is disabled due to compatibility issues.
     """
-    try:
-        import torch
-    except ImportError:
-        warnings.warn("PyTorch not available. Using CPU.")
+    if not is_available("torch") or not use_gpu:
         return "cpu"
 
-    if not use_gpu:
-        # Using CPU for deconvolution (GPU acceleration disabled)
-        return "cpu"
+    import torch
 
     if torch.cuda.is_available():
-        # Using CUDA GPU acceleration
         return "cuda"
 
-    # MPS support - handle differently for different methods
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        # Cell2location has issues with MPS
-        warnings.warn(
-            f"MPS acceleration is available but disabled for {method} due to numerical instability issues "
-            f"with cell2location 0.1.4. This issue persists even with PyTorch 2.10.0 (tested 2025-10-12). "
-            f"Using CPU instead. See PyTorch Issue #132605 for status."
-        )
-        # Using CPU (MPS disabled due to compatibility issues)
-        return "cpu"
-
-    warnings.warn(
-        f"GPU requested for {method} but neither CUDA nor MPS is available. Using CPU instead."
-    )
-    # Using CPU for deconvolution
+    # MPS disabled: cell2location has numerical instability issues with MPS
+    # (tested with PyTorch 2.10.0, 2025-10-12, see PyTorch Issue #132605)
     return "cpu"
 
 
-def _prepare_anndata_for_counts(
-    adata: ad.AnnData, data_name: str, context=None, require_int_dtype: bool = False
+async def _prepare_anndata_for_counts(
+    adata: ad.AnnData,
+    data_name: str,
+    ctx: "ToolContext",
+    require_int_dtype: bool = False,
 ) -> ad.AnnData:
     """Ensure AnnData object has raw integer counts in .X with complete gene set
 
@@ -450,7 +420,7 @@ def _prepare_anndata_for_counts(
     Args:
         adata: AnnData object to prepare
         data_name: Name of the data for logging purposes
-        context: Optional MCP context for logging
+        ctx: ToolContext for logging and data access
         require_int_dtype: If True, convert float32/64 to int32 for R compatibility
                           If False (default), keep original dtype (for scvi-tools methods)
                           scvi-tools internally uses float32 regardless of input dtype
@@ -461,10 +431,6 @@ def _prepare_anndata_for_counts(
     Raises:
         ValueError: If no raw integer counts can be found
     """
-    import logging
-
-    logger = logging.getLogger(__name__)
-
     # MEMORY OPTIMIZATION: Don't copy adata immediately
     # Only copy if needed (when not using .raw)
     adata_copy = None
@@ -472,7 +438,6 @@ def _prepare_anndata_for_counts(
 
     # Step 1: Check .raw data first (prefer complete gene set for deconvolution)
     if adata.raw is not None:
-        logger.info(f"{data_name}: Found .raw data, checking if it contains counts")
         try:
             # Get raw data to check if it contains counts
             raw_adata = adata.raw.to_adata()
@@ -493,29 +458,18 @@ def _prepare_anndata_for_counts(
 
             if not has_decimals and not has_negatives:
                 # Raw contains counts, use complete gene set
-                logger.info(
-                    f"{data_name}: .raw contains counts, using complete gene set ({raw_adata.n_vars} genes)"
+                await ctx.info(
+                    f"Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
                 )
-                if context:
-                    context.info(
-                        f"Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
-                    )
                 adata_copy = raw_adata  # Use raw directly, no copy needed
                 data_source = "raw"
             else:
                 # Raw is normalized/transformed, skip to layers['counts']
-                logger.info(
-                    f"{data_name}: .raw is normalized (has_decimals={has_decimals}, "
-                    f"has_negatives={has_negatives}), trying counts layer"
+                await ctx.info(
+                    f"WARNING: .raw for {data_name} is normalized, checking counts layer"
                 )
-                if context:
-                    context.info(
-                        f"WARNING:.raw for {data_name} is normalized, checking counts layer"
-                    )
-        except Exception as e:
-            logger.warning(
-                f"{data_name}: Error accessing .raw data: {e}, trying counts layer"
-            )
+        except Exception:
+            # Error accessing .raw data, will try counts layer
             data_source = None
 
     # Step 2: If not using .raw, copy adata now
@@ -525,15 +479,12 @@ def _prepare_anndata_for_counts(
 
         # Check layers["counts"] if raw not available or not counts
         if "counts" in adata_copy.layers:
-            logger.info(f"{data_name}: Found counts layer, using as raw counts")
-            if context:
-                context.info(f"Using counts layer for {data_name} data")
+            await ctx.info(f"Using counts layer for {data_name} data")
             adata_copy.X = adata_copy.layers["counts"].copy()
             data_source = "counts_layer"
 
     # Step 3: Use current X as fallback
     if data_source is None:
-        logger.info(f"{data_name}: No counts layer or .raw found, checking current X")
         data_source = "current"
 
     # Validate data (sparse-aware)
@@ -550,12 +501,6 @@ def _prepare_anndata_for_counts(
         X_sample = adata_copy.X[:sample_size, :sample_genes]
     has_decimals = not np.allclose(X_sample, np.round(X_sample), atol=1e-6)
 
-    logger.info(
-        f"{data_name} data: source={data_source}, "
-        f"range=[{data_min:.2f}, {data_max:.2f}], "
-        f"has_negatives={has_negatives}, has_decimals={has_decimals}"
-    )
-
     # MEMORY OPTIMIZATION: Conditional dtype conversion based on downstream method
     # - R methods (RCTD, Spotlight, CARD) require int32 dtype for compatibility
     # - scvi-tools methods (Cell2location, DestVI, Stereoscope) work with float32
@@ -566,14 +511,6 @@ def _prepare_anndata_for_counts(
         and not has_decimals
         and adata_copy.X.dtype in [np.float32, np.float64]
     ):
-        logger.info(
-            f"{data_name}: Converting {adata_copy.X.dtype} to int32 for R compatibility"
-        )
-        if context:
-            context.info(
-                f"🔄 Converting {data_name} from {adata_copy.X.dtype} to int32 for R method"
-            )
-
         # Direct dtype conversion (works for both sparse and dense matrices)
         # No need for round() since has_decimals=False already verified
         # No need for separate .data handling since .astype() handles both
@@ -616,8 +553,7 @@ def _prepare_anndata_for_counts(
             "     • Ensure the data contains only non-negative integers\n"
         )
 
-        if context:
-            context.error(error_msg)
+        await ctx.error(error_msg)
         raise ValueError(error_msg)
 
     # Add processing info to uns for tracking
@@ -626,17 +562,16 @@ def _prepare_anndata_for_counts(
         "range": [int(data_min), int(data_max)],
     }
 
-    if context:
-        context.info(
-            f"{data_name} data validated: "
-            f"source={data_source}, range=[{int(data_min)}, {int(data_max)}]"
-        )
+    await ctx.info(
+        f"{data_name} data validated: "
+        f"source={data_source}, range=[{int(data_min)}, {int(data_max)}]"
+    )
 
     return adata_copy
 
 
-def _prepare_reference_for_card(
-    adata: ad.AnnData, data_name: str, context=None
+async def _prepare_reference_for_card(
+    adata: ad.AnnData, data_name: str, ctx=None
 ) -> ad.AnnData:
     """Prepare reference AnnData for CARD with relaxed validation.
 
@@ -651,15 +586,11 @@ def _prepare_reference_for_card(
     Args:
         adata: AnnData object to prepare
         data_name: Name of the data for logging purposes
-        context: Optional MCP context for logging
+        ctx: ToolContext for logging and data access
 
     Returns:
         AnnData object prepared for CARD (raw counts if available, normalized otherwise)
     """
-    import logging
-
-    logger = logging.getLogger(__name__)
-
     # Create a copy to avoid modifying original
     adata_copy = adata.copy()
 
@@ -684,22 +615,17 @@ def _prepare_reference_for_card(
             has_negatives = sample_X.min() < 0
 
             if not has_decimals and not has_negatives:
-                logger.info(
-                    f"{data_name}: Using raw counts from .raw ({raw_adata.n_vars} genes)"
+                await ctx.info(
+                    f"Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
                 )
-                if context:
-                    context.info(
-                        f"Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
-                    )
                 adata_copy = raw_adata
                 data_source = "raw"
-        except Exception as e:
-            logger.warning(f"{data_name}: Error accessing .raw data: {e}")
+        except Exception:
+            # Error accessing .raw data, will try other sources
+            pass
 
     if data_source is None and "counts" in adata_copy.layers:
-        logger.info(f"{data_name}: Using counts from layers['counts']")
-        if context:
-            context.info(f"Using counts layer for {data_name}")
+        await ctx.info(f"Using counts layer for {data_name}")
         adata_copy.X = adata_copy.layers["counts"].copy()
         data_source = "counts_layer"
 
@@ -718,35 +644,22 @@ def _prepare_reference_for_card(
         has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
 
         if has_decimals:
-            logger.warning(
-                f"{data_name}: No raw counts found, using current data (appears normalized). "
-                f"Range: [{sample_X.min():.2f}, {sample_X.max():.2f}]"
+            await ctx.warning(
+                f"WARNING: {data_name}: Using normalized data (no raw counts available). "
+                f"This is acceptable for CARD reference data from technologies like Smart-seq2."
             )
-            if context:
-                context.warning(
-                    f"WARNING: {data_name}: Using normalized data (no raw counts available). "
-                    f"This is acceptable for CARD reference data from technologies like Smart-seq2."
-                )
             data_source = "normalized"
         else:
-            logger.info(f"{data_name}: Using current data as counts")
             data_source = "current"
 
     # Log final data info (sparse-aware)
     data_min = adata_copy.X.min()
     data_max = adata_copy.X.max()
 
-    logger.info(
+    await ctx.info(
         f"{data_name} prepared: source={data_source}, "
-        f"range=[{data_min:.2f}, {data_max:.2f}], "
-        f"n_genes={adata_copy.n_vars}"
+        f"range=[{data_min:.2f}, {data_max:.2f}]"
     )
-
-    if context:
-        context.info(
-            f"{data_name} prepared: source={data_source}, "
-            f"range=[{data_min:.2f}, {data_max:.2f}]"
-        )
 
     return adata_copy
 
@@ -786,11 +699,11 @@ def _create_deconvolution_stats(
     return stats
 
 
-def _validate_and_process_proportions(
+async def _validate_and_process_proportions(
     proportions: pd.DataFrame,
     method: str,
+    ctx: "ToolContext",
     normalize: bool = False,
-    context=None,
 ) -> pd.DataFrame:
     """
     Validate and process deconvolution proportions while preserving data integrity.
@@ -808,7 +721,7 @@ def _validate_and_process_proportions(
         proportions: Raw deconvolution output
         method: Deconvolution method name
         normalize: Whether to normalize to sum to 1 (user must explicitly request)
-        context: MCP context for logging
+        ctx: ToolContext for logging and data access
 
     Returns:
         Processed proportions with transparency
@@ -824,21 +737,20 @@ def _validate_and_process_proportions(
         total_values = proportions.shape[0] * proportions.shape[1]
         nan_percentage = (nan_count / total_values) * 100
 
-        if context:
-            context.warning(
-                f"WARNING:Deconvolution produced {nan_count} NaN values ({nan_percentage:.1f}%) "
-                f"in {nan_spots}/{proportions.shape[0]} spots.\n\n"
-                "IMPORTANT: NaN indicates computation failure, NOT absence of cell types.\n"
-                "These values are preserved for transparency.\n\n"
-                "Possible causes:\n"
-                "• Algorithm convergence failure\n"
-                "• Insufficient gene overlap\n"
-                "• Numerical instability\n\n"
-                "Consider:\n"
-                "1. Checking input data quality\n"
-                "2. Adjusting algorithm parameters\n"
-                "3. Using a different deconvolution method"
-            )
+        await ctx.warning(
+            f"WARNING:Deconvolution produced {nan_count} NaN values ({nan_percentage:.1f}%) "
+            f"in {nan_spots}/{proportions.shape[0]} spots.\n\n"
+            "IMPORTANT: NaN indicates computation failure, NOT absence of cell types.\n"
+            "These values are preserved for transparency.\n\n"
+            "Possible causes:\n"
+            "• Algorithm convergence failure\n"
+            "• Insufficient gene overlap\n"
+            "• Numerical instability\n\n"
+            "Consider:\n"
+            "1. Checking input data quality\n"
+            "2. Adjusting algorithm parameters\n"
+            "3. Using a different deconvolution method"
+        )
 
     # 2. Check for negative values - this is a critical error
     if (proportions < 0).any().any():
@@ -862,8 +774,7 @@ def _validate_and_process_proportions(
             "3. Report this as a bug if using standard data"
         )
 
-        if context:
-            context.error(error_msg)
+        await ctx.error(error_msg)
 
         raise ValueError(error_msg)
 
@@ -880,46 +791,42 @@ def _validate_and_process_proportions(
         if max_deviation > 0.1:  # More than 10% deviation
             spots_affected = (sum_deviation > 0.1).sum()
 
-            if context:
-                context.warning(
-                    f"WARNING:{method} proportions deviate from expected sum of 1.0:\n"
-                    f"• Maximum deviation: {max_deviation:.3f}\n"
-                    f"• Spots affected: {spots_affected}/{len(row_sums)}\n"
-                    f"• Sum range: [{row_sums.min():.3f}, {row_sums.max():.3f}]\n\n"
-                    "This may indicate:\n"
-                    "• Incomplete deconvolution\n"
-                    "• Missing cell types in reference\n"
-                    "• Algorithm convergence issues\n\n"
-                    "Original sums are preserved."
-                )
+            await ctx.warning(
+                f"WARNING:{method} proportions deviate from expected sum of 1.0:\n"
+                f"• Maximum deviation: {max_deviation:.3f}\n"
+                f"• Spots affected: {spots_affected}/{len(row_sums)}\n"
+                f"• Sum range: [{row_sums.min():.3f}, {row_sums.max():.3f}]\n\n"
+                "This may indicate:\n"
+                "• Incomplete deconvolution\n"
+                "• Missing cell types in reference\n"
+                "• Algorithm convergence issues\n\n"
+                "Original sums are preserved."
+            )
 
     elif method.lower() in ["cell2location", "destvi", "stereoscope"]:
         # These methods may output absolute abundances
-        if context:
-            context.info(
-                f"{method} output statistics:\n"
-                f"• Estimated cells per spot: {row_sums.mean():.2f} ± {row_sums.std():.2f}\n"
-                f"• Range: [{row_sums.min():.2f}, {row_sums.max():.2f}]\n"
-                f"• Zero spots: {(row_sums == 0).sum()}\n\n"
-                "Note: These may represent absolute abundances, not proportions."
-            )
+        await ctx.info(
+            f"{method} output statistics:\n"
+            f"• Estimated cells per spot: {row_sums.mean():.2f} ± {row_sums.std():.2f}\n"
+            f"• Range: [{row_sums.min():.2f}, {row_sums.max():.2f}]\n"
+            f"• Zero spots: {(row_sums == 0).sum()}\n\n"
+            "Note: These may represent absolute abundances, not proportions."
+        )
 
     # 4. Handle normalization if explicitly requested
     if normalize:
         # Check for zero sums that would cause division errors
         zero_sum_spots = (row_sums == 0).sum()
         if zero_sum_spots > 0:
-            if context:
-                context.warning(
-                    f"WARNING:Cannot normalize {zero_sum_spots} spots with zero total abundance.\n"
-                    "These spots will remain as zeros."
-                )
-
-        if context:
-            context.info(
-                "🔄 Normalizing proportions to sum to 1 as requested.\n"
-                "Note: This converts absolute abundances to relative proportions."
+            await ctx.warning(
+                f"WARNING:Cannot normalize {zero_sum_spots} spots with zero total abundance.\n"
+                "These spots will remain as zeros."
             )
+
+        await ctx.info(
+            "Normalizing proportions to sum to 1 as requested.\n"
+            "Note: This converts absolute abundances to relative proportions."
+        )
 
         # Perform normalization, preserving zeros and NaN
         proportions_normalized = proportions.div(row_sums, axis=0)
@@ -944,6 +851,7 @@ async def deconvolve_cell2location(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
     cell_type_key: str,  # REQUIRED - LLM will infer from metadata
+    ctx: "ToolContext",
     ref_model_epochs: int = 250,
     n_epochs: int = 30000,
     n_cells_per_spot: int = 30,
@@ -967,7 +875,6 @@ async def deconvolve_cell2location(
     early_stopping_threshold: float = 0.0,  # Phase 3: Early stopping threshold
     use_aggressive_training: bool = False,  # Phase 3: Use train_aggressive() method
     validation_size: float = 0.1,  # Phase 3: Validation set size for early stopping
-    context: Optional[Context] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using Cell2location
 
@@ -1015,77 +922,52 @@ async def deconvolve_cell2location(
         - detection_alpha: 20 (NEW DEFAULT 2024, old: 200)
     """
     # Import cell2location
-    try:
-        import cell2location as cell2location_mod  # noqa: F401
-        from cell2location.models import Cell2location, RegressionModel
-    except ImportError as e:
-        # Provide specific installation guidance
-        raise ImportError(
-            "cell2location is not installed. "
-            "Install with 'pip install chatspatial[full]' or 'pip install cell2location>=0.1.4'. "
-            "Note: Requires PyTorch and compatible GPU drivers for optimal performance."
-        ) from e
+    require("cell2location")  # Raises ImportError with install instructions if missing
+    import cell2location as cell2location_mod  # noqa: F401
+    from cell2location.models import Cell2location, RegressionModel
 
     try:
         # Initialize QC results placeholder
         qc_results = None
 
         # Validate cell type key exists
-        if cell_type_key not in reference_adata.obs:
-            raise ValueError(
-                f"Cell type key '{cell_type_key}' not found in reference data"
-            )
+        _validate_cell_type_key(reference_adata, cell_type_key)
 
         # Unified device selection
-        device = _get_device(use_gpu, "Cell2location")
+        device = _get_device(use_gpu)
 
         # Prepare data using helper functions - Cell2location expects raw count data
         # Memory optimization: helper function creates internal copy, no need to copy here
         # Cell2location (scvi-tools) works with float32, no need for int32 conversion
         ref = _prepare_anndata_for_counts(
-            reference_adata, "Reference", context, require_int_dtype=False
+            reference_adata, "Reference", ctx, require_int_dtype=False
         )
         sp = _prepare_anndata_for_counts(
-            spatial_adata, "Spatial", context, require_int_dtype=False
+            spatial_adata, "Spatial", ctx, require_int_dtype=False
         )
 
         # NEW: Apply gene filtering (official cell2location preprocessing)
         if apply_gene_filtering:
-            if context:
-                await context.info(
-                    "Applying gene filtering to reference and spatial data"
-                )
+            await ctx.info("Applying gene filtering to reference and spatial data")
             ref = _apply_gene_filtering(
                 ref,
                 cell_count_cutoff=gene_filter_cell_count_cutoff,
                 cell_percentage_cutoff2=gene_filter_cell_percentage_cutoff2,
                 nonz_mean_cutoff=gene_filter_nonz_mean_cutoff,
-                context=context,
+                ctx=ctx,
             )
             sp = _apply_gene_filtering(
                 sp,
                 cell_count_cutoff=gene_filter_cell_count_cutoff,
                 cell_percentage_cutoff2=gene_filter_cell_percentage_cutoff2,
                 nonz_mean_cutoff=gene_filter_nonz_mean_cutoff,
-                context=context,
+                ctx=ctx,
             )
 
         # Find common genes AFTER data preparation and filtering (uses actual gene set that will be used)
         common_genes = list(set(ref.var_names) & set(sp.var_names))
 
-        if len(common_genes) < min_common_genes:
-            raise ValueError(
-                f"Insufficient common genes after data preparation.\n"
-                f"  Found: {len(common_genes)} genes\n"
-                f"  Required: {min_common_genes} genes\n"
-                f"  Reference data: {ref.n_vars} genes\n"
-                f"  Spatial data: {sp.n_vars} genes\n\n"
-                f"TIPS:\n"
-                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
-                f"2. Ensure both datasets are from the same species\n"
-                f"3. Try using different reference dataset\n"
-                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
-            )
+        _validate_common_genes(common_genes, min_common_genes, sp.n_vars, ref.n_vars)
 
         # Subset to common genes
         ref = ref[:, common_genes]
@@ -1102,7 +984,7 @@ async def deconvolve_cell2location(
 
         # Check if cell type key has valid values
         if ref.obs[cell_type_key].isna().any():
-            warnings.warn(
+            await ctx.warning(
                 f"Reference data contains NaN values in {cell_type_key}. These cells will be excluded."
             )
             ref = ref[~ref.obs[cell_type_key].isna()].copy()
@@ -1119,7 +1001,7 @@ async def deconvolve_cell2location(
         except Exception as e:
             raise RuntimeError(
                 f"Failed to setup reference data for RegressionModel: {str(e)}"
-            )
+            ) from e
 
         try:
             # Create RegressionModel
@@ -1155,33 +1037,25 @@ async def deconvolve_cell2location(
                     ref_model.train(**train_kwargs)
                 else:
                     # Use standard train() method
+                    train_kwargs = {
+                        "max_epochs": ref_model_epochs,
+                        "batch_size": 2500,
+                        "lr": ref_model_lr,
+                        "train_size": ref_model_train_size,
+                    }
                     if device == "cuda":
-                        ref_model.train(
-                            max_epochs=ref_model_epochs,
-                            batch_size=2500,
-                            accelerator="gpu",
-                            lr=ref_model_lr,
-                            train_size=ref_model_train_size,
-                        )
-                    else:
-                        ref_model.train(
-                            max_epochs=ref_model_epochs,
-                            batch_size=2500,
-                            lr=ref_model_lr,
-                            train_size=ref_model_train_size,
-                        )
+                        train_kwargs["accelerator"] = "gpu"
+                    ref_model.train(**train_kwargs)
 
             # Phase 2: Check convergence
             ref_converged, ref_warning = _check_convergence(
-                ref_model, "ReferenceModel", context=context
+                ref_model, "ReferenceModel", ctx=ctx
             )
-            if not ref_converged and context and ref_warning:
-                await context.warning(ref_warning)
+            if not ref_converged and ref_warning:
+                await ctx.warning(ref_warning)
 
         except Exception as e:
-            error_msg = str(e)
-            tb = traceback.format_exc()
-            raise RuntimeError(f"Failed to train RegressionModel: {error_msg}\n{tb}")
+            raise RuntimeError(f"Failed to train RegressionModel: {str(e)}") from e
 
         # Export reference signatures
         try:
@@ -1207,7 +1081,7 @@ async def deconvolve_cell2location(
                 ].copy()
             ref_signatures.columns = ref.uns["mod"]["factor_names"]
         except Exception as e:
-            raise RuntimeError(f"Failed to export reference signatures: {str(e)}")
+            raise RuntimeError(f"Failed to export reference signatures: {str(e)}") from e
 
         # Prepare spatial data for cell2location model
         try:
@@ -1220,7 +1094,7 @@ async def deconvolve_cell2location(
         except Exception as e:
             raise RuntimeError(
                 f"Failed to setup spatial data for Cell2location: {str(e)}"
-            )
+            ) from e
 
         # Run cell2location model
         try:
@@ -1262,43 +1136,32 @@ async def deconvolve_cell2location(
                     cell2loc_model.train(**train_kwargs)
                 else:
                     # Use standard train() method
+                    train_kwargs = {
+                        "max_epochs": n_epochs,
+                        "batch_size": 2500,
+                        "lr": cell2location_lr,
+                        "train_size": cell2location_train_size,
+                    }
                     if device == "cuda":
-                        cell2loc_model.train(
-                            max_epochs=n_epochs,
-                            batch_size=2500,
-                            accelerator="gpu",
-                            lr=cell2location_lr,
-                            train_size=cell2location_train_size,
-                        )
-                    else:
-                        cell2loc_model.train(
-                            max_epochs=n_epochs,
-                            batch_size=2500,
-                            lr=cell2location_lr,
-                            train_size=cell2location_train_size,
-                        )
+                        train_kwargs["accelerator"] = "gpu"
+                    cell2loc_model.train(**train_kwargs)
 
             # Phase 2: Check convergence
             cell2loc_converged, cell2loc_warning = _check_convergence(
-                cell2loc_model, "Cell2location", context=context
+                cell2loc_model, "Cell2location", ctx=ctx
             )
-            if not cell2loc_converged and context and cell2loc_warning:
-                await context.warning(cell2loc_warning)
+            if not cell2loc_converged and cell2loc_warning:
+                await ctx.warning(cell2loc_warning)
 
             # Phase 2: Generate QC diagnostic plots if requested
             if enable_qc_plots:
-                if context:
-                    await context.info("Generating QC diagnostic plots...")
+                await ctx.info("Generating QC diagnostic plots...")
                 qc_results = _generate_qc_plots(
-                    ref_model, cell2loc_model, output_dir=qc_output_dir, context=context
+                    ref_model, cell2loc_model, output_dir=qc_output_dir, ctx=ctx
                 )
 
         except Exception as e:
-            error_msg = str(e)
-            tb = traceback.format_exc()
-            raise RuntimeError(
-                f"Failed to train Cell2location model: {error_msg}\n{tb}"
-            )
+            raise RuntimeError(f"Failed to train Cell2location model: {str(e)}") from e
 
         # Export results
         try:
@@ -1307,7 +1170,7 @@ async def deconvolve_cell2location(
                 sp, sample_kwargs={"num_samples": 1000, "batch_size": 2500}
             )
         except Exception as e:
-            raise RuntimeError(f"Failed to export Cell2location results: {str(e)}")
+            raise RuntimeError(f"Failed to export Cell2location results: {str(e)}") from e
 
         # Get cell abundance - try different possible keys
         cell_abundance = None
@@ -1341,7 +1204,7 @@ async def deconvolve_cell2location(
             proportions=proportions,
             method="cell2location",
             normalize=False,  # Cell2location outputs absolute counts, not proportions
-            context=context,
+            ctx=ctx,
         )
 
         # Create standardized statistics using helper function
@@ -1366,7 +1229,7 @@ async def deconvolve_cell2location(
                         history["elbo_validation"][-1]
                     )
             except Exception as e:
-                warnings.warn(f"Failed to extract model history: {str(e)}")
+                await ctx.warning(f"Failed to extract model history: {str(e)}")
 
         # Phase 2: Add QC results to stats if available
         if qc_results is not None:
@@ -1376,15 +1239,8 @@ async def deconvolve_cell2location(
 
     except Exception as e:
         if not isinstance(e, (ValueError, ImportError, RuntimeError)):
-            error_msg = str(e)
-            tb = traceback.format_exc()
-            # Cell2location deconvolution failed
-
-            # Re-raise the error since we don't have fallback
-            raise
-        else:
-            # Re-raise the error since we don't have fallback
-            raise
+            raise RuntimeError(f"Cell2location deconvolution failed: {str(e)}") from e
+        raise
 
 
 def is_rctd_available() -> Tuple[bool, str]:
@@ -1393,34 +1249,33 @@ def is_rctd_available() -> Tuple[bool, str]:
     Returns:
         Tuple of (is_available, error_message)
     """
-    try:
-        # Try to import rpy2
-        import rpy2.robjects as ro
-        from rpy2.robjects import pandas2ri
-        from rpy2.robjects.conversion import localconverter
-
-        # Test R connection with proper converter context
-        try:
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                ro.r("R.version.string")
-        except Exception as e:
-            return False, f"R is not accessible: {str(e)}"
-
-        # Try to install/load spacexr package
-        try:
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                # Check if spacexr is installed
-                ro.r("library(spacexr)")
-        except Exception as e:
-            return (
-                False,
-                f"spacexr R package is not installed or failed to load: {str(e)}. Install with: install.packages('devtools'); devtools::install_github('dmcable/spacexr', build_vignettes = FALSE)",
-            )
-
-        return True, ""
-
-    except ImportError:
+    # Check if rpy2 is available
+    if not is_available("rpy2"):
         return False, "rpy2 package is not installed. Install with 'pip install rpy2'"
+
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri
+    from rpy2.robjects.conversion import localconverter
+
+    # Test R connection with proper converter context
+    try:
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            ro.r("R.version.string")
+    except Exception as e:
+        return False, f"R is not accessible: {str(e)}"
+
+    # Try to install/load spacexr package
+    try:
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            # Check if spacexr is installed
+            ro.r("library(spacexr)")
+    except Exception as e:
+        return (
+            False,
+            f"spacexr R package is not installed or failed to load: {str(e)}. Install with: install.packages('devtools'); devtools::install_github('dmcable/spacexr', build_vignettes = FALSE)",
+        )
+
+    return True, ""
 
 
 def _detect_gene_format(var_names: pd.Index) -> str:
@@ -1455,8 +1310,8 @@ def _detect_gene_format(var_names: pd.Index) -> str:
         return "mixed"
 
 
-def _validate_gene_format_compatibility(
-    spatial_adata: ad.AnnData, reference_adata: ad.AnnData, context=None
+async def _validate_gene_format_compatibility(
+    spatial_adata: ad.AnnData, reference_adata: ad.AnnData, ctx=None
 ) -> Tuple[bool, str]:
     """
     Validate that spatial and reference data have compatible gene naming.
@@ -1469,7 +1324,7 @@ def _validate_gene_format_compatibility(
     Args:
         spatial_adata: Spatial data
         reference_adata: Reference data
-        context: Logging context
+        ctx: ToolContext for logging and data access
 
     Returns:
         (is_valid, error_message)
@@ -1477,14 +1332,13 @@ def _validate_gene_format_compatibility(
     spatial_format = _detect_gene_format(spatial_adata.var_names)
     reference_format = _detect_gene_format(reference_adata.var_names)
 
-    if context:
-        context.info("Gene format detection:")
-        context.info(
-            f"   Spatial: {spatial_format} ({len(spatial_adata.var_names)} genes)"
-        )
-        context.info(
-            f"   Reference: {reference_format} ({len(reference_adata.var_names)} genes)"
-        )
+    await ctx.info("Gene format detection:")
+    await ctx.info(
+        f"   Spatial: {spatial_format} ({len(spatial_adata.var_names)} genes)"
+    )
+    await ctx.info(
+        f"   Reference: {reference_format} ({len(reference_adata.var_names)} genes)"
+    )
 
     # Check overlap
     common_genes = set(spatial_adata.var_names) & set(reference_adata.var_names)
@@ -1505,11 +1359,10 @@ def _validate_gene_format_compatibility(
         )
 
     if reference_format == "mixed" and spatial_format != "mixed":
-        if context:
-            context.warning(
-                "WARNING:Reference has mixed gene naming (symbols + Ensembl IDs).\n"
-                "   Using order-preserving gene matching to avoid expression mismatch."
-            )
+        await ctx.warning(
+            "WARNING:Reference has mixed gene naming (symbols + Ensembl IDs).\n"
+            "   Using order-preserving gene matching to avoid expression mismatch."
+        )
 
     return True, ""
 
@@ -1551,8 +1404,8 @@ def _calculate_quality_metrics(adata: ad.AnnData) -> dict:
     }
 
 
-def _validate_subset_quality(
-    before_metrics: dict, subset_adata: ad.AnnData, data_label: str, context=None
+async def _validate_subset_quality(
+    before_metrics: dict, subset_adata: ad.AnnData, data_label: str, ctx=None
 ) -> None:
     """
     Validate that gene subsetting preserved data quality.
@@ -1570,7 +1423,7 @@ def _validate_subset_quality(
                        (dict with 'median_numi', 'n_vars', 'numi_per_cell')
         subset_adata: Subsetted AnnData
         data_label: Label for logging (e.g., "Reference")
-        context: Logging context
+        ctx: ToolContext for logging and data access
 
     Raises:
         ValueError: If data quality loss exceeds statistical threshold
@@ -1595,12 +1448,11 @@ def _validate_subset_quality(
     low_umi_count = (subset_numi < 5).sum()
     low_umi_pct = low_umi_count / len(subset_numi)
 
-    if context:
-        context.info(f"📈 {data_label} subset quality check:")
-        context.info(f"   Genes: {original_n_vars} → {subset_adata.n_vars}")
-        context.info(f"   Median nUMI: {original_median:.0f} → {subset_median:.0f}")
-        context.info(f"   nUMI loss: {loss_ratio:.1%}")
-        context.info(f"   Cells with nUMI < 5: {low_umi_count} ({low_umi_pct:.1%})")
+    await ctx.info(f"{data_label} subset quality check:")
+    await ctx.info(f"   Genes: {original_n_vars} → {subset_adata.n_vars}")
+    await ctx.info(f"   Median nUMI: {original_median:.0f} → {subset_median:.0f}")
+    await ctx.info(f"   nUMI loss: {loss_ratio:.1%}")
+    await ctx.info(f"   Cells with nUMI < 5: {low_umi_count} ({low_umi_pct:.1%})")
 
     # Statistical threshold: >50% median nUMI loss is pathological
     if loss_ratio > 0.5:
@@ -1620,24 +1472,23 @@ def _validate_subset_quality(
 
     # Warning threshold: >20% loss or >10% low-UMI cells
     if loss_ratio > 0.2 or low_umi_pct > 0.1:
-        if context:
-            context.warning(
-                f"WARNING:Moderate {data_label} data quality loss detected.\n"
-                f"   This may impact deconvolution accuracy."
-            )
+        await ctx.warning(
+            f"WARNING:Moderate {data_label} data quality loss detected.\n"
+            f"   This may impact deconvolution accuracy."
+        )
 
 
-def deconvolve_rctd(
+async def deconvolve_rctd(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
     cell_type_key: str,  # REQUIRED - LLM will infer from metadata
+    ctx: "ToolContext",
     mode: str = "full",
     max_cores: int = 4,
     confidence_threshold: float = 10.0,
     doublet_threshold: float = 25.0,
     max_multi_types: int = 4,
     min_common_genes: int = 100,
-    context=None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using RCTD (Robust Cell Type Decomposition)
 
@@ -1674,7 +1525,7 @@ def deconvolve_rctd(
                         Recommended: 4-6 for Visium (100μm), 2-3 for higher resolution
                         Must be less than total number of cell types
         min_common_genes: Minimum number of common genes required (default: 100)
-        context: Logging context for transparent progress tracking
+        ctx: ToolContext for logging and data access for transparent progress tracking
 
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
@@ -1689,8 +1540,7 @@ def deconvolve_rctd(
         mixtures in spatial transcriptomics"
     """
     # Validate cell type key exists
-    if cell_type_key not in reference_adata.obs:
-        raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
+    _validate_cell_type_key(reference_adata, cell_type_key)
 
     # Validate max_multi_types for multi mode
     if mode == "multi":
@@ -1708,6 +1558,7 @@ def deconvolve_rctd(
         raise ImportError(f"RCTD is not available: {error_message}")
 
     # Import rpy2 modules
+    import anndata2ri  # For sparse matrix support
     import rpy2.robjects as ro
     import rpy2.robjects.packages as rpackages
     from rpy2.robjects import numpy2ri, pandas2ri
@@ -1723,17 +1574,17 @@ def deconvolve_rctd(
         # Memory optimization: helper function creates internal copy, no need to copy here
         # RCTD (R method) requires int32 dtype for R compatibility
         spatial_data = _prepare_anndata_for_counts(
-            spatial_adata, "Spatial", context, require_int_dtype=True
+            spatial_adata, "Spatial", ctx, require_int_dtype=True
         )
         reference_data = _prepare_anndata_for_counts(
-            reference_adata, "Reference", context, require_int_dtype=True
+            reference_adata, "Reference", ctx, require_int_dtype=True
         )
 
         # === SCIENTIFIC VALIDATION: Gene Format Compatibility ===
         # Validate gene naming format compatibility BEFORE subsetting
         # This prevents systematic data loss from gene name mismatch
         is_valid, error_msg = _validate_gene_format_compatibility(
-            spatial_data, reference_data, context
+            spatial_data, reference_data, ctx
         )
         if not is_valid:
             raise ValueError(error_msg)
@@ -1746,25 +1597,17 @@ def deconvolve_rctd(
         spatial_genes_set = set(spatial_data.var_names)
         common_genes = [g for g in reference_data.var_names if g in spatial_genes_set]
 
-        if context:
-            context.info(
-                f"DEBUG:Gene matching: {len(common_genes)} common genes "
-                f"({len(common_genes)/len(reference_data.var_names)*100:.1f}% of reference)"
-            )
+        await ctx.info(
+            f"DEBUG:Gene matching: {len(common_genes)} common genes "
+            f"({len(common_genes)/len(reference_data.var_names)*100:.1f}% of reference)"
+        )
 
-        if len(common_genes) < min_common_genes:
-            raise ValueError(
-                f"Insufficient common genes after data preparation.\n"
-                f"  Found: {len(common_genes)} genes\n"
-                f"  Required: {min_common_genes} genes\n"
-                f"  Reference data: {reference_data.n_vars} genes\n"
-                f"  Spatial data: {spatial_data.n_vars} genes\n\n"
-                f"TIPS:\n"
-                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
-                f"2. Ensure both datasets are from the same species\n"
-                f"3. Try using different reference dataset\n"
-                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
-            )
+        _validate_common_genes(
+            common_genes,
+            min_common_genes,
+            spatial_data.n_vars,
+            reference_data.n_vars,
+        )
 
         # MEMORY OPTIMIZATION: Calculate lightweight metrics instead of full copy
         # Before: spatial_data.copy() + reference_data.copy() = ~4GB
@@ -1773,28 +1616,27 @@ def deconvolve_rctd(
         spatial_metrics_before = _calculate_quality_metrics(spatial_data)
         reference_metrics_before = _calculate_quality_metrics(reference_data)
 
-        # Subset to common genes
-        spatial_data = spatial_data[:, common_genes].copy()
-        reference_data = reference_data[:, common_genes].copy()
+        # Subset to common genes (view is sufficient - data already copied by
+        # _prepare_anndata_for_counts, subsequent operations are read-only)
+        spatial_data = spatial_data[:, common_genes]
+        reference_data = reference_data[:, common_genes]
 
         # === STATISTICAL VALIDATION: Subset Quality ===
         # Validate that gene subsetting preserved data quality
         # This catches gene name format mismatches that passed initial checks
         _validate_subset_quality(
-            reference_metrics_before, reference_data, "Reference", context
+            reference_metrics_before, reference_data, "Reference", ctx
         )
-        _validate_subset_quality(
-            spatial_metrics_before, spatial_data, "Spatial", context
-        )
+        _validate_subset_quality(spatial_metrics_before, spatial_data, "Spatial", ctx)
 
-        if context and cell_type_key in reference_data.obs:
+        if cell_type_key in reference_data.obs:
             ref_ct_counts = reference_data.obs[cell_type_key].value_counts()
-            context.info(
+            await ctx.info(
                 f"After subsetting: {len(common_genes)} common genes, {len(ref_ct_counts)} cell types"
             )
             min_count = ref_ct_counts.min()
             if min_count < 25:
-                context.warning(
+                await ctx.warning(
                     f"WARNING:Minimum cells per type: {min_count} (< 25 required)"
                 )
 
@@ -1814,12 +1656,11 @@ def deconvolve_rctd(
 
         # Prepare count matrices for R using anndata2ri
         # Note: anndata2ri handles both sparse and dense matrices automatically
-        if context:
-            matrix_type = "sparse" if sp.issparse(spatial_data.X) else "dense"
-            context.info(
-                f"Using anndata2ri for matrix transfer to RCTD ({matrix_type} data) "
-                f"(spatial: {spatial_data.X.shape}, reference: {reference_data.X.shape})"
-            )
+        matrix_type = "sparse" if sp.issparse(spatial_data.X) else "dense"
+        await ctx.info(
+            f"Using anndata2ri for matrix transfer to RCTD ({matrix_type} data) "
+            f"(spatial: {spatial_data.X.shape}, reference: {reference_data.X.shape})"
+        )
 
         # Prepare cell type information as named factor
         cell_types = reference_data.obs[cell_type_key].copy()
@@ -1831,18 +1672,17 @@ def deconvolve_rctd(
         )
 
         cell_type_counts = cell_types_series.value_counts()
-        if context:
-            context.info(
-                f"Reference: {len(cell_type_counts)} cell types, {len(cell_types_series)} total cells"
+        await ctx.info(
+            f"Reference: {len(cell_type_counts)} cell types, {len(cell_types_series)} total cells"
+        )
+        min_count = cell_type_counts.min()
+        if min_count < 25:
+            await ctx.warning(
+                f"WARNING:WARNING: Minimum cells per type = {min_count} (< 25 required)"
             )
-            min_count = cell_type_counts.min()
-            if min_count < 25:
-                context.warning(
-                    f"WARNING:WARNING: Minimum cells per type = {min_count} (< 25 required)"
-                )
-                # List types below threshold
-                low_types = [ct for ct, count in cell_type_counts.items() if count < 25]
-                context.warning(f"   Types below threshold: {', '.join(low_types)}")
+            # List types below threshold
+            low_types = [ct for ct, count in cell_type_counts.items() if count < 25]
+            await ctx.warning(f"   Types below threshold: {', '.join(low_types)}")
 
         # Calculate nUMI for both datasets
         spatial_numi = pd.Series(
@@ -2053,9 +1893,6 @@ def deconvolve_rctd(
                     )
 
                 except Exception as e:
-                    # Failed to extract detailed RCTD results
-                    traceback.print_exc()
-                    # Re-raise the exception instead of using misleading fallback
                     raise RuntimeError(
                         f"RCTD {mode} mode result extraction failed: {str(e)}"
                     ) from e
@@ -2069,12 +1906,11 @@ def deconvolve_rctd(
             nan_count = nan_mask.sum().sum()
             nan_spots = nan_mask.any(axis=1).sum()
 
-            if context:
-                warnings.warn(
-                    f"RCTD produced {nan_count} NaN values in {nan_spots} spots. "
-                    "NaN indicates computation failure, NOT absence of cell types. "
-                    "These values are preserved for transparency."
-                )
+            await ctx.warning(
+                f"RCTD produced {nan_count} NaN values in {nan_spots} spots. "
+                "NaN indicates computation failure, NOT absence of cell types. "
+                "These values are preserved for transparency."
+            )
 
         # Check for negative values - this would be a critical error
         if (proportions < 0).any().any():
@@ -2095,12 +1931,11 @@ def deconvolve_rctd(
         if max_deviation > 0.1:  # More than 10% deviation
             spots_affected = (sum_deviation > 0.1).sum()
 
-            if context:
-                warnings.warn(
-                    f"RCTD proportions deviate from expected sum of 1.0: "
-                    f"max deviation {max_deviation:.3f} in {spots_affected} spots. "
-                    f"This may indicate incomplete deconvolution or convergence issues."
-                )
+            await ctx.warning(
+                f"RCTD proportions deviate from expected sum of 1.0: "
+                f"max deviation {max_deviation:.3f} in {spots_affected} spots. "
+                f"This may indicate incomplete deconvolution or convergence issues."
+            )
 
         # Don't force normalization or fill NaN with 0
         # Users can request normalization if needed
@@ -2129,25 +1964,21 @@ def deconvolve_rctd(
         return proportions, stats
 
     except Exception as e:
-        error_msg = str(e)
-        tb = traceback.format_exc()
-        raise RuntimeError(f"RCTD deconvolution failed: {error_msg}\n{tb}")
+        raise RuntimeError(f"RCTD deconvolution failed: {str(e)}") from e
     # Note: No finally block needed with localconverter context managers
 
 
 async def deconvolve_spatial_data(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: "ToolContext",
     params: DeconvolutionParameters,  # No default - must be provided by caller (LLM)
-    context: Optional[Context] = None,
 ) -> DeconvolutionResult:
     """Deconvolve spatial transcriptomics data to estimate cell type proportions
 
     Args:
         data_id: Dataset ID
-        data_store: Dictionary storing datasets
+        ctx: Tool context for data access and logging
         params: Deconvolution parameters
-        context: MCP context
 
     Returns:
         Deconvolution result with cell type proportions and visualization
@@ -2160,39 +1991,26 @@ async def deconvolve_spatial_data(
         # Validate input parameters
         if not data_id:
             raise ValueError("Dataset ID cannot be empty")
-        if not data_store:
-            raise ValueError("Data store cannot be empty")
 
-        if context:
-            await context.info(
-                f"Deconvolving spatial data using {params.method} method"
-            )
-            await context.info(f"Parameters: {params.model_dump()}")
+        await ctx.info(f"Deconvolving spatial data using {params.method} method")
+        await ctx.info(f"Parameters: {params.model_dump()}")
 
-        # Get spatial data
-        if data_id not in data_store:
-            raise ValueError(
-                f"Dataset {data_id} not found in data store. Available datasets: {list(data_store.keys())}"
-            )
-        if "adata" not in data_store[data_id]:
-            raise ValueError(f"Dataset {data_id} does not contain AnnData object")
-
-        spatial_adata = data_store[data_id]["adata"]
+        # Get spatial data via ToolContext (includes validation)
+        spatial_adata = await ctx.get_adata(data_id)
         if spatial_adata.n_obs == 0:
             raise ValueError(f"Dataset {data_id} contains no observations")
 
         # Ensure spatial data has unique gene names
         if hasattr(spatial_adata, "var_names_make_unique"):
-            if context:
-                await context.info("Ensuring spatial dataset has unique gene names")
+            await ctx.info("Ensuring spatial dataset has unique gene names")
             spatial_adata.var_names_make_unique()
 
-        if context:
-            await context.info(f"Spatial dataset shape: {spatial_adata.shape}")
+        await ctx.info(f"Spatial dataset shape: {spatial_adata.shape}")
 
         # Load and validate reference data ONCE for methods that need it
         reference_adata = None
         if params.method in [
+            "flashdeconv",
             "cell2location",
             "rctd",
             "destvi",
@@ -2206,18 +2024,8 @@ async def deconvolve_spatial_data(
                     f"Reference data is required for method '{params.method}'. Please provide reference_data_id."
                 )
 
-            if params.reference_data_id not in data_store:
-                raise ValueError(
-                    f"Reference dataset '{params.reference_data_id}' not found in data store. "
-                    f"Available datasets: {list(data_store.keys())}"
-                )
-
-            if "adata" not in data_store[params.reference_data_id]:
-                raise ValueError(
-                    f"Reference dataset {params.reference_data_id} does not contain AnnData object"
-                )
-
-            reference_adata = data_store[params.reference_data_id]["adata"]
+            # Get reference data via ToolContext (includes validation)
+            reference_adata = await ctx.get_adata(params.reference_data_id)
             if reference_adata.n_obs == 0:
                 raise ValueError(
                     f"Reference dataset {params.reference_data_id} contains no observations"
@@ -2225,28 +2033,21 @@ async def deconvolve_spatial_data(
 
             # Ensure reference data has unique gene names
             if hasattr(reference_adata, "var_names_make_unique"):
-                if context:
-                    await context.info(
-                        "Ensuring reference dataset has unique gene names"
-                    )
+                await ctx.info("Ensuring reference dataset has unique gene names")
                 reference_adata.var_names_make_unique()
 
             # Check cell type key
-            if params.cell_type_key not in reference_adata.obs:
-                raise ValueError(
-                    f"Cell type key '{params.cell_type_key}' not found in reference data. "
-                    f"Available keys: {list(reference_adata.obs.columns)}"
-                )
+            _validate_cell_type_key(reference_adata, params.cell_type_key)
 
-            if context:
-                await context.info(f"Reference dataset shape: {reference_adata.shape}")
-                cell_types = reference_adata.obs[params.cell_type_key].unique()
-                await context.info(
-                    f"Using reference with {len(cell_types)} cell types: {list(cell_types)}"
-                )
+            await ctx.info(f"Reference dataset shape: {reference_adata.shape}")
+            cell_types = reference_adata.obs[params.cell_type_key].unique()
+            await ctx.info(
+                f"Using reference with {len(cell_types)} cell types: {list(cell_types)}"
+            )
 
         # Check method-specific dependencies and provide alternatives
         method_deps = {
+            "flashdeconv": ["flashdeconv"],  # Pure Python, no GPU needed
             "cell2location": ["cell2location", "torch"],
             "destvi": ["scvi", "torch"],  # Fixed: scvi not scvi-tools
             "stereoscope": ["scvi", "torch"],  # Fixed: scvi not scvi-tools
@@ -2281,7 +2082,9 @@ async def deconvolve_spatial_data(
             # Suggest alternatives
             if available_methods:
                 alt_msg = f"Available alternatives: {', '.join(available_methods)}"
-                if "cell2location" in available_methods:
+                if "flashdeconv" in available_methods:
+                    alt_msg += " (flashdeconv is recommended - fastest, no GPU needed)"
+                elif "cell2location" in available_methods:
                     alt_msg += " (cell2location is recommended)"
                 elif "rctd" in available_methods:
                     alt_msg += " (RCTD provides similar functionality)"
@@ -2289,17 +2092,29 @@ async def deconvolve_spatial_data(
                 alt_msg = "No deconvolution methods available. Install dependencies with 'pip install chatspatial[advanced]'"
 
             error_msg = f"Method '{params.method}' is not available due to missing dependencies. {alt_msg}"
-            if context:
-                await context.error(error_msg)
+            await ctx.error(error_msg)
             raise ImportError(error_msg)
 
         # Run deconvolution with cleaner calls and centralized error handling
         proportions, stats = None, None
 
         try:
-            if params.method == "cell2location":
-                if context:
-                    await context.info("Running Cell2location deconvolution")
+            if params.method == "flashdeconv":
+                await ctx.info("Running FlashDeconv deconvolution (fastest method)")
+
+                proportions, stats = deconvolve_flashdeconv(
+                    spatial_adata,
+                    reference_adata,
+                    cell_type_key=params.cell_type_key,
+                    sketch_dim=params.flashdeconv_sketch_dim,
+                    lambda_spatial=params.flashdeconv_lambda_spatial,
+                    n_hvg=params.flashdeconv_n_hvg,
+                    n_markers_per_type=params.flashdeconv_n_markers_per_type,
+                    ctx=ctx,
+                )
+
+            elif params.method == "cell2location":
+                await ctx.info("Running Cell2location deconvolution")
                 proportions, stats = await deconvolve_cell2location(
                     spatial_adata,
                     reference_adata,
@@ -2326,18 +2141,16 @@ async def deconvolve_spatial_data(
                     early_stopping_threshold=params.cell2location_early_stopping_threshold,
                     use_aggressive_training=params.cell2location_use_aggressive_training,  # Phase 3: Aggressive training
                     validation_size=params.cell2location_validation_size,
-                    context=context,
+                    ctx=ctx,
                 )
 
             elif params.method == "rctd":
-                if context:
-                    await context.info("Running RCTD deconvolution")
+                await ctx.info("Running RCTD deconvolution")
 
                 # Check if RCTD is available
                 is_available, error_message = is_rctd_available()
                 if not is_available:
-                    if context:
-                        await context.warning(f"RCTD is not available: {error_message}")
+                    await ctx.warning(f"RCTD is not available: {error_message}")
                     raise ImportError(f"RCTD is not available: {error_message}")
 
                 proportions, stats = deconvolve_rctd(
@@ -2349,16 +2162,18 @@ async def deconvolve_spatial_data(
                     confidence_threshold=params.rctd_confidence_threshold,
                     doublet_threshold=params.rctd_doublet_threshold,
                     max_multi_types=params.rctd_max_multi_types,
-                    context=context,
+                    ctx=ctx,
                 )
 
             elif params.method == "destvi":
-                if context:
-                    await context.info("Running DestVI deconvolution")
+                await ctx.info("Running DestVI deconvolution")
 
-                if scvi is None:
+                # Use centralized dependency manager for consistent error messages
+                scvi_mod = get_dependency("scvi-tools")
+                if scvi_mod is None:
                     raise ImportError(
-                        "scvi-tools package is not installed. Please install it with 'pip install scvi-tools'"
+                        "scvi-tools is required for DestVI deconvolution. "
+                        "Install with: pip install scvi-tools"
                     )
 
                 proportions, stats = await deconvolve_destvi(
@@ -2375,16 +2190,18 @@ async def deconvolve_spatial_data(
                     vamp_prior_p=params.destvi_vamp_prior_p,
                     l1_reg=params.destvi_l1_reg,
                     use_gpu=params.use_gpu,
-                    context=context,
+                    ctx=ctx,
                 )
 
             elif params.method == "stereoscope":
-                if context:
-                    await context.info("Running Stereoscope deconvolution")
+                await ctx.info("Running Stereoscope deconvolution")
 
-                if Stereoscope is None:
+                # Use centralized dependency manager for consistent error messages
+                scvi_mod = get_dependency("scvi-tools")
+                if scvi_mod is None:
                     raise ImportError(
-                        "Stereoscope from scvi-tools package is not installed"
+                        "scvi-tools is required for Stereoscope deconvolution. "
+                        "Install with: pip install scvi-tools"
                     )
 
                 proportions, stats = await deconvolve_stereoscope(
@@ -2395,20 +2212,16 @@ async def deconvolve_spatial_data(
                     learning_rate=params.stereoscope_learning_rate,
                     batch_size=params.stereoscope_batch_size,
                     use_gpu=params.use_gpu,
-                    context=context,
+                    ctx=ctx,
                 )
 
             elif params.method == "spotlight":
-                if context:
-                    await context.info("Running SPOTlight deconvolution")
+                await ctx.info("Running SPOTlight deconvolution")
 
                 # Check if SPOTlight is available
                 is_available, error_message = is_spotlight_available()
                 if not is_available:
-                    if context:
-                        await context.warning(
-                            f"SPOTlight is not available: {error_message}"
-                        )
+                    await ctx.warning(f"SPOTlight is not available: {error_message}")
                     raise ImportError(f"SPOTlight is not available: {error_message}")
 
                 proportions, stats = deconvolve_spotlight(
@@ -2420,16 +2233,24 @@ async def deconvolve_spatial_data(
                     min_prop=params.spotlight_min_prop,
                     scale=params.spotlight_scale,
                     weight_id=params.spotlight_weight_id,
-                    context=context,
+                    ctx=ctx,
                 )
 
             elif params.method == "tangram":
-                if context:
-                    await context.info("Running Tangram deconvolution")
+                await ctx.info("Running Tangram deconvolution")
 
-                if scvi is None or Tangram is None:
+                # Use centralized dependency manager for consistent error messages
+                scvi_mod = get_dependency("scvi-tools")
+                tangram_mod = get_dependency("tangram")
+                if scvi_mod is None or tangram_mod is None:
+                    missing = []
+                    if scvi_mod is None:
+                        missing.append("scvi-tools")
+                    if tangram_mod is None:
+                        missing.append("tangram-sc")
                     raise ImportError(
-                        "scvi-tools and Tangram are required for this method. Install with 'pip install scvi-tools'"
+                        f"Missing dependencies for Tangram deconvolution: {', '.join(missing)}. "
+                        "Install with: pip install scvi-tools tangram-sc"
                     )
 
                 proportions, stats = await deconvolve_tangram(
@@ -2441,18 +2262,16 @@ async def deconvolve_spatial_data(
                     learning_rate=params.tangram_learning_rate,
                     density_prior=params.tangram_density_prior,
                     use_gpu=params.use_gpu,
-                    context=context,
+                    ctx=ctx,
                 )
 
             elif params.method == "card":
-                if context:
-                    await context.info("Running CARD deconvolution")
+                await ctx.info("Running CARD deconvolution")
 
                 # Check availability
                 is_available, error_message = is_card_available()
                 if not is_available:
-                    if context:
-                        await context.warning(f"CARD is not available: {error_message}")
+                    await ctx.warning(f"CARD is not available: {error_message}")
                     raise ImportError(f"CARD is not available: {error_message}")
 
                 proportions, stats = deconvolve_card(
@@ -2465,31 +2284,25 @@ async def deconvolve_spatial_data(
                     imputation=params.card_imputation,
                     NumGrids=params.card_NumGrids,
                     ineibor=params.card_ineibor,
-                    context=context,
+                    ctx=ctx,
                 )
 
             else:
                 raise ValueError(
                     f"Unsupported deconvolution method: {params.method}. "
-                    f"Supported methods are: cell2location, rctd, destvi, stereoscope, spotlight, tangram, card"
+                    f"Supported methods are: flashdeconv (fastest), cell2location, rctd, destvi, stereoscope, spotlight, tangram, card"
                 )
 
         except Exception as e:
             # Centralized error handling for deconvolution calls
-            error_msg = str(e)
-            tb = traceback.format_exc()
-            if context:
-                await context.warning(
-                    f"{params.method.capitalize()} failed: {error_msg}"
-                )
+            await ctx.warning(f"{params.method.capitalize()} failed: {str(e)}")
             raise RuntimeError(
-                f"{params.method.capitalize()} deconvolution failed: {error_msg}\n{tb}"
+                f"{params.method.capitalize()} deconvolution failed: {str(e)}"
             ) from e
 
-        if context:
-            await context.info(
-                f"{params.method.capitalize()} completed successfully. Found {stats['n_cell_types']} cell types."
-            )
+        await ctx.info(
+            f"{params.method.capitalize()} completed successfully. Found {stats['n_cell_types']} cell types."
+        )
 
         # Store proportions in AnnData object, handling potential shape mismatch
         proportions_key = f"deconvolution_{params.method}"
@@ -2519,22 +2332,16 @@ async def deconvolve_spatial_data(
             obs_key = f"{proportions_key}_{cell_type}"
             spatial_adata.obs[obs_key] = full_proportions[:, i]
 
-        if context:
-            await context.info(
-                f"Stored cell type proportions in adata.obsm['{proportions_key}']"
-            )
-            await context.info(
-                f"Stored cell type names in adata.uns['{cell_types_key}']"
-            )
-            await context.info(
-                f"Stored individual cell type proportions in adata.obs with prefix '{proportions_key}_'"
-            )
+        await ctx.info(
+            f"Stored cell type proportions in adata.obsm['{proportions_key}']"
+        )
+        await ctx.info(f"Stored cell type names in adata.uns['{cell_types_key}']")
+        await ctx.info(
+            f"Stored individual cell type proportions in adata.obs with prefix '{proportions_key}_'"
+        )
 
         # Add cell type annotation based on deconvolution results
-        if context:
-            await context.info(
-                "Adding cell type annotation based on deconvolution results"
-            )
+        await ctx.info("Adding cell type annotation based on deconvolution results")
 
         # Use method-prefixed output key to avoid overwriting
         # Use 'dominant_celltype' to semantically distinguish from annotation results
@@ -2555,16 +2362,15 @@ async def deconvolve_spatial_data(
             dominant_type_key
         ].astype("category")
 
-        if context:
-            await context.info(
-                f"Added cell type annotation with {len(proportions.columns)} cell types"
-            )
-            await context.info(
-                f"Most common cell type: {spatial_adata.obs[dominant_type_key].value_counts().index[0]}"
-            )
+        await ctx.info(
+            f"Added cell type annotation with {len(proportions.columns)} cell types"
+        )
+        await ctx.info(
+            f"Most common cell type: {spatial_adata.obs[dominant_type_key].value_counts().index[0]}"
+        )
 
         # Store scientific metadata for reproducibility
-        from ..utils.metadata_storage import store_analysis_metadata
+        from ..utils.adata_utils import store_analysis_metadata
 
         # Extract results keys
         results_keys_dict = {
@@ -2639,10 +2445,9 @@ async def deconvolve_spatial_data(
             statistics=stats,
         )
 
-        if context:
-            await context.info(
-                f"Deconvolution completed successfully with {result.n_cell_types} cell types"
-            )
+        await ctx.info(
+            f"Deconvolution completed successfully with {result.n_cell_types} cell types"
+        )
 
         return result
 
@@ -2655,8 +2460,7 @@ async def deconvolve_spatial_data(
         TypeError,
     ) as e:
         # Handle expected business logic errors
-        if context:
-            await context.warning(f"Deconvolution failed: {str(e)}")
+        await ctx.warning(f"Deconvolution failed: {str(e)}")
         raise
     except Exception as e:
         # Handle truly unexpected errors while preserving system exceptions
@@ -2664,21 +2468,17 @@ async def deconvolve_spatial_data(
             # Don't catch system-level exceptions
             raise
 
-        error_msg = str(e)
-        tb = traceback.format_exc()
-        if context:
-            await context.warning(
-                f"Deconvolution failed with unexpected error: {error_msg}"
-            )
+        await ctx.warning(f"Deconvolution failed with unexpected error: {str(e)}")
         raise RuntimeError(
-            f"Deconvolution failed with unexpected error: {error_msg}\n{tb}"
-        )
+            f"Deconvolution failed with unexpected error: {str(e)}"
+        ) from e
 
 
 async def deconvolve_destvi(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
     cell_type_key: str,  # REQUIRED - LLM will infer from metadata
+    ctx: "ToolContext",
     n_epochs: int = 10000,
     n_hidden: int = 128,
     n_latent: int = 10,
@@ -2689,7 +2489,6 @@ async def deconvolve_destvi(
     vamp_prior_p: int = 15,
     l1_reg: float = 10.0,
     use_gpu: bool = False,
-    context: Optional[Context] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using DestVI from scvi-tools (Official API)
 
@@ -2714,51 +2513,40 @@ async def deconvolve_destvi(
         vamp_prior_p: Number of VampPrior components (default: 15)
         l1_reg: L1 regularization for sparsity (default: 10.0)
         use_gpu: Whether to use GPU for training
-        context: MCP context for logging
+        ctx: ToolContext for logging and data access
 
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
     try:
-        # Check if scvi-tools is available
-        if scvi is None:
+        # Check if scvi-tools is available and import it
+        if not is_available("scvi-tools"):
             raise ImportError(
-                "scvi-tools package is not installed. Please install it with 'pip install scvi-tools'"
+                "scvi-tools is required for DestVI deconvolution. "
+                "Install with: pip install scvi-tools"
             )
+        import scvi
 
         # Validate cell type key exists
-        if cell_type_key not in reference_adata.obs:
-            raise ValueError(
-                f"Cell type key '{cell_type_key}' not found in reference data"
-            )
+        _validate_cell_type_key(reference_adata, cell_type_key)
 
         # Prepare data first (DestVI requires integer counts)
         # Memory optimization: helper function creates internal copy, no need to copy here
         # DestVI (scvi-tools) works with float32, no need for int32 conversion
         ref_data = _prepare_anndata_for_counts(
-            reference_adata, "reference", context, require_int_dtype=False
+            reference_adata, "reference", ctx, require_int_dtype=False
         )
         spatial_data = _prepare_anndata_for_counts(
-            spatial_adata, "spatial", context, require_int_dtype=False
+            spatial_adata, "spatial", ctx, require_int_dtype=False
         )
 
         # Find common genes AFTER data preparation
         common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
         min_common_genes = 100
 
-        if len(common_genes) < min_common_genes:
-            raise ValueError(
-                f"Insufficient common genes after data preparation.\n"
-                f"  Found: {len(common_genes)} genes\n"
-                f"  Required: {min_common_genes} genes\n"
-                f"  Reference data: {ref_data.n_vars} genes\n"
-                f"  Spatial data: {spatial_data.n_vars} genes\n\n"
-                f"TIPS:\n"
-                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
-                f"2. Ensure both datasets are from the same species\n"
-                f"3. Try using different reference dataset\n"
-                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
-            )
+        _validate_common_genes(
+            common_genes, min_common_genes, spatial_data.n_vars, ref_data.n_vars
+        )
 
         # Subset to common genes
         ref_data = ref_data[:, common_genes].copy()
@@ -2771,20 +2559,16 @@ async def deconvolve_destvi(
                 f"Reference data must contain at least 2 cell types, found {len(cell_types)}"
             )
 
-        if context:
-            await context.info(
-                f"Training DestVI with {len(common_genes)} genes and {len(cell_types)} cell types: {list(cell_types)}"
-            )
+        await ctx.info(
+            f"Training DestVI with {len(common_genes)} genes and {len(cell_types)} cell types: {list(cell_types)}"
+        )
 
         # Calculate optimal epoch distribution (following official tutorials)
         condscvi_epochs = max(400, n_epochs // 5)  # CondSCVI needs sufficient training
         destvi_epochs = max(200, n_epochs // 10)  # DestVI typically needs fewer epochs
 
         # Step 1: Setup and train CondSCVI model on reference data
-        if context:
-            await context.info(
-                f"Step 1: Training CondSCVI model ({condscvi_epochs} epochs)..."
-            )
+        await ctx.info(f"Step 1: Training CondSCVI model ({condscvi_epochs} epochs)...")
 
         # Setup reference data for CondSCVI with proper configuration
         scvi.model.CondSCVI.setup_anndata(
@@ -2812,12 +2596,10 @@ async def deconvolve_destvi(
             plan_kwargs=plan_kwargs,
         )
 
-        if context:
-            await context.info("CondSCVI model training completed")
+        await ctx.info("CondSCVI model training completed")
 
         # Step 2: Setup spatial data for DestVI
-        if context:
-            await context.info("Step 2: Setting up DestVI model...")
+        await ctx.info("Step 2: Setting up DestVI model...")
 
         # Setup spatial data (no labels needed for spatial data)
         scvi.model.DestVI.setup_anndata(spatial_data)
@@ -2831,14 +2613,10 @@ async def deconvolve_destvi(
             l1_reg=l1_reg,
         )
 
-        if context:
-            await context.info("DestVI model created successfully")
+        await ctx.info("DestVI model created successfully")
 
         # Step 4: Train DestVI model (official training settings)
-        if context:
-            await context.info(
-                f"Step 3: Training DestVI model ({destvi_epochs} epochs)..."
-            )
+        await ctx.info(f"Step 3: Training DestVI model ({destvi_epochs} epochs)...")
 
         destvi_model.train(
             max_epochs=destvi_epochs,
@@ -2847,12 +2625,10 @@ async def deconvolve_destvi(
             plan_kwargs=plan_kwargs,
         )
 
-        if context:
-            await context.info("DestVI training completed")
+        await ctx.info("DestVI training completed")
 
         # Step 5: Get results (official API)
-        if context:
-            await context.info("Extracting cell type proportions...")
+        await ctx.info("Extracting cell type proportions...")
 
         # Get cell type proportions using official method
         proportions_df = destvi_model.get_proportions()
@@ -2867,15 +2643,14 @@ async def deconvolve_destvi(
             proportions=proportions_df,
             method="DestVI",
             normalize=False,  # DestVI already outputs proportions
-            context=context,
+            ctx=ctx,
         )
 
         cell_types_result = list(proportions_df.columns)
 
-        if context:
-            await context.info(
-                f"Generated proportions for {len(cell_types_result)} cell types: {cell_types_result}"
-            )
+        await ctx.info(
+            f"Generated proportions for {len(cell_types_result)} cell types: {cell_types_result}"
+        )
 
         # Create enhanced statistics
         stats = _create_deconvolution_stats(
@@ -2900,20 +2675,19 @@ async def deconvolve_destvi(
 
     except Exception as e:
         error_msg = f"DestVI deconvolution failed: {str(e)}"
-        if context:
-            await context.error(error_msg)
-        raise RuntimeError(error_msg)
+        await ctx.error(error_msg)
+        raise RuntimeError(error_msg) from e
 
 
 async def deconvolve_stereoscope(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
     cell_type_key: str,  # REQUIRED - LLM will infer from metadata
+    ctx: "ToolContext",
     n_epochs: int = 150000,
     learning_rate: float = 0.01,
     batch_size: int = 128,
     use_gpu: bool = False,
-    context: Optional[Context] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using official Stereoscope API from scvi-tools
 
@@ -2934,7 +2708,7 @@ async def deconvolve_stereoscope(
         batch_size: Minibatch size for training (default: 128)
                    Original Stereoscope used 100
         use_gpu: Whether to use GPU for training
-        context: MCP context for logging
+        ctx: ToolContext for logging and data access
 
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
@@ -2945,38 +2719,25 @@ async def deconvolve_stereoscope(
     """
     try:
         # Validate cell type key exists
-        if cell_type_key not in reference_adata.obs:
-            raise ValueError(
-                f"Cell type key '{cell_type_key}' not found in reference data"
-            )
+        _validate_cell_type_key(reference_adata, cell_type_key)
 
         # Prepare data first - Stereoscope requires raw counts
         # Memory optimization: helper function creates internal copy, no need to copy here
         # Stereoscope (scvi-tools) works with float32, no need for int32 conversion
         ref_data = _prepare_anndata_for_counts(
-            reference_adata, "Reference", context, require_int_dtype=False
+            reference_adata, "Reference", ctx, require_int_dtype=False
         )
         spatial_data = _prepare_anndata_for_counts(
-            spatial_adata, "Spatial", context, require_int_dtype=False
+            spatial_adata, "Spatial", ctx, require_int_dtype=False
         )
 
         # Find common genes AFTER data preparation
         common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
         min_common_genes = 100
 
-        if len(common_genes) < min_common_genes:
-            raise ValueError(
-                f"Insufficient common genes after data preparation.\n"
-                f"  Found: {len(common_genes)} genes\n"
-                f"  Required: {min_common_genes} genes\n"
-                f"  Reference data: {ref_data.n_vars} genes\n"
-                f"  Spatial data: {spatial_data.n_vars} genes\n\n"
-                f"TIPS:\n"
-                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
-                f"2. Ensure both datasets are from the same species\n"
-                f"3. Try using different reference dataset\n"
-                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
-            )
+        _validate_common_genes(
+            common_genes, min_common_genes, spatial_data.n_vars, ref_data.n_vars
+        )
 
         # Subset to common genes
         ref_data = ref_data[:, common_genes].copy()
@@ -2988,19 +2749,15 @@ async def deconvolve_stereoscope(
 
         cell_types = list(ref_data.obs[cell_type_key].cat.categories)
 
-        if context:
-            await context.info(
-                f"Training Stereoscope with {len(common_genes)} genes and {len(cell_types)} cell types"
-            )
+        await ctx.info(
+            f"Training Stereoscope with {len(common_genes)} genes and {len(cell_types)} cell types"
+        )
 
         # Import official Stereoscope classes
         from scvi.external import RNAStereoscope, SpatialStereoscope
 
         # Stage 1: Train RNAStereoscope model on reference data
-        if context:
-            await context.info(
-                "Stage 1: Training RNAStereoscope model on reference data..."
-            )
+        await ctx.info("Stage 1: Training RNAStereoscope model on reference data...")
 
         # Setup reference data with cell type labels (no layer specified since X contains counts)
         RNAStereoscope.setup_anndata(ref_data, labels_key=cell_type_key)
@@ -3032,16 +2789,10 @@ async def deconvolve_stereoscope(
                 max_epochs=rna_epochs, batch_size=batch_size, plan_kwargs=plan_kwargs
             )
 
-        if context:
-            await context.info(
-                f"RNAStereoscope training completed ({rna_epochs} epochs)"
-            )
+        await ctx.info(f"RNAStereoscope training completed ({rna_epochs} epochs)")
 
         # Stage 2: Train SpatialStereoscope model using the RNA model
-        if context:
-            await context.info(
-                "Stage 2: Training SpatialStereoscope model on spatial data..."
-            )
+        await ctx.info("Stage 2: Training SpatialStereoscope model on spatial data...")
 
         # Setup spatial data
         SpatialStereoscope.setup_anndata(spatial_data)
@@ -3064,14 +2815,12 @@ async def deconvolve_stereoscope(
                 plan_kwargs=plan_kwargs,
             )
 
-        if context:
-            await context.info(
-                f"SpatialStereoscope training completed ({spatial_epochs} epochs)"
-            )
+        await ctx.info(
+            f"SpatialStereoscope training completed ({spatial_epochs} epochs)"
+        )
 
         # Extract cell type proportions
-        if context:
-            await context.info("Extracting cell type proportions...")
+        await ctx.info("Extracting cell type proportions...")
 
         proportions_array = spatial_model.get_proportions()
 
@@ -3085,7 +2834,7 @@ async def deconvolve_stereoscope(
             proportions=proportions,
             method="Stereoscope",
             normalize=False,  # Stereoscope already outputs proportions
-            context=context,
+            ctx=ctx,
         )
 
         # Create statistics
@@ -3108,15 +2857,13 @@ async def deconvolve_stereoscope(
             }
         )
 
-        if context:
-            await context.info("Stereoscope deconvolution completed successfully")
+        await ctx.info("Stereoscope deconvolution completed successfully")
 
         return proportions, stats
 
     except Exception as e:
         error_msg = f"Stereoscope deconvolution failed: {str(e)}"
-        if context:
-            await context.error(error_msg)
+        await ctx.error(error_msg)
         raise RuntimeError(error_msg) from e
 
 
@@ -3126,36 +2873,36 @@ def is_spotlight_available() -> Tuple[bool, str]:
     Returns:
         Tuple of (is_available, error_message)
     """
-    try:
-        import rpy2.robjects as ro
-        from rpy2.robjects import pandas2ri
-        from rpy2.robjects.conversion import localconverter
-
-        # Test R connection
-        try:
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                ro.r("R.version.string")
-        except Exception as e:
-            return False, f"R is not accessible: {str(e)}"
-
-        # Check if SPOTlight is installed in R
-        try:
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                ro.r("library(SPOTlight)")
-        except Exception as e:
-            return (
-                False,
-                f"SPOTlight R package is not installed: {str(e)}. "
-                "Install in R with: BiocManager::install('SPOTlight')",
-            )
-
-        return True, ""
-
-    except ImportError:
+    # Check if rpy2 is available
+    if not is_available("rpy2"):
         return (
             False,
             "rpy2 is not installed. Install with 'pip install rpy2' to use SPOTlight",
         )
+
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri
+    from rpy2.robjects.conversion import localconverter
+
+    # Test R connection
+    try:
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            ro.r("R.version.string")
+    except Exception as e:
+        return False, f"R is not accessible: {str(e)}"
+
+    # Check if SPOTlight is installed in R
+    try:
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            ro.r("library(SPOTlight)")
+    except Exception as e:
+        return (
+            False,
+            f"SPOTlight R package is not installed: {str(e)}. "
+            "Install in R with: BiocManager::install('SPOTlight')",
+        )
+
+    return True, ""
 
 
 def is_card_available() -> Tuple[bool, str]:
@@ -3164,49 +2911,49 @@ def is_card_available() -> Tuple[bool, str]:
     Returns:
         Tuple of (is_available, error_message)
     """
-    try:
-        import rpy2.robjects as ro
-        from rpy2.robjects import pandas2ri
-        from rpy2.robjects.conversion import localconverter
-
-        # Test R connection
-        try:
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                ro.r("R.version.string")
-        except Exception as e:
-            return False, f"R is not accessible: {str(e)}"
-
-        # Check if CARD is installed in R
-        try:
-            with localconverter(ro.default_converter + pandas2ri.converter):
-                ro.r("library(CARD)")
-        except Exception as e:
-            return (
-                False,
-                f"CARD R package is not installed: {str(e)}. "
-                "Install with: devtools::install_github('YingMa0107/CARD')",
-            )
-
-        return True, ""
-
-    except ImportError:
+    # Check if rpy2 is available
+    if not is_available("rpy2"):
         return (
             False,
             "rpy2 is not installed. Install with 'pip install rpy2' to use CARD",
         )
 
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri
+    from rpy2.robjects.conversion import localconverter
 
-def deconvolve_spotlight(
+    # Test R connection
+    try:
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            ro.r("R.version.string")
+    except Exception as e:
+        return False, f"R is not accessible: {str(e)}"
+
+    # Check if CARD is installed in R
+    try:
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            ro.r("library(CARD)")
+    except Exception as e:
+        return (
+            False,
+            f"CARD R package is not installed: {str(e)}. "
+            "Install with: devtools::install_github('YingMa0107/CARD')",
+        )
+
+    return True, ""
+
+
+async def deconvolve_spotlight(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
     cell_type_key: str,  # REQUIRED - LLM will infer from metadata
+    ctx: "ToolContext",
     n_top_genes: int = 2000,
     min_common_genes: int = 100,
     nmf_model: str = "ns",
     min_prop: float = 0.01,
     scale: bool = True,
     weight_id: str = "mean.AUC",
-    context=None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using official SPOTlight R package
 
@@ -3228,15 +2975,13 @@ def deconvolve_spotlight(
         Tuple of (proportions DataFrame, statistics dict)
     """
     try:
+        import anndata2ri  # For sparse matrix support
         import rpy2.robjects as ro
         from rpy2.robjects import numpy2ri, pandas2ri
         from rpy2.robjects.conversion import localconverter
 
         # Validate cell type key exists
-        if cell_type_key not in reference_adata.obs:
-            raise ValueError(
-                f"Cell type key '{cell_type_key}' not found in reference data"
-            )
+        _validate_cell_type_key(reference_adata, cell_type_key)
 
         # Check for spatial coordinates
         if "spatial" not in spatial_adata.obsm:
@@ -3249,10 +2994,10 @@ def deconvolve_spotlight(
         # Memory optimization: helper function creates internal copy, no need to copy here
         # SPOTlight (R method) requires int32 dtype for R compatibility
         spatial_prepared = _prepare_anndata_for_counts(
-            spatial_adata, "Spatial", context, require_int_dtype=True
+            spatial_adata, "Spatial", ctx, require_int_dtype=True
         )
         reference_prepared = _prepare_anndata_for_counts(
-            reference_adata, "Reference", context, require_int_dtype=True
+            reference_adata, "Reference", ctx, require_int_dtype=True
         )
 
         # Find common genes AFTER data preparation
@@ -3260,32 +3005,25 @@ def deconvolve_spotlight(
             set(spatial_prepared.var_names) & set(reference_prepared.var_names)
         )
 
-        if len(common_genes) < min_common_genes:
-            raise ValueError(
-                f"Insufficient common genes after data preparation.\n"
-                f"  Found: {len(common_genes)} genes\n"
-                f"  Required: {min_common_genes} genes\n"
-                f"  Reference data: {reference_prepared.n_vars} genes\n"
-                f"  Spatial data: {spatial_prepared.n_vars} genes\n\n"
-                f"TIPS:\n"
-                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
-                f"2. Ensure both datasets are from the same species\n"
-                f"3. Try using different reference dataset\n"
-                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
-            )
+        _validate_common_genes(
+            common_genes,
+            min_common_genes,
+            spatial_prepared.n_vars,
+            reference_prepared.n_vars,
+        )
 
-        # Subset to common genes
-        spatial_subset = spatial_prepared[:, common_genes].copy()
-        reference_subset = reference_prepared[:, common_genes].copy()
+        # Subset to common genes (view is sufficient - data already copied by
+        # _prepare_anndata_for_counts, subsequent operations are read-only)
+        spatial_subset = spatial_prepared[:, common_genes]
+        reference_subset = reference_prepared[:, common_genes]
 
         # Extract count matrices for R using anndata2ri
         # Note: anndata2ri handles both sparse and dense matrices automatically
-        if context:
-            matrix_type = "sparse" if sp.issparse(spatial_subset.X) else "dense"
-            context.info(
-                f"Using anndata2ri for matrix transfer to SPOTlight ({matrix_type} data) "
-                f"(spatial: {spatial_subset.X.shape}, reference: {reference_subset.X.shape})"
-            )
+        matrix_type = "sparse" if sp.issparse(spatial_subset.X) else "dense"
+        await ctx.info(
+            f"Using anndata2ri for matrix transfer to SPOTlight ({matrix_type} data) "
+            f"(spatial: {spatial_subset.X.shape}, reference: {reference_subset.X.shape})"
+        )
 
         # Ensure integer counts (SPOTlight expects integer data)
         spatial_counts = spatial_subset.X.astype(int)
@@ -3429,7 +3167,7 @@ def deconvolve_spotlight(
             proportions=proportions,
             method="SPOTlight",
             normalize=False,  # SPOTlight should already output proportions
-            context=context,
+            ctx=ctx,
         )
 
         # Add results to spatial adata
@@ -3447,16 +3185,14 @@ def deconvolve_spotlight(
         return proportions, stats
 
     except Exception as e:
-        traceback.format_exc()
-        error_msg = f"SPOTlight deconvolution failed: {str(e)}"
-        # SPOTlight error occurred
-        raise RuntimeError(error_msg) from e
+        raise RuntimeError(f"SPOTlight deconvolution failed: {str(e)}") from e
 
 
-def deconvolve_card(
+async def deconvolve_card(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
     cell_type_key: str,  # REQUIRED - LLM will infer from metadata
+    ctx: "ToolContext",
     sample_key: Optional[str] = None,  # Optional sample/batch info in reference
     minCountGene: int = 100,
     minCountSpot: int = 5,
@@ -3464,7 +3200,6 @@ def deconvolve_card(
     imputation: bool = False,  # Enable spatial imputation
     NumGrids: int = 2000,  # Number of grids for imputation
     ineibor: int = 10,  # Number of neighbors for imputation
-    context=None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using CARD (Conditional AutoRegressive-based Deconvolution)
 
@@ -3497,7 +3232,7 @@ def deconvolve_card(
         imputation: Whether to perform spatial imputation for higher resolution (default: False)
         NumGrids: Number of grids for CARD imputation (default: 2000)
         ineibor: Number of neighbors for CARD imputation (default: 10)
-        context: MCP context for logging
+        ctx: ToolContext for logging and data access
 
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
@@ -3508,8 +3243,7 @@ def deconvolve_card(
         RuntimeError: If CARD computation fails
     """
     # Validate cell type key exists
-    if cell_type_key not in reference_adata.obs:
-        raise ValueError(f"Cell type key '{cell_type_key}' not found in reference data")
+    _validate_cell_type_key(reference_adata, cell_type_key)
 
     # Check availability
     is_available, error_message = is_card_available()
@@ -3517,6 +3251,7 @@ def deconvolve_card(
         raise ImportError(f"CARD is not available: {error_message}")
 
     # Import rpy2
+    import anndata2ri  # For sparse matrix support
     import rpy2.robjects as ro
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
@@ -3534,34 +3269,23 @@ def deconvolve_card(
         # Memory optimization: helper functions create internal copies, no need to copy here
         # CARD (R method) requires int32 dtype for R compatibility
         spatial_data = _prepare_anndata_for_counts(
-            spatial_adata, "Spatial", context, require_int_dtype=True
+            spatial_adata, "Spatial", ctx, require_int_dtype=True
         )
 
         # For reference data: try to get raw counts if available, but accept normalized if not
-        reference_data = _prepare_reference_for_card(
-            reference_adata, "Reference", context
-        )
+        reference_data = _prepare_reference_for_card(reference_adata, "Reference", ctx)
 
         # 2. Find common genes AFTER data preparation
         common_genes = list(set(spatial_data.var_names) & set(reference_data.var_names))
 
-        if len(common_genes) < min_common_genes:
-            raise ValueError(
-                f"Insufficient common genes after data preparation.\n"
-                f"  Found: {len(common_genes)} genes\n"
-                f"  Required: {min_common_genes} genes\n"
-                f"  Reference data: {reference_data.n_vars} genes\n"
-                f"  Spatial data: {spatial_data.n_vars} genes\n\n"
-                f"TIPS:\n"
-                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
-                f"2. Ensure both datasets are from the same species\n"
-                f"3. Try using different reference dataset\n"
-                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
-            )
+        _validate_common_genes(
+            common_genes, min_common_genes, spatial_data.n_vars, reference_data.n_vars
+        )
 
-        # 3. Subset to common genes
-        spatial_data = spatial_data[:, common_genes].copy()
-        reference_data = reference_data[:, common_genes].copy()
+        # 3. Subset to common genes (view is sufficient - data already copied by
+        # _prepare_anndata_for_counts/_prepare_reference_for_card, subsequent operations are read-only)
+        spatial_data = spatial_data[:, common_genes]
+        reference_data = reference_data[:, common_genes]
 
         # 4. Get spatial coordinates
         if "spatial" in spatial_adata.obsm:
@@ -3579,12 +3303,11 @@ def deconvolve_card(
 
         # 5. Prepare count matrices for R using anndata2ri
         # Note: anndata2ri handles both sparse and dense matrices automatically
-        if context:
-            matrix_type = "sparse" if sp.issparse(spatial_data.X) else "dense"
-            context.info(
-                f"Using anndata2ri for matrix transfer to CARD ({matrix_type} data) "
-                f"(spatial: {spatial_data.X.shape}, reference: {reference_data.X.shape})"
-            )
+        matrix_type = "sparse" if sp.issparse(spatial_data.X) else "dense"
+        await ctx.info(
+            f"Using anndata2ri for matrix transfer to CARD ({matrix_type} data) "
+            f"(spatial: {spatial_data.X.shape}, reference: {reference_data.X.shape})"
+        )
 
         # 6. Prepare metadata
         sc_meta = reference_data.obs[[cell_type_key]].copy()
@@ -3733,7 +3456,7 @@ def deconvolve_card(
             proportions=proportions,
             method="CARD",
             normalize=False,  # CARD already outputs proportions
-            context=context,
+            ctx=ctx,
         )
 
         # 9. Add results to spatial adata
@@ -3783,22 +3506,19 @@ def deconvolve_card(
         return proportions, stats
 
     except Exception as e:
-        tb = traceback.format_exc()
-        error_msg = f"CARD deconvolution failed: {str(e)}\n{tb}"
-        # CARD error occurred
-        raise RuntimeError(error_msg) from e
+        raise RuntimeError(f"CARD deconvolution failed: {str(e)}") from e
 
 
 async def deconvolve_tangram(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
     cell_type_key: str,  # REQUIRED - LLM will infer from metadata
+    ctx: "ToolContext",
     n_epochs: int = 1000,
     mode: str = "cells",
     learning_rate: float = 0.1,
     density_prior: str = "rna_count_based",
     use_gpu: bool = False,
-    context: Optional[Context] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using Tangram from scvi-tools
 
@@ -3818,7 +3538,7 @@ async def deconvolve_tangram(
         learning_rate: Optimizer learning rate (default: 0.1)
         density_prior: Spatial density prior - 'rna_count_based' or 'uniform' (default: 'rna_count_based')
         use_gpu: Whether to use GPU for training
-        context: FastMCP context for logging
+        ctx: ToolContext for logging and data access
 
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
@@ -3829,53 +3549,37 @@ async def deconvolve_tangram(
         RuntimeError: If Tangram computation fails
     """
     try:
-        if scvi is None or Tangram is None:
+        # Check if scvi-tools is available and import Tangram
+        if not is_available("scvi-tools"):
             raise ImportError(
-                "scvi-tools and Tangram are required for this method. Install with 'pip install scvi-tools'"
+                "scvi-tools is required for Tangram deconvolution. "
+                "Install with: pip install scvi-tools"
             )
+        from scvi.external import Tangram
 
         # Import mudata
-        try:
-            import mudata as md
-        except ImportError:
-            raise ImportError(
-                "mudata package is required for Tangram. Install with 'pip install mudata'"
-            )
+        require("mudata")  # Raises ImportError with install instructions if missing
+        import mudata as md
 
         # Validate cell type key exists
-        if cell_type_key not in reference_adata.obs:
-            raise ValueError(
-                f"Cell type key '{cell_type_key}' not found in reference data"
-            )
+        _validate_cell_type_key(reference_adata, cell_type_key)
 
         # Find common genes between datasets
         common_genes = list(
             set(spatial_adata.var_names) & set(reference_adata.var_names)
         )
         min_common_genes = 100
-
-        if len(common_genes) < min_common_genes:
-            raise ValueError(
-                f"Insufficient common genes.\n"
-                f"  Found: {len(common_genes)} genes\n"
-                f"  Required: {min_common_genes} genes\n"
-                f"  Reference data: {reference_adata.n_vars} genes\n"
-                f"  Spatial data: {spatial_adata.n_vars} genes\n\n"
-                f"TIPS:\n"
-                f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
-                f"2. Ensure both datasets are from the same species\n"
-                f"3. Try using different reference dataset\n"
-                f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
-            )
+        _validate_common_genes(
+            common_genes, min_common_genes, spatial_adata.n_vars, reference_adata.n_vars
+        )
 
         # Prepare data - subset to common genes
         ref_data = reference_adata[:, common_genes].copy()
         spatial_data = spatial_adata[:, common_genes].copy()
 
-        if context:
-            await context.info(
-                f"Training Tangram with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types"
-            )
+        await ctx.info(
+            f"Training Tangram with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types"
+        )
 
         # Check data format - Tangram can work with normalized data but prefers raw counts
         import numpy as np
@@ -3910,19 +3614,14 @@ async def deconvolve_tangram(
             ref_sample_dense, np.round(ref_sample_dense), atol=1e-6
         )
 
-        if (
-            sp_has_negatives or sp_has_decimals or ref_has_negatives or ref_has_decimals
-        ) and context:
-            await context.warning(
+        if sp_has_negatives or sp_has_decimals or ref_has_negatives or ref_has_decimals:
+            await ctx.warning(
                 "Tangram is using normalized data. While Tangram can handle normalized data, "
                 "it performs optimally with raw counts. Consider using raw count data for best results."
             )
 
         # Create density prior based on parameter
-        if context:
-            await context.info(
-                f"Setting up Tangram with density_prior='{density_prior}'..."
-            )
+        await ctx.info(f"Setting up Tangram with density_prior='{density_prior}'...")
 
         # Create normalized density prior that sums to 1
         if density_prior == "rna_count_based":
@@ -3959,10 +3658,9 @@ async def deconvolve_tangram(
         else:
             tangram_model = Tangram(mdata, constrained=False)
 
-        if context:
-            await context.info(
-                f"Training Tangram model (mode='{mode}', learning_rate={learning_rate})..."
-            )
+        await ctx.info(
+            f"Training Tangram model (mode='{mode}', learning_rate={learning_rate})..."
+        )
 
         # Prepare training kwargs (scvi.external.Tangram supports limited parameters)
         train_kwargs = {
@@ -3976,12 +3674,10 @@ async def deconvolve_tangram(
         # Train model
         tangram_model.train(**train_kwargs)
 
-        if context:
-            await context.info("Tangram training completed")
+        await ctx.info("Tangram training completed")
 
         # Get cell type proportions
-        if context:
-            await context.info("Extracting cell type proportions...")
+        await ctx.info("Extracting cell type proportions...")
 
         # Get mapping matrix (shape: n_cells x n_spots)
         mapping_matrix = tangram_model.get_mapper_matrix()
@@ -4020,7 +3716,7 @@ async def deconvolve_tangram(
             proportions=proportions,
             method="Tangram",
             normalize=True,  # Convert counts to proportions
-            context=context,
+            ctx=ctx,
         )
 
         # Create statistics dictionary
@@ -4036,7 +3732,128 @@ async def deconvolve_tangram(
         return proportions, stats
 
     except Exception as e:
-        traceback.format_exc()
-        error_msg = f"Tangram deconvolution failed: {str(e)}"
-        # SPOTlight error occurred
-        raise RuntimeError(error_msg) from e
+        raise RuntimeError(f"Tangram deconvolution failed: {str(e)}") from e
+
+
+async def deconvolve_flashdeconv(
+    spatial_adata: ad.AnnData,
+    reference_adata: ad.AnnData,
+    cell_type_key: str,
+    ctx: "ToolContext",
+    sketch_dim: int = 512,
+    lambda_spatial: float = 5000.0,
+    n_hvg: int = 2000,
+    n_markers_per_type: int = 50,
+    min_common_genes: int = 100,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Deconvolve spatial data using FlashDeconv.
+
+    FlashDeconv is an ultra-fast spatial transcriptomics deconvolution method
+    that uses random sketching for O(N) time complexity. Key features:
+    - Processes 1M spots in ~3 minutes on CPU
+    - No GPU required
+    - Automatic marker gene selection
+    - Spatial regularization for smooth proportions
+
+    Args:
+        spatial_adata: Spatial transcriptomics AnnData object
+        reference_adata: Reference single-cell RNA-seq AnnData object
+        cell_type_key: Key in reference_adata.obs for cell type information
+        sketch_dim: Dimension for random sketching (default: 512)
+        lambda_spatial: Spatial regularization strength (default: 5000.0)
+        n_hvg: Number of highly variable genes to use (default: 2000)
+        n_markers_per_type: Number of marker genes per cell type (default: 50)
+        min_common_genes: Minimum common genes required (default: 100)
+        ctx: ToolContext for logging and data access
+
+    Returns:
+        Tuple of (proportions DataFrame, statistics dictionary)
+
+    Raises:
+        ImportError: If flashdeconv is not available
+        ValueError: If input data is invalid or insufficient common genes
+        RuntimeError: If FlashDeconv computation fails
+    """
+    # Check availability using centralized dependency manager
+    if not is_available("flashdeconv"):
+        raise ImportError(
+            "FlashDeconv is not available. Install with: pip install flashdeconv"
+        )
+
+    try:
+        import flashdeconv as fd
+
+        await ctx.info(f"Using FlashDeconv version {fd.__version__}")
+
+        # Validate inputs
+        _validate_cell_type_key(reference_adata, cell_type_key)
+
+        # Find common genes
+        common_genes = list(
+            set(spatial_adata.var_names) & set(reference_adata.var_names)
+        )
+        _validate_common_genes(
+            common_genes, min_common_genes, spatial_adata.n_vars, reference_adata.n_vars
+        )
+
+        await ctx.info(f"Found {len(common_genes)} common genes")
+        await ctx.info(
+            f"Running FlashDeconv with sketch_dim={sketch_dim}, "
+            f"lambda_spatial={lambda_spatial}"
+        )
+
+        # Create a copy for FlashDeconv (it modifies the object in place)
+        adata_st = spatial_adata.copy()
+
+        # Run FlashDeconv using the scanpy-style API
+        fd.tl.deconvolve(
+            adata_st,
+            reference_adata,
+            cell_type_key=cell_type_key,
+            sketch_dim=sketch_dim,
+            lambda_spatial=lambda_spatial,
+            n_hvg=n_hvg,
+            n_markers_per_type=n_markers_per_type,
+        )
+
+        # Extract proportions from obsm
+        if "flashdeconv" not in adata_st.obsm:
+            raise RuntimeError(
+                "FlashDeconv did not produce expected output in adata.obsm['flashdeconv']"
+            )
+
+        proportions = adata_st.obsm["flashdeconv"].copy()
+
+        # Ensure it's a DataFrame with proper index
+        if not isinstance(proportions, pd.DataFrame):
+            # If it's an array, convert to DataFrame
+            cell_types = reference_adata.obs[cell_type_key].unique()
+            proportions = pd.DataFrame(
+                proportions,
+                index=spatial_adata.obs_names,
+                columns=cell_types,
+            )
+        else:
+            # Ensure index matches spatial data
+            proportions.index = spatial_adata.obs_names
+
+        await ctx.info(
+            f"FlashDeconv completed. Found {len(proportions.columns)} cell types"
+        )
+
+        # Create statistics
+        stats = _create_deconvolution_stats(
+            proportions,
+            common_genes,
+            "FlashDeconv",
+            "CPU",  # FlashDeconv runs on CPU
+            sketch_dim=sketch_dim,
+            lambda_spatial=lambda_spatial,
+            n_hvg=n_hvg,
+            n_markers_per_type=n_markers_per_type,
+        )
+
+        return proportions, stats
+
+    except Exception as e:
+        raise RuntimeError(f"FlashDeconv deconvolution failed: {str(e)}") from e

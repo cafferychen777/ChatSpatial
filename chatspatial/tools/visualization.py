@@ -24,7 +24,6 @@ import scanpy as sc  # noqa: E402
 import seaborn as sns  # noqa: E402
 from mcp.server.fastmcp import Context  # noqa: E402
 from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
-from scipy.stats import pearsonr, spearmanr  # noqa: E402
 
 # Use centralized dependency manager
 from ..utils.dependency_manager import is_available  # noqa: E402
@@ -1084,7 +1083,7 @@ async def _create_dotplot_visualization(
         dotplot_kwargs["title"] = params.title
 
     # Create the dotplot
-    dp = sc.pl.dotplot(adata, **dotplot_kwargs)
+    sc.pl.dotplot(adata, **dotplot_kwargs)
 
     # Get the figure
     fig = plt.gcf()
@@ -1535,6 +1534,8 @@ async def _create_cnv_heatmap_visualization(
 
     else:
         # Use infercnvpy chromosome_heatmap for infercnvpy data or Numbat with chr info
+        import infercnvpy as cnv
+
         if context:
             await context.info("Creating chromosome-organized CNV heatmap...")
 
@@ -5742,7 +5743,6 @@ async def _create_palantir_results(
 
     # Determine number of panels
     n_panels = 1 + int(has_entropy) + (1 if fate_key else 0)
-    n_fate_cols = adata.obsm[fate_key].shape[1] if fate_key else 0
 
     # Create figure
     figsize = params.figure_size or (5 * n_panels, 5)
@@ -6991,11 +6991,11 @@ async def _regenerate_figure_for_export(
     """
     plot_type = params.plot_type
 
-    if plot_type not in VISUALIZATION_REGISTRY:
+    if plot_type not in PLOT_HANDLERS:
         raise ValueError(f"Unknown plot type: {plot_type}")
 
     # Get the appropriate visualization function
-    viz_func = VISUALIZATION_REGISTRY[plot_type]
+    viz_func = PLOT_HANDLERS[plot_type]
 
     # Call the visualization function to get the figure
     # These functions return matplotlib Figure objects

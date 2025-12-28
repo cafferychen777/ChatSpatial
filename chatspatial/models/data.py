@@ -65,6 +65,69 @@ class PreprocessingParameters(BaseModel):
     )
     subsample_random_seed: int = 42  # Random seed for subsampling
 
+    # ========== Mitochondrial and Ribosomal Gene Filtering ==========
+    filter_mito_pct: Optional[float] = Field(
+        default=20.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Filter spots/cells with mitochondrial percentage above this threshold.\n\n"
+            "DEFAULT: 20.0 (remove spots with >20% mitochondrial reads)\n\n"
+            "RATIONALE:\n"
+            "High mitochondrial content often indicates cell stress, damage, or apoptosis.\n"
+            "Damaged cells release cytoplasmic mRNA while retaining mitochondrial transcripts.\n\n"
+            "RECOMMENDED VALUES:\n"
+            "• 20.0 (default): Standard threshold for most tissues\n"
+            "• 5-10: Stringent filtering for high-quality data\n"
+            "• 30-50: Relaxed for tissues with naturally high mito (muscle, neurons)\n"
+            "• None: Disable filtering (not recommended)\n\n"
+            "TISSUE-SPECIFIC CONSIDERATIONS:\n"
+            "• Brain: White matter naturally has higher mito% than gray matter\n"
+            "• Muscle/Heart: High mito% is biologically normal\n"
+            "• Tumor samples: May have elevated mito% due to metabolic changes\n\n"
+            "REFERENCE:\n"
+            "OSTA Book: lmweber.org/OSTA/pages/seq-quality-control.html"
+        ),
+    )
+    remove_mito_genes: bool = Field(
+        default=True,
+        description=(
+            "Remove mitochondrial genes (MT-*, mt-*) before HVG selection.\n\n"
+            "DEFAULT: True (recommended for most analyses)\n\n"
+            "RATIONALE:\n"
+            "Mitochondrial genes can dominate HVG selection due to high expression\n"
+            "and technical variation, masking biologically relevant genes.\n\n"
+            "WHEN TO ENABLE (True):\n"
+            "• Standard spatial transcriptomics analysis\n"
+            "• Clustering and cell type identification\n"
+            "• Trajectory analysis\n\n"
+            "WHEN TO DISABLE (False):\n"
+            "• Studying mitochondrial biology or metabolism\n"
+            "• Analyzing mitochondrial heteroplasmy\n"
+            "• When mito genes are biologically relevant to your question\n\n"
+            "NOTE: Genes are only excluded from HVG selection, not removed from data.\n"
+            "They remain available in adata.raw for downstream analyses."
+        ),
+    )
+    remove_ribo_genes: bool = Field(
+        default=False,
+        description=(
+            "Remove ribosomal genes (RPS*, RPL*, Rps*, Rpl*) before HVG selection.\n\n"
+            "DEFAULT: False (ribosomal genes often carry biological signal)\n\n"
+            "RATIONALE:\n"
+            "Ribosomal genes are highly expressed housekeeping genes. While they\n"
+            "add noise in some analyses, they can be informative for cell state.\n\n"
+            "WHEN TO ENABLE (True):\n"
+            "• When ribosomal genes dominate your HVG list\n"
+            "• For cleaner clustering focused on cell type markers\n"
+            "• Following certain published pipelines that recommend it\n\n"
+            "WHEN TO KEEP DISABLED (False):\n"
+            "• Standard analyses (ribosomal content varies by cell type)\n"
+            "• Studying translation or ribosome biogenesis\n"
+            "• When unsure - ribosomal genes rarely cause problems"
+        ),
+    )
+
     # Normalization and scaling parameters
     normalization: Literal["log", "sct", "pearson_residuals", "none", "scvi"] = Field(
         default="log",
@@ -93,7 +156,27 @@ class PreprocessingParameters(BaseModel):
             "• For batch effect correction and denoising: 'scvi' (deep learning-based)"
         ),
     )
-    scale: bool = True
+    scale: bool = Field(
+        default=False,
+        description=(
+            "Scale gene expression to unit variance before PCA.\n\n"
+            "DEFAULT: False (following Scanpy spatial transcriptomics best practices)\n\n"
+            "RATIONALE:\n"
+            "The standard Scanpy spatial transcriptomics tutorials do NOT include scaling:\n"
+            "  normalize_total → log1p → HVG selection → PCA\n"
+            "Scaling is omitted because log-normalization already stabilizes variance.\n\n"
+            "WHEN TO ENABLE (scale=True):\n"
+            "• Using methods that explicitly require scaled input (e.g., GraphST)\n"
+            "• When gene expression magnitudes vary dramatically\n"
+            "• For compatibility with Seurat's ScaleData() workflow\n\n"
+            "WHEN TO KEEP DISABLED (scale=False):\n"
+            "• Standard Visium/spatial analysis with Scanpy/Squidpy\n"
+            "• Using SCTransform normalization (already variance-stabilized)\n"
+            "• Using Pearson residuals normalization\n\n"
+            "REFERENCE:\n"
+            "Scanpy spatial tutorial: scanpy-tutorials.readthedocs.io/en/latest/spatial/"
+        ),
+    )
     n_hvgs: Annotated[int, Field(gt=0, le=5000)] = 2000
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
 
@@ -261,7 +344,7 @@ class PreprocessingParameters(BaseModel):
 class VisualizationParameters(BaseModel):
     """Visualization parameters model"""
 
-    model_config = {"extra": "forbid"}  # Strict validation after preprocessing
+    model_config = ConfigDict(extra="forbid")  # Strict validation after preprocessing
 
     feature: Optional[Union[str, List[str]]] = Field(
         None,
@@ -865,8 +948,8 @@ class AnnotationParameters(BaseModel):
             "'dice', 'monaco_immune', 'novershtern_hematopoietic'\n"
             "  Mouse: 'immgen' (ImmGen, recommended), 'mouse_rnaseq'\n\n"
             "Common mistakes:\n"
-            "  ✗ 'HumanPrimaryCellAtlasData' → ✓ use 'hpca'\n"
-            "  ✗ 'ImmGenData' → ✓ use 'immgen'\n\n"
+            "  'HumanPrimaryCellAtlasData' - WRONG, use 'hpca'\n"
+            "  'ImmGenData' - WRONG, use 'immgen'\n\n"
             "If None, uses species-appropriate default ('hpca' for human, 'immgen' for mouse)."
         ),
     )
@@ -1016,9 +1099,7 @@ class SpatialStatisticsParameters(BaseModel):
 class RNAVelocityParameters(BaseModel):
     """RNA velocity analysis parameters model"""
 
-    model_config = {
-        "extra": "forbid"
-    }  # Strict validation - no extra parameters allowed
+    model_config = ConfigDict(extra="forbid")  # Strict validation - no extra parameters allowed
 
     # Velocity computation method selection
     method: Literal["scvelo", "velovi"] = "scvelo"
@@ -1105,8 +1186,8 @@ class DeconvolutionParameters(BaseModel):
     """Spatial deconvolution parameters model"""
 
     method: Literal[
-        "cell2location", "rctd", "destvi", "stereoscope", "spotlight", "tangram", "card"
-    ] = "cell2location"
+        "flashdeconv", "cell2location", "rctd", "destvi", "stereoscope", "spotlight", "tangram", "card"
+    ] = "flashdeconv"
     reference_data_id: Optional[str] = (
         None  # Reference single-cell data for deconvolution
     )
@@ -1519,6 +1600,48 @@ class DeconvolutionParameters(BaseModel):
             "'uniform': Equal weight for all spots. "
             "Official recommendation: 'rna_count_based' for better biological interpretation. "
             "ONLY USED BY TANGRAM METHOD."
+        ),
+    )
+
+    # FlashDeconv specific parameters (DEFAULT METHOD - ultra-fast, atlas-scale)
+    flashdeconv_sketch_dim: Annotated[int, Field(gt=0, le=2048)] = Field(
+        512,
+        description=(
+            "Dimension of the sketched space for FlashDeconv. "
+            "Higher values preserve more information but increase computation. "
+            "Default: 512 (recommended for most datasets). "
+            "ONLY USED BY FLASHDECONV METHOD."
+        ),
+    )
+    flashdeconv_lambda_spatial: Annotated[float, Field(gt=0)] = Field(
+        5000.0,
+        description=(
+            "Spatial regularization strength for FlashDeconv. "
+            "Higher values encourage smoother spatial patterns. "
+            "Recommended values by platform:\n"
+            "• Standard Visium (55μm): 1000-10000 (default: 5000)\n"
+            "• Visium HD (16μm): 5000-20000\n"
+            "• Visium HD (8μm): 10000-50000\n"
+            "• Visium HD (2μm): 50000-100000\n"
+            "• Stereo-seq/Seq-Scope: 50000-200000\n"
+            "Use 'auto' for automatic tuning (may underestimate for real data). "
+            "ONLY USED BY FLASHDECONV METHOD."
+        ),
+    )
+    flashdeconv_n_hvg: Annotated[int, Field(gt=0, le=5000)] = Field(
+        2000,
+        description=(
+            "Number of highly variable genes to select for FlashDeconv. "
+            "Default: 2000. "
+            "ONLY USED BY FLASHDECONV METHOD."
+        ),
+    )
+    flashdeconv_n_markers_per_type: Annotated[int, Field(gt=0, le=500)] = Field(
+        50,
+        description=(
+            "Number of marker genes per cell type for FlashDeconv. "
+            "Default: 50. "
+            "ONLY USED BY FLASHDECONV METHOD."
         ),
     )
 

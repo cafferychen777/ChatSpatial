@@ -5,138 +5,27 @@ Cell type annotation tools for spatial transcriptomics data.
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from mcp.server.fastmcp import Context
+
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
 from ..utils import validate_obs_column
-from ..utils.dependency_manager import get as get_dependency, is_available, require
+from ..utils.dependency_manager import (
+    is_available,
+    require,
+    validate_r_environment,
+    validate_scvi_tools,
+)
 
-# Optional imports - actual validation happens at runtime via _validate_*() functions
-# This allows the module to load even if optional dependencies are missing
-# The validation functions use the centralized dependency_manager for consistency
-
-# R interface validation is now handled by _validate_rpy2_and_r() function
-
-
-# ============================================================================
-# DEPENDENCY VALIDATION SYSTEM
-# ============================================================================
-
-
-def _validate_scvi_tools(context: Optional[Context] = None):
-    """Validate scvi-tools availability and return the module"""
-    require("scvi-tools")  # Raises ImportError with install instructions if missing
-    import scvi
-    from scvi.external import CellAssign
-
-    # Log version information if context is provided
-    if context:
-        try:
-            version = getattr(scvi, "__version__", "unknown")
-            context.info(f"Using scvi-tools version {version}")
-        except Exception:
-            pass
-
-    return scvi, CellAssign
-
-
-def _validate_tangram(context: Optional[Context] = None):
-    """Validate tangram availability and return the module"""
-    require("tangram-sc")  # Raises ImportError with install instructions if missing
-    import tangram as tg
-
-    if context and hasattr(tg, "__version__"):
-        context.info(f"Using tangram version {tg.__version__}")
-
-    return tg
-
-
-def _validate_mllmcelltype(context: Optional[Context] = None):
-    """Validate mllmcelltype availability and return the module"""
-    require("mllmcelltype")  # Raises ImportError with install instructions if missing
-    import mllmcelltype
-
-    if context and hasattr(mllmcelltype, "__version__"):
-        context.info(f"Using mllmcelltype version {mllmcelltype.__version__}")
-
-    return mllmcelltype
-
-
-def _validate_rpy2_and_r(context: Optional[Context] = None):
-    """Validate R and rpy2 availability with detailed error reporting"""
-    require("rpy2")  # Raises ImportError with install instructions if missing
-    require("anndata2ri")  # Raises ImportError with install instructions if missing
-
-    import anndata2ri
-    import rpy2.robjects as robjects
-    from rpy2.rinterface_lib import openrlib  # For thread safety
-    from rpy2.robjects import (conversion, default_converter, numpy2ri,
-                               pandas2ri)
-    from rpy2.robjects.conversion import localconverter
-    from rpy2.robjects.packages import importr
-
-    try:
-        # Test R availability with proper conversion context (FIX for contextvars issue)
-        # Same pattern as SPARK-X to prevent "Conversion rules missing" errors
-        with openrlib.rlock:
-            with conversion.localconverter(default_converter):
-                robjects.r("R.version")
-
-                if context:
-                    r_version = robjects.r("R.version.string")[0]
-                    context.info(f"Using R: {r_version}")
-
-        return (
-            robjects,
-            pandas2ri,
-            numpy2ri,
-            importr,
-            localconverter,
-            default_converter,
-            openrlib,
-            anndata2ri,
-        )
-    except Exception as e:
-        raise ImportError(
-            f"R environment setup failed for sc-type method: {str(e)}\n\n"
-            "Common solutions:\n"
-            "  • Install R from https://www.r-project.org/\n"
-            "  • Set R_HOME environment variable\n"
-            "  • Install required R packages: install.packages(c('dplyr', 'openxlsx', 'HGNChelper'))\n"
-            "  • macOS: brew install r\n"
-            "  • Ubuntu: sudo apt install r-base"
-        ) from e
-
-
-def _validate_singler(context: Optional[Context] = None):
-    """Validate SingleR and its dependencies"""
-    require("singler")  # Raises ImportError with install instructions if missing
-    require("singlecellexperiment")  # Raises ImportError with install instructions if missing
-
-    import singlecellexperiment as sce
-    import singler
-
-    # Optional: check for celldex
-    celldex = None
-    if is_available("celldex"):
-        import celldex
-        if context:
-            context.info("celldex available for pre-built references")
-    else:
-        if context:
-            context.info("celldex not available - will use custom references")
-
-    if context and hasattr(singler, "__version__"):
-        context.info(f"Using SingleR version {singler.__version__}")
-
-    return singler, sce, celldex
-
+# Dependency validation is now handled by the centralized dependency_manager module.
+# Use require(), validate_r_environment(), validate_scvi_tools() from dependency_manager.
 
 # Constants for annotation
 DEFAULT_HVG_COUNT = 2000
@@ -174,19 +63,26 @@ SUPPORTED_METHODS = {
 async def _annotate_with_singler(
     adata,
     params: AnnotationParameters,
-    data_store: Optional[Dict[str, Any]] = None,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
+    reference_adata: Optional[Any] = None,
 ):
     """Annotate cell types using SingleR reference-based method"""
     try:
-        singler, sce, celldex = _validate_singler(context)
+        # Validate and import dependencies
+        require("singler", ctx, feature="SingleR annotation")
+        require("singlecellexperiment", ctx, feature="SingleR annotation")
+        import singler
 
-        if context:
-            await context.info("Starting SingleR annotation...")
-            await context.info(f"   Cells: {adata.n_obs}, Genes: {adata.n_vars}")
+        # Optional: check for celldex
+        celldex = None
+        if is_available("celldex"):
+            import celldex
+            await ctx.info("celldex available for pre-built references")
+        else:
+            await ctx.info("celldex not available - will use custom references")
 
-        # Convert AnnData to SingleCellExperiment
-        test_sce = sce.SingleCellExperiment.from_anndata(adata)
+        await ctx.info("Starting SingleR annotation...")
+        await ctx.info(f"   Cells: {adata.n_obs}, Genes: {adata.n_vars}")
 
         # Get expression matrix - prefer normalized data
         # IMPORTANT: Ensure test_mat dimensions match adata.var_names (used in test_features)
@@ -209,8 +105,7 @@ async def _annotate_with_singler(
 
         # Ensure log-normalization (SingleR expects log-normalized data)
         if "log1p" not in adata.uns:
-            if context:
-                await context.warning(
+            await ctx.warning(
                     "Data may not be log-normalized. Applying log1p for SingleR..."
                 )
             test_mat = np.log1p(test_mat)
@@ -231,8 +126,7 @@ async def _annotate_with_singler(
 
         # Priority: reference_name > reference_data_id > default
         if reference_name and celldex:
-            if context:
-                await context.info(f"Loading reference: {reference_name}")
+            await ctx.info(f"Loading reference: {reference_name}")
             ref = celldex.fetch_reference(
                 reference_name, "2024-02-26", realize_assays=True
             )
@@ -247,27 +141,23 @@ async def _annotate_with_singler(
                 raise ValueError(f"Could not find labels in reference {reference_name}")
             ref_data = ref
 
-        elif reference_data_id and data_store and reference_data_id in data_store:
-            # Use provided reference data
-            if context:
-                await context.info("Using provided reference data")
-            reference_adata = data_store[reference_data_id]["adata"]
+        elif reference_data_id and reference_adata is not None:
+            # Use provided reference data (passed from main function via ctx.get_adata())
+            await ctx.info("Using provided reference data")
 
             # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
             if not reference_adata.var_names.is_unique:
                 n_duplicates = len(reference_adata.var_names) - len(
                     set(reference_adata.var_names)
                 )
-                if context:
-                    await context.warning(
+                await ctx.warning(
                         f"Found {n_duplicates} duplicate gene names in reference data, fixing..."
                     )
                 reference_adata.var_names_make_unique()
 
             if not adata.var_names.is_unique:
                 n_duplicates = len(adata.var_names) - len(set(adata.var_names))
-                if context:
-                    await context.warning(
+                await ctx.warning(
                         f"Found {n_duplicates} duplicate gene names in query data, fixing..."
                     )
                 adata.var_names_make_unique()
@@ -287,8 +177,7 @@ async def _annotate_with_singler(
 
             # Ensure log-normalization for reference
             if "log1p" not in reference_adata.uns:
-                if context:
-                    await context.warning(
+                await ctx.warning(
                         "Reference data may not be log-normalized. Applying log1p..."
                     )
                 ref_mat = np.log1p(ref_mat)
@@ -299,23 +188,21 @@ async def _annotate_with_singler(
 
             # Check gene overlap
             common_genes = set(test_features) & set(ref_features)
-            if context:
-                await context.info(
-                    f"Gene overlap: {len(common_genes)}/{len(test_features)} test genes match reference"
-                )
+            await ctx.info(
+                f"Gene overlap: {len(common_genes)}/{len(test_features)} test genes match reference"
+            )
 
             if len(common_genes) < min(50, len(test_features) * 0.1):
                 # Too few common genes
-                if context:
-                    await context.error(
-                        f"Insufficient gene overlap: Only {len(common_genes)} common genes. "
-                        f"Test has {len(test_features)}, Reference has {len(ref_features)}"
-                    )
-                    # Show sample of gene names for debugging
-                    test_sample = list(test_features)[:5]
-                    ref_sample = list(ref_features)[:5]
-                    await context.info(f"Test gene sample: {test_sample}")
-                    await context.info(f"Reference gene sample: {ref_sample}")
+                await ctx.error(
+                    f"Insufficient gene overlap: Only {len(common_genes)} common genes. "
+                    f"Test has {len(test_features)}, Reference has {len(ref_features)}"
+                )
+                # Show sample of gene names for debugging
+                test_sample = list(test_features)[:5]
+                ref_sample = list(ref_features)[:5]
+                await ctx.info(f"Test gene sample: {test_sample}")
+                await ctx.info(f"Reference gene sample: {ref_sample}")
                 raise ValueError(
                     f"Insufficient gene overlap for SingleR: only {len(common_genes)} common genes"
                 )
@@ -327,8 +214,7 @@ async def _annotate_with_singler(
             validate_obs_column(reference_adata, cell_type_key, "Cell type column")
 
             ref_labels = list(reference_adata.obs[cell_type_key])
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Using '{cell_type_key}' column for reference labels"
                 )
 
@@ -341,8 +227,7 @@ async def _annotate_with_singler(
 
         elif celldex:
             # Use default reference
-            if context:
-                await context.info("Using default BlueprintEncode reference")
+            await ctx.info("Using default BlueprintEncode reference")
             ref = celldex.fetch_reference(
                 "blueprint_encode", "2024-02-26", realize_assays=True
             )
@@ -357,10 +242,9 @@ async def _annotate_with_singler(
             )
 
         # Run SingleR annotation
-        if context:
-            await context.info("Running SingleR classification...")
-            await context.info(f"Test features: {len(test_features)} genes")
-            await context.info(f"Reference labels: {len(set(ref_labels))} unique types")
+        await ctx.info("Running SingleR classification...")
+        await ctx.info(f"Test features: {len(test_features)} genes")
+        await ctx.info(f"Reference labels: {len(set(ref_labels))} unique types")
 
         use_integrated = getattr(params, "singler_integrated", False)
         num_threads = getattr(params, "num_threads", 4)
@@ -388,8 +272,7 @@ async def _annotate_with_singler(
             # Add ref_features if we're using custom reference data (not celldex)
             if ref_features_to_use is not None:
                 annotate_kwargs["ref_features"] = ref_features_to_use
-                if context:
-                    await context.info(
+                await ctx.info(
                         f"Using reference features: {len(ref_features_to_use)} genes"
                     )
 
@@ -400,10 +283,10 @@ async def _annotate_with_singler(
             # Try to get delta scores for confidence (higher delta = higher confidence)
             try:
                 delta_scores = results.column("delta")
-                if delta_scores and context:
+                if delta_scores:
                     low_delta = sum(1 for d in delta_scores if d and d < 0.05)
                     if low_delta > len(delta_scores) * 0.3:
-                        await context.warning(
+                        await ctx.warning(
                             f"{low_delta}/{len(delta_scores)} cells have low confidence scores (delta < 0.05)"
                         )
             except Exception:
@@ -437,8 +320,8 @@ async def _annotate_with_singler(
                                 [d for d in type_deltas if d is not None]
                             )
                             confidence_scores[cell_type] = round(float(avg_delta), 3)
-                if context and confidence_scores:
-                    await context.info(
+                if confidence_scores:
+                    await ctx.info(
                         f"Using delta scores for confidence (avg: {np.mean(list(confidence_scores.values())):.3f})"
                     )
             except Exception:
@@ -482,19 +365,18 @@ async def _annotate_with_singler(
             confidence_array = [confidence_scores.get(ct, 0.0) for ct in cell_types]
             adata.obs[confidence_key] = confidence_array
 
-        if context:
-            await context.info("SingleR annotation completed!")
-            await context.info(f"   Found {len(unique_types)} cell types")
-            top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
-            await context.info(
-                f"   Top types: {', '.join([f'{t}({c})' for t, c in top_types])}"
-            )
-            await context.info(
-                f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-            )
-            await context.info(
-                f"Use visualize_data tool with feature='{output_key}' to visualize results"
-            )
+        await ctx.info("SingleR annotation completed!")
+        await ctx.info(f"   Found {len(unique_types)} cell types")
+        top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
+        await ctx.info(
+            f"   Top types: {', '.join([f'{t}({c})' for t, c in top_types])}"
+        )
+        await ctx.info(
+            f"Cell type annotation complete. Cell types stored in '{output_key}' column"
+        )
+        await ctx.info(
+            f"Use visualize_data tool with feature='{output_key}' to visualize results"
+        )
 
         return unique_types, counts, confidence_scores, None
 
@@ -506,26 +388,26 @@ async def _annotate_with_singler(
 async def _annotate_with_tangram(
     adata,
     params: AnnotationParameters,
-    data_store: Dict[str, Any],
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
+    reference_adata: Optional[Any] = None,
 ):
     """Annotate cell types using Tangram method"""
     try:
-        if context:
-            await context.info("Using Tangram method for annotation")
+        await ctx.info("Using Tangram method for annotation")
 
         # Validate dependencies with comprehensive error reporting
-        tg = _validate_tangram(context)
+        require("tangram", ctx, feature="Tangram annotation")
+        import tangram as tg
 
         # Check if reference data is provided
-        if params.reference_data_id is None:
-            raise ValueError("Reference data ID is required for Tangram method")
+        if reference_adata is None:
+            raise ValueError(
+                "Reference data is required for Tangram method. "
+                "Please provide reference_data_id parameter."
+            )
 
-        if params.reference_data_id not in data_store:
-            raise ValueError(f"Reference dataset {params.reference_data_id} not found")
-
-        # Get reference single-cell data
-        adata_sc_original = data_store[params.reference_data_id]["adata"]
+        # Use reference single-cell data (passed from main function via ctx.get_adata())
+        adata_sc_original = reference_adata
 
         # ===== CRITICAL FIX: Use raw data for Tangram to preserve gene name case =====
         # Issue: Preprocessed data may have lowercase gene names, while reference has uppercase
@@ -535,14 +417,12 @@ async def _annotate_with_tangram(
             adata_sp = adata.raw.to_adata()
             # Preserve spatial coordinates from preprocessed data
             adata_sp.obsm["spatial"] = adata.obsm["spatial"].copy()
-            if context:
-                await context.info(
+            await ctx.info(
                     "Using raw data for Tangram (preserves original gene names and counts)"
                 )
         else:
             adata_sp = adata
-            if context:
-                await context.warning(
+            await ctx.warning(
                     "No raw data available - using preprocessed data (may have gene name mismatches)"
                 )
         # =============================================================================
@@ -552,22 +432,19 @@ async def _annotate_with_tangram(
             n_duplicates = len(adata_sc_original.var_names) - len(
                 set(adata_sc_original.var_names)
             )
-            if context:
-                await context.warning(
+            await ctx.warning(
                     f"Found {n_duplicates} duplicate gene names in reference data, fixing..."
                 )
             adata_sc_original.var_names_make_unique()
 
         if not adata_sp.var_names.is_unique:
             n_duplicates = len(adata_sp.var_names) - len(set(adata_sp.var_names))
-            if context:
-                await context.warning(
+            await ctx.warning(
                     f"Found {n_duplicates} duplicate gene names in spatial data, fixing..."
                 )
             adata_sp.var_names_make_unique()
 
-        if context:
-            await context.info(
+        await ctx.info(
                 f"Using reference dataset {params.reference_data_id} with {adata_sc_original.n_obs} cells"
             )
 
@@ -577,8 +454,7 @@ async def _annotate_with_tangram(
         if training_genes is None:
             # Use marker genes if available
             if params.marker_genes:
-                if context:
-                    await context.info(
+                await ctx.info(
                         "Using provided marker genes for Tangram mapping"
                     )
                 # Flatten marker genes dictionary
@@ -598,22 +474,19 @@ async def _annotate_with_tangram(
                     adata_sc_original.var_names[adata_sc_original.var.highly_variable]
                 )
 
-        if context:
-            await context.info(f"Using {len(training_genes)} genes for Tangram mapping")
+        await ctx.info(f"Using {len(training_genes)} genes for Tangram mapping")
 
         # COW FIX: Create copy of reference data to avoid modifying original
         # Tangram's pp_adatas adds metadata (uns, obs) but doesn't subset genes
         adata_sc = adata_sc_original.copy()
-        if context:
-            await context.info(
+        await ctx.info(
                 "Created working copy of reference data to preserve original"
             )
 
         # Preprocess data for Tangram
         tg.pp_adatas(adata_sc, adata_sp, genes=training_genes)
 
-        if context:
-            await context.info(
+        await ctx.info(
                 f"Preprocessed data for Tangram mapping. {len(adata_sc.uns['training_genes'])} training genes selected."
             )
 
@@ -622,8 +495,7 @@ async def _annotate_with_tangram(
         cluster_label = params.cluster_label
 
         if mode == "clusters" and cluster_label is None:
-            if context:
-                await context.warning(
+            await ctx.warning(
                     "Cluster label not provided for 'clusters' mode. Using default cell type annotation if available."
                 )
             # Try to find a cell type annotation in the reference data
@@ -637,8 +509,7 @@ async def _annotate_with_tangram(
                     "No cluster label found in reference data. Please provide a cluster_label parameter."
                 )
 
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Using '{cluster_label}' as cluster label for Tangram mapping"
                 )
 
@@ -647,18 +518,15 @@ async def _annotate_with_tangram(
 
         device = params.tangram_device
         if device != "cpu" and torch.cuda.is_available():
-            if context:
-                await context.info(f"GPU detected - using device: {device}")
+            await ctx.info(f"GPU detected - using device: {device}")
         elif device != "cpu":
-            if context:
-                await context.warning(
+            await ctx.warning(
                     "GPU requested but not available - falling back to CPU"
                 )
             device = "cpu"
 
         # Run Tangram mapping with enhanced parameters
-        if context:
-            await context.info(
+        await ctx.info(
                 f"Running Tangram mapping in '{mode}' mode for {params.num_epochs} epochs on {device}"
             )
 
@@ -713,8 +581,7 @@ async def _annotate_with_tangram(
                     else:
                         tangram_mapping_score = float(last_value)
 
-                    if context:
-                        await context.info(
+                    await ctx.info(
                             f"Extracted Tangram mapping score: {tangram_mapping_score:.4f}"
                         )
 
@@ -732,12 +599,10 @@ async def _annotate_with_tangram(
                         "SCIENTIFIC INTEGRITY: We require consistent Tangram output format "
                         "to ensure reproducible cell type mapping scores."
                     )
-                    if context:
-                        await context.error(error_msg)
+                    await ctx.error(error_msg)
                     raise ValueError(error_msg)
         except Exception as score_error:
-            if context:
-                await context.error(
+            await ctx.error(
                     f"Failed to extract Tangram mapping score: {score_error}"
                 )
             # Don't return a misleading score - fail gracefully
@@ -748,41 +613,34 @@ async def _annotate_with_tangram(
         # Compute validation metrics if requested
         if params.tangram_compute_validation:
             try:
-                if context:
-                    await context.info(
+                await ctx.info(
                         "Computing validation metrics for spatial gene expression"
                     )
                 # Compare predicted vs actual spatial gene expression
                 scores = tg.compare_spatial_geneexp(ad_map, adata_sp)
                 # Store validation scores in adata
                 adata_sp.uns["tangram_validation_scores"] = scores
-                if context:
-                    await context.info(
+                await ctx.info(
                         "Validation completed - scores stored in adata.uns['tangram_validation_scores']"
                     )
             except Exception as val_error:
-                if context:
-                    await context.warning(
+                await ctx.warning(
                         f"Could not compute validation metrics: {val_error}"
                     )
 
         # Project genes if requested
         if params.tangram_project_genes:
             try:
-                if context:
-                    await context.info("Projecting gene expression to spatial data")
+                await ctx.info("Projecting gene expression to spatial data")
                 ad_ge = tg.project_genes(ad_map, adata_sc)
                 adata_sp.obsm["tangram_gene_predictions"] = ad_ge.X
-                if context:
-                    await context.info(
+                await ctx.info(
                         "Gene expression projections stored in adata.obsm['tangram_gene_predictions']"
                     )
             except Exception as gene_error:
-                if context:
-                    await context.warning(f"Could not project genes: {gene_error}")
+                await ctx.warning(f"Could not project genes: {gene_error}")
 
-        if context:
-            await context.info(
+        await ctx.info(
                 f"Tangram mapping completed with score: {tangram_mapping_score}"
             )
 
@@ -812,26 +670,22 @@ async def _annotate_with_tangram(
                     )
 
                 annotation_col = params.cell_type_key
-                if context:
-                    await context.info(
+                await ctx.info(
                         f"Using cell type column: '{params.cell_type_key}'"
                     )
 
             if annotation_col:
-                if context:
-                    await context.info(
+                await ctx.info(
                         f"Projecting cell annotations using '{annotation_col}' column"
                     )
                 # Use project_cell_annotations instead of plot_cell_annotation
                 tg.project_cell_annotations(ad_map, adata_sp, annotation=annotation_col)
             else:
-                if context:
-                    await context.warning(
+                await ctx.warning(
                         "No suitable annotation column found for projection"
                     )
         except Exception as proj_error:
-            if context:
-                await context.warning(
+            await ctx.warning(
                     f"Could not project cell annotations: {proj_error}"
                 )
             # Continue without projection
@@ -859,23 +713,19 @@ async def _annotate_with_tangram(
 
             # Validation: Ensure normalized values are valid probabilities
             if not (cell_type_prob.values >= 0).all():
-                if context:
-                    await context.warning(
+                await ctx.warning(
                         "Some normalized probabilities are negative - data quality issue"
                     )
             if not (cell_type_prob.values <= 1.0).all():
-                if context:
-                    await context.warning(
+                await ctx.warning(
                         "Some normalized probabilities exceed 1.0 - normalization failed"
                     )
             if not np.allclose(cell_type_prob.sum(axis=1), 1.0):
-                if context:
-                    await context.warning(
+                await ctx.warning(
                         "Row sums don't equal 1.0 after normalization - numerical issue"
                     )
 
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Normalized tangram_ct_pred: converted densities to probabilities (range: [{cell_type_prob.values.min():.3f}, {cell_type_prob.values.max():.3f}])"
                 )
             # =============================================================================
@@ -900,19 +750,17 @@ async def _annotate_with_tangram(
 
             # Note: Visualizations should be created using the separate visualize_data tool
             # This maintains clean separation between analysis and visualization
-            if context:
-                await context.info(
-                    f"Cell type mapping complete. Cell types stored in '{output_key}' column"
-                )
-                await context.info(
-                    f"Use visualize_data tool with feature='{output_key}' to visualize results"
-                )
+            await ctx.info(
+                f"Cell type mapping complete. Cell types stored in '{output_key}' column"
+            )
+            await ctx.info(
+                f"Use visualize_data tool with feature='{output_key}' to visualize results"
+            )
 
         else:
-            if context:
-                await context.warning(
-                    "No cell type predictions found in Tangram results"
-                )
+            await ctx.warning(
+                "No cell type predictions found in Tangram results"
+            )
 
         # Validate results before returning
         if not cell_types:
@@ -921,8 +769,7 @@ async def _annotate_with_tangram(
             )
 
         if tangram_mapping_score <= 0:
-            if context:
-                await context.warning(
+            await ctx.warning(
                     f"Tangram mapping score is suspiciously low: {tangram_mapping_score}"
                 )
 
@@ -948,19 +795,17 @@ async def _annotate_with_tangram(
                     "tangram_gene_predictions"
                 ]
 
-            if context:
-                await context.info(
+            await ctx.info(
                     "Transferred Tangram results to original adata object"
                 )
         # =============================================================================
 
-        if context:
-            await context.info(
-                f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-            )
-            await context.info(
-                f"Use visualize_data tool with feature='{output_key}' to visualize results"
-            )
+        await ctx.info(
+            f"Cell type annotation complete. Cell types stored in '{output_key}' column"
+        )
+        await ctx.info(
+            f"Use visualize_data tool with feature='{output_key}' to visualize results"
+        )
 
         return cell_types, counts, confidence_scores, tangram_mapping_score
 
@@ -972,8 +817,8 @@ async def _annotate_with_tangram(
 async def _annotate_with_scanvi(
     adata,
     params: AnnotationParameters,
-    data_store: Dict[str, Any],
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
+    reference_adata: Optional[Any] = None,
 ):
     """Annotate cell types using scANVI (semi-supervised variational inference).
 
@@ -1056,59 +901,52 @@ async def _annotate_with_scanvi(
         )
     """
     try:
-        if context:
-            await context.info("Using scANVI method for annotation")
+        await ctx.info("Using scANVI method for annotation")
 
         # Validate dependencies with comprehensive error reporting
-        scvi, CellAssign = _validate_scvi_tools(context)
+        scvi = validate_scvi_tools(ctx, components=["SCANVI"])
 
         # Check if reference data is provided
-        if params.reference_data_id is None:
-            raise ValueError("Reference data ID is required for scANVI method")
+        if reference_adata is None:
+            raise ValueError(
+                "Reference data is required for scANVI method. "
+                "Please provide reference_data_id parameter."
+            )
 
-        if params.reference_data_id not in data_store:
-            raise ValueError(f"Reference dataset {params.reference_data_id} not found")
-
-        # Get reference single-cell data
-        adata_ref_original = data_store[params.reference_data_id]["adata"]
+        # Use reference single-cell data (passed from main function via ctx.get_adata())
+        adata_ref_original = reference_adata
 
         # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
-        if context:
-            await context.info("Checking for duplicate gene names...")
+        await ctx.info("Checking for duplicate gene names...")
 
         # Fix duplicate gene names in reference data
         if not adata_ref_original.var_names.is_unique:
             n_duplicates_ref = len(adata_ref_original.var_names) - len(
                 set(adata_ref_original.var_names)
             )
-            if context:
-                await context.warning(
-                    f"Found {n_duplicates_ref} duplicate gene names in reference data"
-                )
-                await context.info(
-                    "Fixing duplicate gene names with unique suffixes..."
-                )
+            await ctx.warning(
+                f"Found {n_duplicates_ref} duplicate gene names in reference data"
+            )
+            await ctx.info(
+                "Fixing duplicate gene names with unique suffixes..."
+            )
             adata_ref_original.var_names_make_unique()
-            if context:
-                await context.info("Reference gene names fixed")
+            await ctx.info("Reference gene names fixed")
 
         # Fix duplicate gene names in query data
         if not adata.var_names.is_unique:
             n_duplicates_query = len(adata.var_names) - len(set(adata.var_names))
-            if context:
-                await context.warning(
-                    f"Found {n_duplicates_query} duplicate gene names in query data"
-                )
-                await context.info(
-                    "Fixing duplicate gene names with unique suffixes..."
-                )
+            await ctx.warning(
+                f"Found {n_duplicates_query} duplicate gene names in query data"
+            )
+            await ctx.info(
+                "Fixing duplicate gene names with unique suffixes..."
+            )
             adata.var_names_make_unique()
-            if context:
-                await context.info("Query gene names fixed")
+            await ctx.info("Query gene names fixed")
 
         # ===== Gene Alignment (NEW) =====
-        if context:
-            await context.info("Aligning genes between reference and query data...")
+        await ctx.info("Aligning genes between reference and query data...")
 
         common_genes = adata_ref_original.var_names.intersection(adata.var_names)
 
@@ -1121,14 +959,13 @@ async def _annotate_with_scanvi(
         # COW FIX: Operate on temporary copies for gene subsetting
         # This prevents loss of HVG information in the original adata
         if len(common_genes) < adata_ref_original.n_vars:
-            if context:
-                await context.warning(
-                    f"Subsetting to {len(common_genes)} common genes for ScanVI training "
-                    f"(reference: {adata_ref_original.n_vars}, query: {adata.n_vars})"
-                )
-                await context.info(
-                    "Note: Original gene set and HVG information will be preserved"
-                )
+            await ctx.warning(
+                f"Subsetting to {len(common_genes)} common genes for ScanVI training "
+                f"(reference: {adata_ref_original.n_vars}, query: {adata.n_vars})"
+            )
+            await ctx.info(
+                "Note: Original gene set and HVG information will be preserved"
+            )
             # Create subsets for ScanVI (not modifying originals)
             adata_ref = adata_ref_original[:, common_genes].copy()
             adata_subset = adata[:, common_genes].copy()
@@ -1138,34 +975,30 @@ async def _annotate_with_scanvi(
             adata_subset = adata.copy()
 
         # ===== Data Validation (NEW) =====
-        if context:
-            await context.info("Validating data preprocessing...")
+        await ctx.info("Validating data preprocessing...")
 
-        if context:
-            await context.info(
-                f"Reference data has 'counts' layer: {'counts' in adata_ref.layers}"
+        await ctx.info(
+            f"Reference data has 'counts' layer: {'counts' in adata_ref.layers}"
+        )
+        await ctx.info(
+            f"Query data has 'counts' layer: {'counts' in adata_subset.layers}"
+        )
+        if "counts" in adata_ref.layers:
+            await ctx.info(
+                f"  Reference counts max: {adata_ref.layers['counts'].max():.2f}"
             )
-            await context.info(
-                f"Query data has 'counts' layer: {'counts' in adata_subset.layers}"
+        if "counts" in adata_subset.layers:
+            await ctx.info(
+                f"  Query counts max: {adata_subset.layers['counts'].max():.2f}"
             )
-            if "counts" in adata_ref.layers:
-                await context.info(
-                    f"  Reference counts max: {adata_ref.layers['counts'].max():.2f}"
-                )
-            if "counts" in adata_subset.layers:
-                await context.info(
-                    f"  Query counts max: {adata_subset.layers['counts'].max():.2f}"
-                )
 
         # Check if reference data is normalized
         if "log1p" not in adata_ref.uns:
-            if context:
-                await context.warning("Reference data may not be log-normalized")
+            await ctx.warning("Reference data may not be log-normalized")
 
         # Check for HVGs
         if "highly_variable" not in adata_ref.var:
-            if context:
-                await context.warning("No highly variable genes detected in reference")
+            await ctx.warning("No highly variable genes detected in reference")
 
         # Get parameters
         cell_type_key = getattr(params, "cell_type_key", "cell_type")
@@ -1173,8 +1006,7 @@ async def _annotate_with_scanvi(
 
         # ===== Optional SCVI Pretraining (NEW) =====
         if params.scanvi_use_scvi_pretrain:
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Step 1/3: Pretraining SCVI model for {params.scanvi_scvi_epochs} epochs..."
                 )
 
@@ -1207,8 +1039,7 @@ async def _annotate_with_scanvi(
                 check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch,
             )
 
-            if context:
-                await context.info("Step 2/3: Converting SCVI to SCANVI model...")
+            await ctx.info("Step 2/3: Converting SCVI to SCANVI model...")
 
             # Convert to SCANVI (no need for setup_anndata, it uses SCVI's setup)
             model = scvi.model.SCANVI.from_scvi_model(
@@ -1225,13 +1056,11 @@ async def _annotate_with_scanvi(
 
         else:
             # Direct SCANVI training (existing approach)
-            if context:
-                await context.info("Training SCANVI model directly...")
+            await ctx.info("Training SCANVI model directly...")
 
             # Ensure counts layer exists (create from adata.raw if needed)
             if "counts" not in adata_ref.layers:
-                if context:
-                    await context.info(
+                await ctx.info(
                         "Creating counts layer from adata.raw for scANVI..."
                     )
                 if adata_ref.raw is not None:
@@ -1271,8 +1100,7 @@ async def _annotate_with_scanvi(
             )
 
         # ===== Query Data Preparation (IMPROVED) =====
-        if context:
-            await context.info("Step 3/3: Preparing and training on query data...")
+        await ctx.info("Step 3/3: Preparing and training on query data...")
 
         # COW FIX: Work on adata_subset for query data preparation
         # Add unlabeled category for all cells (on subset, not original)
@@ -1282,8 +1110,7 @@ async def _annotate_with_scanvi(
         if batch_key and batch_key not in adata_subset.obs:
             # ScANVI requires batch information for technical reasons
             adata_subset.obs[batch_key] = "query_batch"
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Added temporary batch label '{batch_key}' = 'query_batch' for ScANVI compatibility.\n"
                     f"   This is TECHNICAL METADATA, not real batch information from your experiment.\n"
                     f"   ScANVI algorithm requires batch labels to function properly."
@@ -1291,8 +1118,7 @@ async def _annotate_with_scanvi(
 
         # Ensure counts layer exists for query data (create from adata.raw if needed)
         if "counts" not in adata_subset.layers:
-            if context:
-                await context.info(
+            await ctx.info(
                     "Creating counts layer from adata.raw for query data..."
                 )
             if adata_subset.raw is not None:
@@ -1358,8 +1184,7 @@ async def _annotate_with_scanvi(
                     confidence_scores[cell_type] = round(float(mean_prob), 2)
                 # else: No cells of this type or no probability data - skip confidence
         except Exception as e:
-            if context:
-                await context.warning(f"Could not get confidence scores: {e}")
+            await ctx.warning(f"Could not get confidence scores: {e}")
             # Could not extract probabilities - return empty confidence dict
             confidence_scores = (
                 {}
@@ -1372,13 +1197,12 @@ async def _annotate_with_scanvi(
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
 
-        if context:
-            await context.info(
-                "Cell type annotation complete. Cell types stored in 'cell_type' column"
-            )
-            await context.info(
-                "Use visualize_data tool with feature='cell_type' to visualize results"
-            )
+        await ctx.info(
+            "Cell type annotation complete. Cell types stored in 'cell_type' column"
+        )
+        await ctx.info(
+            "Use visualize_data tool with feature='cell_type' to visualize results"
+        )
 
         return cell_types, counts, confidence_scores, None
 
@@ -1388,7 +1212,7 @@ async def _annotate_with_scanvi(
 
 
 async def _annotate_with_mllmcelltype(
-    adata, params: AnnotationParameters, context: Optional[Context] = None
+    adata, params: AnnotationParameters, ctx: "ToolContext"
 ):
     """Annotate cell types using mLLMCellType (LLM-based) method.
 
@@ -1419,11 +1243,11 @@ async def _annotate_with_mllmcelltype(
         - mllm_base_urls: Custom API endpoints (useful for proxies)
     """
     try:
-        if context:
-            await context.info("Using mLLMCellType (LLM-based) method for annotation")
+        await ctx.info("Using mLLMCellType (LLM-based) method for annotation")
 
         # Validate dependencies with comprehensive error reporting
-        mllmcelltype = _validate_mllmcelltype(context)
+        require("mllmcelltype", ctx, feature="mLLMCellType annotation")
+        import mllmcelltype
 
         # Validate clustering has been performed
         # cluster_label is now required for mLLMCellType (no default value)
@@ -1462,8 +1286,7 @@ async def _annotate_with_mllmcelltype(
             )
 
         # Find differentially expressed genes for each cluster
-        if context:
-            await context.info("Finding marker genes for each cluster")
+        await ctx.info("Finding marker genes for each cluster")
 
         sc.tl.rank_genes_groups(adata, cluster_key, method="wilcoxon")
 
@@ -1476,8 +1299,7 @@ async def _annotate_with_mllmcelltype(
             gene_names = adata.uns["rank_genes_groups"]["names"][str(cluster)][:n_genes]
             marker_genes_dict[f"Cluster_{cluster}"] = list(gene_names)
 
-        if context:
-            await context.info(
+        await ctx.info(
                 f"Found marker genes for {len(marker_genes_dict)} clusters"
             )
 
@@ -1510,8 +1332,7 @@ async def _annotate_with_mllmcelltype(
                 max_discussion_rounds = params.mllm_max_discussion_rounds
                 consensus_model = params.mllm_consensus_model
 
-                if context:
-                    await context.info(
+                await ctx.info(
                         f"Calling interactive consensus annotation with {len(models)} models"
                     )
 
@@ -1543,8 +1364,7 @@ async def _annotate_with_mllmcelltype(
                 )
                 consensus_results.get("entropy", {})
 
-                if context:
-                    await context.info(
+                await ctx.info(
                         f"Consensus reached for {len(annotations)} clusters. "
                         f"Mean consensus proportion: {sum(consensus_proportions.values()) / len(consensus_proportions):.2f}"
                     )
@@ -1554,8 +1374,7 @@ async def _annotate_with_mllmcelltype(
                 model = params.mllm_model
                 api_key = params.mllm_api_key
 
-                if context:
-                    await context.info(
+                await ctx.info(
                         f"Calling LLM ({provider}/{model or 'default'}) for cell type annotation"
                     )
 
@@ -1572,12 +1391,10 @@ async def _annotate_with_mllmcelltype(
                     base_urls=base_urls,
                 )
         except Exception as e:
-            if context:
-                await context.error(f"mLLMCellType annotation failed: {str(e)}")
+            await ctx.error(f"mLLMCellType annotation failed: {str(e)}")
             raise
 
-        if context:
-            await context.info(f"Received annotations for {len(annotations)} clusters")
+        await ctx.info(f"Received annotations for {len(annotations)} clusters")
 
         # Map cluster annotations back to cells
         cluster_to_celltype = {}
@@ -1597,8 +1414,7 @@ async def _annotate_with_mllmcelltype(
         # Handle any unmapped clusters
         unmapped = adata.obs[output_key].isna()
         if unmapped.any():
-            if context:
-                await context.warning(
+            await ctx.warning(
                     f"Found {unmapped.sum()} cells in unmapped clusters"
                 )
             adata.obs.loc[unmapped, output_key] = "Unknown"
@@ -1622,13 +1438,12 @@ async def _annotate_with_mllmcelltype(
 
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
-        if context:
-            await context.info(
-                f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-            )
-            await context.info(
-                f"Use visualize_data tool with feature='{output_key}' to visualize results"
-            )
+        await ctx.info(
+            f"Cell type annotation complete. Cell types stored in '{output_key}' column"
+        )
+        await ctx.info(
+            f"Use visualize_data tool with feature='{output_key}' to visualize results"
+        )
 
         return cell_types, counts, confidence_scores, None, None
 
@@ -1638,15 +1453,15 @@ async def _annotate_with_mllmcelltype(
 
 
 async def _annotate_with_cellassign(
-    adata, params: AnnotationParameters, context: Optional[Context] = None
+    adata, params: AnnotationParameters, ctx: "ToolContext"
 ):
     """Annotate cell types using CellAssign method"""
     try:
-        if context:
-            await context.info("Using CellAssign method for annotation")
+        await ctx.info("Using CellAssign method for annotation")
 
         # Validate dependencies with comprehensive error reporting
-        scvi, CellAssign = _validate_scvi_tools(context)
+        validate_scvi_tools(ctx, components=["CellAssign"])
+        from scvi.external import CellAssign
 
         # Check if marker genes are provided
         if params.marker_genes is None:
@@ -1663,16 +1478,14 @@ async def _annotate_with_cellassign(
         if hasattr(adata, "raw") and adata.raw is not None:
             all_genes = set(adata.raw.var_names)
             gene_source = "adata.raw"
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Using adata.raw for marker gene validation "
                     f"({len(all_genes)} genes available)"
                 )
         else:
             all_genes = set(adata.var_names)
             gene_source = "adata.var_names"
-            if context:
-                await context.warning(
+            await ctx.warning(
                     f"Using filtered gene set for marker gene validation "
                     f"({len(all_genes)} genes). Some marker genes may be missing. "
                     f"Consider using unpreprocessed data for CellAssign."
@@ -1691,23 +1504,20 @@ async def _annotate_with_cellassign(
             if existing_genes:
                 valid_marker_genes[cell_type] = existing_genes
                 markers_found += len(existing_genes)
-                if context:
-                    await context.info(
+                await ctx.info(
                         f"Found {len(existing_genes)}/{len(genes)} marker genes for {cell_type}"
                     )
-                if missing_genes and context:
-                    await context.warning(
+                if missing_genes:
+                    await ctx.warning(
                         f"Missing {len(missing_genes)} markers for {cell_type}: {missing_genes[:5]}"
                     )
             else:
                 markers_missing += len(genes)
-                if context:
-                    await context.warning(
+                await ctx.warning(
                         f"No marker genes found for {cell_type} - all {len(genes)} markers missing!"
                     )
 
-        if context:
-            await context.info(
+        await ctx.info(
                 f"Marker gene validation: {markers_found}/{total_markers} found "
                 f"({markers_found/total_markers*100:.1f}%) from {gene_source}"
             )
@@ -1746,8 +1556,7 @@ async def _annotate_with_cellassign(
         # CRITICAL FIX: Compute size factors BEFORE subsetting (official CellAssign requirement)
         # Official docs: "The library size should be computed before any gene subsetting"
         if "size_factors" not in adata.obs:
-            if context:
-                await context.info(
+            await ctx.info(
                     "Computing size factors on full dataset before subsetting "
                     "(following official CellAssign best practice)"
                 )
@@ -1769,8 +1578,7 @@ async def _annotate_with_cellassign(
                 size_factors_normalized, index=adata.obs.index
             )
 
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Size factors computed: range [{size_factors_normalized.min():.4f}, "
                     f"{size_factors_normalized.max():.4f}], mean {size_factors_normalized.mean():.4f}"
                 )
@@ -1778,8 +1586,7 @@ async def _annotate_with_cellassign(
         # NOW subset data to marker genes (size factors already computed and will be transferred)
         # Use adata.raw if available (contains all genes including markers)
         if hasattr(adata, "raw") and adata.raw is not None:
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Subsetting from adata.raw to {len(available_marker_genes)} marker genes"
                 )
             # Create subset from raw data
@@ -1791,8 +1598,7 @@ async def _annotate_with_cellassign(
                 var=adata.raw.var.loc[available_marker_genes].copy(),
             )
         else:
-            if context:
-                await context.info(
+            await ctx.info(
                     f"Subsetting from filtered data to {len(available_marker_genes)} marker genes"
                 )
             adata_subset = adata[:, available_marker_genes].copy()
@@ -1805,8 +1611,7 @@ async def _annotate_with_cellassign(
 
         # Replace any NaN or Inf values with zeros
         if np.any(np.isnan(X_array)) or np.any(np.isinf(X_array)):
-            if context:
-                await context.warning(
+            await ctx.warning(
                     "Found NaN or Inf values in data, replacing with zeros"
                 )
             X_array = np.nan_to_num(X_array, nan=0.0, posinf=0.0, neginf=0.0)
@@ -1818,8 +1623,7 @@ async def _annotate_with_cellassign(
         zero_var_genes = gene_vars == 0
         if np.any(zero_var_genes):
             adata_subset.var_names[zero_var_genes].tolist()
-            if context:
-                await context.warning(
+            await ctx.warning(
                     f"Found {np.sum(zero_var_genes)} genes with zero variance. "
                     f"CellAssign may have numerical issues with these genes."
                 )
@@ -1827,8 +1631,7 @@ async def _annotate_with_cellassign(
 
         # Ensure data is non-negative (CellAssign expects count-like data)
         if np.any(X_array < 0):
-            if context:
-                await context.warning("Found negative values in data, clipping to zero")
+            await ctx.warning("Found negative values in data, clipping to zero")
             X_array = np.maximum(X_array, 0)
             adata_subset.X = X_array
 
@@ -1886,13 +1689,12 @@ async def _annotate_with_cellassign(
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
 
-        if context:
-            await context.info(
-                f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-            )
-            await context.info(
-                f"Use visualize_data tool with feature='{output_key}' to visualize results"
-            )
+        await ctx.info(
+            f"Cell type annotation complete. Cell types stored in '{output_key}' column"
+        )
+        await ctx.info(
+            f"Use visualize_data tool with feature='{output_key}' to visualize results"
+        )
 
         return cell_types, counts, confidence_scores, None
 
@@ -1903,29 +1705,23 @@ async def _annotate_with_cellassign(
 
 async def annotate_cell_types(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: ToolContext,
     params: AnnotationParameters,  # No default - must be provided by caller (LLM)
-    context: Optional[Context] = None,
 ) -> AnnotationResult:
     """Annotate cell types in spatial transcriptomics data
 
     Args:
         data_id: Dataset ID
-        data_store: Dictionary storing loaded datasets
+        ctx: Tool context for data access and logging
         params: Annotation parameters
-        context: MCP context
 
     Returns:
         Annotation result
     """
-    if context:
-        await context.info(f"Annotating cell types using {params.method} method")
+    await ctx.info(f"Annotating cell types using {params.method} method")
 
-    # Retrieve the AnnData object from data store
-    if data_id not in data_store:
-        raise ValueError(f"Dataset {data_id} not found in data store")
-
-    adata = data_store[data_id]["adata"]
+    # Retrieve the AnnData object via ToolContext
+    adata = await ctx.get_adata(data_id)
 
     # Validate method first - clean and simple
     if params.method not in SUPPORTED_METHODS:
@@ -1933,36 +1729,40 @@ async def annotate_cell_types(
             f"Unsupported method: {params.method}. Supported: {sorted(SUPPORTED_METHODS)}"
         )
 
+    # Get reference data if needed for methods that require it
+    reference_adata = None
+    if params.method in ["tangram", "scanvi", "singler"] and params.reference_data_id:
+        reference_adata = await ctx.get_adata(params.reference_data_id)
+
     # Route to appropriate annotation method
     try:
         if params.method == "tangram":
             cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_tangram(adata, params, data_store, context)
+                await _annotate_with_tangram(adata, params, ctx, reference_adata)
             )
         elif params.method == "scanvi":
             cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_scanvi(adata, params, data_store, context)
+                await _annotate_with_scanvi(adata, params, ctx, reference_adata)
             )
         elif params.method == "cellassign":
             cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_cellassign(adata, params, context)
+                await _annotate_with_cellassign(adata, params, ctx)
             )
         elif params.method == "mllmcelltype":
             cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_mllmcelltype(adata, params, context)
+                await _annotate_with_mllmcelltype(adata, params, ctx)
             )
         elif params.method == "singler":
             cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_singler(adata, params, data_store, context)
+                await _annotate_with_singler(adata, params, ctx, reference_adata)
             )
         else:  # sctype
             cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_sctype(adata, params, context)
+                await _annotate_with_sctype(adata, params, ctx)
             )
 
     except Exception as e:
-        if context:
-            await context.error(f"Annotation failed: {str(e)}")
+        await ctx.error(f"Annotation failed: {str(e)}")
         raise
 
     # COW FIX: Each annotation method handles adata.obs assignment internally
@@ -1972,16 +1772,15 @@ async def annotate_cell_types(
     confidence_key = f"confidence_{params.method}" if confidence_scores else None
 
     # Inform user about visualization options
-    if context:
-        await context.info(
-            f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-        )
-        await context.info(
-            f"Use visualize_data tool with feature='{output_key}' to visualize results"
-        )
+    await ctx.info(
+        f"Cell type annotation complete. Cell types stored in '{output_key}' column"
+    )
+    await ctx.info(
+        f"Use visualize_data tool with feature='{output_key}' to visualize results"
+    )
 
     # Store scientific metadata for reproducibility
-    from ..utils.metadata_storage import store_analysis_metadata
+    from ..utils.adata_utils import store_analysis_metadata
 
     # Extract results keys
     results_keys_dict = {"obs": [output_key], "obsm": [], "uns": []}
@@ -2165,9 +1964,9 @@ def _get_sctype_cache_key(adata, params: AnnotationParameters) -> str:
     return data_hash.hexdigest()
 
 
-async def _load_sctype_functions(context: Optional[Context] = None) -> None:
+async def _load_sctype_functions(ctx: "ToolContext") -> None:
     """Load sc-type R functions and auto-install R packages if needed."""
-    robjects, _, _, _, _, default_converter, openrlib, _ = _validate_rpy2_and_r(context)
+    robjects, _, _, _, _, default_converter, openrlib, _ = validate_r_environment(ctx)
     from rpy2.robjects import conversion
 
     with openrlib.rlock:
@@ -2175,23 +1974,22 @@ async def _load_sctype_functions(context: Optional[Context] = None) -> None:
             robjects.r(_R_INSTALL_PACKAGES)
             robjects.r(_R_LOAD_SCTYPE)
 
-    if context:
-        await context.info("sc-type R functions loaded")
+    await ctx.info("sc-type R functions loaded")
 
 
 async def _prepare_sctype_genesets(
-    params: AnnotationParameters, context: Optional[Context] = None
+    params: AnnotationParameters, ctx: "ToolContext"
 ):
     """Prepare gene sets for sc-type."""
     if params.sctype_custom_markers:
-        return _convert_custom_markers_to_gs(params.sctype_custom_markers, context)
+        return _convert_custom_markers_to_gs(params.sctype_custom_markers, ctx)
 
     # Use sc-type database
     tissue = params.sctype_tissue
     if not tissue:
         raise ValueError("sctype_tissue is required when not using custom markers")
 
-    robjects, _, _, _, _, default_converter, openrlib, _ = _validate_rpy2_and_r(context)
+    robjects, _, _, _, _, default_converter, openrlib, _ = validate_r_environment(ctx)
     from rpy2.robjects import conversion
 
     db_path = (
@@ -2208,7 +2006,7 @@ async def _prepare_sctype_genesets(
 
 
 def _convert_custom_markers_to_gs(
-    custom_markers: Dict[str, Dict[str, List[str]]], context: Optional[Context] = None
+    custom_markers: Dict[str, Dict[str, List[str]]], ctx: "ToolContext"
 ):
     """Convert custom markers to sc-type gene set format"""
     if not custom_markers:
@@ -2253,7 +2051,7 @@ def _convert_custom_markers_to_gs(
 
     # Get robjects and converters from validation
     robjects, pandas2ri, _, _, localconverter, default_converter, openrlib, _ = (
-        _validate_rpy2_and_r(context)
+        validate_r_environment(ctx)
     )
 
     # Wrap R calls in conversion context (FIX for contextvars issue)
@@ -2282,11 +2080,11 @@ def _convert_custom_markers_to_gs(
 
 
 async def _run_sctype_scoring(
-    adata, gs_list, params: AnnotationParameters, context: Optional[Context] = None
+    adata, gs_list, params: AnnotationParameters, ctx: "ToolContext"
 ) -> pd.DataFrame:
     """Run sc-type scoring algorithm."""
     robjects, pandas2ri, numpy2ri, _, _, default_converter, openrlib, anndata2ri = (
-        _validate_rpy2_and_r(context)
+        validate_r_environment(ctx)
     )
     from rpy2.robjects import conversion
 
@@ -2323,8 +2121,7 @@ async def _run_sctype_scoring(
     else:
         scores_df = pd.DataFrame(scores_matrix, index=row_names, columns=col_names)
 
-    if context:
-        await context.info(f"Scoring completed: {scores_df.shape[0]} cell types × {scores_df.shape[1]} cells")
+    await ctx.info(f"Scoring completed: {scores_df.shape[0]} cell types × {scores_df.shape[1]} cells")
 
     return scores_df
 
@@ -2337,7 +2134,7 @@ def _softmax(scores_array: np.ndarray) -> np.ndarray:
 
 
 async def _assign_sctype_celltypes(
-    scores_df: pd.DataFrame, context: Optional[Context] = None
+    scores_df: pd.DataFrame, ctx: "ToolContext"
 ) -> tuple[List[str], List[float]]:
     """Assign cell types based on sc-type scores using softmax confidence."""
     if scores_df is None or scores_df.empty:
@@ -2360,9 +2157,8 @@ async def _assign_sctype_celltypes(
             cell_types.append("Unknown")
             confidence_scores.append(0.0)
 
-    if context:
-        unique_types = set(cell_types)
-        await context.info(f"Assigned {len(unique_types)} unique cell types")
+    unique_types = set(cell_types)
+    await ctx.info(f"Assigned {len(unique_types)} unique cell types")
 
     return cell_types, confidence_scores
 
@@ -2374,7 +2170,7 @@ def _calculate_sctype_stats(cell_types: List[str]) -> Dict[str, int]:
 
 
 async def _cache_sctype_results(
-    cache_key: str, results: tuple, context: Optional[Context] = None
+    cache_key: str, results: tuple, ctx: "ToolContext"
 ) -> None:
     """Cache sc-type results to disk as JSON (secure, no pickle)."""
     try:
@@ -2395,12 +2191,11 @@ async def _cache_sctype_results(
 
         _SCTYPE_CACHE[cache_key] = results
     except Exception as e:
-        if context:
-            await context.warning(f"Failed to cache results: {e}")
+        await ctx.warning(f"Failed to cache results: {e}")
 
 
 async def _load_cached_sctype_results(
-    cache_key: str, context: Optional[Context] = None
+    cache_key: str, ctx: "ToolContext"
 ) -> Optional[tuple]:
     """Load cached sc-type results from memory or JSON file."""
     # Check memory cache first
@@ -2421,8 +2216,7 @@ async def _load_cached_sctype_results(
                 cache_data.get("mapping_score"),
             )
             _SCTYPE_CACHE[cache_key] = results
-            if context:
-                await context.info("Using cached sc-type results")
+            await ctx.info("Using cached sc-type results")
             return results
         except Exception:
             pass  # Cache miss, will recompute
@@ -2431,11 +2225,11 @@ async def _load_cached_sctype_results(
 
 
 async def _annotate_with_sctype(
-    adata: sc.AnnData, params: AnnotationParameters, context: Optional[Context] = None
+    adata: sc.AnnData, params: AnnotationParameters, ctx: "ToolContext"
 ) -> tuple[List[str], Dict[str, int], Dict[str, float], Optional[float]]:
     """Annotate cell types using sc-type method."""
     # Validate R environment
-    _validate_rpy2_and_r(context)
+    validate_r_environment(ctx)
 
     # Validate parameters
     if not params.sctype_tissue and not params.sctype_custom_markers:
@@ -2451,18 +2245,17 @@ async def _annotate_with_sctype(
     cache_key = None
     if params.sctype_use_cache:
         cache_key = _get_sctype_cache_key(adata, params)
-        cached = await _load_cached_sctype_results(cache_key, context)
+        cached = await _load_cached_sctype_results(cache_key, ctx)
         if cached:
             return cached
 
-    if context:
-        await context.info(f"Running sc-type on {adata.n_obs} cells...")
+    await ctx.info(f"Running sc-type on {adata.n_obs} cells...")
 
     # Run sc-type pipeline
-    await _load_sctype_functions(context)
-    gs_list = await _prepare_sctype_genesets(params, context)
-    scores_df = await _run_sctype_scoring(adata, gs_list, params, context)
-    cell_types, confidence_scores = await _assign_sctype_celltypes(scores_df, context)
+    await _load_sctype_functions(ctx)
+    gs_list = await _prepare_sctype_genesets(params, ctx)
+    scores_df = await _run_sctype_scoring(adata, gs_list, params, ctx)
+    cell_types, confidence_scores = await _assign_sctype_celltypes(scores_df, ctx)
 
     # Calculate statistics
     counts = _calculate_sctype_stats(cell_types)
@@ -2481,9 +2274,8 @@ async def _annotate_with_sctype(
 
     # Cache results
     if params.sctype_use_cache and cache_key:
-        await _cache_sctype_results(cache_key, results, context)
+        await _cache_sctype_results(cache_key, results, ctx)
 
-    if context:
-        await context.info(f"sc-type completed: {len(counts)} cell types found")
+    await ctx.info(f"sc-type completed: {len(counts)} cell types found")
 
     return results

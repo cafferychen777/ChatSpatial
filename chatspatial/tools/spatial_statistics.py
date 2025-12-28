@@ -22,24 +22,27 @@ All 12 analysis types are accessible through this unified interface with a
 new unified 'genes' parameter for consistent gene selection across methods.
 """
 
-import logging
 import traceback
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import anndata as ad
 import numpy as np
+
+from ..utils.dependency_manager import is_available, require
 import pandas as pd
 import squidpy as sq
-from mcp.server.fastmcp import Context
 
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 from ..models.analysis import SpatialStatisticsResult
 from ..models.data import SpatialStatisticsParameters
-from ..utils.error_handling import (DataCompatibilityError, DataNotFoundError,
-                                    InvalidParameterError, ProcessingError)
-
-# Import standardized utilities
-
-logger = logging.getLogger(__name__)
+from ..utils.adata_utils import validate_adata_basics
+from ..utils.exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 # ============================================================================
@@ -49,9 +52,8 @@ logger = logging.getLogger(__name__)
 
 async def analyze_spatial_statistics(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: ToolContext,
     params: SpatialStatisticsParameters,  # No default - must be provided by caller (LLM)
-    context: Optional[Context] = None,
 ) -> SpatialStatisticsResult:
     """
     Serves as the central dispatcher for executing various spatial analysis methods.
@@ -66,13 +68,11 @@ async def analyze_spatial_statistics(
     ----------
     data_id : str
         The identifier for the dataset.
-    data_store : Dict[str, Any]
-        A dictionary that stores the loaded datasets.
+    ctx : ToolContext
+        Tool context for data access and logging.
     params : SpatialStatisticsParameters
         An object containing the parameters for the analysis, including the
         specific `analysis_type` to perform.
-    context : Optional[Context]
-        The MCP context for logging and communication.
 
     Returns
     -------
@@ -83,7 +83,7 @@ async def analyze_spatial_statistics(
     ------
     DataNotFoundError
         If the specified dataset is not found in the data store.
-    InvalidParameterError
+    ParameterError
         If the provided parameters are not valid for the requested analysis.
     ProcessingError
         If an error occurs during the execution of the analysis.
@@ -106,30 +106,33 @@ async def analyze_spatial_statistics(
     ]
 
     if params.analysis_type not in supported_types:
-        raise InvalidParameterError(
+        raise ParameterError(
             f"Unsupported analysis type: {params.analysis_type}"
         )
 
     if params.n_neighbors <= 0:
-        raise InvalidParameterError(
+        raise ParameterError(
             f"n_neighbors must be positive, got {params.n_neighbors}"
         )
 
     # Log operation
-    if context:
-        await context.info(f"Performing {params.analysis_type} spatial analysis")
+    await ctx.info(f"Performing {params.analysis_type} spatial analysis")
 
-    # Retrieve dataset
-    if data_id not in data_store:
-        raise DataNotFoundError(f"Dataset {data_id} not found in data store")
-
+    # Retrieve dataset via ToolContext
     try:
-        # COW FIX: Direct reference instead of copy
-        # Only add metadata to adata.obs/uns/obsp, never overwrite entire adata
-        adata = data_store[data_id]["adata"]
+        adata = await ctx.get_adata(data_id)
 
-        # Basic validation
-        _validate_spatial_data(adata)
+        # Basic validation: min 10 cells, spatial coordinates exist
+        validate_adata_basics(adata, min_obs=10)
+        if "spatial" not in adata.obsm:
+            raise DataNotFoundError(
+                "Dataset missing spatial coordinates in adata.obsm['spatial']"
+            )
+        coords = adata.obsm["spatial"]
+        if np.any(np.isnan(coords)) or np.any(np.isinf(coords)):
+            raise DataCompatibilityError(
+                "Spatial coordinates contain NaN or infinite values"
+            )
 
         # Determine if cluster_key is required for this analysis type
         analyses_requiring_cluster_key = {
@@ -146,43 +149,43 @@ async def analyze_spatial_statistics(
         # Ensure cluster key only for analyses that require it
         cluster_key = None
         if params.analysis_type in analyses_requiring_cluster_key:
-            cluster_key = await _ensure_cluster_key(adata, params.cluster_key, context)
+            cluster_key = await _ensure_cluster_key(adata, params.cluster_key, ctx)
 
         # Ensure spatial neighbors
-        await _ensure_spatial_neighbors(adata, params.n_neighbors, context)
+        await _ensure_spatial_neighbors(adata, params.n_neighbors, ctx)
 
         # Route to appropriate analysis function
         if params.analysis_type == "moran":
-            result = await _analyze_morans_i(adata, params, context)
+            result = await _analyze_morans_i(adata, params, ctx)
         elif params.analysis_type == "local_moran":
-            result = await _analyze_local_moran(adata, params, context)
+            result = await _analyze_local_moran(adata, params, ctx)
         elif params.analysis_type == "geary":
-            result = await _analyze_gearys_c(adata, params, context)
+            result = await _analyze_gearys_c(adata, params, ctx)
         elif params.analysis_type == "neighborhood":
-            result = await _analyze_neighborhood_enrichment(adata, cluster_key, context)
+            result = await _analyze_neighborhood_enrichment(adata, cluster_key, ctx)
         elif params.analysis_type == "co_occurrence":
-            result = await _analyze_co_occurrence(adata, cluster_key, context)
+            result = await _analyze_co_occurrence(adata, cluster_key, ctx)
         elif params.analysis_type == "ripley":
-            result = await _analyze_ripleys_k(adata, cluster_key, context)
+            result = await _analyze_ripleys_k(adata, cluster_key, ctx)
         elif params.analysis_type == "getis_ord":
-            result = await _analyze_getis_ord(adata, params, context)
+            result = await _analyze_getis_ord(adata, params, ctx)
         elif params.analysis_type == "centrality":
-            result = await _analyze_centrality(adata, cluster_key, context)
+            result = await _analyze_centrality(adata, cluster_key, ctx)
         elif params.analysis_type == "bivariate_moran":
-            result = await _analyze_bivariate_moran(adata, params, context)
+            result = await _analyze_bivariate_moran(adata, params, ctx)
         elif params.analysis_type == "join_count":
-            result = await _analyze_join_count(adata, cluster_key, params, context)
+            result = await _analyze_join_count(adata, cluster_key, params, ctx)
         elif params.analysis_type == "local_join_count":
             result = await _analyze_local_join_count(
-                adata, cluster_key, params, context
+                adata, cluster_key, params, ctx
             )
         elif params.analysis_type == "network_properties":
             result = await _analyze_network_properties(
-                adata, cluster_key, params, context
+                adata, cluster_key, params, ctx
             )
         elif params.analysis_type == "spatial_centrality":
             result = await _analyze_spatial_centrality(
-                adata, cluster_key, params, context
+                adata, cluster_key, params, ctx
             )
         else:
             raise ValueError(f"Analysis type {params.analysis_type} not implemented")
@@ -207,7 +210,7 @@ async def analyze_spatial_statistics(
         )
 
         # Store scientific metadata for reproducibility
-        from ..utils.metadata_storage import store_analysis_metadata
+        from ..utils.adata_utils import store_analysis_metadata
 
         # Determine results keys based on analysis type
         results_keys_dict = {"obs": [], "var": [], "obsm": [], "uns": []}
@@ -261,8 +264,7 @@ async def analyze_spatial_statistics(
             statistics=statistics_dict,
         )
 
-        if context:
-            await context.info(f"Analysis completed: {params.analysis_type}")
+        await ctx.info(f"Analysis completed: {params.analysis_type}")
 
         return SpatialStatisticsResult(
             data_id=data_id,
@@ -272,12 +274,11 @@ async def analyze_spatial_statistics(
 
     except Exception as e:
         error_msg = f"Error in {params.analysis_type} analysis: {str(e)}"
-        if context:
-            await context.warning(error_msg)
-            await context.info(f"Error details: {traceback.format_exc()}")
+        await ctx.warning(error_msg)
+        await ctx.info(f"Error details: {traceback.format_exc()}")
 
         if isinstance(
-            e, (DataNotFoundError, InvalidParameterError, DataCompatibilityError)
+            e, (DataNotFoundError, ParameterError, DataCompatibilityError)
         ):
             raise
         else:
@@ -289,38 +290,13 @@ async def analyze_spatial_statistics(
 # ============================================================================
 
 
-def _validate_spatial_data(adata: ad.AnnData) -> None:
-    """
-    Checks if the AnnData object meets minimum requirements for spatial analysis.
-
-    This function performs the following checks:
-    1. Ensures the dataset contains a minimum number of cells (10).
-    2. Verifies the presence of spatial coordinates in `adata.obsm['spatial']`.
-    3. Confirms that spatial coordinates do not contain NaN or infinite values.
-    """
-    if adata.n_obs < 10:
-        raise DataNotFoundError("Dataset has too few cells (minimum 10 required)")
-
-    if "spatial" not in adata.obsm:
-        raise DataNotFoundError(
-            "Dataset missing spatial coordinates in adata.obsm['spatial']"
-        )
-
-    coords = adata.obsm["spatial"]
-    if np.any(np.isnan(coords)) or np.any(np.isinf(coords)):
-        raise DataCompatibilityError(
-            "Spatial coordinates contain NaN or infinite values"
-        )
-
-
 async def _ensure_cluster_key(
-    adata: ad.AnnData, requested_key: str, context: Optional[Context] = None
+    adata: ad.AnnData, requested_key: str, ctx: "ToolContext"
 ) -> str:
     """Ensure a valid cluster key exists in adata."""
     if requested_key in adata.obs.columns:
         if not pd.api.types.is_categorical_dtype(adata.obs[requested_key]):
-            if context:
-                await context.info(f"Converting {requested_key} to categorical...")
+            await ctx.info(f"Converting {requested_key} to categorical...")
             adata.obs[requested_key] = adata.obs[requested_key].astype("category")
         return requested_key
 
@@ -346,7 +322,7 @@ async def _ensure_cluster_key(
 
 
 async def _ensure_spatial_neighbors(
-    adata: ad.AnnData, n_neighbors: int, context: Optional[Context] = None
+    adata: ad.AnnData, n_neighbors: int, ctx: "ToolContext"
 ) -> None:
     """
     Ensure spatial neighbors are computed using squidpy's scientifically validated methods.
@@ -361,10 +337,9 @@ async def _ensure_spatial_neighbors(
     results. If squidpy fails, the analysis should be terminated with proper error guidance.
     """
     if "spatial_neighbors" not in adata.uns:
-        if context:
-            await context.info(
-                f"Computing spatial neighbors with squidpy (n_neighbors={n_neighbors})..."
-            )
+        await ctx.info(
+            f"Computing spatial neighbors with squidpy (n_neighbors={n_neighbors})..."
+        )
 
         try:
             # Use squidpy's spatial-transcriptomics optimized method
@@ -376,10 +351,9 @@ async def _ensure_spatial_neighbors(
                 key_added="spatial",  # Standard key for spatial neighbors
             )
 
-            if context:
-                await context.info(
-                    "Spatial neighbors computed successfully with squidpy"
-                )
+            await ctx.info(
+                "Spatial neighbors computed successfully with squidpy"
+            )
 
         except Exception as e:
             error_msg = (
@@ -396,8 +370,7 @@ async def _ensure_spatial_neighbors(
                 "Analysis cannot proceed without proper spatial neighbors."
             )
 
-            if context:
-                await context.error(error_msg)
+            await ctx.error(error_msg)
 
             raise ProcessingError(
                 f"Spatial neighbor computation failed. Cannot proceed with spatial analysis. "
@@ -431,7 +404,7 @@ def _get_optimal_n_jobs(n_obs: int, requested_n_jobs: Optional[int] = None) -> i
 async def _analyze_morans_i(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """
     Calculates Moran's I to measure global spatial autocorrelation for genes.
@@ -445,8 +418,7 @@ async def _analyze_morans_i(
     The analysis is performed on highly variable genes by default, but a
     specific gene list can be provided.
     """
-    if context:
-        await context.info("Running Moran's I spatial autocorrelation analysis...")
+    await ctx.info("Running Moran's I spatial autocorrelation analysis...")
 
     # Determine genes to analyze (unified gene selection)
     if params.genes:
@@ -465,8 +437,7 @@ async def _analyze_morans_i(
             : params.n_top_genes
         ].tolist()
 
-    if context:
-        await context.info(f"Analyzing {len(genes)} genes for Moran's I...")
+    await ctx.info(f"Analyzing {len(genes)} genes for Moran's I...")
 
     # Optimize parallelization
     n_jobs = _get_optimal_n_jobs(adata.n_obs, params.n_jobs)
@@ -520,11 +491,10 @@ async def _analyze_morans_i(
 async def _analyze_gearys_c(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """Compute Geary's C spatial autocorrelation."""
-    if context:
-        await context.info("Running Geary's C spatial autocorrelation analysis...")
+    await ctx.info("Running Geary's C spatial autocorrelation analysis...")
 
     # Determine genes to analyze (unified gene selection)
     if params.genes:
@@ -581,11 +551,10 @@ async def _analyze_gearys_c(
 async def _analyze_neighborhood_enrichment(
     adata: ad.AnnData,
     cluster_key: str,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """Compute neighborhood enrichment analysis."""
-    if context:
-        await context.info("Running neighborhood enrichment analysis...")
+    await ctx.info("Running neighborhood enrichment analysis...")
 
     sq.gr.nhood_enrichment(adata, cluster_key=cluster_key)
 
@@ -608,11 +577,10 @@ async def _analyze_neighborhood_enrichment(
 async def _analyze_co_occurrence(
     adata: ad.AnnData,
     cluster_key: str,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """Compute co-occurrence analysis."""
-    if context:
-        await context.info("Running co-occurrence analysis...")
+    await ctx.info("Running co-occurrence analysis...")
 
     sq.gr.co_occurrence(adata, cluster_key=cluster_key)
 
@@ -628,11 +596,10 @@ async def _analyze_co_occurrence(
 async def _analyze_ripleys_k(
     adata: ad.AnnData,
     cluster_key: str,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """Compute Ripley's K function."""
-    if context:
-        await context.info("Running Ripley's K function analysis...")
+    await ctx.info("Running Ripley's K function analysis...")
 
     try:
         sq.gr.ripley(
@@ -648,15 +615,14 @@ async def _analyze_ripleys_k(
         analysis_key = f"{cluster_key}_ripley_L"
         return {"analysis_completed": True, "analysis_key": analysis_key}
     except Exception as e:
-        if context:
-            await context.warning(f"Ripley's K analysis failed: {e}")
+        await ctx.warning(f"Ripley's K analysis failed: {e}")
         return {"error": str(e)}
 
 
 async def _analyze_getis_ord(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """
     Performs Getis-Ord Gi* analysis to identify local spatial clusters.
@@ -677,8 +643,7 @@ async def _analyze_getis_ord(
     Ord, J.K. & Getis, A. (1995). Local Spatial Autocorrelation Statistics:
     Distributional Issues and an Application. Geographical Analysis, 27(4), 286-306.
     """
-    if context:
-        await context.info("Running Getis-Ord Gi* analysis...")
+    await ctx.info("Running Getis-Ord Gi* analysis...")
 
     # Determine genes to analyze (unified gene selection)
     if params.genes:
@@ -696,10 +661,13 @@ async def _analyze_getis_ord(
 
     getis_ord_results = {}
 
+    require("esda")  # Raises ImportError with install instructions if missing
+    require("libpysal")  # Raises ImportError with install instructions if missing
+    from esda.getisord import G_Local
+    from pysal.lib import weights
+    from scipy.stats import norm
+
     try:
-        from esda.getisord import G_Local
-        from pysal.lib import weights
-        from scipy.stats import norm
 
         # Calculate Z-score threshold from alpha level (two-tailed test)
         z_threshold = norm.ppf(1 - params.getis_ord_alpha / 2)
@@ -711,8 +679,7 @@ async def _analyze_getis_ord(
         # OPTIMIZATION: Extract all genes at once before loop (batch extraction)
         # This provides 50-150x speedup by avoiding repeated AnnData slicing overhead
         # See test_spatial_statistics_extreme_scale.py for performance validation
-        if context:
-            await context.info(f"Extracting {len(genes)} genes for batch processing...")
+        await ctx.info(f"Extracting {len(genes)} genes for batch processing...")
 
         y_all_genes = adata[:, genes].X
         if hasattr(y_all_genes, "toarray"):
@@ -722,8 +689,7 @@ async def _analyze_getis_ord(
         all_pvalues = {}
 
         for i, gene in enumerate(genes):
-            if context:
-                await context.info(f"Processing gene: {gene}")
+            await ctx.info(f"Processing gene: {gene}")
 
             # OPTIMIZATION: Direct indexing from pre-extracted dense matrix (fast!)
             y = y_all_genes[:, i].astype(np.float64)
@@ -791,12 +757,8 @@ async def _analyze_getis_ord(
                         np.sum((z_scores < -z_threshold) & significant_mask)
                     )
 
-    except ImportError:
-        raise ImportError(
-            "PySAL (Python Spatial Analysis Library) is required for Getis-Ord analysis but is not installed. "
-            "Please install it with: pip install 'libpysal' 'esda'. "
-            "Cannot perform spatial autocorrelation analysis without proper statistical methods."
-        )
+    except Exception as e:
+        raise ProcessingError(f"Getis-Ord analysis failed: {e}") from e
 
     return {
         "method": "Getis-Ord Gi* (star=True)",
@@ -815,11 +777,10 @@ async def _analyze_getis_ord(
 async def _analyze_centrality(
     adata: ad.AnnData,
     cluster_key: str,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """Compute centrality scores."""
-    if context:
-        await context.info("Computing centrality scores...")
+    await ctx.info("Computing centrality scores...")
 
     sq.gr.centrality_scores(adata, cluster_key=cluster_key)
 
@@ -844,7 +805,7 @@ async def _analyze_centrality(
 async def _analyze_bivariate_moran(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """
     Calculates Bivariate Moran's I to assess spatial correlation between two genes.
@@ -855,8 +816,7 @@ async def _analyze_bivariate_moran(
     A positive value suggests that high expression of gene A is surrounded by high
     expression of gene B.
     """
-    if context:
-        await context.info("Running Bivariate Moran's I analysis...")
+    await ctx.info("Running Bivariate Moran's I analysis...")
 
     # Get gene pairs from parameters - NO ARBITRARY DEFAULTS
     if not params.gene_pairs:
@@ -872,8 +832,11 @@ async def _analyze_bivariate_moran(
 
     results = {}
 
+    # Use centralized dependency manager for consistent error handling
+    require("libpysal")  # Raises ImportError with install instructions if missing
+    from libpysal.weights import KNN
+
     try:
-        from libpysal.weights import KNN
 
         coords = adata.obsm["spatial"]
         w = KNN.from_array(coords, k=params.n_neighbors)
@@ -886,10 +849,9 @@ async def _analyze_bivariate_moran(
             set([g for pair in gene_pairs for g in pair if g in adata.var_names])
         )
 
-        if context:
-            await context.info(
-                f"Extracting {len(all_genes_in_pairs)} unique genes from {len(gene_pairs)} pairs..."
-            )
+        await ctx.info(
+            f"Extracting {len(all_genes_in_pairs)} unique genes from {len(gene_pairs)} pairs..."
+        )
 
         expr_all = adata[:, all_genes_in_pairs].X
         if hasattr(expr_all, "toarray"):
@@ -929,8 +891,7 @@ async def _analyze_bivariate_moran(
                 results[f"{gene1}_vs_{gene2}"] = float(moran_i)
 
     except Exception as e:
-        if context:
-            await context.warning(f"Bivariate Moran's I failed: {e}")
+        await ctx.warning(f"Bivariate Moran's I failed: {e}")
         return {"error": str(e)}
 
     return {
@@ -944,7 +905,7 @@ async def _analyze_join_count(
     adata: ad.AnnData,
     cluster_key: str,
     params: SpatialStatisticsParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """
     Compute traditional Join Count statistics for BINARY categorical spatial data.
@@ -969,8 +930,8 @@ async def _analyze_join_count(
         Column in adata.obs containing the categorical variable (must have exactly 2 categories)
     params : SpatialStatisticsParameters
         Analysis parameters including n_neighbors
-    context : Optional[Context]
-        MCP context for logging
+    ctx : ToolContext
+        ToolContext for logging and data access
 
     Returns
     -------
@@ -990,8 +951,12 @@ async def _analyze_join_count(
     --------
     _analyze_local_join_count : For multi-category data (>2 categories)
     """
-    if context:
-        await context.info("Running Join Count analysis...")
+    await ctx.info("Running Join Count analysis...")
+
+    # Check for required dependencies
+    if not is_available("esda") or not is_available("libpysal"):
+        await ctx.warning("Join Count requires esda and libpysal packages")
+        return {"error": "esda or libpysal package not installed. Install with: pip install esda libpysal"}
 
     try:
         from esda.join_counts import Join_Counts
@@ -1014,10 +979,6 @@ async def _analyze_join_count(
             "p_value": float(jc.p_sim) if hasattr(jc, "p_sim") else None,
         }
 
-    except ImportError:
-        if context:
-            await context.warning("Join Count requires esda package")
-        return {"error": "esda package not installed"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -1026,7 +987,7 @@ async def _analyze_local_join_count(
     adata: ad.AnnData,
     cluster_key: str,
     params: SpatialStatisticsParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """
     Compute Local Join Count statistics for MULTI-CATEGORY categorical spatial data.
@@ -1058,8 +1019,8 @@ async def _analyze_local_join_count(
         Column in adata.obs containing the categorical variable (can have any number of categories)
     params : SpatialStatisticsParameters
         Analysis parameters including n_neighbors
-    context : Optional[Context]
-        MCP context for logging
+    ctx : ToolContext
+        ToolContext for logging and data access
 
     Returns
     -------
@@ -1097,15 +1058,19 @@ async def _analyze_local_join_count(
     Examples
     --------
     For a dataset with 7 cell type categories:
-    >>> result = await _analyze_local_join_count(adata, 'leiden', params, context)
+    >>> result = await _analyze_local_join_count(adata, 'leiden', params, ctx)
     >>> # Check which cell types show significant clustering
     >>> for cat, stats in result['per_category_stats'].items():
     ...     print(f"{cat}: {stats['n_hotspots']} significant hotspots")
     """
-    if context:
-        await context.info(
-            "Running Local Join Count analysis for multi-category data..."
-        )
+    await ctx.info(
+        "Running Local Join Count analysis for multi-category data..."
+    )
+
+    # Check for required dependencies
+    if not is_available("esda") or not is_available("libpysal"):
+        await ctx.warning("Local Join Count requires esda and libpysal packages")
+        return {"error": "esda or libpysal package not installed (requires esda >= 2.4.0). Install with: pip install esda libpysal"}
 
     try:
         from esda.join_counts_local import Join_Counts_Local
@@ -1122,10 +1087,9 @@ async def _analyze_local_join_count(
         categories = adata.obs[cluster_key].unique()
         n_categories = len(categories)
 
-        if context:
-            await context.info(
-                f"Analyzing {n_categories} categories: {', '.join(map(str, categories))}"
-            )
+        await ctx.info(
+            f"Analyzing {n_categories} categories: {', '.join(map(str, categories))}"
+        )
 
         results = {}
 
@@ -1160,10 +1124,9 @@ async def _analyze_local_join_count(
             "per_category_stats": results,
         }
 
-        if context:
-            await context.info(
-                f"Local Join Count analysis complete for {n_categories} categories"
-            )
+        await ctx.info(
+            f"Local Join Count analysis complete for {n_categories} categories"
+        )
 
         return {
             "method": "Local Join Count Statistics (Anselin & Li 2019)",
@@ -1178,15 +1141,8 @@ async def _analyze_local_join_count(
             ),
         }
 
-    except ImportError as e:
-        if context:
-            await context.warning(f"Local Join Count requires esda package: {e}")
-        return {
-            "error": "esda package not installed or outdated (requires esda >= 2.4.0)"
-        }
     except Exception as e:
-        if context:
-            await context.warning(f"Local Join Count analysis failed: {str(e)}")
+        await ctx.warning(f"Local Join Count analysis failed: {str(e)}")
         return {"error": f"Local Join Count analysis failed: {str(e)}"}
 
 
@@ -1194,15 +1150,19 @@ async def _analyze_network_properties(
     adata: ad.AnnData,
     cluster_key: str,
     params: SpatialStatisticsParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """
     Analyze network properties of spatial graph.
 
     Migrated from spatial_statistics.py
     """
-    if context:
-        await context.info("Analyzing network properties...")
+    await ctx.info("Analyzing network properties...")
+
+    # Check for required dependencies
+    if not is_available("networkx"):
+        await ctx.warning("NetworkX not installed")
+        return {"error": "networkx package required. Install with: pip install networkx"}
 
     try:
         import networkx as nx
@@ -1259,10 +1219,6 @@ async def _analyze_network_properties(
 
         return properties
 
-    except ImportError:
-        if context:
-            await context.warning("NetworkX not installed")
-        return {"error": "networkx package required"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -1271,15 +1227,18 @@ async def _analyze_spatial_centrality(
     adata: ad.AnnData,
     cluster_key: str,
     params: SpatialStatisticsParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """
     Compute various centrality measures for spatial network.
 
     Migrated from spatial_statistics.py
     """
-    if context:
-        await context.info("Computing spatial centrality measures...")
+    await ctx.info("Computing spatial centrality measures...")
+
+    # Check for required dependencies
+    if not is_available("networkx"):
+        return {"error": "NetworkX required for centrality analysis. Install with: pip install networkx"}
 
     try:
         import networkx as nx
@@ -1342,8 +1301,6 @@ async def _analyze_spatial_centrality(
             },
         }
 
-    except ImportError:
-        return {"error": "NetworkX required for centrality analysis"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -1351,7 +1308,7 @@ async def _analyze_spatial_centrality(
 async def _analyze_local_moran(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
-    context: Optional[Context] = None,
+    ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """
     Calculate Local Moran's I (LISA) for spatial clustering detection.
@@ -1365,8 +1322,8 @@ async def _analyze_local_moran(
         Annotated data object
     params : SpatialStatisticsParameters
         Analysis parameters including genes to analyze
-    context : Optional[Context]
-        MCP context for logging
+    ctx : ToolContext
+        ToolContext for logging and data access
 
     Returns
     -------
@@ -1393,19 +1350,15 @@ async def _analyze_local_moran(
     """
     from scipy.sparse import issparse
 
-    try:
-        # Import PySAL components for proper LISA analysis
-        try:
-            from esda.moran import Moran_Local
-            from libpysal.weights import W as PySALWeights
-        except ImportError:
-            raise ImportError(
-                "Local Moran's I analysis requires PySAL packages. "
-                "Install with: pip install esda libpysal"
-            )
+    # Import PySAL components for proper LISA analysis
+    require("esda")  # Raises ImportError with install instructions if missing
+    require("libpysal")  # Raises ImportError with install instructions if missing
+    from esda.moran import Moran_Local
+    from libpysal.weights import W as PySALWeights
 
+    try:
         # Ensure spatial neighbors exist
-        await _ensure_spatial_neighbors(adata, params.n_neighbors, context)
+        await _ensure_spatial_neighbors(adata, params.n_neighbors, ctx)
 
         # Determine genes to analyze
         if params.genes:
@@ -1423,8 +1376,8 @@ async def _analyze_local_moran(
         for gene in genes:
             if gene in adata.var_names:
                 valid_genes.append(gene)
-            elif context:
-                await context.warning(f"Gene {gene} not found in dataset")
+            else:
+                await ctx.warning(f"Gene {gene} not found in dataset")
 
         if not valid_genes:
             return {"error": "No valid genes found for analysis"}
@@ -1458,11 +1411,10 @@ async def _analyze_local_moran(
         alpha = params.local_moran_alpha
         use_fdr = params.local_moran_fdr_correction
 
-        if context:
-            await context.info(
-                f"Running Local Moran's I (LISA) with {permutations} permutations, "
-                f"alpha={alpha}, FDR correction={'enabled' if use_fdr else 'disabled'}"
-            )
+        await ctx.info(
+            f"Running Local Moran's I (LISA) with {permutations} permutations, "
+            f"alpha={alpha}, FDR correction={'enabled' if use_fdr else 'disabled'}"
+        )
 
         # Extract all genes at once for efficiency
         if issparse(adata.X):
@@ -1490,28 +1442,15 @@ async def _analyze_local_moran(
 
             # Apply FDR correction if requested
             if use_fdr and permutations > 0:
-                try:
-                    from statsmodels.stats.multitest import multipletests
-                    _, p_corrected, _, _ = multipletests(
-                        p_values, alpha=alpha, method='fdr_bh'
-                    )
-                    significant = p_corrected < alpha
-                    p_threshold = alpha  # After FDR correction
-                except ImportError as e:
-                    # statsmodels is required for proper statistical analysis
-                    raise ImportError(
-                        "statsmodels is required for FDR correction but not installed.\n\n"
-                        "FDR correction is ESSENTIAL for Local Moran's I analysis because\n"
-                        "each spatial location is tested separately, creating a massive\n"
-                        "multiple testing problem. Without FDR correction, results would\n"
-                        "have unacceptably high false positive rates.\n\n"
-                        "SOLUTION: Install statsmodels:\n"
-                        "  pip install statsmodels\n\n"
-                        "This is a core ChatSpatial dependency and should be installed."
-                    ) from e
+                # Check statsmodels availability for FDR correction
+                require("statsmodels")  # Raises ImportError with install instructions if missing
+                from statsmodels.stats.multitest import multipletests
+                _, p_corrected, _, _ = multipletests(
+                    p_values, alpha=alpha, method='fdr_bh'
+                )
+                significant = p_corrected < alpha
             else:
                 significant = p_values < alpha
-                p_threshold = alpha
 
             # Classify by quadrant AND significance
             # PySAL quadrant codes: 1=HH, 2=LH, 3=LL, 4=HL
@@ -1564,15 +1503,14 @@ async def _analyze_local_moran(
             "reference": "Anselin, L. (1995). Local Indicators of Spatial Association - LISA",
         }
 
-        if context:
-            total_significant = sum(r["n_significant"] for r in results.values())
-            total_hotspots = sum(r["n_hotspots"] for r in results.values())
-            total_coldspots = sum(r["n_coldspots"] for r in results.values())
-            await context.info(
-                f"Local Moran's I completed for {len(valid_genes)} genes: "
-                f"{total_significant} significant locations "
-                f"({total_hotspots} hot spots, {total_coldspots} cold spots)"
-            )
+        total_significant = sum(r["n_significant"] for r in results.values())
+        total_hotspots = sum(r["n_hotspots"] for r in results.values())
+        total_coldspots = sum(r["n_coldspots"] for r in results.values())
+        await ctx.info(
+            f"Local Moran's I completed for {len(valid_genes)} genes: "
+            f"{total_significant} significant locations "
+            f"({total_hotspots} hot spots, {total_coldspots} cold spots)"
+        )
 
         return {
             "analysis_type": "local_moran",
@@ -1596,6 +1534,5 @@ async def _analyze_local_moran(
         }
 
     except Exception as e:
-        if context:
-            await context.warning(f"Local Moran's I analysis failed: {str(e)}")
+        await ctx.warning(f"Local Moran's I analysis failed: {str(e)}")
         return {"error": f"Local Moran's I analysis failed: {str(e)}"}

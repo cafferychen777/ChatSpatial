@@ -60,9 +60,10 @@ from .models.data import (
     VisualizationParameters,
 )
 from .spatial_mcp_adapter import MCPToolMetadata  # noqa: E402
+from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
-from .utils.error_handling import ProcessingError  # noqa: E402
-from .utils.tool_error_handling import mcp_tool_error_handler  # noqa: E402
+from .utils.exceptions import ProcessingError  # noqa: E402
+from .utils.mcp_utils import mcp_tool_error_handler  # noqa: E402
 
 # Lazy imports for heavy dependencies - imported when first used
 # This significantly speeds up server startup time
@@ -224,15 +225,13 @@ async def preprocess_data(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Call preprocessing function
-    result = await preprocess_func(data_id, data_store, params, context)
+    # Call preprocessing function with ToolContext
+    result = await preprocess_func(data_id, ctx, params)
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save preprocessing result
     await data_manager.save_result(data_id, "preprocessing", result)
@@ -328,15 +327,14 @@ async def visualize_data(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Parameter validation is handled by Pydantic model
     # params is already a validated VisualizationParameters instance
 
-    # Call visualization function
-    image = await visualize_func(data_id, data_store, params, context)
+    # Call visualization function with ToolContext
+    image = await visualize_func(data_id, ctx, params)
 
     # Create visualization resource and return the image
     if image is not None:
@@ -433,7 +431,11 @@ async def save_visualization(
     dpi: Optional[int] = None,
     context: Optional[Context] = None,
 ) -> str:
-    """Save a visualization from cache to disk
+    """Save a visualization to disk at publication quality
+
+    This function regenerates visualizations from stored metadata and the original
+    data, then exports at the requested quality. This secure approach avoids
+    unsafe pickle deserialization.
 
     Args:
         data_id: Dataset ID
@@ -462,16 +464,19 @@ async def save_visualization(
     # Get the visualization cache from the adapter's resource manager
     visualization_cache = adapter.resource_manager._visualization_cache
 
+    # Create ToolContext for unified data access
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
     result = await save_func(
         data_id=data_id,
         plot_type=plot_type,
+        ctx=ctx,
         subtype=subtype,
         output_dir=output_dir,
         filename=filename,
         format=format,
         dpi=dpi,
         visualization_cache=visualization_cache,
-        context=context,
     )
 
     return result
@@ -487,6 +492,10 @@ async def export_all_visualizations(
     context: Optional[Context] = None,
 ) -> List[str]:
     """Export all cached visualizations for a dataset to disk
+
+    This function regenerates each visualization from stored metadata and the original
+    data, then exports at the requested quality. This secure approach avoids
+    unsafe pickle deserialization.
 
     Args:
         data_id: Dataset ID to export visualizations for
@@ -512,13 +521,16 @@ async def export_all_visualizations(
     # Get the visualization cache from the adapter's resource manager
     visualization_cache = adapter.resource_manager._visualization_cache
 
+    # Create ToolContext for unified data access
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
     result = await export_func(
         data_id=data_id,
+        ctx=ctx,
         output_dir=output_dir,
         format=format,
         dpi=dpi,
         visualization_cache=visualization_cache,
-        context=context,
     )
 
     return result
@@ -623,33 +635,29 @@ async def annotate_cell_types(
             - Mouse: 'immgen' (recommended), 'mouse_rnaseq'
           * Custom reference (via reference_data_id parameter)
         - Common mistakes:
-          * ✗ 'HumanPrimaryCellAtlasData' → ✓ use 'hpca'
-          * ✗ 'ImmGenData' → ✓ use 'immgen'
+          * 'HumanPrimaryCellAtlasData' - WRONG, use 'hpca'
+          * 'ImmGenData' - WRONG, use 'immgen'
         - Returns correlation-based confidence scores for cell type assignments
         - No GPU required (Python-based implementation via singler/celldex packages)
     """
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
-
     # Validate reference data for methods that require it
     if params.method in ["tangram", "scanvi", "singler"] and params.reference_data_id:
         if params.reference_data_id not in data_manager.data_store:
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
-        ref_info = await data_manager.get_dataset(params.reference_data_id)
-        data_store[params.reference_data_id] = ref_info
+
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import annotation tool (avoids slow startup)
     from .tools.annotation import annotate_cell_types
 
-    # Call annotation function
-    result = await annotate_cell_types(data_id, data_store, params, context)
+    # Call annotation function with ToolContext
+    result = await annotate_cell_types(data_id, ctx, params)
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save annotation result
     await data_manager.save_result(data_id, "annotation", result)
@@ -711,20 +719,18 @@ async def analyze_spatial_statistics(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import spatial_statistics (squidpy is slow to import)
     from .tools.spatial_statistics import (
         analyze_spatial_statistics as _analyze_spatial_statistics,
     )
 
-    # Call spatial statistics analysis function
-    result = await _analyze_spatial_statistics(data_id, data_store, params, context)
+    # Call spatial statistics analysis function with ToolContext
+    result = await _analyze_spatial_statistics(data_id, ctx, params)
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save spatial statistics result
     await data_manager.save_result(data_id, "spatial_statistics", result)
@@ -777,29 +783,26 @@ async def find_markers(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import differential expression tool
     from .tools.differential import differential_expression
 
-    # Call differential expression function
+    # Call differential expression function with ToolContext
     result = await differential_expression(
         data_id=data_id,
-        data_store=data_store,
+        ctx=ctx,
         group_key=group_key,
         group1=group1,
         group2=group2,
         method=method,
-        n_top_genes=n_top_genes,  # Direct parameter pass-through - no conversion needed
-        pseudocount=pseudocount,  # User-configurable pseudocount for fold change
-        min_cells=min_cells,  # User-configurable minimum cells per group
-        context=context,
+        n_top_genes=n_top_genes,
+        pseudocount=pseudocount,
+        min_cells=min_cells,
     )
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save differential expression result
     await data_manager.save_result(data_id, "differential_expression", result)
@@ -881,9 +884,8 @@ async def analyze_cnv(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Create CNVParameters object
     # Type: ignore needed for Literal parameters validated at runtime by Pydantic
@@ -909,13 +911,10 @@ async def analyze_cnv(
     # Lazy import CNV analysis tool
     from .tools.cnv_analysis import infer_cnv
 
-    # Call CNV inference function
-    result = await infer_cnv(
-        data_id=data_id, data_store=data_store, params=params, context=context
-    )
+    # Call CNV inference function with ToolContext
+    result = await infer_cnv(data_id=data_id, ctx=ctx, params=params)
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save CNV result
     await data_manager.save_result(data_id, "cnv_analysis", result)
@@ -953,18 +952,16 @@ async def analyze_velocity_data(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import trajectory analysis tool
     from .tools.trajectory import analyze_rna_velocity
 
-    # Call RNA velocity function
-    result = await analyze_rna_velocity(data_id, data_store, params, context)
+    # Call RNA velocity function with ToolContext
+    result = await analyze_rna_velocity(data_id, ctx, params)
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save velocity result
     await data_manager.save_result(data_id, "rna_velocity", result)
@@ -1006,15 +1003,13 @@ async def analyze_trajectory_data(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Call trajectory function
-    result = await analyze_trajectory(data_id, data_store, params, context)
+    # Call trajectory function with ToolContext
+    result = await analyze_trajectory(data_id, ctx, params)
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save trajectory result
     await data_manager.save_result(data_id, "trajectory", result)
@@ -1053,29 +1048,25 @@ async def integrate_samples(
         - contrastivevi: Not integrated (designed for Perturb-seq use cases)
     """
     # Import integration function
-    from .tools.integration import integrate_samples
+    from .tools.integration import integrate_samples as integrate_func
 
     # Validate all datasets
     for data_id in data_ids:
         validate_dataset(data_id)
 
-    # Get all datasets from data manager
-    data_store = {}
-    for data_id in data_ids:
-        dataset_info = await data_manager.get_dataset(data_id)
-        data_store[data_id] = dataset_info
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Call integration function
-    result = await integrate_samples(data_ids, data_store, params, context)
+    # Call integration function with ToolContext
+    # Note: integrate_func uses ctx.add_dataset() to store the integrated dataset
+    result = await integrate_func(data_ids, ctx, params)
 
-    # Save integrated dataset
+    # Save integrated dataset resource
     integrated_id = result.data_id
-    if integrated_id and integrated_id in data_store:
-        data_manager.data_store[integrated_id] = data_store[integrated_id]
-
+    if integrated_id and integrated_id in data_manager.data_store:
         # Create resource for integrated dataset
         await adapter.resource_manager.create_dataset_resource(
-            integrated_id, data_store[integrated_id]
+            integrated_id, data_manager.data_store[integrated_id]
         )
 
     # Save integration result
@@ -1181,25 +1172,21 @@ async def deconvolve_data(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
-
     # Validate reference data if provided
     if params.reference_data_id:
         if params.reference_data_id not in data_manager.data_store:
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
-        ref_info = await data_manager.get_dataset(params.reference_data_id)
-        data_store[params.reference_data_id] = ref_info
+
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import deconvolution tool
     from .tools.deconvolution import deconvolve_spatial_data
 
-    # Call deconvolution function
-    result = await deconvolve_spatial_data(data_id, data_store, params, context)
+    # Call deconvolution function with ToolContext
+    result = await deconvolve_spatial_data(data_id, ctx, params)
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save deconvolution result
     await data_manager.save_result(data_id, "deconvolution", result)
@@ -1244,15 +1231,13 @@ async def identify_spatial_domains(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Call spatial domains function
-    result = await identify_domains_func(data_id, data_store, params, context)
+    # Call spatial domains function with ToolContext
+    result = await identify_domains_func(data_id, ctx, params)
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save spatial domains result
     await data_manager.save_result(data_id, "spatial_domains", result)
@@ -1415,15 +1400,13 @@ async def analyze_cell_communication(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Call cell communication function
-    result = await analyze_comm_func(data_id, data_store, params, context)
+    # Call cell communication function with ToolContext
+    result = await analyze_comm_func(data_id, ctx, params)
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save communication result
     await data_manager.save_result(data_id, "cell_communication", result)
@@ -1503,9 +1486,8 @@ async def analyze_enrichment(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Check if params is None (parameter is required now)
     if params is None:
@@ -1516,7 +1498,7 @@ async def analyze_enrichment(
         )
 
     # Get adata for gene set handling
-    adata = data_store[data_id]["adata"]
+    adata = await ctx.get_adata(data_id)
 
     # Handle gene sets - either user-provided or from database
     gene_sets = params.gene_sets
@@ -1527,12 +1509,8 @@ async def analyze_enrichment(
             await context.info(f"Loading gene sets from {params.gene_set_database}")
 
         # Load gene sets based on database name
-        try:
-            from .tools.enrichment import load_gene_sets
-        except ImportError:
-            raise ProcessingError(
-                "gseapy package is required for gene set loading. Install with: pip install gseapy"
-            )
+        # Note: gseapy dependency is handled inside enrichment.py via is_gseapy_available()
+        from .tools.enrichment import load_gene_sets
         try:
             # Use species from explicit parameter (no defaults, no auto-detection)
             if not hasattr(params, "species") or params.species is None:
@@ -1601,7 +1579,7 @@ async def analyze_enrichment(
         # Spatial enrichment analysis using EnrichMap
         result_dict = await perform_enrichment_analysis(
             data_id=data_id,
-            data_store=data_store,
+            ctx=ctx,
             gene_sets=gene_sets,
             score_keys=params.score_keys,
             spatial_key=params.spatial_key,
@@ -1612,7 +1590,6 @@ async def analyze_enrichment(
             gene_weights=params.gene_weights,
             species=params.species,
             database=params.gene_set_database,
-            context=context,
         )
         if context:
             await context.info(
@@ -1703,8 +1680,7 @@ async def analyze_enrichment(
         else:
             raise ValueError(f"Unknown enrichment method: {params.method}")
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # result_dict is already an EnrichmentResult object
     result = result_dict
@@ -1749,18 +1725,16 @@ async def find_spatial_genes(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Get dataset from data manager
-    dataset_info = await data_manager.get_dataset(data_id)
-    data_store = {data_id: dataset_info}
+    # Create ToolContext for clean data access (no redundant dict wrapping)
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import spatial genes tool
     from .tools.spatial_genes import identify_spatial_genes
 
-    # Call spatial genes function
-    result = await identify_spatial_genes(data_id, data_store, params, context)
+    # Call spatial genes function with ToolContext
+    result = await identify_spatial_genes(data_id, ctx, params)
 
-    # Update dataset in data manager
-    data_manager.data_store[data_id] = data_store[data_id]
+    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save spatial genes result
     await data_manager.save_result(data_id, "spatial_genes", result)
@@ -1802,19 +1776,12 @@ async def register_spatial_data(
     validate_dataset(source_id)
     validate_dataset(target_id)
 
-    # Get datasets from data manager
-    source_info = await data_manager.get_dataset(source_id)
-    target_info = await data_manager.get_dataset(target_id)
-    data_store = {source_id: source_info, target_id: target_info}
+    # Create ToolContext for unified data access
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Call registration function using standard architecture
-    result = await register_spatial_slices_mcp(
-        source_id, target_id, data_store, method, context
-    )
-
-    # Update datasets in data manager
-    data_manager.data_store[source_id] = data_store[source_id]
-    data_manager.data_store[target_id] = data_store[target_id]
+    # Call registration function using ToolContext
+    result = await register_spatial_slices_mcp(source_id, target_id, ctx, method)
+    # Note: registration updates data_store directly since it returns new adata objects
 
     # Save registration result
     await data_manager.save_result(source_id, "registration", result)
@@ -1980,7 +1947,7 @@ async def save_data(
         Saved files include all preprocessing, analysis results, and metadata.
         Use CHATSPATIAL_DATA_DIR environment variable for centralized storage.
     """
-    from .utils.adata_persistence import save_adata
+    from .utils.data_loader import save_adata
 
     # Validate dataset exists
     validate_dataset(data_id)
