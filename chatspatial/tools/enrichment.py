@@ -19,7 +19,7 @@ from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
 from ..utils.adata_utils import store_analysis_metadata
-from ..utils.dependency_manager import is_available
+from ..utils.dependency_manager import is_available, require
 from ..utils.exceptions import DependencyError, ParameterError, ProcessingError
 
 logger = logging.getLogger(__name__)
@@ -335,13 +335,6 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
 # ============================================================================
 
 
-def is_gseapy_available() -> Tuple[bool, str]:
-    """Check if gseapy is available using centralized dependency manager."""
-    if is_available("gseapy"):
-        return True, ""
-    return False, "gseapy not installed. Install with: pip install gseapy"
-
-
 async def perform_gsea(
     adata,
     gene_sets: Dict[str, List[str]],
@@ -384,10 +377,7 @@ async def perform_gsea(
     -------
     Dict containing enrichment results
     """
-    gseapy_available, error_msg = is_gseapy_available()
-    if not gseapy_available:
-        raise DependencyError(error_msg)
-
+    require("gseapy", ctx, feature="GSEA analysis")
     import gseapy as gp
 
     if ctx:
@@ -912,10 +902,7 @@ async def perform_ssgsea(
     -------
     Dict containing enrichment results
     """
-    gseapy_available, error_msg = is_gseapy_available()
-    if not gseapy_available:
-        raise DependencyError(error_msg)
-
+    require("gseapy", ctx, feature="ssGSEA analysis")
     import gseapy as gp
 
     if ctx:
@@ -1084,10 +1071,7 @@ async def perform_enrichr(
     -------
     Dict containing enrichment results
     """
-    gseapy_available, error_msg = is_gseapy_available()
-    if not gseapy_available:
-        raise DependencyError(error_msg)
-
+    require("gseapy", ctx, feature="Enrichr analysis")
     import gseapy as gp
 
     if ctx:
@@ -1196,37 +1180,6 @@ async def perform_enrichr(
 # ============================================================================
 
 
-def is_enrichmap_available() -> Tuple[bool, str]:
-    """Check if EnrichMap is available and all dependencies are met using centralized dependency manager."""
-    # Use centralized dependency manager for consistent availability checks
-    if not is_available("enrichmap"):
-        return False, "EnrichMap not installed. Install with: pip install enrichmap"
-
-    # Check for required dependencies using dependency manager
-    # Map dependency names (as in registry) to their pip package names
-    dependencies = {
-        "scanpy": "scanpy",
-        "squidpy": "squidpy",
-        "scipy": "scipy",
-        "sklearn": "scikit-learn",
-        "statsmodels": "statsmodels",
-        "pygam": "pygam",
-        "skgstat": "scikit-gstat",
-        "adjustText": "adjustText",
-        "splot": "splot",
-    }
-
-    missing = []
-    for dep_name, package_name in dependencies.items():
-        if not is_available(dep_name):
-            missing.append(package_name)
-
-    if missing:
-        return False, f"Missing EnrichMap dependencies: {', '.join(missing)}"
-
-    return True, ""
-
-
 async def perform_spatial_enrichment(
     data_id: str,
     ctx: "ToolContext",
@@ -1281,9 +1234,7 @@ async def perform_spatial_enrichment(
         - summary_stats: Summary statistics for each signature
     """
     # Check if EnrichMap is available
-    enrichmap_available, error_msg = is_enrichmap_available()
-    if not enrichmap_available:
-        raise ProcessingError(f"EnrichMap is not available: {error_msg}")
+    require("enrichmap", ctx, feature="spatial enrichment analysis")
 
     # Import EnrichMap
     import enrichmap as em
