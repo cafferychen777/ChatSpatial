@@ -10,7 +10,8 @@ This module provides:
 One file for all AnnData-related utilities. No duplication.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import (TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set,
+                    Tuple)
 
 import numpy as np
 import pandas as pd
@@ -523,6 +524,88 @@ def get_highly_variable_genes(
     return []
 
 
+def select_genes_for_analysis(
+    adata: "ad.AnnData",
+    genes: Optional[List[str]] = None,
+    n_genes: int = 20,
+    require_hvg: bool = True,
+    analysis_name: str = "analysis",
+) -> List[str]:
+    """
+    Select genes for spatial/statistical analysis.
+
+    Unified gene selection logic for all analysis tools. Replaces duplicated
+    code across spatial_statistics.py and other tools.
+
+    Priority:
+        1. User-specified genes (filtered to existing genes)
+        2. Highly variable genes (HVG) from preprocessing
+
+    Args:
+        adata: AnnData object
+        genes: User-specified gene list. If provided, filters to genes in adata.
+        n_genes: Maximum number of genes to return when using HVG.
+        require_hvg: If True (default), raise error when HVG not found.
+                    If False, return empty list when HVG not found.
+        analysis_name: Name of analysis for error messages (e.g., "Moran's I").
+
+    Returns:
+        List of gene names to analyze.
+
+    Raises:
+        DataError: If genes specified but none found, or HVG required but missing.
+
+    Examples:
+        # Use user-specified genes
+        genes = select_genes_for_analysis(adata, genes=["CD4", "CD8A"])
+
+        # Use top 50 HVGs
+        genes = select_genes_for_analysis(adata, n_genes=50)
+
+        # For analysis that can work without HVG
+        genes = select_genes_for_analysis(adata, require_hvg=False)
+    """
+    # Case 1: User specified genes
+    if genes is not None:
+        valid_genes = [g for g in genes if g in adata.var_names]
+        if not valid_genes:
+            # Find closest matches for better error message
+            from difflib import get_close_matches
+
+            suggestions = []
+            for g in genes[:3]:  # Check first 3 genes
+                matches = get_close_matches(
+                    g, adata.var_names.tolist(), n=1, cutoff=0.6
+                )
+                if matches:
+                    suggestions.append(f"'{g}' → '{matches[0]}'?")
+
+            suggestion_str = (
+                f" Did you mean: {', '.join(suggestions)}" if suggestions else ""
+            )
+            raise DataError(
+                f"None of the specified genes found in data: {genes[:5]}..."
+                f"{suggestion_str}"
+            )
+        return valid_genes
+
+    # Case 2: Use HVG
+    if "highly_variable" in adata.var.columns and adata.var["highly_variable"].any():
+        hvg_genes = adata.var_names[adata.var["highly_variable"]].tolist()
+        return hvg_genes[:n_genes]
+
+    # Case 3: HVG not available
+    if require_hvg:
+        raise DataError(
+            f"Highly variable genes (HVG) required for {analysis_name}.\n\n"
+            "Solutions:\n"
+            "1. Run preprocess_data() first to compute HVGs\n"
+            "2. Specify genes explicitly via 'genes' parameter"
+        )
+
+    return []
+
+
 # =============================================================================
 # Gene Name Utilities
 # =============================================================================
@@ -806,7 +889,9 @@ def get_gene_profile(
         - top_expressed_genes: List of top 10 expressed gene names
     """
     # Highly variable genes (no fallback - only return if precomputed)
-    hvg_list = get_highly_variable_genes(adata, max_genes=10, fallback_to_variance=False)
+    hvg_list = get_highly_variable_genes(
+        adata, max_genes=10, fallback_to_variance=False
+    )
     top_hvg = hvg_list if hvg_list else None
 
     # Top expressed genes

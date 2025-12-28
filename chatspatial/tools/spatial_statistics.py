@@ -27,23 +27,20 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import anndata as ad
 import numpy as np
-
-from ..utils.dependency_manager import is_available, require
 import pandas as pd
 import squidpy as sq
 
+from ..utils.dependency_manager import is_available, require
+
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
+
 from ..models.analysis import SpatialStatisticsResult
 from ..models.data import SpatialStatisticsParameters
-from ..utils.adata_utils import validate_adata_basics
-from ..utils.exceptions import (
-    DataCompatibilityError,
-    DataNotFoundError,
-    ParameterError,
-    ProcessingError,
-)
-
+from ..utils.adata_utils import (select_genes_for_analysis,
+                                 validate_adata_basics)
+from ..utils.exceptions import (DataCompatibilityError, DataNotFoundError,
+                                ParameterError, ProcessingError)
 
 # ============================================================================
 # MAIN ENTRY POINT
@@ -406,23 +403,13 @@ async def _analyze_morans_i(
     """
     await ctx.info("Running Moran's I spatial autocorrelation analysis...")
 
-    # Determine genes to analyze (unified gene selection)
-    if params.genes:
-        # Use specific genes
-        genes = [g for g in params.genes if g in adata.var_names]
-        if not genes:
-            raise ValueError(f"None of the specified genes found: {params.genes}")
-    else:
-        # Use highly variable genes
-        if "highly_variable" not in adata.var or not adata.var["highly_variable"].any():
-            raise ValueError(
-                "Highly variable genes not found. Please run preprocessing first."
-            )
-        # Use n_top_genes for gene selection
-        genes = adata.var_names[adata.var["highly_variable"]][
-            : params.n_top_genes
-        ].tolist()
-
+    # Unified gene selection
+    genes = select_genes_for_analysis(
+        adata,
+        genes=params.genes,
+        n_genes=params.n_top_genes,
+        analysis_name="Moran's I",
+    )
     await ctx.info(f"Analyzing {len(genes)} genes for Moran's I...")
 
     # Optimize parallelization
@@ -482,32 +469,13 @@ async def _analyze_gearys_c(
     """Compute Geary's C spatial autocorrelation."""
     await ctx.info("Running Geary's C spatial autocorrelation analysis...")
 
-    # Determine genes to analyze (unified gene selection)
-    if params.genes:
-        # Use specific genes
-        genes = [g for g in params.genes if g in adata.var_names]
-        if not genes:
-            raise ValueError(f"None of the specified genes found: {params.genes}")
-    else:
-        # Use highly variable genes - REQUIRE them to exist
-        if "highly_variable" in adata.var and adata.var["highly_variable"].any():
-            genes = adata.var_names[adata.var["highly_variable"]][
-                : params.n_top_genes
-            ].tolist()
-        else:
-            # NO SILENT FALLBACK - require HVGs or explicit gene list
-            raise ValueError(
-                "No highly variable genes (HVGs) found in data.\n\n"
-                "Geary's C analysis requires either:\n"
-                "1. HVGs computed via preprocessing (recommended)\n"
-                "2. Explicit gene list via 'genes' parameter\n\n"
-                "SOLUTIONS:\n"
-                "1. Run preprocess_data() first to compute HVGs\n"
-                "2. Specify genes explicitly: genes=['GENE1', 'GENE2', ...]\n\n"
-                "WHY THIS MATTERS:\n"
-                "Without HVGs, the analysis would use arbitrary genes based on\n"
-                "file order, producing meaningless results."
-            )
+    # Unified gene selection
+    genes = select_genes_for_analysis(
+        adata,
+        genes=params.genes,
+        n_genes=params.n_top_genes,
+        analysis_name="Geary's C",
+    )
 
     sq.gr.spatial_autocorr(
         adata,
@@ -631,19 +599,13 @@ async def _analyze_getis_ord(
     """
     await ctx.info("Running Getis-Ord Gi* analysis...")
 
-    # Determine genes to analyze (unified gene selection)
-    if params.genes:
-        # Use specific genes
-        genes = [g for g in params.genes if g in adata.var_names]
-        if not genes:
-            raise ValueError(f"None of the specified genes found: {params.genes}")
-    else:
-        # Use highly variable genes
-        if "highly_variable" not in adata.var:
-            raise ValueError("Highly variable genes required for Getis-Ord analysis")
-        genes = adata.var_names[adata.var["highly_variable"]][
-            : params.n_top_genes
-        ].tolist()
+    # Unified gene selection
+    genes = select_genes_for_analysis(
+        adata,
+        genes=params.genes,
+        n_genes=params.n_top_genes,
+        analysis_name="Getis-Ord Gi*",
+    )
 
     getis_ord_results = {}
 
@@ -1352,27 +1314,16 @@ async def _analyze_local_moran(
         # Ensure spatial neighbors exist
         await _ensure_spatial_neighbors(adata, params.n_neighbors, ctx)
 
-        # Determine genes to analyze
-        if params.genes:
-            genes = params.genes
-        else:
-            # Use top highly variable genes if available
-            if "highly_variable" in adata.var.columns:
-                hvg_genes = adata.var_names[adata.var["highly_variable"]].tolist()[:5]
-                genes = hvg_genes if hvg_genes else adata.var_names[:5].tolist()
-            else:
-                genes = adata.var_names[:5].tolist()
-
-        # Validate genes exist
-        valid_genes = []
-        for gene in genes:
-            if gene in adata.var_names:
-                valid_genes.append(gene)
-            else:
-                await ctx.warning(f"Gene {gene} not found in dataset")
-
-        if not valid_genes:
-            return {"error": "No valid genes found for analysis"}
+        # Unified gene selection (default 5 genes for computational efficiency)
+        n_genes = (
+            min(5, params.n_top_genes) if params.genes is None else params.n_top_genes
+        )
+        valid_genes = select_genes_for_analysis(
+            adata,
+            genes=params.genes,
+            n_genes=n_genes,
+            analysis_name="Local Moran's I (LISA)",
+        )
 
         # Convert spatial connectivity matrix to PySAL weights format
         W_sparse = adata.obsp["spatial_connectivities"]
