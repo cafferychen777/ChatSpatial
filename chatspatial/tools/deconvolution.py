@@ -1838,12 +1838,10 @@ async def deconvolve_rctd(
         if (proportions < 0).any().any():
             neg_count = (proportions < 0).sum().sum()
             min_value = proportions.min().min()
-
-            error_msg = (
-                f"CRITICAL: RCTD produced {neg_count} negative values (min: {min_value:.4f}). "
-                "This indicates a serious algorithm error. Negative proportions are impossible."
+            raise ValueError(
+                f"RCTD error: {neg_count} negative values (min: {min_value:.4f}). "
+                f"Check input data quality."
             )
-            raise ValueError(error_msg)
 
         # Analyze sum deviation but don't force normalization
         row_sums = proportions.sum(axis=1, skipna=True)
