@@ -1,23 +1,21 @@
 """
-Data loading and persistence utilities for spatial transcriptomics data.
+Data loading utilities for spatial transcriptomics data.
 
-Includes:
-- Loading various spatial data formats (H5AD, H5, MTX, Visium directories)
-- Manual save/load functionality for AnnData objects
+Handles loading various spatial data formats:
+- H5AD files (AnnData format)
+- H5 files (10x Genomics format)
+- MTX directories (10x Visium structure)
+- Visium directories with spatial information
+
+For data persistence, see persistence.py.
 """
 
 import logging
 import os
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, Literal, Optional
 
-from anndata import AnnData
-
-from .adata_utils import ensure_unique_var_names, get_highly_variable_genes
+from .adata_utils import ensure_unique_var_names, get_adata_profile
 from .dependency_manager import is_available
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -292,16 +290,28 @@ async def load_spatial_data(
     # Make variable names unique to avoid reindexing issues
     ensure_unique_var_names(adata)
 
-    # Get metadata profiles for comprehensive dataset overview
-    obs_profile = get_column_profile(adata, layer="obs")
-    var_profile = get_column_profile(adata, layer="var")
+    # Preserve raw data for downstream analysis (C2 strategy)
+    # Only save if .raw doesn't already exist - respect user's existing .raw
+    import anndata as ad
 
-    # Get gene expression profiles
-    top_hvg, top_expr = get_gene_profile(adata)
+    if adata.raw is None:
+        # Save current data state to .raw
+        # This ensures downstream tools always have access to original loaded data
+        adata.raw = ad.AnnData(
+            X=adata.X.copy(),
+            var=adata.var,
+            obs=adata.obs.copy(),
+            uns={},
+        )
+        logger.info("Preserved loaded data state in adata.raw")
 
-    # Get multi-dimensional data keys
-    obsm_keys = list(adata.obsm.keys()) if hasattr(adata, "obsm") else []
-    uns_keys = list(adata.uns.keys()) if hasattr(adata, "uns") else []
+    # Also ensure layers["counts"] exists for scVI-tools compatibility
+    if "counts" not in adata.layers:
+        adata.layers["counts"] = adata.X.copy()
+        logger.info("Created counts layer from current data")
+
+    # Get metadata profile for LLM understanding
+    profile = get_adata_profile(adata)
 
     # Return dataset info and AnnData object with comprehensive metadata
     return {
@@ -313,13 +323,8 @@ async def load_spatial_data(
         "n_genes": n_genes,
         "spatial_coordinates_available": spatial_coordinates_available,
         "tissue_image_available": tissue_image_available,
-        # New comprehensive metadata
-        "obs_columns": obs_profile,
-        "var_columns": var_profile,
-        "obsm_keys": obsm_keys,
-        "uns_keys": uns_keys,
-        "top_highly_variable_genes": top_hvg,
-        "top_expressed_genes": top_expr,
+        # Metadata profile from adata_utils
+        **profile,
     }
 
 
@@ -509,161 +514,3 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
     except Exception as e:
         logger.error(f"Failed to add spatial information: {str(e)}")
         raise
-
-
-def get_column_profile(
-    adata: Any, layer: Literal["obs", "var"] = "obs"
-) -> List[Dict[str, Any]]:
-    """Get metadata column profile for obs or var
-
-    Returns detailed information about each column to help LLM understand the data
-
-    Args:
-        adata: AnnData object
-        layer: Which layer to profile ("obs" or "var")
-
-    Returns:
-        List of column information dictionaries
-    """
-    import pandas as pd
-
-    df = adata.obs if layer == "obs" else adata.var
-    profiles = []
-
-    for col in df.columns:
-        col_data = df[col]
-
-        # Determine if numeric
-        is_numeric = pd.api.types.is_numeric_dtype(col_data)
-
-        if is_numeric:
-            # Numerical column
-            profiles.append(
-                {
-                    "name": col,
-                    "dtype": "numerical",
-                    "n_unique": int(col_data.nunique()),
-                    "range": (float(col_data.min()), float(col_data.max())),
-                    "sample_values": None,
-                }
-            )
-        else:
-            # Categorical column
-            unique_vals = col_data.unique()
-            n_unique = len(unique_vals)
-
-            # Take first 5 sample values (or 3 if too many unique values)
-            if n_unique <= 100:
-                sample_vals = unique_vals[:5].tolist()
-            else:
-                sample_vals = unique_vals[:3].tolist()
-
-            profiles.append(
-                {
-                    "name": col,
-                    "dtype": "categorical",
-                    "n_unique": n_unique,
-                    "sample_values": [str(v) for v in sample_vals],
-                    "range": None,
-                }
-            )
-
-    return profiles
-
-
-def get_gene_profile(adata: Any) -> Tuple[Optional[List[str]], List[str]]:
-    """Get gene expression profile
-
-    Args:
-        adata: AnnData object
-
-    Returns:
-        Tuple of (top_highly_variable_genes, top_expressed_genes)
-    """
-    import numpy as np
-
-    # Highly variable genes (no fallback - only return if precomputed)
-    hvg_list = get_highly_variable_genes(adata, max_genes=10, fallback_to_variance=False)
-    top_hvg = hvg_list if hvg_list else None
-
-    # Top expressed genes
-    try:
-        mean_expr = np.array(adata.X.mean(axis=0)).flatten()
-        top_idx = np.argsort(mean_expr)[-10:][::-1]  # Descending order
-        top_expr = adata.var_names[top_idx].tolist()
-    except Exception as e:
-        logger.warning(f"Could not compute top expressed genes: {str(e)}")
-        top_expr = adata.var_names[:10].tolist()  # Fallback
-
-    return top_hvg, top_expr
-
-
-# =============================================================================
-# Data Persistence Utilities
-# =============================================================================
-
-
-def get_save_path(data_id: str, original_path: str) -> Path:
-    """
-    Get save path for adata, supports environment variable configuration.
-
-    Priority:
-    1. CHATSPATIAL_DATA_DIR environment variable
-    2. .chatspatial_saved/ directory next to original data (default)
-
-    Args:
-        data_id: Dataset identifier
-        original_path: Original data file path
-
-    Returns:
-        Directory path for saving
-    """
-    env_dir = os.getenv("CHATSPATIAL_DATA_DIR")
-    if env_dir:
-        save_dir = Path(env_dir)
-        save_dir.mkdir(parents=True, exist_ok=True)
-        return save_dir
-
-    # Default: use directory next to original data
-    path_obj = Path(original_path)
-
-    # Determine parent directory based on whether path looks like a file
-    # Check if path has a file extension or ends with a known data format
-    if path_obj.suffix in [".h5ad", ".h5", ".csv", ".txt", ".mtx", ".gz"]:
-        # It's a file path, use parent directory
-        parent_dir = path_obj.parent
-    elif path_obj.is_dir():
-        # It's an existing directory
-        parent_dir = path_obj
-    else:
-        # Assume it's a file path (even if doesn't exist yet)
-        parent_dir = path_obj.parent
-
-    save_dir = parent_dir / ".chatspatial_saved"
-    save_dir.mkdir(parents=True, exist_ok=True)
-    return save_dir
-
-
-def save_adata(data_id: str, adata: AnnData, original_path: str) -> Path:
-    """
-    Manually save AnnData object to disk.
-
-    Args:
-        data_id: Dataset identifier
-        adata: AnnData object to save
-        original_path: Original data file path
-
-    Returns:
-        Path where data was saved
-
-    Raises:
-        IOError: If save fails
-    """
-    save_dir = get_save_path(data_id, original_path)
-    save_path = save_dir / f"{data_id}.h5ad"
-
-    try:
-        adata.write_h5ad(save_path, compression="gzip", compression_opts=4)
-        return save_path
-    except Exception as e:
-        raise IOError(f"Failed to save data to {save_path}: {str(e)}") from e

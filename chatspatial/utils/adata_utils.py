@@ -10,7 +10,7 @@ This module provides:
 One file for all AnnData-related utilities. No duplication.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -722,3 +722,139 @@ def get_raw_data_source(
         has_negatives=has_neg,
         has_decimals=has_dec,
     )
+
+
+# =============================================================================
+# Metadata Profiling: Extract structure information for LLM understanding
+# =============================================================================
+def get_column_profile(
+    adata: "ad.AnnData", layer: Literal["obs", "var"] = "obs"
+) -> List[Dict[str, Any]]:
+    """
+    Get metadata column profile for obs or var.
+
+    Returns detailed information about each column to help LLM understand the data.
+
+    Args:
+        adata: AnnData object
+        layer: Which layer to profile ("obs" or "var")
+
+    Returns:
+        List of column information dictionaries with keys:
+        - name: Column name
+        - dtype: "numerical" or "categorical"
+        - n_unique: Number of unique values
+        - range: (min, max) for numerical columns, None for categorical
+        - sample_values: Sample values for categorical columns, None for numerical
+    """
+    df = adata.obs if layer == "obs" else adata.var
+    profiles = []
+
+    for col in df.columns:
+        col_data = df[col]
+
+        # Determine if numeric
+        is_numeric = pd.api.types.is_numeric_dtype(col_data)
+
+        if is_numeric:
+            # Numerical column
+            profiles.append(
+                {
+                    "name": col,
+                    "dtype": "numerical",
+                    "n_unique": int(col_data.nunique()),
+                    "range": (float(col_data.min()), float(col_data.max())),
+                    "sample_values": None,
+                }
+            )
+        else:
+            # Categorical column
+            unique_vals = col_data.unique()
+            n_unique = len(unique_vals)
+
+            # Take first 5 sample values (or 3 if too many unique values)
+            if n_unique <= 100:
+                sample_vals = unique_vals[:5].tolist()
+            else:
+                sample_vals = unique_vals[:3].tolist()
+
+            profiles.append(
+                {
+                    "name": col,
+                    "dtype": "categorical",
+                    "n_unique": n_unique,
+                    "sample_values": [str(v) for v in sample_vals],
+                    "range": None,
+                }
+            )
+
+    return profiles
+
+
+def get_gene_profile(
+    adata: "ad.AnnData",
+) -> Tuple[Optional[List[str]], List[str]]:
+    """
+    Get gene expression profile including HVGs and top expressed genes.
+
+    Args:
+        adata: AnnData object
+
+    Returns:
+        Tuple of (top_highly_variable_genes, top_expressed_genes)
+        - top_highly_variable_genes: List of HVG names or None if not computed
+        - top_expressed_genes: List of top 10 expressed gene names
+    """
+    # Highly variable genes (no fallback - only return if precomputed)
+    hvg_list = get_highly_variable_genes(adata, max_genes=10, fallback_to_variance=False)
+    top_hvg = hvg_list if hvg_list else None
+
+    # Top expressed genes
+    try:
+        mean_expr = np.array(adata.X.mean(axis=0)).flatten()
+        top_idx = np.argsort(mean_expr)[-10:][::-1]  # Descending order
+        top_expr = adata.var_names[top_idx].tolist()
+    except Exception:
+        top_expr = adata.var_names[:10].tolist()  # Fallback
+
+    return top_hvg, top_expr
+
+
+def get_adata_profile(adata: "ad.AnnData") -> Dict[str, Any]:
+    """
+    Get comprehensive metadata profile for LLM understanding.
+
+    This is the main function for extracting dataset information that helps
+    LLM make informed analysis decisions.
+
+    Args:
+        adata: AnnData object
+
+    Returns:
+        Dictionary containing:
+        - obs_columns: Profile of observation metadata columns
+        - var_columns: Profile of variable metadata columns
+        - obsm_keys: List of keys in obsm (embeddings, coordinates)
+        - uns_keys: List of keys in uns (unstructured annotations)
+        - top_highly_variable_genes: Top HVGs if computed
+        - top_expressed_genes: Top expressed genes
+    """
+    # Get column profiles
+    obs_profile = get_column_profile(adata, layer="obs")
+    var_profile = get_column_profile(adata, layer="var")
+
+    # Get gene profiles
+    top_hvg, top_expr = get_gene_profile(adata)
+
+    # Get multi-dimensional data keys
+    obsm_keys = list(adata.obsm.keys()) if hasattr(adata, "obsm") else []
+    uns_keys = list(adata.uns.keys()) if hasattr(adata, "uns") else []
+
+    return {
+        "obs_columns": obs_profile,
+        "var_columns": var_profile,
+        "obsm_keys": obsm_keys,
+        "uns_keys": uns_keys,
+        "top_highly_variable_genes": top_hvg,
+        "top_expressed_genes": top_expr,
+    }

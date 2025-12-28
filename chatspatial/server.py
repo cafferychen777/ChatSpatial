@@ -1803,7 +1803,7 @@ async def save_data(
         Saved files include all preprocessing, analysis results, and metadata.
         Use CHATSPATIAL_DATA_DIR environment variable for centralized storage.
     """
-    from .utils.data_loader import save_adata
+    from .utils.persistence import save_adata
 
     # Validate dataset exists
     validate_dataset(data_id)
