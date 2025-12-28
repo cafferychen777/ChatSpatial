@@ -464,6 +464,66 @@ class DefaultSpatialDataManager:
 
         return results[result_type]
 
+    def dataset_exists(self, data_id: str) -> bool:
+        """Check if a dataset exists.
+
+        Args:
+            data_id: Dataset identifier
+
+        Returns:
+            True if the dataset exists, False otherwise
+        """
+        return data_id in self.data_store
+
+    async def update_adata(self, data_id: str, adata: Any) -> None:
+        """Update the adata object for an existing dataset.
+
+        Use this when preprocessing creates a new adata object (e.g., copy,
+        subsample, or format conversion).
+
+        Args:
+            data_id: Dataset identifier
+            adata: New AnnData object to store
+
+        Raises:
+            ValueError: If dataset not found
+        """
+        if data_id not in self.data_store:
+            raise ValueError(f"Dataset {data_id} not found")
+        self.data_store[data_id]["adata"] = adata
+
+    async def create_dataset(
+        self,
+        data_id: str,
+        adata: Any,
+        name: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Create a new dataset with specified ID.
+
+        Use this when creating derived datasets (e.g., integration results,
+        subset data).
+
+        Args:
+            data_id: Unique identifier for the new dataset
+            adata: AnnData object to store
+            name: Optional display name for the dataset
+            metadata: Optional additional metadata dict
+
+        Raises:
+            ValueError: If dataset with same ID already exists
+        """
+        if data_id in self.data_store:
+            raise ValueError(
+                f"Dataset {data_id} already exists. Use update_adata() to update."
+            )
+        dataset_info: Dict[str, Any] = {"adata": adata}
+        if name:
+            dataset_info["name"] = name
+        if metadata:
+            dataset_info.update(metadata)
+        self.data_store[data_id] = dataset_info
+
 
 @dataclass
 class ToolContext:
@@ -572,9 +632,7 @@ class ToolContext:
         Raises:
             ValueError: If dataset not found
         """
-        if data_id not in self._data_manager.data_store:
-            raise ValueError(f"Dataset {data_id} not found")
-        self._data_manager.data_store[data_id]["adata"] = adata
+        await self._data_manager.update_adata(data_id, adata)
 
     async def add_dataset(
         self,
@@ -597,16 +655,7 @@ class ToolContext:
         Raises:
             ValueError: If dataset with same ID already exists
         """
-        if data_id in self._data_manager.data_store:
-            raise ValueError(
-                f"Dataset {data_id} already exists. Use set_adata() to update."
-            )
-        dataset_info: Dict[str, Any] = {"adata": adata}
-        if name:
-            dataset_info["name"] = name
-        if metadata:
-            dataset_info.update(metadata)
-        self._data_manager.data_store[data_id] = dataset_info
+        await self._data_manager.create_dataset(data_id, adata, name, metadata)
 
     async def info(self, msg: str) -> None:
         """Log info message to MCP context if available."""
@@ -734,15 +783,5 @@ For multi-step analyses, preserve data_id across operations to maintain analysis
 
     # Create adapter
     adapter = SpatialMCPAdapter(mcp, data_manager)
-
-    # Configure resource handlers
-    # Note: Uncomment these when FastMCP supports resource decorators
-    # @mcp.list_resources
-    # async def handle_list_resources():
-    #     return await adapter.handle_resource_list()
-    #
-    # @mcp.read_resource
-    # async def handle_read_resource(uri: str):
-    #     return await adapter.handle_resource_read(uri)
 
     return mcp, adapter

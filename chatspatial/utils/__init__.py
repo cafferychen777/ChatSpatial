@@ -13,12 +13,11 @@ from .adata_utils import (
     CLUSTER_KEY,
     SPATIAL_KEY,
     # Field discovery
+    get_batch_key,
     get_cell_type_key,
     get_cluster_key,
     get_spatial_key,
     # Data access
-    get_cell_types,
-    get_clusters,
     get_spatial_coordinates,
     # Validation
     ensure_categorical,
@@ -30,7 +29,6 @@ from .adata_utils import (
     validate_var_columns,
     # Ensure
     ensure_spatial_key,
-    ensure_spatial_neighbors,
     # Standardization
     standardize_adata,
 )
@@ -78,13 +76,12 @@ __all__ = [
     "ALTERNATIVE_CLUSTER_KEYS",
     "ALTERNATIVE_BATCH_KEYS",
     # Field discovery
-    "get_spatial_key",
+    "get_batch_key",
     "get_cell_type_key",
     "get_cluster_key",
+    "get_spatial_key",
     # Data access
     "get_spatial_coordinates",
-    "get_cell_types",
-    "get_clusters",
     # Validation
     "validate_adata",
     "validate_obs_column",
@@ -95,7 +92,6 @@ __all__ = [
     "ensure_categorical",
     # Ensure
     "ensure_spatial_key",
-    "ensure_spatial_neighbors",
     # Standardization
     "standardize_adata",
     # Dependency management

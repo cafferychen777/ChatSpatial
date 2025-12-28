@@ -96,7 +96,7 @@ def validate_dataset(data_id: str) -> None:
     Raises:
         ValueError: If the dataset is not found
     """
-    if data_id not in data_manager.data_store:
+    if not data_manager.dataset_exists(data_id):
         raise ValueError(f"Dataset {data_id} not found")
 
 
@@ -651,7 +651,7 @@ async def annotate_cell_types(
 
     # Validate reference data for methods that require it
     if params.method in ["tangram", "scanvi", "singler"] and params.reference_data_id:
-        if params.reference_data_id not in data_manager.data_store:
+        if not data_manager.dataset_exists(params.reference_data_id):
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
 
     # Create ToolContext for clean data access (no redundant dict wrapping)
@@ -1068,10 +1068,11 @@ async def integrate_samples(
 
     # Save integrated dataset resource
     integrated_id = result.data_id
-    if integrated_id and integrated_id in data_manager.data_store:
+    if integrated_id and data_manager.dataset_exists(integrated_id):
         # Create resource for integrated dataset
+        dataset_info = await data_manager.get_dataset(integrated_id)
         await adapter.resource_manager.create_dataset_resource(
-            integrated_id, data_manager.data_store[integrated_id]
+            integrated_id, dataset_info
         )
 
     # Save integration result
@@ -1179,7 +1180,7 @@ async def deconvolve_data(
 
     # Validate reference data if provided
     if params.reference_data_id:
-        if params.reference_data_id not in data_manager.data_store:
+        if not data_manager.dataset_exists(params.reference_data_id):
             raise ValueError(f"Reference dataset {params.reference_data_id} not found")
 
     # Create ToolContext for clean data access (no redundant dict wrapping)
@@ -1781,8 +1782,8 @@ async def register_spatial_data(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Call registration function using ToolContext
+    # Note: registration modifies adata in-place, changes reflected via reference
     result = await register_spatial_slices_mcp(source_id, target_id, ctx, method)
-    # Note: registration updates data_store directly since it returns new adata objects
 
     # Save registration result
     await data_manager.save_result(source_id, "registration", result)
@@ -1839,7 +1840,7 @@ async def save_data(
         await context.info(f"Saving dataset '{data_id}'...")
 
     # Get dataset info
-    dataset_info = data_manager.data_store[data_id]
+    dataset_info = await data_manager.get_dataset(data_id)
     adata = dataset_info["adata"]
     original_path = dataset_info.get("path", "")
 

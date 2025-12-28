@@ -10,7 +10,6 @@ This module provides:
 One file for all AnnData-related utilities. No duplication.
 """
 
-import warnings
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
@@ -31,18 +30,38 @@ BATCH_KEY = "batch"
 
 # Alternative names for compatibility
 ALTERNATIVE_SPATIAL_KEYS: Set[str] = {
-    "spatial", "X_spatial", "coordinates", "coords", "spatial_coords", "positions",
+    "spatial",
+    "X_spatial",
+    "coordinates",
+    "coords",
+    "spatial_coords",
+    "positions",
 }
 ALTERNATIVE_CELL_TYPE_KEYS: Set[str] = {
-    "cell_type", "celltype", "cell_types", "annotation", "cell_annotation",
+    "cell_type",
+    "celltype",
+    "cell_types",
+    "annotation",
+    "cell_annotation",
     "predicted_celltype",
 }
 ALTERNATIVE_CLUSTER_KEYS: Set[str] = {
-    "leiden", "louvain", "clusters", "cluster", "clustering", "cluster_labels",
+    "leiden",
+    "louvain",
+    "clusters",
+    "cluster",
+    "clustering",
+    "cluster_labels",
     "spatial_domains",
 }
 ALTERNATIVE_BATCH_KEYS: Set[str] = {
-    "batch", "sample", "dataset", "experiment", "replicate", "batch_id", "sample_id",
+    "batch",
+    "sample",
+    "dataset",
+    "experiment",
+    "replicate",
+    "batch_id",
+    "sample_id",
 }
 
 
@@ -68,6 +87,14 @@ def get_cell_type_key(adata: "ad.AnnData") -> Optional[str]:
 def get_cluster_key(adata: "ad.AnnData") -> Optional[str]:
     """Find cluster column in adata.obs."""
     for key in ALTERNATIVE_CLUSTER_KEYS:
+        if key in adata.obs:
+            return key
+    return None
+
+
+def get_batch_key(adata: "ad.AnnData") -> Optional[str]:
+    """Find batch/sample column in adata.obs."""
+    for key in ALTERNATIVE_BATCH_KEYS:
         if key in adata.obs:
             return key
     return None
@@ -107,22 +134,6 @@ def get_spatial_coordinates(adata: "ad.AnnData") -> Tuple[np.ndarray, np.ndarray
     )
 
 
-def get_cell_types(adata: "ad.AnnData", default: str = "Unknown") -> pd.Series:
-    """Get cell type annotations, or default if not found."""
-    key = get_cell_type_key(adata)
-    if key:
-        return adata.obs[key]
-    return pd.Series([default] * adata.n_obs, index=adata.obs_names, name=CELL_TYPE_KEY)
-
-
-def get_clusters(adata: "ad.AnnData", default: str = "0") -> pd.Series:
-    """Get cluster annotations, or default if not found."""
-    key = get_cluster_key(adata)
-    if key:
-        return adata.obs[key]
-    return pd.Series([default] * adata.n_obs, index=adata.obs_names, name=CLUSTER_KEY)
-
-
 # =============================================================================
 # Validation: Check and validate AnnData
 # =============================================================================
@@ -135,13 +146,15 @@ def validate_obs_column(
     Validate that a column exists in adata.obs.
 
     Raises:
-        ValueError: If column not found
+        DataError: If column not found
     """
     if column not in adata.obs.columns:
         name = friendly_name or f"Column '{column}'"
         available = ", ".join(list(adata.obs.columns)[:10])
         suffix = "..." if len(adata.obs.columns) > 10 else ""
-        raise ValueError(f"{name} not found in adata.obs. Available: {available}{suffix}")
+        raise DataError(
+            f"{name} not found in adata.obs. Available: {available}{suffix}"
+        )
 
 
 def validate_var_column(
@@ -153,13 +166,15 @@ def validate_var_column(
     Validate that a column exists in adata.var.
 
     Raises:
-        ValueError: If column not found
+        DataError: If column not found
     """
     if column not in adata.var.columns:
         name = friendly_name or f"Column '{column}'"
         available = ", ".join(list(adata.var.columns)[:10])
         suffix = "..." if len(adata.var.columns) > 10 else ""
-        raise ValueError(f"{name} not found in adata.var. Available: {available}{suffix}")
+        raise DataError(
+            f"{name} not found in adata.var. Available: {available}{suffix}"
+        )
 
 
 def validate_obs_columns(adata: "ad.AnnData", columns: List[str]) -> None:
@@ -168,7 +183,7 @@ def validate_obs_columns(adata: "ad.AnnData", columns: List[str]) -> None:
     if missing:
         available = ", ".join(list(adata.obs.columns)[:10])
         suffix = "..." if len(adata.obs.columns) > 10 else ""
-        raise ValueError(
+        raise DataError(
             f"Columns not found in adata.obs: {', '.join(missing)}. Available: {available}{suffix}"
         )
 
@@ -179,7 +194,7 @@ def validate_var_columns(adata: "ad.AnnData", columns: List[str]) -> None:
     if missing:
         available = ", ".join(list(adata.var.columns)[:10])
         suffix = "..." if len(adata.var.columns) > 10 else ""
-        raise ValueError(
+        raise DataError(
             f"Columns not found in adata.var: {', '.join(missing)}. Available: {available}{suffix}"
         )
 
@@ -191,17 +206,17 @@ def validate_adata_basics(
 ) -> None:
     """Validate basic AnnData structure."""
     if adata is None:
-        raise ValueError("AnnData object cannot be None")
+        raise DataError("AnnData object cannot be None")
     if adata.n_obs < min_obs:
-        raise ValueError(f"Dataset has {adata.n_obs} observations, need {min_obs}")
+        raise DataError(f"Dataset has {adata.n_obs} observations, need {min_obs}")
     if adata.n_vars < min_vars:
-        raise ValueError(f"Dataset has {adata.n_vars} variables, need {min_vars}")
+        raise DataError(f"Dataset has {adata.n_vars} variables, need {min_vars}")
 
 
 def ensure_categorical(adata: "ad.AnnData", column: str) -> None:
     """Ensure a column is categorical dtype, converting if needed."""
     if column not in adata.obs.columns:
-        raise ValueError(f"Column '{column}' not found in adata.obs")
+        raise DataError(f"Column '{column}' not found in adata.obs")
     if not pd.api.types.is_categorical_dtype(adata.obs[column]):
         adata.obs[column] = adata.obs[column].astype("category")
 
@@ -236,22 +251,6 @@ def ensure_spatial_key(adata: "ad.AnnData") -> str:
     raise DataError("No spatial coordinates found")
 
 
-def ensure_spatial_neighbors(adata: "ad.AnnData") -> None:
-    """Ensure spatial neighborhood graph exists."""
-    if "spatial_connectivities" in adata.obsp:
-        return
-
-    spatial_key = ensure_spatial_key(adata)
-
-    try:
-        import squidpy as sq
-        sq.gr.spatial_neighbors(adata, coord_type="generic", spatial_key=spatial_key)
-    except ImportError:
-        warnings.warn("squidpy not available. Install: pip install squidpy")
-    except Exception as e:
-        warnings.warn(f"Could not compute spatial neighbors: {e}")
-
-
 # =============================================================================
 # Standardization
 # =============================================================================
@@ -266,7 +265,7 @@ def standardize_adata(adata: "ad.AnnData", copy: bool = True) -> "ad.AnnData":
 
     Does NOT:
     - Compute HVGs (use preprocessing)
-    - Compute spatial neighbors (use ensure_spatial_neighbors)
+    - Compute spatial neighbors (computed by analysis tools)
     """
     if copy:
         adata = adata.copy()
