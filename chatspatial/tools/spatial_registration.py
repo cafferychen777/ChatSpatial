@@ -1,594 +1,412 @@
 """
 Spatial Registration Tool
 
-This module provides functionality for aligning and registering multiple spatial transcriptomics slices.
+Aligns and registers multiple spatial transcriptomics slices using
+optimal transport (PASTE) or diffeomorphic mapping (STalign).
 """
 
 import logging
 from typing import TYPE_CHECKING, List, Optional
 
-import anndata as ad
 import numpy as np
 
 if TYPE_CHECKING:
+    import anndata as ad
     from ..spatial_mcp_adapter import ToolContext
 
-from ..utils.exceptions import (
-    DataNotFoundError,
-    DependencyError,
-    ParameterError,
-    ProcessingError,
-)
+from ..models.data import RegistrationParameters
+from ..utils.adata_utils import get_spatial_key
+from ..utils.dependency_manager import require
+from ..utils.exceptions import ParameterError, ProcessingError
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# Validation Helpers
+# =============================================================================
 
-class SpatialRegistration:
+
+def _validate_spatial_coords(adata_list: List["ad.AnnData"]) -> str:
     """
-    A class for performing spatial registration of multiple tissue slices.
+    Validate all slices have spatial coordinates.
 
-    This class provides methods for:
-    - Pairwise alignment of spatial transcriptomics slices
-    - Multi-slice integration into a common coordinate system
-    - Spatial coordinate transformation
+    Returns the spatial key found.
+    Raises ParameterError if any slice is missing coordinates.
     """
-
-    # Supported registration methods
-    SUPPORTED_METHODS = {"paste", "stalign"}
-
-    def register_slices(
-        self,
-        adata_list: List[ad.AnnData],
-        method: str = "paste",
-        reference_idx: Optional[int] = None,
-        **kwargs,
-    ) -> List[ad.AnnData]:
-        """
-        Register multiple spatial transcriptomics slices.
-
-        Parameters
-        ----------
-        adata_list : List[ad.AnnData]
-            List of AnnData objects to register
-        method : str
-            Registration method to use ('paste', 'stalign')
-        reference_idx : Optional[int]
-            Index of reference slice (if None, use first slice)
-        **kwargs
-            Additional method-specific parameters
-
-        Returns
-        -------
-        List[ad.AnnData]
-            List of registered AnnData objects with aligned coordinates
-        """
-        if method not in self.SUPPORTED_METHODS:
+    spatial_key = None
+    for i, adata in enumerate(adata_list):
+        key = get_spatial_key(adata)
+        if key is None:
             raise ParameterError(
-                f"Unknown method: {method}. Available methods: {list(self.SUPPORTED_METHODS)}"
+                f"Slice {i} missing spatial coordinates. "
+                f"Expected in adata.obsm['spatial'] or similar."
             )
+        if spatial_key is None:
+            spatial_key = key
+    return spatial_key or "spatial"
 
-        logger.info(f"Performing spatial registration using {method}")
 
-        if method == "paste":
-            return self._register_with_paste(adata_list, reference_idx, **kwargs)
-        elif method == "stalign":
-            return self._register_with_stalign(adata_list, reference_idx, **kwargs)
-        else:
-            raise ParameterError(f"Method {method} not yet implemented")
+def _get_common_genes(adata_list: List["ad.AnnData"]) -> List[str]:
+    """Get common genes across all slices after making names unique."""
+    # Make names unique first
+    for adata in adata_list:
+        adata.var_names_make_unique()
 
-    def _register_with_paste(
-        self,
-        adata_list: List[ad.AnnData],
-        reference_idx: Optional[int] = None,
-        alpha: float = 0.1,
-        n_components: int = 30,
-        use_gpu: bool = False,
-        **kwargs,
-    ) -> List[ad.AnnData]:
-        """
-        Register slices using PASTE algorithm.
+    # Then compute intersection
+    common = set(adata_list[0].var_names)
+    for adata in adata_list[1:]:
+        common &= set(adata.var_names)
 
-        Parameters
-        ----------
-        adata_list : List[ad.AnnData]
-            List of AnnData objects to register
-        reference_idx : Optional[int]
-            Index of reference slice
-        alpha : float
-            Spatial regularization parameter
-        n_components : int
-            Number of components for dimensionality reduction
-        use_gpu : bool
-            Whether to use GPU acceleration
-        **kwargs
-            Additional PASTE parameters
+    genes = list(common)
+    logger.info(f"Found {len(genes)} common genes across {len(adata_list)} slices")
+    return genes
 
-        Returns
-        -------
-        List[ad.AnnData]
-            Registered AnnData objects
-        """
+
+def _create_ot_backend(use_gpu: bool):
+    """Create optimal transport backend for PASTE."""
+    import ot
+
+    if use_gpu:
         try:
-            import paste as pst
-        except ImportError:
-            logger.error("PASTE not installed. Install with: pip install paste-bio")
-            raise DependencyError("Please install paste-bio: pip install paste-bio")
-
-        if reference_idx is None:
-            reference_idx = 0
-
-        # Prepare data
-        logger.info("Preparing data for PASTE registration")
-        registered_list = [adata.copy() for adata in adata_list]
-
-        # Ensure all slices have spatial coordinates
-        for i, adata in enumerate(registered_list):
-            if "spatial" not in adata.obsm:
-                raise ParameterError(
-                    f"Slice {i} missing spatial coordinates in obsm['spatial']"
-                )
-
-        # Perform pairwise alignment
-        if len(registered_list) == 2:
-            logger.info("Performing pairwise alignment")
-
-            # Get common genes
-            common_genes = list(
-                set(registered_list[0].var_names) & set(registered_list[1].var_names)
-            )
-            logger.info(f"Using {len(common_genes)} common genes")
-
-            # Make gene names unique to avoid indexing issues
-            for adata in registered_list:
-                adata.var_names_make_unique()
-
-            # Get common genes after making names unique
-            common_genes = list(
-                set(registered_list[0].var_names) & set(registered_list[1].var_names)
-            )
-            logger.info(
-                f"Using {len(common_genes)} common genes after making names unique"
-            )
-
-            slice1 = registered_list[0][:, common_genes].copy()
-            slice2 = registered_list[1][:, common_genes].copy()
-
-            # Perform basic preprocessing like in the direct test
-            import scanpy as sc
-
-            sc.pp.normalize_total(slice1, target_sum=1e4)
-            sc.pp.log1p(slice1)
-            sc.pp.normalize_total(slice2, target_sum=1e4)
-            sc.pp.log1p(slice2)
-
-            # Run PASTE with minimal parameters that worked in direct test
-            pi = pst.pairwise_align(
-                slice1,
-                slice2,
-                alpha=0.1,  # Use same alpha as direct test
-                verbose=True,
-                numItermax=10,  # Reduce iterations like in direct test
-            )
-
-            # Apply transformation
-            aligned_slices = pst.stack_slices_pairwise([slice1, slice2], [pi])
-
-            # Extract the aligned spatial coordinates
-            registered_list[0].obsm["spatial_registered"] = aligned_slices[0].obsm[
-                "spatial"
-            ]
-            registered_list[1].obsm["spatial_registered"] = aligned_slices[1].obsm[
-                "spatial"
-            ]
-
-        else:
-            # Multi-slice registration using center alignment
-            logger.info(
-                f"Performing multi-slice registration with {len(registered_list)} slices"
-            )
-
-            # Get common genes
-            common_genes_set = set(registered_list[0].var_names)
-            for adata in registered_list[1:]:
-                common_genes_set = common_genes_set & set(adata.var_names)
-            common_genes = list(common_genes_set)
-            logger.info(f"Using {len(common_genes)} common genes")
-
-            # Subset to common genes
-            slices = [adata[:, common_genes] for adata in registered_list]
-
-            # Initial pairwise alignments to reference
-            pis = []
-
-            # Create backend object
-            import ot
-
-            if use_gpu:
-                try:
-                    import torch
-
-                    if torch.cuda.is_available():
-                        backend = ot.backend.TorchBackend()
-                    else:
-                        backend = ot.backend.NumpyBackend()
-                except ImportError:
-                    backend = ot.backend.NumpyBackend()
-            else:
-                backend = ot.backend.NumpyBackend()
-
-            for i, slice_data in enumerate(slices):
-                if i == reference_idx:
-                    # Identity mapping for reference slice
-                    n = slices[i].shape[0]
-                    pi = np.eye(n)
-                else:
-                    # Filter out parameters that will be passed explicitly
-                    filtered_kwargs = {
-                        k: v
-                        for k, v in kwargs.items()
-                        if k
-                        not in ["alpha", "backend", "use_gpu", "verbose", "gpu_verbose"]
-                    }
-                    pi = pst.pairwise_align(
-                        slices[reference_idx],
-                        slice_data,
-                        alpha=alpha,
-                        backend=backend,
-                        use_gpu=use_gpu,
-                        verbose=False,
-                        gpu_verbose=False,
-                        **filtered_kwargs,
-                    )
-                pis.append(pi)
-
-            # Center alignment
-            center_slice, pis_new = pst.center_align(
-                slices[reference_idx],
-                slices,
-                pis_init=pis,
-                alpha=alpha,
-                backend=backend,
-                use_gpu=use_gpu,
-                n_components=n_components,
-                verbose=False,
-                gpu_verbose=False,
-            )
-
-            # Apply transformations
-            for i, (adata, pi) in enumerate(zip(registered_list, pis_new)):
-                if i == reference_idx:
-                    adata.obsm["spatial_registered"] = adata.obsm["spatial"].copy()
-                else:
-                    # Transform coordinates based on alignment
-                    # Apply transformation from pi
-                    adata.obsm["spatial_registered"] = self._transform_coordinates(
-                        pi, slices[reference_idx].obsm["spatial"]
-                    )
-
-        logger.info("PASTE registration completed")
-        return registered_list
-
-    def _register_with_stalign(
-        self,
-        adata_list: List[ad.AnnData],
-        reference_idx: Optional[int] = None,
-        **kwargs,
-    ) -> List[ad.AnnData]:
-        """
-        Register slices using STalign diffeomorphic mapping algorithm.
-
-        Parameters:
-        -----------
-        adata_list : List[ad.AnnData]
-            List of AnnData objects to register
-        reference_idx : Optional[int]
-            Index of reference slice (default: 0)
-        **kwargs
-            Additional parameters for STalign:
-            - image_size: Tuple[int, int] = (128, 128)
-            - niter: int = 100 (number of iterations)
-            - a: float = 500.0 (regularization parameter)
-            - use_expression: bool = True (use gene expression for alignment)
-
-        Returns:
-        --------
-        List[ad.AnnData]
-            Registered AnnData objects with 'spatial_stalign' coordinates
-        """
-        try:
-            import STalign.STalign as ST
             import torch
+
+            if torch.cuda.is_available():
+                return ot.backend.TorchBackend()
         except ImportError:
-            logger.error(
-                "STalign not available. Install with: pip install git+https://github.com/JEFworks-Lab/STalign.git"
-            )
-            raise DependencyError("STalign is required for STalign registration")
+            pass
+    return ot.backend.NumpyBackend()
 
-        logger.info("Starting STalign diffeomorphic registration")
 
-        # Default parameters
-        image_size = kwargs.get("image_size", (128, 128))
-        niter = kwargs.get("niter", 50)  # Reduced for faster processing
-        use_expression = kwargs.get("use_expression", True)
-        device = kwargs.get("device", "cpu")
+# =============================================================================
+# STalign Image Preparation (module-level, not nested)
+# =============================================================================
 
-        stalign_params = {
-            "a": kwargs.get("a", 500.0),
-            "p": kwargs.get("p", 2.0),
-            "expand": kwargs.get("expand", 2.0),
-            "nt": kwargs.get("nt", 3),
-            "niter": niter,
-            "diffeo_start": kwargs.get("diffeo_start", 0),
-            "epL": kwargs.get("epL", 2e-08),
-            "epT": kwargs.get("epT", 0.2),
-            "epV": kwargs.get("epV", 2000.0),
-            "sigmaM": kwargs.get("sigmaM", 1.0),
-            "sigmaB": kwargs.get("sigmaB", 2.0),
-            "sigmaA": kwargs.get("sigmaA", 5.0),
-            "sigmaR": kwargs.get("sigmaR", 500000.0),
-            "sigmaP": kwargs.get("sigmaP", 20.0),
-            "device": device,
-            "dtype": torch.float32,
-        }
 
-        registered_list = [adata.copy() for adata in adata_list]
-        reference_idx = reference_idx or 0
+def _prepare_stalign_image(
+    coords: np.ndarray,
+    intensity: np.ndarray,
+    image_size: tuple,
+) -> tuple:
+    """
+    Convert point cloud to rasterized image for STalign.
 
-        # Ensure all slices have spatial coordinates
-        for i, adata in enumerate(registered_list):
-            if "spatial" not in adata.obsm:
-                raise ParameterError(
-                    f"Slice {i} missing spatial coordinates in obsm['spatial']"
-                )
+    Args:
+        coords: Spatial coordinates (N, 2)
+        intensity: Intensity values per point (N,)
+        image_size: Output image dimensions (height, width)
 
-        # For pairwise registration (2 slices)
-        if len(registered_list) == 2:
-            logger.info("Performing STalign pairwise registration")
+    Returns:
+        Tuple of (xgrid, image_tensor)
+    """
+    import torch
 
-            try:
-                # Get data from both slices
-                source_adata = registered_list[0]
-                target_adata = registered_list[1]
+    # Normalize coordinates to image space with padding
+    coords_norm = coords.copy()
+    padding = 0.1
 
-                # Prepare coordinates
-                source_coords = source_adata.obsm["spatial"].astype(np.float32)
-                target_coords = target_adata.obsm["spatial"].astype(np.float32)
-
-                # Prepare expression data
-                if use_expression:
-                    # Get common genes
-                    common_genes = list(
-                        set(source_adata.var_names) & set(target_adata.var_names)
-                    )
-                    if len(common_genes) < 100:
-                        logger.warning(f"Only {len(common_genes)} common genes found")
-
-                    source_expr = source_adata[:, common_genes].X
-                    target_expr = target_adata[:, common_genes].X
-
-                    # ==================== OPTIMIZED: Compute sum on sparse matrix directly ====================
-                    # Strategy: scipy.sparse supports sum(axis=1) natively - no need to convert to dense
-                    # Benefit: For 5k spots × 10k genes (2 slices): save ~343 MB (90%)
-                    # Technical note: sparse.sum(axis=1) returns numpy.matrix, need flatten() to get 1D array
-
-                    # Handle sparse matrices - compute sum directly (no toarray!)
-                    if hasattr(source_expr, "toarray"):
-                        # Sparse matrix: sum returns matrix, flatten to 1D array
-                        source_intensity = (
-                            np.array(source_expr.sum(axis=1))
-                            .flatten()
-                            .astype(np.float32)
-                        )
-                    else:
-                        # Dense array
-                        source_intensity = source_expr.sum(axis=1).astype(np.float32)
-
-                    if hasattr(target_expr, "toarray"):
-                        # Sparse matrix: sum returns matrix, flatten to 1D array
-                        target_intensity = (
-                            np.array(target_expr.sum(axis=1))
-                            .flatten()
-                            .astype(np.float32)
-                        )
-                    else:
-                        # Dense array
-                        target_intensity = target_expr.sum(axis=1).astype(np.float32)
-                else:
-                    # Use uniform intensity
-                    source_intensity = np.ones(len(source_coords), dtype=np.float32)
-                    target_intensity = np.ones(len(target_coords), dtype=np.float32)
-
-                logger.info(
-                    f"Registering {len(source_coords)} -> {len(target_coords)} spots"
-                )
-
-                # Try STalign LDDMM registration
-                try:
-                    # Prepare image data for STalign
-                    def prepare_image_data(coords, intensity, image_size):
-                        """Convert point cloud to image for STalign"""
-                        # Normalize coordinates to image size
-                        coords_norm = coords.copy()
-                        padding = 0.1
-                        for i in range(2):
-                            coord_min, coord_max = (
-                                coords[:, i].min(),
-                                coords[:, i].max(),
-                            )
-                            coord_range = coord_max - coord_min
-                            if coord_range > 0:
-                                target_min = padding * image_size[i]
-                                target_max = (1 - padding) * image_size[i]
-                                coords_norm[:, i] = (
-                                    coords[:, i] - coord_min
-                                ) / coord_range
-                                coords_norm[:, i] = (
-                                    coords_norm[:, i] * (target_max - target_min)
-                                    + target_min
-                                )
-
-                        # Create coordinate grid for STalign
-                        x_coords = torch.linspace(
-                            0, image_size[0], image_size[0], dtype=torch.float32
-                        )
-                        y_coords = torch.linspace(
-                            0, image_size[1], image_size[1], dtype=torch.float32
-                        )
-                        xgrid = [x_coords, y_coords]
-
-                        # Rasterize points to image
-                        image = np.zeros(image_size, dtype=np.float32)
-                        for i in range(len(coords)):
-                            x_idx = int(
-                                np.clip(coords_norm[i, 1], 0, image_size[0] - 1)
-                            )
-                            y_idx = int(
-                                np.clip(coords_norm[i, 0], 0, image_size[1] - 1)
-                            )
-                            # Add Gaussian kernel for smoother image
-                            for dx in range(-2, 3):
-                                for dy in range(-2, 3):
-                                    xi, yi = x_idx + dx, y_idx + dy
-                                    if (
-                                        0 <= xi < image_size[0]
-                                        and 0 <= yi < image_size[1]
-                                    ):
-                                        dist = np.sqrt(dx * dx + dy * dy)
-                                        weight = np.exp(-dist * dist / (2 * 1.0 * 1.0))
-                                        image[xi, yi] += intensity[i] * weight
-
-                        # Normalize image
-                        if image.max() > 0:
-                            image = image / image.max()
-
-                        return xgrid, torch.tensor(image, dtype=torch.float32)
-
-                    # Prepare images
-                    source_grid, source_image = prepare_image_data(
-                        source_coords, source_intensity, image_size
-                    )
-                    target_grid, target_image = prepare_image_data(
-                        target_coords, target_intensity, image_size
-                    )
-
-                    logger.info(
-                        f"Running STalign LDDMM on {source_image.shape} -> {target_image.shape} images"
-                    )
-
-                    # Run STalign LDDMM
-                    result = ST.LDDMM(
-                        xI=source_grid,
-                        I=source_image,
-                        xJ=target_grid,
-                        J=target_image,
-                        **stalign_params,
-                    )
-
-                    # Extract transformation components
-                    A = result.get("A", None)
-                    v = result.get("v", None)
-                    xv = result.get("xv", None)
-
-                    if A is not None and v is not None and xv is not None:
-                        # Transform source coordinates using STalign
-                        source_points = torch.tensor(source_coords, dtype=torch.float32)
-                        transformed_coords = ST.transform_points_source_to_target(
-                            xv, v, A, source_points
-                        )
-
-                        if isinstance(transformed_coords, torch.Tensor):
-                            transformed_coords = transformed_coords.numpy()
-
-                        logger.info("STalign LDDMM registration successful")
-                    else:
-                        raise ProcessingError(
-                            "STalign did not return valid transformation components"
-                        )
-
-                except Exception as stalign_error:
-                    # STalign failed - do not fallback to inferior methods
-                    error_msg = (
-                        f"STalign LDDMM registration failed: {stalign_error}. "
-                        f"STalign requires high-quality spatial data and proper preprocessing. "
-                        f"Please check: 1) Data quality and preprocessing, 2) Spatial coordinate format, "
-                        f"or 3) Consider using PASTE method instead for more robust registration."
-                    )
-                    logger.error(error_msg)
-                    raise ProcessingError(error_msg) from stalign_error
-
-            except Exception as e:
-                # Re-raise the error instead of masking it with fake success
-                error_msg = f"STalign registration failed: {e}. Please check your data or try PASTE method."
-                logger.error(error_msg)
-                raise ProcessingError(error_msg) from e
-
-        else:
-            # Explicitly reject multi-slice registration instead of faking it
-            raise ParameterError(
-                f"STalign does not support multi-slice registration ({len(registered_list)} slices provided). "
-                f"STalign only supports pairwise registration (2 slices). "
-                f"Please use pairwise registration or switch to PASTE method for multi-slice registration."
+    for dim in range(2):
+        cmin, cmax = coords[:, dim].min(), coords[:, dim].max()
+        crange = cmax - cmin
+        if crange > 0:
+            target_min = padding * image_size[dim]
+            target_max = (1 - padding) * image_size[dim]
+            coords_norm[:, dim] = (coords[:, dim] - cmin) / crange
+            coords_norm[:, dim] = (
+                coords_norm[:, dim] * (target_max - target_min) + target_min
             )
 
-        return registered_list
+    # Create coordinate grid
+    xgrid = [
+        torch.linspace(0, image_size[0], image_size[0], dtype=torch.float32),
+        torch.linspace(0, image_size[1], image_size[1], dtype=torch.float32),
+    ]
 
-    def _transform_coordinates(
-        self,
-        transport_matrix: np.ndarray,
-        reference_coords: np.ndarray,
-    ) -> np.ndarray:
-        """
-        Transform coordinates based on optimal transport matrix.
+    # Rasterize with Gaussian smoothing
+    image = np.zeros(image_size, dtype=np.float32)
+    for i in range(len(coords)):
+        x_idx = int(np.clip(coords_norm[i, 1], 0, image_size[0] - 1))
+        y_idx = int(np.clip(coords_norm[i, 0], 0, image_size[1] - 1))
 
-        Parameters
-        ----------
-        transport_matrix : np.ndarray
-            Optimal transport matrix from PASTE
-        reference_coords : np.ndarray
-            Reference slice coordinates
+        # Gaussian kernel (radius 2)
+        for dx in range(-2, 3):
+            for dy in range(-2, 3):
+                xi, yi = x_idx + dx, y_idx + dy
+                if 0 <= xi < image_size[0] and 0 <= yi < image_size[1]:
+                    weight = np.exp(-(dx * dx + dy * dy) / 2.0)
+                    image[xi, yi] += intensity[i] * weight
 
-        Returns
-        -------
-        np.ndarray
-            Transformed coordinates
-        """
-        # Normalize transport matrix
-        transport_matrix = transport_matrix / transport_matrix.sum(
-            axis=1, keepdims=True
+    # Normalize
+    if image.max() > 0:
+        image /= image.max()
+
+    return xgrid, torch.tensor(image, dtype=torch.float32)
+
+
+# =============================================================================
+# Core Registration Functions
+# =============================================================================
+
+
+def _register_paste(
+    adata_list: List["ad.AnnData"],
+    params: RegistrationParameters,
+) -> List["ad.AnnData"]:
+    """Register slices using PASTE optimal transport."""
+    import paste as pst
+    import scanpy as sc
+
+    reference_idx = params.reference_idx or 0
+    registered = [adata.copy() for adata in adata_list]
+    common_genes = _get_common_genes(registered)
+
+    if len(registered) == 2:
+        # Pairwise alignment
+        logger.info("Performing PASTE pairwise alignment")
+
+        slice1 = registered[0][:, common_genes].copy()
+        slice2 = registered[1][:, common_genes].copy()
+
+        # Normalize
+        sc.pp.normalize_total(slice1, target_sum=1e4)
+        sc.pp.log1p(slice1)
+        sc.pp.normalize_total(slice2, target_sum=1e4)
+        sc.pp.log1p(slice2)
+
+        # Run PASTE
+        pi = pst.pairwise_align(
+            slice1,
+            slice2,
+            alpha=params.paste_alpha,
+            numItermax=params.paste_numItermax,
+            verbose=True,
         )
 
-        # Compute weighted average of reference coordinates
-        transformed = transport_matrix @ reference_coords
+        # Stack and extract aligned coordinates
+        aligned = pst.stack_slices_pairwise([slice1, slice2], [pi])
+        registered[0].obsm["spatial_registered"] = aligned[0].obsm["spatial"]
+        registered[1].obsm["spatial_registered"] = aligned[1].obsm["spatial"]
 
-        return transformed
+    else:
+        # Multi-slice center alignment
+        logger.info(f"Performing PASTE center alignment with {len(registered)} slices")
+
+        slices = [adata[:, common_genes] for adata in registered]
+        backend = _create_ot_backend(params.use_gpu)
+
+        # Initial pairwise alignments to reference
+        pis = []
+        for i, slice_data in enumerate(slices):
+            if i == reference_idx:
+                pis.append(np.eye(slices[i].shape[0]))
+            else:
+                pi = pst.pairwise_align(
+                    slices[reference_idx],
+                    slice_data,
+                    alpha=params.paste_alpha,
+                    backend=backend,
+                    use_gpu=params.use_gpu,
+                    verbose=False,
+                    gpu_verbose=False,
+                )
+                pis.append(pi)
+
+        # Center alignment
+        _, pis_new = pst.center_align(
+            slices[reference_idx],
+            slices,
+            pis_init=pis,
+            alpha=params.paste_alpha,
+            backend=backend,
+            use_gpu=params.use_gpu,
+            n_components=params.paste_n_components,
+            verbose=False,
+            gpu_verbose=False,
+        )
+
+        # Apply transformations
+        for i, (adata, pi) in enumerate(zip(registered, pis_new)):
+            if i == reference_idx:
+                adata.obsm["spatial_registered"] = adata.obsm["spatial"].copy()
+            else:
+                adata.obsm["spatial_registered"] = _transform_coordinates(
+                    pi, slices[reference_idx].obsm["spatial"]
+                )
+
+    logger.info("PASTE registration completed")
+    return registered
 
 
-# Create convenience functions for direct use
-def register_spatial_slices(
-    adata_list: List[ad.AnnData], method: str = "paste", **kwargs
-) -> List[ad.AnnData]:
+def _register_stalign(
+    adata_list: List["ad.AnnData"],
+    params: RegistrationParameters,
+) -> List["ad.AnnData"]:
+    """Register slices using STalign diffeomorphic mapping."""
+    import STalign.STalign as ST
+    import torch
+
+    if len(adata_list) != 2:
+        raise ParameterError(
+            f"STalign only supports pairwise registration, got {len(adata_list)} slices. "
+            f"Use PASTE for multi-slice alignment."
+        )
+
+    logger.info("Performing STalign LDDMM registration")
+
+    registered = [adata.copy() for adata in adata_list]
+    source, target = registered[0], registered[1]
+
+    # Prepare coordinates
+    source_coords = source.obsm["spatial"].astype(np.float32)
+    target_coords = target.obsm["spatial"].astype(np.float32)
+
+    # Prepare intensity
+    if params.stalign_use_expression:
+        common_genes = _get_common_genes(registered)
+        if len(common_genes) < 100:
+            logger.warning(f"Only {len(common_genes)} common genes found")
+
+        # Compute sum intensity (sparse-aware)
+        source_expr = source[:, common_genes].X
+        target_expr = target[:, common_genes].X
+
+        def _safe_sum(X):
+            if hasattr(X, "toarray"):
+                return np.array(X.sum(axis=1)).flatten().astype(np.float32)
+            return X.sum(axis=1).astype(np.float32)
+
+        source_intensity = _safe_sum(source_expr)
+        target_intensity = _safe_sum(target_expr)
+    else:
+        source_intensity = np.ones(len(source_coords), dtype=np.float32)
+        target_intensity = np.ones(len(target_coords), dtype=np.float32)
+
+    logger.info(f"Registering {len(source_coords)} -> {len(target_coords)} spots")
+
+    # Prepare images
+    image_size = params.stalign_image_size
+    source_grid, source_image = _prepare_stalign_image(
+        source_coords, source_intensity, image_size
+    )
+    target_grid, target_image = _prepare_stalign_image(
+        target_coords, target_intensity, image_size
+    )
+
+    # STalign parameters
+    device = "cuda:0" if params.use_gpu and torch.cuda.is_available() else "cpu"
+    stalign_params = {
+        "a": params.stalign_a,
+        "p": 2.0,
+        "expand": 2.0,
+        "nt": 3,
+        "niter": params.stalign_niter,
+        "diffeo_start": 0,
+        "epL": 2e-08,
+        "epT": 0.2,
+        "epV": 2000.0,
+        "sigmaM": 1.0,
+        "sigmaB": 2.0,
+        "sigmaA": 5.0,
+        "sigmaR": 500000.0,
+        "sigmaP": 20.0,
+        "device": device,
+        "dtype": torch.float32,
+    }
+
+    logger.info(f"Running STalign LDDMM on {image_size} images")
+
+    try:
+        result = ST.LDDMM(
+            xI=source_grid,
+            I=source_image,
+            xJ=target_grid,
+            J=target_image,
+            **stalign_params,
+        )
+
+        A = result.get("A")
+        v = result.get("v")
+        xv = result.get("xv")
+
+        if A is None or v is None or xv is None:
+            raise ProcessingError("STalign did not return valid transformation")
+
+        # Transform coordinates
+        source_points = torch.tensor(source_coords, dtype=torch.float32)
+        transformed = ST.transform_points_source_to_target(xv, v, A, source_points)
+
+        if isinstance(transformed, torch.Tensor):
+            transformed = transformed.numpy()
+
+        source.obsm["spatial_registered"] = transformed
+        target.obsm["spatial_registered"] = target_coords.copy()
+
+        logger.info("STalign registration completed")
+
+    except Exception as e:
+        raise ProcessingError(
+            f"STalign registration failed: {e}. Consider using PASTE method."
+        ) from e
+
+    return registered
+
+
+def _transform_coordinates(
+    transport_matrix: np.ndarray,
+    reference_coords: np.ndarray,
+) -> np.ndarray:
+    """Transform coordinates via optimal transport matrix."""
+    # Normalize rows
+    row_sums = transport_matrix.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1  # Avoid division by zero
+    normalized = transport_matrix / row_sums
+
+    # Weighted average of reference coordinates
+    return normalized @ reference_coords
+
+
+# =============================================================================
+# Public API
+# =============================================================================
+
+
+def register_slices(
+    adata_list: List["ad.AnnData"],
+    params: Optional[RegistrationParameters] = None,
+) -> List["ad.AnnData"]:
     """
     Register multiple spatial transcriptomics slices.
 
-    Parameters
-    ----------
-    adata_list : List[ad.AnnData]
-        List of AnnData objects to register
-    method : str
-        Registration method ('paste', 'stalign')
-    **kwargs
-        Method-specific parameters
+    Args:
+        adata_list: List of AnnData objects to register
+        params: Registration parameters (uses defaults if None)
 
-    Returns
-    -------
-    List[ad.AnnData]
-        Registered AnnData objects
+    Returns:
+        List of registered AnnData objects with 'spatial_registered' in obsm
     """
-    registration_tool = SpatialRegistration()
-    return registration_tool.register_slices(adata_list, method=method, **kwargs)
+    if params is None:
+        params = RegistrationParameters()
+
+    if len(adata_list) < 2:
+        raise ParameterError("Registration requires at least 2 slices")
+
+    # Validate spatial coordinates
+    _validate_spatial_coords(adata_list)
+
+    logger.info(f"Registering {len(adata_list)} slices using {params.method}")
+
+    if params.method == "paste":
+        return _register_paste(adata_list, params)
+    elif params.method == "stalign":
+        return _register_stalign(adata_list, params)
+    else:
+        raise ParameterError(f"Unknown method: {params.method}")
 
 
-# Standard architecture-compliant wrapper function for MCP server
+# =============================================================================
+# MCP Tool Wrapper
+# =============================================================================
+
+
 async def register_spatial_slices_mcp(
     source_id: str,
     target_id: str,
@@ -596,65 +414,45 @@ async def register_spatial_slices_mcp(
     method: str = "paste",
 ) -> dict:
     """
-    Register spatial slices following the standard MCP tool architecture.
-
-    This function follows the standard pattern used by other tools:
-    - Accepts data IDs and ToolContext
-    - Retrieves AnnData objects via ctx.get_adata()
-    - Returns results in standard format
-
-    IMPORTANT - Data Modification Behavior:
-        This function modifies the original datasets in the data manager with registered
-        versions containing aligned spatial coordinates. The original datasets are
-        not preserved. This is consistent with other modifying tools (e.g., preprocessing).
-
-        If you need to preserve original data, create a backup before registration.
-
-    Memory Optimization:
-        - No initial data copying at wrapper level (saves ~2.4 GB for typical Visium data)
-        - Internal registration methods create necessary copies for algorithm safety
-        - Registered data replaces original data in data manager (no duplicate storage)
+    MCP wrapper for spatial registration.
 
     Args:
         source_id: Source dataset ID
-        target_id: Target dataset ID to align to
-        ctx: Tool context for data access and logging
-        method: Registration method (paste, stalign)
+        target_id: Target dataset ID
+        ctx: Tool context for data access
+        method: Registration method ('paste' or 'stalign')
 
     Returns:
-        Dictionary with registration results including:
-            - method: Registration method used
-            - source_id: Source dataset ID
-            - target_id: Target dataset ID
-            - n_source_spots: Number of spots in source
-            - n_target_spots: Number of spots in target
-            - registration_completed: Boolean success flag
-            - spatial_key_registered: Key for registered coordinates in obsm
+        Registration result dictionary
     """
-    await ctx.info(f"Registering {source_id} to {target_id} using method: {method}")
+    await ctx.info(f"Registering {source_id} to {target_id} using {method}")
 
-    # Retrieve AnnData objects via ToolContext
-    # Note: ctx.get_adata() raises DataNotFoundError if not found
+    # Check dependencies
+    if method == "paste":
+        require("paste", ctx, feature="PASTE spatial registration")
+    elif method == "stalign":
+        require("STalign", ctx, feature="STalign spatial registration")
+
+    # Get data
     source_adata = await ctx.get_adata(source_id)
     target_adata = await ctx.get_adata(target_id)
-    adata_list = [source_adata, target_adata]
+
+    # Create parameters
+    params = RegistrationParameters(method=method)
 
     try:
-        # Call the core registration function
-        registered_adata_list = register_spatial_slices(adata_list, method=method)
+        registered = register_slices([source_adata, target_adata], params)
 
-        # Copy registered spatial coordinates back to original adata objects
-        # This ensures in-place modification since ctx.get_adata() returns references
-        if "spatial_registered" in registered_adata_list[0].obsm:
-            source_adata.obsm["spatial_registered"] = registered_adata_list[0].obsm[
+        # Copy registered coordinates back (in-place modification)
+        if "spatial_registered" in registered[0].obsm:
+            source_adata.obsm["spatial_registered"] = registered[0].obsm[
                 "spatial_registered"
             ]
-        if "spatial_registered" in registered_adata_list[1].obsm:
-            target_adata.obsm["spatial_registered"] = registered_adata_list[1].obsm[
+        if "spatial_registered" in registered[1].obsm:
+            target_adata.obsm["spatial_registered"] = registered[1].obsm[
                 "spatial_registered"
             ]
 
-        # Create result dictionary
         result = {
             "method": method,
             "source_id": source_id,
@@ -665,13 +463,10 @@ async def register_spatial_slices_mcp(
             "spatial_key_registered": "spatial_registered",
         }
 
-        await ctx.info(
-            "Registration completed. Registered coordinates stored in 'spatial_registered' key."
-        )
-
+        await ctx.info("Registration completed. Coordinates in 'spatial_registered'.")
         return result
 
     except Exception as e:
-        error_msg = f"Registration failed: {str(e)}"
+        error_msg = f"Registration failed: {e}"
         await ctx.error(error_msg)
         raise ProcessingError(error_msg) from e
