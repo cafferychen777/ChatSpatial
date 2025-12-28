@@ -24,9 +24,6 @@ from ..utils.dependency_manager import (
     validate_scvi_tools,
 )
 
-# Dependency validation is now handled by the centralized dependency_manager module.
-# Use require(), validate_r_environment(), validate_scvi_tools() from dependency_manager.
-
 # Supported annotation methods
 # Confidence behavior by method:
 #   - singler/tangram/sctype: Real confidence scores (correlation/probability/scoring)
