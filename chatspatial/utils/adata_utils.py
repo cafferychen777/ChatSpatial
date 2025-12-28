@@ -274,8 +274,7 @@ def standardize_adata(adata: "ad.AnnData", copy: bool = True) -> "ad.AnnData":
     _move_spatial_to_standard(adata)
 
     # Make gene names unique
-    if not adata.var_names.is_unique:
-        adata.var_names_make_unique()
+    ensure_unique_var_names(adata)
 
     # Ensure categorical columns
     all_categorical_keys = (
@@ -520,3 +519,50 @@ def get_highly_variable_genes(
         return adata.var_names[top_indices].tolist()
 
     return []
+
+
+# =============================================================================
+# Gene Name Utilities
+# =============================================================================
+def ensure_unique_var_names(
+    adata: "ad.AnnData",
+    label: str = "data",
+) -> int:
+    """
+    Ensure gene names are unique, fixing duplicates if needed.
+
+    Args:
+        adata: AnnData object (modified in-place)
+        label: Label for logging (not used in sync version, for API consistency)
+
+    Returns:
+        Number of duplicate gene names that were fixed (0 if already unique)
+    """
+    if adata.var_names.is_unique:
+        return 0
+
+    n_duplicates = len(adata.var_names) - len(set(adata.var_names))
+    adata.var_names_make_unique()
+    return n_duplicates
+
+
+async def ensure_unique_var_names_with_ctx(
+    adata: "ad.AnnData",
+    ctx: Any,  # ToolContext, use Any to avoid circular import
+    label: str = "data",
+) -> int:
+    """
+    Ensure gene names are unique with user feedback via ctx.
+
+    Args:
+        adata: AnnData object (modified in-place)
+        ctx: ToolContext for logging warnings to user
+        label: Descriptive label for the data (e.g., "reference data", "query data")
+
+    Returns:
+        Number of duplicate gene names that were fixed (0 if already unique)
+    """
+    n_fixed = ensure_unique_var_names(adata, label)
+    if n_fixed > 0:
+        await ctx.warning(f"Found {n_fixed} duplicate gene names in {label}, fixed")
+    return n_fixed

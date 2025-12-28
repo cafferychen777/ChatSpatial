@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple
 
 from anndata import AnnData
 
-from .adata_utils import get_highly_variable_genes
+from .adata_utils import ensure_unique_var_names, get_highly_variable_genes
 from .dependency_manager import is_available
 
 if TYPE_CHECKING:
@@ -290,8 +290,7 @@ async def load_spatial_data(
                     break
 
     # Make variable names unique to avoid reindexing issues
-    if hasattr(adata, "var_names_make_unique"):
-        adata.var_names_make_unique()
+    ensure_unique_var_names(adata)
 
     # Get metadata profiles for comprehensive dataset overview
     obs_profile = get_column_profile(adata, layer="obs")

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
 from ..models.data import RegistrationParameters
-from ..utils.adata_utils import get_spatial_key
+from ..utils.adata_utils import ensure_unique_var_names, get_spatial_key
 from ..utils.dependency_manager import require
 from ..utils.exceptions import ParameterError, ProcessingError
 
@@ -50,7 +50,7 @@ def _get_common_genes(adata_list: List["ad.AnnData"]) -> List[str]:
     """Get common genes across all slices after making names unique."""
     # Make names unique first
     for adata in adata_list:
-        adata.var_names_make_unique()
+        ensure_unique_var_names(adata)
 
     # Then compute intersection
     common = set(adata_list[0].var_names)

@@ -12,7 +12,7 @@ import squidpy as sq
 from ..models.analysis import PreprocessingResult
 from ..models.data import PreprocessingParameters
 from ..spatial_mcp_adapter import ToolContext
-from ..utils.adata_utils import standardize_adata
+from ..utils.adata_utils import ensure_unique_var_names_with_ctx, standardize_adata
 from ..utils.dependency_manager import (
     require,
     validate_r_package,
@@ -76,14 +76,8 @@ async def preprocess_data(
                 f"Dataset {data_id} is empty: {adata.n_obs} cells, {adata.n_vars} genes"
             )
 
-        # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
-        # Must be done BEFORE any gene-based operations (QC, HVG selection, etc.)
-        if not adata.var_names.is_unique:
-            n_duplicates = len(adata.var_names) - len(set(adata.var_names))
-            await ctx.warning(f"Found {n_duplicates} duplicate gene names in data")
-            await ctx.info("Fixing duplicate gene names with unique suffixes...")
-            adata.var_names_make_unique()
-            await ctx.info(f"Fixed {n_duplicates} duplicate gene names")
+        # Handle duplicate gene names (must be done before gene-based operations)
+        await ensure_unique_var_names_with_ctx(adata, ctx, "data")
 
         # 1. Calculate QC metrics (including mitochondrial percentage)
         await ctx.info("Calculating QC metrics...")

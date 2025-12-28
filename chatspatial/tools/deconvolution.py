@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 from ..models.analysis import DeconvolutionResult  # noqa: E402
 from ..models.data import DeconvolutionParameters  # noqa: E402
+from ..utils.adata_utils import ensure_unique_var_names_with_ctx
 from ..utils.dependency_manager import get as get_dependency
 from ..utils.dependency_manager import is_available, require
 from ..utils.mcp_utils import suppress_output
@@ -1994,9 +1995,7 @@ async def deconvolve_spatial_data(
             raise ValueError(f"Dataset {data_id} contains no observations")
 
         # Ensure spatial data has unique gene names
-        if hasattr(spatial_adata, "var_names_make_unique"):
-            await ctx.info("Ensuring spatial dataset has unique gene names")
-            spatial_adata.var_names_make_unique()
+        await ensure_unique_var_names_with_ctx(spatial_adata, ctx, "spatial data")
 
         await ctx.info(f"Spatial dataset shape: {spatial_adata.shape}")
 
@@ -2025,9 +2024,7 @@ async def deconvolve_spatial_data(
                 )
 
             # Ensure reference data has unique gene names
-            if hasattr(reference_adata, "var_names_make_unique"):
-                await ctx.info("Ensuring reference dataset has unique gene names")
-                reference_adata.var_names_make_unique()
+            await ensure_unique_var_names_with_ctx(reference_adata, ctx, "reference data")
 
             # Check cell type key
             _validate_cell_type_key(reference_adata, params.cell_type_key)
