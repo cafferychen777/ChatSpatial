@@ -206,31 +206,23 @@ async def get_deconvolution_data(
         if target_key not in adata.obsm:
             available = [k.replace("deconvolution_", "") for k in deconv_keys]
             raise DataNotFoundError(
-                f"Deconvolution results for method '{method}' not found.\n\n"
-                f"Available methods: {available if available else 'None'}\n\n"
-                "SOLUTION: Run deconvolution first or specify an available method."
+                f"Deconvolution '{method}' not found. "
+                f"Available: {available if available else 'None'}. "
+                f"Run deconvolve_data() first."
             )
         proportions_key = target_key
     else:
         # Auto-detect
         if not deconv_keys:
             raise DataNotFoundError(
-                "No deconvolution results found in adata.obsm.\n\n"
-                "SOLUTION: Run deconvolution first:\n"
-                '  deconvolve_data(data_id="your_data", '
-                'params={"method": "cell2location", "cell_type_key": "..."})\n\n'
-                "Available methods: cell2location, rctd, destvi, stereoscope, "
-                "spotlight, card, tangram"
+                "No deconvolution results found. Run deconvolve_data() first."
             )
 
         if len(deconv_keys) > 1:
             available = [k.replace("deconvolution_", "") for k in deconv_keys]
             raise ValueError(
-                f"Multiple deconvolution results found: {available}\n\n"
-                f"SOLUTION: Specify which method to visualize:\n"
-                f"  params={{'deconv_method': '{available[0]}'}}\n\n"
-                f"NOTE: Different methods have different assumptions.\n"
-                f"      Always explicitly specify which result to visualize."
+                f"Multiple deconvolution results: {available}. "
+                f"Specify deconv_method parameter."
             )
 
         # Single result - auto-select
@@ -445,18 +437,7 @@ async def get_cell_communication_data(
 
     # 4. No results found - provide helpful error
     raise DataNotFoundError(
-        "No cell communication results found in dataset.\n\n"
-        "SOLUTIONS:\n"
-        "1. Run cell communication analysis first:\n"
-        "   analyze_cell_communication(\n"
-        '       data_id="your_data_id",\n'
-        "       params={\n"
-        '           "species": "human",  # or "mouse"\n'
-        '           "cell_type_key": "leiden",  # your cluster column\n'
-        "       }\n"
-        "   )\n\n"
-        "2. Ensure analysis completed successfully\n\n"
-        "Available methods: liana, cellphonedb, cellchat_r"
+        "No cell communication results found. Run analyze_cell_communication() first."
     )
 
 
@@ -529,20 +510,11 @@ async def get_validated_features(
                 )
             return default_genes[:max_features]
         elif allow_empty and not default_genes:
-            raise ValueError(
-                "No default genes available and no features specified.\n\n"
-                "INTERNAL ERROR: allow_empty=True but default_genes=None.\n"
-                "This is a configuration error in the visualization function."
-            )
+            raise ValueError("Config error: allow_empty=True but no default_genes.")
         else:
             # Require explicit feature specification
             raise DataNotFoundError(
-                "No genes specified for visualization.\n\n"
-                "SOLUTIONS:\n"
-                "1. Specify genes: visualize_data(data_id, params={'feature': ['CD3D', 'CD8A']})\n"
-                "2. Find markers: find_markers(data_id, group_key='cell_type')\n"
-                "3. Run preprocessing: preprocess_data(data_id, params={'n_top_genes': 2000})\n\n"
-                "CONTEXT: Explicit gene selection required for scientific accuracy."
+                "No genes specified. Use feature parameter to specify genes."
             )
 
     # Parse user features
@@ -556,12 +528,8 @@ async def get_validated_features(
         # All features missing
         examples = list(adata.var_names[:10])
         raise DataNotFoundError(
-            f"Genes not found: {missing_features}\n\n"
-            f"SOLUTIONS:\n"
-            f"1. Check names (available: {examples})\n"
-            f"2. Search for similar gene names\n"
-            f"3. Use gene discovery tools\n\n"
-            f"CONTEXT: Dataset has {adata.n_vars:,} genes."
+            f"Genes not found: {missing_features}. "
+            f"Available examples: {examples[:5]}"
         )
 
     # Warn about missing features
@@ -756,15 +724,8 @@ async def validate_and_prepare_feature(
     ][:10]
 
     raise DataNotFoundError(
-        f"Feature '{feature}' not found in dataset.\n\n"
-        f"AVAILABLE DATA:\n"
-        f"  - Genes (example): {available_genes}\n"
-        f"  - Annotations (example): {available_obs}\n\n"
-        "SOLUTIONS:\n"
-        "1. Check spelling and capitalization of feature name\n"
-        "2. Use an available gene or annotation column\n"
-        "3. For deconvolution visualization, use:\n"
-        "   plot_type='deconvolution', deconv_method='cell2location'"
+        f"Feature '{feature}' not found. "
+        f"Genes: {available_genes[:5]}, Annotations: {available_obs[:5]}"
     )
 
 
@@ -822,13 +783,8 @@ async def _create_violin_visualization(
             if adata.obs[col].dtype.name in ["object", "category"]
         ]
         raise ValueError(
-            "Violin plot requires 'cluster_key' parameter.\n\n"
-            f"Available categorical columns ({len(categorical_cols)} total):\n"
-            f"  {', '.join(categorical_cols[:15])}\n\n"
-            "SOLUTION: Specify cluster_key explicitly:\n"
-            "  visualize_data(data_id, params={'plot_type': 'violin', 'cluster_key': 'your_column_name'})\n\n"
-            "NOTE: ChatSpatial uses 'cluster_key' (not 'groupby' as in Scanpy).\n"
-            "   This maintains consistency with Squidpy spatial analysis functions."
+            f"Violin plot requires cluster_key. "
+            f"Available: {categorical_cols[:10]}"
         )
 
     validate_obs_column(adata, params.cluster_key, f"Cluster key '{params.cluster_key}'")
@@ -978,13 +934,8 @@ async def _create_dotplot_visualization(
             if adata.obs[col].dtype.name in ["object", "category"]
         ]
         raise ValueError(
-            "Dotplot requires 'cluster_key' parameter for grouping.\n\n"
-            f"Available categorical columns ({len(categorical_cols)} total):\n"
-            f"  {', '.join(categorical_cols[:15])}\n\n"
-            "SOLUTION: Specify cluster_key explicitly:\n"
-            "  visualize_data(data_id, params={'plot_type': 'dotplot', "
-            "'feature': ['gene1', 'gene2'], 'cluster_key': 'your_column'})\n\n"
-            "Example: cluster_key='leiden' or cluster_key='cell_type'"
+            f"Dotplot requires cluster_key. "
+            f"Available: {categorical_cols[:10]}"
         )
 
     validate_obs_column(adata, params.cluster_key, f"Cluster key '{params.cluster_key}'")
@@ -1565,15 +1516,7 @@ async def _create_umap_visualization(
 
         # Check prerequisites for UMAP
         if "neighbors" not in adata.uns:
-            error_msg = (
-                "UMAP visualization requires neighborhood graph.\n\n"
-                "SOLUTION:\n"
-                "Run preprocessing first:\n"
-                "1. sc.pp.neighbors(adata)\n"
-                "2. sc.tl.umap(adata)\n\n"
-                "SCIENTIFIC INTEGRITY: UMAP requires a k-nearest neighbor graph "
-                "to preserve local manifold structure. Cannot proceed without it."
-            )
+            error_msg = "UMAP requires neighbors graph. Run preprocessing first."
             if context:
                 await context.error(error_msg)
             raise ValueError(error_msg)
@@ -1602,26 +1545,7 @@ async def _create_umap_visualization(
                 await context.info("Successfully computed UMAP coordinates")
 
         except Exception as e:
-            # NO FALLBACK: Honest error reporting with alternatives
-            error_msg = (
-                "Failed to compute UMAP for visualization.\n\n"
-                f"Error: {str(e)}\n\n"
-                "ALTERNATIVES:\n"
-                "1. Use PCA visualization instead (LINEAR method):\n"
-                "   visualize_data(data_id, params={'plot_type': 'pca'})\n\n"
-                "2. Use t-SNE visualization (NON-LINEAR, different from UMAP):\n"
-                "   visualize_data(data_id, params={'plot_type': 'tsne'})\n\n"
-                "3. Fix UMAP computation in preprocessing:\n"
-                "   - Ensure data is properly normalized\n"
-                "   - Check for extreme values or NaN\n"
-                "   - Verify neighbors graph is computed correctly\n"
-                "   - Try different UMAP parameters\n\n"
-                "SCIENTIFIC INTEGRITY: UMAP (Uniform Manifold Approximation) and PCA "
-                "(Principal Component Analysis) are fundamentally different algorithms:\n"
-                "• UMAP: Non-linear, preserves local structure, reveals clusters\n"
-                "• PCA: Linear, preserves global variance, shows major axes of variation\n"
-                "We cannot substitute one for another without explicit user consent."
-            )
+            error_msg = f"Failed to compute UMAP: {e}"
             if context:
                 await context.error(error_msg)
             raise RuntimeError(error_msg)
@@ -1644,11 +1568,8 @@ async def _create_umap_visualization(
                 if adata.obs[col].dtype.name in ["object", "category"]
             ]
             raise ValueError(
-                "UMAP visualization requires 'feature' parameter.\n\n"
-                f"Available categorical columns ({len(categorical_cols)} total):\n"
-                f"  {', '.join(categorical_cols[:15])}\n\n"
-                "SOLUTION: Specify feature explicitly:\n"
-                "  visualize_data(data_id, params={'plot_type': 'umap', 'feature': 'your_column_name'})"
+                f"UMAP requires feature parameter. "
+                f"Available: {categorical_cols[:10]}"
             )
 
         single_feature = feature_list[0]
@@ -1810,19 +1731,11 @@ async def _create_spatial_visualization(
 
         # If user explicitly requested a feature but it wasn't found, raise error
         if single_feature and not feature:
-            # Provide helpful error message
-            examples = list(adata.var_names[:10])
-            obs_examples = list(adata.obs.columns[:10])
+            examples = list(adata.var_names[:5])
+            obs_examples = list(adata.obs.columns[:5])
             raise DataNotFoundError(
-                f"Feature '{single_feature}' not found in dataset.\n\n"
-                f"SOLUTIONS:\n"
-                f"1. Check spelling and case (gene names are case-sensitive)\n"
-                f"   - Mouse genes: First letter uppercase (e.g., 'Cd5l', 'Gbp2b')\n"
-                f"   - Human genes: All uppercase (e.g., 'CD5L', 'GBP2B')\n"
-                f"2. Available genes (first 10): {examples}\n"
-                f"3. Available annotations (first 10): {obs_examples}\n\n"
-                f"CONTEXT: Dataset has {adata.n_vars:,} genes and "
-                f"{len(adata.obs.columns)} annotations."
+                f"Feature '{single_feature}' not found. "
+                f"Genes: {examples}, Annotations: {obs_examples}"
             )
 
         # Create spatial plot using unified helper function
@@ -2926,9 +2839,7 @@ async def _create_spatial_lr_visualization(
     """
     if data.spatial_scores is None or len(data.lr_pairs) == 0:
         raise DataNotFoundError(
-            "No spatial communication scores found.\n\n"
-            "SOLUTION: Run spatial cell communication analysis first:\n"
-            '  analyze_cell_communication(data_id="...", params={"species": "...", ...})'
+            "No spatial communication scores found. Run analyze_cell_communication() first."
         )
 
     # Select top LR pairs to visualize
@@ -2952,13 +2863,7 @@ async def _create_spatial_lr_visualization(
         top_pairs = data.lr_pairs[:n_pairs]
 
     if not top_pairs:
-        raise DataNotFoundError(
-            "No LR pairs found in spatial results.\n\n"
-            "POSSIBLE CAUSES:\n"
-            "1. Analysis generated empty results\n"
-            "2. Parameters too stringent\n\n"
-            "SOLUTION: Re-run analysis with adjusted parameters"
-        )
+        raise DataNotFoundError("No LR pairs found. Re-run analysis with adjusted parameters.")
 
     # Get pair indices in spatial_scores array
     pair_indices = []
@@ -3328,19 +3233,13 @@ def _create_cellphonedb_heatmap(
     means = data.results
 
     if not isinstance(means, pd.DataFrame) or len(means) == 0:
-        raise DataNotFoundError(
-            "CellPhoneDB results are empty or invalid format.\n\n"
-            "SOLUTION: Re-run CellPhoneDB analysis"
-        )
+        raise DataNotFoundError("CellPhoneDB results empty. Re-run analysis.")
 
     # Get pvalues (required for ktplotspy heatmap)
     pvalues = adata.uns.get("cellphonedb_pvalues", None)
 
     if pvalues is None or not isinstance(pvalues, pd.DataFrame):
-        raise DataNotFoundError(
-            "CellPhoneDB pvalues not found in adata.uns['cellphonedb_pvalues'].\n\n"
-            "SOLUTION: Re-run CellPhoneDB analysis to generate pvalues"
-        )
+        raise DataNotFoundError("CellPhoneDB pvalues not found. Re-run analysis.")
 
     # Use ktplotspy heatmap (shows count of significant interactions)
     grid = kpy.plot_cpdb_heatmap(
@@ -3378,10 +3277,7 @@ def _create_cellphonedb_dotplot(
     means = data.results
 
     if not isinstance(means, pd.DataFrame) or len(means) == 0:
-        raise DataNotFoundError(
-            "CellPhoneDB results are empty or invalid format.\n\n"
-            "SOLUTION: Re-run CellPhoneDB analysis"
-        )
+        raise DataNotFoundError("CellPhoneDB results empty. Re-run analysis.")
 
     require("ktplotspy", feature="CellPhoneDB dotplot visualization")
     import ktplotspy as kpy

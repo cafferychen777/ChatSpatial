@@ -1,0 +1,112 @@
+"""
+Visualization module for spatial transcriptomics.
+
+This module provides visualization functions organized by analysis type:
+- basic: Spatial plots, UMAP, heatmaps, violin plots, dotplots
+- deconvolution: Cell type proportion visualizations
+- cell_comm: Cell-cell communication visualizations
+- velocity: RNA velocity visualizations
+- trajectory: Trajectory and pseudotime visualizations
+- spatial_stats: Spatial statistics visualizations
+- enrichment: Pathway enrichment visualizations
+
+Usage:
+    from chatspatial.tools.visualization import (
+        create_spatial_visualization,
+        create_umap_visualization,
+        create_deconvolution_visualization,
+        # ... etc
+    )
+"""
+
+# Core utilities and data classes
+from .core import (
+    CellCommunicationData,
+    DeconvolutionData,
+    add_colorbar,
+    create_figure,
+    get_colormap,
+    get_diverging_colormap,
+    get_validated_features,
+    plot_spatial_feature,
+    setup_multi_panel_figure,
+    validate_and_prepare_feature,
+)
+
+# Basic visualizations
+from .basic import (
+    create_dotplot_visualization,
+    create_heatmap_visualization,
+    create_spatial_visualization,
+    create_umap_visualization,
+    create_violin_visualization,
+)
+
+# Deconvolution visualizations
+from .deconvolution import create_deconvolution_visualization
+
+# Cell communication visualizations
+from .cell_comm import create_cell_communication_visualization
+
+# RNA velocity visualizations
+from .velocity import create_rna_velocity_visualization
+
+# Trajectory visualizations
+from .trajectory import create_trajectory_visualization
+
+# Spatial statistics visualizations
+from .spatial_stats import create_spatial_statistics_visualization
+
+# Enrichment visualizations
+from .enrichment import (
+    create_enrichment_visualization,
+    create_pathway_enrichment_visualization,
+)
+
+# Handler registry for dispatch
+PLOT_HANDLERS = {
+    # Basic plots
+    "spatial": create_spatial_visualization,
+    "umap": create_umap_visualization,
+    "heatmap": create_heatmap_visualization,
+    "violin": create_violin_visualization,
+    "dotplot": create_dotplot_visualization,
+    # Analysis-specific plots
+    "deconvolution": create_deconvolution_visualization,
+    "cell_communication": create_cell_communication_visualization,
+    "rna_velocity": create_rna_velocity_visualization,
+    "trajectory": create_trajectory_visualization,
+    "spatial_statistics": create_spatial_statistics_visualization,
+    "pathway_enrichment": create_pathway_enrichment_visualization,
+}
+
+__all__ = [
+    # Core utilities
+    "create_figure",
+    "setup_multi_panel_figure",
+    "add_colorbar",
+    "get_colormap",
+    "get_diverging_colormap",
+    "plot_spatial_feature",
+    "get_validated_features",
+    "validate_and_prepare_feature",
+    # Data classes
+    "DeconvolutionData",
+    "CellCommunicationData",
+    # Basic visualizations
+    "create_spatial_visualization",
+    "create_umap_visualization",
+    "create_heatmap_visualization",
+    "create_violin_visualization",
+    "create_dotplot_visualization",
+    # Specialized visualizations
+    "create_deconvolution_visualization",
+    "create_cell_communication_visualization",
+    "create_rna_velocity_visualization",
+    "create_trajectory_visualization",
+    "create_spatial_statistics_visualization",
+    "create_enrichment_visualization",
+    "create_pathway_enrichment_visualization",
+    # Handler registry
+    "PLOT_HANDLERS",
+]
