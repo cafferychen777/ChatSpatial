@@ -15,11 +15,6 @@ from ..utils import validate_obs_column
 from ..utils.dependency_manager import is_available, require
 
 
-# Use centralized dependency manager for consistent availability checks
-LIANA_AVAILABLE = is_available("liana")
-CELLPHONEDB_AVAILABLE = is_available("cellphonedb")
-
-
 def is_cellchat_r_available() -> tuple[bool, str]:
     """Check if CellChat R package is available through rpy2
 
@@ -115,9 +110,7 @@ async def analyze_cell_communication(
 
             # Provide data overview information
             n_genes = adata.raw.n_vars if adata.raw is not None else adata.n_vars
-            data_source_info = (
-                "raw layer" if adata.raw is not None else "current layer"
-            )
+            data_source_info = "raw layer" if adata.raw is not None else "current layer"
             await ctx.info(
                 f"Running CellPhoneDB with {n_genes} genes from {data_source_info} "
                 f"and {adata.n_obs} cells"
@@ -141,28 +134,20 @@ async def analyze_cell_communication(
 
         # Analyze cell communication using selected method
         if params.method == "liana":
-            if not LIANA_AVAILABLE:
-                raise ImportError(
-                    "LIANA+ is not installed. Please install it with: pip install liana"
-                )
+            require("liana", ctx, feature="LIANA+ cell communication analysis")
             result_data = await _analyze_communication_liana(adata, params, ctx)
 
         elif params.method == "cellphonedb":
-            if not CELLPHONEDB_AVAILABLE:
-                raise ImportError(
-                    "CellPhoneDB is not installed. Please install it with: pip install cellphonedb"
-                )
-            result_data = await _analyze_communication_cellphonedb(
-                adata, params, ctx
+            require(
+                "cellphonedb", ctx, feature="CellPhoneDB cell communication analysis"
             )
+            result_data = await _analyze_communication_cellphonedb(adata, params, ctx)
 
         elif params.method == "cellchat_r":
             is_available, error_message = is_cellchat_r_available()
             if not is_available:
                 raise ImportError(f"CellChat R is not available: {error_message}")
-            result_data = await _analyze_communication_cellchat_r(
-                adata, params, ctx
-            )
+            result_data = await _analyze_communication_cellchat_r(adata, params, ctx)
 
         else:
             raise ValueError(
@@ -173,8 +158,8 @@ async def analyze_cell_communication(
         # Note: Visualizations should be created using the separate visualize_data tool
         # This maintains clean separation between analysis and visualization
         await ctx.info(
-                "Cell communication analysis complete. Use visualize_data tool with plot_type='cell_communication' to visualize results"
-            )
+            "Cell communication analysis complete. Use visualize_data tool with plot_type='cell_communication' to visualize results"
+        )
 
         # Note: Results are already stored in adata.uns by the analysis methods
         # Since ctx.get_adata() returns a reference to the stored object,
@@ -305,24 +290,24 @@ async def _analyze_communication_liana(
             # Use Squidpy for spatial neighbor computation
             # Note: Spatial analysis requires spatial neighbors (physical coordinates), not expression neighbors
             # Use centralized dependency manager for consistent error handling
-            require("squidpy")  # Raises ImportError with install instructions if missing
+            require(
+                "squidpy"
+            )  # Raises ImportError with install instructions if missing
             import squidpy as sq
 
             # Squidpy's spatial_neighbors uses PHYSICAL coordinates
             sq.gr.spatial_neighbors(
                 adata,
                 coord_type="generic",
-                n_neighs=min(
-                    30, max(6, adata.n_obs // 100)
-                ),  # Adaptive neighbor count
+                n_neighs=min(30, max(6, adata.n_obs // 100)),  # Adaptive neighbor count
                 radius=bandwidth if bandwidth else None,
                 delaunay=True,  # Use Delaunay triangulation for spatial data
                 set_diag=False,  # Standard practice for spatial graphs
             )
 
             await ctx.info(
-                    f"Spatial connectivity computed with bandwidth={bandwidth}, cutoff={cutoff}"
-                )
+                f"Spatial connectivity computed with bandwidth={bandwidth}, cutoff={cutoff}"
+            )
 
         # Validate species parameter is specified
         if not params.species:
@@ -411,7 +396,9 @@ async def _run_liana_cluster_analysis(
     n_lr_pairs = len(liana_res)
     # Use configurable significance threshold (default: 0.05)
     significance_alpha = params.liana_significance_alpha
-    n_significant_pairs = len(liana_res[liana_res["magnitude_rank"] <= significance_alpha])
+    n_significant_pairs = len(
+        liana_res[liana_res["magnitude_rank"] <= significance_alpha]
+    )
 
     # Get top pairs
     top_lr_pairs = []
@@ -508,11 +495,11 @@ async def _run_liana_spatial_analysis(
 
     # Diagnostic logging
     await ctx.info(
-            f"Statistical Significance Analysis:\n"
-            f"  - Total L-R pairs: {len(pvals)}\n"
-            f"  - P-value range: [{pvals.min():.6f}, {pvals.max():.6f}]\n"
-            f"  - P < {alpha} (uncorrected): {(pvals < alpha).sum()}/{len(pvals)}"
-        )
+        f"Statistical Significance Analysis:\n"
+        f"  - Total L-R pairs: {len(pvals)}\n"
+        f"  - P-value range: [{pvals.min():.6f}, {pvals.max():.6f}]\n"
+        f"  - P < {alpha} (uncorrected): {(pvals < alpha).sum()}/{len(pvals)}"
+    )
 
     reject, pvals_corrected, _, _ = multipletests(
         pvals, alpha=alpha, method="fdr_bh"  # Benjamini-Hochberg FDR correction
@@ -522,9 +509,9 @@ async def _run_liana_spatial_analysis(
 
     # Diagnostic logging for FDR results
     await ctx.info(
-            f"  - FDR-corrected p-value range: [{pvals_corrected.min():.6f}, {pvals_corrected.max():.6f}]\n"
-            f"  - Significant pairs (FDR < {alpha}): {n_significant_pairs}/{len(pvals)} ({n_significant_pairs/len(pvals)*100:.1f}%)"
-        )
+        f"  - FDR-corrected p-value range: [{pvals_corrected.min():.6f}, {pvals_corrected.max():.6f}]\n"
+        f"  - Significant pairs (FDR < {alpha}): {n_significant_pairs}/{len(pvals)} ({n_significant_pairs/len(pvals)*100:.1f}%)"
+    )
 
     # Store corrected p-values and significance flags for downstream use
     lrdata.var[f"{pvals_col}_corrected"] = pvals_corrected
@@ -589,15 +576,13 @@ async def _run_liana_spatial_analysis(
     }
 
 
-async def _ensure_cellphonedb_database(
-    output_dir: str, ctx: "ToolContext"
-) -> str:
+async def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
     """Ensure CellPhoneDB database is available, download if not exists"""
     # Use centralized dependency manager for consistent error handling
     require("cellphonedb")  # Raises ImportError with install instructions if missing
-    from cellphonedb.utils import db_utils
-
     import os
+
+    from cellphonedb.utils import db_utils
 
     # Check if database file already exists
     db_path = os.path.join(output_dir, "cellphonedb.zip")
@@ -612,9 +597,7 @@ async def _ensure_cellphonedb_database(
         # Download latest database
         db_utils.download_database(output_dir, "v5.0.0")
 
-        await ctx.info(
-                f"Successfully downloaded CellPhoneDB database to: {db_path}"
-            )
+        await ctx.info(f"Successfully downloaded CellPhoneDB database to: {db_path}")
 
         return db_path
 
@@ -680,10 +663,10 @@ async def _analyze_communication_cellphonedb(
         )
 
         await ctx.info(
-                f"Preparing {matrix_type} expression data for CellPhoneDB\n"
-                f"  Data: {n_genes} genes × {n_cells} cells\n"
-                f"  Cell types: {meta_df['cell_type'].nunique()}"
-            )
+            f"Preparing {matrix_type} expression data for CellPhoneDB\n"
+            f"  Data: {n_genes} genes × {n_cells} cells\n"
+            f"  Cell types: {meta_df['cell_type'].nunique()}"
+        )
 
         # Create microenvironments file if spatial data is available and requested
         microenvs_file = None
@@ -866,8 +849,8 @@ async def _analyze_communication_cellphonedb(
             mask = min_pvals < threshold
 
             await ctx.warning(
-                    f"Multiple testing correction disabled. With {n_cell_type_pairs} cell type pairs, consider using 'fdr_bh' or 'bonferroni'."
-                )
+                f"Multiple testing correction disabled. With {n_cell_type_pairs} cell type pairs, consider using 'fdr_bh' or 'bonferroni'."
+            )
 
             # For 'none', we don't have corrected p-values per se, just use min
             min_pvals_corrected = min_pvals.copy()
@@ -931,13 +914,13 @@ async def _analyze_communication_cellphonedb(
 
             # Log filtering results
             await ctx.info(
-                    f"CellPhoneDB: {n_significant_pairs}/{n_lr_pairs} significant pairs (p < {threshold}, {correction_method} correction)"
-                )
+                f"CellPhoneDB: {n_significant_pairs}/{n_lr_pairs} significant pairs (p < {threshold}, {correction_method} correction)"
+            )
         else:
             # No significant interactions found
             await ctx.warning(
-                    f"No significant interactions found at p < {threshold}. Consider adjusting threshold or using method='liana'."
-                )
+                f"No significant interactions found at p < {threshold}. Consider adjusting threshold or using method='liana'."
+            )
 
         # Get top LR pairs
         top_lr_pairs = []
@@ -953,9 +936,7 @@ async def _analyze_communication_cellphonedb(
         end_time = time.time()
         analysis_time = end_time - start_time
 
-        await ctx.info(
-            f"CellPhoneDB analysis completed in {analysis_time:.2f} seconds"
-        )
+        await ctx.info(f"CellPhoneDB analysis completed in {analysis_time:.2f} seconds")
         await ctx.info(
             f"Found {n_significant_pairs} significant interactions out of {n_lr_pairs} tested"
         )
@@ -1149,13 +1130,13 @@ async def _analyze_communication_cellchat_r(
         if adata.raw is not None:
             data_source = adata.raw
             await ctx.info(
-                    f"Using raw data with {data_source.n_vars} genes for CellChat"
-                )
+                f"Using raw data with {data_source.n_vars} genes for CellChat"
+            )
         else:
             data_source = adata
             await ctx.info(
-                    f"Using current data with {data_source.n_vars} genes for CellChat"
-                )
+                f"Using current data with {data_source.n_vars} genes for CellChat"
+            )
 
         if hasattr(data_source.X, "toarray"):
             expr_matrix = pd.DataFrame(
@@ -1177,8 +1158,8 @@ async def _analyze_communication_cellchat_r(
         if any(label == "0" or (label and label[0].isdigit()) for label in cell_labels):
             cell_labels = [f"cluster_{label}" for label in cell_labels]
             await ctx.info(
-                    "Added 'cluster_' prefix to numeric labels (CellChat requirement)"
-                )
+                "Added 'cluster_' prefix to numeric labels (CellChat requirement)"
+            )
         meta_df = pd.DataFrame(
             {"labels": cell_labels},
             index=adata.obs_names,
@@ -1284,8 +1265,8 @@ async def _analyze_communication_cellchat_r(
                 """
                 )
                 await ctx.info(
-                        f"Using CellChatDB category: {params.cellchat_db_category}"
-                    )
+                    f"Using CellChatDB category: {params.cellchat_db_category}"
+                )
             else:
                 ro.r(
                     """
@@ -1303,8 +1284,8 @@ async def _analyze_communication_cellchat_r(
             )
 
             await ctx.info(
-                    "Completed preprocessing: identified overexpressed genes and interactions"
-                )
+                "Completed preprocessing: identified overexpressed genes and interactions"
+            )
 
             # Project data (optional but recommended)
             ro.r(
@@ -1355,8 +1336,8 @@ async def _analyze_communication_cellchat_r(
                 )
 
             await ctx.info(
-                    f"Computed communication probability using {params.cellchat_type} method"
-                )
+                f"Computed communication probability using {params.cellchat_type} method"
+            )
 
             # Filter communication
             ro.r(
@@ -1463,9 +1444,7 @@ async def _analyze_communication_cellchat_r(
         end_time = time.time()
         analysis_time = end_time - start_time
 
-        await ctx.info(
-            f"CellChat R analysis completed in {analysis_time:.2f} seconds"
-        )
+        await ctx.info(f"CellChat R analysis completed in {analysis_time:.2f} seconds")
         await ctx.info(
             f"Found {n_significant_pairs} significant interactions from {n_lr_pairs} LR pairs"
         )
