@@ -76,6 +76,15 @@ from .cnv import (
 # Batch integration visualizations
 from .integration import create_batch_integration_visualization
 
+# Multi-gene visualizations
+from .multi_gene import (
+    create_gene_correlation_visualization,
+    create_lr_pairs_visualization,
+    create_multi_gene_umap_visualization,
+    create_multi_gene_visualization,
+    create_spatial_interaction_visualization,
+)
+
 # Persistence functions
 from .persistence import (
     clear_visualization_cache,
@@ -119,6 +128,12 @@ __all__ = [
     "create_cnv_heatmap_visualization",
     # Integration visualizations
     "create_batch_integration_visualization",
+    # Multi-gene visualizations
+    "create_multi_gene_visualization",
+    "create_multi_gene_umap_visualization",
+    "create_lr_pairs_visualization",
+    "create_gene_correlation_visualization",
+    "create_spatial_interaction_visualization",
     # Persistence functions
     "save_visualization",
     "export_all_visualizations",
