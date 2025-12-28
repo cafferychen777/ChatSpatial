@@ -12,7 +12,11 @@ import squidpy as sq
 from ..models.analysis import PreprocessingResult
 from ..models.data import PreprocessingParameters
 from ..spatial_mcp_adapter import ToolContext
-from ..utils.adata_utils import ensure_unique_var_names_with_ctx, standardize_adata
+from ..utils.adata_utils import (
+    ensure_unique_var_names_with_ctx,
+    sample_expression_values,
+    standardize_adata,
+)
 from ..utils.dependency_manager import (
     require,
     validate_r_package,
@@ -306,14 +310,7 @@ async def preprocess_data(
         if params.normalization == "log":
             # Standard log normalization
             # Check if data appears to be already normalized
-            if scipy.sparse.issparse(adata.X):
-                X_sample = (
-                    adata.X.data[: min(1000, len(adata.X.data))]
-                    if hasattr(adata.X, "data")
-                    else adata.X[:1000].toarray().flatten()
-                )
-            else:
-                X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+            X_sample = sample_expression_values(adata)
 
             # Check for negative values (indicates already log-normalized data)
             if np.any(X_sample < 0):
@@ -363,14 +360,7 @@ async def preprocess_data(
                 raise ImportError(full_error) from e
 
             # Check if data appears to be raw counts (required for SCTransform)
-            if scipy.sparse.issparse(adata.X):
-                X_sample = (
-                    adata.X.data[: min(1000, len(adata.X.data))]
-                    if hasattr(adata.X, "data")
-                    else adata.X[:1000].toarray().flatten()
-                )
-            else:
-                X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+            X_sample = sample_expression_values(adata)
 
             # Check for non-integer values (indicates normalized data)
             if np.any((X_sample % 1) != 0):
@@ -549,15 +539,7 @@ async def preprocess_data(
                 raise ValueError(error_msg)
 
             # Check if data appears to be raw counts
-            if scipy.sparse.issparse(adata.X):
-                # Sample first 1000 values for efficiency
-                X_sample = (
-                    adata.X.data[: min(1000, len(adata.X.data))]
-                    if hasattr(adata.X, "data")
-                    else adata.X[:1000].toarray().flatten()
-                )
-            else:
-                X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+            X_sample = sample_expression_values(adata)
 
             # Check for non-integer values (indicates normalized data)
             if np.any((X_sample % 1) != 0):
@@ -591,14 +573,7 @@ async def preprocess_data(
 
             # CRITICAL: Check if data appears to be raw counts
             # HVG selection requires normalized data for statistical validity
-            if scipy.sparse.issparse(adata.X):
-                X_sample = (
-                    adata.X.data[: min(1000, len(adata.X.data))]
-                    if hasattr(adata.X, "data")
-                    else adata.X[:1000].toarray().flatten()
-                )
-            else:
-                X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+            X_sample = sample_expression_values(adata)
 
             # Check if data looks raw (all integers and high values)
             if np.all((X_sample % 1) == 0) and np.max(X_sample) > 100:
@@ -625,14 +600,7 @@ async def preprocess_data(
             import scvi
 
             # Check if data appears to be raw counts (required for scVI)
-            if scipy.sparse.issparse(adata.X):
-                X_sample = (
-                    adata.X.data[: min(1000, len(adata.X.data))]
-                    if hasattr(adata.X, "data")
-                    else adata.X[:1000].toarray().flatten()
-                )
-            else:
-                X_sample = adata.X.flatten()[: min(1000, adata.X.size)]
+            X_sample = sample_expression_values(adata)
 
             # Check for negative values (indicates already normalized data)
             if np.any(X_sample < 0):

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 from ..models.analysis import SpatialVariableGenesResult  # noqa: E402
 from ..models.data import SpatialVariableGenesParameters  # noqa: E402
 from ..utils import validate_var_column  # noqa: E402
+from ..utils.adata_utils import require_spatial_coords  # noqa: E402
 from ..utils.dependency_manager import (  # noqa: E402
     require,
 )
@@ -93,16 +94,8 @@ async def identify_spatial_genes(
     # Get data via ToolContext
     adata = await ctx.get_adata(data_id)
 
-    # Validate spatial coordinates
-    if params.spatial_key not in adata.obsm:
-        raise ValueError(
-            f"Spatial coordinates not found in adata.obsm['{params.spatial_key}']"
-        )
-
-    # Extract spatial coordinates
-    spatial_coords = adata.obsm[params.spatial_key]
-    if spatial_coords.shape[1] != 2:
-        raise ValueError("Spatial coordinates must be 2D (x, y)")
+    # Validate and extract spatial coordinates
+    spatial_coords = require_spatial_coords(adata, spatial_key=params.spatial_key)
 
     # Log data information
     await ctx.info(f"Processing data: {adata.n_obs} spots, {adata.n_vars} genes")
