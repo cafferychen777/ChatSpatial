@@ -903,10 +903,7 @@ async def _create_dotplot_visualization(
             # Remove empty groups
             var_names = {k: v for k, v in var_names.items() if v}
             if not var_names:
-                raise DataNotFoundError(
-                    "No valid genes found in dotplot_var_groups. "
-                    "Please check gene names."
-                )
+                raise DataNotFoundError("No valid genes found in dotplot_var_groups.")
     else:
         # Use feature parameter or default to HVGs
         default_genes = None
@@ -1062,10 +1059,7 @@ async def _create_card_imputation_visualization(
 
     # Check if CARD imputation data exists
     if "card_imputation" not in adata.uns:
-        error_msg = (
-            "CARD imputation data not found in adata.uns['card_imputation']. "
-            "Please run CARD deconvolution with card_imputation=True first."
-        )
+        error_msg = "CARD imputation data not found. Run CARD deconvolution with card_imputation=True."
         if context:
             await context.warning(error_msg)
         raise DataNotFoundError(error_msg)
@@ -1225,11 +1219,7 @@ async def _create_spatial_cnv_visualization(
                     "No feature specified, using 'numbat_p_cnv' (Numbat CNV probability)"
                 )
         else:
-            error_msg = (
-                "No CNV-related features found in adata.obs. "
-                "Expected one of: 'numbat_clone', 'cnv_score', 'numbat_p_cnv'. "
-                "Please run CNV analysis first using analyze_cnv()."
-            )
+            error_msg = "No CNV features found. Run analyze_cnv() first."
             if context:
                 await context.warning(error_msg)
             raise DataNotFoundError(error_msg)
@@ -1301,11 +1291,7 @@ async def _create_cnv_heatmap_visualization(
     elif "X_cnv_numbat" in adata.obsm:
         cnv_method = "numbat"
     else:
-        error_msg = (
-            "CNV data not found. Expected 'X_cnv' (infercnvpy) or "
-            "'X_cnv_numbat' (Numbat) in adata.obsm. "
-            "Please run CNV analysis first using analyze_cnv()."
-        )
+        error_msg = "CNV data not found in obsm. Run analyze_cnv() first."
         if context:
             await context.warning(error_msg)
         raise DataNotFoundError(error_msg)
@@ -3199,8 +3185,7 @@ def _plotnine_to_matplotlib(p, params: VisualizationParameters) -> plt.Figure:
 
     except Exception as e:
         raise ProcessingError(
-            f"Failed to convert plotnine figure: {e}\n\n"
-            "SOLUTION: Ensure Pillow is installed: pip install Pillow"
+            f"Failed to convert plotnine figure: {e}. Install Pillow."
         ) from e
 
 
@@ -3350,10 +3335,7 @@ def _create_cellphonedb_chord(
     means = data.results
 
     if not isinstance(means, pd.DataFrame) or len(means) == 0:
-        raise DataNotFoundError(
-            "CellPhoneDB results are empty or invalid format.\n\n"
-            "SOLUTION: Re-run CellPhoneDB analysis"
-        )
+        raise DataNotFoundError("CellPhoneDB results empty. Re-run analysis.")
 
     require("ktplotspy", feature="CellPhoneDB chord visualization")
     import ktplotspy as kpy
@@ -5657,11 +5639,8 @@ async def _create_enrichment_visualization(
                 if adata.obs[col].dtype.name in ["object", "category"]
             ]
             raise ValueError(
-                "Enrichment violin plot requires 'cluster_key' parameter.\n\n"
-                f"Available categorical columns ({len(categorical_cols)} total):\n"
-                f"  {', '.join(categorical_cols[:15])}\n\n"
-                "SOLUTION: Specify cluster_key explicitly:\n"
-                "  params={'cluster_key': 'your_column_name'}"
+                f"Enrichment violin requires cluster_key. "
+                f"Available: {categorical_cols[:10]}"
             )
 
         if group_by not in adata.obs.columns:
@@ -5818,18 +5797,8 @@ async def _create_enrichment_visualization(
                 score_info = f"Score column: {params.feature}_score"
 
             raise ProcessingError(
-                f"EnrichMap {params.subtype} visualization failed: {str(e)}\n\n"
-                f"CONTEXT:\n"
-                f"You requested a specific spatial enrichment visualization ('{params.subtype}').\n"
-                f"{score_info}\n\n"
-                f"SOLUTIONS:\n"
-                f"1. Verify the enrichment analysis completed successfully\n"
-                f"2. Check that spatial neighbors graph exists: adata.obsp['spatial_connectivities']\n"
-                f"3. Ensure enrichment scores are properly stored in adata.obs\n"
-                f"4. Try a different subtype: 'spatial_score', 'spatial_correlogram', 'spatial_variogram'\n\n"
-                f"SCIENTIFIC INTEGRITY: Statistical visualizations (correlogram, variogram) "
-                f"convey specific spatial patterns. We refuse to silently substitute them with "
-                f"standard plots as this would misrepresent the analysis type."
+                f"EnrichMap {params.subtype} failed: {e}. "
+                f"Check spatial neighbors graph and enrichment scores."
             ) from e
 
         return fig
@@ -5995,14 +5964,8 @@ def _create_gsea_enrichment_plot(gsea_results, params):
     # Handle DataFrame format (standard stored format)
     if isinstance(gsea_results, pd.DataFrame):
         # DataFrame doesn't contain RES/hits data needed for enrichment plot
-        # Provide helpful error message
         raise DataNotFoundError(
-            "Enrichment plot requires running enrichment scores (RES) data.\n\n"
-            "The stored results contain only summary statistics (DataFrame format).\n\n"
-            "SOLUTIONS:\n"
-            "1. Use subtype='barplot' or subtype='dotplot' instead (recommended)\n"
-            "2. Re-run GSEA analysis and store the full result object\n\n"
-            "Example: params={'subtype': 'barplot', 'n_top_pathways': 15}"
+            "Enrichment plot requires RES data. Use subtype='barplot' or 'dotplot' instead."
         )
 
     # Handle dict format with RES data
@@ -6017,9 +5980,7 @@ def _create_gsea_enrichment_plot(gsea_results, params):
         # Check for required data
         if not isinstance(result, dict) or "RES" not in result:
             raise DataNotFoundError(
-                f"Enrichment plot requires 'RES' (running enrichment scores) data.\n\n"
-                f"Available keys: {list(result.keys()) if isinstance(result, dict) else 'N/A'}\n\n"
-                "SOLUTION: Use subtype='barplot' or subtype='dotplot' instead."
+                "RES data not found. Use subtype='barplot' or 'dotplot' instead."
             )
 
         # Use gseapy.gseaplot for professional visualization
@@ -6051,13 +6012,11 @@ def _create_gsea_enrichment_plot(gsea_results, params):
 
         except Exception as e:
             raise ProcessingError(
-                f"Failed to create GSEA enrichment plot: {e}\n\n"
-                "SOLUTION: Use subtype='barplot' or subtype='dotplot' instead."
+                f"GSEA plot failed: {e}. Use subtype='barplot' or 'dotplot'."
             ) from e
 
     raise ValueError(
-        f"Unsupported GSEA results format: {type(gsea_results)}\n\n"
-        "SOLUTION: Use subtype='barplot' or subtype='dotplot' instead."
+        f"Unsupported GSEA format: {type(gsea_results)}. Use subtype='barplot' or 'dotplot'."
     )
 
 
@@ -6500,10 +6459,8 @@ async def _create_batch_integration_visualization(
     batch_key = params.batch_key
     if batch_key not in adata.obs.columns:
         raise DataNotFoundError(
-            f"Batch key '{batch_key}' not found in data. "
-            f"This visualization requires proper batch information from sample integration. "
-            f"Available columns: {', '.join(adata.obs.columns[:10])}{'...' if len(adata.obs.columns) > 10 else ''}. "
-            f"Please ensure you have run 'integrate_samples' first or specify the correct batch_key."
+            f"Batch key '{batch_key}' not found. "
+            f"Run integrate_samples() first or specify correct batch_key."
         )
 
     # Create multi-panel figure (2x2 layout)
