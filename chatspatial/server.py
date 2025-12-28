@@ -31,7 +31,7 @@ from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
 from .models.analysis import CNVResult  # noqa: E402
 from .models.analysis import DeconvolutionResult  # noqa: E402
-from .models.analysis import (
+from .models.analysis import (  # noqa: E402
     DifferentialExpressionResult,
     EnrichmentResult,
     IntegrationResult,
@@ -46,7 +46,7 @@ from .models.data import AnnotationParameters  # noqa: E402
 from .models.data import CellCommunicationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
 from .models.data import DeconvolutionParameters  # noqa: E402
-from .models.data import (
+from .models.data import (  # noqa: E402
     ColumnInfo,
     EnrichmentParameters,
     IntegrationParameters,
@@ -59,9 +59,9 @@ from .models.data import (
     TrajectoryParameters,
     VisualizationParameters,
 )
-from .spatial_mcp_adapter import MCPToolMetadata  # noqa: E402
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
+from .spatial_mcp_adapter import get_tool_annotations  # noqa: E402
 from .utils.exceptions import ProcessingError  # noqa: E402
 from .utils.mcp_utils import mcp_tool_error_handler  # noqa: E402
 
@@ -98,7 +98,7 @@ def validate_dataset(data_id: str) -> None:
         raise ValueError(f"Dataset {data_id} not found")
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("load_data"))
 @mcp_tool_error_handler()
 async def load_data(
     data_path: str,
@@ -169,7 +169,7 @@ async def load_data(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("preprocess_data"))
 @mcp_tool_error_handler()
 async def preprocess_data(
     data_id: str,
@@ -239,7 +239,7 @@ async def preprocess_data(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("visualize_data"))
 @mcp_tool_error_handler()  # Handles type-aware error formatting for Image/str returns
 async def visualize_data(
     data_id: str,
@@ -424,7 +424,7 @@ async def visualize_data(
         return "Visualization generation failed, please check the data and parameter settings."
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("save_visualization"))
 @mcp_tool_error_handler()
 async def save_visualization(
     data_id: str,
@@ -488,7 +488,7 @@ async def save_visualization(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("export_all_visualizations"))
 @mcp_tool_error_handler()
 async def export_all_visualizations(
     data_id: str,
@@ -543,7 +543,7 @@ async def export_all_visualizations(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("clear_visualization_cache"))
 @mcp_tool_error_handler()
 async def clear_visualization_cache(
     data_id: Optional[str] = None,
@@ -576,7 +576,7 @@ async def clear_visualization_cache(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("annotate_cell_types"))
 @mcp_tool_error_handler()
 async def annotate_cell_types(
     data_id: str,
@@ -678,7 +678,7 @@ async def annotate_cell_types(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("analyze_spatial_statistics"))
 @mcp_tool_error_handler()
 async def analyze_spatial_statistics(
     data_id: str,
@@ -731,9 +731,8 @@ async def analyze_spatial_statistics(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import spatial_statistics (squidpy is slow to import)
-    from .tools.spatial_statistics import (
-        analyze_spatial_statistics as _analyze_spatial_statistics,
-    )
+    from .tools.spatial_statistics import \
+        analyze_spatial_statistics as _analyze_spatial_statistics
 
     # Call spatial statistics analysis function with ToolContext
     result = await _analyze_spatial_statistics(data_id, ctx, params)
@@ -754,7 +753,7 @@ async def analyze_spatial_statistics(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("find_markers"))
 @mcp_tool_error_handler()
 async def find_markers(
     data_id: str,
@@ -821,7 +820,7 @@ async def find_markers(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("analyze_cnv"))
 @mcp_tool_error_handler()
 async def analyze_cnv(
     data_id: str,
@@ -933,7 +932,7 @@ async def analyze_cnv(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("analyze_velocity_data"))
 @mcp_tool_error_handler()
 async def analyze_velocity_data(
     data_id: str,
@@ -982,7 +981,7 @@ async def analyze_velocity_data(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("analyze_trajectory_data"))
 @mcp_tool_error_handler()
 async def analyze_trajectory_data(
     data_id: str,
@@ -1030,7 +1029,7 @@ async def analyze_trajectory_data(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("integrate_samples"))
 @mcp_tool_error_handler()
 async def integrate_samples(
     data_ids: List[str],
@@ -1088,7 +1087,7 @@ async def integrate_samples(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("deconvolve_data"))
 @mcp_tool_error_handler()
 async def deconvolve_data(
     data_id: str,
@@ -1209,7 +1208,7 @@ async def deconvolve_data(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("identify_spatial_domains"))
 @mcp_tool_error_handler()
 async def identify_spatial_domains(
     data_id: str,
@@ -1234,7 +1233,8 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import \
+        identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1256,7 +1256,7 @@ async def identify_spatial_domains(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("analyze_cell_communication"))
 @mcp_tool_error_handler()
 async def analyze_cell_communication(
     data_id: str,
@@ -1401,9 +1401,8 @@ async def analyze_cell_communication(
           • Signaling ranges: Literature-based (Wnt/Wg: ~50-100 µm)
     """
     # Import cell communication function
-    from .tools.cell_communication import (
-        analyze_cell_communication as analyze_comm_func,
-    )
+    from .tools.cell_communication import \
+        analyze_cell_communication as analyze_comm_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1429,7 +1428,7 @@ async def analyze_cell_communication(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("analyze_enrichment"))
 @mcp_tool_error_handler()
 async def analyze_enrichment(
     data_id: str,
@@ -1487,9 +1486,8 @@ async def analyze_enrichment(
     """
     # Import enrichment analysis function
 
-    from .tools.enrichment import (
-        perform_spatial_enrichment as perform_enrichment_analysis,
-    )
+    from .tools.enrichment import \
+        perform_spatial_enrichment as perform_enrichment_analysis
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1519,6 +1517,7 @@ async def analyze_enrichment(
         # Load gene sets based on database name
         # Note: gseapy dependency is handled inside enrichment.py via is_gseapy_available()
         from .tools.enrichment import load_gene_sets
+
         try:
             # Use species from explicit parameter (no defaults, no auto-detection)
             if not hasattr(params, "species") or params.species is None:
@@ -1606,12 +1605,8 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (
-            perform_enrichr,
-            perform_gsea,
-            perform_ora,
-            perform_ssgsea,
-        )
+        from .tools.enrichment import (perform_enrichr, perform_gsea,
+                                       perform_ora, perform_ssgsea)
 
         if params.method == "pathway_gsea":
             result_dict = await perform_gsea(
@@ -1702,7 +1697,7 @@ async def analyze_enrichment(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("find_spatial_genes"))
 @mcp_tool_error_handler()
 async def find_spatial_genes(
     data_id: str,
@@ -1757,7 +1752,7 @@ async def find_spatial_genes(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("register_spatial_data"))
 @mcp_tool_error_handler()
 async def register_spatial_data(
     source_id: str,
@@ -1802,128 +1797,10 @@ async def register_spatial_data(
     return result
 
 
-# Register tool metadata with the adapter
-tool_metadata = {
-    "load_data": MCPToolMetadata(
-        name="load_data",
-        title="Load Spatial Data",
-        description="Load spatial transcriptomics data from file",
-        read_only_hint=True,
-        idempotent_hint=True,
-        open_world_hint=True,
-    ),
-    "preprocess_data": MCPToolMetadata(
-        name="preprocess_data",
-        title="Preprocess Spatial Data",
-        description="Preprocess and normalize spatial data",
-        read_only_hint=False,
-        idempotent_hint=False,
-    ),
-    "visualize_data": MCPToolMetadata(
-        name="visualize_data",
-        title="Visualize Spatial Data",
-        description="Create visualizations of spatial data",
-        read_only_hint=True,
-        idempotent_hint=True,
-    ),
-    "annotate_cell_types": MCPToolMetadata(
-        name="annotate_cell_types",
-        title="Annotate Cell Types",
-        description="Identify cell types in spatial data",
-        read_only_hint=False,
-        idempotent_hint=False,
-        open_world_hint=True,
-    ),
-    "analyze_spatial_statistics": MCPToolMetadata(
-        name="analyze_spatial_statistics",
-        title="Spatial Pattern Analysis",
-        description="Analyze spatial patterns and correlations",
-        read_only_hint=False,
-        idempotent_hint=True,
-    ),
-    "find_markers": MCPToolMetadata(
-        name="find_markers",
-        title="Find Marker Genes",
-        description="Identify differentially expressed genes",
-        read_only_hint=True,
-        idempotent_hint=True,
-    ),
-    "analyze_velocity_data": MCPToolMetadata(
-        name="analyze_velocity_data",
-        title="RNA Velocity Analysis",
-        description="Analyze RNA velocity dynamics",
-        read_only_hint=False,
-        idempotent_hint=False,
-    ),
-    "analyze_trajectory_data": MCPToolMetadata(
-        name="analyze_trajectory_data",
-        title="Trajectory Analysis",
-        description="Infer cellular trajectories",
-        read_only_hint=False,
-        idempotent_hint=False,
-    ),
-    "integrate_samples": MCPToolMetadata(
-        name="integrate_samples",
-        title="Integrate Multiple Samples",
-        description="Integrate multiple spatial datasets",
-        read_only_hint=False,
-        idempotent_hint=False,
-    ),
-    "deconvolve_data": MCPToolMetadata(
-        name="deconvolve_data",
-        title="Spatial Deconvolution",
-        description="Deconvolve spatial spots into cell types",
-        read_only_hint=False,
-        idempotent_hint=False,
-        open_world_hint=True,
-    ),
-    "identify_spatial_domains": MCPToolMetadata(
-        name="identify_spatial_domains",
-        title="Identify Spatial Domains",
-        description="Find spatial domains and niches",
-        read_only_hint=False,
-        idempotent_hint=False,
-    ),
-    "analyze_cell_communication": MCPToolMetadata(
-        name="analyze_cell_communication",
-        title="Cell Communication Analysis",
-        description="Analyze cell-cell communication",
-        read_only_hint=False,
-        idempotent_hint=True,
-        open_world_hint=True,
-    ),
-    "analyze_enrichment": MCPToolMetadata(
-        name="analyze_enrichment",
-        title="Gene Set Enrichment Analysis",
-        description="Perform gene set enrichment analysis",
-        read_only_hint=False,
-        idempotent_hint=True,
-    ),
-    "find_spatial_genes": MCPToolMetadata(
-        name="find_spatial_genes",
-        title="Find Spatial Variable Genes",
-        description="Identify spatially variable genes",
-        read_only_hint=False,
-        idempotent_hint=False,
-    ),
-    "register_spatial_data": MCPToolMetadata(
-        name="register_spatial_data",
-        title="Register Spatial Sections",
-        description="Align spatial sections",
-        read_only_hint=False,
-        idempotent_hint=False,
-    ),
-}
-
-# Update adapter with tool metadata
-for name, metadata in tool_metadata.items():
-    adapter._tool_metadata[name] = metadata
-
-
 # ============== Publication Export Tools ==============
 
 
-@mcp.tool()
+@mcp.tool(annotations=get_tool_annotations("save_data"))
 @mcp_tool_error_handler()
 async def save_data(
     data_id: str,
