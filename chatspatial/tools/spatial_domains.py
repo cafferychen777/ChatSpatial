@@ -559,14 +559,7 @@ async def _identify_domains_clustering(
                     adata.obsp["connectivities"] = combined_conn
 
             except Exception as spatial_error:
-                # Spatial graph construction failed - fail honestly instead of degrading to expression-only
-                error_msg = (
-                    f"Spatial graph construction failed: {spatial_error}. "
-                    f"Spatial domain identification requires spatial neighbor relationships. "
-                    f"This may indicate issues with spatial coordinates, missing dependencies (squidpy), "
-                    f"or insufficient spatial data quality. "
-                    f"Please check spatial coordinates in adata.obsm['spatial'] or try a different method."
-                )
+                error_msg = f"Spatial graph construction failed: {spatial_error}"
                 await ctx.error(error_msg)
                 raise RuntimeError(error_msg)
 
@@ -641,14 +634,8 @@ def _refine_spatial_domains(
         # Get spatial coordinates - REQUIRED for spatial domain refinement
         if "spatial" not in adata.obsm:
             raise ValueError(
-                "CRITICAL ERROR: Cannot perform spatial domain refinement without physical spatial coordinates!\n\n"
-                "Spatial domain refinement requires actual physical positions of spots/cells.\n"
-                "The data must contain spatial coordinates in adata.obsm['spatial'].\n\n"
-                "What you can do:\n"
-                "1. Set refine_domains=False to skip refinement\n"
-                "2. Ensure your data has spatial coordinates before refinement\n\n"
-                "Note: PCA coordinates represent gene expression space, NOT physical space,\n"
-                "and cannot be used for spatial smoothing."
+                "Spatial coordinates required for domain refinement. "
+                "Set refine_domains=False to skip, or ensure adata.obsm['spatial'] exists."
             )
 
         coords = adata.obsm["spatial"]

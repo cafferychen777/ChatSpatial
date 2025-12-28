@@ -210,8 +210,7 @@ async def _identify_spatial_genes_spatialde(
         data_max = adata.X.max() if hasattr(adata.X, "max") else np.max(adata.X)
         if data_max <= 10:  # Likely already normalized
             raise ValueError(
-                "SpatialDE requires raw count data but normalized data detected in adata.X. "
-                "Please ensure adata.raw contains raw counts, or reload data before preprocessing."
+                "SpatialDE requires raw counts. Data appears normalized (max<=10)."
             )
 
         raw_data = adata.X
@@ -662,10 +661,7 @@ async def _identify_spatial_genes_sparkx(
         hvg_genes_set = set(adata.var_names[adata.var["highly_variable"]])
 
         if len(hvg_genes_set) == 0:
-            raise ValueError(
-                "test_only_hvg=True but no highly variable genes found. "
-                "Please run preprocessing with n_top_genes parameter first."
-            )
+            raise ValueError("No HVGs found. Run preprocessing first.")
 
         # Filter gene_names to only include HVGs
         hvg_mask = np.array([gene in hvg_genes_set for gene in gene_names])
@@ -842,9 +838,7 @@ async def _identify_spatial_genes_sparkx(
                     is_dataframe = ro.r["is.data.frame"](pvals)[0]
                     if not is_dataframe:
                         raise RuntimeError(
-                            f"SPARK-X res_mtest is not a data.frame (got {type(pvals)}). "
-                            "Expected standard SPARK-X output format. "
-                            "Please check SPARK package version (requires SPARK >= 1.1.0)."
+                            f"SPARK-X output format error. Requires SPARK >= 1.1.0."
                         )
 
                     # Extract combinedPval (raw p-values combined across kernels)
@@ -891,12 +885,7 @@ async def _identify_spatial_genes_sparkx(
                     error_msg = (
                         f"SPARK-X p-value extraction failed: {e}\n\n"
                         f"Expected SPARK-X output format:\n"
-                        f"  res_mtest: data.frame with columns 'combinedPval' and 'adjustedPval'\n\n"
-                        f"Possible causes:\n"
-                        f"  1. SPARK package version incompatibility (requires >= 1.1.0)\n"
-                        f"  2. R-Python communication issue with rpy2\n"
-                        f"  3. Invalid input data format\n\n"
-                        f"Please check SPARK package installation: R -e 'packageVersion(\"SPARK\")'"
+                        f"SPARK-X output invalid. Requires SPARK >= 1.1.0."
                     )
                     await ctx.error(error_msg)
                     raise RuntimeError(error_msg)

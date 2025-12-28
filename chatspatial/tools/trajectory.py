@@ -80,14 +80,12 @@ def prepare_gam_model_for_visualization(
     # Validate required data
     if time_key not in adata.obs.columns:
         raise ValueError(
-            f"Time key '{time_key}' not found in adata.obs. "
-            "Please run: analyze_rna_velocity with scvelo_mode='dynamical'"
+            f"Time key '{time_key}' not found. Run analyze_rna_velocity first."
         )
 
     if fate_key not in adata.obsm:
         raise ValueError(
-            f"Fate probabilities '{fate_key}' not found in adata.obsm. "
-            "Please run: analyze_trajectory with method='cellrank'"
+            f"Fate probabilities '{fate_key}' not found. Run analyze_trajectory first."
         )
 
     # Validate Lineage object has names (must be from in-memory analysis)
@@ -329,27 +327,9 @@ def infer_spatial_trajectory_cellrank(
     try:
         g.compute_macrostates(n_states=n_states)
     except Exception as e:
-        # NO FALLBACK: User's parameter choice must be respected
-        # Different n_states produce different biological interpretations
         raise RuntimeError(
-            f"CellRank macrostate computation failed with n_states={n_states}\n\n"
-            f"Error: {str(e)}\n\n"
-            f"SCIENTIFIC INTEGRITY: Different n_states lead to different biological conclusions.\n"
-            f"We cannot automatically change this parameter without your explicit consent.\n\n"
-            f"SOLUTIONS:\n"
-            f"1. Try fewer states manually:\n"
-            f"   • params.cellrank_n_states = {max(2, n_states-1)}  # Reduce by 1\n"
-            f"   • params.cellrank_n_states = {max(2, n_states-2)}  # Reduce by 2\n"
-            f"   • params.cellrank_n_states = 3  # Use minimum reasonable value\n\n"
-            f"2. Check data quality:\n"
-            f"   • Dataset may be too small (need >100 cells)\n"
-            f"   • Low-quality velocity data\n"
-            f"   • Insufficient trajectory structure\n\n"
-            f"3. Try simpler trajectory method:\n"
-            f"   • method='palantir' (doesn't require n_states)\n"
-            f"   • method='dpt' (diffusion pseudotime)\n\n"
-            f"Current dataset: {adata_for_cellrank.n_obs} cells, "
-            f"requested {n_states} macrostates"
+            f"CellRank failed with n_states={n_states}: {e}. "
+            f"Try reducing n_states or use method='palantir'/'dpt'."
         )
 
     # Predict terminal states
@@ -536,17 +516,9 @@ async def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = No
         if root_cells[0] in adata.obs_names:
             adata.uns["iroot"] = np.where(adata.obs_names == root_cells[0])[0][0]
         else:
-            # NO FALLBACK: Root cell selection is critical for trajectory analysis
             raise ValueError(
-                f"Specified root cell '{root_cells[0]}' not found in data.\n\n"
-                f"Available cells: {adata.n_obs:,} cells with IDs like: "
-                f"{list(adata.obs_names[:3])}...\n\n"
-                "SOLUTIONS:\n"
-                "1. Verify the cell ID exists in your data\n"
-                "2. Use a valid cell ID from adata.obs_names\n"
-                "3. Omit root_cells to auto-select based on data\n\n"
-                "SCIENTIFIC INTEGRITY: Root cell selection critically affects "
-                "trajectory inference. We cannot arbitrarily substitute cells."
+                f"Root cell '{root_cells[0]}' not found. "
+                f"Use valid cell ID from adata.obs_names or omit to auto-select."
             )
     else:
         # If no root cell specified, set the first cell as root
@@ -560,12 +532,7 @@ async def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = No
 
             sc.tl.dpt(adata)
         except Exception as e:
-            # DPT computation failed - do not create fake pseudotime
-            raise RuntimeError(
-                f"Standard DPT computation failed: {e}. "
-                "This indicates a problem with the data preprocessing or diffusion map computation. "
-                "Please check that PCA, neighbors, and diffusion map were computed correctly."
-            )
+            raise RuntimeError(f"DPT computation failed: {e}")
 
     # Check if dpt_pseudotime was created
     if "dpt_pseudotime" not in adata.obs.columns:
@@ -615,9 +582,7 @@ async def analyze_rna_velocity(
         validate_adata(adata, {}, check_velocity=True)
     except DataNotFoundError as e:
         error_message = (
-            "The dataset is missing required data for RNA velocity analysis. "
-            f"Specific issues: {e}. Please ensure the data "
-            "contains both 'spliced' and 'unspliced' count layers."
+            f"Missing velocity data: {e}. Requires 'spliced' and 'unspliced' layers."
         )
         await ctx.error(error_message)
         raise DataNotFoundError(error_message)
@@ -727,8 +692,7 @@ async def analyze_trajectory(
     if params.method == "cellrank":
         if not has_velocity:
             raise ProcessingError(
-                "CellRank requires RNA velocity data. Please run velocity analysis first, "
-                "or choose a method that doesn't require velocity (palantir, dpt)."
+                "CellRank requires velocity data. Run velocity analysis first or use palantir/dpt."
             )
 
         await ctx.info("Attempting trajectory inference with CellRank...")

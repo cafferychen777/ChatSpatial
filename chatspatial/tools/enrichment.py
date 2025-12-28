@@ -963,12 +963,7 @@ async def perform_ssgsea(
 
             scores_df = scores_matrix.fillna(0)  # Fill missing values with 0
         else:
-            # ssGSEA results format not recognized - fail honestly instead of returning empty results
-            error_msg = (
-                "ssGSEA results format not recognized. Expected 'res' attribute with enrichment scores matrix. "
-                "This may indicate an issue with the gseapy installation, gene set database, or input data format. "
-                "Please check your gene sets and ensure gseapy is properly configured."
-            )
+            error_msg = "ssGSEA results format not recognized."
             logger.error(error_msg)
             raise ProcessingError(error_msg)
 

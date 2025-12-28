@@ -197,10 +197,7 @@ async def _annotate_with_singler(
         ref_data = ref
     else:
         raise ValueError(
-            "No reference data available. Please either:\n"
-            "1. Provide reference_data_id\n"
-            "2. Provide singler_reference name\n"
-            "3. Install celldex for pre-built references"
+            "No reference data. Provide reference_data_id or singler_reference."
         )
 
     # Run SingleR annotation
@@ -350,10 +347,7 @@ async def _annotate_with_tangram(
 
     # Check if reference data is provided
     if reference_adata is None:
-        raise ValueError(
-            "Reference data is required for Tangram method. "
-            "Please provide reference_data_id parameter."
-        )
+        raise ValueError("Tangram requires reference_data_id parameter.")
 
     # Use reference single-cell data (passed from main function via ctx.get_adata())
     adata_sc_original = reference_adata
@@ -437,9 +431,7 @@ async def _annotate_with_tangram(
                 break
 
         if cluster_label is None:
-            raise ValueError(
-                "No cluster label found in reference data. Please provide a cluster_label parameter."
-            )
+            raise ValueError("No cluster label found. Provide cluster_label parameter.")
 
         await ctx.info(f"Using '{cluster_label}' as cluster label for Tangram mapping")
 
@@ -514,18 +506,9 @@ async def _annotate_with_tangram(
                 )
 
             else:
-                # NO FALLBACK: Require modern Tangram format for scientific integrity
                 error_msg = (
-                    "Tangram training history format not recognized.\n\n"
-                    "Expected dictionary with 'main_loss' key, but got: "
-                    f"{type(history).__name__ if history else 'None'}\n\n"
-                    "SOLUTIONS:\n"
-                    "1. Ensure using modern Tangram-sc version:\n"
-                    "   pip install --upgrade tangram-sc\n\n"
-                    "2. Verify Tangram completed training successfully\n\n"
-                    "3. Check that mapping_result has valid training_history\n\n"
-                    "SCIENTIFIC INTEGRITY: We require consistent Tangram output format "
-                    "to ensure reproducible cell type mapping scores."
+                    f"Tangram history format not recognized: {type(history).__name__}. "
+                    f"Upgrade tangram-sc: pip install --upgrade tangram-sc"
                 )
                 await ctx.error(error_msg)
                 raise ValueError(error_msg)
@@ -813,10 +796,7 @@ async def _annotate_with_scanvi(
 
     # Check if reference data is provided
     if reference_adata is None:
-        raise ValueError(
-            "Reference data is required for scANVI method. "
-            "Please provide reference_data_id parameter."
-        )
+        raise ValueError("scANVI requires reference_data_id parameter.")
 
     # Use reference single-cell data (passed from main function via ctx.get_adata())
     adata_ref_original = reference_adata
@@ -938,19 +918,15 @@ async def _annotate_with_scanvi(
                 # Note: adata.raw may have full genes while adata has HVG subset
                 adata_ref.layers["counts"] = adata_ref.raw[:, adata_ref.var_names].X
             else:
-                raise ValueError(
-                    "scANVI requires raw counts. Please run preprocessing first "
-                    "or provide data with counts in layers['counts']"
-                )
+                raise ValueError("scANVI requires raw counts in layers['counts'].")
 
         # Setup AnnData for scANVI
-        # FIX: Use raw counts from layers['counts'] instead of normalized adata.X
         scvi.model.SCANVI.setup_anndata(
             adata_ref,
             labels_key=cell_type_key,
             unlabeled_category=params.scanvi_unlabeled_category,
             batch_key=batch_key,
-            layer="counts",  # CRITICAL: Use raw counts, not normalized data
+            layer="counts",
         )
 
         # Create scANVI model
@@ -996,18 +972,14 @@ async def _annotate_with_scanvi(
                 :, adata_subset.var_names
             ].X
         else:
-            raise ValueError(
-                "scANVI requires raw counts. Please run preprocessing first "
-                "or provide data with counts in layers['counts']"
-            )
+            raise ValueError("scANVI requires raw counts in layers['counts'].")
 
-    # FIX: Use raw counts for query data as well
     scvi.model.SCANVI.setup_anndata(
         adata_subset,
         labels_key=cell_type_key,
         unlabeled_category=params.scanvi_unlabeled_category,
         batch_key=batch_key,
-        layer="counts",  # CRITICAL: Use raw counts, not normalized data
+        layer="counts",
     )
 
     # Transfer model to spatial data with proper parameters

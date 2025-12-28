@@ -129,11 +129,7 @@ async def _infer_cnv_infercnvpy(
             )
         except Exception as e:
             raise ProcessingError(
-                "Failed to run CNV inference. Gene position information is "
-                "required but not found in adata.var.\n"
-                "Please ensure your data includes chromosome and position "
-                "information, or use infercnvpy's built-in gene annotation.\n"
-                f"Error: {str(e)}"
+                f"CNV inference failed. Gene positions required: {e}"
             ) from e
     else:
         # Gene positions are available, run CNV inference
@@ -343,17 +339,9 @@ async def _infer_cnv_numbat(
         # Test if Numbat R package is available
         ro.r("suppressPackageStartupMessages(library(numbat))")
     except ImportError as e:
-        raise DependencyError(
-            f"rpy2 is not installed: {e}\n" "Please install with: pip install rpy2"
-        ) from e
+        raise DependencyError(f"rpy2 not installed: {e}") from e
     except Exception as e:
-        raise DependencyError(
-            f"Numbat R package is not available: {e}\n"
-            "Please ensure Numbat R package is installed:\n"
-            "  R -e \"install.packages('numbat')\"\n"
-            "  or\n"
-            "  R -e \"devtools::install_github('kharchenkolab/numbat')\""
-        ) from e
+        raise DependencyError(f"Numbat R package unavailable: {e}") from e
 
     # Note: adata is already retrieved in infer_cnv() before dispatch
 
