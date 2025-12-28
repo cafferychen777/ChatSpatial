@@ -15,7 +15,7 @@ from mcp.types import EmbeddedResource, ImageContent
 
 # Import MCP improvements
 from .models.data import VisualizationParameters
-from .utils.tool_error_handling import mcp_tool_error_handler
+from .utils.mcp_utils import mcp_tool_error_handler
 
 logger = logging.getLogger(__name__)
 
@@ -472,6 +472,162 @@ class DefaultSpatialDataManager:
         return results[result_type]
 
 
+@dataclass
+class ToolContext:
+    """Unified context for ChatSpatial tool execution.
+
+    This class provides a clean interface for tools to access data and logging
+    without the redundant data_store dict wrapping pattern.
+
+    Design Rationale:
+    - Python dict assignment is reference, not copy. The old pattern of wrapping
+      dataset_info in a temp dict and "writing back" was completely unnecessary.
+    - Tools should access adata directly via get_adata(), not through dict wrapping.
+    - Logging methods fall back gracefully when MCP context is unavailable.
+
+    Logging Strategy:
+    - User-visible messages: await ctx.info(), await ctx.warning(), await ctx.error()
+      These appear in Claude's conversation and provide user-friendly progress updates.
+    - Developer debugging: ctx.debug()
+      This writes to Python logger for debugging, not visible to users.
+
+    Usage:
+        async def my_tool(data_id: str, ctx: ToolContext, params: Params) -> Result:
+            adata = await ctx.get_adata(data_id)
+            await ctx.info(f"Processing {adata.n_obs} cells")  # User sees this
+            ctx.debug(f"Internal state: {some_detail}")  # Developer log only
+            # ... analysis logic ...
+            return result
+    """
+
+    _data_manager: "DefaultSpatialDataManager"
+    _mcp_context: Optional[Context] = None
+    _logger: Optional[logging.Logger] = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        """Initialize the logger for debug messages."""
+        if self._logger is None:
+            self._logger = logging.getLogger("chatspatial.tools")
+
+    def debug(self, msg: str) -> None:
+        """Log debug message for developers (not visible to users).
+
+        Use this for detailed technical information that helps with debugging
+        but would be noise for end users. These messages go to Python logger.
+
+        Args:
+            msg: Debug message to log
+        """
+        if self._logger:
+            self._logger.debug(msg)
+
+    def log_config(self, title: str, config: Dict[str, Any]) -> None:
+        """Log configuration details for developers.
+
+        Convenience method for logging parameter configurations in a
+        structured format. Goes to Python logger, not user-visible.
+
+        Args:
+            title: Configuration section title
+            config: Dictionary of configuration key-value pairs
+        """
+        if self._logger:
+            self._logger.info("=" * 50)
+            self._logger.info(f"{title}:")
+            for key, value in config.items():
+                self._logger.info(f"  {key}: {value}")
+            self._logger.info("=" * 50)
+
+    async def get_adata(self, data_id: str) -> Any:
+        """Get AnnData object directly by ID.
+
+        This is the primary data access method for tools. Returns the AnnData
+        object directly without intermediate dict wrapping.
+
+        Args:
+            data_id: Dataset identifier
+
+        Returns:
+            AnnData object for the dataset
+
+        Raises:
+            ValueError: If dataset not found
+        """
+        dataset_info = await self._data_manager.get_dataset(data_id)
+        return dataset_info["adata"]
+
+    async def get_dataset_info(self, data_id: str) -> Dict[str, Any]:
+        """Get full dataset info dict when metadata is needed.
+
+        Use this only when you need access to metadata beyond adata,
+        such as 'name', 'type', 'source_path', etc.
+        """
+        return await self._data_manager.get_dataset(data_id)
+
+    async def set_adata(self, data_id: str, adata: Any) -> None:
+        """Update the AnnData object for a dataset.
+
+        Use this when preprocessing creates a new adata object (e.g., copy,
+        subsample, or format conversion). This updates the reference in the
+        data manager's store.
+
+        Args:
+            data_id: Dataset identifier
+            adata: New AnnData object to store
+
+        Raises:
+            ValueError: If dataset not found
+        """
+        if data_id not in self._data_manager.data_store:
+            raise ValueError(f"Dataset {data_id} not found")
+        self._data_manager.data_store[data_id]["adata"] = adata
+
+    async def add_dataset(
+        self,
+        data_id: str,
+        adata: Any,
+        name: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Add a new dataset to the data store.
+
+        Use this when creating new datasets (e.g., integration results,
+        subset data, or derived datasets).
+
+        Args:
+            data_id: Unique identifier for the new dataset
+            adata: AnnData object to store
+            name: Optional display name for the dataset
+            metadata: Optional additional metadata dict
+
+        Raises:
+            ValueError: If dataset with same ID already exists
+        """
+        if data_id in self._data_manager.data_store:
+            raise ValueError(f"Dataset {data_id} already exists. Use set_adata() to update.")
+        dataset_info: Dict[str, Any] = {"adata": adata}
+        if name:
+            dataset_info["name"] = name
+        if metadata:
+            dataset_info.update(metadata)
+        self._data_manager.data_store[data_id] = dataset_info
+
+    async def info(self, msg: str) -> None:
+        """Log info message to MCP context if available."""
+        if self._mcp_context:
+            await self._mcp_context.info(msg)
+
+    async def warning(self, msg: str) -> None:
+        """Log warning message to MCP context if available."""
+        if self._mcp_context:
+            await self._mcp_context.warning(msg)
+
+    async def error(self, msg: str) -> None:
+        """Log error message to MCP context if available."""
+        if self._mcp_context:
+            await self._mcp_context.error(msg)
+
+
 def create_spatial_mcp_server(
     server_name: str = "ChatSpatial",
     data_manager: Optional[DefaultSpatialDataManager] = None,
@@ -486,8 +642,39 @@ def create_spatial_mcp_server(
     Returns:
         Tuple of (FastMCP server instance, SpatialMCPAdapter instance)
     """
-    # Create MCP server
-    mcp = FastMCP(server_name)
+    # Server instructions for LLM guidance on tool usage
+    instructions = """ChatSpatial provides spatial transcriptomics analysis through 60+ integrated methods across 12 analytical categories.
+
+CORE WORKFLOW PATTERN:
+1. Always start with load_data() to import spatial transcriptomics data
+2. Run preprocess_data() before most analytical tools (required for clustering, spatial analysis, etc.)
+3. Use visualize_data() to inspect results after each analysis step
+
+CRITICAL OPERATIONAL CONSTRAINTS:
+- Preprocessing creates filtered gene sets for efficiency but preserves raw data in adata.raw
+- Cell communication analysis automatically uses adata.raw when available for comprehensive gene coverage
+- Species-specific parameters are critical: set species="mouse" or "human" and use appropriate resources (e.g., liana_resource="mouseconsensus" for mouse)
+- Reference data for annotation methods (tangram, scanvi) must be PREPROCESSED before use
+
+PLATFORM-SPECIFIC GUIDANCE:
+- Spot-based platforms (Visium, Slide-seq): Deconvolution is recommended to infer cell type compositions
+- Single-cell platforms (MERFISH, Xenium, CosMx): Skip deconvolution - native single-cell resolution provided
+- Visium with histology images: Use SpaGCN for spatial domain identification
+- High-resolution data without images: Use STAGATE or GraphST
+
+TOOL RELATIONSHIPS:
+- Spatial domain identification → Enables spatial statistics (neighborhood enrichment, co-occurrence)
+- Cell type annotation → Required for cell communication analysis
+- Deconvolution results → Can be used for downstream spatial statistics
+- Integration → Recommended before cross-sample comparative analyses
+
+PARAMETER GUIDANCE:
+All tools include comprehensive parameter documentation in their schemas. Refer to tool descriptions for default values, platform-specific optimizations, and method-specific requirements.
+
+For multi-step analyses, preserve data_id across operations to maintain analysis continuity."""
+
+    # Create MCP server with instructions
+    mcp = FastMCP(server_name, instructions=instructions)
 
     # Create data manager if not provided
     if data_manager is None:

@@ -104,8 +104,8 @@ def integrate_multiple_samples(
             # Auto-create batch labels for multi-sample integration
             # Each sample becomes its own batch (scientifically correct for independent samples)
             logging.info(
-                f"No batch labels found. Auto-creating batch labels: each sample = 1 batch.\n"
-                f"This is scientifically appropriate when integrating independent samples."
+                "No batch labels found. Auto-creating batch labels: each sample = 1 batch.\n"
+                "This is scientifically appropriate when integrating independent samples."
             )
             for i, adata in enumerate(adatas):
                 if batch_key not in adata.obs:

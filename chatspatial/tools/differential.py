@@ -2,20 +2,20 @@
 Differential expression analysis tools for spatial transcriptomics data.
 """
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import numpy as np
 import scanpy as sc
-from mcp.server.fastmcp import Context
 
 from ..models.analysis import DifferentialExpressionResult
+from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
-from ..utils.metadata_storage import store_analysis_metadata
+from ..utils.adata_utils import store_analysis_metadata
 
 
 async def differential_expression(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: ToolContext,
     group_key: str,
     group1: Optional[str] = None,
     group2: Optional[str] = None,
@@ -23,13 +23,12 @@ async def differential_expression(
     n_top_genes: int = 50,
     pseudocount: float = 1.0,
     min_cells: int = 3,
-    context: Optional[Context] = None,
 ) -> DifferentialExpressionResult:
     """Perform differential expression analysis
 
     Args:
         data_id: Dataset ID
-        data_store: Dictionary storing loaded datasets
+        ctx: Tool context for data access and logging
         group_key: Key in adata.obs for grouping cells
         group1: First group for comparison (if None, find markers for all groups)
         group2: Second group for comparison (if None, compare against rest)
@@ -43,16 +42,12 @@ async def differential_expression(
                   Default: 3 (minimum required for Wilcoxon test).
                   Increase to 10-30 for more robust results.
                   Groups with fewer cells are skipped with a warning.
-        context: MCP context
 
     Returns:
         Differential expression analysis result
     """
-    # Retrieve the AnnData object from data store
-    if data_id not in data_store:
-        raise ValueError(f"Dataset {data_id} not found in data store")
-
-    adata = data_store[data_id]["adata"]
+    # Get AnnData directly via ToolContext (no redundant dict wrapping)
+    adata = await ctx.get_adata(data_id)
 
     # Check if the group_key exists in adata.obs
     validate_obs_column(adata, group_key, "Group key")
@@ -60,18 +55,16 @@ async def differential_expression(
     # IMPORTANT: Handle float16 data type (numba doesn't support float16)
     # Convert to float32 if needed for differential expression analysis
     if hasattr(adata.X, "dtype") and adata.X.dtype == np.float16:
-        if context:
-            await context.info(
-                "⚙️ Converting data from float16 to float32 for compatibility with rank_genes_groups"
-            )
+        await ctx.info(
+            "Converting data from float16 to float32 for compatibility with rank_genes_groups"
+        )
         # Create a copy to avoid modifying the original data
         adata = adata.copy()
         adata.X = adata.X.astype(np.float32)
 
     # If group1 is None, find markers for all groups
     if group1 is None:
-        if context:
-            await context.info(f"Finding marker genes for all groups in '{group_key}'")
+        await ctx.info(f"Finding marker genes for all groups in '{group_key}'")
 
         # Filter out groups with too few cells (user-configurable threshold)
         group_sizes = adata.obs[group_key].value_counts()
@@ -81,13 +74,12 @@ async def differential_expression(
 
         # Warn about skipped groups
         if len(skipped_groups) > 0:
-            if context:
-                skipped_list = "\n".join(
-                    [f"  • {g}: {n} cell(s)" for g, n in skipped_groups.items()]
-                )
-                await context.warning(
-                    f"WARNING:Skipped {len(skipped_groups)} group(s) with <{min_cells} cells:\n{skipped_list}"
-                )
+            skipped_list = "\n".join(
+                [f"  - {g}: {n} cell(s)" for g, n in skipped_groups.items()]
+            )
+            await ctx.warning(
+                f"Skipped {len(skipped_groups)} group(s) with <{min_cells} cells:\n{skipped_list}"
+            )
 
         # Check if any valid groups remain
         if len(valid_groups) == 0:
@@ -174,10 +166,9 @@ async def differential_expression(
         )
 
     # Original logic for specific group comparison
-    if context:
-        await context.info(
-            f"Performing differential expression analysis between {group1} and {group2}"
-        )
+    await ctx.info(
+        f"Performing differential expression analysis between {group1} and {group2}"
+    )
 
     # Check if the groups exist in the group_key
     if group1 not in adata.obs[group_key].values:
@@ -192,8 +183,7 @@ async def differential_expression(
         raise ValueError(f"Group '{group2}' not found in adata.obs['{group_key}']")
 
     # Perform differential expression analysis
-    if context:
-        await context.info(f"Running rank_genes_groups with method '{method}'")
+    await ctx.info(f"Running rank_genes_groups with method '{method}'")
 
     # Prepare the AnnData object for analysis
     if use_rest_as_reference:
@@ -214,8 +204,7 @@ async def differential_expression(
     )
 
     # Extract results
-    if context:
-        await context.info("Extracting differential expression results")
+    await ctx.info("Extracting differential expression results")
 
     # Get the top genes
     top_genes = []
@@ -299,14 +288,13 @@ async def differential_expression(
 
     median_lib_size = float(np.median(lib_sizes))
 
-    if context:
-        await context.info(
-            f"Calculating fold changes with library size normalization "
-            f"(median library size: {median_lib_size:.0f} UMIs)"
-        )
-        await context.info(
-            f"Group 1: {np.sum(group1_mask)} cells, Group 2: {np.sum(group2_mask)} cells"
-        )
+    await ctx.info(
+        f"Calculating fold changes with library size normalization "
+        f"(median library size: {median_lib_size:.0f} UMIs)"
+    )
+    await ctx.info(
+        f"Group 1: {np.sum(group1_mask)} cells, Group 2: {np.sum(group2_mask)} cells"
+    )
 
     # Calculate fold change for each top gene
     for gene in top_genes:
@@ -335,10 +323,9 @@ async def differential_expression(
             log2fc_values.append(float(true_log2fc))
         else:
             # Gene not in raw data (should not happen, but handle gracefully)
-            if context:
-                await context.warning(
-                    f"Gene {gene} not found in raw data, skipping fold change calculation"
-                )
+            await ctx.warning(
+                f"Gene {gene} not found in raw data, skipping fold change calculation"
+            )
             log2fc_values.append(None)
 
     # Calculate mean log2fc (filtering out None values)
@@ -348,17 +335,16 @@ async def differential_expression(
 
     # Warn if fold change values are suspiciously high (indicating calculation errors)
     if mean_log2fc is not None and abs(mean_log2fc) > 10:
-        if context:
-            await context.warning(
-                f"WARNING: EXTREME FOLD CHANGE DETECTED: mean log2FC = {mean_log2fc:.2f}\n"
-                f"   • This indicates fold change > 2^10 = 1024×\n"
-                f"   • Biologically plausible range: 2-32× (log2FC = 1-5)\n"
-                f"   • Possible causes:\n"
-                f"     - Very sparse gene expression in one group\n"
-                f"     - Low cell counts in comparison groups\n"
-                f"     - Data quality issues\n"
-                f"   • Consider filtering genes with low expression before DE analysis"
-            )
+        await ctx.warning(
+            f"EXTREME FOLD CHANGE DETECTED: mean log2FC = {mean_log2fc:.2f}\n"
+            f"   - This indicates fold change > 2^10 = 1024x\n"
+            f"   - Biologically plausible range: 2-32x (log2FC = 1-5)\n"
+            f"   - Possible causes:\n"
+            f"     - Very sparse gene expression in one group\n"
+            f"     - Low cell counts in comparison groups\n"
+            f"     - Data quality issues\n"
+            f"   - Consider filtering genes with low expression before DE analysis"
+        )
 
     # Create statistics dictionary
     statistics = {

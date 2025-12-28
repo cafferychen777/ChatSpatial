@@ -69,7 +69,7 @@ if is_problematic:
     os.chdir(PROJECT_ROOT)
 else:
     print(
-        f"✓ Using configured working directory: {user_cwd}\n"
+        f"Using configured working directory: {user_cwd}\n"
         f"  (Project root: {PROJECT_ROOT})",
         file=sys.stderr,
     )
