@@ -335,9 +335,7 @@ async def optimize_fig_to_image_with_cache(
     # Small images: Direct embedding (use already-generated image)
     if mode == "direct" or (mode == "auto" and actual_size < DIRECT_EMBED_THRESHOLD):
         if ctx:
-            await ctx.info(
-                f"Small image ({actual_size//1024}KB), embedding directly"
-            )
+            await ctx.info(f"Small image ({actual_size//1024}KB), embedding directly")
         # Convert buffer to ImageContent
         actual_buf.seek(0)
         img_data = actual_buf.read()

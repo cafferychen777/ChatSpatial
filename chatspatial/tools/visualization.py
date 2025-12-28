@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
 import anndata as ad
+
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
 import matplotlib
 
@@ -29,20 +30,28 @@ from mcp.server.fastmcp import Context  # noqa: E402
 from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
 
 from ..models.data import VisualizationParameters  # noqa: E402
+
 # Import adata utilities (spatial coordinates, categorical handling)
 from ..utils.adata_utils import ensure_categorical  # noqa: E402
-from ..utils.adata_utils import get_spatial_coordinates
+from ..utils.adata_utils import get_spatial_coordinates  # noqa: E402
+
 # Use centralized dependency manager
 from ..utils.dependency_manager import require  # noqa: E402
+
 # Import error handling utilities
 from ..utils.exceptions import DataCompatibilityError  # noqa: E402
-from ..utils.exceptions import (DataNotFoundError, ParameterError,
-                                ProcessingError)
+from ..utils.exceptions import (  # noqa: E402
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
+
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
+
 # Import path utilities for safe file operations
 from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
-from ..utils.path_utils import get_safe_output_path
+from ..utils.path_utils import get_safe_output_path  # noqa: E402
 
 # Import publication export utilities
 
@@ -848,9 +857,6 @@ async def _create_violin_visualization(
         group_counts = adata.obs[groupby].value_counts().nlargest(8).index
         # Subset the data to include only these groups
         adata = adata[adata.obs[groupby].isin(group_counts)].copy()
-
-    if False:  # Disabled the no-grouping path - cluster_key now required
-        groupby = None
 
     # Create violin plot
     # Use user's figure size if specified, otherwise default to (8, 6)
@@ -4279,7 +4285,7 @@ async def _create_velocity_phase_plot(
 
     # Check required layers
     required_layers = ["velocity", "Ms", "Mu"]
-    missing_layers = [l for l in required_layers if l not in adata.layers]
+    missing_layers = [layer for layer in required_layers if layer not in adata.layers]
     if missing_layers:
         raise DataNotFoundError(
             f"Missing required layers for phase plot: {missing_layers}. "
@@ -7022,8 +7028,7 @@ async def save_visualization(
         file_path = output_path / filename
 
         # Get cached figure object for export
-        from ..utils.image_utils import (get_cached_figure,
-                                         load_visualization_metadata)
+        from ..utils.image_utils import get_cached_figure, load_visualization_metadata
 
         # 1. Try to get figure from in-memory cache (fast path, within same session)
         cached_fig = get_cached_figure(cache_key) if cache_key_exists else None

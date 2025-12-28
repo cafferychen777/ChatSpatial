@@ -143,7 +143,12 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                     # Return error dict for simple types
                     content = [{"type": "text", "text": f"Error: {error_msg}"}]
                     if include_traceback and not isinstance(e, ValueError):
-                        content.append({"type": "text", "text": f"Traceback:\n{traceback.format_exc()}"})
+                        content.append(
+                            {
+                                "type": "text",
+                                "text": f"Traceback:\n{traceback.format_exc()}",
+                            }
+                        )
                     return {"content": content, "isError": True}
 
         return wrapper
