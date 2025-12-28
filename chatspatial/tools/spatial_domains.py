@@ -26,8 +26,6 @@ try:
 except ImportError:
     SQUIDPY_AVAILABLE = False
 
-from mcp.server.fastmcp import Context
-
 from ..models.analysis import SpatialDomainResult
 from ..models.data import SpatialDomainParameters
 
@@ -874,10 +872,9 @@ async def _identify_domains_stagate(
         with concurrent.futures.ThreadPoolExecutor() as executor:
             timeout_seconds = params.timeout or 600
 
-            if context:
-                await context.info(
-                    f"Running STAGATE with {timeout_seconds}s timeout"
-                )
+            await ctx.info(
+                f"Running STAGATE with {timeout_seconds}s timeout"
+            )
 
             adata_stagate = await asyncio.wait_for(
                 loop.run_in_executor(
@@ -887,17 +884,15 @@ async def _identify_domains_stagate(
                 timeout=timeout_seconds,
             )
 
-        if context:
-            await context.info("STAGATE training completed successfully")
+        await ctx.info("STAGATE training completed successfully")
 
         # Get embeddings
         embeddings_key = "STAGATE"
 
         # Perform clustering on STAGATE embeddings (algorithm requirement)
-        if context:
-            await context.info(
-                "Computing clustering on STAGATE embeddings (algorithm requirement)..."
-            )
+        await ctx.info(
+            "Computing clustering on STAGATE embeddings (algorithm requirement)..."
+        )
 
         # STAGATE-specific neighbors computation (algorithm requirement)
         sc.pp.neighbors(
@@ -907,8 +902,7 @@ async def _identify_domains_stagate(
         )
 
         # Use leiden clustering (mclust is optional and has compatibility issues)
-        if context:
-            await context.info("Performing Leiden clustering on STAGATE embeddings...")
+        await ctx.info("Performing Leiden clustering on STAGATE embeddings...")
         sc.tl.leiden(adata_stagate, resolution=params.cluster_resolution or 1.0)
         domain_labels = adata_stagate.obs["leiden"].astype(str)
 
@@ -927,18 +921,16 @@ async def _identify_domains_stagate(
 
     except asyncio.TimeoutError:
         error_msg = f"STAGATE training timeout after {params.timeout or 600} seconds"
-        if context:
-            await context.warning(error_msg)
+        await ctx.warning(error_msg)
         raise RuntimeError(error_msg)
     except Exception as e:
         error_msg = f"STAGATE execution failed: {str(e)}"
-        if context:
-            await context.warning(error_msg)
+        await ctx.warning(error_msg)
         raise RuntimeError(error_msg) from e
 
 
 async def _identify_domains_graphst(
-    adata: Any, params: SpatialDomainParameters, context: Optional[Context] = None
+    adata: Any, params: SpatialDomainParameters, ctx: "ToolContext"
 ) -> tuple:
     """
     Identifies spatial domains using the GraphST algorithm.
@@ -955,8 +947,7 @@ async def _identify_domains_graphst(
             "GraphST is not installed. Please install it with: pip install GraphST"
         )
 
-    if context:
-        await context.info("Running GraphST for spatial domain identification...")
+    await ctx.info("Running GraphST for spatial domain identification...")
 
     try:
         import asyncio
@@ -975,18 +966,15 @@ async def _identify_domains_graphst(
                 device = torch.device("mps")
             else:
                 device = torch.device("cpu")
-                if context:
-                    await context.warning(
-                        "GPU requested but not available. Using CPU instead."
-                    )
+                await ctx.warning(
+                    "GPU requested but not available. Using CPU instead."
+                )
         else:
             device = torch.device("cpu")
-        if context:
-            await context.info(f"Using device: {device}")
+        await ctx.info(f"Using device: {device}")
 
         # Initialize GraphST model
-        if context:
-            await context.info("Initializing GraphST model...")
+        await ctx.info("Initializing GraphST model...")
 
         # Determine number of clusters
         n_clusters = params.graphst_n_clusters or params.n_domains
@@ -999,10 +987,9 @@ async def _identify_domains_graphst(
         )
 
         # Train model (this is blocking, run in executor)
-        if context:
-            await context.info(
-                "Training GraphST model (this may take a few minutes)..."
-            )
+        await ctx.info(
+            "Training GraphST model (this may take a few minutes)..."
+        )
 
         # Run training in thread pool to avoid blocking
         loop = asyncio.get_running_loop()
@@ -1015,17 +1002,15 @@ async def _identify_domains_graphst(
                 timeout=timeout_seconds,
             )
 
-        if context:
-            await context.info("GraphST training completed successfully")
+        await ctx.info("GraphST training completed successfully")
 
         # Get embeddings key
         embeddings_key = "emb"  # GraphST stores embeddings in adata.obsm['emb']
 
         # Perform clustering on GraphST embeddings
-        if context:
-            await context.info(
-                f"Performing {params.graphst_clustering_method} clustering on GraphST embeddings..."
-            )
+        await ctx.info(
+            f"Performing {params.graphst_clustering_method} clustering on GraphST embeddings..."
+        )
 
         # Run clustering in thread pool
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -1063,11 +1048,9 @@ async def _identify_domains_graphst(
 
     except asyncio.TimeoutError:
         error_msg = f"GraphST training timeout after {params.timeout or 600} seconds"
-        if context:
-            await context.warning(error_msg)
+        await ctx.warning(error_msg)
         raise RuntimeError(error_msg)
     except Exception as e:
         error_msg = f"GraphST execution failed: {str(e)}"
-        if context:
-            await context.warning(error_msg)
+        await ctx.warning(error_msg)
         raise RuntimeError(error_msg) from e
