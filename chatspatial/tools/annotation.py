@@ -46,321 +46,291 @@ async def _annotate_with_singler(
     reference_adata: Optional[Any] = None,
 ):
     """Annotate cell types using SingleR reference-based method"""
-    try:
-        # Validate and import dependencies
-        require("singler", ctx, feature="SingleR annotation")
-        require("singlecellexperiment", ctx, feature="SingleR annotation")
-        import singler
+    # Validate and import dependencies
+    require("singler", ctx, feature="SingleR annotation")
+    require("singlecellexperiment", ctx, feature="SingleR annotation")
+    import singler
 
-        # Optional: check for celldex
-        celldex = None
-        if is_available("celldex"):
-            import celldex
+    # Optional: check for celldex
+    celldex = None
+    if is_available("celldex"):
+        import celldex
 
-            await ctx.info("celldex available for pre-built references")
+        await ctx.info("celldex available for pre-built references")
+    else:
+        await ctx.info("celldex not available - will use custom references")
+
+    await ctx.info("Starting SingleR annotation...")
+    await ctx.info(f"   Cells: {adata.n_obs}, Genes: {adata.n_vars}")
+
+    # Get expression matrix - prefer normalized data
+    # IMPORTANT: Ensure test_mat dimensions match adata.var_names (used in test_features)
+    if "X_normalized" in adata.layers:
+        test_mat = adata.layers["X_normalized"]
+    elif adata.X is not None:
+        test_mat = adata.X
+    else:
+        # Fallback: use raw data, but subset to current var_names to ensure dimension match
+        # Note: adata.raw may have full genes while adata has HVG subset
+        if adata.raw is not None:
+            test_mat = adata.raw[:, adata.var_names].X
         else:
-            await ctx.info("celldex not available - will use custom references")
-
-        await ctx.info("Starting SingleR annotation...")
-        await ctx.info(f"   Cells: {adata.n_obs}, Genes: {adata.n_vars}")
-
-        # Get expression matrix - prefer normalized data
-        # IMPORTANT: Ensure test_mat dimensions match adata.var_names (used in test_features)
-        if "X_normalized" in adata.layers:
-            test_mat = adata.layers["X_normalized"]
-        elif adata.X is not None:
             test_mat = adata.X
+
+    # MEMORY OPTIMIZATION: SingleR (singler-py) natively supports sparse matrices
+    # No toarray() needed - both np.log1p() and .T() work with sparse matrices
+    # Verified: sparse and dense inputs produce identical results
+    # Memory savings: ~1.3 GB for typical 10K cells × 20K genes dataset
+
+    # Ensure log-normalization (SingleR expects log-normalized data)
+    if "log1p" not in adata.uns:
+        await ctx.warning(
+            "Data may not be log-normalized. Applying log1p for SingleR..."
+        )
+        test_mat = np.log1p(test_mat)
+
+    # Transpose for SingleR (genes x cells)
+    test_mat = test_mat.T
+
+    # Ensure gene names are strings
+    test_features = [str(x) for x in adata.var_names]
+
+    # Prepare reference
+    reference_name = getattr(params, "singler_reference", None)
+    reference_data_id = getattr(params, "reference_data_id", None)
+
+    ref_data = None
+    ref_labels = None
+    ref_features_to_use = None  # Only set when using custom reference (not celldex)
+
+    # Priority: reference_name > reference_data_id > default
+    if reference_name and celldex:
+        await ctx.info(f"Loading reference: {reference_name}")
+        ref = celldex.fetch_reference(reference_name, "2024-02-26", realize_assays=True)
+        # Get labels
+        for label_col in ["label.main", "label.fine", "cell_type"]:
+            try:
+                ref_labels = ref.get_column_data().column(label_col)
+                break
+            except Exception:
+                continue
+        if ref_labels is None:
+            raise ValueError(f"Could not find labels in reference {reference_name}")
+        ref_data = ref
+
+    elif reference_data_id and reference_adata is not None:
+        # Use provided reference data (passed from main function via ctx.get_adata())
+        await ctx.info("Using provided reference data")
+
+        # Handle duplicate gene names
+        await ensure_unique_var_names_with_ctx(reference_adata, ctx, "reference data")
+        if await ensure_unique_var_names_with_ctx(adata, ctx, "query data") > 0:
+            # Update test_features after fixing
+            test_features = [str(x) for x in adata.var_names]
+
+        # Get reference expression matrix
+        if "X_normalized" in reference_adata.layers:
+            ref_mat = reference_adata.layers["X_normalized"]
         else:
-            # Fallback: use raw data, but subset to current var_names to ensure dimension match
-            # Note: adata.raw may have full genes while adata has HVG subset
-            if adata.raw is not None:
-                test_mat = adata.raw[:, adata.var_names].X
-            else:
-                test_mat = adata.X
+            ref_mat = reference_adata.X
 
         # MEMORY OPTIMIZATION: SingleR (singler-py) natively supports sparse matrices
         # No toarray() needed - both np.log1p() and .T() work with sparse matrices
         # Verified: sparse and dense inputs produce identical results
-        # Memory savings: ~1.3 GB for typical 10K cells × 20K genes dataset
+        # Memory savings: ~1.3 GB for typical 10K cells × 20K genes reference dataset
 
-        # Ensure log-normalization (SingleR expects log-normalized data)
-        if "log1p" not in adata.uns:
+        # Ensure log-normalization for reference
+        if "log1p" not in reference_adata.uns:
             await ctx.warning(
-                "Data may not be log-normalized. Applying log1p for SingleR..."
+                "Reference data may not be log-normalized. Applying log1p..."
             )
-            test_mat = np.log1p(test_mat)
+            ref_mat = np.log1p(ref_mat)
 
         # Transpose for SingleR (genes x cells)
-        test_mat = test_mat.T
+        ref_mat = ref_mat.T
+        ref_features = [str(x) for x in reference_adata.var_names]
 
-        # Ensure gene names are strings
-        test_features = [str(x) for x in adata.var_names]
+        # Check gene overlap
+        common_genes = set(test_features) & set(ref_features)
+        await ctx.info(
+            f"Gene overlap: {len(common_genes)}/{len(test_features)} test genes match reference"
+        )
 
-        # Prepare reference
-        reference_name = getattr(params, "singler_reference", None)
-        reference_data_id = getattr(params, "reference_data_id", None)
-
-        ref_data = None
-        ref_labels = None
-        ref_features_to_use = None  # Only set when using custom reference (not celldex)
-
-        # Priority: reference_name > reference_data_id > default
-        if reference_name and celldex:
-            await ctx.info(f"Loading reference: {reference_name}")
-            ref = celldex.fetch_reference(
-                reference_name, "2024-02-26", realize_assays=True
+        if len(common_genes) < min(50, len(test_features) * 0.1):
+            # Too few common genes
+            await ctx.error(
+                f"Insufficient gene overlap: Only {len(common_genes)} common genes. "
+                f"Test has {len(test_features)}, Reference has {len(ref_features)}"
             )
-            # Get labels
-            for label_col in ["label.main", "label.fine", "cell_type"]:
-                try:
-                    ref_labels = ref.get_column_data().column(label_col)
-                    break
-                except Exception:
-                    continue
-            if ref_labels is None:
-                raise ValueError(f"Could not find labels in reference {reference_name}")
-            ref_data = ref
-
-        elif reference_data_id and reference_adata is not None:
-            # Use provided reference data (passed from main function via ctx.get_adata())
-            await ctx.info("Using provided reference data")
-
-            # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
-            if not reference_adata.var_names.is_unique:
-                n_duplicates = len(reference_adata.var_names) - len(
-                    set(reference_adata.var_names)
-                )
-                await ctx.warning(
-                    f"Found {n_duplicates} duplicate gene names in reference data, fixing..."
-                )
-                reference_adata.var_names_make_unique()
-
-            if not adata.var_names.is_unique:
-                n_duplicates = len(adata.var_names) - len(set(adata.var_names))
-                await ctx.warning(
-                    f"Found {n_duplicates} duplicate gene names in query data, fixing..."
-                )
-                adata.var_names_make_unique()
-                # Update test_features after fixing
-                test_features = [str(x) for x in adata.var_names]
-
-            # Get reference expression matrix
-            if "X_normalized" in reference_adata.layers:
-                ref_mat = reference_adata.layers["X_normalized"]
-            else:
-                ref_mat = reference_adata.X
-
-            # MEMORY OPTIMIZATION: SingleR (singler-py) natively supports sparse matrices
-            # No toarray() needed - both np.log1p() and .T() work with sparse matrices
-            # Verified: sparse and dense inputs produce identical results
-            # Memory savings: ~1.3 GB for typical 10K cells × 20K genes reference dataset
-
-            # Ensure log-normalization for reference
-            if "log1p" not in reference_adata.uns:
-                await ctx.warning(
-                    "Reference data may not be log-normalized. Applying log1p..."
-                )
-                ref_mat = np.log1p(ref_mat)
-
-            # Transpose for SingleR (genes x cells)
-            ref_mat = ref_mat.T
-            ref_features = [str(x) for x in reference_adata.var_names]
-
-            # Check gene overlap
-            common_genes = set(test_features) & set(ref_features)
-            await ctx.info(
-                f"Gene overlap: {len(common_genes)}/{len(test_features)} test genes match reference"
-            )
-
-            if len(common_genes) < min(50, len(test_features) * 0.1):
-                # Too few common genes
-                await ctx.error(
-                    f"Insufficient gene overlap: Only {len(common_genes)} common genes. "
-                    f"Test has {len(test_features)}, Reference has {len(ref_features)}"
-                )
-                # Show sample of gene names for debugging
-                test_sample = list(test_features)[:5]
-                ref_sample = list(ref_features)[:5]
-                await ctx.info(f"Test gene sample: {test_sample}")
-                await ctx.info(f"Reference gene sample: {ref_sample}")
-                raise ValueError(
-                    f"Insufficient gene overlap for SingleR: only {len(common_genes)} common genes"
-                )
-
-            # Get labels from reference - check various common column names
-            # cell_type_key is now required (no default value)
-            cell_type_key = params.cell_type_key
-
-            validate_obs_column(reference_adata, cell_type_key, "Cell type column")
-
-            ref_labels = list(reference_adata.obs[cell_type_key])
-            await ctx.info(f"Using '{cell_type_key}' column for reference labels")
-
-            # For SingleR, pass the actual expression matrix directly (not SCE)
-            # This has been shown to work better in testing
-            ref_data = ref_mat
-            ref_features_to_use = (
-                ref_features  # Keep reference features for gene matching
-            )
-
-        elif celldex:
-            # Use default reference
-            await ctx.info("Using default BlueprintEncode reference")
-            ref = celldex.fetch_reference(
-                "blueprint_encode", "2024-02-26", realize_assays=True
-            )
-            ref_labels = ref.get_column_data().column("label.main")
-            ref_data = ref
-        else:
+            # Show sample of gene names for debugging
+            test_sample = list(test_features)[:5]
+            ref_sample = list(ref_features)[:5]
+            await ctx.info(f"Test gene sample: {test_sample}")
+            await ctx.info(f"Reference gene sample: {ref_sample}")
             raise ValueError(
-                "No reference data available. Please either:\n"
-                "1. Provide reference_data_id\n"
-                "2. Provide singler_reference name\n"
-                "3. Install celldex for pre-built references"
+                f"Insufficient gene overlap for SingleR: only {len(common_genes)} common genes"
             )
 
-        # Run SingleR annotation
-        await ctx.info("Running SingleR classification...")
-        await ctx.info(f"Test features: {len(test_features)} genes")
-        await ctx.info(f"Reference labels: {len(set(ref_labels))} unique types")
+        # Get labels from reference - check various common column names
+        # cell_type_key is now required (no default value)
+        cell_type_key = params.cell_type_key
 
-        use_integrated = getattr(params, "singler_integrated", False)
-        num_threads = getattr(params, "num_threads", 4)
+        validate_obs_column(reference_adata, cell_type_key, "Cell type column")
 
-        if use_integrated and isinstance(ref_data, list):
-            single_results, integrated = singler.annotate_integrated(
-                test_mat,
-                ref_data=ref_data,
-                ref_labels=ref_labels,
-                test_features=test_features,
-                num_threads=num_threads,
+        ref_labels = list(reference_adata.obs[cell_type_key])
+        await ctx.info(f"Using '{cell_type_key}' column for reference labels")
+
+        # For SingleR, pass the actual expression matrix directly (not SCE)
+        # This has been shown to work better in testing
+        ref_data = ref_mat
+        ref_features_to_use = ref_features  # Keep reference features for gene matching
+
+    elif celldex:
+        # Use default reference
+        await ctx.info("Using default BlueprintEncode reference")
+        ref = celldex.fetch_reference(
+            "blueprint_encode", "2024-02-26", realize_assays=True
+        )
+        ref_labels = ref.get_column_data().column("label.main")
+        ref_data = ref
+    else:
+        raise ValueError(
+            "No reference data available. Please either:\n"
+            "1. Provide reference_data_id\n"
+            "2. Provide singler_reference name\n"
+            "3. Install celldex for pre-built references"
+        )
+
+    # Run SingleR annotation
+    await ctx.info("Running SingleR classification...")
+    await ctx.info(f"Test features: {len(test_features)} genes")
+    await ctx.info(f"Reference labels: {len(set(ref_labels))} unique types")
+
+    use_integrated = getattr(params, "singler_integrated", False)
+    num_threads = getattr(params, "num_threads", 4)
+
+    if use_integrated and isinstance(ref_data, list):
+        single_results, integrated = singler.annotate_integrated(
+            test_mat,
+            ref_data=ref_data,
+            ref_labels=ref_labels,
+            test_features=test_features,
+            num_threads=num_threads,
+        )
+        best_labels = integrated.column("best_label")
+        scores = integrated.column("scores")
+    else:
+        # Build kwargs for annotate_single
+        annotate_kwargs = {
+            "test_data": test_mat,
+            "test_features": test_features,
+            "ref_data": ref_data,
+            "ref_labels": ref_labels,
+            "num_threads": num_threads,
+        }
+
+        # Add ref_features if we're using custom reference data (not celldex)
+        if ref_features_to_use is not None:
+            annotate_kwargs["ref_features"] = ref_features_to_use
+            await ctx.info(
+                f"Using reference features: {len(ref_features_to_use)} genes"
             )
-            best_labels = integrated.column("best_label")
-            scores = integrated.column("scores")
-        else:
-            # Build kwargs for annotate_single
-            annotate_kwargs = {
-                "test_data": test_mat,
-                "test_features": test_features,
-                "ref_data": ref_data,
-                "ref_labels": ref_labels,
-                "num_threads": num_threads,
-            }
 
-            # Add ref_features if we're using custom reference data (not celldex)
-            if ref_features_to_use is not None:
-                annotate_kwargs["ref_features"] = ref_features_to_use
-                await ctx.info(
-                    f"Using reference features: {len(ref_features_to_use)} genes"
-                )
+        results = singler.annotate_single(**annotate_kwargs)
+        best_labels = results.column("best")
+        scores = results.column("scores")
 
-            results = singler.annotate_single(**annotate_kwargs)
-            best_labels = results.column("best")
-            scores = results.column("scores")
-
-            # Try to get delta scores for confidence (higher delta = higher confidence)
-            try:
-                delta_scores = results.column("delta")
-                if delta_scores:
-                    low_delta = sum(1 for d in delta_scores if d and d < 0.05)
-                    if low_delta > len(delta_scores) * 0.3:
-                        await ctx.warning(
-                            f"{low_delta}/{len(delta_scores)} cells have low confidence scores (delta < 0.05)"
-                        )
-            except Exception:
-                delta_scores = None
-
-        # Process results
-        cell_types = list(best_labels)
-        unique_types = list(set(cell_types))
-        counts = pd.Series(cell_types).value_counts().to_dict()
-
-        # Calculate confidence scores - prefer delta scores if available
-        confidence_scores = {}
-
-        # First try to use delta scores (more meaningful confidence measure)
-        # delta_scores is always defined by the try-except block above (line 429 or 437)
-        if delta_scores is not None:
-            try:
-                for cell_type in unique_types:
-                    type_indices = [
-                        i for i, ct in enumerate(cell_types) if ct == cell_type
-                    ]
-                    if type_indices:
-                        type_deltas = [
-                            delta_scores[i]
-                            for i in type_indices
-                            if i < len(delta_scores)
-                        ]
-                        if type_deltas:
-                            # Higher delta = higher confidence
-                            avg_delta = np.mean(
-                                [d for d in type_deltas if d is not None]
-                            )
-                            confidence_scores[cell_type] = round(float(avg_delta), 3)
-                if confidence_scores:
-                    await ctx.info(
-                        f"Using delta scores for confidence (avg: {np.mean(list(confidence_scores.values())):.3f})"
+        # Try to get delta scores for confidence (higher delta = higher confidence)
+        try:
+            delta_scores = results.column("delta")
+            if delta_scores:
+                low_delta = sum(1 for d in delta_scores if d and d < 0.05)
+                if low_delta > len(delta_scores) * 0.3:
+                    await ctx.warning(
+                        f"{low_delta}/{len(delta_scores)} cells have low confidence scores (delta < 0.05)"
                     )
-            except Exception:
-                pass  # Fall back to regular scores
+        except Exception:
+            delta_scores = None
 
-        # Fall back to regular scores if delta not available
-        if not confidence_scores and scores is not None:
-            try:
-                scores_df = pd.DataFrame(scores.to_dict())
-            except AttributeError:
-                scores_df = pd.DataFrame(
-                    scores.to_numpy() if hasattr(scores, "to_numpy") else scores
-                )
+    # Process results
+    cell_types = list(best_labels)
+    unique_types = list(set(cell_types))
+    counts = pd.Series(cell_types).value_counts().to_dict()
 
+    # Calculate confidence scores - prefer delta scores if available
+    confidence_scores = {}
+
+    # First try to use delta scores (more meaningful confidence measure)
+    # delta_scores is always defined by the try-except block above (line 429 or 437)
+    if delta_scores is not None:
+        try:
             for cell_type in unique_types:
-                mask = [ct == cell_type for ct in cell_types]
-                if cell_type in scores_df.columns and any(mask):
-                    type_scores = scores_df.loc[mask, cell_type]
-                    avg_score = type_scores.mean()
-                    confidence = (avg_score + 1) / 2  # Convert correlation to 0-1
-                    confidence_scores[cell_type] = float(confidence)
-                else:
-                    # No confidence data available - don't assign arbitrary value
-                    pass  # Cell type won't have confidence score
-        else:
-            # No confidence information available from this method
-            # Don't assign misleading confidence values
-            pass
+                type_indices = [i for i, ct in enumerate(cell_types) if ct == cell_type]
+                if type_indices:
+                    type_deltas = [
+                        delta_scores[i] for i in type_indices if i < len(delta_scores)
+                    ]
+                    if type_deltas:
+                        # Higher delta = higher confidence
+                        avg_delta = np.mean([d for d in type_deltas if d is not None])
+                        confidence_scores[cell_type] = round(float(avg_delta), 3)
+            if confidence_scores:
+                await ctx.info(
+                    f"Using delta scores for confidence (avg: {np.mean(list(confidence_scores.values())):.3f})"
+                )
+        except Exception:
+            pass  # Fall back to regular scores
 
-        # Use method-prefixed output keys to avoid overwriting
-        output_key = f"cell_type_{params.method}"
-        confidence_key = f"confidence_{params.method}"
+    # Fall back to regular scores if delta not available
+    if not confidence_scores and scores is not None:
+        try:
+            scores_df = pd.DataFrame(scores.to_dict())
+        except AttributeError:
+            scores_df = pd.DataFrame(
+                scores.to_numpy() if hasattr(scores, "to_numpy") else scores
+            )
 
-        # Add to AnnData
-        adata.obs[output_key] = cell_types
-        adata.obs[output_key] = adata.obs[output_key].astype("category")
+        for cell_type in unique_types:
+            mask = [ct == cell_type for ct in cell_types]
+            if cell_type in scores_df.columns and any(mask):
+                type_scores = scores_df.loc[mask, cell_type]
+                avg_score = type_scores.mean()
+                confidence = (avg_score + 1) / 2  # Convert correlation to 0-1
+                confidence_scores[cell_type] = float(confidence)
+            else:
+                # No confidence data available - don't assign arbitrary value
+                pass  # Cell type won't have confidence score
+    else:
+        # No confidence information available from this method
+        # Don't assign misleading confidence values
+        pass
 
-        # Only add confidence column if we have real confidence values
-        if confidence_scores:
-            # Use 0.0 for cells without confidence (more honest than arbitrary 0.5)
-            confidence_array = [confidence_scores.get(ct, 0.0) for ct in cell_types]
-            adata.obs[confidence_key] = confidence_array
+    # Use method-prefixed output keys to avoid overwriting
+    output_key = f"cell_type_{params.method}"
+    confidence_key = f"confidence_{params.method}"
 
-        await ctx.info("SingleR annotation completed!")
-        await ctx.info(f"   Found {len(unique_types)} cell types")
-        top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
-        await ctx.info(
-            f"   Top types: {', '.join([f'{t}({c})' for t, c in top_types])}"
-        )
-        await ctx.info(
-            f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-        )
-        await ctx.info(
-            f"Use visualize_data tool with feature='{output_key}' to visualize results"
-        )
+    # Add to AnnData
+    adata.obs[output_key] = cell_types
+    adata.obs[output_key] = adata.obs[output_key].astype("category")
 
-        return unique_types, counts, confidence_scores, None
+    # Only add confidence column if we have real confidence values
+    if confidence_scores:
+        # Use 0.0 for cells without confidence (more honest than arbitrary 0.5)
+        confidence_array = [confidence_scores.get(ct, 0.0) for ct in cell_types]
+        adata.obs[confidence_key] = confidence_array
 
-    except Exception:
-        # Let exception propagate to MCP error handler
-        raise
+    await ctx.info("SingleR annotation completed!")
+    await ctx.info(f"   Found {len(unique_types)} cell types")
+    top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
+    await ctx.info(f"   Top types: {', '.join([f'{t}({c})' for t, c in top_types])}")
+    await ctx.info(
+        f"Cell type annotation complete. Cell types stored in '{output_key}' column"
+    )
+    await ctx.info(
+        f"Use visualize_data tool with feature='{output_key}' to visualize results"
+    )
+
+    return unique_types, counts, confidence_scores, None
 
 
 async def _annotate_with_tangram(
@@ -370,404 +340,382 @@ async def _annotate_with_tangram(
     reference_adata: Optional[Any] = None,
 ):
     """Annotate cell types using Tangram method"""
-    try:
-        await ctx.info("Using Tangram method for annotation")
+    await ctx.info("Using Tangram method for annotation")
 
-        # Validate dependencies with comprehensive error reporting
-        require("tangram", ctx, feature="Tangram annotation")
-        import tangram as tg
+    # Validate dependencies with comprehensive error reporting
+    require("tangram", ctx, feature="Tangram annotation")
+    import tangram as tg
 
-        # Check if reference data is provided
-        if reference_adata is None:
-            raise ValueError(
-                "Reference data is required for Tangram method. "
-                "Please provide reference_data_id parameter."
-            )
+    # Check if reference data is provided
+    if reference_adata is None:
+        raise ValueError(
+            "Reference data is required for Tangram method. "
+            "Please provide reference_data_id parameter."
+        )
 
-        # Use reference single-cell data (passed from main function via ctx.get_adata())
-        adata_sc_original = reference_adata
+    # Use reference single-cell data (passed from main function via ctx.get_adata())
+    adata_sc_original = reference_adata
 
-        # ===== CRITICAL FIX: Use raw data for Tangram to preserve gene name case =====
-        # Issue: Preprocessed data may have lowercase gene names, while reference has uppercase
-        # This causes 0 overlapping genes and Tangram mapping failure (all NaN results)
-        # Solution: Use adata.raw which preserves original gene names
-        if adata.raw is not None:
-            adata_sp = adata.raw.to_adata()
-            # Preserve spatial coordinates from preprocessed data
-            adata_sp.obsm["spatial"] = adata.obsm["spatial"].copy()
-            await ctx.info(
-                "Using raw data for Tangram (preserves original gene names and counts)"
-            )
+    # ===== CRITICAL FIX: Use raw data for Tangram to preserve gene name case =====
+    # Issue: Preprocessed data may have lowercase gene names, while reference has uppercase
+    # This causes 0 overlapping genes and Tangram mapping failure (all NaN results)
+    # Solution: Use adata.raw which preserves original gene names
+    if adata.raw is not None:
+        adata_sp = adata.raw.to_adata()
+        # Preserve spatial coordinates from preprocessed data
+        adata_sp.obsm["spatial"] = adata.obsm["spatial"].copy()
+        await ctx.info(
+            "Using raw data for Tangram (preserves original gene names and counts)"
+        )
+    else:
+        adata_sp = adata
+        await ctx.warning(
+            "No raw data available - using preprocessed data (may have gene name mismatches)"
+        )
+    # =============================================================================
+
+    # Handle duplicate gene names
+    await ensure_unique_var_names_with_ctx(adata_sc_original, ctx, "reference data")
+    await ensure_unique_var_names_with_ctx(adata_sp, ctx, "spatial data")
+
+    await ctx.info(
+        f"Using reference dataset {params.reference_data_id} with {adata_sc_original.n_obs} cells"
+    )
+
+    # Determine training genes
+    training_genes = params.training_genes
+
+    if training_genes is None:
+        # Use marker genes if available
+        if params.marker_genes:
+            await ctx.info("Using provided marker genes for Tangram mapping")
+            # Flatten marker genes dictionary
+            training_genes = []
+            for genes in params.marker_genes.values():
+                training_genes.extend(genes)
+            training_genes = list(set(training_genes))  # Remove duplicates
         else:
-            adata_sp = adata
-            await ctx.warning(
-                "No raw data available - using preprocessed data (may have gene name mismatches)"
-            )
-        # =============================================================================
-
-        # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
-        if not adata_sc_original.var_names.is_unique:
-            n_duplicates = len(adata_sc_original.var_names) - len(
-                set(adata_sc_original.var_names)
-            )
-            await ctx.warning(
-                f"Found {n_duplicates} duplicate gene names in reference data, fixing..."
-            )
-            adata_sc_original.var_names_make_unique()
-
-        if not adata_sp.var_names.is_unique:
-            n_duplicates = len(adata_sp.var_names) - len(set(adata_sp.var_names))
-            await ctx.warning(
-                f"Found {n_duplicates} duplicate gene names in spatial data, fixing..."
-            )
-            adata_sp.var_names_make_unique()
-
-        await ctx.info(
-            f"Using reference dataset {params.reference_data_id} with {adata_sc_original.n_obs} cells"
-        )
-
-        # Determine training genes
-        training_genes = params.training_genes
-
-        if training_genes is None:
-            # Use marker genes if available
-            if params.marker_genes:
-                await ctx.info("Using provided marker genes for Tangram mapping")
-                # Flatten marker genes dictionary
-                training_genes = []
-                for genes in params.marker_genes.values():
-                    training_genes.extend(genes)
-                training_genes = list(set(training_genes))  # Remove duplicates
-            else:
-                # Use highly variable genes
-                if "highly_variable" not in adata_sc_original.var:
-                    raise ValueError(
-                        "Highly variable genes not found in reference data. "
-                        "Tangram mapping requires HVG selection. "
-                        "Please run HVG selection in preprocessing.py or use: sc.pp.highly_variable_genes(adata)"
-                    )
-                training_genes = list(
-                    adata_sc_original.var_names[adata_sc_original.var.highly_variable]
-                )
-
-        await ctx.info(f"Using {len(training_genes)} genes for Tangram mapping")
-
-        # COW FIX: Create copy of reference data to avoid modifying original
-        # Tangram's pp_adatas adds metadata (uns, obs) but doesn't subset genes
-        adata_sc = adata_sc_original.copy()
-        await ctx.info("Created working copy of reference data to preserve original")
-
-        # Preprocess data for Tangram
-        tg.pp_adatas(adata_sc, adata_sp, genes=training_genes)
-
-        await ctx.info(
-            f"Preprocessed data for Tangram mapping. {len(adata_sc.uns['training_genes'])} training genes selected."
-        )
-
-        # Set mapping mode
-        mode = params.tangram_mode
-        cluster_label = params.cluster_label
-
-        if mode == "clusters" and cluster_label is None:
-            await ctx.warning(
-                "Cluster label not provided for 'clusters' mode. Using default cell type annotation if available."
-            )
-            # Try to find a cell type annotation in the reference data
-            for col in ["cell_type", "celltype", "cell_types", "leiden", "louvain"]:
-                if col in adata_sc.obs:
-                    cluster_label = col
-                    break
-
-            if cluster_label is None:
+            # Use highly variable genes
+            if "highly_variable" not in adata_sc_original.var:
                 raise ValueError(
-                    "No cluster label found in reference data. Please provide a cluster_label parameter."
+                    "Highly variable genes not found in reference data. "
+                    "Tangram mapping requires HVG selection. "
+                    "Please run HVG selection in preprocessing.py or use: sc.pp.highly_variable_genes(adata)"
                 )
-
-            await ctx.info(
-                f"Using '{cluster_label}' as cluster label for Tangram mapping"
+            training_genes = list(
+                adata_sc_original.var_names[adata_sc_original.var.highly_variable]
             )
 
-        # Check GPU availability for device selection
-        import torch
+    await ctx.info(f"Using {len(training_genes)} genes for Tangram mapping")
 
-        device = params.tangram_device
-        if device != "cpu" and torch.cuda.is_available():
-            await ctx.info(f"GPU detected - using device: {device}")
-        elif device != "cpu":
-            await ctx.warning("GPU requested but not available - falling back to CPU")
-            device = "cpu"
+    # COW FIX: Create copy of reference data to avoid modifying original
+    # Tangram's pp_adatas adds metadata (uns, obs) but doesn't subset genes
+    adata_sc = adata_sc_original.copy()
+    await ctx.info("Created working copy of reference data to preserve original")
 
-        # Run Tangram mapping with enhanced parameters
-        await ctx.info(
-            f"Running Tangram mapping in '{mode}' mode for {params.num_epochs} epochs on {device}"
+    # Preprocess data for Tangram
+    tg.pp_adatas(adata_sc, adata_sp, genes=training_genes)
+
+    await ctx.info(
+        f"Preprocessed data for Tangram mapping. {len(adata_sc.uns['training_genes'])} training genes selected."
+    )
+
+    # Set mapping mode
+    mode = params.tangram_mode
+    cluster_label = params.cluster_label
+
+    if mode == "clusters" and cluster_label is None:
+        await ctx.warning(
+            "Cluster label not provided for 'clusters' mode. Using default cell type annotation if available."
+        )
+        # Try to find a cell type annotation in the reference data
+        for col in ["cell_type", "celltype", "cell_types", "leiden", "louvain"]:
+            if col in adata_sc.obs:
+                cluster_label = col
+                break
+
+        if cluster_label is None:
+            raise ValueError(
+                "No cluster label found in reference data. Please provide a cluster_label parameter."
+            )
+
+        await ctx.info(f"Using '{cluster_label}' as cluster label for Tangram mapping")
+
+    # Check GPU availability for device selection
+    import torch
+
+    device = params.tangram_device
+    if device != "cpu" and torch.cuda.is_available():
+        await ctx.info(f"GPU detected - using device: {device}")
+    elif device != "cpu":
+        await ctx.warning("GPU requested but not available - falling back to CPU")
+        device = "cpu"
+
+    # Run Tangram mapping with enhanced parameters
+    await ctx.info(
+        f"Running Tangram mapping in '{mode}' mode for {params.num_epochs} epochs on {device}"
+    )
+
+    mapping_args = {
+        "mode": mode,
+        "num_epochs": params.num_epochs,
+        "device": device,
+        "density_prior": params.tangram_density_prior,  # Add density prior
+        "learning_rate": params.tangram_learning_rate,  # Add learning rate
+    }
+
+    # Add optional regularization parameters
+    if params.tangram_lambda_r is not None:
+        mapping_args["lambda_r"] = params.tangram_lambda_r
+
+    if params.tangram_lambda_neighborhood is not None:
+        mapping_args["lambda_neighborhood"] = params.tangram_lambda_neighborhood
+
+    if mode == "clusters":
+        mapping_args["cluster_label"] = cluster_label
+
+    ad_map = tg.map_cells_to_space(adata_sc, adata_sp, **mapping_args)
+
+    # Get mapping score from training history
+    tangram_mapping_score = 0.0  # Default score
+    try:
+        if "training_history" in ad_map.uns:
+            history = ad_map.uns["training_history"]
+
+            # Extract score from main_loss (which is actually a similarity score, higher is better)
+            if (
+                isinstance(history, dict)
+                and "main_loss" in history
+                and len(history["main_loss"]) > 0
+            ):
+                import re
+
+                last_value = history["main_loss"][-1]
+
+                # Extract value from tensor string if needed
+                if isinstance(last_value, str):
+                    # Handle tensor string format: 'tensor(0.9050, grad_fn=...)'
+                    match = re.search(r"tensor\(([-\d.]+)", last_value)
+                    if match:
+                        tangram_mapping_score = float(match.group(1))
+                    else:
+                        # Try direct conversion
+                        try:
+                            tangram_mapping_score = float(last_value)
+                        except Exception:
+                            tangram_mapping_score = 0.0
+                else:
+                    tangram_mapping_score = float(last_value)
+
+                await ctx.info(
+                    f"Extracted Tangram mapping score: {tangram_mapping_score:.4f}"
+                )
+
+            else:
+                # NO FALLBACK: Require modern Tangram format for scientific integrity
+                error_msg = (
+                    "Tangram training history format not recognized.\n\n"
+                    "Expected dictionary with 'main_loss' key, but got: "
+                    f"{type(history).__name__ if history else 'None'}\n\n"
+                    "SOLUTIONS:\n"
+                    "1. Ensure using modern Tangram-sc version:\n"
+                    "   pip install --upgrade tangram-sc\n\n"
+                    "2. Verify Tangram completed training successfully\n\n"
+                    "3. Check that mapping_result has valid training_history\n\n"
+                    "SCIENTIFIC INTEGRITY: We require consistent Tangram output format "
+                    "to ensure reproducible cell type mapping scores."
+                )
+                await ctx.error(error_msg)
+                raise ValueError(error_msg)
+    except Exception as score_error:
+        await ctx.error(f"Failed to extract Tangram mapping score: {score_error}")
+        # Don't return a misleading score - fail gracefully
+        raise RuntimeError(
+            f"Tangram mapping completed but score extraction failed: {score_error}"
         )
 
-        mapping_args = {
-            "mode": mode,
-            "num_epochs": params.num_epochs,
-            "device": device,
-            "density_prior": params.tangram_density_prior,  # Add density prior
-            "learning_rate": params.tangram_learning_rate,  # Add learning rate
-        }
-
-        # Add optional regularization parameters
-        if params.tangram_lambda_r is not None:
-            mapping_args["lambda_r"] = params.tangram_lambda_r
-
-        if params.tangram_lambda_neighborhood is not None:
-            mapping_args["lambda_neighborhood"] = params.tangram_lambda_neighborhood
-
-        if mode == "clusters":
-            mapping_args["cluster_label"] = cluster_label
-
-        ad_map = tg.map_cells_to_space(adata_sc, adata_sp, **mapping_args)
-
-        # Get mapping score from training history
-        tangram_mapping_score = 0.0  # Default score
+    # Compute validation metrics if requested
+    if params.tangram_compute_validation:
         try:
-            if "training_history" in ad_map.uns:
-                history = ad_map.uns["training_history"]
-
-                # Extract score from main_loss (which is actually a similarity score, higher is better)
-                if (
-                    isinstance(history, dict)
-                    and "main_loss" in history
-                    and len(history["main_loss"]) > 0
-                ):
-                    import re
-
-                    last_value = history["main_loss"][-1]
-
-                    # Extract value from tensor string if needed
-                    if isinstance(last_value, str):
-                        # Handle tensor string format: 'tensor(0.9050, grad_fn=...)'
-                        match = re.search(r"tensor\(([-\d.]+)", last_value)
-                        if match:
-                            tangram_mapping_score = float(match.group(1))
-                        else:
-                            # Try direct conversion
-                            try:
-                                tangram_mapping_score = float(last_value)
-                            except Exception:
-                                tangram_mapping_score = 0.0
-                    else:
-                        tangram_mapping_score = float(last_value)
-
-                    await ctx.info(
-                        f"Extracted Tangram mapping score: {tangram_mapping_score:.4f}"
-                    )
-
-                else:
-                    # NO FALLBACK: Require modern Tangram format for scientific integrity
-                    error_msg = (
-                        "Tangram training history format not recognized.\n\n"
-                        "Expected dictionary with 'main_loss' key, but got: "
-                        f"{type(history).__name__ if history else 'None'}\n\n"
-                        "SOLUTIONS:\n"
-                        "1. Ensure using modern Tangram-sc version:\n"
-                        "   pip install --upgrade tangram-sc\n\n"
-                        "2. Verify Tangram completed training successfully\n\n"
-                        "3. Check that mapping_result has valid training_history\n\n"
-                        "SCIENTIFIC INTEGRITY: We require consistent Tangram output format "
-                        "to ensure reproducible cell type mapping scores."
-                    )
-                    await ctx.error(error_msg)
-                    raise ValueError(error_msg)
-        except Exception as score_error:
-            await ctx.error(f"Failed to extract Tangram mapping score: {score_error}")
-            # Don't return a misleading score - fail gracefully
-            raise RuntimeError(
-                f"Tangram mapping completed but score extraction failed: {score_error}"
+            await ctx.info("Computing validation metrics for spatial gene expression")
+            # Compare predicted vs actual spatial gene expression
+            scores = tg.compare_spatial_geneexp(ad_map, adata_sp)
+            # Store validation scores in adata
+            adata_sp.uns["tangram_validation_scores"] = scores
+            await ctx.info(
+                "Validation completed - scores stored in adata.uns['tangram_validation_scores']"
             )
+        except Exception as val_error:
+            await ctx.warning(f"Could not compute validation metrics: {val_error}")
 
-        # Compute validation metrics if requested
-        if params.tangram_compute_validation:
-            try:
-                await ctx.info(
-                    "Computing validation metrics for spatial gene expression"
-                )
-                # Compare predicted vs actual spatial gene expression
-                scores = tg.compare_spatial_geneexp(ad_map, adata_sp)
-                # Store validation scores in adata
-                adata_sp.uns["tangram_validation_scores"] = scores
-                await ctx.info(
-                    "Validation completed - scores stored in adata.uns['tangram_validation_scores']"
-                )
-            except Exception as val_error:
-                await ctx.warning(f"Could not compute validation metrics: {val_error}")
-
-        # Project genes if requested
-        if params.tangram_project_genes:
-            try:
-                await ctx.info("Projecting gene expression to spatial data")
-                ad_ge = tg.project_genes(ad_map, adata_sc)
-                adata_sp.obsm["tangram_gene_predictions"] = ad_ge.X
-                await ctx.info(
-                    "Gene expression projections stored in adata.obsm['tangram_gene_predictions']"
-                )
-            except Exception as gene_error:
-                await ctx.warning(f"Could not project genes: {gene_error}")
-
-        await ctx.info(f"Tangram mapping completed with score: {tangram_mapping_score}")
-
-        # Project cell annotations to space using proper API function
+    # Project genes if requested
+    if params.tangram_project_genes:
         try:
-            # Determine annotation column
-            annotation_col = None
-            if mode == "clusters" and cluster_label:
-                annotation_col = cluster_label
-            else:
-                # cell_type_key is now required (no auto-detect)
-                if params.cell_type_key not in adata_sc.obs:
-                    # Improved error message showing available columns
-                    available_cols = list(adata_sc.obs.columns)
-                    categorical_cols = [
-                        col
-                        for col in available_cols
-                        if adata_sc.obs[col].dtype.name in ["object", "category"]
-                    ]
-
-                    raise ValueError(
-                        f"Cell type column '{params.cell_type_key}' not found in reference data.\n\n"
-                        f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
-                        f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
-                        f"All columns ({len(available_cols)} total):\n  {', '.join(available_cols[:20])}\n"
-                        f"{f'  ... and {len(available_cols)-20} more' if len(available_cols) > 20 else ''}"
-                    )
-
-                annotation_col = params.cell_type_key
-                await ctx.info(f"Using cell type column: '{params.cell_type_key}'")
-
-            if annotation_col:
-                await ctx.info(
-                    f"Projecting cell annotations using '{annotation_col}' column"
-                )
-                # Use project_cell_annotations instead of plot_cell_annotation
-                tg.project_cell_annotations(ad_map, adata_sp, annotation=annotation_col)
-            else:
-                await ctx.warning("No suitable annotation column found for projection")
-        except Exception as proj_error:
-            await ctx.warning(f"Could not project cell annotations: {proj_error}")
-            # Continue without projection
-
-        # Get cell type predictions
-        cell_types = []
-        counts = {}
-        confidence_scores = {}
-
-        # Use method-prefixed output keys to avoid overwriting
-        output_key = f"cell_type_{params.method}"
-        confidence_key = f"confidence_{params.method}"
-
-        if "tangram_ct_pred" in adata_sp.obsm:
-            cell_type_df = adata_sp.obsm["tangram_ct_pred"]
-
-            # Get cell types and counts
-            cell_types = list(cell_type_df.columns)
-
-            # ===== CRITICAL FIX: Row normalization for proper probability calculation =====
-            # tangram_ct_pred contains unnormalized density/abundance values, NOT probabilities
-            # Row sums can be != 1.0 and values can exceed 1.0
-            # We normalize to convert densities → probability distributions
-            cell_type_prob = cell_type_df.div(cell_type_df.sum(axis=1), axis=0)
-
-            # Validation: Ensure normalized values are valid probabilities
-            if not (cell_type_prob.values >= 0).all():
-                await ctx.warning(
-                    "Some normalized probabilities are negative - data quality issue"
-                )
-            if not (cell_type_prob.values <= 1.0).all():
-                await ctx.warning(
-                    "Some normalized probabilities exceed 1.0 - normalization failed"
-                )
-            if not np.allclose(cell_type_prob.sum(axis=1), 1.0):
-                await ctx.warning(
-                    "Row sums don't equal 1.0 after normalization - numerical issue"
-                )
-
+            await ctx.info("Projecting gene expression to spatial data")
+            ad_ge = tg.project_genes(ad_map, adata_sc)
+            adata_sp.obsm["tangram_gene_predictions"] = ad_ge.X
             await ctx.info(
-                f"Normalized tangram_ct_pred: converted densities to probabilities (range: [{cell_type_prob.values.min():.3f}, {cell_type_prob.values.max():.3f}])"
+                "Gene expression projections stored in adata.obsm['tangram_gene_predictions']"
             )
-            # =============================================================================
+        except Exception as gene_error:
+            await ctx.warning(f"Could not project genes: {gene_error}")
 
-            # Assign cell type based on highest probability (argmax is same before/after normalization)
-            adata_sp.obs[output_key] = cell_type_prob.idxmax(axis=1)
-            adata_sp.obs[output_key] = adata_sp.obs[output_key].astype("category")
+    await ctx.info(f"Tangram mapping completed with score: {tangram_mapping_score}")
 
-            # Get counts
-            counts = adata_sp.obs[output_key].value_counts().to_dict()
-
-            # Calculate confidence scores from NORMALIZED probabilities
-            confidence_scores = {}
-            for cell_type in cell_types:
-                cells_of_type = adata_sp.obs[output_key] == cell_type
-                if np.sum(cells_of_type) > 0:
-                    # Use mean PROBABILITY as confidence (now guaranteed to be in [0, 1])
-                    mean_prob = cell_type_prob.loc[cells_of_type, cell_type].mean()
-                    confidence_scores[cell_type] = round(float(mean_prob), 3)
-                # Note: If no cells assigned to this type, we don't report a confidence
-                # This is more scientifically honest than assigning an arbitrary value
-
-            # Note: Visualizations should be created using the separate visualize_data tool
-            # This maintains clean separation between analysis and visualization
-            await ctx.info(
-                f"Cell type mapping complete. Cell types stored in '{output_key}' column"
-            )
-            await ctx.info(
-                f"Use visualize_data tool with feature='{output_key}' to visualize results"
-            )
-
+    # Project cell annotations to space using proper API function
+    try:
+        # Determine annotation column
+        annotation_col = None
+        if mode == "clusters" and cluster_label:
+            annotation_col = cluster_label
         else:
-            await ctx.warning("No cell type predictions found in Tangram results")
-
-        # Validate results before returning
-        if not cell_types:
-            raise RuntimeError(
-                "Tangram mapping failed - no cell type predictions generated"
-            )
-
-        if tangram_mapping_score <= 0:
-            await ctx.warning(
-                f"Tangram mapping score is suspiciously low: {tangram_mapping_score}"
-            )
-
-        # ===== Copy results from adata_sp back to original adata =====
-        # Since adata_sp was created from adata.raw (different object), we need to
-        # transfer the Tangram results back to the original adata for downstream use
-        if adata_sp is not adata:
-            # Copy cell type assignments
-            if output_key in adata_sp.obs:
-                adata.obs[output_key] = adata_sp.obs[output_key]
-
-            # Copy confidence scores if they exist
-            if confidence_key and confidence_key in adata_sp.obs:
-                adata.obs[confidence_key] = adata_sp.obs[confidence_key]
-
-            # Copy tangram_ct_pred from obsm
-            if "tangram_ct_pred" in adata_sp.obsm:
-                adata.obsm["tangram_ct_pred"] = adata_sp.obsm["tangram_ct_pred"]
-
-            # Copy tangram_gene_predictions if they exist
-            if "tangram_gene_predictions" in adata_sp.obsm:
-                adata.obsm["tangram_gene_predictions"] = adata_sp.obsm[
-                    "tangram_gene_predictions"
+            # cell_type_key is now required (no auto-detect)
+            if params.cell_type_key not in adata_sc.obs:
+                # Improved error message showing available columns
+                available_cols = list(adata_sc.obs.columns)
+                categorical_cols = [
+                    col
+                    for col in available_cols
+                    if adata_sc.obs[col].dtype.name in ["object", "category"]
                 ]
 
-            await ctx.info("Transferred Tangram results to original adata object")
-        # =============================================================================
+                raise ValueError(
+                    f"Cell type column '{params.cell_type_key}' not found in reference data.\n\n"
+                    f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
+                    f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+                    f"All columns ({len(available_cols)} total):\n  {', '.join(available_cols[:20])}\n"
+                    f"{f'  ... and {len(available_cols)-20} more' if len(available_cols) > 20 else ''}"
+                )
+
+            annotation_col = params.cell_type_key
+            await ctx.info(f"Using cell type column: '{params.cell_type_key}'")
+
+        if annotation_col:
+            await ctx.info(
+                f"Projecting cell annotations using '{annotation_col}' column"
+            )
+            # Use project_cell_annotations instead of plot_cell_annotation
+            tg.project_cell_annotations(ad_map, adata_sp, annotation=annotation_col)
+        else:
+            await ctx.warning("No suitable annotation column found for projection")
+    except Exception as proj_error:
+        await ctx.warning(f"Could not project cell annotations: {proj_error}")
+        # Continue without projection
+
+    # Get cell type predictions
+    cell_types = []
+    counts = {}
+    confidence_scores = {}
+
+    # Use method-prefixed output keys to avoid overwriting
+    output_key = f"cell_type_{params.method}"
+    confidence_key = f"confidence_{params.method}"
+
+    if "tangram_ct_pred" in adata_sp.obsm:
+        cell_type_df = adata_sp.obsm["tangram_ct_pred"]
+
+        # Get cell types and counts
+        cell_types = list(cell_type_df.columns)
+
+        # ===== CRITICAL FIX: Row normalization for proper probability calculation =====
+        # tangram_ct_pred contains unnormalized density/abundance values, NOT probabilities
+        # Row sums can be != 1.0 and values can exceed 1.0
+        # We normalize to convert densities → probability distributions
+        cell_type_prob = cell_type_df.div(cell_type_df.sum(axis=1), axis=0)
+
+        # Validation: Ensure normalized values are valid probabilities
+        if not (cell_type_prob.values >= 0).all():
+            await ctx.warning(
+                "Some normalized probabilities are negative - data quality issue"
+            )
+        if not (cell_type_prob.values <= 1.0).all():
+            await ctx.warning(
+                "Some normalized probabilities exceed 1.0 - normalization failed"
+            )
+        if not np.allclose(cell_type_prob.sum(axis=1), 1.0):
+            await ctx.warning(
+                "Row sums don't equal 1.0 after normalization - numerical issue"
+            )
 
         await ctx.info(
-            f"Cell type annotation complete. Cell types stored in '{output_key}' column"
+            f"Normalized tangram_ct_pred: converted densities to probabilities (range: [{cell_type_prob.values.min():.3f}, {cell_type_prob.values.max():.3f}])"
+        )
+        # =============================================================================
+
+        # Assign cell type based on highest probability (argmax is same before/after normalization)
+        adata_sp.obs[output_key] = cell_type_prob.idxmax(axis=1)
+        adata_sp.obs[output_key] = adata_sp.obs[output_key].astype("category")
+
+        # Get counts
+        counts = adata_sp.obs[output_key].value_counts().to_dict()
+
+        # Calculate confidence scores from NORMALIZED probabilities
+        confidence_scores = {}
+        for cell_type in cell_types:
+            cells_of_type = adata_sp.obs[output_key] == cell_type
+            if np.sum(cells_of_type) > 0:
+                # Use mean PROBABILITY as confidence (now guaranteed to be in [0, 1])
+                mean_prob = cell_type_prob.loc[cells_of_type, cell_type].mean()
+                confidence_scores[cell_type] = round(float(mean_prob), 3)
+            # Note: If no cells assigned to this type, we don't report a confidence
+            # This is more scientifically honest than assigning an arbitrary value
+
+        # Note: Visualizations should be created using the separate visualize_data tool
+        # This maintains clean separation between analysis and visualization
+        await ctx.info(
+            f"Cell type mapping complete. Cell types stored in '{output_key}' column"
         )
         await ctx.info(
             f"Use visualize_data tool with feature='{output_key}' to visualize results"
         )
 
-        return cell_types, counts, confidence_scores, tangram_mapping_score
+    else:
+        await ctx.warning("No cell type predictions found in Tangram results")
 
-    except Exception:
-        # Let exception propagate to MCP error handler
-        raise
+    # Validate results before returning
+    if not cell_types:
+        raise RuntimeError(
+            "Tangram mapping failed - no cell type predictions generated"
+        )
+
+    if tangram_mapping_score <= 0:
+        await ctx.warning(
+            f"Tangram mapping score is suspiciously low: {tangram_mapping_score}"
+        )
+
+    # ===== Copy results from adata_sp back to original adata =====
+    # Since adata_sp was created from adata.raw (different object), we need to
+    # transfer the Tangram results back to the original adata for downstream use
+    if adata_sp is not adata:
+        # Copy cell type assignments
+        if output_key in adata_sp.obs:
+            adata.obs[output_key] = adata_sp.obs[output_key]
+
+        # Copy confidence scores if they exist
+        if confidence_key and confidence_key in adata_sp.obs:
+            adata.obs[confidence_key] = adata_sp.obs[confidence_key]
+
+        # Copy tangram_ct_pred from obsm
+        if "tangram_ct_pred" in adata_sp.obsm:
+            adata.obsm["tangram_ct_pred"] = adata_sp.obsm["tangram_ct_pred"]
+
+        # Copy tangram_gene_predictions if they exist
+        if "tangram_gene_predictions" in adata_sp.obsm:
+            adata.obsm["tangram_gene_predictions"] = adata_sp.obsm[
+                "tangram_gene_predictions"
+            ]
+
+        await ctx.info("Transferred Tangram results to original adata object")
+    # =============================================================================
+
+    await ctx.info(
+        f"Cell type annotation complete. Cell types stored in '{output_key}' column"
+    )
+    await ctx.info(
+        f"Use visualize_data tool with feature='{output_key}' to visualize results"
+    )
+
+    return cell_types, counts, confidence_scores, tangram_mapping_score
 
 
 async def _annotate_with_scanvi(
@@ -856,309 +804,273 @@ async def _annotate_with_scanvi(
             num_epochs=50,                  # Prevent overfitting
         )
     """
-    try:
-        await ctx.info("Using scANVI method for annotation")
+    await ctx.info("Using scANVI method for annotation")
 
-        # Validate dependencies with comprehensive error reporting
-        scvi = validate_scvi_tools(ctx, components=["SCANVI"])
+    # Validate dependencies with comprehensive error reporting
+    scvi = validate_scvi_tools(ctx, components=["SCANVI"])
 
-        # Check if reference data is provided
-        if reference_adata is None:
-            raise ValueError(
-                "Reference data is required for scANVI method. "
-                "Please provide reference_data_id parameter."
-            )
-
-        # Use reference single-cell data (passed from main function via ctx.get_adata())
-        adata_ref_original = reference_adata
-
-        # ===== Handle Duplicate Gene Names (CRITICAL FIX) =====
-        await ctx.info("Checking for duplicate gene names...")
-
-        # Fix duplicate gene names in reference data
-        if not adata_ref_original.var_names.is_unique:
-            n_duplicates_ref = len(adata_ref_original.var_names) - len(
-                set(adata_ref_original.var_names)
-            )
-            await ctx.warning(
-                f"Found {n_duplicates_ref} duplicate gene names in reference data"
-            )
-            await ctx.info("Fixing duplicate gene names with unique suffixes...")
-            adata_ref_original.var_names_make_unique()
-            await ctx.info("Reference gene names fixed")
-
-        # Fix duplicate gene names in query data
-        if not adata.var_names.is_unique:
-            n_duplicates_query = len(adata.var_names) - len(set(adata.var_names))
-            await ctx.warning(
-                f"Found {n_duplicates_query} duplicate gene names in query data"
-            )
-            await ctx.info("Fixing duplicate gene names with unique suffixes...")
-            adata.var_names_make_unique()
-            await ctx.info("Query gene names fixed")
-
-        # ===== Gene Alignment (NEW) =====
-        await ctx.info("Aligning genes between reference and query data...")
-
-        common_genes = adata_ref_original.var_names.intersection(adata.var_names)
-
-        if len(common_genes) < min(100, adata_ref_original.n_vars * 0.5):
-            raise ValueError(
-                f"Insufficient gene overlap: Only {len(common_genes)} common genes found. "
-                f"Reference has {adata_ref_original.n_vars}, query has {adata.n_vars} genes."
-            )
-
-        # COW FIX: Operate on temporary copies for gene subsetting
-        # This prevents loss of HVG information in the original adata
-        if len(common_genes) < adata_ref_original.n_vars:
-            await ctx.warning(
-                f"Subsetting to {len(common_genes)} common genes for ScanVI training "
-                f"(reference: {adata_ref_original.n_vars}, query: {adata.n_vars})"
-            )
-            await ctx.info(
-                "Note: Original gene set and HVG information will be preserved"
-            )
-            # Create subsets for ScanVI (not modifying originals)
-            adata_ref = adata_ref_original[:, common_genes].copy()
-            adata_subset = adata[:, common_genes].copy()
-        else:
-            # No subsetting needed
-            adata_ref = adata_ref_original.copy()
-            adata_subset = adata.copy()
-
-        # ===== Data Validation (NEW) =====
-        await ctx.info("Validating data preprocessing...")
-
-        await ctx.info(
-            f"Reference data has 'counts' layer: {'counts' in adata_ref.layers}"
+    # Check if reference data is provided
+    if reference_adata is None:
+        raise ValueError(
+            "Reference data is required for scANVI method. "
+            "Please provide reference_data_id parameter."
         )
-        await ctx.info(
-            f"Query data has 'counts' layer: {'counts' in adata_subset.layers}"
+
+    # Use reference single-cell data (passed from main function via ctx.get_adata())
+    adata_ref_original = reference_adata
+
+    # Handle duplicate gene names
+    await ensure_unique_var_names_with_ctx(adata_ref_original, ctx, "reference data")
+    await ensure_unique_var_names_with_ctx(adata, ctx, "query data")
+
+    # Gene alignment
+    await ctx.info("Aligning genes between reference and query data...")
+
+    common_genes = adata_ref_original.var_names.intersection(adata.var_names)
+
+    if len(common_genes) < min(100, adata_ref_original.n_vars * 0.5):
+        raise ValueError(
+            f"Insufficient gene overlap: Only {len(common_genes)} common genes found. "
+            f"Reference has {adata_ref_original.n_vars}, query has {adata.n_vars} genes."
         )
-        if "counts" in adata_ref.layers:
-            await ctx.info(
-                f"  Reference counts max: {adata_ref.layers['counts'].max():.2f}"
-            )
-        if "counts" in adata_subset.layers:
-            await ctx.info(
-                f"  Query counts max: {adata_subset.layers['counts'].max():.2f}"
-            )
 
-        # Check if reference data is normalized
-        if "log1p" not in adata_ref.uns:
-            await ctx.warning("Reference data may not be log-normalized")
+    # COW FIX: Operate on temporary copies for gene subsetting
+    # This prevents loss of HVG information in the original adata
+    if len(common_genes) < adata_ref_original.n_vars:
+        await ctx.warning(
+            f"Subsetting to {len(common_genes)} common genes for ScanVI training "
+            f"(reference: {adata_ref_original.n_vars}, query: {adata.n_vars})"
+        )
+        await ctx.info("Note: Original gene set and HVG information will be preserved")
+        # Create subsets for ScanVI (not modifying originals)
+        adata_ref = adata_ref_original[:, common_genes].copy()
+        adata_subset = adata[:, common_genes].copy()
+    else:
+        # No subsetting needed
+        adata_ref = adata_ref_original.copy()
+        adata_subset = adata.copy()
 
-        # Check for HVGs
-        if "highly_variable" not in adata_ref.var:
-            await ctx.warning("No highly variable genes detected in reference")
+    # ===== Data Validation (NEW) =====
+    await ctx.info("Validating data preprocessing...")
 
-        # Get parameters
-        cell_type_key = getattr(params, "cell_type_key", "cell_type")
-        batch_key = getattr(params, "batch_key", None)
+    await ctx.info(f"Reference data has 'counts' layer: {'counts' in adata_ref.layers}")
+    await ctx.info(f"Query data has 'counts' layer: {'counts' in adata_subset.layers}")
+    if "counts" in adata_ref.layers:
+        await ctx.info(
+            f"  Reference counts max: {adata_ref.layers['counts'].max():.2f}"
+        )
+    if "counts" in adata_subset.layers:
+        await ctx.info(f"  Query counts max: {adata_subset.layers['counts'].max():.2f}")
 
-        # ===== Optional SCVI Pretraining (NEW) =====
-        if params.scanvi_use_scvi_pretrain:
-            await ctx.info(
-                f"Step 1/3: Pretraining SCVI model for {params.scanvi_scvi_epochs} epochs..."
-            )
+    # Check if reference data is normalized
+    if "log1p" not in adata_ref.uns:
+        await ctx.warning("Reference data may not be log-normalized")
 
-            # Setup for SCVI with labels (required for SCANVI conversion)
-            # First ensure the reference has the cell type labels
-            validate_obs_column(
-                adata_ref, cell_type_key, "Cell type column (reference data)"
-            )
+    # Check for HVGs
+    if "highly_variable" not in adata_ref.var:
+        await ctx.warning("No highly variable genes detected in reference")
 
-            # SCVI needs to know about labels for later SCANVI conversion
-            scvi.model.SCVI.setup_anndata(
-                adata_ref,
-                labels_key=cell_type_key,  # Important: include labels_key
-                batch_key=batch_key,
-                layer=params.layer,
-            )
+    # Get parameters
+    cell_type_key = getattr(params, "cell_type_key", "cell_type")
+    batch_key = getattr(params, "batch_key", None)
 
-            # Train SCVI
-            scvi_model = scvi.model.SCVI(
-                adata_ref,
-                n_latent=params.scanvi_n_latent,
-                n_hidden=params.scanvi_n_hidden,
-                n_layers=params.scanvi_n_layers,
-                dropout_rate=params.scanvi_dropout_rate,
-            )
+    # ===== Optional SCVI Pretraining (NEW) =====
+    if params.scanvi_use_scvi_pretrain:
+        await ctx.info(
+            f"Step 1/3: Pretraining SCVI model for {params.scanvi_scvi_epochs} epochs..."
+        )
 
-            scvi_model.train(
-                max_epochs=params.scanvi_scvi_epochs,
-                early_stopping=True,
-                check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch,
-            )
+        # Setup for SCVI with labels (required for SCANVI conversion)
+        # First ensure the reference has the cell type labels
+        validate_obs_column(
+            adata_ref, cell_type_key, "Cell type column (reference data)"
+        )
 
-            await ctx.info("Step 2/3: Converting SCVI to SCANVI model...")
+        # SCVI needs to know about labels for later SCANVI conversion
+        scvi.model.SCVI.setup_anndata(
+            adata_ref,
+            labels_key=cell_type_key,  # Important: include labels_key
+            batch_key=batch_key,
+            layer=params.layer,
+        )
 
-            # Convert to SCANVI (no need for setup_anndata, it uses SCVI's setup)
-            model = scvi.model.SCANVI.from_scvi_model(
-                scvi_model, params.scanvi_unlabeled_category
-            )
+        # Train SCVI
+        scvi_model = scvi.model.SCVI(
+            adata_ref,
+            n_latent=params.scanvi_n_latent,
+            n_hidden=params.scanvi_n_hidden,
+            n_layers=params.scanvi_n_layers,
+            dropout_rate=params.scanvi_dropout_rate,
+        )
 
-            # Train SCANVI (fewer epochs needed after pretraining)
-            # Use configurable epochs (default: 20, official recommendation after pretraining)
-            model.train(
-                max_epochs=params.scanvi_scanvi_epochs,
-                n_samples_per_label=params.scanvi_n_samples_per_label,
-                early_stopping=True,
-            )
+        scvi_model.train(
+            max_epochs=params.scanvi_scvi_epochs,
+            early_stopping=True,
+            check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch,
+        )
 
-        else:
-            # Direct SCANVI training (existing approach)
-            await ctx.info("Training SCANVI model directly...")
+        await ctx.info("Step 2/3: Converting SCVI to SCANVI model...")
 
-            # Ensure counts layer exists (create from adata.raw if needed)
-            if "counts" not in adata_ref.layers:
-                await ctx.info("Creating counts layer from adata.raw for scANVI...")
-                if adata_ref.raw is not None:
-                    # Get raw counts from adata.raw, subset to current var_names
-                    # Note: adata.raw may have full genes while adata has HVG subset
-                    adata_ref.layers["counts"] = adata_ref.raw[:, adata_ref.var_names].X
-                else:
-                    raise ValueError(
-                        "scANVI requires raw counts. Please run preprocessing first "
-                        "or provide data with counts in layers['counts']"
-                    )
+        # Convert to SCANVI (no need for setup_anndata, it uses SCVI's setup)
+        model = scvi.model.SCANVI.from_scvi_model(
+            scvi_model, params.scanvi_unlabeled_category
+        )
 
-            # Setup AnnData for scANVI
-            # FIX: Use raw counts from layers['counts'] instead of normalized adata.X
-            scvi.model.SCANVI.setup_anndata(
-                adata_ref,
-                labels_key=cell_type_key,
-                unlabeled_category=params.scanvi_unlabeled_category,
-                batch_key=batch_key,
-                layer="counts",  # CRITICAL: Use raw counts, not normalized data
-            )
+        # Train SCANVI (fewer epochs needed after pretraining)
+        # Use configurable epochs (default: 20, official recommendation after pretraining)
+        model.train(
+            max_epochs=params.scanvi_scanvi_epochs,
+            n_samples_per_label=params.scanvi_n_samples_per_label,
+            early_stopping=True,
+        )
 
-            # Create scANVI model
-            model = scvi.model.SCANVI(
-                adata_ref,
-                n_hidden=params.scanvi_n_hidden,
-                n_latent=params.scanvi_n_latent,
-                n_layers=params.scanvi_n_layers,
-                dropout_rate=params.scanvi_dropout_rate,
-            )
+    else:
+        # Direct SCANVI training (existing approach)
+        await ctx.info("Training SCANVI model directly...")
 
-            model.train(
-                max_epochs=params.num_epochs,
-                n_samples_per_label=params.scanvi_n_samples_per_label,
-                early_stopping=True,
-                check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch,
-            )
-
-        # ===== Query Data Preparation (IMPROVED) =====
-        await ctx.info("Step 3/3: Preparing and training on query data...")
-
-        # COW FIX: Work on adata_subset for query data preparation
-        # Add unlabeled category for all cells (on subset, not original)
-        adata_subset.obs[cell_type_key] = params.scanvi_unlabeled_category
-
-        # Setup query data (batch handling) - TRANSPARENT TEMPORARY METADATA
-        if batch_key and batch_key not in adata_subset.obs:
-            # ScANVI requires batch information for technical reasons
-            adata_subset.obs[batch_key] = "query_batch"
-            await ctx.info(
-                f"Added temporary batch label '{batch_key}' = 'query_batch' for ScANVI compatibility.\n"
-                f"   This is TECHNICAL METADATA, not real batch information from your experiment.\n"
-                f"   ScANVI algorithm requires batch labels to function properly."
-            )
-
-        # Ensure counts layer exists for query data (create from adata.raw if needed)
-        if "counts" not in adata_subset.layers:
-            await ctx.info("Creating counts layer from adata.raw for query data...")
-            if adata_subset.raw is not None:
+        # Ensure counts layer exists (create from adata.raw if needed)
+        if "counts" not in adata_ref.layers:
+            await ctx.info("Creating counts layer from adata.raw for scANVI...")
+            if adata_ref.raw is not None:
                 # Get raw counts from adata.raw, subset to current var_names
                 # Note: adata.raw may have full genes while adata has HVG subset
-                adata_subset.layers["counts"] = adata_subset.raw[
-                    :, adata_subset.var_names
-                ].X
+                adata_ref.layers["counts"] = adata_ref.raw[:, adata_ref.var_names].X
             else:
                 raise ValueError(
                     "scANVI requires raw counts. Please run preprocessing first "
                     "or provide data with counts in layers['counts']"
                 )
 
-        # FIX: Use raw counts for query data as well
+        # Setup AnnData for scANVI
+        # FIX: Use raw counts from layers['counts'] instead of normalized adata.X
         scvi.model.SCANVI.setup_anndata(
-            adata_subset,
+            adata_ref,
             labels_key=cell_type_key,
             unlabeled_category=params.scanvi_unlabeled_category,
             batch_key=batch_key,
             layer="counts",  # CRITICAL: Use raw counts, not normalized data
         )
 
-        # Transfer model to spatial data with proper parameters
-        spatial_model = scvi.model.SCANVI.load_query_data(adata_subset, model)
+        # Create scANVI model
+        model = scvi.model.SCANVI(
+            adata_ref,
+            n_hidden=params.scanvi_n_hidden,
+            n_latent=params.scanvi_n_latent,
+            n_layers=params.scanvi_n_layers,
+            dropout_rate=params.scanvi_dropout_rate,
+        )
 
-        # ===== Improved Query Training (NEW) =====
-        spatial_model.train(
-            max_epochs=params.scanvi_query_epochs,  # Default: 100 (was 50)
+        model.train(
+            max_epochs=params.num_epochs,
+            n_samples_per_label=params.scanvi_n_samples_per_label,
             early_stopping=True,
-            plan_kwargs=dict(weight_decay=0.0),  # Critical: preserve reference space
             check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch,
         )
 
-        # COW FIX: Get predictions from adata_subset, then add to original adata
-        predictions = spatial_model.predict()
-        adata_subset.obs[cell_type_key] = predictions
-        adata_subset.obs[cell_type_key] = adata_subset.obs[cell_type_key].astype(
-            "category"
+    # ===== Query Data Preparation (IMPROVED) =====
+    await ctx.info("Step 3/3: Preparing and training on query data...")
+
+    # COW FIX: Work on adata_subset for query data preparation
+    # Add unlabeled category for all cells (on subset, not original)
+    adata_subset.obs[cell_type_key] = params.scanvi_unlabeled_category
+
+    # Setup query data (batch handling) - TRANSPARENT TEMPORARY METADATA
+    if batch_key and batch_key not in adata_subset.obs:
+        # ScANVI requires batch information for technical reasons
+        adata_subset.obs[batch_key] = "query_batch"
+        await ctx.info(
+            f"Added temporary batch label '{batch_key}' = 'query_batch' for ScANVI compatibility.\n"
+            f"   This is TECHNICAL METADATA, not real batch information from your experiment.\n"
+            f"   ScANVI algorithm requires batch labels to function properly."
         )
 
-        # Extract results from adata_subset
-        cell_types = list(adata_subset.obs[cell_type_key].cat.categories)
-        counts = adata_subset.obs[cell_type_key].value_counts().to_dict()
+    # Ensure counts layer exists for query data (create from adata.raw if needed)
+    if "counts" not in adata_subset.layers:
+        await ctx.info("Creating counts layer from adata.raw for query data...")
+        if adata_subset.raw is not None:
+            # Get raw counts from adata.raw, subset to current var_names
+            # Note: adata.raw may have full genes while adata has HVG subset
+            adata_subset.layers["counts"] = adata_subset.raw[
+                :, adata_subset.var_names
+            ].X
+        else:
+            raise ValueError(
+                "scANVI requires raw counts. Please run preprocessing first "
+                "or provide data with counts in layers['counts']"
+            )
 
-        # Get prediction probabilities as confidence scores
-        try:
-            probs = spatial_model.predict(soft=True)
-            confidence_scores = {}
-            for i, cell_type in enumerate(cell_types):
-                cells_of_type = adata_subset.obs[cell_type_key] == cell_type
-                if np.sum(cells_of_type) > 0 and isinstance(probs, pd.DataFrame):
-                    if cell_type in probs.columns:
-                        mean_prob = probs.loc[cells_of_type, cell_type].mean()
-                        confidence_scores[cell_type] = round(float(mean_prob), 2)
-                    else:
-                        # No probability column for this cell type - skip confidence
-                        pass
-                elif (
-                    np.sum(cells_of_type) > 0
-                    and hasattr(probs, "shape")
-                    and probs.shape[1] > i
-                ):
-                    mean_prob = probs[cells_of_type, i].mean()
+    # FIX: Use raw counts for query data as well
+    scvi.model.SCANVI.setup_anndata(
+        adata_subset,
+        labels_key=cell_type_key,
+        unlabeled_category=params.scanvi_unlabeled_category,
+        batch_key=batch_key,
+        layer="counts",  # CRITICAL: Use raw counts, not normalized data
+    )
+
+    # Transfer model to spatial data with proper parameters
+    spatial_model = scvi.model.SCANVI.load_query_data(adata_subset, model)
+
+    # ===== Improved Query Training (NEW) =====
+    spatial_model.train(
+        max_epochs=params.scanvi_query_epochs,  # Default: 100 (was 50)
+        early_stopping=True,
+        plan_kwargs=dict(weight_decay=0.0),  # Critical: preserve reference space
+        check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch,
+    )
+
+    # COW FIX: Get predictions from adata_subset, then add to original adata
+    predictions = spatial_model.predict()
+    adata_subset.obs[cell_type_key] = predictions
+    adata_subset.obs[cell_type_key] = adata_subset.obs[cell_type_key].astype("category")
+
+    # Extract results from adata_subset
+    cell_types = list(adata_subset.obs[cell_type_key].cat.categories)
+    counts = adata_subset.obs[cell_type_key].value_counts().to_dict()
+
+    # Get prediction probabilities as confidence scores
+    try:
+        probs = spatial_model.predict(soft=True)
+        confidence_scores = {}
+        for i, cell_type in enumerate(cell_types):
+            cells_of_type = adata_subset.obs[cell_type_key] == cell_type
+            if np.sum(cells_of_type) > 0 and isinstance(probs, pd.DataFrame):
+                if cell_type in probs.columns:
+                    mean_prob = probs.loc[cells_of_type, cell_type].mean()
                     confidence_scores[cell_type] = round(float(mean_prob), 2)
-                # else: No cells of this type or no probability data - skip confidence
-        except Exception as e:
-            await ctx.warning(f"Could not get confidence scores: {e}")
-            # Could not extract probabilities - return empty confidence dict
-            confidence_scores = (
-                {}
-            )  # Empty dict clearly indicates no confidence data available
+                else:
+                    # No probability column for this cell type - skip confidence
+                    pass
+            elif (
+                np.sum(cells_of_type) > 0
+                and hasattr(probs, "shape")
+                and probs.shape[1] > i
+            ):
+                mean_prob = probs[cells_of_type, i].mean()
+                confidence_scores[cell_type] = round(float(mean_prob), 2)
+            # else: No cells of this type or no probability data - skip confidence
+    except Exception as e:
+        await ctx.warning(f"Could not get confidence scores: {e}")
+        # Could not extract probabilities - return empty confidence dict
+        confidence_scores = (
+            {}
+        )  # Empty dict clearly indicates no confidence data available
 
-        # COW FIX: Add prediction results to original adata.obs
-        # This will be picked up by the main function to store in adata.obs[output_key]
-        adata.obs[cell_type_key] = adata_subset.obs[cell_type_key].values
+    # COW FIX: Add prediction results to original adata.obs
+    # This will be picked up by the main function to store in adata.obs[output_key]
+    adata.obs[cell_type_key] = adata_subset.obs[cell_type_key].values
 
-        # Note: Visualizations should be created using the separate visualize_data tool
-        # This maintains clean separation between analysis and visualization
+    # Note: Visualizations should be created using the separate visualize_data tool
+    # This maintains clean separation between analysis and visualization
 
-        await ctx.info(
-            "Cell type annotation complete. Cell types stored in 'cell_type' column"
-        )
-        await ctx.info(
-            "Use visualize_data tool with feature='cell_type' to visualize results"
-        )
+    await ctx.info(
+        "Cell type annotation complete. Cell types stored in 'cell_type' column"
+    )
+    await ctx.info(
+        "Use visualize_data tool with feature='cell_type' to visualize results"
+    )
 
-        return cell_types, counts, confidence_scores, None
-
-    except Exception:
-        # Let exception propagate to MCP error handler
-        raise
+    return cell_types, counts, confidence_scores, None
 
 
 async def _annotate_with_mllmcelltype(
@@ -1192,459 +1104,445 @@ async def _annotate_with_mllmcelltype(
         - mllm_additional_context: Additional context for better annotation
         - mllm_base_urls: Custom API endpoints (useful for proxies)
     """
+    await ctx.info("Using mLLMCellType (LLM-based) method for annotation")
+
+    # Validate dependencies with comprehensive error reporting
+    require("mllmcelltype", ctx, feature="mLLMCellType annotation")
+    import mllmcelltype
+
+    # Validate clustering has been performed
+    # cluster_label is now required for mLLMCellType (no default value)
+    if not params.cluster_label:
+        available_cols = list(adata.obs.columns)
+        categorical_cols = [
+            col
+            for col in available_cols
+            if adata.obs[col].dtype.name in ["object", "category"]
+        ]
+
+        raise ValueError(
+            f"cluster_label parameter is required for mLLMCellType method.\n\n"
+            f"Available categorical columns (likely clusters):\n  {', '.join(categorical_cols[:15])}\n"
+            f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+            f"Common cluster column names: leiden, louvain, seurat_clusters, phenograph\n\n"
+            f"Example: params = {{'cluster_label': 'leiden', ...}}"
+        )
+
+    cluster_key = params.cluster_label
+
+    if cluster_key not in adata.obs:
+        available_cols = list(adata.obs.columns)
+        categorical_cols = [
+            col
+            for col in available_cols
+            if adata.obs[col].dtype.name in ["object", "category"]
+        ]
+
+        raise ValueError(
+            f"Clustering key '{cluster_key}' not found in adata.obs.\n\n"
+            f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
+            f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+            f"mLLMCellType annotation requires clustering information.\n"
+            f"Please run clustering in preprocessing.py first."
+        )
+
+    # Find differentially expressed genes for each cluster
+    await ctx.info("Finding marker genes for each cluster")
+
+    sc.tl.rank_genes_groups(adata, cluster_key, method="wilcoxon")
+
+    # Extract top marker genes for each cluster
+    marker_genes_dict = {}
+    n_genes = params.mllm_n_marker_genes
+
+    for cluster in adata.obs[cluster_key].unique():
+        # Get top genes for this cluster
+        gene_names = adata.uns["rank_genes_groups"]["names"][str(cluster)][:n_genes]
+        marker_genes_dict[f"Cluster_{cluster}"] = list(gene_names)
+
+    await ctx.info(f"Found marker genes for {len(marker_genes_dict)} clusters")
+
+    # Prepare parameters for mllmcelltype
+    species = params.mllm_species
+    tissue = params.mllm_tissue
+    additional_context = params.mllm_additional_context
+    use_cache = params.mllm_use_cache
+    base_urls = params.mllm_base_urls
+    verbose = params.mllm_verbose
+    force_rerun = params.mllm_force_rerun
+    clusters_to_analyze = params.mllm_clusters_to_analyze
+
+    # Check if using multi-model consensus or single model
+    use_consensus = params.mllm_use_consensus
+
     try:
-        await ctx.info("Using mLLMCellType (LLM-based) method for annotation")
+        if use_consensus:
+            # Use interactive_consensus_annotation with multiple models
+            models = params.mllm_models
+            if not models:
+                raise ValueError(
+                    "mllm_models parameter is required when mllm_use_consensus=True. "
+                    "Provide a list of model names, e.g., ['gpt-5', 'claude-sonnet-4-5-20250929', 'gemini-2.5-pro']"
+                )
 
-        # Validate dependencies with comprehensive error reporting
-        require("mllmcelltype", ctx, feature="mLLMCellType annotation")
-        import mllmcelltype
+            api_keys = params.mllm_api_keys
+            consensus_threshold = params.mllm_consensus_threshold
+            entropy_threshold = params.mllm_entropy_threshold
+            max_discussion_rounds = params.mllm_max_discussion_rounds
+            consensus_model = params.mllm_consensus_model
 
-        # Validate clustering has been performed
-        # cluster_label is now required for mLLMCellType (no default value)
-        if not params.cluster_label:
-            available_cols = list(adata.obs.columns)
-            categorical_cols = [
-                col
-                for col in available_cols
-                if adata.obs[col].dtype.name in ["object", "category"]
-            ]
-
-            raise ValueError(
-                f"cluster_label parameter is required for mLLMCellType method.\n\n"
-                f"Available categorical columns (likely clusters):\n  {', '.join(categorical_cols[:15])}\n"
-                f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
-                f"Common cluster column names: leiden, louvain, seurat_clusters, phenograph\n\n"
-                f"Example: params = {{'cluster_label': 'leiden', ...}}"
+            await ctx.info(
+                f"Calling interactive consensus annotation with {len(models)} models"
             )
 
-        cluster_key = params.cluster_label
-
-        if cluster_key not in adata.obs:
-            available_cols = list(adata.obs.columns)
-            categorical_cols = [
-                col
-                for col in available_cols
-                if adata.obs[col].dtype.name in ["object", "category"]
-            ]
-
-            raise ValueError(
-                f"Clustering key '{cluster_key}' not found in adata.obs.\n\n"
-                f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
-                f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
-                f"mLLMCellType annotation requires clustering information.\n"
-                f"Please run clustering in preprocessing.py first."
+            # Call interactive_consensus_annotation
+            consensus_results = mllmcelltype.interactive_consensus_annotation(
+                marker_genes=marker_genes_dict,
+                species=species,
+                models=models,
+                api_keys=api_keys,
+                tissue=tissue,
+                additional_context=additional_context,
+                consensus_threshold=consensus_threshold,
+                entropy_threshold=entropy_threshold,
+                max_discussion_rounds=max_discussion_rounds,
+                use_cache=use_cache,
+                verbose=verbose,
+                consensus_model=consensus_model,
+                base_urls=base_urls,
+                clusters_to_analyze=clusters_to_analyze,
+                force_rerun=force_rerun,
             )
 
-        # Find differentially expressed genes for each cluster
-        await ctx.info("Finding marker genes for each cluster")
+            # Extract consensus annotations
+            annotations = consensus_results.get("consensus", {})
 
-        sc.tl.rank_genes_groups(adata, cluster_key, method="wilcoxon")
+            # Store additional metadata for reporting
+            consensus_proportions = consensus_results.get("consensus_proportions", {})
+            consensus_results.get("entropy", {})
 
-        # Extract top marker genes for each cluster
-        marker_genes_dict = {}
-        n_genes = params.mllm_n_marker_genes
+            await ctx.info(
+                f"Consensus reached for {len(annotations)} clusters. "
+                f"Mean consensus proportion: {sum(consensus_proportions.values()) / len(consensus_proportions):.2f}"
+            )
+        else:
+            # Use single model annotation
+            provider = params.mllm_provider
+            model = params.mllm_model
+            api_key = params.mllm_api_key
 
-        for cluster in adata.obs[cluster_key].unique():
-            # Get top genes for this cluster
-            gene_names = adata.uns["rank_genes_groups"]["names"][str(cluster)][:n_genes]
-            marker_genes_dict[f"Cluster_{cluster}"] = list(gene_names)
+            await ctx.info(
+                f"Calling LLM ({provider}/{model or 'default'}) for cell type annotation"
+            )
 
-        await ctx.info(f"Found marker genes for {len(marker_genes_dict)} clusters")
-
-        # Prepare parameters for mllmcelltype
-        species = params.mllm_species
-        tissue = params.mllm_tissue
-        additional_context = params.mllm_additional_context
-        use_cache = params.mllm_use_cache
-        base_urls = params.mllm_base_urls
-        verbose = params.mllm_verbose
-        force_rerun = params.mllm_force_rerun
-        clusters_to_analyze = params.mllm_clusters_to_analyze
-
-        # Check if using multi-model consensus or single model
-        use_consensus = params.mllm_use_consensus
-
-        try:
-            if use_consensus:
-                # Use interactive_consensus_annotation with multiple models
-                models = params.mllm_models
-                if not models:
-                    raise ValueError(
-                        "mllm_models parameter is required when mllm_use_consensus=True. "
-                        "Provide a list of model names, e.g., ['gpt-5', 'claude-sonnet-4-5-20250929', 'gemini-2.5-pro']"
-                    )
-
-                api_keys = params.mllm_api_keys
-                consensus_threshold = params.mllm_consensus_threshold
-                entropy_threshold = params.mllm_entropy_threshold
-                max_discussion_rounds = params.mllm_max_discussion_rounds
-                consensus_model = params.mllm_consensus_model
-
-                await ctx.info(
-                    f"Calling interactive consensus annotation with {len(models)} models"
-                )
-
-                # Call interactive_consensus_annotation
-                consensus_results = mllmcelltype.interactive_consensus_annotation(
-                    marker_genes=marker_genes_dict,
-                    species=species,
-                    models=models,
-                    api_keys=api_keys,
-                    tissue=tissue,
-                    additional_context=additional_context,
-                    consensus_threshold=consensus_threshold,
-                    entropy_threshold=entropy_threshold,
-                    max_discussion_rounds=max_discussion_rounds,
-                    use_cache=use_cache,
-                    verbose=verbose,
-                    consensus_model=consensus_model,
-                    base_urls=base_urls,
-                    clusters_to_analyze=clusters_to_analyze,
-                    force_rerun=force_rerun,
-                )
-
-                # Extract consensus annotations
-                annotations = consensus_results.get("consensus", {})
-
-                # Store additional metadata for reporting
-                consensus_proportions = consensus_results.get(
-                    "consensus_proportions", {}
-                )
-                consensus_results.get("entropy", {})
-
-                await ctx.info(
-                    f"Consensus reached for {len(annotations)} clusters. "
-                    f"Mean consensus proportion: {sum(consensus_proportions.values()) / len(consensus_proportions):.2f}"
-                )
-            else:
-                # Use single model annotation
-                provider = params.mllm_provider
-                model = params.mllm_model
-                api_key = params.mllm_api_key
-
-                await ctx.info(
-                    f"Calling LLM ({provider}/{model or 'default'}) for cell type annotation"
-                )
-
-                # Call annotate_clusters (single model)
-                annotations = mllmcelltype.annotate_clusters(
-                    marker_genes=marker_genes_dict,
-                    species=species,
-                    provider=provider,
-                    model=model,
-                    api_key=api_key,
-                    tissue=tissue,
-                    additional_context=additional_context,
-                    use_cache=use_cache,
-                    base_urls=base_urls,
-                )
-        except Exception as e:
-            await ctx.error(f"mLLMCellType annotation failed: {str(e)}")
-            raise
-
-        await ctx.info(f"Received annotations for {len(annotations)} clusters")
-
-        # Map cluster annotations back to cells
-        cluster_to_celltype = {}
-        for cluster_name, cell_type in annotations.items():
-            # Extract cluster number from "Cluster_X" format
-            cluster_id = cluster_name.replace("Cluster_", "")
-            cluster_to_celltype[cluster_id] = cell_type
-
-        # Use method-prefixed output keys to avoid overwriting
-        output_key = f"cell_type_{params.method}"
-
-        # Apply cell type annotations to cells
-        adata.obs[output_key] = (
-            adata.obs[cluster_key].astype(str).map(cluster_to_celltype)
-        )
-
-        # Handle any unmapped clusters
-        unmapped = adata.obs[output_key].isna()
-        if unmapped.any():
-            await ctx.warning(f"Found {unmapped.sum()} cells in unmapped clusters")
-            adata.obs.loc[unmapped, output_key] = "Unknown"
-
-        adata.obs[output_key] = adata.obs[output_key].astype("category")
-
-        # Get cell types and counts
-        cell_types = list(adata.obs[output_key].unique())
-        counts = adata.obs[output_key].value_counts().to_dict()
-
-        # Calculate confidence scores based on cluster homogeneity
-        confidence_scores = {}
-        for cell_type in cell_types:
-            if cell_type != "Unknown":
-                # LLM-based annotations don't provide numeric confidence scores
-                # Don't assign arbitrary values that could be misleading
-                pass  # No numeric confidence available
-            else:
-                # Unknown cells have no confidence
-                pass
-
-        # Note: Visualizations should be created using the separate visualize_data tool
-        # This maintains clean separation between analysis and visualization
-        await ctx.info(
-            f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-        )
-        await ctx.info(
-            f"Use visualize_data tool with feature='{output_key}' to visualize results"
-        )
-
-        return cell_types, counts, confidence_scores, None, None
-
-    except Exception:
-        # Let exception propagate to MCP error handler
+            # Call annotate_clusters (single model)
+            annotations = mllmcelltype.annotate_clusters(
+                marker_genes=marker_genes_dict,
+                species=species,
+                provider=provider,
+                model=model,
+                api_key=api_key,
+                tissue=tissue,
+                additional_context=additional_context,
+                use_cache=use_cache,
+                base_urls=base_urls,
+            )
+    except Exception as e:
+        await ctx.error(f"mLLMCellType annotation failed: {str(e)}")
         raise
+
+    await ctx.info(f"Received annotations for {len(annotations)} clusters")
+
+    # Map cluster annotations back to cells
+    cluster_to_celltype = {}
+    for cluster_name, cell_type in annotations.items():
+        # Extract cluster number from "Cluster_X" format
+        cluster_id = cluster_name.replace("Cluster_", "")
+        cluster_to_celltype[cluster_id] = cell_type
+
+    # Use method-prefixed output keys to avoid overwriting
+    output_key = f"cell_type_{params.method}"
+
+    # Apply cell type annotations to cells
+    adata.obs[output_key] = adata.obs[cluster_key].astype(str).map(cluster_to_celltype)
+
+    # Handle any unmapped clusters
+    unmapped = adata.obs[output_key].isna()
+    if unmapped.any():
+        await ctx.warning(f"Found {unmapped.sum()} cells in unmapped clusters")
+        adata.obs.loc[unmapped, output_key] = "Unknown"
+
+    adata.obs[output_key] = adata.obs[output_key].astype("category")
+
+    # Get cell types and counts
+    cell_types = list(adata.obs[output_key].unique())
+    counts = adata.obs[output_key].value_counts().to_dict()
+
+    # Calculate confidence scores based on cluster homogeneity
+    confidence_scores = {}
+    for cell_type in cell_types:
+        if cell_type != "Unknown":
+            # LLM-based annotations don't provide numeric confidence scores
+            # Don't assign arbitrary values that could be misleading
+            pass  # No numeric confidence available
+        else:
+            # Unknown cells have no confidence
+            pass
+
+    # Note: Visualizations should be created using the separate visualize_data tool
+    # This maintains clean separation between analysis and visualization
+    await ctx.info(
+        f"Cell type annotation complete. Cell types stored in '{output_key}' column"
+    )
+    await ctx.info(
+        f"Use visualize_data tool with feature='{output_key}' to visualize results"
+    )
+
+    return cell_types, counts, confidence_scores, None, None
 
 
 async def _annotate_with_cellassign(
     adata, params: AnnotationParameters, ctx: "ToolContext"
 ):
     """Annotate cell types using CellAssign method"""
-    try:
-        await ctx.info("Using CellAssign method for annotation")
+    await ctx.info("Using CellAssign method for annotation")
 
-        # Validate dependencies with comprehensive error reporting
-        validate_scvi_tools(ctx, components=["CellAssign"])
-        from scvi.external import CellAssign
+    # Validate dependencies with comprehensive error reporting
+    validate_scvi_tools(ctx, components=["CellAssign"])
+    from scvi.external import CellAssign
 
-        # Check if marker genes are provided
-        if params.marker_genes is None:
-            raise ValueError(
-                "CellAssign requires marker genes to be provided. "
-                "Please specify marker_genes parameter with a dictionary of cell types and their marker genes."
-            )
+    # Check if marker genes are provided
+    if params.marker_genes is None:
+        raise ValueError(
+            "CellAssign requires marker genes to be provided. "
+            "Please specify marker_genes parameter with a dictionary of cell types and their marker genes."
+        )
 
-        marker_genes = params.marker_genes
+    marker_genes = params.marker_genes
 
-        # CRITICAL FIX: Use adata.raw for marker gene validation if available
-        # Preprocessing filters genes to HVGs, but marker genes may not be in HVGs
-        # adata.raw contains all original genes and should be checked first
-        if hasattr(adata, "raw") and adata.raw is not None:
-            all_genes = set(adata.raw.var_names)
-            gene_source = "adata.raw"
+    # CRITICAL FIX: Use adata.raw for marker gene validation if available
+    # Preprocessing filters genes to HVGs, but marker genes may not be in HVGs
+    # adata.raw contains all original genes and should be checked first
+    if hasattr(adata, "raw") and adata.raw is not None:
+        all_genes = set(adata.raw.var_names)
+        gene_source = "adata.raw"
+        await ctx.info(
+            f"Using adata.raw for marker gene validation "
+            f"({len(all_genes)} genes available)"
+        )
+    else:
+        all_genes = set(adata.var_names)
+        gene_source = "adata.var_names"
+        await ctx.warning(
+            f"Using filtered gene set for marker gene validation "
+            f"({len(all_genes)} genes). Some marker genes may be missing. "
+            f"Consider using unpreprocessed data for CellAssign."
+        )
+
+    # Validate marker genes exist in dataset
+    valid_marker_genes = {}
+    total_markers = sum(len(g) for g in marker_genes.values())
+    markers_found = 0
+    markers_missing = 0
+
+    for cell_type, genes in marker_genes.items():
+        existing_genes = [gene for gene in genes if gene in all_genes]
+        missing_genes = [gene for gene in genes if gene not in all_genes]
+
+        if existing_genes:
+            valid_marker_genes[cell_type] = existing_genes
+            markers_found += len(existing_genes)
             await ctx.info(
-                f"Using adata.raw for marker gene validation "
-                f"({len(all_genes)} genes available)"
+                f"Found {len(existing_genes)}/{len(genes)} marker genes for {cell_type}"
             )
-        else:
-            all_genes = set(adata.var_names)
-            gene_source = "adata.var_names"
-            await ctx.warning(
-                f"Using filtered gene set for marker gene validation "
-                f"({len(all_genes)} genes). Some marker genes may be missing. "
-                f"Consider using unpreprocessed data for CellAssign."
-            )
-
-        # Validate marker genes exist in dataset
-        valid_marker_genes = {}
-        total_markers = sum(len(g) for g in marker_genes.values())
-        markers_found = 0
-        markers_missing = 0
-
-        for cell_type, genes in marker_genes.items():
-            existing_genes = [gene for gene in genes if gene in all_genes]
-            missing_genes = [gene for gene in genes if gene not in all_genes]
-
-            if existing_genes:
-                valid_marker_genes[cell_type] = existing_genes
-                markers_found += len(existing_genes)
-                await ctx.info(
-                    f"Found {len(existing_genes)}/{len(genes)} marker genes for {cell_type}"
-                )
-                if missing_genes:
-                    await ctx.warning(
-                        f"Missing {len(missing_genes)} markers for {cell_type}: {missing_genes[:5]}"
-                    )
-            else:
-                markers_missing += len(genes)
+            if missing_genes:
                 await ctx.warning(
-                    f"No marker genes found for {cell_type} - all {len(genes)} markers missing!"
+                    f"Missing {len(missing_genes)} markers for {cell_type}: {missing_genes[:5]}"
                 )
-
-        await ctx.info(
-            f"Marker gene validation: {markers_found}/{total_markers} found "
-            f"({markers_found/total_markers*100:.1f}%) from {gene_source}"
-        )
-
-        if not valid_marker_genes:
-            raise ValueError(
-                f"No valid marker genes found for any cell type. "
-                f"Checked {total_markers} markers against {len(all_genes)} genes in {gene_source}. "
-                f"If data was preprocessed, marker genes may have been filtered out. "
-                f"Consider using unpreprocessed data or ensure marker genes are highly variable."
-            )
-        valid_cell_types = list(valid_marker_genes.keys())
-
-        # Create marker gene matrix as DataFrame (required by CellAssign API)
-        all_marker_genes = []
-        for genes in valid_marker_genes.values():
-            all_marker_genes.extend(genes)
-        available_marker_genes = list(set(all_marker_genes))  # Remove duplicates
-
-        if not available_marker_genes:
-            raise ValueError("No marker genes found in the dataset")
-
-        # Create DataFrame with genes as index, cell types as columns
-        marker_gene_matrix = pd.DataFrame(
-            np.zeros((len(available_marker_genes), len(valid_cell_types))),
-            index=available_marker_genes,
-            columns=valid_cell_types,
-        )
-
-        # Fill marker matrix
-        for cell_type in valid_cell_types:
-            for gene in valid_marker_genes[cell_type]:
-                if gene in available_marker_genes:
-                    marker_gene_matrix.loc[gene, cell_type] = 1
-
-        # CRITICAL FIX: Compute size factors BEFORE subsetting (official CellAssign requirement)
-        # Official docs: "The library size should be computed before any gene subsetting"
-        if "size_factors" not in adata.obs:
-            await ctx.info(
-                "Computing size factors on full dataset before subsetting "
-                "(following official CellAssign best practice)"
-            )
-
-            # Calculate size factors from FULL dataset
-            if hasattr(adata.X, "sum"):
-                size_factors = adata.X.sum(axis=1)
-                if hasattr(size_factors, "A1"):  # sparse matrix
-                    size_factors = size_factors.A1
-            else:
-                size_factors = np.sum(adata.X, axis=1)
-
-            # Normalize and ensure positive
-            size_factors = np.maximum(size_factors, 1e-6)
-            mean_sf = np.mean(size_factors)
-            size_factors_normalized = size_factors / mean_sf
-
-            adata.obs["size_factors"] = pd.Series(
-                size_factors_normalized, index=adata.obs.index
-            )
-
-            await ctx.info(
-                f"Size factors computed: range [{size_factors_normalized.min():.4f}, "
-                f"{size_factors_normalized.max():.4f}], mean {size_factors_normalized.mean():.4f}"
-            )
-
-        # NOW subset data to marker genes (size factors already computed and will be transferred)
-        # Use adata.raw if available (contains all genes including markers)
-        if hasattr(adata, "raw") and adata.raw is not None:
-            await ctx.info(
-                f"Subsetting from adata.raw to {len(available_marker_genes)} marker genes"
-            )
-            # Create subset from raw data
-            import anndata as ad_module
-
-            adata_subset = ad_module.AnnData(
-                X=adata.raw[:, available_marker_genes].X,
-                obs=adata.obs.copy(),  # size_factors included here!
-                var=adata.raw.var.loc[available_marker_genes].copy(),
-            )
         else:
-            await ctx.info(
-                f"Subsetting from filtered data to {len(available_marker_genes)} marker genes"
-            )
-            adata_subset = adata[:, available_marker_genes].copy()
-
-        # Check for invalid values in the data
-        if hasattr(adata_subset.X, "toarray"):
-            X_array = adata_subset.X.toarray()
-        else:
-            X_array = adata_subset.X
-
-        # Replace any NaN or Inf values with zeros
-        if np.any(np.isnan(X_array)) or np.any(np.isinf(X_array)):
-            await ctx.warning("Found NaN or Inf values in data, replacing with zeros")
-            X_array = np.nan_to_num(X_array, nan=0.0, posinf=0.0, neginf=0.0)
-            adata_subset.X = X_array
-
-        # Additional data cleaning for CellAssign compatibility
-        # Check for genes with zero variance (which cause numerical issues in CellAssign)
-        gene_vars = np.var(X_array, axis=0)
-        zero_var_genes = gene_vars == 0
-        if np.any(zero_var_genes):
-            adata_subset.var_names[zero_var_genes].tolist()
+            markers_missing += len(genes)
             await ctx.warning(
-                f"Found {np.sum(zero_var_genes)} genes with zero variance. "
-                f"CellAssign may have numerical issues with these genes."
-            )
-            # Don't raise error, just warn - CellAssign might handle it
-
-        # Ensure data is non-negative (CellAssign expects count-like data)
-        if np.any(X_array < 0):
-            await ctx.warning("Found negative values in data, clipping to zero")
-            X_array = np.maximum(X_array, 0)
-            adata_subset.X = X_array
-
-        # Verify size factors were transferred to subset
-        if "size_factors" not in adata_subset.obs:
-            raise ValueError(
-                "Size factors not found in adata.obs. This should not happen - "
-                "they should have been computed before subsetting. Please report this bug."
+                f"No marker genes found for {cell_type} - all {len(genes)} markers missing!"
             )
 
-        # Setup CellAssign on subset data only
-        CellAssign.setup_anndata(adata_subset, size_factor_key="size_factors")
+    await ctx.info(
+        f"Marker gene validation: {markers_found}/{total_markers} found "
+        f"({markers_found/total_markers*100:.1f}%) from {gene_source}"
+    )
 
-        # Train CellAssign model
-        model = CellAssign(adata_subset, marker_gene_matrix)
+    if not valid_marker_genes:
+        raise ValueError(
+            f"No valid marker genes found for any cell type. "
+            f"Checked {total_markers} markers against {len(all_genes)} genes in {gene_source}. "
+            f"If data was preprocessed, marker genes may have been filtered out. "
+            f"Consider using unpreprocessed data or ensure marker genes are highly variable."
+        )
+    valid_cell_types = list(valid_marker_genes.keys())
 
-        model.train(
-            max_epochs=params.cellassign_max_iter, lr=params.cellassign_learning_rate
+    # Create marker gene matrix as DataFrame (required by CellAssign API)
+    all_marker_genes = []
+    for genes in valid_marker_genes.values():
+        all_marker_genes.extend(genes)
+    available_marker_genes = list(set(all_marker_genes))  # Remove duplicates
+
+    if not available_marker_genes:
+        raise ValueError("No marker genes found in the dataset")
+
+    # Create DataFrame with genes as index, cell types as columns
+    marker_gene_matrix = pd.DataFrame(
+        np.zeros((len(available_marker_genes), len(valid_cell_types))),
+        index=available_marker_genes,
+        columns=valid_cell_types,
+    )
+
+    # Fill marker matrix
+    for cell_type in valid_cell_types:
+        for gene in valid_marker_genes[cell_type]:
+            if gene in available_marker_genes:
+                marker_gene_matrix.loc[gene, cell_type] = 1
+
+    # CRITICAL FIX: Compute size factors BEFORE subsetting (official CellAssign requirement)
+    # Official docs: "The library size should be computed before any gene subsetting"
+    if "size_factors" not in adata.obs:
+        await ctx.info(
+            "Computing size factors on full dataset before subsetting "
+            "(following official CellAssign best practice)"
         )
 
-        # Get predictions
-        predictions = model.predict()
-
-        # Use method-prefixed output keys to avoid overwriting
-        output_key = f"cell_type_{params.method}"
-
-        # Handle different prediction formats
-        if isinstance(predictions, pd.DataFrame):
-            # CellAssign returns DataFrame with probabilities
-            predicted_indices = predictions.values.argmax(axis=1)
-            adata.obs[output_key] = [valid_cell_types[i] for i in predicted_indices]
-
-            # Get confidence scores from probabilities DataFrame
-            confidence_scores = {}
-            for i, cell_type in enumerate(valid_cell_types):
-                cells_of_type = adata.obs[output_key] == cell_type
-                if np.sum(cells_of_type) > 0:
-                    # Use iloc with boolean indexing properly
-                    cell_indices = np.where(cells_of_type)[0]
-                    mean_prob = predictions.iloc[cell_indices, i].mean()
-                    confidence_scores[cell_type] = round(float(mean_prob), 2)
-                # else: No cells of this type - skip confidence
+        # Calculate size factors from FULL dataset
+        if hasattr(adata.X, "sum"):
+            size_factors = adata.X.sum(axis=1)
+            if hasattr(size_factors, "A1"):  # sparse matrix
+                size_factors = size_factors.A1
         else:
-            # Other models return indices directly
-            adata.obs[output_key] = [valid_cell_types[i] for i in predictions]
-            # CellAssign returned indices, not probabilities - no confidence available
-            confidence_scores = {}  # Empty dict indicates no confidence data
+            size_factors = np.sum(adata.X, axis=1)
 
-        adata.obs[output_key] = adata.obs[output_key].astype("category")
+        # Normalize and ensure positive
+        size_factors = np.maximum(size_factors, 1e-6)
+        mean_sf = np.mean(size_factors)
+        size_factors_normalized = size_factors / mean_sf
 
-        # Get cell types and counts
-        cell_types = valid_cell_types
-        counts = adata.obs[output_key].value_counts().to_dict()
-
-        # Note: Visualizations should be created using the separate visualize_data tool
-        # This maintains clean separation between analysis and visualization
-
-        await ctx.info(
-            f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-        )
-        await ctx.info(
-            f"Use visualize_data tool with feature='{output_key}' to visualize results"
+        adata.obs["size_factors"] = pd.Series(
+            size_factors_normalized, index=adata.obs.index
         )
 
-        return cell_types, counts, confidence_scores, None
+        await ctx.info(
+            f"Size factors computed: range [{size_factors_normalized.min():.4f}, "
+            f"{size_factors_normalized.max():.4f}], mean {size_factors_normalized.mean():.4f}"
+        )
 
-    except Exception:
-        # Let exception propagate to MCP error handler
-        raise
+    # NOW subset data to marker genes (size factors already computed and will be transferred)
+    # Use adata.raw if available (contains all genes including markers)
+    if hasattr(adata, "raw") and adata.raw is not None:
+        await ctx.info(
+            f"Subsetting from adata.raw to {len(available_marker_genes)} marker genes"
+        )
+        # Create subset from raw data
+        import anndata as ad_module
+
+        adata_subset = ad_module.AnnData(
+            X=adata.raw[:, available_marker_genes].X,
+            obs=adata.obs.copy(),  # size_factors included here!
+            var=adata.raw.var.loc[available_marker_genes].copy(),
+        )
+    else:
+        await ctx.info(
+            f"Subsetting from filtered data to {len(available_marker_genes)} marker genes"
+        )
+        adata_subset = adata[:, available_marker_genes].copy()
+
+    # Check for invalid values in the data
+    if hasattr(adata_subset.X, "toarray"):
+        X_array = adata_subset.X.toarray()
+    else:
+        X_array = adata_subset.X
+
+    # Replace any NaN or Inf values with zeros
+    if np.any(np.isnan(X_array)) or np.any(np.isinf(X_array)):
+        await ctx.warning("Found NaN or Inf values in data, replacing with zeros")
+        X_array = np.nan_to_num(X_array, nan=0.0, posinf=0.0, neginf=0.0)
+        adata_subset.X = X_array
+
+    # Additional data cleaning for CellAssign compatibility
+    # Check for genes with zero variance (which cause numerical issues in CellAssign)
+    gene_vars = np.var(X_array, axis=0)
+    zero_var_genes = gene_vars == 0
+    if np.any(zero_var_genes):
+        adata_subset.var_names[zero_var_genes].tolist()
+        await ctx.warning(
+            f"Found {np.sum(zero_var_genes)} genes with zero variance. "
+            f"CellAssign may have numerical issues with these genes."
+        )
+        # Don't raise error, just warn - CellAssign might handle it
+
+    # Ensure data is non-negative (CellAssign expects count-like data)
+    if np.any(X_array < 0):
+        await ctx.warning("Found negative values in data, clipping to zero")
+        X_array = np.maximum(X_array, 0)
+        adata_subset.X = X_array
+
+    # Verify size factors were transferred to subset
+    if "size_factors" not in adata_subset.obs:
+        raise ValueError(
+            "Size factors not found in adata.obs. This should not happen - "
+            "they should have been computed before subsetting. Please report this bug."
+        )
+
+    # Setup CellAssign on subset data only
+    CellAssign.setup_anndata(adata_subset, size_factor_key="size_factors")
+
+    # Train CellAssign model
+    model = CellAssign(adata_subset, marker_gene_matrix)
+
+    model.train(
+        max_epochs=params.cellassign_max_iter, lr=params.cellassign_learning_rate
+    )
+
+    # Get predictions
+    predictions = model.predict()
+
+    # Use method-prefixed output keys to avoid overwriting
+    output_key = f"cell_type_{params.method}"
+
+    # Handle different prediction formats
+    if isinstance(predictions, pd.DataFrame):
+        # CellAssign returns DataFrame with probabilities
+        predicted_indices = predictions.values.argmax(axis=1)
+        adata.obs[output_key] = [valid_cell_types[i] for i in predicted_indices]
+
+        # Get confidence scores from probabilities DataFrame
+        confidence_scores = {}
+        for i, cell_type in enumerate(valid_cell_types):
+            cells_of_type = adata.obs[output_key] == cell_type
+            if np.sum(cells_of_type) > 0:
+                # Use iloc with boolean indexing properly
+                cell_indices = np.where(cells_of_type)[0]
+                mean_prob = predictions.iloc[cell_indices, i].mean()
+                confidence_scores[cell_type] = round(float(mean_prob), 2)
+            # else: No cells of this type - skip confidence
+    else:
+        # Other models return indices directly
+        adata.obs[output_key] = [valid_cell_types[i] for i in predictions]
+        # CellAssign returned indices, not probabilities - no confidence available
+        confidence_scores = {}  # Empty dict indicates no confidence data
+
+    adata.obs[output_key] = adata.obs[output_key].astype("category")
+
+    # Get cell types and counts
+    cell_types = valid_cell_types
+    counts = adata.obs[output_key].value_counts().to_dict()
+
+    # Note: Visualizations should be created using the separate visualize_data tool
+    # This maintains clean separation between analysis and visualization
+
+    await ctx.info(
+        f"Cell type annotation complete. Cell types stored in '{output_key}' column"
+    )
+    await ctx.info(
+        f"Use visualize_data tool with feature='{output_key}' to visualize results"
+    )
+
+    return cell_types, counts, confidence_scores, None
 
 
 async def annotate_cell_types(

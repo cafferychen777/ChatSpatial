@@ -33,6 +33,7 @@ from ..models.data import VisualizationParameters  # noqa: E402
 
 # Import adata utilities (spatial coordinates, categorical handling)
 from ..utils.adata_utils import ensure_categorical  # noqa: E402
+from ..utils.adata_utils import ensure_unique_var_names  # noqa: E402
 from ..utils.adata_utils import get_spatial_coordinates  # noqa: E402
 
 # Use centralized dependency manager
@@ -513,10 +514,7 @@ async def get_validated_features(
         ValueError: If too many genes specified or invalid configuration
     """
     # Ensure unique var_names before proceeding
-    if not adata.var_names.is_unique:
-        if context:
-            await context.info("Making gene names unique to avoid indexing errors.")
-        adata.var_names_make_unique()
+    ensure_unique_var_names(adata)
 
     # Check if user specified any features
     if not params.feature:
@@ -3857,10 +3855,7 @@ async def _create_lr_pairs_visualization(
         Matplotlib figure with LR pairs visualization
     """
     # Ensure unique gene names to avoid indexing errors
-    if not adata.var_names.is_unique:
-        if context:
-            await context.info("Making gene names unique to avoid indexing errors")
-        adata.var_names_make_unique()
+    ensure_unique_var_names(adata)
 
     # Parse LR pairs from various sources
     lr_pairs = []
