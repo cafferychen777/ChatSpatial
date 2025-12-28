@@ -81,8 +81,10 @@ logger = logging.getLogger(__name__)
 # Create MCP server and adapter
 mcp, adapter = create_spatial_mcp_server("ChatSpatial")
 
-# Get data manager from adapter
+# Get data manager and visualization cache from adapter
+# These module-level aliases provide consistent access patterns
 data_manager = adapter.data_manager
+visualization_cache = adapter.visualization_cache
 
 
 def validate_dataset(data_id: str) -> None:
@@ -327,12 +329,11 @@ async def visualize_data(
     # Validate dataset
     validate_dataset(data_id)
 
-    # Create ToolContext for clean data access (no redundant dict wrapping)
-    # Include visualization_cache for visualization-related operations
+    # Create ToolContext for clean data access
     ctx = ToolContext(
         _data_manager=data_manager,
         _mcp_context=context,
-        _visualization_cache=adapter.resource_manager._visualization_cache,
+        _visualization_cache=visualization_cache,
     )
 
     # Parameter validation is handled by Pydantic model
@@ -372,11 +373,11 @@ async def visualize_data(
         if isinstance(image, str):
             # Large image: file path returned as text (MCP 2025 best practice)
             # Store a marker in cache indicating file path return
-            adapter.resource_manager._visualization_cache[cache_key] = {
+            ctx.set_visualization(cache_key, {
                 "type": "file_path",
                 "message": image,
                 "timestamp": int(time.time()),
-            }
+            })
 
             if context:
                 await context.info(
@@ -397,7 +398,7 @@ async def visualize_data(
         image_bytes = base64.b64decode(image_data)
 
         # Store in cache with simple key for easy retrieval
-        adapter.resource_manager._visualization_cache[cache_key] = image_bytes
+        ctx.set_visualization(cache_key, image_bytes)
 
         # Also create resource with timestamped ID for uniqueness
         await adapter.resource_manager.create_visualization_resource(
@@ -467,11 +468,10 @@ async def save_visualization(
     from .tools.visualization import save_visualization as save_func
 
     # Create ToolContext for unified data access
-    # Include visualization_cache for visualization-related operations
     ctx = ToolContext(
         _data_manager=data_manager,
         _mcp_context=context,
-        _visualization_cache=adapter.resource_manager._visualization_cache,
+        _visualization_cache=visualization_cache,
     )
 
     result = await save_func(
@@ -525,11 +525,10 @@ async def export_all_visualizations(
     from .tools.visualization import export_all_visualizations as export_func
 
     # Create ToolContext for unified data access
-    # Include visualization_cache for visualization-related operations
     ctx = ToolContext(
         _data_manager=data_manager,
         _mcp_context=context,
-        _visualization_cache=adapter.resource_manager._visualization_cache,
+        _visualization_cache=visualization_cache,
     )
 
     result = await export_func(
@@ -564,11 +563,10 @@ async def clear_visualization_cache(
     from .tools.visualization import clear_visualization_cache as clear_func
 
     # Create ToolContext for unified data access
-    # Include visualization_cache for visualization-related operations
     ctx = ToolContext(
         _data_manager=data_manager,
         _mcp_context=context,
-        _visualization_cache=adapter.resource_manager._visualization_cache,
+        _visualization_cache=visualization_cache,
     )
 
     result = await clear_func(ctx=ctx, data_id=data_id)

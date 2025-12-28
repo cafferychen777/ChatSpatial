@@ -30,19 +30,19 @@ from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
 
 from ..models.data import VisualizationParameters  # noqa: E402
 # Import adata utilities (spatial coordinates, categorical handling)
-from ..utils.adata_utils import (ensure_categorical,  # noqa: E402
-                                 get_spatial_coordinates)
+from ..utils.adata_utils import ensure_categorical  # noqa: E402
+from ..utils.adata_utils import get_spatial_coordinates
 # Use centralized dependency manager
 from ..utils.dependency_manager import require  # noqa: E402
 # Import error handling utilities
-from ..utils.exceptions import (DataCompatibilityError,  # noqa: E402
-                                DataNotFoundError, ParameterError,
+from ..utils.exceptions import DataCompatibilityError  # noqa: E402
+from ..utils.exceptions import (DataNotFoundError, ParameterError,
                                 ProcessingError)
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
 # Import path utilities for safe file operations
-from ..utils.path_utils import (get_output_dir_from_config,  # noqa: E402
-                                get_safe_output_path)
+from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
+from ..utils.path_utils import get_safe_output_path
 
 # Import publication export utilities
 
