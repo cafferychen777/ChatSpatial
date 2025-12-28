@@ -7,20 +7,14 @@ import traceback
 import numpy as np
 import scanpy as sc
 import scipy.sparse
-import squidpy as sq
 
 from ..models.analysis import PreprocessingResult
 from ..models.data import PreprocessingParameters
 from ..spatial_mcp_adapter import ToolContext
-from ..utils.adata_utils import (
-    ensure_unique_var_names_with_ctx,
-    sample_expression_values,
-    standardize_adata,
-)
-from ..utils.dependency_manager import (
-    require,
-    validate_r_package,
-)
+from ..utils.adata_utils import (ensure_unique_var_names_with_ctx,
+                                 sample_expression_values, standardize_adata)
+from ..utils.compute import ensure_pca
+from ..utils.dependency_manager import require, validate_r_package
 from ..utils.mcp_utils import mcp_tool_error_handler
 
 
@@ -390,7 +384,6 @@ async def preprocess_data(
 
                 # Note: counts layer already saved in unified preprocessing step (line 338)
                 # It will be properly subsetted if SCT filters genes
-
                 # Convert to sparse CSC matrix (genes × cells) for R's dgCMatrix
                 if scipy.sparse.issparse(adata.X):
                     counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
@@ -834,9 +827,8 @@ async def preprocess_data(
                 )  # Raises ImportError with install instructions if missing
                 import scanpy.external as sce
 
-                # Harmony requires PCA to be computed first
-                if "X_pca" not in adata.obsm:
-                    sc.tl.pca(adata, n_comps=min(50, adata.n_vars - 1))
+                # Harmony requires PCA - use lazy computation
+                ensure_pca(adata, n_comps=min(50, adata.n_vars - 1))
 
                 sce.pp.harmony_integrate(adata, key=params.batch_key)
                 await ctx.info("Batch effect correction completed using Harmony")
@@ -886,147 +878,27 @@ async def preprocess_data(
             except Exception as e:
                 await ctx.warning(f"Scaling failed: {e}. Continuing without scaling.")
 
-        # 7. Run PCA (skip if scVI was used - it provides its own latent representation)
-        scvi_used = params.normalization == "scvi" and "X_scvi" in adata.obsm
-        if scvi_used:
-            # scVI already created a latent representation
-            await ctx.info("Skipping PCA (using scVI latent representation)")
-            # Use scVI latent dimensions for downstream analysis
-            n_pcs = params.scvi_n_latent
-        else:
-            await ctx.info("Running PCA...")
+        # Store preprocessing metadata for downstream tools
+        # PCA, UMAP, clustering, and spatial neighbors are computed lazily
+        # by analysis tools using ensure_* functions from utils.compute
+        adata.uns["preprocessing"]["completed"] = True
+        adata.uns["preprocessing"]["n_pcs"] = params.n_pcs
+        adata.uns["preprocessing"]["n_neighbors"] = params.n_neighbors
+        adata.uns["preprocessing"][
+            "clustering_resolution"
+        ] = params.clustering_resolution
 
-            # Adjust n_pcs based on dataset size
-            n_pcs = min(
-                params.n_pcs, adata.n_vars - 1, adata.n_obs - 1
-            )  # Ensure we don't use more PCs than possible
-
-            await ctx.info(f"Using {n_pcs} principal components...")
-
-            try:
-                sc.tl.pca(adata, n_comps=n_pcs)
-            except Exception as e:
-                # PCA failed - provide detailed error information without arbitrary fallback
-                error_msg = (
-                    f"PCA computation failed with {n_pcs} components: {str(e)}. "
-                    f"This indicates a potential data quality issue. "
-                    f"Current dataset: {adata.n_obs} cells × {adata.n_vars} genes. "
-                    f"Possible solutions: "
-                    f"1) Reduce n_pcs parameter manually (current: {n_pcs}) "
-                    f"2) Check data normalization and filtering "
-                    f"3) Ensure sufficient gene expression variation "
-                    f"4) Check for memory limitations with large datasets"
-                )
-                await ctx.error(error_msg)
-                raise RuntimeError(error_msg)
-
-        # 8. Compute neighbors graph
-        await ctx.info("Computing neighbors graph...")
-
-        # Use scientifically-informed n_neighbors with validation
-        n_neighbors = params.n_neighbors
-
-        # Validate n_neighbors against dataset constraints
-        if n_neighbors >= adata.n_obs:
-            raise ValueError(
-                f"n_neighbors ({n_neighbors}) must be less than dataset size ({adata.n_obs})"
-            )
-
-        # Statistical warning: n_neighbors > sqrt(N) may reduce clustering resolution
-        # Based on:
-        # - KNN rule of thumb: k ≈ sqrt(N) or sqrt(N)/2
-        # - UMAP developers: "range 5 to 50, with a choice of 10 to 15 being sensible default"
-        # - GitHub discussion (scverse/scanpy#223): small datasets (~1000 cells) use n_neighbors=5
-        # Examples: 100 cells → k≈10, 50 cells → k≈7, 20 cells → k≈4-5
-        recommended_max = int(np.sqrt(adata.n_obs))
-        if n_neighbors > recommended_max:
-            await ctx.warning(
-                f"n_neighbors={n_neighbors} exceeds the sqrt(N) rule of thumb (√{adata.n_obs} ≈ {recommended_max}).\n"
-                f"   • High neighbor counts may reduce clustering resolution for small datasets\n"
-                f"   • Rule of thumb: k ≈ √N (based on KNN literature)\n"
-                f"   • Recommended: n_neighbors={recommended_max} or lower for this dataset\n"
-                f"   • General guidelines: 5-50 (UMAP), 10-15 default (Scanpy)"
-            )
-
-        await ctx.info(f"Using n_neighbors: {n_neighbors} (Scanpy industry standard)")
-
-        if scvi_used:
-            await ctx.info(
-                f"Using {n_neighbors} neighbors with scVI latent representation for graph construction..."
-            )
-        else:
-            await ctx.info(
-                f"Using {n_neighbors} neighbors and {n_pcs} PCs for graph construction..."
-            )
-
-        try:
-            if scvi_used:
-                # Use scVI latent representation for neighbors
-                sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep="X_scvi")
-            else:
-                sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
-
-            # 9. Run UMAP for visualization
-            await ctx.info("Running UMAP...")
-            sc.tl.umap(adata)
-
-            # 10. Run clustering
-            await ctx.info("Running Leiden clustering...")
-
-            # Use explicit clustering resolution
-            resolution = params.clustering_resolution
-            await ctx.info(f"Using clustering resolution: {resolution}")
-
-            await ctx.info(f"Using Leiden clustering with resolution {resolution}...")
-
-            sc.tl.leiden(adata, resolution=resolution, key_added=params.cluster_key)
-
-            # Count clusters
-            n_clusters = len(adata.obs[params.cluster_key].unique())
-
-            # Compute diffusion map for trajectory analysis
-            await ctx.info("Computing diffusion map for trajectory analysis...")
-            sc.tl.diffmap(adata)
-        except Exception as e:
-            await ctx.error(f"Clustering failed: {str(e)}")
-            # Don't silently create fallback clustering - let the LLM handle the failure
-            raise RuntimeError(
-                f"Clustering failed: {str(e)}. "
-                "Please check data quality or try different preprocessing parameters."
-            )
-
-        # 11. For spatial data, compute spatial neighbors if not already done
-        if params.spatial_key and (
-            params.spatial_key in adata.uns
-            or any(params.spatial_key in key for key in adata.obsm.keys())
-        ):
-            await ctx.info("Computing spatial neighbors...")
-            try:
-                # Check if spatial neighbors already exist
-                if "spatial_connectivities" not in adata.obsp:
-                    # For MERFISH data, we need to ensure the spatial coordinates are correctly formatted
-                    if params.spatial_key in adata.obsm:
-                        # Check if this is MERFISH data by looking at the shape and content
-                        if adata.obsm[params.spatial_key].shape[1] == 2:
-                            # This is likely MERFISH or other single-cell resolution spatial data
-                            # Use delaunay method which works better for single-cell data
-                            sq.gr.spatial_neighbors(
-                                adata, coord_type="generic", delaunay=True
-                            )
-                        else:
-                            # Use default parameters for other spatial data types
-                            sq.gr.spatial_neighbors(adata)
-                    else:
-                        # Use default parameters if spatial key is in uns but not in obsm
-                        sq.gr.spatial_neighbors(adata)
-            except Exception as e:
-                await ctx.warning(f"Could not compute spatial neighbors: {str(e)}")
-                await ctx.info("Continuing without spatial neighbors...")
+        await ctx.info(
+            "Core preprocessing complete. "
+            "PCA, UMAP, and clustering will be computed on-demand by analysis tools."
+        )
 
         # Store the processed AnnData object back via ToolContext
         await ctx.set_adata(data_id, adata)
 
         # Return preprocessing result
+        # Note: clusters=0 indicates clustering not yet performed
+        # Analysis tools will compute clustering lazily when needed
         return PreprocessingResult(
             data_id=data_id,
             n_cells=adata.n_obs,
@@ -1034,9 +906,9 @@ async def preprocess_data(
             n_hvgs=(
                 int(sum(adata.var.highly_variable))
                 if "highly_variable" in adata.var
-                else n_hvgs
+                else 0
             ),
-            clusters=n_clusters,
+            clusters=0,  # Clustering computed lazily by analysis tools
             qc_metrics=qc_metrics,
         )
 

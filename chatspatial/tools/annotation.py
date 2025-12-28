@@ -2,6 +2,8 @@
 Cell type annotation tools for spatial transcriptomics data.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 from pathlib import Path
@@ -16,8 +18,7 @@ if TYPE_CHECKING:
 
 from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
-from ..utils import validate_obs_column
-from ..utils.adata_utils import ensure_unique_var_names_with_ctx
+from ..utils.adata_utils import ensure_unique_var_names_with_ctx, validate_obs_column
 from ..utils.dependency_manager import (
     is_available,
     require,
@@ -1130,22 +1131,7 @@ async def _annotate_with_mllmcelltype(
         )
 
     cluster_key = params.cluster_label
-
-    if cluster_key not in adata.obs:
-        available_cols = list(adata.obs.columns)
-        categorical_cols = [
-            col
-            for col in available_cols
-            if adata.obs[col].dtype.name in ["object", "category"]
-        ]
-
-        raise ValueError(
-            f"Clustering key '{cluster_key}' not found in adata.obs.\n\n"
-            f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
-            f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
-            f"mLLMCellType annotation requires clustering information.\n"
-            f"Please run clustering in preprocessing.py first."
-        )
+    validate_obs_column(adata, cluster_key, "cluster_key")
 
     # Find differentially expressed genes for each cluster
     await ctx.info("Finding marker genes for each cluster")
