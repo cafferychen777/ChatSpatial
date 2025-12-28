@@ -18,6 +18,8 @@ import pandas as pd
 if TYPE_CHECKING:
     import anndata as ad
 
+from scipy import sparse
+
 from .exceptions import DataError
 
 # =============================================================================
@@ -566,3 +568,157 @@ async def ensure_unique_var_names_with_ctx(
     if n_fixed > 0:
         await ctx.warning(f"Found {n_fixed} duplicate gene names in {label}, fixed")
     return n_fixed
+
+
+# =============================================================================
+# Raw Counts Data Access: Unified interface for accessing raw data
+# =============================================================================
+class RawDataResult:
+    """Result of raw data extraction."""
+
+    def __init__(
+        self,
+        X: Any,  # sparse or dense matrix
+        var_names: pd.Index,
+        source: str,
+        is_integer_counts: bool,
+        has_negatives: bool = False,
+        has_decimals: bool = False,
+    ):
+        self.X = X
+        self.var_names = var_names
+        self.source = source
+        self.is_integer_counts = is_integer_counts
+        self.has_negatives = has_negatives
+        self.has_decimals = has_decimals
+
+
+def get_raw_data_source(
+    adata: "ad.AnnData",
+    prefer_complete_genes: bool = True,
+    require_integer_counts: bool = False,
+    sample_size: int = 100,
+) -> RawDataResult:
+    """
+    Get raw count data from AnnData using a unified priority order.
+
+    This is THE single source of truth for accessing raw counts data.
+    All tools should use this function instead of implementing their own logic.
+
+    Priority order (when prefer_complete_genes=True):
+        1. adata.raw - Complete gene set, preserved before HVG filtering
+        2. adata.layers["counts"] - Raw counts layer
+        3. adata.X - Current expression matrix
+
+    Priority order (when prefer_complete_genes=False):
+        1. adata.layers["counts"] - Raw counts layer
+        2. adata.X - Current expression matrix
+        (adata.raw is skipped as it may have different dimensions)
+
+    Args:
+        adata: AnnData object
+        prefer_complete_genes: If True, prefer adata.raw for complete gene coverage.
+            Set to False when you need data aligned with current adata dimensions.
+        require_integer_counts: If True, validate that data contains integer counts.
+            Raises DataError if only normalized data is found.
+        sample_size: Number of cells/genes to sample for validation.
+
+    Returns:
+        RawDataResult with data matrix, var_names, source name, and validation info.
+
+    Raises:
+        DataError: If require_integer_counts=True and no integer counts found.
+
+    Example:
+        result = get_raw_data_source(adata, prefer_complete_genes=True)
+        print(f"Using {result.source}: {len(result.var_names)} genes")
+        if result.is_integer_counts:
+            # Safe to use for deconvolution/velocity
+            pass
+    """
+    sources_tried = []
+
+    def _check_if_integer_counts(X, sample_n: int = 100) -> Tuple[bool, bool, bool]:
+        """Check if matrix contains integer counts. Returns (is_int, has_neg, has_dec)."""
+        n_rows = min(sample_n, X.shape[0])
+        n_cols = min(sample_n, X.shape[1])
+        sample = X[:n_rows, :n_cols]
+
+        if sparse.issparse(sample):
+            sample = sample.toarray()
+
+        has_negatives = float(sample.min()) < 0
+        has_decimals = not np.allclose(sample, np.round(sample), atol=1e-6)
+        is_integer = not has_negatives and not has_decimals
+
+        return is_integer, has_negatives, has_decimals
+
+    # Source 1: adata.raw (complete gene set)
+    if prefer_complete_genes and adata.raw is not None:
+        try:
+            raw_adata = adata.raw.to_adata()
+            is_int, has_neg, has_dec = _check_if_integer_counts(
+                raw_adata.X, sample_size
+            )
+
+            if is_int or not require_integer_counts:
+                return RawDataResult(
+                    X=raw_adata.X,
+                    var_names=raw_adata.var_names,
+                    source="raw",
+                    is_integer_counts=is_int,
+                    has_negatives=has_neg,
+                    has_decimals=has_dec,
+                )
+            sources_tried.append("raw (normalized, skipped)")
+        except Exception:
+            sources_tried.append("raw (error, skipped)")
+
+    # Source 2: layers["counts"]
+    if "counts" in adata.layers:
+        X_counts = adata.layers["counts"]
+        is_int, has_neg, has_dec = _check_if_integer_counts(X_counts, sample_size)
+
+        if is_int or not require_integer_counts:
+            return RawDataResult(
+                X=X_counts,
+                var_names=adata.var_names,
+                source="counts_layer",
+                is_integer_counts=is_int,
+                has_negatives=has_neg,
+                has_decimals=has_dec,
+            )
+        sources_tried.append("counts_layer (normalized, skipped)")
+
+    # Source 3: current X
+    is_int, has_neg, has_dec = _check_if_integer_counts(adata.X, sample_size)
+
+    if is_int or not require_integer_counts:
+        return RawDataResult(
+            X=adata.X,
+            var_names=adata.var_names,
+            source="current",
+            is_integer_counts=is_int,
+            has_negatives=has_neg,
+            has_decimals=has_dec,
+        )
+
+    # If we get here with require_integer_counts=True, no valid source found
+    if require_integer_counts:
+        raise DataError(
+            f"No raw integer counts found. Sources tried: {sources_tried + ['current (normalized)']}. "
+            f"Data appears to be normalized (has_negatives={has_neg}, has_decimals={has_dec}). "
+            "Deconvolution and velocity methods require raw integer counts. "
+            "Solutions: (1) Load unpreprocessed data, (2) Ensure adata.layers['counts'] "
+            "contains raw counts, or (3) Re-run preprocessing with adata.raw preservation."
+        )
+
+    # Fallback: return normalized data with warning flags
+    return RawDataResult(
+        X=adata.X,
+        var_names=adata.var_names,
+        source="current",
+        is_integer_counts=False,
+        has_negatives=has_neg,
+        has_decimals=has_dec,
+    )

@@ -108,7 +108,7 @@ async def identify_spatial_domains(
             )
 
             # Check if raw data is available
-            if hasattr(adata, "raw") and adata.raw is not None:
+            if adata.raw is not None:
                 await ctx.info(
                     "Raw data is available. Using it may provide better results."
                 )
