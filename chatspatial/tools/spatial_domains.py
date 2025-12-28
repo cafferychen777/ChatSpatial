@@ -9,9 +9,12 @@ function, which handles data preparation and dispatches to the selected method.
 """
 
 import traceback
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 import pandas as pd
 import scanpy as sc
 
@@ -84,9 +87,8 @@ def _check_environment_compatibility():
 
 async def identify_spatial_domains(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: "ToolContext",
     params: SpatialDomainParameters = SpatialDomainParameters(),
-    context: Optional[Context] = None,
 ) -> SpatialDomainResult:
     """
     Identifies spatial domains by clustering spots based on gene expression and location.
@@ -100,10 +102,9 @@ async def identify_spatial_domains(
 
     Args:
         data_id: The identifier for the dataset.
-        data_store: A dictionary that stores the loaded datasets.
+        ctx: The unified ToolContext for data access and logging.
         params: An object containing parameters for the analysis, including the
                 method to use and its specific settings.
-        context: The MCP context for logging and communication.
 
     Returns:
         A SpatialDomainResult object containing the identified domains and
@@ -111,20 +112,15 @@ async def identify_spatial_domains(
     """
     # Check environment compatibility
     env_issues = _check_environment_compatibility()
-    if env_issues and context:
+    if env_issues:
         for issue in env_issues:
-            await context.warning(f"Environment issue: {issue}")
+            await ctx.warning(f"Environment issue: {issue}")
 
-    if context:
-        await context.info(f"Identifying spatial domains using {params.method} method")
-
-    # Retrieve the AnnData object from data store
-    if data_id not in data_store:
-        raise ValueError(f"Dataset {data_id} not found in data store")
+    await ctx.info(f"Identifying spatial domains using {params.method} method")
 
     # COW FIX: Direct reference instead of copy
     # Only add metadata to adata.obs/obsm/obsp, never overwrite entire adata
-    adata = data_store[data_id]["adata"]
+    adata = await ctx.get_adata(data_id)
 
     try:
         # Check if spatial coordinates exist
@@ -134,20 +130,17 @@ async def identify_spatial_domains(
             raise ValueError("No spatial coordinates found in the dataset")
 
         # Prepare data for domain identification
-        if context:
-            await context.info("Preparing data for spatial domain identification...")
+        await ctx.info("Preparing data for spatial domain identification...")
 
         # Use highly variable genes if requested and available
         if params.use_highly_variable and "highly_variable" in adata.var.columns:
             adata_subset = adata[:, adata.var["highly_variable"]].copy()
-            if context:
-                await context.info(
-                    f"Using {sum(adata.var['highly_variable'])} highly variable genes"
-                )
+            await ctx.info(
+                f"Using {sum(adata.var['highly_variable'])} highly variable genes"
+            )
         else:
             adata_subset = adata.copy()
-            if context:
-                await context.info(f"Using all {adata.n_vars} genes")
+            await ctx.info(f"Using all {adata.n_vars} genes")
 
         # Check if data has been scaled (z-score normalized)
         # Scaled data typically has negative values and is centered around 0
@@ -169,44 +162,39 @@ async def identify_spatial_domains(
         has_negatives = data_min < 0
         has_large_values = data_max > 100
 
-        if context:
-            await context.info(
-                f"Data statistics: min={data_min:.2f}, max={data_max:.2f}, "
-                f"has_negatives={has_negatives}, has_large_values={has_large_values}"
-            )
+        await ctx.info(
+            f"Data statistics: min={data_min:.2f}, max={data_max:.2f}, "
+            f"has_negatives={has_negatives}, has_large_values={has_large_values}"
+        )
 
         # Provide informative warnings without enforcing
         if has_negatives:
-            if context:
-                await context.warning(
-                    f"Data contains negative values (min={data_min:.2f}). "
-                    "This might indicate scaled/z-scored data. "
-                    "SpaGCN typically works best with normalized, log-transformed data."
-                )
+            await ctx.warning(
+                f"Data contains negative values (min={data_min:.2f}). "
+                "This might indicate scaled/z-scored data. "
+                "SpaGCN typically works best with normalized, log-transformed data."
+            )
 
             # Check if raw data is available
             if hasattr(adata, "raw") and adata.raw is not None:
-                if context:
-                    await context.info(
-                        "Raw data is available. Using it may provide better results."
-                    )
+                await ctx.info(
+                    "Raw data is available. Using it may provide better results."
+                )
                 gene_mask = adata.raw.var_names.isin(adata_subset.var_names)
                 adata_subset = adata.raw[:, gene_mask].to_adata()
 
         elif has_large_values:
-            if context:
-                await context.warning(
-                    f"Data contains large values (max={data_max:.2f}). "
-                    "This might indicate raw count data. "
-                    "Consider normalizing and log-transforming for better results."
-                )
+            await ctx.warning(
+                f"Data contains large values (max={data_max:.2f}). "
+                "This might indicate raw count data. "
+                "Consider normalizing and log-transforming for better results."
+            )
 
         # Ensure data is float type for SpaGCN compatibility
         if adata_subset.X.dtype != np.float32 and adata_subset.X.dtype != np.float64:
-            if context:
-                await context.info(
-                    "Converting data to float32 for SpaGCN compatibility..."
-                )
+            await ctx.info(
+                "Converting data to float32 for SpaGCN compatibility..."
+            )
             adata_subset.X = adata_subset.X.astype(np.float32)
 
         # Check for problematic values that can cause SpaGCN to hang
@@ -218,39 +206,35 @@ async def identify_spatial_domains(
             if np.any(np.isnan(adata_subset.X.data)) or np.any(
                 np.isinf(adata_subset.X.data)
             ):
-                if context:
-                    await context.warning(
-                        "Found NaN or infinite values in sparse data, replacing with 0"
-                    )
+                await ctx.warning(
+                    "Found NaN or infinite values in sparse data, replacing with 0"
+                )
                 adata_subset.X.data = np.nan_to_num(
                     adata_subset.X.data, nan=0.0, posinf=0.0, neginf=0.0
                 )
         else:
             # For dense matrices
             if np.any(np.isnan(adata_subset.X)) or np.any(np.isinf(adata_subset.X)):
-                if context:
-                    await context.warning(
-                        "Found NaN or infinite values in data, replacing with 0"
-                    )
+                await ctx.warning(
+                    "Found NaN or infinite values in data, replacing with 0"
+                )
                 adata_subset.X = np.nan_to_num(
                     adata_subset.X, nan=0.0, posinf=0.0, neginf=0.0
                 )
 
         # Report dataset size for LLM awareness
         if adata_subset.n_obs > 3000:
-            if context:
-                await context.warning(
-                    f"Large dataset with {adata_subset.n_obs} spots. "
-                    "Processing may take longer. Consider subsampling if needed."
-                )
+            await ctx.warning(
+                f"Large dataset with {adata_subset.n_obs} spots. "
+                "Processing may take longer. Consider subsampling if needed."
+            )
 
         # Report gene count
         if adata_subset.n_vars > 3000:
-            if context:
-                await context.warning(
-                    f"Processing {adata_subset.n_vars} genes. "
-                    "For faster processing, consider selecting highly variable genes."
-                )
+            await ctx.warning(
+                f"Processing {adata_subset.n_vars} genes. "
+                "For faster processing, consider selecting highly variable genes."
+            )
 
         # Use pre-selected highly variable genes if available
         if "highly_variable" in adata_subset.var.columns:
@@ -259,39 +243,36 @@ async def identify_spatial_domains(
                 adata_subset = adata_subset[
                     :, adata_subset.var["highly_variable"]
                 ].copy()
-                if context:
-                    await context.info(
-                        f"Using {hvg_count} pre-selected highly variable genes"
-                    )
+                await ctx.info(
+                    f"Using {hvg_count} pre-selected highly variable genes"
+                )
 
         # Apply SpaGCN-specific gene filtering (algorithm requirement)
-        if context:
-            await context.info("Applying SpaGCN-specific gene filtering...")
+        await ctx.info("Applying SpaGCN-specific gene filtering...")
         try:
             spg.prefilter_genes(adata_subset, min_cells=3)
             spg.prefilter_specialgenes(adata_subset)
         except Exception as e:
-            if context:
-                await context.warning(
-                    f"SpaGCN gene filtering failed: {e}. Continuing without filtering."
-                )
+            await ctx.warning(
+                f"SpaGCN gene filtering failed: {e}. Continuing without filtering."
+            )
 
         # Identify domains based on method
         if params.method == "spagcn":
             domain_labels, embeddings_key, statistics = await _identify_domains_spagcn(
-                adata_subset, params, context
+                adata_subset, params, ctx
             )
         elif params.method in ["leiden", "louvain"]:
             domain_labels, embeddings_key, statistics = (
-                await _identify_domains_clustering(adata_subset, params, context)
+                await _identify_domains_clustering(adata_subset, params, ctx)
             )
         elif params.method == "stagate":
             domain_labels, embeddings_key, statistics = await _identify_domains_stagate(
-                adata_subset, params, context
+                adata_subset, params, ctx
             )
         elif params.method == "graphst":
             domain_labels, embeddings_key, statistics = await _identify_domains_graphst(
-                adata_subset, params, context
+                adata_subset, params, ctx
             )
         else:
             raise ValueError(
@@ -310,10 +291,9 @@ async def identify_spatial_domains(
         # Refine domains if requested
         refined_domain_key = None
         if params.refine_domains:
-            if context:
-                await context.info(
-                    "Refining spatial domains using spatial smoothing..."
-                )
+            await ctx.info(
+                "Refining spatial domains using spatial smoothing..."
+            )
             try:
                 refined_domain_key = f"{domain_key}_refined"
                 refined_labels = _refine_spatial_domains(
@@ -327,10 +307,9 @@ async def identify_spatial_domains(
                     "category"
                 )
             except Exception as e:
-                if context:
-                    await context.warning(
-                        f"Domain refinement failed: {e}. Proceeding with unrefined domains."
-                    )
+                await ctx.warning(
+                    f"Domain refinement failed: {e}. Proceeding with unrefined domains."
+                )
                 refined_domain_key = None  # Reset key if refinement failed
 
         # Get domain counts
@@ -352,22 +331,20 @@ async def identify_spatial_domains(
             embeddings_key=embeddings_key,
         )
 
-        if context:
-            await context.info(
-                f"Successfully identified {len(domain_counts)} spatial domains"
-            )
+        await ctx.info(
+            f"Successfully identified {len(domain_counts)} spatial domains"
+        )
 
         return result
 
     except Exception as e:
         error_msg = f"Error in spatial domain identification: {str(e)}"
-        if context:
-            await context.warning(error_msg)
+        await ctx.warning(error_msg)
         raise RuntimeError(error_msg)
 
 
 async def _identify_domains_spagcn(
-    adata: Any, params: SpatialDomainParameters, context: Optional[Context] = None
+    adata: Any, params: SpatialDomainParameters, ctx: "ToolContext"
 ) -> tuple:
     """
     Identifies spatial domains using the SpaGCN algorithm.
@@ -383,8 +360,7 @@ async def _identify_domains_spagcn(
             "SpaGCN is not installed. Please install it with: pip install SpaGCN"
         )
 
-    if context:
-        await context.info("Running SpaGCN for spatial domain identification...")
+    await ctx.info("Running SpaGCN for spatial domain identification...")
 
     try:
         # Get spatial coordinates
@@ -408,10 +384,9 @@ async def _identify_domains_spagcn(
             )
 
         # Adaptive parameter adjustment based on data characteristics
-        if context:
-            await context.info(
-                "Adjusting SpaGCN parameters based on data characteristics..."
-            )
+        await ctx.info(
+            "Adjusting SpaGCN parameters based on data characteristics..."
+        )
 
         # Adjust parameters based on dataset size and spatial spread
         n_spots = len(x_array)
@@ -419,35 +394,31 @@ async def _identify_domains_spagcn(
 
         # Report dataset characteristics for LLM awareness
         if n_spots > 2000:
-            if context:
-                await context.info(
-                    f"Large dataset with {n_spots} spots. "
-                    f"Using parameters: s={params.spagcn_s}, p={params.spagcn_p}. "
-                    "For faster processing, consider s≤0.5, p≤0.3."
-                )
+            await ctx.info(
+                f"Large dataset with {n_spots} spots. "
+                f"Using parameters: s={params.spagcn_s}, p={params.spagcn_p}. "
+                "For faster processing, consider s≤0.5, p≤0.3."
+            )
         elif n_spots < 100:
-            if context:
-                await context.info(
-                    f"Small dataset with {n_spots} spots. "
-                    f"Using parameters: s={params.spagcn_s}, p={params.spagcn_p}. "
-                    "For better sensitivity, consider p≥0.4."
-                )
+            await ctx.info(
+                f"Small dataset with {n_spots} spots. "
+                f"Using parameters: s={params.spagcn_s}, p={params.spagcn_p}. "
+                "For better sensitivity, consider p≥0.4."
+            )
 
         # Report domain-to-spot ratio for LLM awareness
         spots_per_domain = n_spots / params.n_domains
         if spots_per_domain < 10:
-            if context:
-                await context.warning(
-                    f"Requesting {params.n_domains} domains for {n_spots} spots "
-                    f"({spots_per_domain:.1f} spots per domain). "
-                    "This may result in unstable or noisy domain assignments."
-                )
+            await ctx.warning(
+                f"Requesting {params.n_domains} domains for {n_spots} spots "
+                f"({spots_per_domain:.1f} spots per domain). "
+                "This may result in unstable or noisy domain assignments."
+            )
         elif spots_per_domain < 20:
-            if context:
-                await context.info(
-                    f"Note: {params.n_domains} domains for {n_spots} spots "
-                    f"({spots_per_domain:.1f} spots per domain)."
-                )
+            await ctx.info(
+                f"Note: {params.n_domains} domains for {n_spots} spots "
+                f"({spots_per_domain:.1f} spots per domain)."
+            )
 
         # For SpaGCN, we need pixel coordinates for histology
         # If not available, use array coordinates
@@ -483,41 +454,36 @@ async def _identify_domains_spagcn(
                         ):
                             img = img_dict["hires"]
                             scale_factor = scalefactors["tissue_hires_scalef"]
-                            if context:
-                                await context.info(
-                                    f"Using high-resolution histology image from library '{lib_id}'"
-                                )
+                            await ctx.info(
+                                f"Using high-resolution histology image from library '{lib_id}'"
+                            )
                         elif (
                             "lowres" in img_dict
                             and "tissue_lowres_scalef" in scalefactors
                         ):
                             img = img_dict["lowres"]
                             scale_factor = scalefactors["tissue_lowres_scalef"]
-                            if context:
-                                await context.info(
-                                    f"Using low-resolution histology image from library '{lib_id}'"
-                                )
+                            await ctx.info(
+                                f"Using low-resolution histology image from library '{lib_id}'"
+                            )
                         elif "hires" in img_dict:
                             # Try without scalefactor
                             img = img_dict["hires"]
-                            if context:
-                                await context.info(
-                                    f"Using high-resolution image from '{lib_id}' (no scalefactor, using default)"
-                                )
+                            await ctx.info(
+                                f"Using high-resolution image from '{lib_id}' (no scalefactor, using default)"
+                            )
                         elif "lowres" in img_dict:
                             # Try without scalefactor
                             img = img_dict["lowres"]
-                            if context:
-                                await context.info(
-                                    f"Using low-resolution image from '{lib_id}' (no scalefactor, using default)"
-                                )
+                            await ctx.info(
+                                f"Using low-resolution image from '{lib_id}' (no scalefactor, using default)"
+                            )
 
         if img is None:
             # Create dummy image or disable histology
-            if context:
-                await context.info(
-                    "No histology image found, running SpaGCN without histology"
-                )
+            await ctx.info(
+                "No histology image found, running SpaGCN without histology"
+            )
             params.spagcn_use_histology = False
             img = np.ones((100, 100, 3), dtype=np.uint8) * 255  # White dummy image
         else:
@@ -525,24 +491,21 @@ async def _identify_domains_spagcn(
             # SpaGCN expects integer pixel coordinates
             x_pixel = [int(x * scale_factor) for x in x_array]
             y_pixel = [int(y * scale_factor) for y in y_array]
-            if context:
-                await context.info(f"Using image with scale factor {scale_factor}")
+            await ctx.info(f"Using image with scale factor {scale_factor}")
 
         # Run SpaGCN easy mode
-        if context:
-            await context.info("Running SpaGCN domain detection...")
+        await ctx.info("Running SpaGCN domain detection...")
 
         # Import and call SpaGCN function directly
         from SpaGCN.ez_mode import detect_spatial_domains_ez_mode
 
         # Add detailed logging for debugging
-        if context:
-            await context.info(
-                f"SpaGCN parameters: n_clusters={params.n_domains}, s={params.spagcn_s}, b={params.spagcn_b}, p={params.spagcn_p}"
-            )
-            await context.info(
-                f"Data shape: {adata.shape}, spatial coords: {len(x_array)} spots"
-            )
+        await ctx.info(
+            f"SpaGCN parameters: n_clusters={params.n_domains}, s={params.spagcn_s}, b={params.spagcn_b}, p={params.spagcn_p}"
+        )
+        await ctx.info(
+            f"Data shape: {adata.shape}, spatial coords: {len(x_array)} spots"
+        )
 
         # Call SpaGCN with error handling and timeout protection
         try:
@@ -552,8 +515,7 @@ async def _identify_domains_spagcn(
                     f"Spatial coordinates length ({len(x_array)}) doesn't match data ({adata.shape[0]})"
                 )
 
-            if context:
-                await context.info("Calling SpaGCN detect_spatial_domains_ez_mode...")
+            await ctx.info("Calling SpaGCN detect_spatial_domains_ez_mode...")
 
             # Add timeout protection for SpaGCN call which can hang
             import asyncio
@@ -585,10 +547,9 @@ async def _identify_domains_spagcn(
                     params.timeout if params.timeout else 600
                 )  # Default 10 minutes
 
-                if context:
-                    await context.info(
-                        f"Running SpaGCN with {timeout_seconds}s timeout"
-                    )
+                await ctx.info(
+                    f"Running SpaGCN with {timeout_seconds}s timeout"
+                )
 
                 try:
                     domain_labels = await asyncio.wait_for(
@@ -607,14 +568,12 @@ async def _identify_domains_spagcn(
             error_msg = (
                 f"SpaGCN detect_spatial_domains_ez_mode failed: {str(spagcn_error)}"
             )
-            if context:
-                await context.warning(error_msg)
+            await ctx.warning(error_msg)
             raise RuntimeError(error_msg) from spagcn_error
 
-        if context:
-            await context.info(
-                f"SpaGCN completed, got {len(set(domain_labels))} domains"
-            )
+        await ctx.info(
+            f"SpaGCN completed, got {len(set(domain_labels))} domains"
+        )
 
         domain_labels = pd.Series(domain_labels, index=adata.obs.index).astype(str)
 
@@ -632,13 +591,12 @@ async def _identify_domains_spagcn(
     except Exception as e:
         # Enhanced error reporting
         error_msg = f"SpaGCN execution failed: {str(e)}"
-        if context:
-            await context.warning(f"Full error details: {traceback.format_exc()}")
+        await ctx.warning(f"Full error details: {traceback.format_exc()}")
         raise RuntimeError(error_msg) from e
 
 
 async def _identify_domains_clustering(
-    adata: Any, params: SpatialDomainParameters, context: Optional[Context] = None
+    adata: Any, params: SpatialDomainParameters, ctx: "ToolContext"
 ) -> tuple:
     """
     Identifies spatial domains using Leiden or Louvain clustering on a composite graph.
@@ -650,10 +608,9 @@ async def _identify_domains_clustering(
     to this composite graph partitions the data into domains that are cohesive in both
     expression and physical space.
     """
-    if context:
-        await context.info(
-            f"Running {params.method} clustering for spatial domain identification..."
-        )
+    await ctx.info(
+        f"Running {params.method} clustering for spatial domain identification..."
+    )
 
     try:
         # Get parameters from params, use defaults if not provided
@@ -676,17 +633,15 @@ async def _identify_domains_clustering(
                 f"sc.pp.neighbors(adata, n_neighbors={n_neighbors}, use_rep='X_pca')"
             )
 
-        if context:
-            await context.info(
-                f"Using pre-computed PCA and neighborhood graph for {params.method} clustering"
-            )
+        await ctx.info(
+            f"Using pre-computed PCA and neighborhood graph for {params.method} clustering"
+        )
 
         # Add spatial information to the neighborhood graph
         if "spatial" in adata.obsm:
-            if context:
-                await context.info(
-                    "Adding spatial constraints to neighborhood graph..."
-                )
+            await ctx.info(
+                "Adding spatial constraints to neighborhood graph..."
+            )
 
             try:
                 if not SQUIDPY_AVAILABLE:
@@ -723,13 +678,11 @@ async def _identify_domains_clustering(
                     f"or insufficient spatial data quality. "
                     f"Please check spatial coordinates in adata.obsm['spatial'] or try a different method."
                 )
-                if context:
-                    await context.error(error_msg)
+                await ctx.error(error_msg)
                 raise RuntimeError(error_msg)
 
         # Perform clustering
-        if context:
-            await context.info(f"Performing {params.method} clustering...")
+        await ctx.info(f"Performing {params.method} clustering...")
 
         # Use a variable to store key_added to ensure consistency
         key_added = (
@@ -740,21 +693,19 @@ async def _identify_domains_clustering(
             sc.tl.leiden(adata, resolution=params.resolution, key_added=key_added)
         else:  # louvain
             # Deprecation notice for louvain
-            if context:
-                await context.warning(
-                    "Louvain clustering is deprecated and may not be available on all platforms "
-                    "(especially macOS due to compilation issues). "
-                    "Consider using 'leiden' instead, which is an improved algorithm with better performance. "
-                    "Automatic fallback to Leiden will be used if Louvain is unavailable."
-                )
+            await ctx.warning(
+                "Louvain clustering is deprecated and may not be available on all platforms "
+                "(especially macOS due to compilation issues). "
+                "Consider using 'leiden' instead, which is an improved algorithm with better performance. "
+                "Automatic fallback to Leiden will be used if Louvain is unavailable."
+            )
             try:
                 sc.tl.louvain(adata, resolution=params.resolution, key_added=key_added)
             except ImportError as e:
                 # Fallback to leiden if louvain is not available
-                if context:
-                    await context.warning(
-                        f"Louvain not available: {e}. Using Leiden clustering instead."
-                    )
+                await ctx.warning(
+                    f"Louvain not available: {e}. Using Leiden clustering instead."
+                )
                 sc.tl.leiden(adata, resolution=params.resolution, key_added=key_added)
 
         domain_labels = adata.obs[key_added].astype(str)
@@ -869,7 +820,7 @@ def _refine_spatial_domains(
 
 
 async def _identify_domains_stagate(
-    adata: Any, params: SpatialDomainParameters, context: Optional[Context] = None
+    adata: Any, params: SpatialDomainParameters, ctx: "ToolContext"
 ) -> tuple:
     """
     Identifies spatial domains using the STAGATE algorithm.
@@ -886,8 +837,7 @@ async def _identify_domains_stagate(
             "STAGATE_pyG is not installed. Please install it from: https://github.com/QIFEIDKN/STAGATE_pyG"
         )
 
-    if context:
-        await context.info("Running STAGATE_pyG for spatial domain identification...")
+    await ctx.info("Running STAGATE_pyG for spatial domain identification...")
 
     try:
         import STAGATE_pyG
@@ -897,28 +847,24 @@ async def _identify_domains_stagate(
         adata_stagate = adata.copy()
 
         # Calculate spatial graph
-        if context:
-            await context.info("Calculating STAGATE spatial network...")
+        await ctx.info("Calculating STAGATE spatial network...")
 
         # STAGATE_pyG uses smaller default radius (50 instead of 150)
         rad_cutoff = params.stagate_rad_cutoff or 50
         STAGATE_pyG.Cal_Spatial_Net(adata_stagate, rad_cutoff=rad_cutoff)
 
         # Optional: Display network statistics
-        if context:
-            try:
-                STAGATE_pyG.Stats_Spatial_Net(adata_stagate)
-            except Exception:
-                pass  # Stats display is optional
+        try:
+            STAGATE_pyG.Stats_Spatial_Net(adata_stagate)
+        except Exception:
+            pass  # Stats display is optional
 
         # Run STAGATE_pyG
-        if context:
-            await context.info("Training STAGATE_pyG model (this may take a few minutes)...")
+        await ctx.info("Training STAGATE_pyG model (this may take a few minutes)...")
 
         # Set device
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        if context:
-            await context.info(f"Using device: {device}")
+        await ctx.info(f"Using device: {device}")
 
         # Train STAGATE with timeout protection (similar to GraphST)
         import asyncio
