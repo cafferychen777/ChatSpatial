@@ -44,8 +44,12 @@ from ..utils.adata_utils import (
     select_genes_for_analysis,
     validate_adata_basics,
 )
-from ..utils.exceptions import (DataCompatibilityError, DataNotFoundError,
-                                ParameterError, ProcessingError)
+from ..utils.exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 # ============================================================================
 # MAIN ENTRY POINT
@@ -122,7 +126,7 @@ async def analyze_spatial_statistics(
 
         # Basic validation: min 10 cells, spatial coordinates exist
         validate_adata_basics(adata, min_obs=10)
-        coords = require_spatial_coords(adata)  # Validates and returns coords
+        require_spatial_coords(adata)  # Validates spatial coords exist
 
         # Determine if cluster_key is required for this analysis type
         analyses_requiring_cluster_key = {
@@ -290,16 +294,9 @@ async def _ensure_cluster_key(
     ]
 
     raise ValueError(
-        f"Requested cluster key '{requested_key}' not found in data.\n\n"
-        f"Available clustering keys: {available_keys if available_keys else 'None found'}\n"
-        f"All obs keys: {list(adata.obs.columns[:10])}...\n\n"
-        "SOLUTIONS:\n"
-        "1. Run clustering first:\n"
-        "   sc.tl.leiden(adata, key_added='leiden')\n\n"
-        "2. Use an existing cluster key from the list above\n\n"
-        "3. Check your preprocessing pipeline included clustering\n\n"
-        "SCIENTIFIC INTEGRITY: Different clustering methods produce different results. "
-        "We cannot substitute one for another without explicit user consent."
+        f"Cluster key '{requested_key}' not found. "
+        f"Available: {available_keys if available_keys else 'None'}. "
+        f"Run preprocess_data() first to generate clusters."
     )
 
 
@@ -336,26 +333,9 @@ async def _ensure_spatial_neighbors(
             await ctx.info("Spatial neighbors computed successfully with squidpy")
 
         except Exception as e:
-            error_msg = (
-                f"CRITICAL: Spatial neighbor computation failed: {e}\n\n"
-                "SCIENTIFIC INTEGRITY NOTICE:\n"
-                "Spatial neighbor graphs are fundamental to all spatial transcriptomics analyses.\n"
-                "Using alternative methods (like sklearn) would compromise result validity.\n\n"
-                "SOLUTIONS:\n"
-                "1. Check squidpy installation: pip install 'squidpy>=1.3.0'\n"
-                "2. Verify spatial coordinates in adata.obsm['spatial']\n"
-                "3. Ensure coordinates don't contain NaN/infinite values\n"
-                "4. For Visium data, try coord_type='grid'\n"
-                "5. Reduce n_neighbors if dataset is very small\n\n"
-                "Analysis cannot proceed without proper spatial neighbors."
-            )
-
+            error_msg = f"Spatial neighbor computation failed: {e}"
             await ctx.error(error_msg)
-
-            raise ProcessingError(
-                f"Spatial neighbor computation failed. Cannot proceed with spatial analysis. "
-                f"Original error: {e}"
-            ) from e
+            raise ProcessingError(error_msg) from e
 
 
 def _get_optimal_n_jobs(n_obs: int, requested_n_jobs: Optional[int] = None) -> int:
@@ -765,14 +745,7 @@ async def _analyze_bivariate_moran(
 
     # Get gene pairs from parameters - NO ARBITRARY DEFAULTS
     if not params.gene_pairs:
-        raise ValueError(
-            "Bivariate Moran's I analysis requires explicit gene pairs.\n\n"
-            "This tool analyzes spatial correlation between TWO specific genes. "
-            "Please provide gene_pairs parameter with scientifically meaningful pairs.\n\n"
-            "Example: gene_pairs=[('Gene1', 'Gene2'), ('Gene3', 'Gene4')]\n\n"
-            "Note: This tool does NOT create arbitrary gene pairs from HVG list.\n"
-            "Only scientifically justified gene pairs should be analyzed."
-        )
+        raise ValueError("Bivariate Moran's I requires gene_pairs parameter.")
     gene_pairs = params.gene_pairs
 
     results = {}

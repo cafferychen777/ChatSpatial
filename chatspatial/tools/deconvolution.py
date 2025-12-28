@@ -73,16 +73,9 @@ def _validate_common_genes(
     """
     if len(common_genes) < min_common_genes:
         raise ValueError(
-            f"Insufficient common genes after data preparation.\n"
-            f"  Found: {len(common_genes)} genes\n"
-            f"  Required: {min_common_genes} genes\n"
-            f"  Reference data: {reference_n_vars} genes\n"
-            f"  Spatial data: {spatial_n_vars} genes\n\n"
-            f"TIPS:\n"
-            f"1. Check gene naming convention (mouse: 'Cd5l', human: 'CD5L')\n"
-            f"2. Ensure both datasets are from the same species\n"
-            f"3. Try using different reference dataset\n"
-            f"4. Reduce min_common_genes parameter (current: {min_common_genes})"
+            f"Insufficient common genes: {len(common_genes)} < {min_common_genes} required. "
+            f"Reference: {reference_n_vars}, Spatial: {spatial_n_vars} genes. "
+            f"Check species/gene naming convention match."
         )
 
 
@@ -508,41 +501,12 @@ async def _prepare_anndata_for_counts(
 
     # Check if data is valid integer counts
     if has_negatives or has_decimals:
+        data_issue = "negative values" if has_negatives else "decimal values"
         error_msg = (
-            f"\n{data_name} data is not raw integer counts:\n"
-            f"  • Data source attempted: {data_source}\n"
-            f"  • Range: [{data_min:.2f}, {data_max:.2f}]\n"
-            f"  • Has negative values: {has_negatives}\n"
-            f"  • Has decimal values: {has_decimals}\n\n"
+            f"{data_name} data is not raw counts: {data_issue}, "
+            f"range [{data_min:.2f}, {data_max:.2f}]. "
+            f"Deconvolution requires raw integer counts."
         )
-
-        if has_negatives:
-            error_msg += "  WARNING:Data appears to be z-score normalized (contains negative values)\n"
-        elif has_decimals and data_max < 20:
-            error_msg += "  WARNING:Data appears to be log-transformed\n"
-        elif has_decimals:
-            error_msg += "  WARNING:Data appears to be normalized (contains decimals)\n"
-
-        error_msg += (
-            "\nIMPORTANT: Deconvolution methods (Cell2location, DestVI, RCTD, Stereoscope) "
-            "require raw integer counts and CANNOT work with preprocessed data.\n\n"
-            "DO NOT use these preprocessing steps before deconvolution:\n"
-            "  normalize_total (sc.pp.normalize_total)\n"
-            "  log transformation (sc.pp.log1p)\n"
-            "  scaling/z-score (sc.pp.scale)\n"
-            "  any transformation that creates decimals or negative values\n\n"
-            "Solutions:\n"
-            "  1. Skip preprocessing before deconvolution:\n"
-            "     • Load data → Directly run deconvolution\n"
-            "     • Preprocessing can be done AFTER deconvolution if needed\n\n"
-            "  2. If you must preprocess first:\n"
-            "     • Save counts before preprocessing: adata.layers['counts'] = adata.X.copy()\n"
-            "     • Then the deconvolution can use the saved counts\n\n"
-            "  3. Use original data files:\n"
-            "     • Load fresh data that hasn't been preprocessed\n"
-            "     • Ensure the data contains only non-negative integers\n"
-        )
-
         await ctx.error(error_msg)
         raise ValueError(error_msg)
 
@@ -728,18 +692,9 @@ async def _validate_and_process_proportions(
         nan_percentage = (nan_count / total_values) * 100
 
         await ctx.warning(
-            f"WARNING:Deconvolution produced {nan_count} NaN values ({nan_percentage:.1f}%) "
-            f"in {nan_spots}/{proportions.shape[0]} spots.\n\n"
-            "IMPORTANT: NaN indicates computation failure, NOT absence of cell types.\n"
-            "These values are preserved for transparency.\n\n"
-            "Possible causes:\n"
-            "• Algorithm convergence failure\n"
-            "• Insufficient gene overlap\n"
-            "• Numerical instability\n\n"
-            "Consider:\n"
-            "1. Checking input data quality\n"
-            "2. Adjusting algorithm parameters\n"
-            "3. Using a different deconvolution method"
+            f"Deconvolution produced {nan_count} NaN values ({nan_percentage:.1f}%) "
+            f"in {nan_spots}/{proportions.shape[0]} spots. "
+            f"Check input data quality or try different method."
         )
 
     # 2. Check for negative values - this is a critical error
@@ -750,22 +705,10 @@ async def _validate_and_process_proportions(
         min_value = proportions.min().min()
 
         error_msg = (
-            f"CRITICAL: {method} produced {neg_count} negative values "
-            f"(minimum: {min_value:.4f}) in {neg_spots} spots.\n\n"
-            "This indicates a serious problem:\n"
-            "• Algorithm implementation error\n"
-            "• Reference-spatial data incompatibility\n"
-            "• Invalid input data format\n\n"
-            "Negative cell type proportions are biologically impossible.\n"
-            "Cannot proceed with invalid results.\n\n"
-            "SOLUTIONS:\n"
-            "1. Verify input data is raw counts (not normalized)\n"
-            "2. Check reference data quality\n"
-            "3. Report this as a bug if using standard data"
+            f"{method} produced {neg_count} negative values (min: {min_value:.4f}) "
+            f"in {neg_spots} spots. Use raw counts and check data quality."
         )
-
         await ctx.error(error_msg)
-
         raise ValueError(error_msg)
 
     # 3. Analyze sum deviation - inform but don't force normalization
@@ -1340,16 +1283,10 @@ async def _validate_gene_format_compatibility(
 
     if overlap_pct < 0.3:  # Statistical threshold: <30% overlap is problematic
         return False, (
-            f"Insufficient gene overlap: {overlap_pct:.1%}\n"
-            f"   This indicates gene naming format mismatch.\n\n"
-            f"   Detected formats:\n"
-            f"   - Spatial: {spatial_format}\n"
-            f"   - Reference: {reference_format}\n\n"
-            f"   SOLUTION:\n"
-            f"   If reference uses Ensembl IDs, reload spatial data with:\n"
-            f"   sc.read_10x_mtx(path, var_names='gene_ids')\n\n"
-            f"   Reference genes (first 5): {list(reference_adata.var_names[:5])}\n"
-            f"   Spatial genes (first 5): {list(spatial_adata.var_names[:5])}"
+            f"Insufficient gene overlap: {overlap_pct:.1%}. "
+            f"Format mismatch: Spatial={spatial_format}, Reference={reference_format}. "
+            f"Sample genes - Reference: {list(reference_adata.var_names[:3])}, "
+            f"Spatial: {list(spatial_adata.var_names[:3])}"
         )
 
     if reference_format == "mixed" and spatial_format != "mixed":
@@ -1451,17 +1388,8 @@ async def _validate_subset_quality(
     # Statistical threshold: >50% median nUMI loss is pathological
     if loss_ratio > 0.5:
         raise ValueError(
-            f"{data_label} data quality compromised after gene subsetting!\n\n"
-            f"   Statistical evidence of gene name mismatch:\n"
-            f"   - Median nUMI loss: {loss_ratio:.1%} (threshold: 50%)\n"
-            f"   - Before subsetting: {original_median:.0f} UMI/cell\n"
-            f"   - After subsetting: {subset_median:.0f} UMI/cell\n"
-            f"   - Cells with nUMI < 5: {low_umi_count}/{len(subset_numi)} ({low_umi_pct:.1%})\n\n"
-            f"   This indicates that gene names in var_names don't match\n"
-            f"   the actual genes in the expression matrix.\n\n"
-            f"   SOLUTION:\n"
-            f"   Reload data with matching gene ID format (Ensembl IDs recommended):\n"
-            f"   sc.read_10x_mtx(path, var_names='gene_ids')"
+            f"{data_label} data quality compromised: {loss_ratio:.1%} UMI loss, "
+            f"{low_umi_pct:.1%} low-UMI cells. Check gene ID format matches expression matrix."
         )
 
     # Warning threshold: >20% loss or >10% low-UMI cells
@@ -2013,7 +1941,7 @@ async def deconvolve_spatial_data(
         ]:
             if not params.reference_data_id:
                 raise ValueError(
-                    f"Reference data is required for method '{params.method}'. Please provide reference_data_id."
+                    f"Method '{params.method}' requires reference_data_id."
                 )
 
             # Get reference data via ToolContext (includes validation)
@@ -2024,7 +1952,9 @@ async def deconvolve_spatial_data(
                 )
 
             # Ensure reference data has unique gene names
-            await ensure_unique_var_names_with_ctx(reference_adata, ctx, "reference data")
+            await ensure_unique_var_names_with_ctx(
+                reference_adata, ctx, "reference data"
+            )
 
             # Check cell type key
             _validate_cell_type_key(reference_adata, params.cell_type_key)

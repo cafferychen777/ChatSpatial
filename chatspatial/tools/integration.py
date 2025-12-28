@@ -177,11 +177,7 @@ def integrate_multiple_samples(
     # 1. Log-transformed (positive values, typically 0-15 range)
     # 2. Scaled (centered around 0, can have negative values)
     if min_val >= 0 and max_val > 100:
-        raise ValueError(
-            "Data appears to be raw counts (high positive values). "
-            "Please normalize and log-transform data before integration. "
-            "Use preprocessing.py or run: sc.pp.normalize_total(adata); sc.pp.log1p(adata)"
-        )
+        raise ValueError("Data appears to be raw counts. Run preprocessing first.")
 
     # Check if data appears to be normalized (reasonable range after preprocessing)
     if max_val > 50:
@@ -444,13 +440,7 @@ def integrate_multiple_samples(
 
     if not pca_success:
         raise RuntimeError(
-            f"All PCA methods failed for dataset with {combined.n_obs} cells and {combined.n_vars} genes. "
-            f"This usually indicates: \n"
-            f"1. Data contains NaN or infinite values\n"
-            f"2. All genes have identical expression\n"
-            f"3. Data matrix is rank-deficient\n"
-            f"4. Insufficient memory for computation\n"
-            f"Please check data quality and preprocessing steps."
+            f"PCA failed for {combined.n_obs}×{combined.n_vars} data. Check data quality."
         )
 
     # Apply batch correction based on selected method
@@ -785,9 +775,7 @@ def integrate_with_scvi(
     max_val = combined.X.max() if hasattr(combined.X, "max") else np.max(combined.X)
     if max_val > 50:
         raise ValueError(
-            "scVI requires preprocessed data (normalized + log-transformed). "
-            f"Current max value: {max_val:.1f}\n"
-            "Please run: sc.pp.normalize_total(adata); sc.pp.log1p(adata)"
+            f"scVI requires preprocessed data. Max value {max_val:.1f} too high."
         )
 
     # Validate batch key

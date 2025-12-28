@@ -221,9 +221,8 @@ async def differential_expression(
     # If no genes were found, fail honestly
     if not top_genes:
         raise RuntimeError(
-            f"Failed to identify differentially expressed genes for comparison between {group1} and {group2}. "
-            f"This could be due to: 1) Insufficient statistical power, 2) No meaningful expression differences, "
-            f"or 3) Issues with the analysis method. Please check data quality, sample sizes, or try different parameters."
+            f"No DE genes found between {group1} and {group2}. "
+            f"Check sample sizes and expression differences."
         )
 
     # Get statistics
@@ -251,20 +250,8 @@ async def differential_expression(
     # Check if raw count data is available
     if adata.raw is None:
         raise ValueError(
-            "CRITICAL: Raw count data required for accurate fold change calculation\n\n"
-            "Differential expression analysis requires raw counts (adata.raw) to calculate "
-            "scientifically accurate fold change values. Your data lacks this.\n\n"
-            "WHY THIS MATTERS:\n"
-            "• Fold change from log-normalized data produces mathematically incorrect results\n"
-            "• Can lead to extreme overestimation (e.g., 1000× instead of 3×)\n"
-            "• Results would not be scientifically valid for publication\n\n"
-            "SOLUTION:\n"
-            "1. Reload your data and run preprocessing again:\n"
-            "   preprocess_data(data_id='your_data', params={'normalization': 'log'})\n"
-            "2. Preprocessing automatically saves raw counts to adata.raw\n"
-            "3. Then run differential expression analysis\n\n"
-            "WARNING: We refuse to return incorrect fold change values. "
-            "Scientific integrity requires accurate calculations."
+            "Raw count data (adata.raw) required for fold change calculation. "
+            "Run preprocess_data() first to preserve raw counts."
         )
 
     # Get raw count data
@@ -336,14 +323,8 @@ async def differential_expression(
     # Warn if fold change values are suspiciously high (indicating calculation errors)
     if mean_log2fc is not None and abs(mean_log2fc) > 10:
         await ctx.warning(
-            f"EXTREME FOLD CHANGE DETECTED: mean log2FC = {mean_log2fc:.2f}\n"
-            f"   - This indicates fold change > 2^10 = 1024x\n"
-            f"   - Biologically plausible range: 2-32x (log2FC = 1-5)\n"
-            f"   - Possible causes:\n"
-            f"     - Very sparse gene expression in one group\n"
-            f"     - Low cell counts in comparison groups\n"
-            f"     - Data quality issues\n"
-            f"   - Consider filtering genes with low expression before DE analysis"
+            f"Extreme fold change: mean log2FC = {mean_log2fc:.2f} (>1024x). "
+            f"May indicate sparse expression or low cell counts."
         )
 
     # Create statistics dictionary

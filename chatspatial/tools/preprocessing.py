@@ -11,8 +11,11 @@ import scipy.sparse
 from ..models.analysis import PreprocessingResult
 from ..models.data import PreprocessingParameters
 from ..spatial_mcp_adapter import ToolContext
-from ..utils.adata_utils import (ensure_unique_var_names_with_ctx,
-                                 sample_expression_values, standardize_adata)
+from ..utils.adata_utils import (
+    ensure_unique_var_names_with_ctx,
+    sample_expression_values,
+    standardize_adata,
+)
 from ..utils.compute import ensure_pca
 from ..utils.dependency_manager import require, validate_r_package
 from ..utils.mcp_utils import mcp_tool_error_handler
@@ -142,21 +145,9 @@ async def preprocess_data(
                 inplace=True,
             )
         except Exception as e:
-            # Don't fallback with fake data - fail fast with actionable error message
-            # calculate_qc_metrics failures are typically dependency issues, not data issues
             error_msg = (
-                f"QC metrics calculation failed: {str(e)}\n\n"
-                "COMMON CAUSES:\n"
-                "1. Numba/llvmlite version incompatibility\n"
-                "   → Fix: pip install --upgrade numba llvmlite\n"
-                "2. Corrupted or empty expression matrix\n"
-                "   → Check: adata.X should contain valid numeric data\n"
-                "3. Memory issues with large sparse matrices\n"
-                "   → Try: Reduce dataset size or increase available memory\n\n"
-                f"DATASET INFO: {adata.n_obs} cells × {adata.n_vars} genes\n"
-                f"MATRIX TYPE: {type(adata.X).__name__}\n\n"
-                "SCIENTIFIC INTEGRITY: We refuse to create fake QC metrics.\n"
-                "Please fix the underlying issue before proceeding."
+                f"QC metrics failed: {e}. "
+                f"Data: {adata.n_obs}×{adata.n_vars}, type: {type(adata.X).__name__}"
             )
             await ctx.error(error_msg)
             raise RuntimeError(error_msg) from e
@@ -358,14 +349,7 @@ async def preprocess_data(
 
             # Check for non-integer values (indicates normalized data)
             if np.any((X_sample % 1) != 0):
-                error_msg = (
-                    "SCTransform requires raw count data (integers).\n"
-                    "Your data contains non-integer values.\n\n"
-                    "SOLUTIONS:\n"
-                    "• Load raw count data instead of normalized data\n"
-                    "• Use normalization='none' if data is pre-normalized\n"
-                    "• Use normalization='log' for already-processed data"
-                )
+                error_msg = "SCTransform requires raw count data (integers). Use normalization='log' for normalized data."
                 await ctx.error(error_msg)
                 raise ValueError(error_msg)
 
@@ -501,12 +485,8 @@ async def preprocess_data(
 
             except MemoryError:
                 error_msg = (
-                    f"Insufficient memory for SCTransform on "
-                    f"{adata.n_obs}×{adata.n_vars} matrix.\n"
-                    "SOLUTIONS:\n"
-                    "• Reduce dataset size with subsample_spots parameter\n"
-                    "• Use normalization='pearson_residuals' (more memory efficient)\n"
-                    "• Use normalization='log' (minimal memory usage)"
+                    f"Memory error for SCTransform on {adata.n_obs}×{adata.n_vars} matrix. "
+                    f"Use normalization='log' or subsample data."
                 )
                 await ctx.error(error_msg)
                 raise MemoryError(error_msg)
@@ -597,13 +577,7 @@ async def preprocess_data(
 
             # Check for negative values (indicates already normalized data)
             if np.any(X_sample < 0):
-                error_msg = (
-                    "scVI requires non-negative count data.\n"
-                    "Data contains negative values, suggesting log-normalization.\n\n"
-                    "SOLUTIONS:\n"
-                    "• Load raw count data instead of normalized data\n"
-                    "• Use normalization='none' if data is pre-normalized"
-                )
+                error_msg = "scVI requires non-negative count data. Data contains negative values."
                 await ctx.error(error_msg)
                 raise ValueError(error_msg)
 
@@ -742,22 +716,9 @@ async def preprocess_data(
             try:
                 sc.pp.highly_variable_genes(adata, n_top_genes=n_hvgs)
             except Exception as e:
-                # Provide clear error message without overly complex diagnostics
-                # scanpy's highly_variable_genes is robust - if it fails, the data has issues
                 error_msg = (
-                    f"Highly variable gene selection failed: {e}\n\n"
-                    "COMMON CAUSES:\n"
-                    "1. Data not properly normalized\n"
-                    "   → Ensure normalization completed successfully before HVG selection\n"
-                    "2. Too few genes remaining after filtering\n"
-                    f"   → Current: {adata.n_vars} genes, requested: {n_hvgs} HVGs\n"
-                    "3. All genes have zero or constant expression\n"
-                    "   → Check data quality and filtering parameters\n\n"
-                    f"DATASET INFO: {adata.n_obs} cells × {adata.n_vars} genes\n\n"
-                    "SOLUTIONS:\n"
-                    "• If n_hvgs > n_genes: reduce n_hvgs parameter\n"
-                    "• Check that normalization step completed without errors\n"
-                    "• Verify input data contains meaningful expression variation"
+                    f"HVG selection failed: {e}. "
+                    f"Data: {adata.n_obs}×{adata.n_vars}, requested: {n_hvgs} HVGs."
                 )
                 await ctx.error(error_msg)
                 raise RuntimeError(error_msg) from e
@@ -833,19 +794,9 @@ async def preprocess_data(
                 sce.pp.harmony_integrate(adata, key=params.batch_key)
                 await ctx.info("Batch effect correction completed using Harmony")
             except Exception as e:
-                # Harmony failed - raise error, don't silently continue
                 raise RuntimeError(
-                    f"Batch effect correction with Harmony failed: {e}\n\n"
-                    "Batch effects can severely impact downstream analyses. "
-                    "Continuing without correction would produce unreliable results.\n\n"
-                    "POSSIBLE CAUSES:\n"
-                    "1. Insufficient cells per batch (need at least 30-50 per batch)\n"
-                    "2. Too many batches relative to cells\n"
-                    "3. PCA dimensionality issues\n\n"
-                    "SOLUTIONS:\n"
-                    "1. Check batch sizes: adata.obs['batch'].value_counts()\n"
-                    "2. Merge small batches before preprocessing\n"
-                    "3. Try alternative integration methods (scVI, BBKNN)"
+                    f"Harmony batch correction failed: {e}. "
+                    f"Check batch sizes or try scVI/BBKNN integration."
                 ) from e
 
         # 6. Scale data (if requested)

@@ -722,14 +722,9 @@ async def _analyze_communication_cellphonedb(
             try:
                 db_path = await _ensure_cellphonedb_database(temp_dir, ctx)
             except Exception as db_error:
-                error_msg = (
-                    f"Failed to setup CellPhoneDB database: {str(db_error)}\n\n"
-                    "This is required for CellPhoneDB v5 API. Please:\n"
-                    "1. Check internet connection for database download\n"
-                    "2. Verify CellPhoneDB installation: pip install cellphonedb\n"
-                    "3. Ensure write permissions to temporary directory"
-                )
-                raise RuntimeError(error_msg) from db_error
+                raise RuntimeError(
+                    f"CellPhoneDB database setup failed: {db_error}"
+                ) from db_error
 
             # Run the analysis using CellPhoneDB v5 API with correct parameters
             try:
@@ -749,21 +744,10 @@ async def _analyze_communication_cellphonedb(
                     score_interactions=False,  # Disabled: CellPhoneDB v5 scoring has bugs
                 )
             except KeyError as key_error:
-                # CellPhoneDB returns empty dict when no interactions found,
-                # then crashes trying to access 'significant_means' key
                 raise RuntimeError(
-                    f"CellPhoneDB found no matching ligand-receptor interactions in your data.\n\n"
-                    f"COMMON CAUSES:\n"
-                    f"  1. Species mismatch: CellPhoneDB database is primarily for HUMAN data.\n"
-                    f"     Your data appears to use non-human gene names.\n"
-                    f"  2. Gene name format: CellPhoneDB expects HGNC symbols (e.g., 'TGFB1', 'IL6').\n"
-                    f"     Check if your genes use Ensembl IDs or other formats.\n"
-                    f"  3. Low gene coverage: Too few genes overlap with the L-R database.\n\n"
-                    f"SOLUTION:\n"
-                    f"  Use method='liana' instead - it supports multiple species and resources:\n"
-                    f"    - For mouse: species='mouse', liana_resource='mouseconsensus'\n"
-                    f"    - For human: species='human', liana_resource='consensus'\n\n"
-                    f"Original error: {key_error}"
+                    f"CellPhoneDB found no L-R interactions. "
+                    f"CellPhoneDB is human-only; use method='liana' for mouse data. "
+                    f"Error: {key_error}"
                 ) from key_error
             except Exception as api_error:
                 raise RuntimeError(
@@ -781,14 +765,8 @@ async def _analyze_communication_cellphonedb(
             # Check for empty results (no interactions found)
             if not result or "significant_means" not in result:
                 raise RuntimeError(
-                    "CellPhoneDB found no ligand-receptor interactions in your data.\n\n"
-                    "This typically happens when:\n"
-                    "  1. Using mouse/non-human data (CellPhoneDB is human-focused)\n"
-                    "  2. Gene names don't match HGNC symbols\n"
-                    "  3. Very few genes overlap with the L-R database\n\n"
-                    "SOLUTION: Use method='liana' with appropriate species setting:\n"
-                    "  - Mouse: species='mouse', liana_resource='mouseconsensus'\n"
-                    "  - Human: species='human', liana_resource='consensus'"
+                    "CellPhoneDB found no L-R interactions. "
+                    "CellPhoneDB is human-only; use method='liana' for mouse data."
                 )
 
             # Extract results from CellPhoneDB v5 dictionary format
@@ -831,12 +809,7 @@ async def _analyze_communication_cellphonedb(
         # Convert to numeric to handle any non-numeric values
         pval_array = pvalues.select_dtypes(include=[np.number]).values
         if pval_array.shape[0] == 0:
-            # No numeric columns found
-            raise RuntimeError(
-                "CellPhoneDB p-values are not numeric.\n"
-                "This indicates a problem with CellPhoneDB analysis.\n"
-                "Please check CellPhoneDB installation and data format."
-            )
+            raise RuntimeError("CellPhoneDB p-values are not numeric.")
 
         # Apply multiple testing correction if requested
         # Correct p-values for each L-R pair across its cell type pairs to control FPR
