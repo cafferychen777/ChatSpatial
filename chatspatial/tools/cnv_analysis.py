@@ -114,9 +114,9 @@ async def _infer_cnv_infercnvpy(
     # Check if gene position information is available
     if "chromosome" not in adata_cnv.var.columns:
         await ctx.warning(
-                "No chromosome information found in adata.var. "
-                "Attempting to infer from gene names..."
-            )
+            "No chromosome information found in adata.var. "
+            "Attempting to infer from gene names..."
+        )
         try:
             # Try to infer gene positions from infercnvpy's built-in database
             cnv.tl.infercnv(
@@ -338,8 +338,7 @@ async def _infer_cnv_numbat(
         import anndata2ri
         import rpy2.robjects as ro
         from rpy2.rinterface_lib import openrlib
-        from rpy2.robjects import (conversion, default_converter, numpy2ri,
-                                   pandas2ri)
+        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
 
         # Test if Numbat R package is available
         ro.r("suppressPackageStartupMessages(library(numbat))")

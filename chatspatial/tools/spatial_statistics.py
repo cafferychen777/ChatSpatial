@@ -106,14 +106,10 @@ async def analyze_spatial_statistics(
     ]
 
     if params.analysis_type not in supported_types:
-        raise ParameterError(
-            f"Unsupported analysis type: {params.analysis_type}"
-        )
+        raise ParameterError(f"Unsupported analysis type: {params.analysis_type}")
 
     if params.n_neighbors <= 0:
-        raise ParameterError(
-            f"n_neighbors must be positive, got {params.n_neighbors}"
-        )
+        raise ParameterError(f"n_neighbors must be positive, got {params.n_neighbors}")
 
     # Log operation
     await ctx.info(f"Performing {params.analysis_type} spatial analysis")
@@ -176,17 +172,11 @@ async def analyze_spatial_statistics(
         elif params.analysis_type == "join_count":
             result = await _analyze_join_count(adata, cluster_key, params, ctx)
         elif params.analysis_type == "local_join_count":
-            result = await _analyze_local_join_count(
-                adata, cluster_key, params, ctx
-            )
+            result = await _analyze_local_join_count(adata, cluster_key, params, ctx)
         elif params.analysis_type == "network_properties":
-            result = await _analyze_network_properties(
-                adata, cluster_key, params, ctx
-            )
+            result = await _analyze_network_properties(adata, cluster_key, params, ctx)
         elif params.analysis_type == "spatial_centrality":
-            result = await _analyze_spatial_centrality(
-                adata, cluster_key, params, ctx
-            )
+            result = await _analyze_spatial_centrality(adata, cluster_key, params, ctx)
         else:
             raise ValueError(f"Analysis type {params.analysis_type} not implemented")
 
@@ -277,9 +267,7 @@ async def analyze_spatial_statistics(
         await ctx.warning(error_msg)
         await ctx.info(f"Error details: {traceback.format_exc()}")
 
-        if isinstance(
-            e, (DataNotFoundError, ParameterError, DataCompatibilityError)
-        ):
+        if isinstance(e, (DataNotFoundError, ParameterError, DataCompatibilityError)):
             raise
         else:
             raise ProcessingError(error_msg) from e
@@ -351,9 +339,7 @@ async def _ensure_spatial_neighbors(
                 key_added="spatial",  # Standard key for spatial neighbors
             )
 
-            await ctx.info(
-                "Spatial neighbors computed successfully with squidpy"
-            )
+            await ctx.info("Spatial neighbors computed successfully with squidpy")
 
         except Exception as e:
             error_msg = (
@@ -956,7 +942,9 @@ async def _analyze_join_count(
     # Check for required dependencies
     if not is_available("esda") or not is_available("libpysal"):
         await ctx.warning("Join Count requires esda and libpysal packages")
-        return {"error": "esda or libpysal package not installed. Install with: pip install esda libpysal"}
+        return {
+            "error": "esda or libpysal package not installed. Install with: pip install esda libpysal"
+        }
 
     try:
         from esda.join_counts import Join_Counts
@@ -1063,14 +1051,14 @@ async def _analyze_local_join_count(
     >>> for cat, stats in result['per_category_stats'].items():
     ...     print(f"{cat}: {stats['n_hotspots']} significant hotspots")
     """
-    await ctx.info(
-        "Running Local Join Count analysis for multi-category data..."
-    )
+    await ctx.info("Running Local Join Count analysis for multi-category data...")
 
     # Check for required dependencies
     if not is_available("esda") or not is_available("libpysal"):
         await ctx.warning("Local Join Count requires esda and libpysal packages")
-        return {"error": "esda or libpysal package not installed (requires esda >= 2.4.0). Install with: pip install esda libpysal"}
+        return {
+            "error": "esda or libpysal package not installed (requires esda >= 2.4.0). Install with: pip install esda libpysal"
+        }
 
     try:
         from esda.join_counts_local import Join_Counts_Local
@@ -1162,7 +1150,9 @@ async def _analyze_network_properties(
     # Check for required dependencies
     if not is_available("networkx"):
         await ctx.warning("NetworkX not installed")
-        return {"error": "networkx package required. Install with: pip install networkx"}
+        return {
+            "error": "networkx package required. Install with: pip install networkx"
+        }
 
     try:
         import networkx as nx
@@ -1238,7 +1228,9 @@ async def _analyze_spatial_centrality(
 
     # Check for required dependencies
     if not is_available("networkx"):
-        return {"error": "NetworkX required for centrality analysis. Install with: pip install networkx"}
+        return {
+            "error": "NetworkX required for centrality analysis. Install with: pip install networkx"
+        }
 
     try:
         import networkx as nx
@@ -1443,10 +1435,13 @@ async def _analyze_local_moran(
             # Apply FDR correction if requested
             if use_fdr and permutations > 0:
                 # Check statsmodels availability for FDR correction
-                require("statsmodels")  # Raises ImportError with install instructions if missing
+                require(
+                    "statsmodels"
+                )  # Raises ImportError with install instructions if missing
                 from statsmodels.stats.multitest import multipletests
+
                 _, p_corrected, _, _ = multipletests(
-                    p_values, alpha=alpha, method='fdr_bh'
+                    p_values, alpha=alpha, method="fdr_bh"
                 )
                 significant = p_corrected < alpha
             else:

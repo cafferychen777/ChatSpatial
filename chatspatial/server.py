@@ -348,9 +348,7 @@ async def visualize_data(
 
         # Generate cache key with subtype if applicable
         # This handles plot types with subtypes (e.g., deconvolution, spatial_statistics)
-        subtype = (
-            params.subtype if hasattr(params, "subtype") and params.subtype else None
-        )
+        subtype = params.subtype  # Optional field with default None
 
         if subtype:
             cache_key = f"{data_id}_{params.plot_type}_{subtype}"
@@ -362,10 +360,10 @@ async def visualize_data(
         metadata = {
             "data_id": data_id,
             "plot_type": params.plot_type,
-            "subtype": subtype if subtype else "N/A",
-            "feature": getattr(params, "feature", "N/A"),
+            "subtype": subtype or "N/A",
+            "feature": params.feature or "N/A",
             "timestamp": int(time.time()),
-            "name": f"{params.plot_type} - {getattr(params, 'feature', 'N/A')}",
+            "name": f"{params.plot_type} - {params.feature or 'N/A'}",
             "description": f"Visualization of {data_id}",
         }
 
@@ -373,11 +371,14 @@ async def visualize_data(
         if isinstance(image, str):
             # Large image: file path returned as text (MCP 2025 best practice)
             # Store a marker in cache indicating file path return
-            ctx.set_visualization(cache_key, {
-                "type": "file_path",
-                "message": image,
-                "timestamp": int(time.time()),
-            })
+            ctx.set_visualization(
+                cache_key,
+                {
+                    "type": "file_path",
+                    "message": image,
+                    "timestamp": int(time.time()),
+                },
+            )
 
             if context:
                 await context.info(
@@ -729,8 +730,9 @@ async def analyze_spatial_statistics(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import spatial_statistics (squidpy is slow to import)
-    from .tools.spatial_statistics import \
-        analyze_spatial_statistics as _analyze_spatial_statistics
+    from .tools.spatial_statistics import (
+        analyze_spatial_statistics as _analyze_spatial_statistics,
+    )
 
     # Call spatial statistics analysis function with ToolContext
     result = await _analyze_spatial_statistics(data_id, ctx, params)
@@ -1232,8 +1234,7 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import \
-        identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1400,8 +1401,9 @@ async def analyze_cell_communication(
           • Signaling ranges: Literature-based (Wnt/Wg: ~50-100 µm)
     """
     # Import cell communication function
-    from .tools.cell_communication import \
-        analyze_cell_communication as analyze_comm_func
+    from .tools.cell_communication import (
+        analyze_cell_communication as analyze_comm_func,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1485,8 +1487,9 @@ async def analyze_enrichment(
     """
     # Import enrichment analysis function
 
-    from .tools.enrichment import \
-        perform_spatial_enrichment as perform_enrichment_analysis
+    from .tools.enrichment import (
+        perform_spatial_enrichment as perform_enrichment_analysis,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1604,8 +1607,12 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (perform_enrichr, perform_gsea,
-                                       perform_ora, perform_ssgsea)
+        from .tools.enrichment import (
+            perform_enrichr,
+            perform_gsea,
+            perform_ora,
+            perform_ssgsea,
+        )
 
         if params.method == "pathway_gsea":
             result_dict = await perform_gsea(

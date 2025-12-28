@@ -339,9 +339,7 @@ async def _identify_spatial_genes_spatialde(
     ).T
 
     # Step 3: Run SpatialDE with preprocessed data
-    await ctx.info(
-        f"Step 3/3: Running SpatialDE on {n_genes} genes × {n_spots} spots"
-    )
+    await ctx.info(f"Step 3/3: Running SpatialDE on {n_genes} genes × {n_spots} spots")
 
     results = SpatialDE.run(coords.values, resid_expr)
 
@@ -397,7 +395,9 @@ async def _identify_spatial_genes_spatialde(
             "gene_filter_threshold": 3,
             "n_genes_tested": n_genes,
             "n_spots": n_spots,
-            "pi0": params.spatialde_pi0 if params.spatialde_pi0 is not None else "adaptive",
+            "pi0": (
+                params.spatialde_pi0 if params.spatialde_pi0 is not None else "adaptive"
+            ),
         },
         results_keys={
             "var": ["spatialde_pval", "spatialde_qval", "spatialde_l"],
@@ -457,9 +457,7 @@ async def _identify_spatial_genes_spatialde(
     )
 
     await ctx.info("SpatialDE analysis completed")
-    await ctx.info(
-        f"Found {len(significant_genes_all)} significant spatial genes"
-    )
+    await ctx.info(f"Found {len(significant_genes_all)} significant spatial genes")
     if len(significant_genes_all) > MAX_GENES_TO_RETURN:
         await ctx.info(
             f"Returning top {MAX_GENES_TO_RETURN} genes (full results in adata.var)"
@@ -623,9 +621,7 @@ async def _identify_spatial_genes_sparkx(
             annotation_source = "preprocessing"
         else:
             # Fallback to pattern-based detection
-            mt_mask = np.array(
-                [gene.startswith(("MT-", "mt-")) for gene in gene_names]
-            )
+            mt_mask = np.array([gene.startswith(("MT-", "mt-")) for gene in gene_names])
             annotation_source = "pattern detection"
 
         n_mt_genes = mt_mask.sum()
@@ -780,9 +776,7 @@ async def _identify_spatial_genes_sparkx(
     # Transpose for SPARK format (genes × spots)
     counts_transposed = counts_matrix.T
 
-    await ctx.info(
-        f"Count matrix shape: {counts_transposed.shape} (genes × spots)"
-    )
+    await ctx.info(f"Count matrix shape: {counts_transposed.shape} (genes × spots)")
     await ctx.info(f"Passing {n_genes} genes to SPARK-X for analysis")
 
     # Create spot names
