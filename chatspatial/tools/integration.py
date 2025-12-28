@@ -282,12 +282,8 @@ def integrate_multiple_samples(
             logging.info("scVI integration completed successfully")
         except Exception as e:
             raise RuntimeError(
-                f"scVI integration failed: {e}\n"
-                f"Common causes:\n"
-                f"1. Data not preprocessed (needs normalize + log transform)\n"
-                f"2. Insufficient batch diversity (need at least 2 batches)\n"
-                f"3. Data quality issues\n"
-                f"Consider using method='harmony' or 'scanorama' if scVI is not appropriate."
+                f"scVI integration failed: {e}. "
+                f"Ensure data is preprocessed and has ≥2 batches."
             ) from e
 
         # Calculate UMAP embedding to visualize integration effect
@@ -495,14 +491,9 @@ def integrate_multiple_samples(
                 sc.pp.neighbors(combined, use_rep="X_harmony")
 
         except Exception as e:
-            # Provide clear error message without fallback to different algorithms
             raise RuntimeError(
-                f"Harmony integration failed: {e}\n"
-                f"Common causes:\n"
-                f"1. Insufficient batch diversity (need at least 2 different batches)\n"
-                f"2. Batch key '{batch_key}' contains invalid values\n"
-                f"3. PCA result is corrupted or has NaN values\n"
-                f"Consider using method='bbknn' or 'mnn' if Harmony is not appropriate for your data."
+                f"Harmony integration failed: {e}. "
+                f"Check batch_key '{batch_key}' has ≥2 valid batches."
             ) from e
 
     elif method == "bbknn":
@@ -571,14 +562,9 @@ def integrate_multiple_samples(
                 sc.pp.neighbors(combined, use_rep="X_scanorama")
 
         except Exception as e:
-            # Scanorama failed - provide clear error without fallback to different algorithms
             raise RuntimeError(
-                f"Scanorama integration failed: {e}\n"
-                f"Common causes:\n"
-                f"1. Insufficient gene overlap between batches\n"
-                f"2. Batch structure incompatibility\n"
-                f"3. Data quality issues\n"
-                f"Consider using method='harmony' or 'bbknn' if Scanorama is not appropriate for your data."
+                f"Scanorama integration failed: {e}. "
+                f"Check gene overlap between batches."
             ) from e
 
     else:

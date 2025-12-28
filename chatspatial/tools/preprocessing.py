@@ -752,10 +752,7 @@ async def preprocess_data(
         if gene_subsample_requested and params.subsample_genes < adata.n_vars:
             # Ensure HVG selection was successful
             if "highly_variable" not in adata.var:
-                error_msg = (
-                    "Gene subsampling requested but no highly variable genes were identified. "
-                    "This indicates a failure in the HVG selection step."
-                )
+                error_msg = "Gene subsampling failed: no HVGs identified. Run HVG selection first."
                 await ctx.error(error_msg)
                 raise RuntimeError(error_msg)
 

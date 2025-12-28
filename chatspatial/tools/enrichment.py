@@ -1287,9 +1287,9 @@ async def perform_spatial_enrichment(
 
     if not validated_gene_sets:
         raise ProcessingError(
-            f"No valid gene signatures found with at least 2 genes. "
-            f"Dataset has {len(available_genes)} genes, requested {len(gene_sets)} signatures. "
-            f"Common causes: species mismatch (human vs mouse) or gene name format differences."
+            f"No valid gene signatures found (≥2 genes). "
+            f"Dataset: {len(available_genes)} genes, requested: {len(gene_sets)} signatures. "
+            f"Check species (human/mouse) and gene name format."
         )
 
     # Run EnrichMap scoring - process each gene set individually

@@ -394,9 +394,7 @@ async def _annotate_with_tangram(
             # Use highly variable genes
             if "highly_variable" not in adata_sc_original.var:
                 raise ValueError(
-                    "Highly variable genes not found in reference data. "
-                    "Tangram mapping requires HVG selection. "
-                    "Please run HVG selection in preprocessing.py or use: sc.pp.highly_variable_genes(adata)"
+                    "HVGs not found in reference data. Run preprocessing first."
                 )
             training_genes = list(
                 adata_sc_original.var_names[adata_sc_original.var.highly_variable]
@@ -565,11 +563,8 @@ async def _annotate_with_tangram(
                 ]
 
                 raise ValueError(
-                    f"Cell type column '{params.cell_type_key}' not found in reference data.\n\n"
-                    f"Available categorical columns:\n  {', '.join(categorical_cols[:15])}\n"
-                    f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
-                    f"All columns ({len(available_cols)} total):\n  {', '.join(available_cols[:20])}\n"
-                    f"{f'  ... and {len(available_cols)-20} more' if len(available_cols) > 20 else ''}"
+                    f"Cell type column '{params.cell_type_key}' not found. "
+                    f"Available: {categorical_cols[:5]}"
                 )
 
             annotation_col = params.cell_type_key
