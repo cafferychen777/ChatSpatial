@@ -328,7 +328,12 @@ async def visualize_data(
     validate_dataset(data_id)
 
     # Create ToolContext for clean data access (no redundant dict wrapping)
-    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+    # Include visualization_cache for visualization-related operations
+    ctx = ToolContext(
+        _data_manager=data_manager,
+        _mcp_context=context,
+        _visualization_cache=adapter.resource_manager._visualization_cache,
+    )
 
     # Parameter validation is handled by Pydantic model
     # params is already a validated VisualizationParameters instance
@@ -461,22 +466,23 @@ async def save_visualization(
     """
     from .tools.visualization import save_visualization as save_func
 
-    # Get the visualization cache from the adapter's resource manager
-    visualization_cache = adapter.resource_manager._visualization_cache
-
     # Create ToolContext for unified data access
-    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+    # Include visualization_cache for visualization-related operations
+    ctx = ToolContext(
+        _data_manager=data_manager,
+        _mcp_context=context,
+        _visualization_cache=adapter.resource_manager._visualization_cache,
+    )
 
     result = await save_func(
         data_id=data_id,
-        plot_type=plot_type,
         ctx=ctx,
+        plot_type=plot_type,
         subtype=subtype,
         output_dir=output_dir,
         filename=filename,
         format=format,
         dpi=dpi,
-        visualization_cache=visualization_cache,
     )
 
     return result
@@ -518,11 +524,13 @@ async def export_all_visualizations(
     """
     from .tools.visualization import export_all_visualizations as export_func
 
-    # Get the visualization cache from the adapter's resource manager
-    visualization_cache = adapter.resource_manager._visualization_cache
-
     # Create ToolContext for unified data access
-    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+    # Include visualization_cache for visualization-related operations
+    ctx = ToolContext(
+        _data_manager=data_manager,
+        _mcp_context=context,
+        _visualization_cache=adapter.resource_manager._visualization_cache,
+    )
 
     result = await export_func(
         data_id=data_id,
@@ -530,7 +538,6 @@ async def export_all_visualizations(
         output_dir=output_dir,
         format=format,
         dpi=dpi,
-        visualization_cache=visualization_cache,
     )
 
     return result
@@ -556,14 +563,15 @@ async def clear_visualization_cache(
     """
     from .tools.visualization import clear_visualization_cache as clear_func
 
-    # Get the visualization cache from the adapter's resource manager
-    visualization_cache = adapter.resource_manager._visualization_cache
-
-    result = await clear_func(
-        data_id=data_id,
-        visualization_cache=visualization_cache,
-        context=context,
+    # Create ToolContext for unified data access
+    # Include visualization_cache for visualization-related operations
+    ctx = ToolContext(
+        _data_manager=data_manager,
+        _mcp_context=context,
+        _visualization_cache=adapter.resource_manager._visualization_cache,
     )
+
+    result = await clear_func(ctx=ctx, data_id=data_id)
 
     return result
 

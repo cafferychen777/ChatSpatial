@@ -3,14 +3,16 @@ Integration tools for spatial transcriptomics data.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 import scanpy as sc
-from mcp.server.fastmcp import Context
 
 from ..models.analysis import IntegrationResult
 from ..models.data import IntegrationParameters
+
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 from ..utils.adata_utils import store_analysis_metadata
 
 logger = logging.getLogger(__name__)
@@ -1020,35 +1022,31 @@ def _integrate_with_multivi_disabled(
 
 async def integrate_samples(
     data_ids: List[str],
-    data_store: Dict[str, Any],
+    ctx: "ToolContext",
     params: IntegrationParameters = IntegrationParameters(),
-    context: Optional[Context] = None,
 ) -> IntegrationResult:
     """Integrate multiple spatial transcriptomics samples and perform batch correction
 
     Args:
         data_ids: List of dataset IDs to integrate
-        data_store: Dictionary storing datasets
+        ctx: ToolContext for unified data access and logging
         params: Integration parameters
-        context: MCP context
 
     Returns:
         Integration result
     """
-    if context:
-        await context.info(
-            f"Integrating {len(data_ids)} samples using {params.method} method"
-        )
+    await ctx.info(
+        f"Integrating {len(data_ids)} samples using {params.method} method"
+    )
 
     # Collect all AnnData objects
     # Memory optimization: concatenate() creates new object without modifying sources
     # Verified by comprehensive testing: all operations preserve original datasets
-    # Users can still access A, B, C after integration via data_store references
+    # Users can still access A, B, C after integration via ctx references
     adatas = []
     for data_id in data_ids:
-        if data_id not in data_store:
-            raise ValueError(f"Dataset {data_id} not found in data store")
-        adatas.append(data_store[data_id]["adata"])
+        adata = await ctx.get_adata(data_id)
+        adatas.append(adata)
 
     # Integrate samples (pass full params for method-specific settings like scVI)
     combined_adata = integrate_multiple_samples(
@@ -1059,10 +1057,10 @@ async def integrate_samples(
         params=params,
     )
 
-    if context:
-        await context.info(
-            f"Integration complete. Combined dataset has {combined_adata.n_obs} cells and {combined_adata.n_vars} genes"
-        )
+    await ctx.info(
+        f"Integration complete. Combined dataset has {combined_adata.n_obs} cells "
+        f"and {combined_adata.n_vars} genes"
+    )
 
     # Align spatial coordinates
     # NOTE: Spatial alignment is OPTIONAL and only needed for spatial data
@@ -1071,17 +1069,15 @@ async def integrate_samples(
     if params.align_spatial:
         # Check if data actually has spatial coordinates
         if "spatial" not in combined_adata.obsm:
-            if context:
-                await context.info(
-                    f"Skipping spatial coordinate alignment: Data has no spatial coordinates.\n"
-                    f"Note: {params.method} integration works on gene expression/PCA space "
-                    f"and does not require spatial coordinates for batch correction."
-                )
+            await ctx.info(
+                f"Skipping spatial coordinate alignment: Data has no spatial coordinates.\n"
+                f"Note: {params.method} integration works on gene expression/PCA space "
+                f"and does not require spatial coordinates for batch correction."
+            )
             # Skip alignment for non-spatial data - this is scientifically correct
             # BBKNN, Harmony, MNN, Scanorama are designed for scRNA-seq data without spatial info
         else:
-            if context:
-                await context.info("Aligning spatial coordinates")
+            await ctx.info("Aligning spatial coordinates")
             combined_adata = align_spatial_coordinates(
                 combined_adata,
                 batch_key=params.batch_key,
@@ -1090,19 +1086,18 @@ async def integrate_samples(
 
     # Note: Visualizations should be created using the separate visualize_data tool
     # This maintains clean separation between analysis and visualization
-    if context:
-        await context.info(
-            "Integration analysis complete. Use visualize_data tool with plot_type='integration_umap' or 'integration_spatial' to visualize results"
-        )
+    await ctx.info(
+        "Integration analysis complete. Use visualize_data tool with "
+        "plot_type='integration_umap' or 'integration_spatial' to visualize results"
+    )
 
     # Generate new integrated dataset ID
     integrated_id = f"integrated_{'-'.join(data_ids)}"
 
-    # Store integrated data
-    data_store[integrated_id] = {"adata": combined_adata}
+    # Store integrated data using ToolContext
+    await ctx.add_dataset(integrated_id, combined_adata)
 
-    if context:
-        await context.info(f"Integration complete. New dataset ID: {integrated_id}")
+    await ctx.info(f"Integration complete. New dataset ID: {integrated_id}")
 
     # Return result
     return IntegrationResult(

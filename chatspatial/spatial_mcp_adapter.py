@@ -502,6 +502,7 @@ class ToolContext:
 
     _data_manager: "DefaultSpatialDataManager"
     _mcp_context: Optional[Context] = None
+    _visualization_cache: Optional[Dict[str, Any]] = None
     _logger: Optional[logging.Logger] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -626,6 +627,62 @@ class ToolContext:
         """Log error message to MCP context if available."""
         if self._mcp_context:
             await self._mcp_context.error(msg)
+
+    def get_visualization_cache(self) -> Dict[str, Any]:
+        """Get the visualization cache dict.
+
+        Returns:
+            The visualization cache dictionary. Returns empty dict if not set.
+        """
+        if self._visualization_cache is None:
+            return {}
+        return self._visualization_cache
+
+    def set_visualization(self, key: str, value: Any) -> None:
+        """Store a visualization in the cache.
+
+        Args:
+            key: Cache key for the visualization
+            value: Visualization data (bytes, dict, or other)
+        """
+        if self._visualization_cache is not None:
+            self._visualization_cache[key] = value
+
+    def get_visualization(self, key: str) -> Optional[Any]:
+        """Get a visualization from the cache.
+
+        Args:
+            key: Cache key for the visualization
+
+        Returns:
+            Visualization data if found, None otherwise
+        """
+        if self._visualization_cache is None:
+            return None
+        return self._visualization_cache.get(key)
+
+    def clear_visualizations(self, prefix: Optional[str] = None) -> int:
+        """Clear visualizations from the cache.
+
+        Args:
+            prefix: Optional prefix to filter which keys to clear.
+                   If None, clears all visualizations.
+
+        Returns:
+            Number of visualizations cleared
+        """
+        if self._visualization_cache is None:
+            return 0
+
+        if prefix is None:
+            count = len(self._visualization_cache)
+            self._visualization_cache.clear()
+            return count
+
+        keys_to_remove = [k for k in self._visualization_cache if k.startswith(prefix)]
+        for key in keys_to_remove:
+            del self._visualization_cache[key]
+        return len(keys_to_remove)
 
 
 def create_spatial_mcp_server(

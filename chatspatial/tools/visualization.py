@@ -7,7 +7,10 @@ import traceback
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
 
 import anndata as ad
 # Set non-interactive backend for matplotlib to prevent GUI popups on macOS
@@ -2031,17 +2034,15 @@ async def _create_heatmap_visualization(
 
 async def visualize_data(
     data_id: str,
-    data_store: Dict[str, Any],
+    ctx: "ToolContext",
     params: VisualizationParameters = VisualizationParameters(),
-    context: Optional[Context] = None,
 ) -> Union[ImageContent, Tuple[ImageContent, EmbeddedResource]]:
     """Visualize spatial transcriptomics data
 
     Args:
         data_id: Dataset ID
-        data_store: Dictionary storing loaded datasets
+        ctx: ToolContext for unified data access and logging
         params: Visualization parameters
-        context: MCP context
 
     Returns:
         Union[ImageContent, Tuple[ImageContent, EmbeddedResource]]:
@@ -2060,25 +2061,17 @@ async def visualize_data(
             f"Invalid plot_type: {params.plot_type}. "
             f"Must be one of {list(PLOT_HANDLERS.keys())}"
         )
-        if context:
-            await context.warning(error_msg)
+        await ctx.warning(error_msg)
         raise InvalidParameterError(error_msg)
 
-    if context:
-        await context.info(f"Visualizing {params.plot_type} plot for dataset {data_id}")
-        await context.info(
-            f"Parameters: feature={params.feature}, colormap={params.colormap}"
-        )
-
-    # Retrieve the AnnData object from data store
-    if data_id not in data_store:
-        error_msg = f"Dataset {data_id} not found in data store"
-        if context:
-            await context.warning(error_msg)
-        raise DataNotFoundError(error_msg)
+    await ctx.info(f"Visualizing {params.plot_type} plot for dataset {data_id}")
+    await ctx.info(
+        f"Parameters: feature={params.feature}, colormap={params.colormap}"
+    )
 
     try:
-        adata = data_store[data_id]["adata"]
+        # Retrieve the AnnData object via ToolContext
+        adata = await ctx.get_adata(data_id)
 
         # Validate AnnData object - basic validation
         if adata.n_obs < 5:
@@ -2096,13 +2089,12 @@ async def visualize_data(
         if params.plot_type in PLOT_HANDLERS:
             # Use dispatch dictionary for all visualization functions
             handler = PLOT_HANDLERS[params.plot_type]
-            fig = await handler(adata, params, context)
+            fig = await handler(adata, params, ctx._mcp_context)
         else:
             raise ValueError(f"Unknown plot type: {params.plot_type}")
 
         # Convert figure with optimization (preview + resource for large images)
-        if context:
-            await context.info(f"Converting {params.plot_type} figure...")
+        await ctx.info(f"Converting {params.plot_type} figure...")
 
         # Generate plot_type_key with subtype if applicable (for cache consistency)
         subtype = params.subtype
@@ -2112,7 +2104,7 @@ async def visualize_data(
         return await optimize_fig_to_image_with_cache(
             fig,
             params,
-            context,
+            ctx._mcp_context,
             data_id=data_id,
             plot_type=plot_type_key,
             mode="auto",
@@ -2124,9 +2116,8 @@ async def visualize_data(
 
         # Log the error
         error_msg = f"Error in {params.plot_type} visualization: {str(e)}"
-        if context:
-            await context.warning(error_msg)
-            await context.info(f"Error details: {traceback.format_exc()}")
+        await ctx.warning(error_msg)
+        await ctx.info(f"Error details: {traceback.format_exc()}")
 
         # For image conversion errors, return error message as string
         if "fig_to_image" in str(e) or "convert" in str(e).lower():
@@ -7006,15 +6997,13 @@ async def _regenerate_figure_for_export(
 
 async def save_visualization(
     data_id: str,
+    ctx: "ToolContext",
     plot_type: str,
     subtype: Optional[str] = None,
     output_dir: str = "./outputs",
     filename: Optional[str] = None,
     format: str = "png",
     dpi: Optional[int] = None,
-    visualization_cache: Optional[Dict[str, Any]] = None,
-    data_store: Optional[Dict[str, Any]] = None,
-    context: Optional[Context] = None,
 ) -> str:
     """Save a visualization to disk at publication quality by regenerating from metadata.
 
@@ -7030,6 +7019,7 @@ async def save_visualization(
 
     Args:
         data_id: Dataset ID
+        ctx: ToolContext for unified data access and logging
         plot_type: Type of plot to save (e.g., 'spatial', 'deconvolution', 'spatial_statistics')
         subtype: Optional subtype for plot types with variants (e.g., 'neighborhood', 'scatterpie')
                  - For deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'
@@ -7039,9 +7029,6 @@ async def save_visualization(
         format: Image format (png, jpg, jpeg, pdf, svg, eps, ps, tiff)
         dpi: DPI for raster formats (default: 300 for publication quality)
               Vector formats (PDF, SVG, EPS, PS) ignore DPI
-        visualization_cache: Cache dictionary containing visualizations (for in-session cache)
-        data_store: Dictionary containing loaded datasets (required for regeneration)
-        context: MCP context for logging
 
     Returns:
         Path to the saved file
@@ -7052,23 +7039,23 @@ async def save_visualization(
 
     Examples:
         # Simple visualization
-        save_visualization("data1", "spatial", format="pdf", dpi=300)
+        save_visualization("data1", ctx, "spatial", format="pdf", dpi=300)
 
         # Visualization with subtype
-        save_visualization("data1", "spatial_statistics", subtype="neighborhood", format="png")
+        save_visualization("data1", ctx, "spatial_statistics", subtype="neighborhood", format="png")
 
         # Deconvolution scatterpie
-        save_visualization("data1", "deconvolution", subtype="scatterpie", format="svg")
+        save_visualization("data1", ctx, "deconvolution", subtype="scatterpie", format="svg")
 
         # For high-res raster (PowerPoint, posters)
-        save_visualization("data1", "umap", format="png", dpi=600)
+        save_visualization("data1", ctx, "umap", format="png", dpi=600)
     """
     try:
         # Use environment variable for output_dir if default value was passed
         if output_dir == "./outputs":
             output_dir = get_output_dir_from_config(default="./outputs")
-            if context and output_dir != "./outputs":
-                await context.info(
+            if output_dir != "./outputs":
+                await ctx.info(
                     f"Using output directory from configuration: {output_dir}"
                 )
 
@@ -7085,18 +7072,17 @@ async def save_visualization(
         else:
             cache_key = f"{data_id}_{plot_type}"
 
-        # Check if visualization exists (session cache is now optional)
-        cache_key_exists = False
-        if visualization_cache is not None:
-            cache_key_exists = cache_key in visualization_cache
+        # Check if visualization exists in cache
+        visualization_cache = ctx.get_visualization_cache()
+        cache_key_exists = cache_key in visualization_cache
 
         # Set default DPI based on format
         if dpi is None:
             dpi = 300  # High quality for all formats (publication-ready)
 
         # For publication quality, recommend at least 300 DPI
-        if dpi >= 300 and context:
-            await context.info(f"Using publication-quality DPI: {dpi}")
+        if dpi >= 300:
+            await ctx.info(f"Using publication-quality DPI: {dpi}")
 
         # Create output directory using safe path handling
         # This resolves relative paths against project root (not cwd)
@@ -7107,8 +7093,8 @@ async def save_visualization(
             )
 
             # Inform user if fallback was used
-            if context and str(output_path) != str(Path(output_dir).resolve()):
-                await context.info(
+            if str(output_path) != str(Path(output_dir).resolve()):
+                await ctx.info(
                     f"Using output directory: {output_path} "
                     f"(fallback from requested path)"
                 )
@@ -7154,17 +7140,9 @@ async def save_visualization(
                     # Load metadata
                     metadata = load_visualization_metadata(metadata_path)
 
-                    if context:
-                        await context.info(
-                            "Regenerating figure from saved metadata (secure approach)"
-                        )
-
-                    # Check if data is available for regeneration
-                    if data_store is None or data_id not in data_store:
-                        raise DataNotFoundError(
-                            f"Dataset '{data_id}' not loaded. "
-                            f"Please load the dataset first using load_data tool."
-                        )
+                    await ctx.info(
+                        "Regenerating figure from saved metadata (secure approach)"
+                    )
 
                     # Reconstruct VisualizationParameters from saved metadata
                     from ..models.data import VisualizationParameters
@@ -7179,22 +7157,20 @@ async def save_visualization(
 
                     # Regenerate the figure (this creates a new matplotlib figure)
                     # We need direct access to the figure for export, not the ImageContent
-                    adata = data_store[data_id]["adata"]
+                    adata = await ctx.get_adata(data_id)
                     fig = await _regenerate_figure_for_export(
-                        adata, viz_params, context
+                        adata, viz_params, ctx._mcp_context
                     )
                     cached_fig = fig
 
-                    if context:
-                        await context.info(
-                            f"Successfully regenerated {plot_type} visualization"
-                        )
+                    await ctx.info(
+                        f"Successfully regenerated {plot_type} visualization"
+                    )
 
                 except Exception as e:
-                    if context:
-                        await context.warning(
-                            f"Failed to regenerate figure from metadata: {str(e)}"
-                        )
+                    await ctx.warning(
+                        f"Failed to regenerate figure from metadata: {str(e)}"
+                    )
 
         # Figure must exist (either in memory or regenerated)
         if cached_fig is None:
@@ -7211,13 +7187,12 @@ async def save_visualization(
                 )
 
         # Export from cached figure with format-specific parameters
-        if context:
-            format_info = format.upper()
-            if format.lower() in ["pdf", "svg", "eps", "ps"]:
-                format_info += " (vector)"
-            else:
-                format_info += f" ({dpi} DPI)"
-            await context.info(f"Exporting visualization as {format_info}...")
+        format_info = format.upper()
+        if format.lower() in ["pdf", "svg", "eps", "ps"]:
+            format_info += " (vector)"
+        else:
+            format_info += f" ({dpi} DPI)"
+        await ctx.info(f"Exporting visualization as {format_info}...")
 
         try:
             # Prepare save parameters
@@ -7263,31 +7238,30 @@ async def save_visualization(
             # Get file size
             file_size_kb = os.path.getsize(file_path) / 1024
 
-            if context:
-                size_str = (
-                    f"{file_size_kb:.1f} KB"
-                    if file_size_kb < 1024
-                    else f"{file_size_kb/1024:.1f} MB"
-                )
-                await context.info(f"Saved visualization to {file_path} ({size_str})")
+            size_str = (
+                f"{file_size_kb:.1f} KB"
+                if file_size_kb < 1024
+                else f"{file_size_kb/1024:.1f} MB"
+            )
+            await ctx.info(f"Saved visualization to {file_path} ({size_str})")
 
-                # Format-specific advice
-                if format.lower() == "pdf":
-                    await context.info(
-                        "PDF ready for journal submission (Nature/Science/Cell compatible)"
-                    )
-                elif format.lower() == "svg":
-                    await context.info(
-                        "SVG ready for web or editing in Illustrator/Inkscape"
-                    )
-                elif format.lower() in ["eps", "ps"]:
-                    await context.info(
-                        "PostScript ready for LaTeX or professional printing"
-                    )
-                elif dpi >= 300:
-                    await context.info(
-                        f"High-resolution ({dpi} DPI) suitable for publication"
-                    )
+            # Format-specific advice
+            if format.lower() == "pdf":
+                await ctx.info(
+                    "PDF ready for journal submission (Nature/Science/Cell compatible)"
+                )
+            elif format.lower() == "svg":
+                await ctx.info(
+                    "SVG ready for web or editing in Illustrator/Inkscape"
+                )
+            elif format.lower() in ["eps", "ps"]:
+                await ctx.info(
+                    "PostScript ready for LaTeX or professional printing"
+                )
+            elif dpi >= 300:
+                await ctx.info(
+                    f"High-resolution ({dpi} DPI) suitable for publication"
+                )
 
             return str(file_path)
 
@@ -7302,30 +7276,25 @@ async def save_visualization(
 
 async def export_all_visualizations(
     data_id: str,
+    ctx: "ToolContext",
     output_dir: str = "./exports",
     format: str = "png",
     dpi: Optional[int] = None,
-    visualization_cache: Optional[Dict[str, Any]] = None,
-    data_store: Optional[Dict[str, Any]] = None,
-    context: Optional[Context] = None,
 ) -> List[str]:
     """Export all cached visualizations for a dataset to disk
 
     Args:
         data_id: Dataset ID to export visualizations for
+        ctx: ToolContext for unified data access and logging
         output_dir: Directory to save files
         format: Image format (png, jpg, pdf, svg)
         dpi: DPI for saved images (default: 300 for publication quality)
-        visualization_cache: Cache dictionary containing visualizations
-        data_store: Dictionary containing loaded datasets (required for regeneration)
-        context: MCP context for logging
 
     Returns:
         List of paths to saved files
     """
     try:
-        if visualization_cache is None:
-            raise ProcessingError("Visualization cache not provided")
+        visualization_cache = ctx.get_visualization_cache()
 
         # Strategy 1: Check session cache first (fast path)
         relevant_keys = [
@@ -7334,10 +7303,9 @@ async def export_all_visualizations(
 
         # Strategy 2: Fallback to JSON metadata files (persistent storage)
         if not relevant_keys:
-            if context:
-                await context.info(
-                    f"Session cache empty, scanning metadata files for dataset '{data_id}'..."
-                )
+            await ctx.info(
+                f"Session cache empty, scanning metadata files for dataset '{data_id}'..."
+            )
 
             # Scan metadata directory for this dataset
             import glob
@@ -7352,16 +7320,14 @@ async def export_all_visualizations(
                     os.path.basename(f).replace(".json", "") for f in metadata_files
                 ]
 
-                if context:
-                    await context.info(
-                        f"Found {len(relevant_keys)} visualization(s) from metadata files"
-                    )
+                await ctx.info(
+                    f"Found {len(relevant_keys)} visualization(s) from metadata files"
+                )
             else:
-                if context:
-                    await context.warning(
-                        f"No visualizations found for dataset '{data_id}' "
-                        f"(neither in session cache nor metadata files)"
-                    )
+                await ctx.warning(
+                    f"No visualizations found for dataset '{data_id}' "
+                    f"(neither in session cache nor metadata files)"
+                )
                 return []
 
         saved_files = []
@@ -7392,24 +7358,20 @@ async def export_all_visualizations(
             try:
                 saved_path = await save_visualization(
                     data_id=data_id,
+                    ctx=ctx,
                     plot_type=plot_type,
                     subtype=subtype,
                     output_dir=output_dir,
                     format=format,
                     dpi=dpi,
-                    visualization_cache=visualization_cache,
-                    data_store=data_store,
-                    context=context,
                 )
                 saved_files.append(saved_path)
             except Exception as e:
-                if context:
-                    await context.warning(f"Failed to export {cache_key}: {str(e)}")
+                await ctx.warning(f"Failed to export {cache_key}: {str(e)}")
 
-        if context:
-            await context.info(
-                f"Exported {len(saved_files)} visualization(s) for dataset '{data_id}' to {output_dir}"
-            )
+        await ctx.info(
+            f"Exported {len(saved_files)} visualization(s) for dataset '{data_id}' to {output_dir}"
+        )
 
         return saved_files
 
@@ -7420,46 +7382,31 @@ async def export_all_visualizations(
 
 
 async def clear_visualization_cache(
+    ctx: "ToolContext",
     data_id: Optional[str] = None,
-    visualization_cache: Optional[Dict[str, Any]] = None,
-    context: Optional[Context] = None,
 ) -> int:
     """Clear visualization cache to free memory
 
     Args:
+        ctx: ToolContext for unified data access and logging
         data_id: Optional dataset ID to clear specific visualizations
-        visualization_cache: Cache dictionary to clear
-        context: MCP context for logging
 
     Returns:
         Number of visualizations cleared
     """
     try:
-        if visualization_cache is None:
-            return 0
-
         if data_id:
-            # Clear specific dataset visualizations
-            keys_to_remove = [
-                k for k in visualization_cache.keys() if k.startswith(f"{data_id}_")
-            ]
-            for key in keys_to_remove:
-                del visualization_cache[key]
-            cleared_count = len(keys_to_remove)
-
-            if context:
-                await context.info(
-                    f"Cleared {cleared_count} visualization(s) for dataset '{data_id}'"
-                )
+            # Clear specific dataset visualizations using prefix
+            cleared_count = ctx.clear_visualizations(prefix=f"{data_id}_")
+            await ctx.info(
+                f"Cleared {cleared_count} visualization(s) for dataset '{data_id}'"
+            )
         else:
             # Clear all visualizations
-            cleared_count = len(visualization_cache)
-            visualization_cache.clear()
-
-            if context:
-                await context.info(
-                    f"Cleared all {cleared_count} visualization(s) from cache"
-                )
+            cleared_count = ctx.clear_visualizations()
+            await ctx.info(
+                f"Cleared all {cleared_count} visualization(s) from cache"
+            )
 
         return cleared_count
 
