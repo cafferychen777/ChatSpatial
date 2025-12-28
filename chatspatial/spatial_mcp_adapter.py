@@ -11,13 +11,140 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import EmbeddedResource, ImageContent
+from mcp.types import EmbeddedResource, ImageContent, ToolAnnotations
 
 # Import MCP improvements
 from .models.data import VisualizationParameters
-from .utils.mcp_utils import mcp_tool_error_handler
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# TOOL ANNOTATIONS - Single Source of Truth
+# =============================================================================
+# These annotations are passed to FastMCP's @mcp.tool() decorator to inform
+# LLM clients about tool behavior characteristics.
+#
+# Annotation meanings (from MCP spec):
+# - readOnlyHint: Tool only reads data, doesn't modify state
+# - idempotentHint: Repeated calls with same args have no additional effect
+# - openWorldHint: Tool may interact with external entities (network, files)
+# =============================================================================
+
+TOOL_ANNOTATIONS: Dict[str, ToolAnnotations] = {
+    # Data I/O tools
+    "load_data": ToolAnnotations(
+        readOnlyHint=True,  # Reads from filesystem, doesn't modify data
+        idempotentHint=True,  # Loading same file yields same result
+        openWorldHint=True,  # Accesses filesystem
+    ),
+    "save_data": ToolAnnotations(
+        readOnlyHint=False,  # Writes to filesystem
+        idempotentHint=True,  # Saving same data to same path is idempotent
+        openWorldHint=True,  # Accesses filesystem
+    ),
+    # Preprocessing - modifies data in-place
+    "preprocess_data": ToolAnnotations(
+        readOnlyHint=False,  # Modifies adata in-place
+        idempotentHint=False,  # Re-running changes state
+    ),
+    # Visualization - read-only analysis
+    "visualize_data": ToolAnnotations(
+        readOnlyHint=True,  # Only reads data to generate plots
+        idempotentHint=True,  # Same params yield same plot
+    ),
+    "save_visualization": ToolAnnotations(
+        readOnlyHint=False,  # Writes to filesystem
+        idempotentHint=True,  # Saving same viz is idempotent
+        openWorldHint=True,  # Accesses filesystem
+    ),
+    "export_all_visualizations": ToolAnnotations(
+        readOnlyHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+    "clear_visualization_cache": ToolAnnotations(
+        readOnlyHint=False,  # Clears cache
+        idempotentHint=True,  # Clearing empty cache is idempotent
+    ),
+    # Analysis tools - modify adata by adding results
+    "annotate_cell_types": ToolAnnotations(
+        readOnlyHint=False,  # Adds cell type annotations to adata.obs
+        idempotentHint=False,  # Re-running may yield different results
+        openWorldHint=True,  # May use external references
+    ),
+    "analyze_spatial_statistics": ToolAnnotations(
+        readOnlyHint=False,  # Adds statistics to adata.uns
+        idempotentHint=True,  # Same params yield same statistics
+    ),
+    "find_markers": ToolAnnotations(
+        readOnlyHint=True,  # Computes markers without modifying adata
+        idempotentHint=True,  # Deterministic computation
+    ),
+    "analyze_velocity_data": ToolAnnotations(
+        readOnlyHint=False,  # Adds velocity to adata
+        idempotentHint=False,  # Stochastic methods
+    ),
+    "analyze_trajectory_data": ToolAnnotations(
+        readOnlyHint=False,  # Adds trajectory info to adata
+        idempotentHint=False,  # May have stochastic elements
+    ),
+    "integrate_samples": ToolAnnotations(
+        readOnlyHint=False,  # Creates new integrated dataset
+        idempotentHint=False,  # Creates new dataset each time
+    ),
+    "deconvolve_data": ToolAnnotations(
+        readOnlyHint=False,  # Adds deconvolution results to adata
+        idempotentHint=False,  # Deep learning methods are stochastic
+        openWorldHint=True,  # May use external references
+    ),
+    "identify_spatial_domains": ToolAnnotations(
+        readOnlyHint=False,  # Adds domain labels to adata.obs
+        idempotentHint=False,  # Clustering can vary
+    ),
+    "analyze_cell_communication": ToolAnnotations(
+        readOnlyHint=False,  # Adds communication results to adata.uns
+        idempotentHint=True,  # Deterministic given same inputs
+        openWorldHint=True,  # Uses LR databases
+    ),
+    "analyze_enrichment": ToolAnnotations(
+        readOnlyHint=False,  # Adds enrichment scores to adata
+        idempotentHint=True,  # Deterministic
+    ),
+    "find_spatial_genes": ToolAnnotations(
+        readOnlyHint=False,  # Adds spatial gene info to adata.var
+        idempotentHint=True,  # Deterministic methods
+    ),
+    "analyze_cnv": ToolAnnotations(
+        readOnlyHint=False,  # Adds CNV results to adata
+        idempotentHint=True,  # Deterministic
+    ),
+    "register_spatial_data": ToolAnnotations(
+        readOnlyHint=False,  # Modifies spatial coordinates
+        idempotentHint=False,  # Registration can vary
+    ),
+}
+
+
+def get_tool_annotations(tool_name: str) -> ToolAnnotations:
+    """Get annotations for a tool by name.
+
+    Args:
+        tool_name: Name of the tool (e.g., 'load_data', 'preprocess_data')
+
+    Returns:
+        ToolAnnotations object for the tool. Returns conservative defaults
+        if tool is not in registry.
+
+    Usage:
+        @mcp.tool(annotations=get_tool_annotations("load_data"))
+        async def load_data(...): ...
+    """
+    return TOOL_ANNOTATIONS.get(
+        tool_name,
+        # Conservative defaults: assume tool modifies state and is not idempotent
+        ToolAnnotations(readOnlyHint=False, idempotentHint=False),
+    )
 
 
 @dataclass
@@ -30,20 +157,6 @@ class MCPResource:
     description: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     content_provider: Optional[Callable[[], Union[str, bytes]]] = None
-
-
-@dataclass
-class MCPToolMetadata:
-    """Enhanced tool metadata including MCP annotations"""
-
-    name: str
-    title: str
-    description: str
-    read_only_hint: bool = False
-    destructive_hint: bool = False
-    idempotent_hint: bool = True
-    open_world_hint: bool = False
-    parameters_schema: Optional[Dict[str, Any]] = None
 
 
 class SpatialResourceManager:
@@ -181,117 +294,6 @@ class SpatialMCPAdapter:
         self.mcp = mcp_server
         self.data_manager = data_manager
         self.resource_manager = SpatialResourceManager(data_manager)
-        self._tool_metadata: Dict[str, MCPToolMetadata] = {}
-        self._initialize_tools()
-
-    def _initialize_tools(self):
-        """Initialize tool metadata"""
-        self._tool_metadata = {
-            "load_data": MCPToolMetadata(
-                name="load_data",
-                title="Load Spatial Data",
-                description="Load spatial transcriptomics data from file",
-                read_only_hint=True,
-                idempotent_hint=True,
-                open_world_hint=True,
-            ),
-            "preprocess_data": MCPToolMetadata(
-                name="preprocess_data",
-                title="Preprocess Spatial Data",
-                description="Preprocess and normalize spatial data",
-                read_only_hint=False,
-                idempotent_hint=False,
-                open_world_hint=False,
-            ),
-            "visualize_data": MCPToolMetadata(
-                name="visualize_data",
-                title="Visualize Spatial Data",
-                description="Create visualizations of spatial data",
-                read_only_hint=True,
-                idempotent_hint=True,
-                open_world_hint=False,
-            ),
-            "annotate_cell_types": MCPToolMetadata(
-                name="annotate_cell_types",
-                title="Annotate Cell Types",
-                description="Identify cell types in spatial data",
-                read_only_hint=False,
-                idempotent_hint=False,
-                open_world_hint=True,
-            ),
-            "analyze_spatial_statistics": MCPToolMetadata(
-                name="analyze_spatial_statistics",
-                title="Spatial Pattern Analysis",
-                description="Analyze spatial patterns and correlations",
-                read_only_hint=False,
-                idempotent_hint=True,
-                open_world_hint=False,
-            ),
-            "find_markers": MCPToolMetadata(
-                name="find_markers",
-                title="Find Marker Genes",
-                description="Identify differentially expressed genes",
-                read_only_hint=True,
-                idempotent_hint=True,
-                open_world_hint=False,
-            ),
-            "integrate_samples": MCPToolMetadata(
-                name="integrate_samples",
-                title="Integrate Multiple Samples",
-                description="Integrate multiple spatial datasets",
-                read_only_hint=False,
-                idempotent_hint=False,
-                open_world_hint=False,
-            ),
-            "deconvolve_data": MCPToolMetadata(
-                name="deconvolve_data",
-                title="Spatial Deconvolution",
-                description="Deconvolve spatial spots into cell types",
-                read_only_hint=False,
-                idempotent_hint=False,
-                open_world_hint=True,
-            ),
-            "identify_spatial_domains": MCPToolMetadata(
-                name="identify_spatial_domains",
-                title="Identify Spatial Domains",
-                description="Find spatial domains and niches",
-                read_only_hint=False,
-                idempotent_hint=False,
-                open_world_hint=False,
-            ),
-            "analyze_cell_communication": MCPToolMetadata(
-                name="analyze_cell_communication",
-                title="Cell Communication Analysis",
-                description="Analyze cell-cell communication",
-                read_only_hint=False,
-                idempotent_hint=True,
-                open_world_hint=True,
-            ),
-            "analyze_enrichment": MCPToolMetadata(
-                name="analyze_enrichment",
-                title="Gene Set Enrichment Analysis",
-                description="Perform gene set enrichment analysis",
-                read_only_hint=False,
-                idempotent_hint=True,
-                open_world_hint=False,
-            ),
-            "find_spatial_genes": MCPToolMetadata(
-                name="find_spatial_genes",
-                title="Find Spatial Variable Genes",
-                description="Identify spatially variable genes",
-                read_only_hint=False,
-                idempotent_hint=True,
-                open_world_hint=False,
-            ),
-        }
-
-    def get_tool_metadata(self, tool_name: str) -> Optional[MCPToolMetadata]:
-        """Get metadata for a tool"""
-        return self._tool_metadata.get(tool_name)
-
-    def get_all_tools_metadata(self) -> List[MCPToolMetadata]:
-        """Get metadata for all tools"""
-        return list(self._tool_metadata.values())
 
     async def handle_resource_list(self) -> List[Dict[str, Any]]:
         """Handle MCP resource list request"""
@@ -331,17 +333,6 @@ class SpatialMCPAdapter:
                     {"uri": uri, "mimeType": "application/json", "text": content}
                 ]
             }
-
-    def register_tool(self, tool_func: Callable, metadata: MCPToolMetadata) -> None:
-        """Register a tool with the MCP server"""
-        # Wrap the tool with MCP decorators
-        decorated_tool = mcp_tool_error_handler()(tool_func)
-
-        # Register with FastMCP
-        self.mcp.tool()(decorated_tool)
-
-        # Store metadata
-        self._tool_metadata[metadata.name] = metadata
 
     async def create_visualization_from_result(
         self,
@@ -605,7 +596,9 @@ class ToolContext:
             ValueError: If dataset with same ID already exists
         """
         if data_id in self._data_manager.data_store:
-            raise ValueError(f"Dataset {data_id} already exists. Use set_adata() to update.")
+            raise ValueError(
+                f"Dataset {data_id} already exists. Use set_adata() to update."
+            )
         dataset_info: Dict[str, Any] = {"adata": adata}
         if name:
             dataset_info["name"] = name

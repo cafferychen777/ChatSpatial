@@ -7,7 +7,7 @@ import traceback
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -28,27 +28,21 @@ import seaborn as sns  # noqa: E402
 from mcp.server.fastmcp import Context  # noqa: E402
 from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
 
-# Use centralized dependency manager
-from ..utils.dependency_manager import is_available  # noqa: E402
-
-# Optional CNV analysis visualization (check availability via dependency manager)
-INFERCNVPY_AVAILABLE = is_available("infercnvpy")
-
 from ..models.data import VisualizationParameters  # noqa: E402
-# Import spatial coordinates helper from data adapter
-from ..utils.data_adapter import get_spatial_coordinates  # noqa: E402
+# Import adata utilities (spatial coordinates, categorical handling)
+from ..utils.adata_utils import (ensure_categorical,  # noqa: E402
+                                 get_spatial_coordinates)
+# Use centralized dependency manager
+from ..utils.dependency_manager import require  # noqa: E402
 # Import error handling utilities
-from ..utils.error_handling import DataCompatibilityError  # noqa: E402
-from ..utils.error_handling import DataNotFoundError  # noqa: E402
-from ..utils.error_handling import (InvalidParameterError,  # noqa: E402
-                                    ProcessingError)
+from ..utils.exceptions import (DataCompatibilityError,  # noqa: E402
+                                DataNotFoundError, ParameterError,
+                                ProcessingError)
 # Import standardized image utilities
 from ..utils.image_utils import optimize_fig_to_image_with_cache  # noqa: E402
 # Import path utilities for safe file operations
-from ..utils.path_utils import get_output_dir_from_config  # noqa: E402
-from ..utils.path_utils import get_safe_output_path  # noqa: E402
-# Import color utilities for categorical data
-from ._color_utils import _ensure_categorical_colors  # noqa: E402
+from ..utils.path_utils import (get_output_dir_from_config,  # noqa: E402
+                                get_safe_output_path)
 
 # Import publication export utilities
 
@@ -640,7 +634,7 @@ def plot_spatial_feature(
     is_categorical = False
     if feature and feature in adata.obs.columns:
         # Ensure categorical colors are set for obs columns
-        _ensure_categorical_colors(adata, feature)
+        ensure_categorical(adata, feature)
         is_categorical = pd.api.types.is_categorical_dtype(adata.obs[feature])
 
     # Base kwargs for both functions
@@ -1386,16 +1380,7 @@ async def _create_cnv_heatmap_visualization(
         await context.info(f"Detected CNV data from {cnv_method} method")
 
     # Check if infercnvpy is available (needed for visualization)
-    if not INFERCNVPY_AVAILABLE:
-        error_msg = (
-            "infercnvpy is not installed. Please install it with:\n"
-            "  pip install 'chatspatial[cnv]'\n"
-            "or:\n"
-            "  pip install infercnvpy>=0.4.0"
-        )
-        if context:
-            await context.warning(error_msg)
-        raise DataCompatibilityError(error_msg)
+    require("infercnvpy", feature="CNV heatmap visualization")
 
     # For Numbat data, temporarily copy to X_cnv for visualization
     if cnv_method == "numbat":
@@ -1698,7 +1683,7 @@ async def _create_umap_visualization(
                 plot_kwargs["cmap"] = params.colormap
             elif feature in adata.obs.columns:
                 # Ensure categorical features have proper colors
-                _ensure_categorical_colors(adata, feature)
+                ensure_categorical(adata, feature)
 
         # Add size encoding if requested
         if params.size_by:
@@ -1886,10 +1871,14 @@ async def _create_spatial_visualization(
                 if "spatial" in adata.uns:
                     for key in adata.uns["spatial"].keys():
                         images_dict = adata.uns["spatial"][key].get("images", {})
-                        if images_dict and ("hires" in images_dict or "lowres" in images_dict):
+                        if images_dict and (
+                            "hires" in images_dict or "lowres" in images_dict
+                        ):
                             has_tissue_image = True
                             # Prefer hires, fallback to lowres
-                            img_key_to_use = "hires" if "hires" in images_dict else "lowres"
+                            img_key_to_use = (
+                                "hires" if "hires" in images_dict else "lowres"
+                            )
                             break
 
                 if has_tissue_image and params.show_tissue_image:
@@ -2051,7 +2040,7 @@ async def visualize_data(
 
     Raises:
         DataNotFoundError: If the dataset is not found
-        InvalidParameterError: If parameters are invalid
+        ParameterError: If parameters are invalid
         DataCompatibilityError: If data is not compatible with the visualization
         ProcessingError: If processing fails
     """
@@ -2062,12 +2051,10 @@ async def visualize_data(
             f"Must be one of {list(PLOT_HANDLERS.keys())}"
         )
         await ctx.warning(error_msg)
-        raise InvalidParameterError(error_msg)
+        raise ParameterError(error_msg)
 
     await ctx.info(f"Visualizing {params.plot_type} plot for dataset {data_id}")
-    await ctx.info(
-        f"Parameters: feature={params.feature}, colormap={params.colormap}"
-    )
+    await ctx.info(f"Parameters: feature={params.feature}, colormap={params.colormap}")
 
     try:
         # Retrieve the AnnData object via ToolContext
@@ -2129,9 +2116,7 @@ async def visualize_data(
             )
 
         # Wrap the error in a more informative exception
-        if isinstance(
-            e, (DataNotFoundError, InvalidParameterError, DataCompatibilityError)
-        ):
+        if isinstance(e, (DataNotFoundError, ParameterError, DataCompatibilityError)):
             # Re-raise specific errors
             raise
         else:
@@ -3095,8 +3080,7 @@ async def _create_cluster_lr_visualization(
 ) -> plt.Figure:
     """Create cluster-based L-R visualization.
 
-    Attempts to use LIANA+ official dotplot if available, falls back to
-    simple bar plot visualization.
+    Uses LIANA+ official dotplot for visualization.
 
     Args:
         adata: AnnData object
@@ -3107,12 +3091,14 @@ async def _create_cluster_lr_visualization(
     Returns:
         matplotlib Figure
     """
-    # Try LIANA+ official dotplot first
-    try:
-        import liana as li
+    require("liana", feature="LIANA+ plotting")
+    require("plotnine", feature="LIANA+ plotting")
+    import liana as li
 
-        if context:
-            await context.info("Using LIANA+ official dotplot")
+    if context:
+        await context.info("Using LIANA+ official dotplot")
+
+    try:
 
         # Determine orderby column (required by LIANA+ dotplot)
         orderby_col = None
@@ -3150,12 +3136,6 @@ async def _create_cluster_lr_visualization(
         fig = _plotnine_to_matplotlib(p, params)
         return fig
 
-    except ImportError as e:
-        raise ProcessingError(
-            "LIANA+ plotting not available.\n\n"
-            "SOLUTION: Install liana with plotting support:\n"
-            "  pip install liana plotnine"
-        ) from e
     except Exception as e:
         raise ProcessingError(
             f"LIANA+ dotplot failed: {e}\n\n"
@@ -3225,12 +3205,6 @@ async def _create_liana_tileplot(
         fig = _plotnine_to_matplotlib(p, params)
         return fig
 
-    except ImportError as e:
-        raise ProcessingError(
-            "LIANA+ plotting not available.\n\n"
-            "SOLUTION: Install liana with plotting support:\n"
-            "  pip install liana plotnine"
-        ) from e
     except Exception as e:
         raise ProcessingError(
             f"LIANA+ tileplot failed: {e}\n\n"
@@ -3309,12 +3283,6 @@ async def _create_liana_circle_plot(
         fig = plt.gcf()
         return fig
 
-    except ImportError as e:
-        raise ProcessingError(
-            "LIANA+ plotting not available.\n\n"
-            "SOLUTION: Install liana with plotting support:\n"
-            "  pip install liana plotnine"
-        ) from e
     except Exception as e:
         raise ProcessingError(
             f"LIANA+ circle_plot failed: {e}\n\n"
@@ -3445,9 +3413,10 @@ def _create_cellphonedb_dotplot(
             "SOLUTION: Re-run CellPhoneDB analysis"
         )
 
-    try:
-        import ktplotspy as kpy
+    require("ktplotspy", feature="CellPhoneDB dotplot visualization")
+    import ktplotspy as kpy
 
+    try:
         # Get pvalues
         pvalues = adata.uns.get("cellphonedb_pvalues", None)
 
@@ -3485,12 +3454,6 @@ def _create_cellphonedb_dotplot(
         fig = gg.draw()
         return fig
 
-    except ImportError:
-        raise ProcessingError(
-            "ktplotspy is required for CellPhoneDB dotplot visualization.\n\n"
-            "SOLUTION: Install ktplotspy:\n"
-            "  pip install ktplotspy"
-        )
     except Exception as e:
         raise ProcessingError(
             f"Failed to create CellPhoneDB dotplot: {str(e)}\n\n"
@@ -3531,10 +3494,11 @@ def _create_cellphonedb_chord(
             "SOLUTION: Re-run CellPhoneDB analysis"
         )
 
-    try:
-        import ktplotspy as kpy
-        import matplotlib.colors as mcolors
+    require("ktplotspy", feature="CellPhoneDB chord visualization")
+    import ktplotspy as kpy
+    import matplotlib.colors as mcolors
 
+    try:
         # Get pvalues and deconvoluted (required for chord plot)
         pvalues = adata.uns.get("cellphonedb_pvalues", None)
         deconvoluted = adata.uns.get("cellphonedb_deconvoluted", None)
@@ -3633,12 +3597,6 @@ def _create_cellphonedb_chord(
 
         return fig
 
-    except ImportError:
-        raise ProcessingError(
-            "ktplotspy is required for CellPhoneDB chord visualization.\n\n"
-            "SOLUTION: Install ktplotspy:\n"
-            "  pip install ktplotspy"
-        )
     except Exception as e:
         raise ProcessingError(
             f"Failed to create CellPhoneDB chord diagram: {str(e)}\n\n"
@@ -4189,7 +4147,7 @@ async def _create_rna_velocity_visualization(
     elif subtype == "paga":
         return await _create_velocity_paga_plot(adata, params, context)
     else:
-        raise InvalidParameterError(
+        raise ParameterError(
             f"Unsupported subtype for rna_velocity: '{subtype}'. "
             f"Available subtypes: stream, phase, proportions, heatmap, paga"
         )
@@ -4212,13 +4170,8 @@ async def _create_velocity_stream_plot(
         - adata.uns['velocity_graph']: Velocity transition graph
         - adata.obsm['X_umap'] or 'spatial': Embedding for visualization
     """
-    try:
-        import scvelo as scv
-    except ImportError:
-        raise DataCompatibilityError(
-            "scvelo package is required for RNA velocity visualization. "
-            "Install with: pip install scvelo>=0.2.5"
-        )
+    require("scvelo", feature="RNA velocity visualization")
+    import scvelo as scv
 
     # Check if RNA velocity has been computed
     if "velocity_graph" not in adata.uns:
@@ -4321,13 +4274,8 @@ async def _create_velocity_phase_plot(
         - adata.layers['Mu']: Smoothed unspliced counts
         - adata.var_names: Gene names for feature parameter
     """
-    try:
-        import scvelo as scv
-    except ImportError:
-        raise DataCompatibilityError(
-            "scvelo package is required for velocity phase plots. "
-            "Install with: pip install scvelo>=0.2.5"
-        )
+    require("scvelo", feature="velocity phase plots")
+    import scvelo as scv
 
     # Check required layers
     required_layers = ["velocity", "Ms", "Mu"]
@@ -4417,13 +4365,8 @@ async def _create_velocity_proportions_plot(
         - adata.layers['unspliced']: Unspliced counts
         - adata.obs[cluster_key]: Cluster labels for grouping
     """
-    try:
-        import scvelo as scv
-    except ImportError:
-        raise DataCompatibilityError(
-            "scvelo package is required for proportions plot. "
-            "Install with: pip install scvelo>=0.2.5"
-        )
+    require("scvelo", feature="proportions plot")
+    import scvelo as scv
 
     # Check required layers
     if "spliced" not in adata.layers or "unspliced" not in adata.layers:
@@ -4446,7 +4389,7 @@ async def _create_velocity_proportions_plot(
             if context:
                 await context.info(f"Using cluster_key: '{cluster_key}'")
         else:
-            raise InvalidParameterError(
+            raise ParameterError(
                 "cluster_key is required for proportions plot. "
                 f"Available columns: {list(adata.obs.columns)[:10]}"
             )
@@ -4498,13 +4441,8 @@ async def _create_velocity_heatmap(
         - adata.obs['latent_time']: Latent time from dynamical model
         - adata.var['velocity_genes']: Velocity genes (optional, for gene selection)
     """
-    try:
-        import scvelo as scv
-    except ImportError:
-        raise DataCompatibilityError(
-            "scvelo package is required for velocity heatmap. "
-            "Install with: pip install scvelo>=0.2.5"
-        )
+    require("scvelo", feature="velocity heatmap")
+    import scvelo as scv
 
     # Check for latent_time
     if "latent_time" not in adata.obs.columns:
@@ -4585,13 +4523,8 @@ async def _create_velocity_paga_plot(
         - adata.uns['paga']: PAGA results (computed by scv.tl.paga)
         - adata.obs[cluster_key]: Cluster labels used for PAGA
     """
-    try:
-        import scvelo as scv
-    except ImportError:
-        raise DataCompatibilityError(
-            "scvelo package is required for velocity PAGA plot. "
-            "Install with: pip install scvelo>=0.2.5"
-        )
+    require("scvelo", feature="velocity PAGA plot")
+    import scvelo as scv
 
     # Check for velocity graph
     if "velocity_graph" not in adata.uns:
@@ -4616,7 +4549,7 @@ async def _create_velocity_paga_plot(
                 cluster_key = categorical_cols[0]
 
     if not cluster_key or cluster_key not in adata.obs.columns:
-        raise InvalidParameterError(
+        raise ParameterError(
             f"cluster_key is required for PAGA plot. "
             f"Available columns: {list(adata.obs.columns)[:10]}"
         )
@@ -4700,7 +4633,7 @@ async def _create_spatial_statistics_visualization(
     elif params.subtype == "getis_ord":
         return await _create_getis_ord_visualization(adata, params, context)
     else:
-        raise InvalidParameterError(
+        raise ParameterError(
             f"Unsupported subtype for spatial_statistics: {params.subtype}"
         )
 
@@ -4709,13 +4642,8 @@ async def _create_neighborhood_enrichment_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create neighborhood enrichment visualization using squidpy."""
-    try:
-        import squidpy as sq
-    except ImportError:
-        raise ImportError(
-            "squidpy is required for neighborhood enrichment visualization. "
-            "Install with: pip install squidpy"
-        )
+    require("squidpy", feature="neighborhood enrichment visualization")
+    import squidpy as sq
 
     # Infer cluster_key from params or existing results
     cluster_key = params.cluster_key
@@ -4764,13 +4692,8 @@ async def _create_co_occurrence_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create co-occurrence analysis visualization using squidpy."""
-    try:
-        import squidpy as sq
-    except ImportError:
-        raise ImportError(
-            "squidpy is required for co-occurrence visualization. "
-            "Install with: pip install squidpy"
-        )
+    require("squidpy", feature="co-occurrence visualization")
+    import squidpy as sq
 
     # Infer cluster_key from params or existing results
     cluster_key = params.cluster_key
@@ -4826,13 +4749,8 @@ async def _create_ripley_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create Ripley's function visualization using squidpy."""
-    try:
-        import squidpy as sq
-    except ImportError:
-        raise ImportError(
-            "squidpy is required for Ripley visualization. "
-            "Install with: pip install squidpy"
-        )
+    require("squidpy", feature="Ripley visualization")
+    import squidpy as sq
 
     # Infer cluster_key from params or existing results
     cluster_key = params.cluster_key
@@ -4930,13 +4848,8 @@ async def _create_centrality_visualization(
     adata: ad.AnnData, params: VisualizationParameters, context=None
 ) -> plt.Figure:
     """Create centrality scores visualization using squidpy."""
-    try:
-        import squidpy as sq
-    except ImportError:
-        raise ImportError(
-            "squidpy is required for centrality visualization. "
-            "Install with: pip install squidpy"
-        )
+    require("squidpy", feature="centrality visualization")
+    import squidpy as sq
 
     # Infer cluster_key from params or existing results
     cluster_key = params.cluster_key
@@ -5131,7 +5044,7 @@ async def _create_trajectory_visualization(
     elif subtype == "palantir":
         return await _create_palantir_results(adata, params, context)
     else:
-        raise InvalidParameterError(
+        raise ParameterError(
             f"Unsupported subtype for trajectory: '{subtype}'. "
             f"Available subtypes: pseudotime, circular, fate_map, gene_trends, "
             f"fate_heatmap, palantir"
@@ -5305,13 +5218,8 @@ async def _create_cellrank_circular_projection(
         - adata.obs['terminal_states'] or 'term_states_fwd': Terminal state labels
         - adata.obsm['lineages_fwd'] or 'to_terminal_states': Fate probabilities
     """
-    try:
-        import cellrank as cr
-    except ImportError:
-        raise DataCompatibilityError(
-            "cellrank package is required for circular projection. "
-            "Install with: pip install cellrank>=2.0.0"
-        )
+    require("cellrank", feature="circular projection")
+    import cellrank as cr
 
     # Check for CellRank results
     fate_key_candidates = ["lineages_fwd", "to_terminal_states"]
@@ -5346,8 +5254,9 @@ async def _create_cellrank_circular_projection(
     figsize = params.figure_size or (10, 10)
 
     import matplotlib
+
     backend = matplotlib.get_backend()
-    matplotlib.use('Agg')  # Force non-interactive backend
+    matplotlib.use("Agg")  # Force non-interactive backend
 
     cr.pl.circular_projection(
         adata,
@@ -5384,13 +5293,8 @@ async def _create_cellrank_fate_map(
         - adata.obsm['lineages_fwd'] or 'to_terminal_states': Fate probabilities
         - adata.obs[cluster_key]: Cluster labels for aggregation
     """
-    try:
-        import cellrank as cr
-    except ImportError:
-        raise DataCompatibilityError(
-            "cellrank package is required for fate map. "
-            "Install with: pip install cellrank>=2.0.0"
-        )
+    require("cellrank", feature="fate map")
+    import cellrank as cr
 
     # Check for CellRank results
     fate_key_candidates = ["lineages_fwd", "to_terminal_states"]
@@ -5419,9 +5323,7 @@ async def _create_cellrank_fate_map(
             if context:
                 await context.info(f"Using cluster_key: '{cluster_key}'")
         else:
-            raise InvalidParameterError(
-                "cluster_key is required for fate map visualization."
-            )
+            raise ParameterError("cluster_key is required for fate map visualization.")
 
     if context:
         await context.info(f"Creating CellRank fate map for '{cluster_key}'")
@@ -5431,8 +5333,9 @@ async def _create_cellrank_fate_map(
     figsize = params.figure_size or (12, 6)
 
     import matplotlib
+
     backend = matplotlib.get_backend()
-    matplotlib.use('Agg')  # Force non-interactive backend
+    matplotlib.use("Agg")  # Force non-interactive backend
 
     # Default to 'bar' mode - most informative
     cr.pl.aggregate_fate_probabilities(
@@ -5472,13 +5375,8 @@ async def _create_cellrank_gene_trends(
         - adata.obs['latent_time'] or similar pseudotime
         - Gene expression in adata.X
     """
-    try:
-        import cellrank as cr
-    except ImportError:
-        raise DataCompatibilityError(
-            "cellrank package is required for gene trends. "
-            "Install with: pip install cellrank>=2.0.0"
-        )
+    require("cellrank", feature="gene trends")
+    import cellrank as cr
 
     # Import GAM model preparation from trajectory module (separation of concerns)
     from .trajectory import prepare_gam_model_for_visualization
@@ -5538,8 +5436,9 @@ async def _create_cellrank_gene_trends(
 
     # Force Agg backend to avoid display issues
     import matplotlib
+
     backend = matplotlib.get_backend()
-    matplotlib.use('Agg')
+    matplotlib.use("Agg")
 
     # Use trajectory module for GAM model preparation (computation logic)
     model, lineage_names = prepare_gam_model_for_visualization(
@@ -5591,13 +5490,8 @@ async def _create_cellrank_fate_heatmap(
         - adata.obs['latent_time'] or similar pseudotime
         - Gene expression in adata.X
     """
-    try:
-        import cellrank as cr
-    except ImportError:
-        raise DataCompatibilityError(
-            "cellrank package is required for fate heatmap. "
-            "Install with: pip install cellrank>=2.0.0"
-        )
+    require("cellrank", feature="fate heatmap")
+    import cellrank as cr
 
     # Import GAM model preparation from trajectory module (separation of concerns)
     from .trajectory import prepare_gam_model_for_visualization
@@ -5651,8 +5545,9 @@ async def _create_cellrank_fate_heatmap(
 
     # Force Agg backend to avoid display issues
     import matplotlib
+
     backend = matplotlib.get_backend()
-    matplotlib.use('Agg')
+    matplotlib.use("Agg")
 
     # Use trajectory module for GAM model preparation (computation logic)
     model, lineage_names = prepare_gam_model_for_visualization(
@@ -7062,7 +6957,7 @@ async def save_visualization(
         # Validate format
         valid_formats = ["png", "jpg", "jpeg", "pdf", "svg", "eps", "ps", "tiff"]
         if format.lower() not in valid_formats:
-            raise InvalidParameterError(
+            raise ParameterError(
                 f"Invalid format: {format}. Must be one of {valid_formats}"
             )
 
@@ -7127,7 +7022,8 @@ async def save_visualization(
         file_path = output_path / filename
 
         # Get cached figure object for export
-        from ..utils.image_utils import get_cached_figure, load_visualization_metadata
+        from ..utils.image_utils import (get_cached_figure,
+                                         load_visualization_metadata)
 
         # 1. Try to get figure from in-memory cache (fast path, within same session)
         cached_fig = get_cached_figure(cache_key) if cache_key_exists else None
@@ -7251,24 +7147,18 @@ async def save_visualization(
                     "PDF ready for journal submission (Nature/Science/Cell compatible)"
                 )
             elif format.lower() == "svg":
-                await ctx.info(
-                    "SVG ready for web or editing in Illustrator/Inkscape"
-                )
+                await ctx.info("SVG ready for web or editing in Illustrator/Inkscape")
             elif format.lower() in ["eps", "ps"]:
-                await ctx.info(
-                    "PostScript ready for LaTeX or professional printing"
-                )
+                await ctx.info("PostScript ready for LaTeX or professional printing")
             elif dpi >= 300:
-                await ctx.info(
-                    f"High-resolution ({dpi} DPI) suitable for publication"
-                )
+                await ctx.info(f"High-resolution ({dpi} DPI) suitable for publication")
 
             return str(file_path)
 
         except Exception as e:
             raise ProcessingError(f"Failed to export visualization: {str(e)}") from e
 
-    except (DataNotFoundError, InvalidParameterError):
+    except (DataNotFoundError, ParameterError):
         raise
     except Exception as e:
         raise ProcessingError(f"Failed to save visualization: {str(e)}")
@@ -7404,9 +7294,7 @@ async def clear_visualization_cache(
         else:
             # Clear all visualizations
             cleared_count = ctx.clear_visualizations()
-            await ctx.info(
-                f"Cleared all {cleared_count} visualization(s) from cache"
-            )
+            await ctx.info(f"Cleared all {cleared_count} visualization(s) from cache")
 
         return cleared_count
 
