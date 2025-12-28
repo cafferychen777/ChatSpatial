@@ -55,10 +55,7 @@ async def create_card_imputation_visualization(
 
     # Check if CARD imputation data exists
     if "card_imputation" not in adata.uns:
-        error_msg = (
-            "CARD imputation data not found in adata.uns['card_imputation']. "
-            "Please run CARD deconvolution with card_imputation=True first."
-        )
+        error_msg = "CARD imputation data not found. Run CARD with card_imputation=True."
         if context:
             await context.warning(error_msg)
         raise DataNotFoundError(error_msg)
@@ -218,11 +215,7 @@ async def create_spatial_cnv_visualization(
                     "No feature specified, using 'numbat_p_cnv' (Numbat CNV probability)"
                 )
         else:
-            error_msg = (
-                "No CNV-related features found in adata.obs. "
-                "Expected one of: 'numbat_clone', 'cnv_score', 'numbat_p_cnv'. "
-                "Please run CNV analysis first using analyze_cnv()."
-            )
+            error_msg = "No CNV features found. Run analyze_cnv() first."
             if context:
                 await context.warning(error_msg)
             raise DataNotFoundError(error_msg)
@@ -295,11 +288,7 @@ async def create_cnv_heatmap_visualization(
     elif "X_cnv_numbat" in adata.obsm:
         cnv_method = "numbat"
     else:
-        error_msg = (
-            "CNV data not found. Expected 'X_cnv' (infercnvpy) or "
-            "'X_cnv_numbat' (Numbat) in adata.obsm. "
-            "Please run CNV analysis first using analyze_cnv()."
-        )
+        error_msg = "CNV data not found in obsm. Run analyze_cnv() first."
         if context:
             await context.warning(error_msg)
         raise DataNotFoundError(error_msg)

@@ -83,28 +83,8 @@ from .persistence import (
     save_visualization,
 )
 
-# Handler registry for dispatch
-PLOT_HANDLERS = {
-    # Basic plots
-    "spatial": create_spatial_visualization,
-    "umap": create_umap_visualization,
-    "heatmap": create_heatmap_visualization,
-    "violin": create_violin_visualization,
-    "dotplot": create_dotplot_visualization,
-    # Analysis-specific plots
-    "deconvolution": create_deconvolution_visualization,
-    "cell_communication": create_cell_communication_visualization,
-    "rna_velocity": create_rna_velocity_visualization,
-    "trajectory": create_trajectory_visualization,
-    "spatial_statistics": create_spatial_statistics_visualization,
-    "pathway_enrichment": create_pathway_enrichment_visualization,
-    # CNV plots
-    "card_imputation": create_card_imputation_visualization,
-    "spatial_cnv": create_spatial_cnv_visualization,
-    "cnv_heatmap": create_cnv_heatmap_visualization,
-    # Integration plots
-    "batch_integration": create_batch_integration_visualization,
-}
+# Main entry point and handler registry (from main.py to avoid circular imports)
+from .main import PLOT_HANDLERS, visualize_data
 
 __all__ = [
     # Core utilities
@@ -143,6 +123,8 @@ __all__ = [
     "save_visualization",
     "export_all_visualizations",
     "clear_visualization_cache",
+    # Main entry point
+    "visualize_data",
     # Handler registry
     "PLOT_HANDLERS",
 ]

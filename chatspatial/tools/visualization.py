@@ -4012,7 +4012,7 @@ async def _create_velocity_stream_plot(
     # Check if RNA velocity has been computed
     if "velocity_graph" not in adata.uns:
         raise DataNotFoundError(
-            "RNA velocity has not been computed. Please run 'analyze_velocity_data' first."
+            "RNA velocity not computed. Run analyze_velocity_data() first."
         )
 
     # Determine basis for plotting
@@ -4118,8 +4118,7 @@ async def _create_velocity_phase_plot(
     missing_layers = [layer for layer in required_layers if layer not in adata.layers]
     if missing_layers:
         raise DataNotFoundError(
-            f"Missing required layers for phase plot: {missing_layers}. "
-            f"Please run 'analyze_velocity_data' first."
+            f"Missing layers for phase plot: {missing_layers}. Run velocity analysis first."
         )
 
     # Get genes to plot
@@ -4279,9 +4278,7 @@ async def _create_velocity_heatmap(
     # Check for latent_time
     if "latent_time" not in adata.obs.columns:
         raise DataNotFoundError(
-            "latent_time is required for velocity heatmap. "
-            "Please run 'analyze_velocity_data' with dynamical mode first, "
-            "or use analyze_trajectory_data for pseudotime calculation."
+            "latent_time required. Run velocity analysis with dynamical mode."
         )
 
     # Get genes to plot
@@ -4361,8 +4358,7 @@ async def _create_velocity_paga_plot(
     # Check for velocity graph
     if "velocity_graph" not in adata.uns:
         raise DataNotFoundError(
-            "velocity_graph is required for PAGA visualization. "
-            "Please run 'analyze_velocity_data' first."
+            "velocity_graph required. Run analyze_velocity_data() first."
         )
 
     # Determine cluster key
@@ -4911,14 +4907,12 @@ async def _create_trajectory_pseudotime_plot(
                 await context.info(f"Found pseudotime column: {pseudotime_key}")
         else:
             raise DataNotFoundError(
-                "No pseudotime information found. Please run trajectory analysis "
-                "first or specify a pseudotime column in the 'feature' parameter."
+                "No pseudotime found. Run trajectory analysis first."
             )
 
     if pseudotime_key not in adata.obs.columns:
         raise DataNotFoundError(
-            f"Pseudotime column '{pseudotime_key}' not found. "
-            "Please run trajectory analysis first."
+            f"Pseudotime '{pseudotime_key}' not found. Run trajectory analysis first."
         )
 
     # Check if RNA velocity is available
@@ -5058,8 +5052,7 @@ async def _create_cellrank_circular_projection(
 
     if not fate_key:
         raise DataNotFoundError(
-            "CellRank fate probabilities not found. "
-            "Please run 'analyze_trajectory_data' with method='cellrank' first."
+            "CellRank fate probabilities not found. Run trajectory analysis first."
         )
 
     if context:
@@ -5133,8 +5126,7 @@ async def _create_cellrank_fate_map(
 
     if not fate_key:
         raise DataNotFoundError(
-            "CellRank fate probabilities not found. "
-            "Please run 'analyze_trajectory_data' with method='cellrank' first."
+            "CellRank fate probabilities not found. Run trajectory analysis first."
         )
 
     # Determine cluster key
@@ -5218,8 +5210,7 @@ async def _create_cellrank_gene_trends(
 
     if not fate_key:
         raise DataNotFoundError(
-            "CellRank fate probabilities not found. "
-            "Please run 'analyze_trajectory_data' with method='cellrank' first."
+            "CellRank fate probabilities not found. Run trajectory analysis first."
         )
 
     # Find time key
@@ -5232,8 +5223,7 @@ async def _create_cellrank_gene_trends(
 
     if not time_key:
         raise DataNotFoundError(
-            "No pseudotime found for gene trends. "
-            "Please ensure trajectory analysis has been run."
+            "No pseudotime found for gene trends. Run trajectory analysis first."
         )
 
     # Get genes to plot
@@ -5333,8 +5323,7 @@ async def _create_cellrank_fate_heatmap(
 
     if not fate_key:
         raise DataNotFoundError(
-            "CellRank fate probabilities not found. "
-            "Please run 'analyze_trajectory_data' with method='cellrank' first."
+            "CellRank fate probabilities not found. Run trajectory analysis first."
         )
 
     # Find time key
@@ -5437,8 +5426,7 @@ async def _create_palantir_results(
 
     if not has_pseudotime:
         raise DataNotFoundError(
-            "Palantir results not found. "
-            "Please run 'analyze_trajectory_data' with method='palantir' first."
+            "Palantir results not found. Run trajectory analysis with method='palantir'."
         )
 
     if context:
@@ -5623,7 +5611,7 @@ async def _create_enrichment_visualization(
 
     if not score_cols:
         raise DataNotFoundError(
-            "No enrichment scores found. Please run 'analyze_enrichment' first."
+            "No enrichment scores found. Run analyze_enrichment() first."
         )
 
     # Check if user wants violin plot by cluster
@@ -6428,18 +6416,7 @@ async def _create_spatial_interaction_visualization(
         # Provide clear error for any other failures
         raise ProcessingError(
             f"Spatial ligand-receptor interaction visualization failed: {str(e)}\n\n"
-            f"CONTEXT:\n"
-            f"This visualization maps spatial locations of cells expressing ligands and receptors.\n\n"
-            f"COMMON CAUSES:\n"
-            f"1. Ligand/receptor genes not found in dataset\n"
-            f"2. No cells expressing the specified ligands/receptors above threshold\n"
-            f"3. Missing spatial coordinates in adata.obsm['spatial']\n"
-            f"4. Invalid lr_pairs format (should be list of (ligand, receptor) tuples)\n\n"
-            f"SOLUTIONS:\n"
-            f"1. Verify gene names match exactly (case-sensitive)\n"
-            f"2. Check gene expression: adata[:, 'GENE_NAME'].X\n"
-            f"3. Ensure spatial coordinates exist\n"
-            f"4. Use valid lr_pairs: [('Ligand1', 'Receptor1'), ('Ligand2', 'Receptor2')]"
+            f"Check gene names exist and spatial coordinates are available."
         ) from e
 
 
@@ -6798,8 +6775,7 @@ async def save_visualization(
 
         except PermissionError as e:
             raise ProcessingError(
-                f"Cannot save visualization to {output_dir}: {str(e)}. "
-                f"Please check directory permissions or specify a different output_dir."
+                f"Cannot save to {output_dir}: {e}. Check permissions."
             ) from e
 
         # Generate filename if not provided
@@ -6871,16 +6847,13 @@ async def save_visualization(
 
         # Figure must exist (either in memory or regenerated)
         if cached_fig is None:
-            # Provide helpful error message
             if not cache_key_exists:
                 raise DataNotFoundError(
-                    f"Visualization '{plot_type}' not found for dataset '{data_id}'. "
-                    f"Please create the visualization first using visualize_data tool."
+                    f"Visualization '{plot_type}' not found. Use visualize_data() first."
                 )
             else:
                 raise ProcessingError(
-                    f"Cannot regenerate visualization for {cache_key}. "
-                    f"Please ensure the dataset is loaded and regenerate using visualize_data tool."
+                    f"Cannot regenerate '{cache_key}'. Reload dataset and visualize again."
                 )
 
         # Export from cached figure with format-specific parameters
