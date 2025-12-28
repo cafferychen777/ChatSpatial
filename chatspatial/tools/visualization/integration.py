@@ -53,11 +53,8 @@ async def create_batch_integration_visualization(
     batch_key = params.batch_key
     if batch_key not in adata.obs.columns:
         raise DataNotFoundError(
-            f"Batch key '{batch_key}' not found in data. "
-            f"This visualization requires proper batch information from sample integration. "
-            f"Available columns: {', '.join(adata.obs.columns[:10])}"
-            f"{'...' if len(adata.obs.columns) > 10 else ''}. "
-            f"Please ensure you have run 'integrate_samples' first or specify the correct batch_key."
+            f"Batch key '{batch_key}' not found. "
+            f"Run integrate_samples() first or specify correct batch_key."
         )
 
     # Create multi-panel figure (2x2 layout)

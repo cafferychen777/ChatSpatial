@@ -162,8 +162,7 @@ async def save_visualization(
 
         except PermissionError as e:
             raise ProcessingError(
-                f"Cannot save visualization to {output_dir}: {str(e)}. "
-                f"Please check directory permissions or specify a different output_dir."
+                f"Cannot save to {output_dir}: {e}. Check permissions."
             ) from e
 
         # Generate filename if not provided
@@ -225,13 +224,11 @@ async def save_visualization(
         if cached_fig is None:
             if not cache_key_exists:
                 raise DataNotFoundError(
-                    f"Visualization '{plot_type}' not found for dataset '{data_id}'. "
-                    f"Please create the visualization first using visualize_data tool."
+                    f"Visualization '{plot_type}' not found. Use visualize_data() first."
                 )
             else:
                 raise ProcessingError(
-                    f"Cannot regenerate visualization for {cache_key}. "
-                    f"Please ensure the dataset is loaded and regenerate using visualize_data tool."
+                    f"Cannot regenerate '{cache_key}'. Reload dataset and visualize again."
                 )
 
         # Export from cached figure with format-specific parameters
