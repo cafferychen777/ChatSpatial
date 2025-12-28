@@ -477,3 +477,46 @@ def store_analysis_metadata(
     # Store in adata.uns with unique key
     metadata_key = f"{analysis_name}_metadata"
     adata.uns[metadata_key] = metadata
+
+
+# =============================================================================
+# Gene Selection Utilities
+# =============================================================================
+def get_highly_variable_genes(
+    adata: "ad.AnnData",
+    max_genes: int = 500,
+    fallback_to_variance: bool = True,
+) -> List[str]:
+    """
+    Get highly variable genes from AnnData.
+
+    Priority order:
+    1. Use precomputed HVG from adata.var['highly_variable']
+    2. If fallback enabled, compute variance and return top variable genes
+
+    Args:
+        adata: AnnData object
+        max_genes: Maximum number of genes to return
+        fallback_to_variance: If True, compute variance when HVG not available
+
+    Returns:
+        List of gene names (may be shorter than max_genes if fewer available)
+    """
+    # Try precomputed HVG first
+    if "highly_variable" in adata.var.columns:
+        hvg_genes = adata.var_names[adata.var["highly_variable"]].tolist()
+        return hvg_genes[:max_genes]
+
+    # Fallback to variance calculation
+    if fallback_to_variance:
+        from scipy import sparse
+
+        if sparse.issparse(adata.X):
+            var_scores = np.array(adata.X.toarray().var(axis=0)).flatten()
+        else:
+            var_scores = np.array(adata.X.var(axis=0)).flatten()
+
+        top_indices = np.argsort(var_scores)[-max_genes:]
+        return adata.var_names[top_indices].tolist()
+
+    return []

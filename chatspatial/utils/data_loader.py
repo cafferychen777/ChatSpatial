@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple
 
 from anndata import AnnData
 
+from .adata_utils import get_highly_variable_genes
 from .dependency_manager import is_available
 
 if TYPE_CHECKING:
@@ -582,11 +583,9 @@ def get_gene_profile(adata: Any) -> Tuple[Optional[List[str]], List[str]]:
     """
     import numpy as np
 
-    # Highly variable genes
-    top_hvg = None
-    if "highly_variable" in adata.var.columns:
-        hvg_genes = adata.var_names[adata.var["highly_variable"]].tolist()
-        top_hvg = hvg_genes[:10] if len(hvg_genes) > 10 else hvg_genes
+    # Highly variable genes (no fallback - only return if precomputed)
+    hvg_list = get_highly_variable_genes(adata, max_genes=10, fallback_to_variance=False)
+    top_hvg = hvg_list if hvg_list else None
 
     # Top expressed genes
     try:

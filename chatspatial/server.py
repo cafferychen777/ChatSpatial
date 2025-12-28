@@ -62,19 +62,9 @@ from .models.data import (  # noqa: E402
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .spatial_mcp_adapter import get_tool_annotations  # noqa: E402
+from .utils.adata_utils import get_highly_variable_genes  # noqa: E402
 from .utils.exceptions import ProcessingError  # noqa: E402
 from .utils.mcp_utils import mcp_tool_error_handler  # noqa: E402
-
-# Lazy imports for heavy dependencies - imported when first used
-# This significantly speeds up server startup time
-# from .tools.annotation import annotate_cell_types  # Lazy loaded
-# from .tools.cnv_analysis import infer_cnv  # Lazy loaded
-# from .tools.deconvolution import deconvolve_spatial_data  # Lazy loaded
-# from .tools.differential import differential_expression  # Lazy loaded
-# from .tools.spatial_genes import identify_spatial_genes  # Lazy loaded
-# from .tools.spatial_statistics import analyze_spatial_statistics  # Lazy loaded (squidpy is slow)
-# from .tools.trajectory import analyze_rna_velocity  # Lazy loaded
-
 
 logger = logging.getLogger(__name__)
 
@@ -385,7 +375,7 @@ async def visualize_data(
                     "Large visualization saved to disk (following MCP best practice: URI over embedded content)"
                 )
                 await context.info(
-                    f"Visualization type: {params.plot_type}, feature: {getattr(params, 'feature', 'N/A')}"
+                    f"Visualization type: {params.plot_type}, feature: {params.feature or 'N/A'}"
                 )
 
             return image  # Return str directly (FastMCP converts to TextContent)
@@ -413,7 +403,7 @@ async def visualize_data(
                 f"Image saved as resource: spatial://visualizations/{viz_id} ({file_size_kb:.1f}KB)"
             )
             await context.info(
-                f"Visualization type: {params.plot_type}, feature: {getattr(params, 'feature', 'N/A')}"
+                f"Visualization type: {params.plot_type}, feature: {params.feature or 'N/A'}"
             )
 
         # Return the image (currently always a file path string with DIRECT_EMBED_THRESHOLD = 0)
@@ -1521,24 +1511,12 @@ async def analyze_enrichment(
         from .tools.enrichment import load_gene_sets
 
         try:
-            # Use species from explicit parameter (no defaults, no auto-detection)
-            if not hasattr(params, "species") or params.species is None:
-                raise ValueError(
-                    "species parameter is required for enrichment analysis.\n"
-                    "Please specify:\n"
-                    "  - 'human' for human data (genes like CD5L, PTPRC)\n"
-                    "  - 'mouse' for mouse data (genes like Cd5l, Ptprc)\n"
-                    "  - 'zebrafish' for zebrafish data\n"
-                    "Example: params={'species': 'mouse', 'method': 'pathway_ora'}"
-                )
-
-            species = params.species  # Use explicit value from LLM
-
+            # species is a required field in EnrichmentParameters (validated by Pydantic)
             gene_sets = await load_gene_sets(
                 database=params.gene_set_database,
-                species=species,
+                species=params.species,
                 min_genes=params.min_genes,
-                max_genes=params.max_genes if hasattr(params, "max_genes") else 500,
+                max_genes=params.max_genes,
                 ctx=ctx,
             )
 
@@ -1661,20 +1639,7 @@ async def analyze_enrichment(
                 )
         elif params.method == "pathway_enrichr":
             # For Enrichr, we need a gene list - use HVG or top variable genes
-            if "highly_variable" in adata.var:
-                gene_list = adata.var_names[adata.var["highly_variable"]].tolist()[:500]
-            else:
-                # Use top variable genes
-                import numpy as np
-                from scipy import sparse
-
-                if sparse.issparse(adata.X):
-                    # Handle sparse matrix
-                    var_scores = np.array(adata.X.toarray().var(axis=0)).flatten()
-                else:
-                    var_scores = np.array(adata.X.var(axis=0)).flatten()
-                top_indices = np.argsort(var_scores)[-500:]
-                gene_list = adata.var_names[top_indices].tolist()
+            gene_list = get_highly_variable_genes(adata, max_genes=500)
 
             result_dict = await perform_enrichr(
                 gene_list=gene_list,
