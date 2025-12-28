@@ -165,7 +165,6 @@ class SpatialResourceManager:
     def __init__(self, data_manager: "DefaultSpatialDataManager"):
         self.data_manager = data_manager
         self._resources: Dict[str, MCPResource] = {}
-        self._visualization_cache: Dict[str, Any] = {}
 
     async def create_dataset_resource(
         self, data_id: str, dataset_info: Dict[str, Any]
@@ -294,6 +293,9 @@ class SpatialMCPAdapter:
         self.mcp = mcp_server
         self.data_manager = data_manager
         self.resource_manager = SpatialResourceManager(data_manager)
+        # Session-level cache for rendered visualizations
+        # Stored at adapter level (not ResourceManager) for clear ownership
+        self.visualization_cache: Dict[str, Any] = {}
 
     async def handle_resource_list(self) -> List[Dict[str, Any]]:
         """Handle MCP resource list request"""

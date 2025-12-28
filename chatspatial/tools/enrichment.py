@@ -7,7 +7,7 @@ This module provides both standard and spatially-aware enrichment analysis metho
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -19,8 +19,8 @@ from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
 from ..utils.adata_utils import store_analysis_metadata
-from ..utils.dependency_manager import is_available, require
-from ..utils.exceptions import DependencyError, ParameterError, ProcessingError
+from ..utils.dependency_manager import require
+from ..utils.exceptions import ParameterError, ProcessingError
 
 logger = logging.getLogger(__name__)
 

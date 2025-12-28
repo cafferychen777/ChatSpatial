@@ -2,7 +2,7 @@
 Copy Number Variation (CNV) analysis tools for spatial transcriptomics data.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 import scanpy as sc
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 from ..models.analysis import CNVResult
 from ..models.data import CNVParameters
 from ..utils import validate_obs_column
-from ..utils.dependency_manager import is_available, require
+from ..utils.dependency_manager import require
 from ..utils.exceptions import (
     DataCompatibilityError,
     DataNotFoundError,

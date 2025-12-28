@@ -3,13 +3,14 @@ Integration tools for spatial transcriptomics data.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import numpy as np
 import scanpy as sc
 
 from ..models.analysis import IntegrationResult
 from ..models.data import IntegrationParameters
+from ..utils.dependency_manager import require
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -275,11 +276,6 @@ def integrate_multiple_samples(
                 use_gpu=scvi_use_gpu,
             )
             logging.info("scVI integration completed successfully")
-        except ImportError as e:
-            raise ImportError(
-                "scVI integration requires 'scvi-tools' package. "
-                "Install with: pip install scvi-tools"
-            ) from e
         except Exception as e:
             raise RuntimeError(
                 f"scVI integration failed: {e}\n"
@@ -453,6 +449,7 @@ def integrate_multiple_samples(
     if method == "harmony":
         # Use Harmony for batch correction
         # BEST PRACTICE: Use scanpy.external wrapper for better integration with scanpy workflow
+        require("harmonypy", feature="Harmony integration")
         try:
             import scanpy.external as sce
 
@@ -499,11 +496,6 @@ def integrate_multiple_samples(
                 # Use corrected result to calculate neighbor graph
                 sc.pp.neighbors(combined, use_rep="X_harmony")
 
-        except ImportError as e:
-            raise ImportError(
-                "Harmony integration requires 'harmonypy' package. Install with: pip install harmonypy\n"
-                "For best integration with scanpy, also ensure scanpy.external is available."
-            ) from e
         except Exception as e:
             # Provide clear error message without fallback to different algorithms
             raise RuntimeError(
@@ -517,18 +509,15 @@ def integrate_multiple_samples(
 
     elif method == "bbknn":
         # Use BBKNN for batch correction
-        try:
-            import bbknn
+        require("bbknn", feature="BBKNN integration")
+        import bbknn
 
-            bbknn.bbknn(combined, batch_key=batch_key, neighbors_within_batch=3)
-        except ImportError:
-            raise ImportError(
-                "bbknn package is required for BBKNN integration. Install with 'pip install bbknn'"
-            )
+        bbknn.bbknn(combined, batch_key=batch_key, neighbors_within_batch=3)
 
     elif method == "scanorama":
         # Use Scanorama for batch correction
         # BEST PRACTICE: Use scanpy.external wrapper for better integration with scanpy workflow
+        require("scanorama", feature="Scanorama integration")
         try:
             import scanpy.external as sce
 
@@ -583,11 +572,6 @@ def integrate_multiple_samples(
                 # Use integrated representation for neighbor graph
                 sc.pp.neighbors(combined, use_rep="X_scanorama")
 
-        except ImportError as e:
-            raise ImportError(
-                "Scanorama integration requires 'scanorama' package. Install with: pip install scanorama\n"
-                "For best integration with scanpy, also ensure scanpy.external is available."
-            ) from e
         except Exception as e:
             # Scanorama failed - provide clear error without fallback to different algorithms
             raise RuntimeError(
@@ -786,13 +770,8 @@ def integrate_with_scvi(
     """
     import numpy as np
 
-    try:
-        import scvi
-    except ImportError:
-        raise ImportError(
-            "scVI integration requires scvi-tools package. "
-            "Install with: pip install scvi-tools"
-        )
+    require("scvi", feature="scVI integration")
+    import scvi
 
     # Validate data is preprocessed
     max_val = combined.X.max() if hasattr(combined.X, "max") else np.max(combined.X)
@@ -923,14 +902,8 @@ def _integrate_with_multivi_disabled(
         Ashuach et al. (2023) "MultiVI: deep generative model for the
         integration of multimodal data" Nature Methods 20, 1222–1231
     """
-
-    try:
-        import scvi
-    except ImportError:
-        raise ImportError(
-            "MultiVI integration requires scvi-tools package. "
-            "Install with: pip install scvi-tools"
-        )
+    require("scvi", feature="MultiVI integration")
+    import scvi
 
     # Validate protein/modality data exists
     if protein_expression_obsm_key not in combined.obsm:
@@ -1035,9 +1008,7 @@ async def integrate_samples(
     Returns:
         Integration result
     """
-    await ctx.info(
-        f"Integrating {len(data_ids)} samples using {params.method} method"
-    )
+    await ctx.info(f"Integrating {len(data_ids)} samples using {params.method} method")
 
     # Collect all AnnData objects
     # Memory optimization: concatenate() creates new object without modifying sources
