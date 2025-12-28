@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
 from ..utils import validate_obs_column
+from ..utils.adata_utils import ensure_unique_var_names_with_ctx
 from ..utils.dependency_manager import (
     is_available,
     require,
@@ -1323,7 +1324,7 @@ async def _annotate_with_cellassign(
     # CRITICAL FIX: Use adata.raw for marker gene validation if available
     # Preprocessing filters genes to HVGs, but marker genes may not be in HVGs
     # adata.raw contains all original genes and should be checked first
-    if hasattr(adata, "raw") and adata.raw is not None:
+    if adata.raw is not None:
         all_genes = set(adata.raw.var_names)
         gene_source = "adata.raw"
         await ctx.info(
@@ -1433,7 +1434,7 @@ async def _annotate_with_cellassign(
 
     # NOW subset data to marker genes (size factors already computed and will be transferred)
     # Use adata.raw if available (contains all genes including markers)
-    if hasattr(adata, "raw") and adata.raw is not None:
+    if adata.raw is not None:
         await ctx.info(
             f"Subsetting from adata.raw to {len(available_marker_genes)} marker genes"
         )
