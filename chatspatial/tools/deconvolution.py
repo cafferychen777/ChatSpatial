@@ -23,19 +23,7 @@ from ..utils.dependency_manager import get as get_dependency
 from ..utils.dependency_manager import is_available, require
 from ..utils.mcp_utils import suppress_output
 
-# Lazy loading of optional dependencies using centralized dependency manager
-# Usage pattern in functions:
-#   if not is_available("scvi-tools"):
-#       raise ImportError("scvi-tools required for this method")
-#   import scvi  # Safe to import after availability check
-
-
-# No longer need local context manager utilities - using centralized version
-# Note: cell2location 0.1.4+ includes official one_hot compatibility fix,
-# so no monkey patch is needed anymore
-
-
-# Helper functions to eliminate redundancy
+# Helper functions for deconvolution
 
 
 def _validate_cell_type_key(
