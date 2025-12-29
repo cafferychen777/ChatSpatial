@@ -23,7 +23,6 @@ from ...models.data import VisualizationParameters
 from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
 from .core import create_figure, plot_spatial_feature, setup_multi_panel_figure
 
-
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -193,7 +192,8 @@ async def _create_enrichment_violin(
     """Create violin plot of enrichment scores grouped by cluster."""
     if not params.cluster_key:
         categorical_cols = [
-            col for col in adata.obs.columns
+            col
+            for col in adata.obs.columns
             if adata.obs[col].dtype.name in ["object", "category"]
         ]
         raise ParameterError(
@@ -207,7 +207,9 @@ async def _create_enrichment_violin(
         )
 
     # Determine scores to plot
-    scores_to_plot = _resolve_feature_list(params.feature, adata.obs.columns, score_cols)
+    scores_to_plot = _resolve_feature_list(
+        params.feature, adata.obs.columns, score_cols
+    )
     if not scores_to_plot:
         scores_to_plot = score_cols[:3]
 
@@ -218,10 +220,12 @@ async def _create_enrichment_violin(
 
     for i, score in enumerate(scores_to_plot):
         ax = axes[i]
-        data = pd.DataFrame({
-            params.cluster_key: adata.obs[params.cluster_key],
-            "Score": adata.obs[score],
-        })
+        data = pd.DataFrame(
+            {
+                params.cluster_key: adata.obs[params.cluster_key],
+                "Score": adata.obs[score],
+            }
+        )
         sns.violinplot(data=data, x=params.cluster_key, y="Score", ax=ax)
 
         sig_name = score.replace("_score", "")
@@ -255,7 +259,9 @@ async def _create_enrichment_spatial(
                 scores_to_plot.append(f"{feat}_score")
 
         if not scores_to_plot:
-            raise DataNotFoundError(f"None of the specified scores found: {feature_list}")
+            raise DataNotFoundError(
+                f"None of the specified scores found: {feature_list}"
+            )
 
         fig, axes = setup_multi_panel_figure(
             n_panels=len(scores_to_plot),
@@ -492,8 +498,7 @@ def _create_gsea_barplot(
         return fig
     except Exception as e:
         raise ProcessingError(
-            f"gseapy.barplot failed: {e}\n"
-            f"Available columns: {list(df.columns)}"
+            f"gseapy.barplot failed: {e}\n" f"Available columns: {list(df.columns)}"
         ) from e
 
 
@@ -543,8 +548,7 @@ def _create_gsea_dotplot(
         return fig
     except Exception as e:
         raise ProcessingError(
-            f"gseapy.dotplot failed: {e}\n"
-            f"Available columns: {list(df.columns)}"
+            f"gseapy.dotplot failed: {e}\n" f"Available columns: {list(df.columns)}"
         ) from e
 
 
@@ -595,10 +599,7 @@ def _nested_dict_to_dataframe(gsea_results: dict):
 
 def _find_pvalue_column(df: pd.DataFrame) -> str:
     """Find the p-value column in GSEA results DataFrame."""
-    for col in [
-        "Adjusted P-value", "FDR q-val", "fdr",
-        "P-value", "NOM p-val", "pval"
-    ]:
+    for col in ["Adjusted P-value", "FDR q-val", "fdr", "P-value", "NOM p-val", "pval"]:
         if col in df.columns:
             return col
     return "Adjusted P-value"

@@ -3,12 +3,11 @@ Core visualization utilities and shared functions.
 
 This module contains:
 - Figure setup and utility functions
-- Shared data classes
+- Shared data structures
 - Common visualization helpers
 """
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, List, NamedTuple, Optional, Tuple
 
 import anndata as ad
 import matplotlib
@@ -21,7 +20,7 @@ import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import get_spatial_coordinates
+from ...utils.adata_utils import get_gene_expression, require_spatial_coords
 
 plt.ioff()
 
@@ -113,19 +112,20 @@ def add_colorbar(
         label: Colorbar label
     """
     divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size=params.colorbar_size, pad=params.colorbar_pad)
+    cax = divider.append_axes(
+        "right", size=params.colorbar_size, pad=params.colorbar_pad
+    )
     cbar = fig.colorbar(mappable, cax=cax)
     if label:
         cbar.set_label(label, fontsize=10)
 
 
 # =============================================================================
-# Data Classes for Unified Data Access
+# Data Structures for Unified Data Access
 # =============================================================================
 
 
-@dataclass
-class DeconvolutionData:
+class DeconvolutionData(NamedTuple):
     """Unified representation of deconvolution results.
 
     Attributes:
@@ -142,17 +142,8 @@ class DeconvolutionData:
     proportions_key: str
     dominant_type_key: Optional[str] = None
 
-    @property
-    def n_cell_types(self) -> int:
-        return len(self.cell_types)
 
-    @property
-    def n_spots(self) -> int:
-        return len(self.proportions)
-
-
-@dataclass
-class CellCommunicationData:
+class CellCommunicationData(NamedTuple):
     """Unified representation of cell communication analysis results.
 
     Attributes:
@@ -177,10 +168,6 @@ class CellCommunicationData:
     target_labels: Optional[List[str]] = None
     results_key: str = ""
 
-    @property
-    def n_interactions(self) -> int:
-        return len(self.results)
-
 
 # =============================================================================
 # Feature Validation and Preparation
@@ -191,6 +178,7 @@ async def get_validated_features(
     adata: ad.AnnData,
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
+    max_features: Optional[int] = None,
 ) -> List[str]:
     """Validate and return features for visualization.
 
@@ -198,6 +186,7 @@ async def get_validated_features(
         adata: AnnData object
         params: Visualization parameters containing feature specification
         context: Optional tool context for logging
+        max_features: Maximum number of features to return (truncates if exceeded)
 
     Returns:
         List of validated feature names
@@ -224,6 +213,14 @@ async def get_validated_features(
                     f"Feature '{feat}' not found in genes, obs, or obsm"
                 )
 
+    # Truncate if max_features specified
+    if max_features is not None and len(validated) > max_features:
+        if context:
+            await context.warning(
+                f"Too many features ({len(validated)}), limiting to {max_features}"
+            )
+        validated = validated[:max_features]
+
     return validated
 
 
@@ -242,13 +239,9 @@ async def validate_and_prepare_feature(
     Returns:
         Tuple of (data array, display name, is_categorical)
     """
-    # Gene expression
+    # Gene expression - use unified utility
     if feature in adata.var_names:
-        gene_idx = adata.var_names.get_loc(feature)
-        if hasattr(adata.X, "toarray"):
-            data = adata.X[:, gene_idx].toarray().flatten()
-        else:
-            data = adata.X[:, gene_idx].flatten()
+        data = get_gene_expression(adata, feature)
         return data, feature, False
 
     # Observation column
@@ -300,7 +293,7 @@ def plot_spatial_feature(
     ax: plt.Axes,
     feature: Optional[str] = None,
     values: Optional[np.ndarray] = None,
-    params: VisualizationParameters = None,
+    params: Optional[VisualizationParameters] = None,
     spatial_key: str = "spatial",
     show_colorbar: bool = True,
     title: Optional[str] = None,
@@ -324,7 +317,7 @@ def plot_spatial_feature(
         params = VisualizationParameters()
 
     # Get spatial coordinates
-    coords = get_spatial_coordinates(adata, spatial_key)
+    coords = require_spatial_coords(adata, spatial_key=spatial_key)
 
     # Get values to plot
     if values is not None:
@@ -332,11 +325,8 @@ def plot_spatial_feature(
         is_categorical = pd.api.types.is_categorical_dtype(values)
     elif feature is not None:
         if feature in adata.var_names:
-            gene_idx = adata.var_names.get_loc(feature)
-            if hasattr(adata.X, "toarray"):
-                plot_values = adata.X[:, gene_idx].toarray().flatten()
-            else:
-                plot_values = adata.X[:, gene_idx].flatten()
+            # Use unified utility for gene expression extraction
+            plot_values = get_gene_expression(adata, feature)
             is_categorical = False
         elif feature in adata.obs.columns:
             plot_values = adata.obs[feature].values
@@ -370,7 +360,12 @@ def plot_spatial_feature(
         if params.show_legend:
             handles = [
                 plt.Line2D(
-                    [0], [0], marker="o", color="w", markerfacecolor=colors[i], markersize=8
+                    [0],
+                    [0],
+                    marker="o",
+                    color="w",
+                    markerfacecolor=colors[i],
+                    markersize=8,
                 )
                 for i in range(n_cats)
             ]

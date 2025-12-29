@@ -31,21 +31,34 @@ from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
 from .models.analysis import CNVResult  # noqa: E402
 from .models.analysis import DeconvolutionResult  # noqa: E402
-from .models.analysis import (DifferentialExpressionResult,  # noqa: E402
-                              EnrichmentResult, IntegrationResult,
-                              PreprocessingResult, RNAVelocityResult,
-                              SpatialDomainResult, SpatialStatisticsResult,
-                              SpatialVariableGenesResult, TrajectoryResult)
+from .models.analysis import DifferentialExpressionResult  # noqa: E402
+from .models.analysis import (  # noqa: E402
+    EnrichmentResult,
+    IntegrationResult,
+    PreprocessingResult,
+    RNAVelocityResult,
+    SpatialDomainResult,
+    SpatialStatisticsResult,
+    SpatialVariableGenesResult,
+    TrajectoryResult,
+)
 from .models.data import AnnotationParameters  # noqa: E402
 from .models.data import CellCommunicationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
 from .models.data import DeconvolutionParameters  # noqa: E402
-from .models.data import (ColumnInfo, EnrichmentParameters,  # noqa: E402
-                          IntegrationParameters, PreprocessingParameters,
-                          RNAVelocityParameters, SpatialDataset,
-                          SpatialDomainParameters, SpatialStatisticsParameters,
-                          SpatialVariableGenesParameters, TrajectoryParameters,
-                          VisualizationParameters)
+from .models.data import (  # noqa: E402
+    ColumnInfo,
+    EnrichmentParameters,
+    IntegrationParameters,
+    PreprocessingParameters,
+    RNAVelocityParameters,
+    SpatialDataset,
+    SpatialDomainParameters,
+    SpatialStatisticsParameters,
+    SpatialVariableGenesParameters,
+    TrajectoryParameters,
+    VisualizationParameters,
+)
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .spatial_mcp_adapter import get_tool_annotations  # noqa: E402
@@ -779,8 +792,9 @@ async def analyze_spatial_statistics(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import spatial_statistics (squidpy is slow to import)
-    from .tools.spatial_statistics import \
-        analyze_spatial_statistics as _analyze_spatial_statistics
+    from .tools.spatial_statistics import (
+        analyze_spatial_statistics as _analyze_spatial_statistics,
+    )
 
     # Call spatial statistics analysis function with ToolContext
     result = await _analyze_spatial_statistics(data_id, ctx, params)
@@ -1282,8 +1296,7 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import \
-        identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1450,8 +1463,9 @@ async def analyze_cell_communication(
           • Signaling ranges: Literature-based (Wnt/Wg: ~50-100 µm)
     """
     # Import cell communication function
-    from .tools.cell_communication import \
-        analyze_cell_communication as analyze_comm_func
+    from .tools.cell_communication import (
+        analyze_cell_communication as analyze_comm_func,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1535,8 +1549,9 @@ async def analyze_enrichment(
     """
     # Import enrichment analysis function
 
-    from .tools.enrichment import \
-        perform_spatial_enrichment as perform_enrichment_analysis
+    from .tools.enrichment import (
+        perform_spatial_enrichment as perform_enrichment_analysis,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1642,8 +1657,12 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (perform_enrichr, perform_gsea,
-                                       perform_ora, perform_ssgsea)
+        from .tools.enrichment import (
+            perform_enrichr,
+            perform_gsea,
+            perform_ora,
+            perform_ssgsea,
+        )
 
         if params.method == "pathway_gsea":
             result_dict = await perform_gsea(

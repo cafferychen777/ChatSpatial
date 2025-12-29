@@ -10,8 +10,7 @@ This module provides:
 One file for all AnnData-related utilities. No duplication.
 """
 
-from typing import (TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set,
-                    Tuple)
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -931,6 +930,138 @@ def get_raw_data_source(
         has_negatives=has_neg,
         has_decimals=has_dec,
     )
+
+
+# =============================================================================
+# Expression Data Extraction: Unified sparse/dense handling
+# =============================================================================
+def to_dense(X: Any, copy: bool = False) -> np.ndarray:
+    """
+    Convert sparse matrix to dense numpy array.
+
+    Handles both scipy sparse matrices and already-dense arrays uniformly.
+    This is THE single function for sparse-to-dense conversion across ChatSpatial.
+
+    Args:
+        X: Expression matrix (sparse or dense)
+        copy: If True, always return a copy (safe for modification).
+              If False (default), may return view for dense input (read-only use).
+
+    Returns:
+        Dense numpy array
+
+    Note:
+        - Sparse input: Always returns a new array (toarray() creates copy)
+        - Dense input with copy=False: May return view (no memory overhead)
+        - Dense input with copy=True: Always returns independent copy
+
+    Examples:
+        # Read-only use (default, memory efficient)
+        dense_X = to_dense(adata.X)
+
+        # When you need to modify the result
+        dense_X = to_dense(adata.X, copy=True)
+        dense_X[0, 0] = 999  # Safe, won't affect original
+    """
+    if sparse.issparse(X):
+        return X.toarray()
+    # For dense: np.array with copy=False may still copy if needed (e.g., non-contiguous)
+    # np.array with copy=True always copies
+    return np.array(X, copy=copy)
+
+
+def get_gene_expression(
+    adata: "ad.AnnData",
+    gene: str,
+    layer: Optional[str] = None,
+) -> np.ndarray:
+    """
+    Get expression values of a single gene as 1D array.
+
+    This is THE single function for extracting single-gene expression.
+    Replaces 12+ duplicated code patterns across the codebase.
+
+    Args:
+        adata: AnnData object
+        gene: Gene name (must exist in adata.var_names)
+        layer: Optional layer name. If None, uses adata.X
+
+    Returns:
+        1D numpy array of expression values (length = n_obs)
+
+    Raises:
+        DataError: If gene not found in adata
+
+    Examples:
+        # Basic usage
+        cd4_expr = get_gene_expression(adata, "CD4")
+
+        # From specific layer
+        counts = get_gene_expression(adata, "CD4", layer="counts")
+
+        # Use in visualization
+        adata.obs["_temp_expr"] = get_gene_expression(adata, gene)
+    """
+    if gene not in adata.var_names:
+        raise DataError(
+            f"Gene '{gene}' not found in data. "
+            f"Available genes (first 5): {adata.var_names[:5].tolist()}"
+        )
+
+    if layer is not None:
+        if layer not in adata.layers:
+            raise DataError(f"Layer '{layer}' not found. Available: {list(adata.layers.keys())}")
+        gene_idx = adata.var_names.get_loc(gene)
+        X = adata.layers[layer][:, gene_idx]
+    else:
+        X = adata[:, gene].X
+
+    return to_dense(X).flatten()
+
+
+def get_genes_expression(
+    adata: "ad.AnnData",
+    genes: List[str],
+    layer: Optional[str] = None,
+) -> np.ndarray:
+    """
+    Get expression values of multiple genes as 2D array.
+
+    Args:
+        adata: AnnData object
+        genes: List of gene names (must exist in adata.var_names)
+        layer: Optional layer name. If None, uses adata.X
+
+    Returns:
+        2D numpy array of shape (n_obs, n_genes)
+
+    Raises:
+        DataError: If any gene not found in adata
+
+    Examples:
+        # Get expression matrix for heatmap
+        expr_matrix = get_genes_expression(adata, ["CD4", "CD8A", "CD3D"])
+
+        # From counts layer
+        counts = get_genes_expression(adata, marker_genes, layer="counts")
+    """
+    # Validate genes
+    missing = [g for g in genes if g not in adata.var_names]
+    if missing:
+        raise DataError(
+            f"Genes not found: {missing[:5]}{'...' if len(missing) > 5 else ''}. "
+            f"Available genes (first 5): {adata.var_names[:5].tolist()}"
+        )
+
+    if layer is not None:
+        if layer not in adata.layers:
+            raise DataError(f"Layer '{layer}' not found. Available: {list(adata.layers.keys())}")
+        gene_indices = [adata.var_names.get_loc(g) for g in genes]
+        X = adata.layers[layer][:, gene_indices]
+    else:
+        X = adata[:, genes].X
+
+    return to_dense(X)
 
 
 # =============================================================================

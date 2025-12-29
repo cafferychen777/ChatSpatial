@@ -21,7 +21,11 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import ensure_categorical, validate_obs_column
+from ...utils.adata_utils import (
+    ensure_categorical,
+    get_gene_expression,
+    validate_obs_column,
+)
 from ...utils.compute import ensure_umap
 from .core import (
     add_colorbar,
@@ -30,7 +34,6 @@ from .core import (
     plot_spatial_feature,
     setup_multi_panel_figure,
 )
-
 
 # =============================================================================
 # Spatial Visualization
@@ -63,9 +66,7 @@ async def create_spatial_visualization(
             raise ValueError("No features specified and no default clustering found")
 
     n_features = len(features)
-    fig, axes = setup_multi_panel_figure(
-        n_features, params, "Spatial visualization"
-    )
+    fig, axes = setup_multi_panel_figure(n_features, params, "Spatial visualization")
 
     for i, feature in enumerate(features):
         ax = axes[i]
@@ -81,8 +82,12 @@ async def create_spatial_visualization(
                 add_colorbar(fig, ax, mappable, params)
         except Exception as e:
             ax.text(
-                0.5, 0.5, f"Error: {str(e)[:50]}",
-                ha="center", va="center", transform=ax.transAxes
+                0.5,
+                0.5,
+                f"Error: {str(e)[:50]}",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
             )
             ax.axis("off")
 
@@ -145,12 +150,8 @@ async def create_umap_visualization(
             c="steelblue",
         )
     elif color_by in adata.var_names:
-        # Gene expression
-        gene_idx = adata.var_names.get_loc(color_by)
-        if hasattr(adata.X, "toarray"):
-            values = adata.X[:, gene_idx].toarray().flatten()
-        else:
-            values = adata.X[:, gene_idx].flatten()
+        # Gene expression - use unified utility
+        values = get_gene_expression(adata, color_by)
 
         scatter = ax.scatter(
             umap_coords[:, 0],
@@ -165,7 +166,9 @@ async def create_umap_visualization(
     elif color_by in adata.obs.columns:
         # Observation column
         values = adata.obs[color_by]
-        is_categorical = pd.api.types.is_categorical_dtype(values) or values.dtype == object
+        is_categorical = (
+            pd.api.types.is_categorical_dtype(values) or values.dtype == object
+        )
 
         if is_categorical:
             ensure_categorical(adata, color_by)

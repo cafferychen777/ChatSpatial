@@ -2,8 +2,7 @@
 Utility functions for spatial transcriptomics data analysis.
 """
 
-from .adata_utils import (
-    # Constants
+from .adata_utils import (  # Constants; Field discovery; Data access; Validation; Ensure; Standardization
     ALTERNATIVE_BATCH_KEYS,
     ALTERNATIVE_CELL_TYPE_KEYS,
     ALTERNATIVE_CLUSTER_KEYS,
@@ -12,25 +11,23 @@ from .adata_utils import (
     CELL_TYPE_KEY,
     CLUSTER_KEY,
     SPATIAL_KEY,
-    # Field discovery
+    ensure_categorical,
+    ensure_spatial_key,
     get_batch_key,
     get_cell_type_key,
     get_cluster_key,
-    get_spatial_key,
-    # Data access
+    get_gene_expression,
+    get_genes_expression,
     get_spatial_coordinates,
-    # Validation
-    ensure_categorical,
+    get_spatial_key,
+    standardize_adata,
+    to_dense,
     validate_adata,
     validate_adata_basics,
     validate_obs_column,
     validate_obs_columns,
     validate_var_column,
     validate_var_columns,
-    # Ensure
-    ensure_spatial_key,
-    # Standardization
-    standardize_adata,
 )
 from .dependency_manager import (
     DependencyCategory,
@@ -82,6 +79,10 @@ __all__ = [
     "get_spatial_key",
     # Data access
     "get_spatial_coordinates",
+    # Expression extraction
+    "to_dense",
+    "get_gene_expression",
+    "get_genes_expression",
     # Validation
     "validate_adata",
     "validate_obs_column",

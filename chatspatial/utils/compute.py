@@ -21,9 +21,8 @@ Usage:
     await ensure_pca_async(adata, ctx)
 """
 
-from typing import TYPE_CHECKING, List, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Literal, Optional
 
-import numpy as np
 import scanpy as sc
 
 if TYPE_CHECKING:

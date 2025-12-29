@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 from ..models.analysis import SpatialDomainResult
 from ..models.data import SpatialDomainParameters
+from ..utils.adata_utils import require_spatial_coords
 from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 
@@ -284,32 +285,12 @@ async def _identify_domains_spagcn(
         )
 
     try:
-        # Get spatial coordinates
-        if "spatial" in adata.obsm:
-            x_array = adata.obsm["spatial"][:, 0].tolist()
-            y_array = adata.obsm["spatial"][:, 1].tolist()
-        else:
-            raise ValueError("Spatial coordinates not found in adata.obsm['spatial']")
-
-        # Validate spatial coordinates
-        if len(x_array) == 0 or len(y_array) == 0:
-            raise ValueError("Empty spatial coordinates")
-
-        if np.any(np.isnan(x_array)) or np.any(np.isnan(y_array)):
-            raise ValueError("NaN values found in spatial coordinates")
-
-        # Check for degenerate spatial coordinates
-        if np.std(x_array) == 0 and np.std(y_array) == 0:
-            raise ValueError(
-                "All spatial coordinates are identical - cannot identify spatial domains"
-            )
+        # Get and validate spatial coordinates (auto-detects key, validates NaN/inf/identical)
+        coords = require_spatial_coords(adata)
+        n_spots = coords.shape[0]
 
         # Adaptive parameter adjustment based on data characteristics
         await ctx.info("Adjusting SpaGCN parameters based on data characteristics...")
-
-        # Adjust parameters based on dataset size and spatial spread
-        n_spots = len(x_array)
-        np.std(x_array) + np.std(y_array)
 
         # Report dataset characteristics for LLM awareness
         if n_spots > 2000:
@@ -341,6 +322,8 @@ async def _identify_domains_spagcn(
 
         # For SpaGCN, we need pixel coordinates for histology
         # If not available, use array coordinates
+        x_array = coords[:, 0].tolist()
+        y_array = coords[:, 1].tolist()
         x_pixel = x_array.copy()
         y_pixel = y_array.copy()
 
@@ -631,18 +614,8 @@ def _refine_spatial_domains(
         pd.Series: Refined domain labels
     """
     try:
-        # Get spatial coordinates - REQUIRED for spatial domain refinement
-        if "spatial" not in adata.obsm:
-            raise ValueError(
-                "Spatial coordinates required for domain refinement. "
-                "Set refine_domains=False to skip, or ensure adata.obsm['spatial'] exists."
-            )
-
-        coords = adata.obsm["spatial"]
-
-        # Validate coordinates
-        if coords.shape[0] == 0:
-            raise ValueError("Empty coordinates for domain refinement")
+        # Get and validate spatial coordinates
+        coords = require_spatial_coords(adata)
 
         # Get domain labels
         labels = adata.obs[domain_key].astype(str)

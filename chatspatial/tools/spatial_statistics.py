@@ -42,8 +42,10 @@ from ..models.data import SpatialStatisticsParameters
 from ..utils.adata_utils import (
     require_spatial_coords,
     select_genes_for_analysis,
+    to_dense,
     validate_adata_basics,
 )
+from ..utils.compute import ensure_spatial_neighbors_async
 from ..utils.exceptions import (
     DataCompatibilityError,
     DataNotFoundError,
@@ -146,7 +148,7 @@ async def analyze_spatial_statistics(
             cluster_key = await _ensure_cluster_key(adata, params.cluster_key, ctx)
 
         # Ensure spatial neighbors
-        await _ensure_spatial_neighbors(adata, params.n_neighbors, ctx)
+        await ensure_spatial_neighbors_async(adata, ctx, n_neighs=params.n_neighbors)
 
         # Route to appropriate analysis function
         if params.analysis_type == "moran":
@@ -298,44 +300,6 @@ async def _ensure_cluster_key(
         f"Available: {available_keys if available_keys else 'None'}. "
         f"Run preprocess_data() first to generate clusters."
     )
-
-
-async def _ensure_spatial_neighbors(
-    adata: ad.AnnData, n_neighbors: int, ctx: "ToolContext"
-) -> None:
-    """
-    Ensure spatial neighbors are computed using squidpy's scientifically validated methods.
-
-    This function strictly uses squidpy.gr.spatial_neighbors, which is specifically
-    designed for spatial transcriptomics data and supports advanced spatial topologies
-    like Delaunay triangulation, adaptive neighborhood sizes, and biologically-relevant
-    spatial relationships.
-
-    IMPORTANT: This function will NOT fallback to sklearn.NearestNeighbors as the two
-    methods are scientifically incompatible and could lead to incorrect spatial analysis
-    results. If squidpy fails, the analysis should be terminated with proper error guidance.
-    """
-    if "spatial_neighbors" not in adata.uns:
-        await ctx.info(
-            f"Computing spatial neighbors with squidpy (n_neighbors={n_neighbors})..."
-        )
-
-        try:
-            # Use squidpy's spatial-transcriptomics optimized method
-            sq.gr.spatial_neighbors(
-                adata,
-                n_neighs=n_neighbors,
-                coord_type="generic",  # Works for all spatial data types
-                set_diag=False,  # Exclude self-neighbors
-                key_added="spatial",  # Standard key for spatial neighbors
-            )
-
-            await ctx.info("Spatial neighbors computed successfully with squidpy")
-
-        except Exception as e:
-            error_msg = f"Spatial neighbor computation failed: {e}"
-            await ctx.error(error_msg)
-            raise ProcessingError(error_msg) from e
 
 
 def _get_optimal_n_jobs(n_obs: int, requested_n_jobs: Optional[int] = None) -> int:
@@ -597,7 +561,7 @@ async def _analyze_getis_ord(
         # Calculate Z-score threshold from alpha level (two-tailed test)
         z_threshold = norm.ppf(1 - params.getis_ord_alpha / 2)
 
-        coords = adata.obsm["spatial"]
+        coords = require_spatial_coords(adata)
         w = weights.KNN.from_array(coords, k=params.n_neighbors)
         w.transform = "r"
 
@@ -606,9 +570,7 @@ async def _analyze_getis_ord(
         # See test_spatial_statistics_extreme_scale.py for performance validation
         await ctx.info(f"Extracting {len(genes)} genes for batch processing...")
 
-        y_all_genes = adata[:, genes].X
-        if hasattr(y_all_genes, "toarray"):
-            y_all_genes = y_all_genes.toarray()
+        y_all_genes = to_dense(adata[:, genes].X)
 
         # Collect all p-values for multiple testing correction
         all_pvalues = {}
@@ -756,7 +718,7 @@ async def _analyze_bivariate_moran(
 
     try:
 
-        coords = adata.obsm["spatial"]
+        coords = require_spatial_coords(adata)
         w = KNN.from_array(coords, k=params.n_neighbors)
         w.transform = "R"
 
@@ -771,9 +733,7 @@ async def _analyze_bivariate_moran(
             f"Extracting {len(all_genes_in_pairs)} unique genes from {len(gene_pairs)} pairs..."
         )
 
-        expr_all = adata[:, all_genes_in_pairs].X
-        if hasattr(expr_all, "toarray"):
-            expr_all = expr_all.toarray()
+        expr_all = to_dense(adata[:, all_genes_in_pairs].X)
 
         # Create gene index mapping for fast lookup
         gene_to_idx = {gene: i for i, gene in enumerate(all_genes_in_pairs)}
@@ -882,7 +842,7 @@ async def _analyze_join_count(
         from esda.join_counts import Join_Counts
         from libpysal.weights import KNN
 
-        coords = adata.obsm["spatial"]
+        coords = require_spatial_coords(adata)
         w = KNN.from_array(coords, k=params.n_neighbors)
 
         # Get categorical data
@@ -996,8 +956,7 @@ async def _analyze_local_join_count(
         from esda.join_counts_local import Join_Counts_Local
         from libpysal.weights import KNN
 
-        # Get spatial coordinates
-        coords = adata.obsm["spatial"]
+        coords = require_spatial_coords(adata)
 
         # Create PySAL W object directly from coordinates using KNN
         # This ensures compatibility with Join_Counts_Local
@@ -1095,9 +1054,9 @@ async def _analyze_network_properties(
             conn_matrix = adata.obsp["spatial_connectivities"]
         else:
             # Create connectivity matrix
-            coords = adata.obsm["spatial"]
             from sklearn.neighbors import kneighbors_graph
 
+            coords = require_spatial_coords(adata)
             conn_matrix = kneighbors_graph(
                 coords, n_neighbors=params.n_neighbors, mode="connectivity"
             )
@@ -1171,9 +1130,9 @@ async def _analyze_spatial_centrality(
         if "spatial_connectivities" in adata.obsp:
             conn_matrix = adata.obsp["spatial_connectivities"]
         else:
-            coords = adata.obsm["spatial"]
             from sklearn.neighbors import kneighbors_graph
 
+            coords = require_spatial_coords(adata)
             conn_matrix = kneighbors_graph(
                 coords, n_neighbors=params.n_neighbors, mode="connectivity"
             )
@@ -1282,7 +1241,7 @@ async def _analyze_local_moran(
 
     try:
         # Ensure spatial neighbors exist
-        await _ensure_spatial_neighbors(adata, params.n_neighbors, ctx)
+        await ensure_spatial_neighbors_async(adata, ctx, n_neighs=params.n_neighbors)
 
         # Unified gene selection (default 5 genes for computational efficiency)
         n_genes = (

@@ -26,10 +26,9 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import require_spatial_coords
+from ...utils.adata_utils import get_spatial_key, require_spatial_coords
 from ...utils.exceptions import DataNotFoundError
 from .core import DeconvolutionData, plot_spatial_feature, setup_multi_panel_figure
-
 
 # =============================================================================
 # Data Retrieval
@@ -388,10 +387,11 @@ async def _create_stacked_barplot(
         dominant_types = proportions_plot.columns[dominant_idx]
         sort_order = np.argsort(dominant_types)
     elif params.sort_by == "spatial":
-        if "spatial" in adata.obsm:
+        spatial_key = get_spatial_key(adata)
+        if spatial_key:
             from scipy.cluster.hierarchy import dendrogram, linkage
 
-            spatial_coords = adata.obsm["spatial"][proportions_plot.index]
+            spatial_coords = adata.obsm[spatial_key][proportions_plot.index]
             linkage_matrix = linkage(spatial_coords, method="ward")
             dend = dendrogram(linkage_matrix, no_plot=True)
             sort_order = dend["leaves"]

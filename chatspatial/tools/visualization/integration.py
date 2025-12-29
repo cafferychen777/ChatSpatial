@@ -12,6 +12,7 @@ import numpy as np
 from scipy.stats import entropy
 
 from ...models.data import VisualizationParameters
+from ...utils.adata_utils import get_spatial_key
 from ...utils.exceptions import DataNotFoundError
 
 if TYPE_CHECKING:
@@ -98,8 +99,9 @@ async def create_batch_integration_visualization(
         axes[0, 0].set_title("UMAP (Not Available)", fontsize=12)
 
     # Panel 2: Spatial plot colored by batch (if spatial data available)
-    if "spatial" in adata.obsm:
-        spatial_coords = adata.obsm["spatial"]
+    spatial_key = get_spatial_key(adata)
+    if spatial_key:
+        spatial_coords = adata.obsm[spatial_key]
 
         for i, batch in enumerate(unique_batches):
             mask = batch_values == batch

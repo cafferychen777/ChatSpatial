@@ -12,12 +12,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from matplotlib.patches import Patch
 
+from ...models.data import VisualizationParameters
 from ...utils.adata_utils import require_spatial_coords
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError
-from ...models.data import VisualizationParameters
 from .core import plot_spatial_feature
 
 if TYPE_CHECKING:
