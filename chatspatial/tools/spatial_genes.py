@@ -519,11 +519,9 @@ async def _identify_spatial_genes_sparkx(
         # Try to reuse preprocessing annotations (elegant consistency)
         if "mt" in var_source.var.columns:
             mt_mask = var_source.var["mt"].values
-            annotation_source = "preprocessing"
         else:
             # Fallback to pattern-based detection
             mt_mask = np.array([gene.startswith(("MT-", "mt-")) for gene in gene_names])
-            annotation_source = "pattern detection"
 
         n_mt_genes = mt_mask.sum()
         if n_mt_genes > 0:
@@ -537,13 +535,11 @@ async def _identify_spatial_genes_sparkx(
         # Try to reuse preprocessing annotations (elegant consistency)
         if "ribo" in var_source.var.columns:
             ribo_mask = var_source.var["ribo"].values
-            annotation_source = "preprocessing"
         else:
             # Fallback to pattern-based detection
             ribo_mask = np.array(
                 [gene.startswith(("RPS", "RPL", "Rps", "Rpl")) for gene in gene_names]
             )
-            annotation_source = "pattern detection"
 
         n_ribo_genes = ribo_mask.sum()
         if n_ribo_genes > 0:
@@ -599,10 +595,8 @@ async def _identify_spatial_genes_sparkx(
     if gene_mask.sum() < len(gene_names):
         filtered_sparse = sparse_counts[:, gene_mask]
         gene_names = [gene for gene, keep in zip(gene_names, gene_mask) if keep]
-        n_genes_after_filter = len(gene_names)
     else:
         filtered_sparse = sparse_counts
-        n_genes_after_filter = len(gene_names)
 
     # NOW convert filtered sparse matrix to dense (much smaller!)
     # For sparse: toarray() already returns a new array; for dense: copy to avoid modifying original
