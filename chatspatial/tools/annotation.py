@@ -18,24 +18,14 @@ if TYPE_CHECKING:
 
 from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
-from ..utils.adata_utils import (
-    ensure_unique_var_names_with_ctx,
-    find_common_genes,
-    get_spatial_key,
-    validate_obs_column,
-)
-from ..utils.dependency_manager import (
-    is_available,
-    require,
-    validate_r_environment,
-    validate_scvi_tools,
-)
-from ..utils.exceptions import (
-    DataError,
-    DataNotFoundError,
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.adata_utils import (ensure_unique_var_names_with_ctx,
+                                 find_common_genes, get_spatial_key,
+                                 validate_obs_column)
+from ..utils.dependency_manager import (is_available, require,
+                                        validate_r_environment,
+                                        validate_scvi_tools)
+from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
+                                ProcessingError)
 
 # Supported annotation methods
 # Confidence behavior by method:
@@ -120,7 +110,9 @@ async def _annotate_with_singler(
             except Exception:
                 continue  # Try next label column
         if ref_labels is None:
-            raise DataNotFoundError(f"Could not find labels in reference {reference_name}")
+            raise DataNotFoundError(
+                f"Could not find labels in reference {reference_name}"
+            )
         ref_data = ref
 
     elif reference_data_id and reference_adata is not None:
@@ -380,7 +372,9 @@ async def _annotate_with_tangram(
                 break
 
         if cluster_label is None:
-            raise ParameterError("No cluster label found. Provide cluster_label parameter.")
+            raise ParameterError(
+                "No cluster label found. Provide cluster_label parameter."
+            )
 
     # Check GPU availability for device selection
     import torch
@@ -441,7 +435,6 @@ async def _annotate_with_tangram(
                             tangram_mapping_score = 0.0
                 else:
                     tangram_mapping_score = float(last_value)
-
 
             else:
                 error_msg = (
@@ -781,7 +774,9 @@ async def _annotate_with_scanvi(
                 # Note: adata.raw may have full genes while adata has HVG subset
                 adata_ref.layers["counts"] = adata_ref.raw[:, adata_ref.var_names].X
             else:
-                raise DataNotFoundError("scANVI requires raw counts in layers['counts'].")
+                raise DataNotFoundError(
+                    "scANVI requires raw counts in layers['counts']."
+                )
 
         # Setup AnnData for scANVI
         scvi.model.SCANVI.setup_anndata(
@@ -958,7 +953,6 @@ async def _annotate_with_mllmcelltype(
         # Get top genes for this cluster
         gene_names = adata.uns["rank_genes_groups"]["names"][str(cluster)][:n_genes]
         marker_genes_dict[f"Cluster_{cluster}"] = list(gene_names)
-
 
     # Prepare parameters for mllmcelltype
     species = params.mllm_species
@@ -1757,9 +1751,7 @@ async def _cache_sctype_results(
         await ctx.warning(f"Failed to cache results: {e}")
 
 
-def _load_cached_sctype_results(
-    cache_key: str, ctx: "ToolContext"
-) -> Optional[tuple]:
+def _load_cached_sctype_results(cache_key: str, ctx: "ToolContext") -> Optional[tuple]:
     """Load cached sc-type results from memory or JSON file."""
     # Check memory cache first
     if cache_key in _SCTYPE_CACHE:

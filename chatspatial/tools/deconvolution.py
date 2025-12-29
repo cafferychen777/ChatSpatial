@@ -19,17 +19,17 @@ if TYPE_CHECKING:
 from ..models.analysis import DeconvolutionResult  # noqa: E402
 from ..models.data import DeconvolutionParameters  # noqa: E402
 from ..utils.adata_utils import (
+    check_is_integer_counts,
     ensure_unique_var_names_with_ctx,
     find_common_genes,
+    get_raw_data_source,
     get_spatial_key,
     require_spatial_coords,
-    to_dense,
     validate_gene_overlap,
     validate_obs_column,
 )
 from ..utils.dependency_manager import get as get_dependency
 from ..utils.dependency_manager import is_available, require, validate_r_package
-from ..utils.mcp_utils import suppress_output
 from ..utils.exceptions import (
     DataError,
     DataNotFoundError,
@@ -37,6 +37,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.mcp_utils import suppress_output
 
 # Helper functions for deconvolution
 
@@ -176,187 +177,73 @@ async def _prepare_anndata_for_counts(
     data_name: str,
     ctx: "ToolContext",
     require_int_dtype: bool = False,
+    require_integer_counts: bool = True,
+    record_source: bool = True,
 ) -> ad.AnnData:
-    """Ensure AnnData object has raw integer counts in .X with complete gene set
+    """Prepare AnnData with raw counts for deconvolution methods.
 
-    Checks for raw counts in the following order:
-    1. .raw - Returns complete raw data to maximize gene overlap (preferred for deconvolution)
-    2. layers["counts"] - Uses counts layer if raw not available
-    3. current .X - Only if already integer counts
+    Single unified function for all deconvolution data preparation.
+    Uses get_raw_data_source() as the single source of truth.
 
-    IMPORTANT: This function prioritizes returning complete gene sets from .raw
-    to ensure maximum gene overlap between spatial and reference datasets during
-    deconvolution. This prevents "0 genes in common" errors when datasets have
-    different HVG selections after preprocessing.
+    Priority order (maximizes gene overlap):
+        1. .raw - Complete raw data (preferred)
+        2. layers["counts"] - Raw counts layer
+        3. current .X - Only if already valid
 
     Args:
         adata: AnnData object to prepare
-        data_name: Name of the data for logging purposes
-        ctx: ToolContext for logging and data access
-        require_int_dtype: If True, convert float32/64 to int32 for R compatibility
-                          If False (default), keep original dtype (for scvi-tools methods)
-                          scvi-tools internally uses float32 regardless of input dtype
+        data_name: Name for logging (e.g., "Spatial", "Reference")
+        ctx: ToolContext for logging
+        require_int_dtype: Convert to int32 for R methods (RCTD, SPOTlight, CARD)
+        require_integer_counts: If True, raise error on normalized data.
+                               If False, warn but continue (for CARD reference).
+        record_source: If True, record data source in adata.uns
 
     Returns:
-        AnnData object with integer counts in .X and complete gene set if available
+        AnnData with counts in .X and complete gene set if available
 
     Raises:
-        ValueError: If no raw integer counts can be found
+        DataError: If require_integer_counts=True and only normalized data found
     """
-    # MEMORY OPTIMIZATION: Don't copy adata immediately
-    # Only copy if needed (when not using .raw)
-    adata_copy = None
-    data_source = None
+    # Use centralized data source detection
+    result = get_raw_data_source(
+        adata,
+        prefer_complete_genes=True,
+        require_integer_counts=require_integer_counts,
+        sample_size=100,
+    )
 
-    # Step 1: Check .raw data first (prefer complete gene set for deconvolution)
-    if adata.raw is not None:
-        try:
-            # Get raw data to check if it contains counts
-            raw_adata = adata.raw.to_adata()
-
-            # Validate if raw contains counts (not normalized)
-            # Sample first, then convert (memory efficient)
-            sample_size = min(100, raw_adata.X.shape[0])
-            sample_genes = min(100, raw_adata.X.shape[1])
-            sample_X = to_dense(raw_adata.X[:sample_size, :sample_genes])
-
-            has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
-            has_negatives = sample_X.min() < 0
-
-            if not has_decimals and not has_negatives:
-                # Raw contains counts, use complete gene set
-                adata_copy = raw_adata  # Use raw directly, no copy needed
-                data_source = "raw"
-            else:
-                # Raw is normalized/transformed, skip to layers['counts']
-                pass
-        except Exception:
-            data_source = None
-
-    # Step 2: If not using .raw, copy adata now
-    if adata_copy is None:
-        # Create a copy to avoid modifying original
+    # Construct AnnData based on detected source
+    if result.source == "raw":
+        adata_copy = adata.raw.to_adata()
+    else:
         adata_copy = adata.copy()
-
-        # Check layers["counts"] if raw not available or not counts
-        if "counts" in adata_copy.layers:
+        if result.source == "counts_layer":
             adata_copy.X = adata_copy.layers["counts"].copy()
-            data_source = "counts_layer"
 
-    # Step 3: Use current X as fallback
-    if data_source is None:
-        data_source = "current"
-
-    # Validate data (sparse-aware)
-    data_min = adata_copy.X.min()
-    data_max = adata_copy.X.max()
-    has_negatives = data_min < 0
-
-    # Check for decimals using small sample (avoid converting entire matrix)
-    sample_size = min(1000, adata_copy.n_obs)
-    sample_genes = min(100, adata_copy.n_vars)
-    X_sample = to_dense(adata_copy.X[:sample_size, :sample_genes])
-    has_decimals = not np.allclose(X_sample, np.round(X_sample), atol=1e-6)
-
-    # MEMORY OPTIMIZATION: Conditional dtype conversion based on downstream method
-    # - R methods (RCTD, Spotlight, CARD) require int32 dtype for compatibility
-    # - scvi-tools methods (Cell2location, DestVI, Stereoscope) work with float32
-    #   (they internally convert to float32 regardless of input dtype)
-    if (
-        require_int_dtype
-        and not has_negatives
-        and not has_decimals
-        and adata_copy.X.dtype in [np.float32, np.float64]
-    ):
-        # Direct dtype conversion (works for both sparse and dense matrices)
-        # No need for round() since has_decimals=False already verified
-        # No need for separate .data handling since .astype() handles both
-        adata_copy.X = adata_copy.X.astype(np.int32)
-
-    # Check if data is valid integer counts
-    if has_negatives or has_decimals:
-        data_issue = "negative values" if has_negatives else "decimal values"
-        raise DataError(
-            f"{data_name} data is not raw counts: {data_issue}, "
-            f"range [{data_min:.2f}, {data_max:.2f}]. "
-            f"Deconvolution requires raw integer counts."
+    # Warn if using normalized data (only when allowed)
+    if not result.is_integer_counts and not require_integer_counts and ctx:
+        await ctx.warning(
+            f"{data_name}: Using normalized data (no raw counts available). "
+            f"This may be acceptable for some reference datasets (e.g., Smart-seq2)."
         )
 
-    # Add processing info to uns for tracking
-    adata_copy.uns[f"{data_name}_data_source"] = {
-        "source": data_source,
-        "range": [int(data_min), int(data_max)],
-    }
+    # Optional dtype conversion for R methods
+    if (
+        require_int_dtype
+        and result.is_integer_counts
+        and adata_copy.X.dtype in [np.float32, np.float64]
+    ):
+        adata_copy.X = adata_copy.X.astype(np.int32)
 
-    return adata_copy
-
-
-async def _prepare_reference_for_card(
-    adata: ad.AnnData, data_name: str, ctx=None
-) -> ad.AnnData:
-    """Prepare reference AnnData for CARD with relaxed validation.
-
-    CARD can accept normalized reference data (e.g., from Smart-seq2 which provides
-    TPM/FPKM instead of raw UMI counts). This function tries to get raw counts if
-    available, but accepts normalized data if raw counts are not found.
-
-    This matches real-world usage where reference datasets often come from different
-    sequencing technologies that don't provide raw UMI counts (e.g., Arora et al. 2023
-    used SCTransform-normalized reference data with CARD).
-
-    Args:
-        adata: AnnData object to prepare
-        data_name: Name of the data for logging purposes
-        ctx: ToolContext for logging and data access
-
-    Returns:
-        AnnData object prepared for CARD (raw counts if available, normalized otherwise)
-    """
-    # Create a copy to avoid modifying original
-    adata_copy = adata.copy()
-
-    # Step 1: Try to get raw counts from .raw or layers['counts']
-    data_source = None
-
-    if adata_copy.raw is not None:
-        try:
-            raw_adata = adata_copy.raw.to_adata()
-
-            # Sample first, then convert (memory efficient)
-            sample_size = min(100, raw_adata.X.shape[0])
-            sample_genes = min(100, raw_adata.X.shape[1])
-            sample_X = to_dense(raw_adata.X[:sample_size, :sample_genes])
-
-            has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
-            has_negatives = sample_X.min() < 0
-
-            if not has_decimals and not has_negatives:
-                adata_copy = raw_adata
-                data_source = "raw"
-        except Exception:
-            pass
-
-    if data_source is None and "counts" in adata_copy.layers:
-        adata_copy.X = adata_copy.layers["counts"].copy()
-        data_source = "counts_layer"
-
-    # Step 2: If no raw counts found, use current data (may be normalized)
-    if data_source is None:
-        # Sample first, then convert (more memory efficient)
-        sample_size = min(100, adata_copy.n_obs)
-        sample_genes = min(100, adata_copy.n_vars)
-        sample_X = to_dense(adata_copy.X[:sample_size, :sample_genes])
-
-        has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
-
-        if has_decimals:
-            await ctx.warning(
-                f"{data_name}: Using normalized data (no raw counts available). "
-                f"This is acceptable for CARD reference data from technologies like Smart-seq2."
-            )
-            data_source = "normalized"
-        else:
-            data_source = "current"
+    # Record data source for tracking
+    if record_source:
+        data_min = float(adata_copy.X.min())
+        data_max = float(adata_copy.X.max())
+        adata_copy.uns[f"{data_name}_data_source"] = {
+            "source": result.source,
+            "range": [int(data_min), int(data_max)],
+        }
 
     return adata_copy
 
@@ -589,6 +476,7 @@ async def deconvolve_cell2location(
         device = "cpu"
         if use_gpu and is_available("torch"):
             import torch
+
             if torch.cuda.is_available():
                 device = "cuda"
 
@@ -623,8 +511,12 @@ async def deconvolve_cell2location(
         common_genes = find_common_genes(ref.var_names, sp.var_names)
 
         validate_gene_overlap(
-            common_genes, sp.n_vars, ref.n_vars,
-            min_genes=min_common_genes, source_name="spatial", target_name="reference"
+            common_genes,
+            sp.n_vars,
+            ref.n_vars,
+            min_genes=min_common_genes,
+            source_name="spatial",
+            target_name="reference",
         )
 
         # Subset to common genes
@@ -891,8 +783,12 @@ async def deconvolve_cell2location(
         return proportions, stats
 
     except Exception as e:
-        if not isinstance(e, (ProcessingError, DataError, ParameterError, DependencyError)):
-            raise ProcessingError(f"Cell2location deconvolution failed: {str(e)}") from e
+        if not isinstance(
+            e, (ProcessingError, DataError, ParameterError, DependencyError)
+        ):
+            raise ProcessingError(
+                f"Cell2location deconvolution failed: {str(e)}"
+            ) from e
         raise
 
 
@@ -1009,8 +905,12 @@ async def deconvolve_rctd(
         common_genes = [g for g in reference_data.var_names if g in spatial_genes_set]
 
         validate_gene_overlap(
-            common_genes, spatial_data.n_vars, reference_data.n_vars,
-            min_genes=min_common_genes, source_name="spatial", target_name="reference"
+            common_genes,
+            spatial_data.n_vars,
+            reference_data.n_vars,
+            min_genes=min_common_genes,
+            source_name="spatial",
+            target_name="reference",
         )
 
         # Subset to common genes (view is sufficient - data already copied by
@@ -1056,9 +956,7 @@ async def deconvolve_rctd(
         cell_type_counts = cell_types_series.value_counts()
         min_count = cell_type_counts.min()
         if min_count < 25:
-            await ctx.warning(
-                f"Minimum cells per type: {min_count} (< 25 required)"
-            )
+            await ctx.warning(f"Minimum cells per type: {min_count} (< 25 required)")
             # List types below threshold
             low_types = [ct for ct, count in cell_type_counts.items() if count < 25]
             await ctx.warning(f"   Types below threshold: {', '.join(low_types)}")
@@ -1865,8 +1763,12 @@ async def deconvolve_destvi(
         min_common_genes = 100
 
         validate_gene_overlap(
-            common_genes, spatial_data.n_vars, ref_data.n_vars,
-            min_genes=min_common_genes, source_name="spatial", target_name="reference"
+            common_genes,
+            spatial_data.n_vars,
+            ref_data.n_vars,
+            min_genes=min_common_genes,
+            source_name="spatial",
+            target_name="reference",
         )
 
         # Subset to common genes
@@ -1936,7 +1838,9 @@ async def deconvolve_destvi(
 
         # Validate proportions
         if proportions_df.empty or proportions_df.shape[0] != spatial_data.n_obs:
-            raise ProcessingError("Failed to extract valid proportions from DestVI model")
+            raise ProcessingError(
+                "Failed to extract valid proportions from DestVI model"
+            )
 
         # Process results transparently - DestVI outputs proportions
         proportions_df = await _validate_and_process_proportions(
@@ -2028,8 +1932,12 @@ async def deconvolve_stereoscope(
         min_common_genes = 100
 
         validate_gene_overlap(
-            common_genes, spatial_data.n_vars, ref_data.n_vars,
-            min_genes=min_common_genes, source_name="spatial", target_name="reference"
+            common_genes,
+            spatial_data.n_vars,
+            ref_data.n_vars,
+            min_genes=min_common_genes,
+            source_name="spatial",
+            target_name="reference",
         )
 
         # Subset to common genes
@@ -2046,7 +1954,6 @@ async def deconvolve_stereoscope(
         from scvi.external import RNAStereoscope, SpatialStereoscope
 
         # Stage 1: Train RNAStereoscope model on reference data
-
         # Setup reference data with cell type labels (no layer specified since X contains counts)
         RNAStereoscope.setup_anndata(ref_data, labels_key=cell_type_key)
 
@@ -2195,11 +2102,17 @@ async def deconvolve_spotlight(
         )
 
         # Find common genes AFTER data preparation
-        common_genes = find_common_genes(spatial_prepared.var_names, reference_prepared.var_names)
+        common_genes = find_common_genes(
+            spatial_prepared.var_names, reference_prepared.var_names
+        )
 
         validate_gene_overlap(
-            common_genes, spatial_prepared.n_vars, reference_prepared.n_vars,
-            min_genes=min_common_genes, source_name="spatial", target_name="reference"
+            common_genes,
+            spatial_prepared.n_vars,
+            reference_prepared.n_vars,
+            min_genes=min_common_genes,
+            source_name="spatial",
+            target_name="reference",
         )
 
         # Subset to common genes (view is sufficient - data already copied by
@@ -2460,14 +2373,28 @@ async def deconvolve_card(
         )
 
         # For reference data: try to get raw counts if available, but accept normalized if not
-        reference_data = await _prepare_reference_for_card(reference_adata, "Reference", ctx)
+        # CARD accepts normalized reference data (e.g., Smart-seq2 TPM/FPKM)
+        reference_data = await _prepare_anndata_for_counts(
+            reference_adata,
+            "Reference",
+            ctx,
+            require_int_dtype=True,
+            require_integer_counts=False,  # Accept normalized data
+            record_source=False,
+        )
 
         # 2. Find common genes AFTER data preparation
-        common_genes = find_common_genes(spatial_data.var_names, reference_data.var_names)
+        common_genes = find_common_genes(
+            spatial_data.var_names, reference_data.var_names
+        )
 
         validate_gene_overlap(
-            common_genes, spatial_data.n_vars, reference_data.n_vars,
-            min_genes=min_common_genes, source_name="spatial", target_name="reference"
+            common_genes,
+            spatial_data.n_vars,
+            reference_data.n_vars,
+            min_genes=min_common_genes,
+            source_name="spatial",
+            target_name="reference",
         )
 
         # 3. Subset to common genes (view is sufficient - data already copied by
@@ -2749,7 +2676,9 @@ async def deconvolve_tangram(
         validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
         # Find common genes between datasets
-        common_genes = find_common_genes(spatial_adata.var_names, reference_adata.var_names)
+        common_genes = find_common_genes(
+            spatial_adata.var_names, reference_adata.var_names
+        )
         min_common_genes = 100
         validate_gene_overlap(
             common_genes,
@@ -2765,35 +2694,15 @@ async def deconvolve_tangram(
         spatial_data = spatial_adata[:, common_genes].copy()
 
         # Check data format - Tangram can work with normalized data but prefers raw counts
-        import numpy as np
-
-        # Check spatial data (sparse-aware)
-        sp_has_negatives = spatial_data.X.min() < 0
-
-        # Sample for decimal check
-        sp_sample_size = min(1000, spatial_data.n_obs)
-        sp_sample_genes = min(100, spatial_data.n_vars)
-        sp_sample_dense = to_dense(
-            spatial_data.X[:sp_sample_size, :sp_sample_genes]
+        # Use centralized check function for consistency
+        sp_is_int, sp_has_neg, sp_has_dec = check_is_integer_counts(
+            spatial_data.X, sample_size=100
         )
-        sp_has_decimals = not np.allclose(
-            sp_sample_dense, np.round(sp_sample_dense), atol=1e-6
+        ref_is_int, ref_has_neg, ref_has_dec = check_is_integer_counts(
+            ref_data.X, sample_size=100
         )
 
-        # Check reference data (sparse-aware)
-        ref_has_negatives = ref_data.X.min() < 0
-
-        # Sample for decimal check
-        ref_sample_size = min(1000, ref_data.n_obs)
-        ref_sample_genes = min(100, ref_data.n_vars)
-        ref_sample_dense = to_dense(
-            ref_data.X[:ref_sample_size, :ref_sample_genes]
-        )
-        ref_has_decimals = not np.allclose(
-            ref_sample_dense, np.round(ref_sample_dense), atol=1e-6
-        )
-
-        if sp_has_negatives or sp_has_decimals or ref_has_negatives or ref_has_decimals:
+        if not sp_is_int or not ref_is_int:
             await ctx.warning(
                 "Tangram is using normalized data. While Tangram can handle normalized data, "
                 "it performs optimally with raw counts. Consider using raw count data for best results."
@@ -2954,7 +2863,9 @@ def deconvolve_flashdeconv(
         validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
         # Find common genes
-        common_genes = find_common_genes(spatial_adata.var_names, reference_adata.var_names)
+        common_genes = find_common_genes(
+            spatial_adata.var_names, reference_adata.var_names
+        )
         validate_gene_overlap(
             common_genes,
             spatial_adata.n_vars,

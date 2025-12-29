@@ -22,12 +22,8 @@ from ..models.data import SpatialDomainParameters
 from ..utils.adata_utils import require_spatial_coords
 from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
-from ..utils.exceptions import (
-    DataError,
-    DataNotFoundError,
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
+                                ProcessingError)
 
 
 async def identify_spatial_domains(
@@ -224,7 +220,9 @@ async def identify_spatial_domains(
         return result
 
     except Exception as e:
-        raise ProcessingError(f"Error in spatial domain identification: {str(e)}") from e
+        raise ProcessingError(
+            f"Error in spatial domain identification: {str(e)}"
+        ) from e
 
 
 async def _identify_domains_spagcn(
@@ -532,7 +530,9 @@ def _refine_spatial_domains(
             distances, indices = nbrs.kneighbors(coords)
         except Exception as nn_error:
             # If nearest neighbors fails, raise error
-            raise ProcessingError(f"Nearest neighbors computation failed: {nn_error}") from nn_error
+            raise ProcessingError(
+                f"Nearest neighbors computation failed: {nn_error}"
+            ) from nn_error
 
         refined_labels = []
         for i, neighbors in enumerate(indices):

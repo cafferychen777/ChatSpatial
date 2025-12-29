@@ -781,6 +781,35 @@ async def ensure_unique_var_names_with_ctx(
 # =============================================================================
 # Raw Counts Data Access: Unified interface for accessing raw data
 # =============================================================================
+
+
+def check_is_integer_counts(X: Any, sample_size: int = 100) -> Tuple[bool, bool, bool]:
+    """Check if a matrix contains integer counts.
+
+    This is a lightweight utility for checking data format without
+    going through the full data source detection logic.
+
+    Args:
+        X: Data matrix (sparse or dense)
+        sample_size: Number of rows/cols to sample for efficiency
+
+    Returns:
+        Tuple of (is_integer, has_negatives, has_decimals)
+    """
+    n_rows = min(sample_size, X.shape[0])
+    n_cols = min(sample_size, X.shape[1])
+    sample = X[:n_rows, :n_cols]
+
+    if sparse.issparse(sample):
+        sample = sample.toarray()
+
+    has_negatives = float(sample.min()) < 0
+    has_decimals = not np.allclose(sample, np.round(sample), atol=1e-6)
+    is_integer = not has_negatives and not has_decimals
+
+    return is_integer, has_negatives, has_decimals
+
+
 class RawDataResult:
     """Result of raw data extraction."""
 
@@ -846,28 +875,11 @@ def get_raw_data_source(
     """
     sources_tried = []
 
-    def _check_if_integer_counts(X, sample_n: int = 100) -> Tuple[bool, bool, bool]:
-        """Check if matrix contains integer counts. Returns (is_int, has_neg, has_dec)."""
-        n_rows = min(sample_n, X.shape[0])
-        n_cols = min(sample_n, X.shape[1])
-        sample = X[:n_rows, :n_cols]
-
-        if sparse.issparse(sample):
-            sample = sample.toarray()
-
-        has_negatives = float(sample.min()) < 0
-        has_decimals = not np.allclose(sample, np.round(sample), atol=1e-6)
-        is_integer = not has_negatives and not has_decimals
-
-        return is_integer, has_negatives, has_decimals
-
     # Source 1: adata.raw (complete gene set)
     if prefer_complete_genes and adata.raw is not None:
         try:
             raw_adata = adata.raw.to_adata()
-            is_int, has_neg, has_dec = _check_if_integer_counts(
-                raw_adata.X, sample_size
-            )
+            is_int, has_neg, has_dec = check_is_integer_counts(raw_adata.X, sample_size)
 
             if is_int or not require_integer_counts:
                 return RawDataResult(
@@ -885,7 +897,7 @@ def get_raw_data_source(
     # Source 2: layers["counts"]
     if "counts" in adata.layers:
         X_counts = adata.layers["counts"]
-        is_int, has_neg, has_dec = _check_if_integer_counts(X_counts, sample_size)
+        is_int, has_neg, has_dec = check_is_integer_counts(X_counts, sample_size)
 
         if is_int or not require_integer_counts:
             return RawDataResult(
@@ -899,7 +911,7 @@ def get_raw_data_source(
         sources_tried.append("counts_layer (normalized, skipped)")
 
     # Source 3: current X
-    is_int, has_neg, has_dec = _check_if_integer_counts(adata.X, sample_size)
+    is_int, has_neg, has_dec = check_is_integer_counts(adata.X, sample_size)
 
     if is_int or not require_integer_counts:
         return RawDataResult(
@@ -1010,7 +1022,9 @@ def get_gene_expression(
 
     if layer is not None:
         if layer not in adata.layers:
-            raise DataError(f"Layer '{layer}' not found. Available: {list(adata.layers.keys())}")
+            raise DataError(
+                f"Layer '{layer}' not found. Available: {list(adata.layers.keys())}"
+            )
         gene_idx = adata.var_names.get_loc(gene)
         X = adata.layers[layer][:, gene_idx]
     else:
@@ -1055,7 +1069,9 @@ def get_genes_expression(
 
     if layer is not None:
         if layer not in adata.layers:
-            raise DataError(f"Layer '{layer}' not found. Available: {list(adata.layers.keys())}")
+            raise DataError(
+                f"Layer '{layer}' not found. Available: {list(adata.layers.keys())}"
+            )
         gene_indices = [adata.var_names.get_loc(g) for g in genes]
         X = adata.layers[layer][:, gene_indices]
     else:

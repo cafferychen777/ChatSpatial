@@ -12,10 +12,12 @@ import scanpy as sc
 from ..models.analysis import IntegrationResult
 from ..models.data import IntegrationParameters
 from ..utils.dependency_manager import require
-from ..utils.exceptions import DataError, DataNotFoundError, ParameterError, ProcessingError
+from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
+                                ProcessingError)
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
+
 from ..utils.adata_utils import get_spatial_key, store_analysis_metadata
 
 logger = logging.getLogger(__name__)

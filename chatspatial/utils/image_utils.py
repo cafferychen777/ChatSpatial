@@ -304,11 +304,6 @@ async def optimize_fig_to_image_with_cache(
         metadata_path = f"/tmp/chatspatial/figures/{cache_key}.json"
         save_visualization_metadata(metadata_path, data_id, plot_type, params)
 
-        if ctx:
-            await ctx.info(
-                f"Saved visualization metadata for regeneration: {cache_key}"
-            )
-
     # Generate image once with ACTUAL parameters (not estimation)
     target_dpi = params.dpi if hasattr(params, "dpi") and params.dpi else 100
 
@@ -334,8 +329,6 @@ async def optimize_fig_to_image_with_cache(
 
     # Small images: Direct embedding (use already-generated image)
     if mode == "direct" or (mode == "auto" and actual_size < DIRECT_EMBED_THRESHOLD):
-        if ctx:
-            await ctx.info(f"Small image ({actual_size//1024}KB), embedding directly")
         # Convert buffer to ImageContent
         actual_buf.seek(0)
         img_data = actual_buf.read()
@@ -347,12 +340,6 @@ async def optimize_fig_to_image_with_cache(
 
     # Large images: Save to file, return path as text
     # This follows MCP best practice and avoids token limits
-    if ctx:
-        await ctx.info(
-            f"Large image ({actual_size//1024}KB), saving to file "
-            f"(following MCP best practice: URI over embedded content)"
-        )
-
     # Save the already-generated image to file (avoid regenerating)
     os.makedirs("/tmp/chatspatial/visualizations", exist_ok=True)
     hq_filename = (
@@ -384,8 +371,5 @@ async def optimize_fig_to_image_with_cache(
         f"Size: {actual_size//1024}KB\n"
         f"Resolution: {target_dpi if target_dpi else 300} DPI"
     )
-
-    if ctx:
-        await ctx.info(f"Saved visualization to: {hq_path}")
 
     return message

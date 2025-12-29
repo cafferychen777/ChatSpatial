@@ -29,15 +29,12 @@ if TYPE_CHECKING:
 
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
-from ..utils.adata_utils import get_spatial_key, require_spatial_coords, validate_adata
+from ..utils.adata_utils import (get_spatial_key, require_spatial_coords,
+                                 validate_adata)
 from ..utils.compute import ensure_diffmap, ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
-from ..utils.exceptions import (
-    DataError,
-    DataNotFoundError,
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
+                                ProcessingError)
 from ..utils.mcp_utils import suppress_output
 
 

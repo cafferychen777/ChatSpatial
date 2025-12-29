@@ -11,12 +11,8 @@ from ..models.analysis import DifferentialExpressionResult
 from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
 from ..utils.adata_utils import store_analysis_metadata
-from ..utils.exceptions import (
-    DataError,
-    DataNotFoundError,
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
+                                ProcessingError)
 
 
 async def differential_expression(
