@@ -208,7 +208,7 @@ async def analyze_spatial_statistics(
             results_keys_dict["uns"].append(f"{params.analysis_type}s_i")
         elif params.analysis_type == "local_moran":
             results_keys_dict["obs"].extend(
-                [f"{params.genes}_local_moran" for params.genes in (params.genes or [])]
+                [f"{gene}_local_moran" for gene in (params.genes or [])]
             )
         elif params.analysis_type == "getis_ord":
             if params.genes:

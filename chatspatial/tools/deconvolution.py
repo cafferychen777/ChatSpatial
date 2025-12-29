@@ -24,6 +24,7 @@ from ..utils.adata_utils import (
     get_spatial_key,
     require_spatial_coords,
     to_dense,
+    validate_gene_overlap,
     validate_obs_column,
 )
 from ..utils.dependency_manager import get as get_dependency
@@ -31,31 +32,6 @@ from ..utils.dependency_manager import is_available, require
 from ..utils.mcp_utils import suppress_output
 
 # Helper functions for deconvolution
-
-
-def _validate_common_genes(
-    common_genes: List[str],
-    min_common_genes: int,
-    spatial_n_vars: int,
-    reference_n_vars: int,
-) -> None:
-    """Validate sufficient common genes between spatial and reference data.
-
-    Args:
-        common_genes: List of common gene names
-        min_common_genes: Minimum required common genes
-        spatial_n_vars: Number of genes in spatial data
-        reference_n_vars: Number of genes in reference data
-
-    Raises:
-        ValueError: If insufficient common genes
-    """
-    if len(common_genes) < min_common_genes:
-        raise ValueError(
-            f"Insufficient common genes: {len(common_genes)} < {min_common_genes} required. "
-            f"Reference: {reference_n_vars}, Spatial: {spatial_n_vars} genes. "
-            f"Check species/gene naming convention match."
-        )
 
 
 async def _apply_gene_filtering(
@@ -425,8 +401,8 @@ async def _prepare_anndata_for_counts(
                 await ctx.info(
                     f"WARNING: .raw for {data_name} is normalized, checking counts layer"
                 )
-        except Exception:
-            # Error accessing .raw data, will try counts layer
+        except Exception as e:
+            await ctx.debug(f".raw access failed for {data_name} ({type(e).__name__})")
             data_source = None
 
     # Step 2: If not using .raw, copy adata now
@@ -540,9 +516,9 @@ async def _prepare_reference_for_card(
                 )
                 adata_copy = raw_adata
                 data_source = "raw"
-        except Exception:
-            # Error accessing .raw data, will try other sources
-            pass
+        except Exception as e:
+            if ctx:
+                await ctx.debug(f".raw access failed for {data_name} ({type(e).__name__})")
 
     if data_source is None and "counts" in adata_copy.layers:
         await ctx.info(f"Using counts layer for {data_name}")
@@ -833,24 +809,24 @@ async def deconvolve_cell2location(
         # Prepare data using helper functions - Cell2location expects raw count data
         # Memory optimization: helper function creates internal copy, no need to copy here
         # Cell2location (scvi-tools) works with float32, no need for int32 conversion
-        ref = _prepare_anndata_for_counts(
+        ref = await _prepare_anndata_for_counts(
             reference_adata, "Reference", ctx, require_int_dtype=False
         )
-        sp = _prepare_anndata_for_counts(
+        sp = await _prepare_anndata_for_counts(
             spatial_adata, "Spatial", ctx, require_int_dtype=False
         )
 
         # NEW: Apply gene filtering (official cell2location preprocessing)
         if apply_gene_filtering:
             await ctx.info("Applying gene filtering to reference and spatial data")
-            ref = _apply_gene_filtering(
+            ref = await _apply_gene_filtering(
                 ref,
                 cell_count_cutoff=gene_filter_cell_count_cutoff,
                 cell_percentage_cutoff2=gene_filter_cell_percentage_cutoff2,
                 nonz_mean_cutoff=gene_filter_nonz_mean_cutoff,
                 ctx=ctx,
             )
-            sp = _apply_gene_filtering(
+            sp = await _apply_gene_filtering(
                 sp,
                 cell_count_cutoff=gene_filter_cell_count_cutoff,
                 cell_percentage_cutoff2=gene_filter_cell_percentage_cutoff2,
@@ -861,7 +837,10 @@ async def deconvolve_cell2location(
         # Find common genes AFTER data preparation and filtering (uses actual gene set that will be used)
         common_genes = list(set(ref.var_names) & set(sp.var_names))
 
-        _validate_common_genes(common_genes, min_common_genes, sp.n_vars, ref.n_vars)
+        validate_gene_overlap(
+            common_genes, sp.n_vars, ref.n_vars,
+            min_genes=min_common_genes, source_name="spatial", target_name="reference"
+        )
 
         # Subset to common genes
         ref = ref[:, common_genes]
@@ -1456,10 +1435,10 @@ async def deconvolve_rctd(
         # Prepare data first (restore raw counts)
         # Memory optimization: helper function creates internal copy, no need to copy here
         # RCTD (R method) requires int32 dtype for R compatibility
-        spatial_data = _prepare_anndata_for_counts(
+        spatial_data = await _prepare_anndata_for_counts(
             spatial_adata, "Spatial", ctx, require_int_dtype=True
         )
-        reference_data = _prepare_anndata_for_counts(
+        reference_data = await _prepare_anndata_for_counts(
             reference_adata, "Reference", ctx, require_int_dtype=True
         )
 
@@ -2413,10 +2392,10 @@ async def deconvolve_destvi(
         # Prepare data first (DestVI requires integer counts)
         # Memory optimization: helper function creates internal copy, no need to copy here
         # DestVI (scvi-tools) works with float32, no need for int32 conversion
-        ref_data = _prepare_anndata_for_counts(
+        ref_data = await _prepare_anndata_for_counts(
             reference_adata, "reference", ctx, require_int_dtype=False
         )
-        spatial_data = _prepare_anndata_for_counts(
+        spatial_data = await _prepare_anndata_for_counts(
             spatial_adata, "spatial", ctx, require_int_dtype=False
         )
 
@@ -2604,10 +2583,10 @@ async def deconvolve_stereoscope(
         # Prepare data first - Stereoscope requires raw counts
         # Memory optimization: helper function creates internal copy, no need to copy here
         # Stereoscope (scvi-tools) works with float32, no need for int32 conversion
-        ref_data = _prepare_anndata_for_counts(
+        ref_data = await _prepare_anndata_for_counts(
             reference_adata, "Reference", ctx, require_int_dtype=False
         )
-        spatial_data = _prepare_anndata_for_counts(
+        spatial_data = await _prepare_anndata_for_counts(
             spatial_adata, "Spatial", ctx, require_int_dtype=False
         )
 
@@ -2869,10 +2848,10 @@ async def deconvolve_spotlight(
         # Prepare full datasets first
         # Memory optimization: helper function creates internal copy, no need to copy here
         # SPOTlight (R method) requires int32 dtype for R compatibility
-        spatial_prepared = _prepare_anndata_for_counts(
+        spatial_prepared = await _prepare_anndata_for_counts(
             spatial_adata, "Spatial", ctx, require_int_dtype=True
         )
-        reference_prepared = _prepare_anndata_for_counts(
+        reference_prepared = await _prepare_anndata_for_counts(
             reference_adata, "Reference", ctx, require_int_dtype=True
         )
 
@@ -3144,12 +3123,12 @@ async def deconvolve_card(
 
         # Memory optimization: helper functions create internal copies, no need to copy here
         # CARD (R method) requires int32 dtype for R compatibility
-        spatial_data = _prepare_anndata_for_counts(
+        spatial_data = await _prepare_anndata_for_counts(
             spatial_adata, "Spatial", ctx, require_int_dtype=True
         )
 
         # For reference data: try to get raw counts if available, but accept normalized if not
-        reference_data = _prepare_reference_for_card(reference_adata, "Reference", ctx)
+        reference_data = await _prepare_reference_for_card(reference_adata, "Reference", ctx)
 
         # 2. Find common genes AFTER data preparation
         common_genes = list(set(spatial_data.var_names) & set(reference_data.var_names))

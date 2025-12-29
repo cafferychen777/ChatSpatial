@@ -119,7 +119,7 @@ async def _annotate_with_singler(
                 ref_labels = ref.get_column_data().column(label_col)
                 break
             except Exception:
-                continue
+                continue  # Try next label column
         if ref_labels is None:
             raise ValueError(f"Could not find labels in reference {reference_name}")
         ref_data = ref
@@ -252,7 +252,8 @@ async def _annotate_with_singler(
                     await ctx.warning(
                         f"{low_delta}/{len(delta_scores)} cells have low confidence scores (delta < 0.05)"
                     )
-        except Exception:
+        except Exception as e:
+            await ctx.debug(f"Delta score extraction failed ({type(e).__name__})")
             delta_scores = None
 
     # Process results
@@ -281,8 +282,9 @@ async def _annotate_with_singler(
                 await ctx.info(
                     f"Using delta scores for confidence (avg: {np.mean(list(confidence_scores.values())):.3f})"
                 )
-        except Exception:
-            pass  # Fall back to regular scores
+        except Exception as e:
+            # Delta score extraction failed, will fall back to regular scores
+            await ctx.debug(f"Delta score extraction failed ({type(e).__name__}), using fallback")
 
     # Fall back to regular scores if delta not available
     if not confidence_scores and scores is not None:
@@ -1238,16 +1240,9 @@ async def _annotate_with_mllmcelltype(
     cell_types = list(adata.obs[output_key].unique())
     counts = adata.obs[output_key].value_counts().to_dict()
 
-    # Calculate confidence scores based on cluster homogeneity
+    # LLM-based annotations don't provide numeric confidence scores
+    # We intentionally leave this empty rather than assigning misleading values
     confidence_scores = {}
-    for cell_type in cell_types:
-        if cell_type != "Unknown":
-            # LLM-based annotations don't provide numeric confidence scores
-            # Don't assign arbitrary values that could be misleading
-            pass  # No numeric confidence available
-        else:
-            # Unknown cells have no confidence
-            pass
 
     # Note: Visualizations should be created using the separate visualize_data tool
     # This maintains clean separation between analysis and visualization
@@ -1258,7 +1253,7 @@ async def _annotate_with_mllmcelltype(
         f"Use visualize_data tool with feature='{output_key}' to visualize results"
     )
 
-    return cell_types, counts, confidence_scores, None, None
+    return cell_types, counts, confidence_scores, None
 
 
 async def _annotate_with_cellassign(
@@ -2039,8 +2034,9 @@ async def _load_cached_sctype_results(
             _SCTYPE_CACHE[cache_key] = results
             await ctx.info("Using cached sc-type results")
             return results
-        except Exception:
-            pass  # Cache miss, will recompute
+        except Exception as e:
+            # Cache corrupted or incompatible, will recompute
+            await ctx.debug(f"Cache load failed ({type(e).__name__}), will recompute")
 
     return None
 
