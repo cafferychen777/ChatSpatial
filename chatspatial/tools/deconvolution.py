@@ -21,6 +21,7 @@ from ..models.analysis import DeconvolutionResult  # noqa: E402
 from ..models.data import DeconvolutionParameters  # noqa: E402
 from ..utils.adata_utils import (
     ensure_unique_var_names_with_ctx,
+    find_common_genes,
     get_spatial_key,
     require_spatial_coords,
     to_dense,
@@ -236,9 +237,9 @@ def _generate_qc_plots(
             qc_results["cell2loc_elbo_history"] = cell2loc_elbo
 
     # Check convergence
-    ref_converged, _ = _check_convergence(ref_model, "ReferenceModel", ctx=None)
+    ref_converged, _ = _check_convergence(ref_model, "ReferenceModel", ctx=ctx)
     cell2loc_converged, _ = _check_convergence(
-        cell2loc_model, "Cell2location", ctx=None
+        cell2loc_model, "Cell2location", ctx=ctx
     )
 
     qc_results["ref_converged"] = ref_converged
@@ -835,7 +836,7 @@ async def deconvolve_cell2location(
             )
 
         # Find common genes AFTER data preparation and filtering (uses actual gene set that will be used)
-        common_genes = list(set(ref.var_names) & set(sp.var_names))
+        common_genes = find_common_genes(ref.var_names, sp.var_names)
 
         validate_gene_overlap(
             common_genes, sp.n_vars, ref.n_vars,
@@ -1077,7 +1078,7 @@ async def deconvolve_cell2location(
 
         # Process results transparently - Cell2location outputs absolute cell counts
         # so normalization would be converting to proportions (user should decide)
-        proportions = _validate_and_process_proportions(
+        proportions = await _validate_and_process_proportions(
             proportions=proportions,
             method="cell2location",
             normalize=False,  # Cell2location outputs absolute counts, not proportions
@@ -1218,7 +1219,7 @@ async def _validate_gene_format_compatibility(
     )
 
     # Check overlap
-    common_genes = set(spatial_adata.var_names) & set(reference_adata.var_names)
+    common_genes = find_common_genes(spatial_adata.var_names, reference_adata.var_names)
     overlap_pct = len(common_genes) / len(reference_adata.var_names)
 
     if overlap_pct < 0.3:  # Statistical threshold: <30% overlap is problematic
@@ -1464,11 +1465,9 @@ async def deconvolve_rctd(
             f"({len(common_genes)/len(reference_data.var_names)*100:.1f}% of reference)"
         )
 
-        _validate_common_genes(
-            common_genes,
-            min_common_genes,
-            spatial_data.n_vars,
-            reference_data.n_vars,
+        validate_gene_overlap(
+            common_genes, spatial_data.n_vars, reference_data.n_vars,
+            min_genes=min_common_genes, source_name="spatial", target_name="reference"
         )
 
         # MEMORY OPTIMIZATION: Calculate lightweight metrics instead of full copy
@@ -2400,11 +2399,12 @@ async def deconvolve_destvi(
         )
 
         # Find common genes AFTER data preparation
-        common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
+        common_genes = find_common_genes(ref_data.var_names, spatial_data.var_names)
         min_common_genes = 100
 
-        _validate_common_genes(
-            common_genes, min_common_genes, spatial_data.n_vars, ref_data.n_vars
+        validate_gene_overlap(
+            common_genes, spatial_data.n_vars, ref_data.n_vars,
+            min_genes=min_common_genes, source_name="spatial", target_name="reference"
         )
 
         # Subset to common genes
@@ -2498,7 +2498,7 @@ async def deconvolve_destvi(
             raise RuntimeError("Failed to extract valid proportions from DestVI model")
 
         # Process results transparently - DestVI outputs proportions
-        proportions_df = _validate_and_process_proportions(
+        proportions_df = await _validate_and_process_proportions(
             proportions=proportions_df,
             method="DestVI",
             normalize=False,  # DestVI already outputs proportions
@@ -2591,11 +2591,12 @@ async def deconvolve_stereoscope(
         )
 
         # Find common genes AFTER data preparation
-        common_genes = list(set(ref_data.var_names) & set(spatial_data.var_names))
+        common_genes = find_common_genes(ref_data.var_names, spatial_data.var_names)
         min_common_genes = 100
 
-        _validate_common_genes(
-            common_genes, min_common_genes, spatial_data.n_vars, ref_data.n_vars
+        validate_gene_overlap(
+            common_genes, spatial_data.n_vars, ref_data.n_vars,
+            min_genes=min_common_genes, source_name="spatial", target_name="reference"
         )
 
         # Subset to common genes
@@ -2689,7 +2690,7 @@ async def deconvolve_stereoscope(
         )
 
         # Process results transparently - Stereoscope outputs proportions
-        proportions = _validate_and_process_proportions(
+        proportions = await _validate_and_process_proportions(
             proportions=proportions,
             method="Stereoscope",
             normalize=False,  # Stereoscope already outputs proportions
@@ -2856,15 +2857,11 @@ async def deconvolve_spotlight(
         )
 
         # Find common genes AFTER data preparation
-        common_genes = list(
-            set(spatial_prepared.var_names) & set(reference_prepared.var_names)
-        )
+        common_genes = find_common_genes(spatial_prepared.var_names, reference_prepared.var_names)
 
-        _validate_common_genes(
-            common_genes,
-            min_common_genes,
-            spatial_prepared.n_vars,
-            reference_prepared.n_vars,
+        validate_gene_overlap(
+            common_genes, spatial_prepared.n_vars, reference_prepared.n_vars,
+            min_genes=min_common_genes, source_name="spatial", target_name="reference"
         )
 
         # Subset to common genes (view is sufficient - data already copied by
@@ -3018,7 +3015,7 @@ async def deconvolve_spotlight(
 
         # Process results transparently - SPOTlight should output proportions
         # but check if they already sum to 1
-        proportions = _validate_and_process_proportions(
+        proportions = await _validate_and_process_proportions(
             proportions=proportions,
             method="SPOTlight",
             normalize=False,  # SPOTlight should already output proportions
@@ -3131,10 +3128,11 @@ async def deconvolve_card(
         reference_data = await _prepare_reference_for_card(reference_adata, "Reference", ctx)
 
         # 2. Find common genes AFTER data preparation
-        common_genes = list(set(spatial_data.var_names) & set(reference_data.var_names))
+        common_genes = find_common_genes(spatial_data.var_names, reference_data.var_names)
 
-        _validate_common_genes(
-            common_genes, min_common_genes, spatial_data.n_vars, reference_data.n_vars
+        validate_gene_overlap(
+            common_genes, spatial_data.n_vars, reference_data.n_vars,
+            min_genes=min_common_genes, source_name="spatial", target_name="reference"
         )
 
         # 3. Subset to common genes (view is sufficient - data already copied by
@@ -3308,7 +3306,7 @@ async def deconvolve_card(
                 )
 
         # 8. Process results - CARD outputs proportions that sum to 1
-        proportions = _validate_and_process_proportions(
+        proportions = await _validate_and_process_proportions(
             proportions=proportions,
             method="CARD",
             normalize=False,  # CARD already outputs proportions
@@ -3421,12 +3419,15 @@ async def deconvolve_tangram(
         validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
         # Find common genes between datasets
-        common_genes = list(
-            set(spatial_adata.var_names) & set(reference_adata.var_names)
-        )
+        common_genes = find_common_genes(spatial_adata.var_names, reference_adata.var_names)
         min_common_genes = 100
-        _validate_common_genes(
-            common_genes, min_common_genes, spatial_adata.n_vars, reference_adata.n_vars
+        validate_gene_overlap(
+            common_genes,
+            spatial_adata.n_vars,
+            reference_adata.n_vars,
+            min_genes=min_common_genes,
+            source_name="spatial",
+            target_name="reference",
         )
 
         # Prepare data - subset to common genes
@@ -3564,7 +3565,7 @@ async def deconvolve_tangram(
 
         # Process results transparently - Tangram mapper matrix returns "equivalent
         # cell counts" (not proportions), so we must normalize to get proportions
-        proportions = _validate_and_process_proportions(
+        proportions = await _validate_and_process_proportions(
             proportions=proportions,
             method="Tangram",
             normalize=True,  # Convert counts to proportions
@@ -3641,11 +3642,14 @@ async def deconvolve_flashdeconv(
         validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
         # Find common genes
-        common_genes = list(
-            set(spatial_adata.var_names) & set(reference_adata.var_names)
-        )
-        _validate_common_genes(
-            common_genes, min_common_genes, spatial_adata.n_vars, reference_adata.n_vars
+        common_genes = find_common_genes(spatial_adata.var_names, reference_adata.var_names)
+        validate_gene_overlap(
+            common_genes,
+            spatial_adata.n_vars,
+            reference_adata.n_vars,
+            min_genes=min_common_genes,
+            source_name="spatial",
+            target_name="reference",
         )
 
         await ctx.info(f"Found {len(common_genes)} common genes")
