@@ -106,15 +106,10 @@ async def visualize_data(
     """
     # Validate parameters - use PLOT_HANDLERS as single source of truth
     if params.plot_type not in PLOT_HANDLERS:
-        error_msg = (
+        raise ParameterError(
             f"Invalid plot_type: {params.plot_type}. "
             f"Must be one of {list(PLOT_HANDLERS.keys())}"
         )
-        await ctx.warning(error_msg)
-        raise ParameterError(error_msg)
-
-    await ctx.info(f"Visualizing {params.plot_type} plot for dataset {data_id}")
-    await ctx.info(f"Parameters: feature={params.feature}, colormap={params.colormap}")
 
     try:
         # Retrieve the AnnData object via ToolContext
@@ -133,9 +128,6 @@ async def visualize_data(
         handler = PLOT_HANDLERS[params.plot_type]
         fig = await handler(adata, params, ctx._mcp_context)
 
-        # Convert figure with optimization (preview + resource for large images)
-        await ctx.info(f"Converting {params.plot_type} figure...")
-
         # Generate plot_type_key with subtype if applicable (for cache consistency)
         subtype = params.subtype
         plot_type_key = f"{params.plot_type}_{subtype}" if subtype else params.plot_type
@@ -153,11 +145,6 @@ async def visualize_data(
     except Exception as e:
         # Make sure to close any open figures in case of error
         plt.close("all")
-
-        # Log the error
-        error_msg = f"Error in {params.plot_type} visualization: {str(e)}"
-        await ctx.warning(error_msg)
-        await ctx.info(f"Error details: {traceback.format_exc()}")
 
         # For image conversion errors, return error message as string
         if "fig_to_image" in str(e) or "convert" in str(e).lower():

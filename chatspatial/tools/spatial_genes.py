@@ -70,20 +70,13 @@ async def identify_spatial_genes(
         - SPARK-X: ~2-5 min for 3000 spots × 20000 genes
         - SpatialDE: ~15-30 min (scales with spot count squared)
     """
-    await ctx.info(
-        f"Starting spatial variable genes identification using {params.method}"
-    )
-
     # Get data via ToolContext
     adata = await ctx.get_adata(data_id)
 
     # Validate spatial coordinates exist
     require_spatial_coords(adata, spatial_key=params.spatial_key)
 
-    # Log data information
-    await ctx.info(f"Processing data: {adata.n_obs} spots, {adata.n_vars} genes")
-
-    # Route to appropriate method (pass ctx for logging)
+    # Route to appropriate method
     if params.method == "spatialde":
         return await _identify_spatial_genes_spatialde(data_id, adata, params, ctx)
     elif params.method == "sparkx":
@@ -166,10 +159,6 @@ async def _identify_spatial_genes_spatialde(
     import SpatialDE
     from SpatialDE.util import qvalue
 
-    # adata is now passed directly from main function (via ctx.get_adata())
-
-    await ctx.info("Running SpatialDE analysis")
-
     # Prepare data
     coords = pd.DataFrame(
         adata.obsm[params.spatial_key][:, :2],  # Ensure 2D coordinates
@@ -179,15 +168,11 @@ async def _identify_spatial_genes_spatialde(
 
     # Get raw count data for SpatialDE preprocessing
     # OPTIMIZATION: Filter genes on SPARSE matrix first, then convert only selected genes to dense
-    # This provides 95%+ memory savings for large datasets (tested with 5000×20000 genes)
-    await ctx.info("Preparing count data for SpatialDE (memory-optimized)")
-
     # Get raw data source (keep as sparse matrix)
     if adata.raw is not None:
         raw_data = adata.raw.X
         var_names = adata.raw.var_names
         var_df = adata.var  # For HVG lookup
-        await ctx.info("Using raw count matrix from adata.raw")
     else:
         # Check if current data appears to be raw counts
         data_max = adata.X.max() if hasattr(adata.X, "max") else np.max(adata.X)
@@ -199,7 +184,6 @@ async def _identify_spatial_genes_spatialde(
         raw_data = adata.X
         var_names = adata.var_names
         var_df = adata.var
-        await ctx.info("Using current count matrix from adata.X")
 
     # Step 1: Filter low-expression genes ON SPARSE MATRIX (Official recommendation)
     # SpatialDE README: "Filter practically unobserved genes" with total_counts >= 3
@@ -215,14 +199,6 @@ async def _identify_spatial_genes_spatialde(
 
     keep_genes_mask = gene_totals >= 3
     selected_var_names = var_names[keep_genes_mask]
-    n_filtered = keep_genes_mask.sum()
-    n_total = len(keep_genes_mask)
-
-    if n_filtered < n_total:
-        await ctx.info(
-            f"Filtered to {n_filtered}/{n_total} genes (total counts ≥ 3, official threshold)"
-        )
-
     # Step 2: Select top N HVGs ON SPARSE MATRIX (if requested)
     # This further reduces genes BEFORE densification
     final_genes = selected_var_names
@@ -236,9 +212,6 @@ async def _identify_spatial_genes_spatialde(
             if len(hvg_genes) >= params.n_top_genes:
                 # Use HVGs
                 final_genes = hvg_genes[: params.n_top_genes]
-                await ctx.info(
-                    f"Selected {params.n_top_genes} highly variable genes (for performance)"
-                )
             else:
                 # Not enough HVGs, select by expression
                 gene_totals_filtered = gene_totals[keep_genes_mask]
@@ -246,17 +219,11 @@ async def _identify_spatial_genes_spatialde(
                     ::-1
                 ]
                 final_genes = selected_var_names[top_indices]
-                await ctx.info(
-                    f"Selected top {params.n_top_genes} expressed genes (performance optimization)"
-                )
         else:
             # Select by expression
             gene_totals_filtered = gene_totals[keep_genes_mask]
             top_indices = np.argsort(gene_totals_filtered)[-params.n_top_genes :][::-1]
             final_genes = selected_var_names[top_indices]
-            await ctx.info(
-                f"Selected top {params.n_top_genes} expressed genes (performance optimization)"
-            )
 
     # Step 3: Slice sparse matrix to final genes, THEN convert to dense
     # This is where the memory optimization happens: only convert selected genes
@@ -293,46 +260,25 @@ async def _identify_spatial_genes_spatialde(
         {"total_counts": counts.sum(axis=1)}, index=counts.index
     )
 
-    await ctx.info(
-        "Applying SpatialDE official preprocessing workflow (variance stabilization + regress_out)"
-    )
-
-    # Step 1: Variance stabilization (Official: NaiveDE.stabilize)
-    # This transforms count data to approximately normal distribution
-    await ctx.info("Step 1/3: Variance stabilization (NaiveDE.stabilize)")
-
+    # Apply official SpatialDE preprocessing workflow
+    # Step 1: Variance stabilization
     norm_expr = NaiveDE.stabilize(counts.T).T
 
-    # Step 2: Regress out library size effects (Official: NaiveDE.regress_out)
-    # This removes technical variation from sequencing depth differences
-    await ctx.info(
-        "Step 2/3: Regressing out library size effects (NaiveDE.regress_out)"
-    )
-
+    # Step 2: Regress out library size effects
     resid_expr = NaiveDE.regress_out(
         total_counts, norm_expr.T, "np.log(total_counts)"
     ).T
 
-    # Step 3: Run SpatialDE with preprocessed data
-    await ctx.info(f"Step 3/3: Running SpatialDE on {n_genes} genes × {n_spots} spots")
-
+    # Step 3: Run SpatialDE
     results = SpatialDE.run(coords.values, resid_expr)
 
     # Multiple testing correction using Storey q-value method
-    # pi0 = proportion of genes under null hypothesis (no spatial pattern)
     if params.spatialde_pi0 is not None:
         # User-specified pi0 value
         results["qval"] = qvalue(results["pval"].values, pi0=params.spatialde_pi0)
-        await ctx.info(
-            f"Using user-specified pi0={params.spatialde_pi0} for q-value estimation"
-        )
     else:
         # Adaptive pi0 estimation (SpatialDE default, recommended)
-        # This estimates pi0 from the p-value distribution
         results["qval"] = qvalue(results["pval"].values)
-        await ctx.info(
-            "Using adaptive pi0 estimation for q-value calculation (recommended)"
-        )
 
     # Sort by q-value
     results = results.sort_values("qval")
@@ -431,13 +377,6 @@ async def _identify_spatial_genes_spatialde(
         spatialde_results=spatialde_results,
     )
 
-    await ctx.info("SpatialDE analysis completed")
-    await ctx.info(f"Found {len(significant_genes_all)} significant spatial genes")
-    if len(significant_genes_all) > MAX_GENES_TO_RETURN:
-        await ctx.info(
-            f"Returning top {MAX_GENES_TO_RETURN} genes (full results in adata.var)"
-        )
-
     return result
 
 
@@ -524,15 +463,9 @@ async def _identify_spatial_genes_sparkx(
     from rpy2.robjects import conversion, default_converter
     from rpy2.robjects.packages import importr
 
-    await ctx.info("Running SPARK-X non-parametric analysis")
-
-    # adata is now passed directly from main function (via ctx.get_adata())
-
     # Prepare spatial coordinates - SPARK needs data.frame format
     coords_array = adata.obsm[params.spatial_key][:, :2].astype(float)
     n_spots, n_genes = adata.shape
-
-    await ctx.info(f"Preparing data: {n_spots} spots × {n_genes} genes")
 
     # ==================== OPTIMIZED: Filter on sparse matrix, then convert ====================
     # Strategy: Keep data sparse throughout filtering, only convert final filtered result
@@ -567,13 +500,6 @@ async def _identify_spatial_genes_sparkx(
             else:
                 unique_names.append(gene)
         gene_names = unique_names
-        await ctx.info(
-            f"Made duplicate gene names unique (found {sum(1 for c in gene_counts.values() if c > 1)} duplicates)"
-        )
-
-    await ctx.info(
-        f"Using {'raw' if adata.raw is not None else 'current'} count matrix (keeping sparse for efficient filtering)"
-    )
 
     # ==================== Gene Filtering Pipeline (ON SPARSE MATRIX) ====================
     # Following SPARK-X paper best practices + 2024 literature recommendations
@@ -602,10 +528,6 @@ async def _identify_spatial_genes_sparkx(
         n_mt_genes = mt_mask.sum()
         if n_mt_genes > 0:
             gene_mask &= ~mt_mask  # Exclude MT genes
-            await ctx.info(
-                f"Marked {n_mt_genes} mitochondrial genes for filtering "
-                f"(via {annotation_source}, SPARK-X paper standard)"
-            )
 
     # TIER 1: Ribosomal gene filtering (optional)
     # Reuse preprocessing annotations when available for consistency
@@ -626,10 +548,6 @@ async def _identify_spatial_genes_sparkx(
         n_ribo_genes = ribo_mask.sum()
         if n_ribo_genes > 0:
             gene_mask &= ~ribo_mask  # Exclude ribosomal genes
-            await ctx.info(
-                f"Marked {n_ribo_genes} ribosomal genes for filtering "
-                f"(via {annotation_source}, reduces housekeeping dominance)"
-            )
 
     # TIER 2: HVG-only testing (2024 best practice from PMC11537352)
     if params.test_only_hvg:
@@ -660,42 +578,6 @@ async def _identify_spatial_genes_sparkx(
             )
 
         gene_mask &= hvg_mask  # Keep only HVGs
-        await ctx.info(
-            f"Marked for HVG-only testing: {n_hvg} highly variable genes (2024 best practice - PMC11537352)"
-        )
-
-        # Smart detection: Check if preprocessing already excluded mt/ribo from HVGs
-        # This provides transparency about the filtering pipeline
-        preprocessing_info = adata.uns.get("preprocessing", {})
-        gene_annot = preprocessing_info.get("gene_annotations", {})
-
-        excluded_from_hvg = []
-        if gene_annot.get("mt_column") and gene_annot.get("n_mt_genes", 0) > 0:
-            # Check if any mt genes are in HVGs (if not, preprocessing excluded them)
-            if "mt" in var_source.var.columns:
-                mt_in_hvg = (
-                    var_source.var["mt"] & adata.var.get("highly_variable", False)
-                ).sum()
-                if mt_in_hvg == 0:
-                    excluded_from_hvg.append(
-                        f"mitochondrial ({gene_annot.get('n_mt_genes', 0)} genes)"
-                    )
-
-        if gene_annot.get("ribo_column") and gene_annot.get("n_ribo_genes", 0) > 0:
-            if "ribo" in var_source.var.columns:
-                ribo_in_hvg = (
-                    var_source.var["ribo"] & adata.var.get("highly_variable", False)
-                ).sum()
-                if ribo_in_hvg == 0:
-                    excluded_from_hvg.append(
-                        f"ribosomal ({gene_annot.get('n_ribo_genes', 0)} genes)"
-                    )
-
-        if excluded_from_hvg:
-            await ctx.info(
-                f"Note: {' and '.join(excluded_from_hvg)} already excluded from HVGs "
-                "during preprocessing (unified filtering pipeline)"
-            )
 
     # TIER 1: Apply SPARK-X standard filtering (expression-based) - ON SPARSE MATRIX
     percentage = params.sparkx_percentage
@@ -713,21 +595,11 @@ async def _identify_spatial_genes_sparkx(
 
     gene_mask &= expr_mask  # Combine with previous filters
 
-    n_filtered_out = len(gene_names) - gene_mask.sum()
-    if n_filtered_out > 0:
-        await ctx.info(
-            f"Marked {n_filtered_out} genes for filtering (expression threshold: >{percentage*100:.0f}% cells, >{min_total_counts} counts)"
-        )
-
     # Apply combined filter mask to sparse matrix (still sparse!)
     if gene_mask.sum() < len(gene_names):
         filtered_sparse = sparse_counts[:, gene_mask]
         gene_names = [gene for gene, keep in zip(gene_names, gene_mask) if keep]
         n_genes_after_filter = len(gene_names)
-
-        await ctx.info(
-            f"Filtered {len(gene_mask)} → {n_genes_after_filter} genes (saved {len(gene_mask) - n_genes_after_filter} genes = {(1 - n_genes_after_filter/len(gene_mask))*100:.1f}% reduction)"
-        )
     else:
         filtered_sparse = sparse_counts
         n_genes_after_filter = len(gene_names)
@@ -739,18 +611,11 @@ async def _identify_spatial_genes_sparkx(
     # Ensure counts are non-negative integers
     counts_matrix = np.maximum(counts_matrix, 0).astype(int)
 
-    await ctx.info(
-        f"Converted filtered sparse matrix to dense: {counts_matrix.shape} (saves ~{(len(gene_mask) - n_genes_after_filter) * n_spots * 4 / (1024**3):.1f}GB vs converting before filtering)"
-    )
-
     # Update gene count after filtering
     n_genes = len(gene_names)
 
     # Transpose for SPARK format (genes × spots)
     counts_transposed = counts_matrix.T
-
-    await ctx.info(f"Count matrix shape: {counts_transposed.shape} (genes × spots)")
-    await ctx.info(f"Passing {n_genes} genes to SPARK-X for analysis")
 
     # Create spot names
     spot_names = [str(name) for name in adata.obs_names]
@@ -786,10 +651,6 @@ async def _identify_spatial_genes_sparkx(
                 row_names=ro.StrVector(coords_df.index),
             )
 
-            await ctx.info(
-                "Running SPARK-X analysis using sparkx function (output suppressed for MCP compatibility)"
-            )
-
             try:
                 # Execute SPARK-X analysis inside context (FIX for contextvars issue)
                 # Keep suppress_output for MCP communication compatibility
@@ -802,8 +663,6 @@ async def _identify_spatial_genes_sparkx(
                         option=params.sparkx_option,
                         verbose=False,  # Ensure verbose is off for cleaner MCP communication
                     )
-
-                await ctx.info("SPARK-X analysis completed successfully")
 
                 # Extract p-values from results (inside context for proper conversion)
                 # SPARK-X returns res_mtest as a data.frame with columns:
@@ -852,10 +711,6 @@ async def _identify_spatial_genes_sparkx(
                         }
                     )
 
-                    await ctx.info(
-                        f"Extracted results for {len(results_df)} genes "
-                        f"(p-values BY-corrected by SPARK-X)"
-                    )
                     # Warn if returned genes much fewer than input genes
                     if len(results_df) < n_genes * 0.5:
                         await ctx.warning(
@@ -866,16 +721,13 @@ async def _identify_spatial_genes_sparkx(
 
                 except Exception as e:
                     # P-value extraction failed - provide clear error message
-                    error_msg = (
+                    raise ProcessingError(
                         f"SPARK-X p-value extraction failed: {e}\n\n"
                         f"Expected SPARK-X output format:\n"
                         f"SPARK-X output invalid. Requires SPARK >= 1.1.0."
                     )
-                    await ctx.error(error_msg)
-                    raise ProcessingError(error_msg)
 
             except Exception as e:
-                await ctx.info(f"SPARK-X analysis failed: {e}")
                 raise ProcessingError(f"SPARK-X analysis failed: {e}")
 
     # Sort by adjusted p-value
@@ -1029,15 +881,5 @@ async def _identify_spatial_genes_sparkx(
         results_key=results_key,
         sparkx_results=sparkx_results,
     )
-
-    await ctx.info("SPARK-X analysis completed successfully")
-    await ctx.info(f"Analyzed {len(results_df)} genes")
-    await ctx.info(
-        f"Found {len(significant_genes_all)} significant spatial genes (q < 0.05)"
-    )
-    if len(significant_genes_all) > MAX_GENES_TO_RETURN:
-        await ctx.info(
-            f"Returning top {MAX_GENES_TO_RETURN} genes (full results in adata.var)"
-        )
 
     return result

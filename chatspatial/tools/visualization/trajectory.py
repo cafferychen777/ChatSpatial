@@ -22,12 +22,10 @@ if TYPE_CHECKING:
 
 from ...models.data import VisualizationParameters
 from ...utils.dependency_manager import require
-from ...utils.exceptions import (
-    DataCompatibilityError,
-    DataNotFoundError,
-    ParameterError,
-)
-from .core import setup_multi_panel_figure
+from ...utils.exceptions import (DataCompatibilityError, DataNotFoundError,
+                                 ParameterError)
+from .core import (get_categorical_columns, infer_basis,
+                   setup_multi_panel_figure)
 
 # =============================================================================
 # Main Router
@@ -127,24 +125,12 @@ async def _create_trajectory_pseudotime_plot(
     has_velocity = "velocity_graph" in adata.uns
 
     # Determine basis for plotting
-    basis = params.basis or "spatial"
-    basis_key = f"X_{basis}" if basis != "spatial" else "spatial"
-
-    if basis_key not in adata.obsm:
-        if "spatial" in adata.obsm:
-            basis = "spatial"
-        elif "X_umap" in adata.obsm:
-            basis = "umap"
-        elif "X_pca" in adata.obsm:
-            basis = "pca"
-        else:
-            available_bases = [
-                k.replace("X_", "") for k in adata.obsm.keys() if k.startswith("X_")
-            ]
-            available_bases.extend([k for k in adata.obsm.keys() if k == "spatial"])
-            raise DataCompatibilityError(
-                f"Basis not found. Available bases: {available_bases}"
-            )
+    basis = infer_basis(adata, preferred=params.basis)
+    if not basis:
+        raise DataCompatibilityError(
+            f"No valid embedding basis found. "
+            f"Available keys: {list(adata.obsm.keys())}"
+        )
 
     # Setup figure: 1 panel if no velocity, 2 panels if velocity exists
     n_panels = 2 if has_velocity else 1
@@ -263,11 +249,7 @@ async def _create_cellrank_circular_projection(
     # Determine keys for coloring
     keys = [params.cluster_key] if params.cluster_key else None
     if not keys:
-        categorical_cols = [
-            col
-            for col in adata.obs.columns
-            if adata.obs[col].dtype.name in ["object", "category"]
-        ][:3]
+        categorical_cols = get_categorical_columns(adata, limit=3)
         keys = categorical_cols if categorical_cols else None
 
     figsize = params.figure_size or (10, 10)
@@ -325,11 +307,7 @@ async def _create_cellrank_fate_map(
     # Determine cluster key
     cluster_key = params.cluster_key
     if not cluster_key:
-        categorical_cols = [
-            col
-            for col in adata.obs.columns
-            if adata.obs[col].dtype.name in ["object", "category"]
-        ]
+        categorical_cols = get_categorical_columns(adata)
         if categorical_cols:
             cluster_key = categorical_cols[0]
             if context:
@@ -594,14 +572,9 @@ async def _create_palantir_results(
         await context.info("Creating Palantir results visualization")
 
     # Determine basis
-    basis = params.basis or "umap"
-    if f"X_{basis}" not in adata.obsm:
-        if "X_umap" in adata.obsm:
-            basis = "umap"
-        elif "spatial" in adata.obsm:
-            basis = "spatial"
-        else:
-            basis = "pca"
+    basis = infer_basis(
+        adata, preferred=params.basis, priority=["umap", "spatial", "pca"]
+    )
 
     # Determine number of panels
     n_panels = 1 + int(has_entropy) + (1 if fate_key else 0)

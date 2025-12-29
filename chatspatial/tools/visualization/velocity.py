@@ -21,11 +21,9 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import validate_obs_column
 from ...utils.dependency_manager import require
-from ...utils.exceptions import (
-    DataCompatibilityError,
-    DataNotFoundError,
-    ParameterError,
-)
+from ...utils.exceptions import (DataCompatibilityError, DataNotFoundError,
+                                 ParameterError)
+from .core import get_categorical_columns, infer_basis
 
 # =============================================================================
 # Main Router
@@ -103,41 +101,19 @@ async def _create_velocity_stream_plot(
         )
 
     # Determine basis for plotting
-    basis = params.basis or "spatial"
-    basis_key = f"X_{basis}" if basis != "spatial" else "spatial"
-
-    if basis_key not in adata.obsm:
-        if "spatial" in adata.obsm:
-            basis = "spatial"
-            if context:
-                await context.info("Using 'spatial' as basis")
-        elif "X_umap" in adata.obsm:
-            basis = "umap"
-            if context:
-                await context.info("Using 'umap' as basis")
-        elif "X_pca" in adata.obsm:
-            basis = "pca"
-            if context:
-                await context.info("Using 'pca' as basis")
-        else:
-            available_bases = [
-                k.replace("X_", "") for k in adata.obsm.keys() if k.startswith("X_")
-            ]
-            available_bases.extend([k for k in adata.obsm.keys() if k == "spatial"])
-            raise DataCompatibilityError(
-                f"Basis '{params.basis or 'spatial'}' not found. "
-                f"Available bases: {available_bases}"
-            )
+    basis = infer_basis(adata, preferred=params.basis)
+    if not basis:
+        raise DataCompatibilityError(
+            f"No valid embedding basis found. "
+            f"Available keys: {list(adata.obsm.keys())}"
+        )
+    if context and basis != params.basis:
+        await context.info(f"Using '{basis}' as basis")
 
     # Prepare feature for coloring
     feature = params.feature
     if not feature:
-        # Auto-detect a suitable categorical column for coloring
-        categorical_cols = [
-            col
-            for col in adata.obs.columns
-            if adata.obs[col].dtype.name in ["object", "category"]
-        ]
+        categorical_cols = get_categorical_columns(adata)
         feature = categorical_cols[0] if categorical_cols else None
         if feature and context:
             await context.info(f"Using '{feature}' for coloring")
@@ -213,13 +189,7 @@ async def _create_velocity_phase_plot(
     if context:
         await context.info(f"Creating phase plot for genes: {valid_genes}")
 
-    basis = params.basis or "umap"
-    if f"X_{basis}" not in adata.obsm and basis != "spatial":
-        if "X_umap" in adata.obsm:
-            basis = "umap"
-        elif "spatial" in adata.obsm:
-            basis = "spatial"
-
+    basis = infer_basis(adata, preferred=params.basis, priority=["umap", "spatial"])
     figsize = params.figure_size or (4 * len(valid_genes), 4)
     color = params.cluster_key if params.cluster_key else None
 
@@ -266,11 +236,7 @@ async def _create_velocity_proportions_plot(
 
     cluster_key = params.cluster_key
     if not cluster_key:
-        categorical_cols = [
-            col
-            for col in adata.obs.columns
-            if adata.obs[col].dtype.name in ["object", "category"]
-        ]
+        categorical_cols = get_categorical_columns(adata)
         if categorical_cols:
             cluster_key = categorical_cols[0]
             if context:
@@ -393,11 +359,7 @@ async def _create_velocity_paga_plot(
         if "paga" in adata.uns and "groups" in adata.uns.get("paga", {}):
             cluster_key = adata.uns["paga"].get("groups")
         else:
-            categorical_cols = [
-                col
-                for col in adata.obs.columns
-                if adata.obs[col].dtype.name in ["object", "category"]
-            ]
+            categorical_cols = get_categorical_columns(adata)
             if categorical_cols:
                 cluster_key = categorical_cols[0]
 
@@ -419,13 +381,7 @@ async def _create_velocity_paga_plot(
     if context:
         await context.info(f"Creating velocity PAGA plot for '{cluster_key}'")
 
-    basis = params.basis or "umap"
-    if f"X_{basis}" not in adata.obsm:
-        if "X_umap" in adata.obsm:
-            basis = "umap"
-        elif "spatial" in adata.obsm:
-            basis = "spatial"
-
+    basis = infer_basis(adata, preferred=params.basis, priority=["umap", "spatial"])
     figsize = params.figure_size or (10, 8)
     fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
 

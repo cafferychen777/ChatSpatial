@@ -7,7 +7,6 @@ This module contains:
 - CellPhoneDB visualizations (heatmap, dotplot, chord)
 """
 
-import io
 from typing import TYPE_CHECKING, Optional
 
 import matplotlib.pyplot as plt
@@ -664,25 +663,20 @@ def _create_cellphonedb_chord(
 
 
 def _plotnine_to_matplotlib(p, params: VisualizationParameters) -> plt.Figure:
-    """Convert plotnine ggplot object to matplotlib Figure."""
+    """Convert plotnine ggplot object to matplotlib Figure.
+
+    Uses plotnine's native draw() method which returns the underlying
+    matplotlib Figure, avoiding rasterization through PNG buffer.
+    """
     try:
-        from PIL import Image
+        # plotnine's draw() returns the matplotlib Figure directly
+        fig = p.draw()
 
-        buf = io.BytesIO()
-        dpi = params.dpi or 300
-        p.save(buf, format="png", dpi=dpi, verbose=False)
-        buf.seek(0)
+        # Apply DPI setting if specified
+        if params.dpi:
+            fig.set_dpi(params.dpi)
 
-        img = Image.open(buf)
-        fig, ax = plt.subplots(figsize=(img.width / dpi, img.height / dpi), dpi=dpi)
-        ax.imshow(img)
-        ax.axis("off")
-        plt.tight_layout(pad=0)
-
-        buf.close()
         return fig
 
     except Exception as e:
-        raise ProcessingError(
-            f"Failed to convert plotnine figure: {e}. Install Pillow."
-        ) from e
+        raise ProcessingError(f"Failed to convert plotnine figure: {e}") from e

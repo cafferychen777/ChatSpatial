@@ -122,10 +122,6 @@ async def save_visualization(
         # Use environment variable for output_dir if default value was passed
         if output_dir == "./outputs":
             output_dir = get_output_dir_from_config(default="./outputs")
-            if output_dir != "./outputs":
-                await ctx.info(
-                    f"Using output directory from configuration: {output_dir}"
-                )
 
         # Validate format
         valid_formats = ["png", "jpg", "jpeg", "pdf", "svg", "eps", "ps", "tiff"]
@@ -147,21 +143,11 @@ async def save_visualization(
         if dpi is None:
             dpi = 300  # High quality for all formats (publication-ready)
 
-        if dpi >= 300:
-            await ctx.info(f"Using publication-quality DPI: {dpi}")
-
         # Create output directory using safe path handling
         try:
             output_path = get_safe_output_path(
                 output_dir, fallback_to_tmp=True, create_if_missing=True
             )
-
-            if str(output_path) != str(Path(output_dir).resolve()):
-                await ctx.info(
-                    f"Using output directory: {output_path} "
-                    f"(fallback from requested path)"
-                )
-
         except PermissionError as e:
             raise ProcessingError(
                 f"Cannot save to {output_dir}: {e}. Check permissions."
@@ -193,11 +179,6 @@ async def save_visualization(
             if os.path.exists(metadata_path):
                 try:
                     metadata = load_visualization_metadata(metadata_path)
-
-                    await ctx.info(
-                        "Regenerating figure from saved metadata (secure approach)"
-                    )
-
                     saved_params = metadata.get("params", {})
 
                     # Override DPI with user's request for export
@@ -212,10 +193,6 @@ async def save_visualization(
                         adata, viz_params, ctx._mcp_context
                     )
                     cached_fig = fig
-
-                    await ctx.info(
-                        f"Successfully regenerated {plot_type} visualization"
-                    )
 
                 except Exception as e:
                     await ctx.warning(
@@ -233,13 +210,6 @@ async def save_visualization(
                     f"Cannot regenerate '{cache_key}'. Reload dataset and visualize again."
                 )
 
-        # Export from cached figure with format-specific parameters
-        format_info = format.upper()
-        if format.lower() in ["pdf", "svg", "eps", "ps"]:
-            format_info += " (vector)"
-        else:
-            format_info += f" ({dpi} DPI)"
-        await ctx.info(f"Exporting visualization as {format_info}...")
 
         try:
             # Prepare save parameters
@@ -275,28 +245,6 @@ async def save_visualization(
 
             # Save the figure
             cached_fig.savefig(str(file_path), **save_params)
-
-            # Get file size
-            file_size_kb = os.path.getsize(file_path) / 1024
-
-            size_str = (
-                f"{file_size_kb:.1f} KB"
-                if file_size_kb < 1024
-                else f"{file_size_kb/1024:.1f} MB"
-            )
-            await ctx.info(f"Saved visualization to {file_path} ({size_str})")
-
-            # Format-specific advice
-            if format.lower() == "pdf":
-                await ctx.info(
-                    "PDF ready for journal submission (Nature/Science/Cell compatible)"
-                )
-            elif format.lower() == "svg":
-                await ctx.info("SVG ready for web or editing in Illustrator/Inkscape")
-            elif format.lower() in ["eps", "ps"]:
-                await ctx.info("PostScript ready for LaTeX or professional printing")
-            elif dpi >= 300:
-                await ctx.info(f"High-resolution ({dpi} DPI) suitable for publication")
 
             return str(file_path)
 
@@ -338,10 +286,6 @@ async def export_all_visualizations(
 
         # Strategy 2: Fallback to JSON metadata files (persistent storage)
         if not relevant_keys:
-            await ctx.info(
-                f"Session cache empty, scanning metadata files for dataset '{data_id}'..."
-            )
-
             # Scan metadata directory for this dataset
             metadata_dir = "/tmp/chatspatial/figures"
             metadata_pattern = f"{metadata_dir}/{data_id}_*.json"
@@ -352,10 +296,6 @@ async def export_all_visualizations(
                 relevant_keys = [
                     os.path.basename(f).replace(".json", "") for f in metadata_files
                 ]
-
-                await ctx.info(
-                    f"Found {len(relevant_keys)} visualization(s) from metadata files"
-                )
             else:
                 await ctx.warning(
                     f"No visualizations found for dataset '{data_id}' "
@@ -401,10 +341,6 @@ async def export_all_visualizations(
             except Exception as e:
                 await ctx.warning(f"Failed to export {cache_key}: {str(e)}")
 
-        await ctx.info(
-            f"Exported {len(saved_files)} visualization(s) for dataset '{data_id}' to {output_dir}"
-        )
-
         return saved_files
 
     except ProcessingError:
@@ -430,13 +366,9 @@ async def clear_visualization_cache(
         if data_id:
             # Clear specific dataset visualizations using prefix
             cleared_count = ctx.clear_visualizations(prefix=f"{data_id}_")
-            await ctx.info(
-                f"Cleared {cleared_count} visualization(s) for dataset '{data_id}'"
-            )
         else:
             # Clear all visualizations
             cleared_count = ctx.clear_visualizations()
-            await ctx.info(f"Cleared all {cleared_count} visualization(s) from cache")
 
         return cleared_count
 
