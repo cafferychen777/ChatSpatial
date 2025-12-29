@@ -1064,8 +1064,6 @@ async def _analyze_spatial_centrality(
 
     Migrated from spatial_statistics.py
     """
-    await ctx.info("Computing spatial centrality measures...")
-
     # Check for required dependencies
     if not is_available("networkx"):
         raise DependencyError(
@@ -1254,11 +1252,6 @@ async def _analyze_local_moran(
         alpha = params.local_moran_alpha
         use_fdr = params.local_moran_fdr_correction
 
-        await ctx.info(
-            f"Running Local Moran's I (LISA) with {permutations} permutations, "
-            f"alpha={alpha}, FDR correction={'enabled' if use_fdr else 'disabled'}"
-        )
-
         # Extract all genes at once for efficiency
         if issparse(adata.X):
             expr_all_genes = adata[:, valid_genes].X.toarray()
@@ -1348,15 +1341,6 @@ async def _analyze_local_moran(
             "method": "PySAL esda.Moran_Local",
             "reference": "Anselin, L. (1995). Local Indicators of Spatial Association - LISA",
         }
-
-        total_significant = sum(r["n_significant"] for r in results.values())
-        total_hotspots = sum(r["n_hotspots"] for r in results.values())
-        total_coldspots = sum(r["n_coldspots"] for r in results.values())
-        await ctx.info(
-            f"Local Moran's I completed for {len(valid_genes)} genes: "
-            f"{total_significant} significant locations "
-            f"({total_hotspots} hot spots, {total_coldspots} cold spots)"
-        )
 
         return {
             "analysis_type": "local_moran",
