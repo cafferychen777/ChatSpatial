@@ -27,8 +27,9 @@ if TYPE_CHECKING:
 
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import get_spatial_key, require_spatial_coords
-from ...utils.exceptions import DataNotFoundError
-from .core import DeconvolutionData, plot_spatial_feature, setup_multi_panel_figure
+from ...utils.exceptions import DataNotFoundError, ParameterError
+from .core import (DeconvolutionData, plot_spatial_feature,
+                   setup_multi_panel_figure)
 
 # =============================================================================
 # Data Retrieval
@@ -86,7 +87,7 @@ async def get_deconvolution_data(
 
         if len(deconv_keys) > 1:
             available = [k.replace("deconvolution_", "") for k in deconv_keys]
-            raise ValueError(
+            raise ParameterError(
                 f"Multiple deconvolution results: {available}. "
                 f"Specify deconv_method parameter."
             )
@@ -174,7 +175,7 @@ async def create_deconvolution_visualization(
     elif viz_type == "spatial_multi":
         return await _create_spatial_multi_deconvolution(adata, params, context)
     else:
-        raise ValueError(
+        raise ParameterError(
             f"Unknown deconvolution visualization type: {viz_type}. "
             f"Available: spatial_multi, dominant_type, diversity, stacked_bar, "
             f"scatterpie, umap"

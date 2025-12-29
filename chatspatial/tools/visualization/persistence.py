@@ -17,9 +17,11 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from ...models.data import VisualizationParameters
-from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from ...utils.exceptions import (DataNotFoundError, ParameterError,
+                                 ProcessingError)
 from ...utils.image_utils import get_cached_figure, load_visualization_metadata
-from ...utils.path_utils import get_output_dir_from_config, get_safe_output_path
+from ...utils.path_utils import (get_output_dir_from_config,
+                                 get_safe_output_path)
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -60,7 +62,7 @@ async def _regenerate_figure_for_export(
     plot_type = params.plot_type
 
     if plot_type not in PLOT_HANDLERS:
-        raise ValueError(f"Unknown plot type: {plot_type}")
+        raise ParameterError(f"Unknown plot type: {plot_type}")
 
     # Get the appropriate visualization function
     viz_func = PLOT_HANDLERS[plot_type]
@@ -209,7 +211,6 @@ async def save_visualization(
                 raise ProcessingError(
                     f"Cannot regenerate '{cache_key}'. Reload dataset and visualize again."
                 )
-
 
         try:
             # Prepare save parameters

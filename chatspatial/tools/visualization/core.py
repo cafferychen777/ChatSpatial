@@ -21,6 +21,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import get_gene_expression, require_spatial_coords
+from ...utils.exceptions import DataNotFoundError, ParameterError
 
 plt.ioff()
 
@@ -250,7 +251,7 @@ def validate_and_prepare_feature(
         is_cat = pd.api.types.is_categorical_dtype(data) or data.dtype == object
         return data.values, feature, is_cat
 
-    raise ValueError(f"Feature '{feature}' not found in data")
+    raise DataNotFoundError(f"Feature '{feature}' not found in data")
 
 
 # =============================================================================
@@ -332,9 +333,9 @@ def plot_spatial_feature(
             plot_values = adata.obs[feature].values
             is_categorical = pd.api.types.is_categorical_dtype(adata.obs[feature])
         else:
-            raise ValueError(f"Feature '{feature}' not found")
+            raise DataNotFoundError(f"Feature '{feature}' not found")
     else:
-        raise ValueError("Either feature or values must be provided")
+        raise ParameterError("Either feature or values must be provided")
 
     # Handle categorical data
     if is_categorical:

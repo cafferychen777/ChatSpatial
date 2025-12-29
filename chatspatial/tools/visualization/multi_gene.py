@@ -17,19 +17,12 @@ import scanpy as sc
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import (
-    ensure_unique_var_names,
-    get_gene_expression,
-    get_genes_expression,
-    require_spatial_coords,
-)
-from ...utils.exceptions import DataNotFoundError, ProcessingError
-from .core import (
-    create_figure,
-    get_validated_features,
-    plot_spatial_feature,
-    setup_multi_panel_figure,
-)
+from ...utils.adata_utils import (ensure_unique_var_names, get_gene_expression,
+                                  get_genes_expression, require_spatial_coords)
+from ...utils.exceptions import (DataNotFoundError, ParameterError,
+                                 ProcessingError)
+from .core import (create_figure, get_validated_features, plot_spatial_feature,
+                   setup_multi_panel_figure)
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -621,7 +614,7 @@ async def create_spatial_interaction_visualization(
 
         # Validate lr_pairs
         if not params.lr_pairs or len(params.lr_pairs) == 0:
-            raise ValueError(
+            raise ParameterError(
                 "No ligand-receptor pairs provided for spatial interaction visualization"
             )
 
