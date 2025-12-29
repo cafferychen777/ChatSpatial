@@ -13,7 +13,10 @@ from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
 from ..utils.adata_utils import get_spatial_key
-from ..utils.dependency_manager import is_available, require, validate_r_package
+from ..utils.dependency_manager import (is_available, require,
+                                        validate_r_package)
+from ..utils.exceptions import (DataNotFoundError, DependencyError,
+                                ParameterError, ProcessingError)
 
 
 async def _validate_liana_requirements(
@@ -22,7 +25,7 @@ async def _validate_liana_requirements(
     """Validate LIANA+ requirements"""
     # Spatial connectivity validation
     if params.perform_spatial_analysis and "spatial_connectivities" not in adata.obsp:
-        raise ValueError(
+        raise DataNotFoundError(
             "Spatial connectivity required for LIANA+ bivariate analysis.\n\n"
             "Run spatial neighbor computation first:\n"
             "  import squidpy as sq\n"
@@ -107,7 +110,7 @@ async def analyze_cell_communication(
             result_data = await _analyze_communication_cellchat_r(adata, params, ctx)
 
         else:
-            raise ValueError(
+            raise ParameterError(
                 f"Unsupported method: {params.method}. "
                 f"Supported methods: 'liana', 'cellphonedb', 'cellchat_r'"
             )
@@ -206,7 +209,7 @@ async def analyze_cell_communication(
         return result
 
     except Exception as e:
-        raise RuntimeError(f"Error in cell communication analysis: {str(e)}")
+        raise ProcessingError(f"Error in cell communication analysis: {str(e)}") from e
 
 
 async def _analyze_communication_liana(
@@ -250,7 +253,7 @@ async def _analyze_communication_liana(
 
         # Validate species parameter is specified
         if not params.species:
-            raise ValueError(
+            raise ParameterError(
                 "Species parameter is required!\n\n"
                 "You must explicitly specify the species of your data:\n"
                 "  - species='human': For human data (genes like ACTB, GAPDH)\n"
@@ -275,7 +278,7 @@ async def _analyze_communication_liana(
             return await _run_liana_spatial_analysis(adata, params, ctx)
 
     except Exception as e:
-        raise RuntimeError(f"LIANA+ analysis failed: {str(e)}")
+        raise ProcessingError(f"LIANA+ analysis failed: {str(e)}") from e
 
 
 def _get_liana_resource_name(species: str, resource_preference: str) -> str:
@@ -531,7 +534,7 @@ async def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> s
             "   from cellphonedb.utils import db_utils\n"
             "   db_utils.download_database('/path/to/dir', 'v5.0.0')"
         )
-        raise RuntimeError(error_msg) from e
+        raise DependencyError(error_msg) from e
 
 
 async def _analyze_communication_cellphonedb(
@@ -635,7 +638,7 @@ async def _analyze_communication_cellphonedb(
             try:
                 db_path = await _ensure_cellphonedb_database(temp_dir, ctx)
             except Exception as db_error:
-                raise RuntimeError(
+                raise DependencyError(
                     f"CellPhoneDB database setup failed: {db_error}"
                 ) from db_error
 
@@ -657,27 +660,27 @@ async def _analyze_communication_cellphonedb(
                     score_interactions=False,  # Disabled: CellPhoneDB v5 scoring has bugs
                 )
             except KeyError as key_error:
-                raise RuntimeError(
+                raise ProcessingError(
                     f"CellPhoneDB found no L-R interactions. "
                     f"CellPhoneDB is human-only; use method='liana' for mouse data. "
                     f"Error: {key_error}"
                 ) from key_error
             except Exception as api_error:
-                raise RuntimeError(
+                raise ProcessingError(
                     f"CellPhoneDB analysis failed: {str(api_error)}. "
                     f"Consider using method='liana' as alternative."
                 ) from api_error
 
             # Validate CellPhoneDB v5 format
             if not isinstance(result, dict):
-                raise RuntimeError(
+                raise ProcessingError(
                     f"CellPhoneDB returned unexpected format: {type(result).__name__}. "
                     f"Expected dict from CellPhoneDB v5. Check installation: pip install 'cellphonedb>=5.0.0'"
                 )
 
             # Check for empty results (no interactions found)
             if not result or "significant_means" not in result:
-                raise RuntimeError(
+                raise DataNotFoundError(
                     "CellPhoneDB found no L-R interactions. "
                     "CellPhoneDB is human-only; use method='liana' for mouse data."
                 )
@@ -707,7 +710,7 @@ async def _analyze_communication_cellphonedb(
             or means is None
             or not hasattr(means, "index")
         ):
-            raise RuntimeError(
+            raise DataNotFoundError(
                 "CellPhoneDB p-values unavailable - cannot identify significant interactions. "
                 "Try method='liana' as alternative."
             )
@@ -722,7 +725,7 @@ async def _analyze_communication_cellphonedb(
         # Convert to numeric to handle any non-numeric values
         pval_array = pvalues.select_dtypes(include=[np.number]).values
         if pval_array.shape[0] == 0:
-            raise RuntimeError("CellPhoneDB p-values are not numeric.")
+            raise ProcessingError("CellPhoneDB p-values are not numeric.")
 
         # Apply multiple testing correction if requested
         # Correct p-values for each L-R pair across its cell type pairs to control FPR
@@ -860,7 +863,7 @@ async def _analyze_communication_cellphonedb(
         }
 
     except Exception as e:
-        raise RuntimeError(f"CellPhoneDB analysis failed: {str(e)}")
+        raise ProcessingError(f"CellPhoneDB analysis failed: {str(e)}") from e
 
 
 async def _create_microenvironments_file(
@@ -1310,4 +1313,4 @@ async def _analyze_communication_cellchat_r(
         }
 
     except Exception as e:
-        raise RuntimeError(f"CellChat R analysis failed: {str(e)}") from e
+        raise ProcessingError(f"CellChat R analysis failed: {str(e)}") from e

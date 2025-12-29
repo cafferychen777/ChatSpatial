@@ -21,7 +21,8 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import get_spatial_coordinates, validate_obs_column
 from ...utils.dependency_manager import require
-from ...utils.exceptions import DataNotFoundError, ProcessingError
+from ...utils.exceptions import (DataNotFoundError, ParameterError,
+                                 ProcessingError)
 from .core import CellCommunicationData
 
 # =============================================================================
@@ -333,7 +334,7 @@ async def _create_cluster_lr_visualization(
                 break
 
         if orderby_col is None:
-            raise ValueError("No valid orderby column found in LIANA results")
+            raise DataNotFoundError("No valid orderby column found in LIANA results")
 
         p = li.pl.dotplot(
             adata=adata,
@@ -386,7 +387,7 @@ async def _create_liana_tileplot(
                 break
 
         if orderby_col is None:
-            raise ValueError("No valid orderby column found in LIANA results")
+            raise DataNotFoundError("No valid orderby column found in LIANA results")
 
         fill_col = (
             "magnitude_rank"
@@ -437,7 +438,7 @@ async def _create_liana_circle_plot(
                 break
 
         if score_col is None:
-            raise ValueError("No valid score column found in LIANA results")
+            raise DataNotFoundError("No valid score column found in LIANA results")
 
         groupby = params.cluster_key
         if groupby is None:
@@ -446,7 +447,7 @@ async def _create_liana_circle_plot(
                     data.results["source"].iloc[0] if len(data.results) > 0 else None
                 )
             if groupby is None:
-                raise ValueError(
+                raise ParameterError(
                     "cluster_key is required for circle_plot. "
                     "Specify the cell type column used in analysis."
                 )
@@ -529,7 +530,7 @@ def _create_cellphonedb_dotplot(
         pvalues = adata.uns.get("cellphonedb_pvalues", None)
 
         if pvalues is None or not isinstance(pvalues, pd.DataFrame):
-            raise ValueError("Missing pvalues DataFrame for ktplotspy dotplot")
+            raise DataNotFoundError("Missing pvalues DataFrame for ktplotspy dotplot")
 
         cluster_key = params.cluster_key or "leiden"
         validate_obs_column(adata, cluster_key, "cluster_key")
@@ -583,10 +584,12 @@ def _create_cellphonedb_chord(
         deconvoluted = adata.uns.get("cellphonedb_deconvoluted", None)
 
         if pvalues is None or not isinstance(pvalues, pd.DataFrame):
-            raise ValueError("Missing pvalues DataFrame for ktplotspy chord plot")
+            raise DataNotFoundError(
+                "Missing pvalues DataFrame for ktplotspy chord plot"
+            )
 
         if deconvoluted is None or not isinstance(deconvoluted, pd.DataFrame):
-            raise ValueError(
+            raise DataNotFoundError(
                 "Missing deconvoluted DataFrame for chord plot. "
                 "Re-run CellPhoneDB analysis."
             )

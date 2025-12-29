@@ -456,7 +456,7 @@ def _create_gsea_enrichment_plot(
         )
         return fig
 
-    raise ValueError(f"Unsupported GSEA results format: {type(gsea_results)}")
+    raise ParameterError(f"Unsupported GSEA results format: {type(gsea_results)}")
 
 
 def _create_gsea_barplot(
@@ -578,7 +578,7 @@ def _gsea_results_to_dataframe(gsea_results) -> pd.DataFrame:
                 row.update(data)
                 rows.append(row)
         return pd.DataFrame(rows)
-    raise ValueError("Unsupported GSEA results format")
+    raise ParameterError("Unsupported GSEA results format")
 
 
 def _nested_dict_to_dataframe(gsea_results: dict):

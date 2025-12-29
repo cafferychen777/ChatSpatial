@@ -21,19 +21,12 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import (
-    ensure_categorical,
-    get_gene_expression,
-    validate_obs_column,
-)
+from ...utils.adata_utils import (ensure_categorical, get_gene_expression,
+                                  validate_obs_column)
 from ...utils.compute import ensure_umap
-from .core import (
-    add_colorbar,
-    create_figure,
-    get_colormap,
-    plot_spatial_feature,
-    setup_multi_panel_figure,
-)
+from ...utils.exceptions import DataNotFoundError, ParameterError
+from .core import (add_colorbar, create_figure, get_colormap,
+                   plot_spatial_feature, setup_multi_panel_figure)
 
 # =============================================================================
 # Spatial Visualization
@@ -63,7 +56,9 @@ async def create_spatial_visualization(
         if "leiden" in adata.obs.columns:
             features = ["leiden"]
         else:
-            raise ValueError("No features specified and no default clustering found")
+            raise ParameterError(
+                "No features specified and no default clustering found"
+            )
 
     n_features = len(features)
     fig, axes = setup_multi_panel_figure(n_features, params, "Spatial visualization")
@@ -206,7 +201,7 @@ async def create_umap_visualization(
             if params.show_colorbar:
                 add_colorbar(fig, ax, scatter, params, label=color_by)
     else:
-        raise ValueError(f"Color feature '{color_by}' not found in genes or obs")
+        raise DataNotFoundError(f"Color feature '{color_by}' not found in genes or obs")
 
     ax.set_xlabel("UMAP1")
     ax.set_ylabel("UMAP2")
@@ -240,7 +235,7 @@ async def create_heatmap_visualization(
         matplotlib Figure object
     """
     if not params.cluster_key:
-        raise ValueError("Heatmap requires cluster_key parameter")
+        raise ParameterError("Heatmap requires cluster_key parameter")
 
     validate_obs_column(adata, params.cluster_key, "cluster_key")
 
@@ -248,7 +243,7 @@ async def create_heatmap_visualization(
     features = [f for f in features if f is not None and f in adata.var_names]
 
     if not features:
-        raise ValueError("No valid gene features provided for heatmap")
+        raise ParameterError("No valid gene features provided for heatmap")
 
     if context:
         await context.info(
@@ -292,7 +287,7 @@ async def create_violin_visualization(
         matplotlib Figure object
     """
     if not params.cluster_key:
-        raise ValueError("Violin plot requires cluster_key parameter")
+        raise ParameterError("Violin plot requires cluster_key parameter")
 
     validate_obs_column(adata, params.cluster_key, "cluster_key")
 
@@ -300,7 +295,7 @@ async def create_violin_visualization(
     features = [f for f in features if f is not None and f in adata.var_names]
 
     if not features:
-        raise ValueError("No valid gene features provided for violin plot")
+        raise ParameterError("No valid gene features provided for violin plot")
 
     if context:
         await context.info(
@@ -340,7 +335,7 @@ async def create_dotplot_visualization(
         matplotlib Figure object
     """
     if not params.cluster_key:
-        raise ValueError("Dot plot requires cluster_key parameter")
+        raise ParameterError("Dot plot requires cluster_key parameter")
 
     validate_obs_column(adata, params.cluster_key, "cluster_key")
 
@@ -348,7 +343,7 @@ async def create_dotplot_visualization(
     features = [f for f in features if f is not None and f in adata.var_names]
 
     if not features:
-        raise ValueError("No valid gene features provided for dot plot")
+        raise ParameterError("No valid gene features provided for dot plot")
 
     if context:
         await context.info(

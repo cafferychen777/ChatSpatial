@@ -89,13 +89,6 @@ async def _apply_gene_filtering(
     )
 
     adata_filtered = adata[:, selected].copy()
-    n_genes_after = adata_filtered.n_vars
-    n_genes_removed = n_genes_before - n_genes_after
-
-    await ctx.info(
-        f"Gene filtering: {n_genes_before} → {n_genes_after} genes "
-        f"({n_genes_removed} removed, {n_genes_removed/n_genes_before*100:.1f}%)"
-    )
 
     return adata_filtered
 
@@ -235,9 +228,6 @@ async def _prepare_anndata_for_counts(
 
             if not has_decimals and not has_negatives:
                 # Raw contains counts, use complete gene set
-                await ctx.info(
-                    f"Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
-                )
                 adata_copy = raw_adata  # Use raw directly, no copy needed
                 data_source = "raw"
             else:
@@ -289,24 +279,17 @@ async def _prepare_anndata_for_counts(
     # Check if data is valid integer counts
     if has_negatives or has_decimals:
         data_issue = "negative values" if has_negatives else "decimal values"
-        error_msg = (
+        raise DataError(
             f"{data_name} data is not raw counts: {data_issue}, "
             f"range [{data_min:.2f}, {data_max:.2f}]. "
             f"Deconvolution requires raw integer counts."
         )
-        await ctx.error(error_msg)
-        raise DataError(error_msg)
 
     # Add processing info to uns for tracking
     adata_copy.uns[f"{data_name}_data_source"] = {
         "source": data_source,
         "range": [int(data_min), int(data_max)],
     }
-
-    await ctx.info(
-        f"{data_name} data validated: "
-        f"source={data_source}, range=[{int(data_min)}, {int(data_max)}]"
-    )
 
     return adata_copy
 
@@ -377,15 +360,6 @@ async def _prepare_reference_for_card(
             data_source = "normalized"
         else:
             data_source = "current"
-
-    # Log final data info (sparse-aware)
-    data_min = adata_copy.X.min()
-    data_max = adata_copy.X.max()
-
-    await ctx.info(
-        f"{data_name} prepared: source={data_source}, "
-        f"range=[{data_min:.2f}, {data_max:.2f}]"
-    )
 
     return adata_copy
 
@@ -476,12 +450,10 @@ async def _validate_and_process_proportions(
         neg_spots = neg_mask.any(axis=1).sum()
         min_value = proportions.min().min()
 
-        error_msg = (
+        raise ProcessingError(
             f"{method} produced {neg_count} negative values (min: {min_value:.4f}) "
             f"in {neg_spots} spots. Use raw counts and check data quality."
         )
-        await ctx.error(error_msg)
-        raise ProcessingError(error_msg)
 
     # 3. Analyze sum deviation - inform but don't force normalization
     row_sums = proportions.sum(axis=1, skipna=True)
@@ -504,14 +476,8 @@ async def _validate_and_process_proportions(
             )
 
     elif method.lower() in ["cell2location", "destvi", "stereoscope"]:
-        # These methods may output absolute abundances
-        await ctx.info(
-            f"{method} output statistics:\n"
-            f"• Estimated cells per spot: {row_sums.mean():.2f} ± {row_sums.std():.2f}\n"
-            f"• Range: [{row_sums.min():.2f}, {row_sums.max():.2f}]\n"
-            f"• Zero spots: {(row_sums == 0).sum()}\n\n"
-            "Note: These may represent absolute abundances, not proportions."
-        )
+        # These methods may output absolute abundances (no warning needed)
+        pass
 
     # 4. Handle normalization if explicitly requested
     if normalize:
@@ -521,11 +487,6 @@ async def _validate_and_process_proportions(
             await ctx.warning(
                 f"Cannot normalize {zero_sum_spots} spots with zero total abundance."
             )
-
-        await ctx.info(
-            "Normalizing proportions to sum to 1 as requested.\n"
-            "Note: This converts absolute abundances to relative proportions."
-        )
 
         # Perform normalization, preserving zeros and NaN
         proportions_normalized = proportions.div(row_sums, axis=0)
@@ -1451,11 +1412,6 @@ async def deconvolve_spatial_data(
             # Check cell type key
             validate_obs_column(reference_adata, params.cell_type_key, "Cell type key")
 
-            cell_types = reference_adata.obs[params.cell_type_key].unique()
-            await ctx.info(
-                f"Using reference with {len(cell_types)} cell types: {list(cell_types)}"
-            )
-
         # Check method-specific dependencies and provide alternatives
         method_deps = {
             "flashdeconv": ["flashdeconv"],  # Pure Python, no GPU needed
@@ -1502,9 +1458,9 @@ async def deconvolve_spatial_data(
             else:
                 alt_msg = "No deconvolution methods available. Install dependencies with 'pip install chatspatial[advanced]'"
 
-            error_msg = f"Method '{params.method}' is not available due to missing dependencies. {alt_msg}"
-            await ctx.error(error_msg)
-            raise DependencyError(error_msg)
+            raise DependencyError(
+                f"Method '{params.method}' is not available due to missing dependencies. {alt_msg}"
+            )
 
         # Run deconvolution with cleaner calls and centralized error handling
         proportions, stats = None, None
@@ -1691,15 +1647,9 @@ async def deconvolve_spatial_data(
                 )
 
         except Exception as e:
-            # Centralized error handling for deconvolution calls
-            await ctx.warning(f"{params.method.capitalize()} failed: {str(e)}")
             raise ProcessingError(
                 f"{params.method.capitalize()} deconvolution failed: {str(e)}"
             ) from e
-
-        await ctx.info(
-            f"{params.method.capitalize()} completed successfully. Found {stats['n_cell_types']} cell types."
-        )
 
         # Store proportions in AnnData object, handling potential shape mismatch
         proportions_key = f"deconvolution_{params.method}"
@@ -1729,16 +1679,7 @@ async def deconvolve_spatial_data(
             obs_key = f"{proportions_key}_{cell_type}"
             spatial_adata.obs[obs_key] = full_proportions[:, i]
 
-        await ctx.info(
-            f"Stored cell type proportions in adata.obsm['{proportions_key}']"
-        )
-        await ctx.info(f"Stored cell type names in adata.uns['{cell_types_key}']")
-        await ctx.info(
-            f"Stored individual cell type proportions in adata.obs with prefix '{proportions_key}_'"
-        )
-
         # Add cell type annotation based on deconvolution results
-        await ctx.info("Adding cell type annotation based on deconvolution results")
 
         # Use method-prefixed output key to avoid overwriting
         # Use 'dominant_celltype' to semantically distinguish from annotation results
@@ -1758,13 +1699,6 @@ async def deconvolve_spatial_data(
         spatial_adata.obs[dominant_type_key] = spatial_adata.obs[
             dominant_type_key
         ].astype("category")
-
-        await ctx.info(
-            f"Added cell type annotation with {len(proportions.columns)} cell types"
-        )
-        await ctx.info(
-            f"Most common cell type: {spatial_adata.obs[dominant_type_key].value_counts().index[0]}"
-        )
 
         # Store scientific metadata for reproducibility
         from ..utils.adata_utils import store_analysis_metadata
@@ -1842,10 +1776,6 @@ async def deconvolve_spatial_data(
             statistics=stats,
         )
 
-        await ctx.info(
-            f"Deconvolution completed successfully with {result.n_cell_types} cell types"
-        )
-
         return result
 
     except (
@@ -1857,17 +1787,11 @@ async def deconvolve_spatial_data(
         KeyError,
         AttributeError,
         TypeError,
-    ) as e:
-        # Handle expected business logic errors
-        await ctx.warning(f"Deconvolution failed: {str(e)}")
+    ):
         raise
     except Exception as e:
-        # Handle truly unexpected errors while preserving system exceptions
         if isinstance(e, (KeyboardInterrupt, SystemExit, MemoryError)):
-            # Don't catch system-level exceptions
             raise
-
-        await ctx.warning(f"Deconvolution failed with unexpected error: {str(e)}")
         raise ProcessingError(
             f"Deconvolution failed with unexpected error: {str(e)}"
         ) from e
@@ -2027,10 +1951,6 @@ async def deconvolve_destvi(
 
         cell_types_result = list(proportions_df.columns)
 
-        await ctx.info(
-            f"Generated proportions for {len(cell_types_result)} cell types: {cell_types_result}"
-        )
-
         # Create enhanced statistics
         stats = _create_deconvolution_stats(
             proportions_df,
@@ -2053,9 +1973,7 @@ async def deconvolve_destvi(
         return proportions_df, stats
 
     except Exception as e:
-        error_msg = f"DestVI deconvolution failed: {str(e)}"
-        await ctx.error(error_msg)
-        raise ProcessingError(error_msg) from e
+        raise ProcessingError(f"DestVI deconvolution failed: {str(e)}") from e
 
 
 async def deconvolve_stereoscope(
@@ -2225,9 +2143,7 @@ async def deconvolve_stereoscope(
         return proportions, stats
 
     except Exception as e:
-        error_msg = f"Stereoscope deconvolution failed: {str(e)}"
-        await ctx.error(error_msg)
-        raise ProcessingError(error_msg) from e
+        raise ProcessingError(f"Stereoscope deconvolution failed: {str(e)}") from e
 
 
 async def deconvolve_spotlight(
@@ -2298,11 +2214,6 @@ async def deconvolve_spotlight(
 
         # Extract count matrices for R using anndata2ri
         # Note: anndata2ri handles both sparse and dense matrices automatically
-        matrix_type = "sparse" if sp.issparse(spatial_subset.X) else "dense"
-        await ctx.info(
-            f"Using anndata2ri for matrix transfer to SPOTlight ({matrix_type} data) "
-            f"(spatial: {spatial_subset.X.shape}, reference: {reference_subset.X.shape})"
-        )
 
         # Ensure integer counts (SPOTlight expects integer data)
         spatial_counts = spatial_subset.X.astype(int)
@@ -2586,11 +2497,6 @@ async def deconvolve_card(
 
         # 5. Prepare count matrices for R using anndata2ri
         # Note: anndata2ri handles both sparse and dense matrices automatically
-        matrix_type = "sparse" if sp.issparse(spatial_data.X) else "dense"
-        await ctx.info(
-            f"Using anndata2ri for matrix transfer to CARD ({matrix_type} data) "
-            f"(spatial: {spatial_data.X.shape}, reference: {reference_data.X.shape})"
-        )
 
         # 6. Prepare metadata
         sc_meta = reference_data.obs[[cell_type_key]].copy()
@@ -2862,10 +2768,6 @@ async def deconvolve_tangram(
         # Prepare data - subset to common genes
         ref_data = reference_adata[:, common_genes].copy()
         spatial_data = spatial_adata[:, common_genes].copy()
-
-        await ctx.info(
-            f"Training Tangram with {len(common_genes)} genes and {len(ref_data.obs[cell_type_key].unique())} cell types"
-        )
 
         # Check data format - Tangram can work with normalized data but prefers raw counts
         import numpy as np

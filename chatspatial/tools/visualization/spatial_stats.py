@@ -112,7 +112,7 @@ async def _create_neighborhood_enrichment_visualization(
                 await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
             categorical_cols = get_categorical_columns(adata, limit=10)
-            raise ValueError(
+            raise ParameterError(
                 f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
 
@@ -164,7 +164,7 @@ async def _create_co_occurrence_visualization(
                 await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
             categorical_cols = get_categorical_columns(adata, limit=10)
-            raise ValueError(
+            raise ParameterError(
                 f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
 
@@ -220,7 +220,7 @@ async def _create_ripley_visualization(
                 await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
             categorical_cols = get_categorical_columns(adata, limit=10)
-            raise ValueError(
+            raise ParameterError(
                 f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
 
@@ -349,7 +349,7 @@ async def _create_centrality_visualization(
                 await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
             categorical_cols = get_categorical_columns(adata, limit=10)
-            raise ValueError(
+            raise ParameterError(
                 f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
 
