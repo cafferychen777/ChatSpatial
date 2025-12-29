@@ -380,9 +380,6 @@ async def perform_gsea(
     require("gseapy", ctx, feature="GSEA analysis")
     import gseapy as gp
 
-    if ctx:
-        await ctx.info("Running GSEA analysis...")
-
     # Prepare ranking
     if ranking_key and ranking_key in adata.var:
         # Use pre-computed ranking
@@ -550,12 +547,6 @@ async def perform_gsea(
             database=database,
         )
 
-        # Inform user about visualization options
-        if ctx:
-            await ctx.info(
-                "GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
-            )
-
         # Filter all result dictionaries to only significant pathways (reduces MCP response size)
         # Uses method-based FDR threshold: GSEA = 0.25 (Subramanian et al. 2005)
         (
@@ -634,9 +625,6 @@ async def perform_ora(
     making a fixed threshold inappropriate. Gene filtering is the responsibility of
     differential expression analysis, not enrichment analysis.
     """
-    if ctx:
-        await ctx.info("Running Over-Representation Analysis...")
-
     # Get gene list if not provided
     if gene_list is None:
         # Try to get DEGs from adata
@@ -676,18 +664,7 @@ async def perform_ora(
                                 degs.append(gene)
 
             gene_list = degs
-
-            if ctx:
-                if pvals is not None:
-                    await ctx.info(
-                        f"Using {len(gene_list)} DEGs for ORA "
-                        f"(filtered by p-value < {pvalue_threshold})"
-                    )
-                else:
-                    await ctx.info(
-                        f"Using top {len(gene_list)} ranked genes for ORA "
-                        "(no p-values available)"
-                    )
+            await ctx.info(f"Using {len(gene_list)} DEGs for ORA")
         else:
             # Use highly variable genes
             if "highly_variable" in adata.var:
@@ -831,12 +808,6 @@ async def perform_ora(
         database=database,
     )
 
-    # Inform user about visualization options
-    if ctx:
-        await ctx.info(
-            "ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
-        )
-
     # Filter all result dictionaries to only significant pathways (reduces MCP response size)
     # Uses method-based FDR threshold: ORA = 0.05 (standard statistical threshold)
     (
@@ -904,9 +875,6 @@ async def perform_ssgsea(
     """
     require("gseapy", ctx, feature="ssGSEA analysis")
     import gseapy as gp
-
-    if ctx:
-        await ctx.info("Running ssGSEA analysis...")
 
     # Prepare expression data
     if hasattr(adata.X, "toarray"):
@@ -1068,9 +1036,6 @@ async def perform_enrichr(
     """
     require("gseapy", ctx, feature="Enrichr analysis")
     import gseapy as gp
-
-    if ctx:
-        await ctx.info("Running Enrichr analysis...")
 
     # Default gene set libraries
     if gene_sets is None:
@@ -1266,11 +1231,6 @@ async def perform_spatial_enrichment(
             if len(dataset_format_genes) > len(common_genes):
                 # Format conversion helped, use dataset format genes for EnrichMap
                 common_genes = dataset_format_genes
-                if ctx:
-                    await ctx.info(
-                        f"Applied gene format conversion for '{sig_name}': "
-                        f"{len(dataset_format_genes)}/{len(genes)} genes matched after conversion"
-                    )
 
         logger.info(
             f"Checking signature '{sig_name}': requested {genes[:3]}... found {len(common_genes)}/{len(genes)}"
@@ -1298,11 +1258,6 @@ async def perform_spatial_enrichment(
 
     for sig_name, genes in validated_gene_sets.items():
         try:
-            if ctx:
-                await ctx.info(
-                    f"Processing gene set '{sig_name}' with {len(genes)} genes"
-                )
-
             em.tl.score(
                 adata=adata,
                 gene_set=genes,  # Fixed: use gene_set (correct API parameter name)
@@ -1389,13 +1344,6 @@ async def perform_spatial_enrichment(
         species=species,
         database=database,
     )
-
-    # Inform user about visualization options
-    if ctx:
-        await ctx.info(
-            "Spatial enrichment analysis complete. Use visualize_data with plot_type='pathway_enrichment' "
-            "and subtype='spatial_score' (or 'spatial_correlogram', 'spatial_variogram', 'spatial_cross_correlation') to visualize results"
-        )
 
     # Create enrichment scores (use max score per gene set)
     enrichment_scores = {
@@ -1762,12 +1710,5 @@ async def load_gene_sets(
             f"Unknown database: {database}. Available: {list(database_map.keys())}"
         )
 
-    if ctx:
-        await ctx.info(f"Loading gene sets from {database} for {species}")
-
     gene_sets = database_map[database]()
-
-    if ctx:
-        await ctx.info(f"Loaded {len(gene_sets)} gene sets from {database}")
-
     return gene_sets
