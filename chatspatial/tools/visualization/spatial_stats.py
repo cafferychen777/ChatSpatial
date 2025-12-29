@@ -68,7 +68,7 @@ async def create_spatial_statistics_visualization(
     elif subtype == "ripley":
         return await _create_ripley_visualization(adata, params, context)
     elif subtype == "moran":
-        return await _create_moran_visualization(adata, params, context)
+        return _create_moran_visualization(adata, params, context)
     elif subtype == "centrality":
         return await _create_centrality_visualization(adata, params, context)
     elif subtype == "getis_ord":
@@ -255,7 +255,7 @@ async def _create_ripley_visualization(
     return fig
 
 
-async def _create_moran_visualization(
+def _create_moran_visualization(
     adata: "ad.AnnData",
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,

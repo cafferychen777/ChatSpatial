@@ -499,7 +499,7 @@ def infer_pseudotime_palantir(
     return adata
 
 
-async def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = None):
+def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = None):
     """Compute Diffusion Pseudotime trajectory analysis."""
     import numpy as np
     import scanpy as sc
@@ -759,7 +759,7 @@ async def analyze_trajectory(
         await ctx.info("Attempting trajectory inference with DPT...")
         try:
             with suppress_output():
-                adata = await compute_dpt_trajectory(
+                adata = compute_dpt_trajectory(
                     adata, root_cells=params.root_cells, ctx=ctx
                 )
             pseudotime_key = "dpt_pseudotime"

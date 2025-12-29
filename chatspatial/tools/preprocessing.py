@@ -665,9 +665,6 @@ async def preprocess_data(
             params.batch_key in adata.obs
             and len(adata.obs[params.batch_key].unique()) > 1
         ):
-            await ctx.info(
-                "Detected batch information. Applying batch effect correction with Harmony..."
-            )
             try:
                 # Use Harmony for batch correction (modern standard, works on PCA space)
                 # Harmony is more robust than ComBat for single-cell/spatial data
@@ -681,7 +678,6 @@ async def preprocess_data(
                 ensure_pca(adata, n_comps=min(50, adata.n_vars - 1))
 
                 sce.pp.harmony_integrate(adata, key=params.batch_key)
-                await ctx.info("Batch effect correction completed using Harmony")
             except Exception as e:
                 raise ProcessingError(
                     f"Harmony batch correction failed: {e}. "
@@ -690,7 +686,6 @@ async def preprocess_data(
 
         # 6. Scale data (if requested)
         if params.scale:
-            await ctx.info("Scaling data...")
             try:
                 # Trust scanpy's internal zero-variance handling and sparse matrix optimization
                 sc.pp.scale(adata, max_value=params.scale_max_value)
@@ -728,11 +723,6 @@ async def preprocess_data(
             "clustering_resolution"
         ] = params.clustering_resolution
 
-        await ctx.info(
-            "Core preprocessing complete. "
-            "PCA, UMAP, and clustering will be computed on-demand by analysis tools."
-        )
-
         # Store the processed AnnData object back via ToolContext
         await ctx.set_adata(data_id, adata)
 
@@ -755,6 +745,4 @@ async def preprocess_data(
     except Exception as e:
         error_msg = f"Error in preprocessing: {str(e)}"
         tb = traceback.format_exc()
-        await ctx.warning(error_msg)
-        await ctx.info(f"Error details: {tb}")
         raise ProcessingError(f"{error_msg}\n{tb}") from e
