@@ -69,13 +69,6 @@ async def _annotate_with_singler(
     if is_available("celldex"):
         import celldex
 
-        await ctx.info("celldex available for pre-built references")
-    else:
-        await ctx.info("celldex not available - will use custom references")
-
-    await ctx.info("Starting SingleR annotation...")
-    await ctx.info(f"   Cells: {adata.n_obs}, Genes: {adata.n_vars}")
-
     # Get expression matrix - prefer normalized data
     # IMPORTANT: Ensure test_mat dimensions match adata.var_names (used in test_features)
     if "X_normalized" in adata.layers:
@@ -118,7 +111,6 @@ async def _annotate_with_singler(
 
     # Priority: reference_name > reference_data_id > default
     if reference_name and celldex:
-        await ctx.info(f"Loading reference: {reference_name}")
         ref = celldex.fetch_reference(reference_name, "2024-02-26", realize_assays=True)
         # Get labels
         for label_col in ["label.main", "label.fine", "cell_type"]:
@@ -133,8 +125,6 @@ async def _annotate_with_singler(
 
     elif reference_data_id and reference_adata is not None:
         # Use provided reference data (passed from main function via ctx.get_adata())
-        await ctx.info("Using provided reference data")
-
         # Handle duplicate gene names
         await ensure_unique_var_names_with_ctx(reference_adata, ctx, "reference data")
         if await ensure_unique_var_names_with_ctx(adata, ctx, "query data") > 0:
@@ -165,9 +155,6 @@ async def _annotate_with_singler(
 
         # Check gene overlap
         common_genes = find_common_genes(test_features, ref_features)
-        await ctx.info(
-            f"Gene overlap: {len(common_genes)}/{len(test_features)} test genes match reference"
-        )
 
         if len(common_genes) < min(50, len(test_features) * 0.1):
             # Too few common genes
@@ -175,11 +162,6 @@ async def _annotate_with_singler(
                 f"Insufficient gene overlap: Only {len(common_genes)} common genes. "
                 f"Test has {len(test_features)}, Reference has {len(ref_features)}"
             )
-            # Show sample of gene names for debugging
-            test_sample = list(test_features)[:5]
-            ref_sample = list(ref_features)[:5]
-            await ctx.info(f"Test gene sample: {test_sample}")
-            await ctx.info(f"Reference gene sample: {ref_sample}")
             raise DataError(
                 f"Insufficient gene overlap for SingleR: only {len(common_genes)} common genes"
             )
@@ -191,7 +173,6 @@ async def _annotate_with_singler(
         validate_obs_column(reference_adata, cell_type_key, "Cell type column")
 
         ref_labels = list(reference_adata.obs[cell_type_key])
-        await ctx.info(f"Using '{cell_type_key}' column for reference labels")
 
         # For SingleR, pass the actual expression matrix directly (not SCE)
         # This has been shown to work better in testing
@@ -200,7 +181,6 @@ async def _annotate_with_singler(
 
     elif celldex:
         # Use default reference
-        await ctx.info("Using default BlueprintEncode reference")
         ref = celldex.fetch_reference(
             "blueprint_encode", "2024-02-26", realize_assays=True
         )
@@ -212,10 +192,6 @@ async def _annotate_with_singler(
         )
 
     # Run SingleR annotation
-    await ctx.info("Running SingleR classification...")
-    await ctx.info(f"Test features: {len(test_features)} genes")
-    await ctx.info(f"Reference labels: {len(set(ref_labels))} unique types")
-
     use_integrated = getattr(params, "singler_integrated", False)
     num_threads = getattr(params, "num_threads", 4)
 
@@ -242,9 +218,6 @@ async def _annotate_with_singler(
         # Add ref_features if we're using custom reference data (not celldex)
         if ref_features_to_use is not None:
             annotate_kwargs["ref_features"] = ref_features_to_use
-            await ctx.info(
-                f"Using reference features: {len(ref_features_to_use)} genes"
-            )
 
         results = singler.annotate_single(**annotate_kwargs)
         best_labels = results.column("best")
@@ -259,8 +232,7 @@ async def _annotate_with_singler(
                     await ctx.warning(
                         f"{low_delta}/{len(delta_scores)} cells have low confidence scores (delta < 0.05)"
                     )
-        except Exception as e:
-            await ctx.debug(f"Delta score extraction failed ({type(e).__name__})")
+        except Exception:
             delta_scores = None
 
     # Process results
@@ -285,13 +257,9 @@ async def _annotate_with_singler(
                         # Higher delta = higher confidence
                         avg_delta = np.mean([d for d in type_deltas if d is not None])
                         confidence_scores[cell_type] = round(float(avg_delta), 3)
-            if confidence_scores:
-                await ctx.info(
-                    f"Using delta scores for confidence (avg: {np.mean(list(confidence_scores.values())):.3f})"
-                )
-        except Exception as e:
+        except Exception:
             # Delta score extraction failed, will fall back to regular scores
-            await ctx.debug(f"Delta score extraction failed ({type(e).__name__}), using fallback")
+            pass
 
     # Fall back to regular scores if delta not available
     if not confidence_scores and scores is not None:
@@ -331,15 +299,10 @@ async def _annotate_with_singler(
         confidence_array = [confidence_scores.get(ct, 0.0) for ct in cell_types]
         adata.obs[confidence_key] = confidence_array
 
-    await ctx.info("SingleR annotation completed!")
-    await ctx.info(f"   Found {len(unique_types)} cell types")
     top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
-    await ctx.info(f"   Top types: {', '.join([f'{t}({c})' for t, c in top_types])}")
     await ctx.info(
-        f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-    )
-    await ctx.info(
-        f"Use visualize_data tool with feature='{output_key}' to visualize results"
+        f"SingleR completed: {len(unique_types)} cell types. "
+        f"Top: {', '.join([f'{t}({c})' for t, c in top_types])}"
     )
 
     return unique_types, counts, confidence_scores, None
@@ -352,8 +315,6 @@ async def _annotate_with_tangram(
     reference_adata: Optional[Any] = None,
 ):
     """Annotate cell types using Tangram method"""
-    await ctx.info("Using Tangram method for annotation")
-
     # Validate dependencies with comprehensive error reporting
     require("tangram", ctx, feature="Tangram annotation")
     import tangram as tg
@@ -399,7 +360,6 @@ async def _annotate_with_tangram(
     if training_genes is None:
         # Use marker genes if available
         if params.marker_genes:
-            await ctx.info("Using provided marker genes for Tangram mapping")
             # Flatten marker genes dictionary
             training_genes = []
             for genes in params.marker_genes.values():
@@ -415,19 +375,12 @@ async def _annotate_with_tangram(
                 adata_sc_original.var_names[adata_sc_original.var.highly_variable]
             )
 
-    await ctx.info(f"Using {len(training_genes)} genes for Tangram mapping")
-
     # COW FIX: Create copy of reference data to avoid modifying original
     # Tangram's pp_adatas adds metadata (uns, obs) but doesn't subset genes
     adata_sc = adata_sc_original.copy()
-    await ctx.info("Created working copy of reference data to preserve original")
 
     # Preprocess data for Tangram
     tg.pp_adatas(adata_sc, adata_sp, genes=training_genes)
-
-    await ctx.info(
-        f"Preprocessed data for Tangram mapping. {len(adata_sc.uns['training_genes'])} training genes selected."
-    )
 
     # Set mapping mode
     mode = params.tangram_mode
@@ -446,23 +399,15 @@ async def _annotate_with_tangram(
         if cluster_label is None:
             raise ParameterError("No cluster label found. Provide cluster_label parameter.")
 
-        await ctx.info(f"Using '{cluster_label}' as cluster label for Tangram mapping")
-
     # Check GPU availability for device selection
     import torch
 
     device = params.tangram_device
-    if device != "cpu" and torch.cuda.is_available():
-        await ctx.info(f"GPU detected - using device: {device}")
-    elif device != "cpu":
+    if device != "cpu" and not torch.cuda.is_available():
         await ctx.warning("GPU requested but not available - falling back to CPU")
         device = "cpu"
 
     # Run Tangram mapping with enhanced parameters
-    await ctx.info(
-        f"Running Tangram mapping in '{mode}' mode for {params.num_epochs} epochs on {device}"
-    )
-
     mapping_args = {
         "mode": mode,
         "num_epochs": params.num_epochs,

@@ -29,7 +29,7 @@ from ..utils.adata_utils import (
     validate_obs_column,
 )
 from ..utils.dependency_manager import get as get_dependency
-from ..utils.dependency_manager import is_available, require
+from ..utils.dependency_manager import is_available, require, validate_r_package
 from ..utils.mcp_utils import suppress_output
 from ..utils.exceptions import (
     DataError,
@@ -79,13 +79,6 @@ async def _apply_gene_filtering(
     from cell2location.utils.filtering import filter_genes
 
     n_genes_before = adata.n_vars
-
-    await ctx.info(
-        f"Applying cell2location gene filtering "
-        f"(cell_count>={cell_count_cutoff}, "
-        f"cell_pct>={cell_percentage_cutoff2*100:.1f}%, "
-        f"nonz_mean>={nonz_mean_cutoff})"
-    )
 
     # Apply official filtering
     selected = filter_genes(
@@ -249,11 +242,8 @@ async def _prepare_anndata_for_counts(
                 data_source = "raw"
             else:
                 # Raw is normalized/transformed, skip to layers['counts']
-                await ctx.info(
-                    f"WARNING: .raw for {data_name} is normalized, checking counts layer"
-                )
-        except Exception as e:
-            await ctx.debug(f".raw access failed for {data_name} ({type(e).__name__})")
+                pass
+        except Exception:
             data_source = None
 
     # Step 2: If not using .raw, copy adata now
@@ -263,7 +253,6 @@ async def _prepare_anndata_for_counts(
 
         # Check layers["counts"] if raw not available or not counts
         if "counts" in adata_copy.layers:
-            await ctx.info(f"Using counts layer for {data_name} data")
             adata_copy.X = adata_copy.layers["counts"].copy()
             data_source = "counts_layer"
 
@@ -362,17 +351,12 @@ async def _prepare_reference_for_card(
             has_negatives = sample_X.min() < 0
 
             if not has_decimals and not has_negatives:
-                await ctx.info(
-                    f"Using .raw counts for {data_name} ({raw_adata.n_vars} genes)"
-                )
                 adata_copy = raw_adata
                 data_source = "raw"
-        except Exception as e:
-            if ctx:
-                await ctx.debug(f".raw access failed for {data_name} ({type(e).__name__})")
+        except Exception:
+            pass
 
     if data_source is None and "counts" in adata_copy.layers:
-        await ctx.info(f"Using counts layer for {data_name}")
         adata_copy.X = adata_copy.layers["counts"].copy()
         data_source = "counts_layer"
 
@@ -387,7 +371,7 @@ async def _prepare_reference_for_card(
 
         if has_decimals:
             await ctx.warning(
-                f"WARNING: {data_name}: Using normalized data (no raw counts available). "
+                f"{data_name}: Using normalized data (no raw counts available). "
                 f"This is acceptable for CARD reference data from technologies like Smart-seq2."
             )
             data_source = "normalized"
@@ -513,15 +497,10 @@ async def _validate_and_process_proportions(
             spots_affected = (sum_deviation > 0.1).sum()
 
             await ctx.warning(
-                f"WARNING:{method} proportions deviate from expected sum of 1.0:\n"
+                f"{method} proportions deviate from expected sum of 1.0:\n"
                 f"• Maximum deviation: {max_deviation:.3f}\n"
                 f"• Spots affected: {spots_affected}/{len(row_sums)}\n"
-                f"• Sum range: [{row_sums.min():.3f}, {row_sums.max():.3f}]\n\n"
-                "This may indicate:\n"
-                "• Incomplete deconvolution\n"
-                "• Missing cell types in reference\n"
-                "• Algorithm convergence issues\n\n"
-                "Original sums are preserved."
+                f"• Sum range: [{row_sums.min():.3f}, {row_sums.max():.3f}]"
             )
 
     elif method.lower() in ["cell2location", "destvi", "stereoscope"]:
@@ -540,8 +519,7 @@ async def _validate_and_process_proportions(
         zero_sum_spots = (row_sums == 0).sum()
         if zero_sum_spots > 0:
             await ctx.warning(
-                f"WARNING:Cannot normalize {zero_sum_spots} spots with zero total abundance.\n"
-                "These spots will remain as zeros."
+                f"Cannot normalize {zero_sum_spots} spots with zero total abundance."
             )
 
         await ctx.info(
@@ -668,7 +646,6 @@ async def deconvolve_cell2location(
 
         # NEW: Apply gene filtering (official cell2location preprocessing)
         if apply_gene_filtering:
-            await ctx.info("Applying gene filtering to reference and spatial data")
             ref = await _apply_gene_filtering(
                 ref,
                 cell_count_cutoff=gene_filter_cell_count_cutoff,
@@ -961,41 +938,6 @@ async def deconvolve_cell2location(
         raise
 
 
-def is_rctd_available() -> Tuple[bool, str]:
-    """Check if RCTD (spacexr) and its dependencies are available
-
-    Returns:
-        Tuple of (is_available, error_message)
-    """
-    # Check if rpy2 is available
-    if not is_available("rpy2"):
-        return False, "rpy2 package is not installed. Install with 'pip install rpy2'"
-
-    import rpy2.robjects as ro
-    from rpy2.robjects import pandas2ri
-    from rpy2.robjects.conversion import localconverter
-
-    # Test R connection with proper converter context
-    try:
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            ro.r("R.version.string")
-    except Exception as e:
-        return False, f"R is not accessible: {str(e)}"
-
-    # Try to install/load spacexr package
-    try:
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            # Check if spacexr is installed
-            ro.r("library(spacexr)")
-    except Exception as e:
-        return (
-            False,
-            f"spacexr R package is not installed or failed to load: {str(e)}. Install with: install.packages('devtools'); devtools::install_github('dmcable/spacexr', build_vignettes = FALSE)",
-        )
-
-    return True, ""
-
-
 async def deconvolve_rctd(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
@@ -1071,9 +1013,11 @@ async def deconvolve_rctd(
             )
 
     # Check if RCTD is available
-    is_available, error_message = is_rctd_available()
-    if not is_available:
-        raise DependencyError(f"RCTD is not available: {error_message}")
+    validate_r_package(
+        "spacexr",
+        ctx,
+        install_cmd="devtools::install_github('dmcable/spacexr', build_vignettes = FALSE)",
+    )
 
     # Import rpy2 modules
     import anndata2ri  # For sparse matrix support
@@ -1106,11 +1050,6 @@ async def deconvolve_rctd(
         spatial_genes_set = set(spatial_data.var_names)
         common_genes = [g for g in reference_data.var_names if g in spatial_genes_set]
 
-        await ctx.info(
-            f"DEBUG:Gene matching: {len(common_genes)} common genes "
-            f"({len(common_genes)/len(reference_data.var_names)*100:.1f}% of reference)"
-        )
-
         validate_gene_overlap(
             common_genes, spatial_data.n_vars, reference_data.n_vars,
             min_genes=min_common_genes, source_name="spatial", target_name="reference"
@@ -1123,13 +1062,10 @@ async def deconvolve_rctd(
 
         if cell_type_key in reference_data.obs:
             ref_ct_counts = reference_data.obs[cell_type_key].value_counts()
-            await ctx.info(
-                f"After subsetting: {len(common_genes)} common genes, {len(ref_ct_counts)} cell types"
-            )
             min_count = ref_ct_counts.min()
             if min_count < 25:
                 await ctx.warning(
-                    f"WARNING:Minimum cells per type: {min_count} (< 25 required)"
+                    f"Minimum cells per type: {min_count} (< 25 required)"
                 )
 
         # Get spatial coordinates if available
@@ -1149,11 +1085,6 @@ async def deconvolve_rctd(
 
         # Prepare count matrices for R using anndata2ri
         # Note: anndata2ri handles both sparse and dense matrices automatically
-        matrix_type = "sparse" if sp.issparse(spatial_data.X) else "dense"
-        await ctx.info(
-            f"Using anndata2ri for matrix transfer to RCTD ({matrix_type} data) "
-            f"(spatial: {spatial_data.X.shape}, reference: {reference_data.X.shape})"
-        )
 
         # Prepare cell type information as named factor
         cell_types = reference_data.obs[cell_type_key].copy()
@@ -1165,13 +1096,10 @@ async def deconvolve_rctd(
         )
 
         cell_type_counts = cell_types_series.value_counts()
-        await ctx.info(
-            f"Reference: {len(cell_type_counts)} cell types, {len(cell_types_series)} total cells"
-        )
         min_count = cell_type_counts.min()
         if min_count < 25:
             await ctx.warning(
-                f"WARNING:WARNING: Minimum cells per type = {min_count} (< 25 required)"
+                f"Minimum cells per type: {min_count} (< 25 required)"
             )
             # List types below threshold
             low_types = [ct for ct, count in cell_type_counts.items() if count < 25]
@@ -1483,9 +1411,6 @@ async def deconvolve_spatial_data(
         if not data_id:
             raise ParameterError("Dataset ID cannot be empty")
 
-        await ctx.info(f"Deconvolving spatial data using {params.method} method")
-        await ctx.info(f"Parameters: {params.model_dump()}")
-
         # Get spatial data via ToolContext (includes validation)
         spatial_adata = await ctx.get_adata(data_id)
         if spatial_adata.n_obs == 0:
@@ -1493,8 +1418,6 @@ async def deconvolve_spatial_data(
 
         # Ensure spatial data has unique gene names
         await ensure_unique_var_names_with_ctx(spatial_adata, ctx, "spatial data")
-
-        await ctx.info(f"Spatial dataset shape: {spatial_adata.shape}")
 
         # Load and validate reference data ONCE for methods that need it
         reference_adata = None
@@ -1528,7 +1451,6 @@ async def deconvolve_spatial_data(
             # Check cell type key
             validate_obs_column(reference_adata, params.cell_type_key, "Cell type key")
 
-            await ctx.info(f"Reference dataset shape: {reference_adata.shape}")
             cell_types = reference_adata.obs[params.cell_type_key].unique()
             await ctx.info(
                 f"Using reference with {len(cell_types)} cell types: {list(cell_types)}"
@@ -1589,8 +1511,6 @@ async def deconvolve_spatial_data(
 
         try:
             if params.method == "flashdeconv":
-                await ctx.info("Running FlashDeconv deconvolution (fastest method)")
-
                 proportions, stats = deconvolve_flashdeconv(
                     spatial_adata,
                     reference_adata,
@@ -1603,7 +1523,6 @@ async def deconvolve_spatial_data(
                 )
 
             elif params.method == "cell2location":
-                await ctx.info("Running Cell2location deconvolution")
                 proportions, stats = await deconvolve_cell2location(
                     spatial_adata,
                     reference_adata,
@@ -1632,13 +1551,12 @@ async def deconvolve_spatial_data(
                 )
 
             elif params.method == "rctd":
-                await ctx.info("Running RCTD deconvolution")
-
                 # Check if RCTD is available
-                is_available, error_message = is_rctd_available()
-                if not is_available:
-                    await ctx.warning(f"RCTD is not available: {error_message}")
-                    raise DependencyError(f"RCTD is not available: {error_message}")
+                validate_r_package(
+                    "spacexr",
+                    ctx,
+                    install_cmd="devtools::install_github('dmcable/spacexr', build_vignettes = FALSE)",
+                )
 
                 proportions, stats = deconvolve_rctd(
                     spatial_adata,
@@ -1653,8 +1571,6 @@ async def deconvolve_spatial_data(
                 )
 
             elif params.method == "destvi":
-                await ctx.info("Running DestVI deconvolution")
-
                 # Use centralized dependency manager for consistent error messages
                 scvi_mod = get_dependency("scvi-tools")
                 if scvi_mod is None:
@@ -1681,8 +1597,6 @@ async def deconvolve_spatial_data(
                 )
 
             elif params.method == "stereoscope":
-                await ctx.info("Running Stereoscope deconvolution")
-
                 # Use centralized dependency manager for consistent error messages
                 scvi_mod = get_dependency("scvi-tools")
                 if scvi_mod is None:
@@ -1703,13 +1617,12 @@ async def deconvolve_spatial_data(
                 )
 
             elif params.method == "spotlight":
-                await ctx.info("Running SPOTlight deconvolution")
-
                 # Check if SPOTlight is available
-                is_available, error_message = is_spotlight_available()
-                if not is_available:
-                    await ctx.warning(f"SPOTlight is not available: {error_message}")
-                    raise DependencyError(f"SPOTlight is not available: {error_message}")
+                validate_r_package(
+                    "SPOTlight",
+                    ctx,
+                    install_cmd="BiocManager::install('SPOTlight')",
+                )
 
                 proportions, stats = deconvolve_spotlight(
                     spatial_adata,
@@ -1724,8 +1637,6 @@ async def deconvolve_spatial_data(
                 )
 
             elif params.method == "tangram":
-                await ctx.info("Running Tangram deconvolution")
-
                 # Use centralized dependency manager for consistent error messages
                 scvi_mod = get_dependency("scvi-tools")
                 tangram_mod = get_dependency("tangram")
@@ -1753,13 +1664,12 @@ async def deconvolve_spatial_data(
                 )
 
             elif params.method == "card":
-                await ctx.info("Running CARD deconvolution")
-
                 # Check availability
-                is_available, error_message = is_card_available()
-                if not is_available:
-                    await ctx.warning(f"CARD is not available: {error_message}")
-                    raise DependencyError(f"CARD is not available: {error_message}")
+                validate_r_package(
+                    "CARD",
+                    ctx,
+                    install_cmd="devtools::install_github('YingMa0107/CARD')",
+                )
 
                 proportions, stats = deconvolve_card(
                     spatial_adata,
@@ -2049,18 +1959,11 @@ async def deconvolve_destvi(
                 f"Reference data must contain at least 2 cell types, found {len(cell_types)}"
             )
 
-        await ctx.info(
-            f"Training DestVI with {len(common_genes)} genes and {len(cell_types)} cell types: {list(cell_types)}"
-        )
-
         # Calculate optimal epoch distribution (following official tutorials)
         condscvi_epochs = max(400, n_epochs // 5)  # CondSCVI needs sufficient training
         destvi_epochs = max(200, n_epochs // 10)  # DestVI typically needs fewer epochs
 
-        # Step 1: Setup and train CondSCVI model on reference data
-        await ctx.info(f"Step 1: Training CondSCVI model ({condscvi_epochs} epochs)...")
-
-        # Setup reference data for CondSCVI with proper configuration
+        # Setup and train CondSCVI model on reference data
         scvi.model.CondSCVI.setup_anndata(
             ref_data,
             labels_key=cell_type_key,
@@ -2086,11 +1989,6 @@ async def deconvolve_destvi(
             plan_kwargs=plan_kwargs,
         )
 
-        await ctx.info("CondSCVI model training completed")
-
-        # Step 2: Setup spatial data for DestVI
-        await ctx.info("Step 2: Setting up DestVI model...")
-
         # Setup spatial data (no labels needed for spatial data)
         scvi.model.DestVI.setup_anndata(spatial_data)
 
@@ -2103,22 +2001,13 @@ async def deconvolve_destvi(
             l1_reg=l1_reg,
         )
 
-        await ctx.info("DestVI model created successfully")
-
-        # Step 4: Train DestVI model (official training settings)
-        await ctx.info(f"Step 3: Training DestVI model ({destvi_epochs} epochs)...")
-
+        # Train DestVI model (official training settings)
         destvi_model.train(
             max_epochs=destvi_epochs,
             accelerator="gpu" if use_gpu else "cpu",  # Correct parameter name for 1.3.x
             train_size=train_size,
             plan_kwargs=plan_kwargs,
         )
-
-        await ctx.info("DestVI training completed")
-
-        # Step 5: Get results (official API)
-        await ctx.info("Extracting cell type proportions...")
 
         # Get cell type proportions using official method
         proportions_df = destvi_model.get_proportions()
@@ -2240,15 +2129,10 @@ async def deconvolve_stereoscope(
 
         cell_types = list(ref_data.obs[cell_type_key].cat.categories)
 
-        await ctx.info(
-            f"Training Stereoscope with {len(common_genes)} genes and {len(cell_types)} cell types"
-        )
-
         # Import official Stereoscope classes
         from scvi.external import RNAStereoscope, SpatialStereoscope
 
         # Stage 1: Train RNAStereoscope model on reference data
-        await ctx.info("Stage 1: Training RNAStereoscope model on reference data...")
 
         # Setup reference data with cell type labels (no layer specified since X contains counts)
         RNAStereoscope.setup_anndata(ref_data, labels_key=cell_type_key)
@@ -2280,11 +2164,7 @@ async def deconvolve_stereoscope(
                 max_epochs=rna_epochs, batch_size=batch_size, plan_kwargs=plan_kwargs
             )
 
-        await ctx.info(f"RNAStereoscope training completed ({rna_epochs} epochs)")
-
         # Stage 2: Train SpatialStereoscope model using the RNA model
-        await ctx.info("Stage 2: Training SpatialStereoscope model on spatial data...")
-
         # Setup spatial data
         SpatialStereoscope.setup_anndata(spatial_data)
 
@@ -2306,13 +2186,7 @@ async def deconvolve_stereoscope(
                 plan_kwargs=plan_kwargs,
             )
 
-        await ctx.info(
-            f"SpatialStereoscope training completed ({spatial_epochs} epochs)"
-        )
-
         # Extract cell type proportions
-        await ctx.info("Extracting cell type proportions...")
-
         proportions_array = spatial_model.get_proportions()
 
         # Create proportions DataFrame with proper indexing
@@ -2348,90 +2222,12 @@ async def deconvolve_stereoscope(
             }
         )
 
-        await ctx.info("Stereoscope deconvolution completed successfully")
-
         return proportions, stats
 
     except Exception as e:
         error_msg = f"Stereoscope deconvolution failed: {str(e)}"
         await ctx.error(error_msg)
         raise ProcessingError(error_msg) from e
-
-
-def is_spotlight_available() -> Tuple[bool, str]:
-    """Check if SPOTlight (R package) is available through rpy2
-
-    Returns:
-        Tuple of (is_available, error_message)
-    """
-    # Check if rpy2 is available
-    if not is_available("rpy2"):
-        return (
-            False,
-            "rpy2 is not installed. Install with 'pip install rpy2' to use SPOTlight",
-        )
-
-    import rpy2.robjects as ro
-    from rpy2.robjects import pandas2ri
-    from rpy2.robjects.conversion import localconverter
-
-    # Test R connection
-    try:
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            ro.r("R.version.string")
-    except Exception as e:
-        return False, f"R is not accessible: {str(e)}"
-
-    # Check if SPOTlight is installed in R
-    try:
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            ro.r("library(SPOTlight)")
-    except Exception as e:
-        return (
-            False,
-            f"SPOTlight R package is not installed: {str(e)}. "
-            "Install in R with: BiocManager::install('SPOTlight')",
-        )
-
-    return True, ""
-
-
-def is_card_available() -> Tuple[bool, str]:
-    """Check if CARD R package is available through rpy2
-
-    Returns:
-        Tuple of (is_available, error_message)
-    """
-    # Check if rpy2 is available
-    if not is_available("rpy2"):
-        return (
-            False,
-            "rpy2 is not installed. Install with 'pip install rpy2' to use CARD",
-        )
-
-    import rpy2.robjects as ro
-    from rpy2.robjects import pandas2ri
-    from rpy2.robjects.conversion import localconverter
-
-    # Test R connection
-    try:
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            ro.r("R.version.string")
-    except Exception as e:
-        return False, f"R is not accessible: {str(e)}"
-
-    # Check if CARD is installed in R
-    try:
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            ro.r("library(CARD)")
-    except Exception as e:
-        return (
-            False,
-            f"CARD R package is not installed: {str(e)}. "
-            "Install with: devtools::install_github('YingMa0107/CARD')",
-        )
-
-    return True, ""
 
 
 async def deconvolve_spotlight(
@@ -2729,9 +2525,11 @@ async def deconvolve_card(
     validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
     # Check availability
-    is_available, error_message = is_card_available()
-    if not is_available:
-        raise DependencyError(f"CARD is not available: {error_message}")
+    validate_r_package(
+        "CARD",
+        ctx,
+        install_cmd="devtools::install_github('YingMa0107/CARD')",
+    )
 
     # Import rpy2
     import anndata2ri  # For sparse matrix support
@@ -3104,9 +2902,6 @@ async def deconvolve_tangram(
                 "it performs optimally with raw counts. Consider using raw count data for best results."
             )
 
-        # Create density prior based on parameter
-        await ctx.info(f"Setting up Tangram with density_prior='{density_prior}'...")
-
         # Create normalized density prior that sums to 1
         if density_prior == "rna_count_based":
             # Weight by RNA counts (recommended)
@@ -3142,10 +2937,6 @@ async def deconvolve_tangram(
         else:
             tangram_model = Tangram(mdata, constrained=False)
 
-        await ctx.info(
-            f"Training Tangram model (mode='{mode}', learning_rate={learning_rate})..."
-        )
-
         # Prepare training kwargs (scvi.external.Tangram supports limited parameters)
         train_kwargs = {
             "max_epochs": n_epochs,
@@ -3157,11 +2948,6 @@ async def deconvolve_tangram(
 
         # Train model
         tangram_model.train(**train_kwargs)
-
-        await ctx.info("Tangram training completed")
-
-        # Get cell type proportions
-        await ctx.info("Extracting cell type proportions...")
 
         # Get mapping matrix (shape: n_cells x n_spots)
         mapping_matrix = tangram_model.get_mapper_matrix()
@@ -3267,8 +3053,6 @@ async def deconvolve_flashdeconv(
     try:
         import flashdeconv as fd
 
-        await ctx.info(f"Using FlashDeconv version {fd.__version__}")
-
         # Validate inputs
         validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
@@ -3281,12 +3065,6 @@ async def deconvolve_flashdeconv(
             min_genes=min_common_genes,
             source_name="spatial",
             target_name="reference",
-        )
-
-        await ctx.info(f"Found {len(common_genes)} common genes")
-        await ctx.info(
-            f"Running FlashDeconv with sketch_dim={sketch_dim}, "
-            f"lambda_spatial={lambda_spatial}"
         )
 
         # Create a copy for FlashDeconv (it modifies the object in place)
@@ -3323,10 +3101,6 @@ async def deconvolve_flashdeconv(
         else:
             # Ensure index matches spatial data
             proportions.index = spatial_adata.obs_names
-
-        await ctx.info(
-            f"FlashDeconv completed. Found {len(proportions.columns)} cell types"
-        )
 
         # Create statistics
         stats = _create_deconvolution_stats(

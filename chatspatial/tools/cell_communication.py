@@ -13,46 +13,7 @@ from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
 from ..utils.adata_utils import get_spatial_key
-from ..utils.dependency_manager import is_available, require
-
-
-def is_cellchat_r_available() -> tuple[bool, str]:
-    """Check if CellChat R package is available through rpy2
-
-    Returns:
-        Tuple of (is_available, error_message)
-    """
-    # Use centralized dependency manager for rpy2 check
-    if not is_available("rpy2"):
-        return (
-            False,
-            "rpy2 is not installed. Install with 'pip install rpy2' to use CellChat R",
-        )
-
-    # rpy2 is already checked via is_available above, so we can import directly
-    import rpy2.robjects as ro
-    from rpy2.robjects import pandas2ri
-    from rpy2.robjects.conversion import localconverter
-
-    # Test R connection
-    try:
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            ro.r("R.version.string")
-    except Exception as e:
-        return False, f"R is not accessible: {str(e)}"
-
-    # Check if CellChat is installed in R
-    try:
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            ro.r("library(CellChat)")
-    except Exception as e:
-        return (
-            False,
-            f"CellChat R package is not installed: {str(e)}. "
-            "Install in R with: devtools::install_github('jinworks/CellChat')",
-        )
-
-    return True, ""
+from ..utils.dependency_manager import is_available, require, validate_r_package
 
 
 async def _validate_liana_requirements(
@@ -145,9 +106,11 @@ async def analyze_cell_communication(
             result_data = await _analyze_communication_cellphonedb(adata, params, ctx)
 
         elif params.method == "cellchat_r":
-            is_available, error_message = is_cellchat_r_available()
-            if not is_available:
-                raise ImportError(f"CellChat R is not available: {error_message}")
+            validate_r_package(
+                "CellChat",
+                ctx,
+                install_cmd="devtools::install_github('jinworks/CellChat')",
+            )
             result_data = await _analyze_communication_cellchat_r(adata, params, ctx)
 
         else:
