@@ -38,20 +38,13 @@ if TYPE_CHECKING:
 
 from ..models.analysis import SpatialStatisticsResult
 from ..models.data import SpatialStatisticsParameters
-from ..utils.adata_utils import (
-    require_spatial_coords,
-    select_genes_for_analysis,
-    to_dense,
-    validate_adata_basics,
-)
+from ..utils.adata_utils import (require_spatial_coords,
+                                 select_genes_for_analysis, to_dense,
+                                 validate_adata_basics)
 from ..utils.compute import ensure_spatial_neighbors_async
-from ..utils.exceptions import (
-    DataCompatibilityError,
-    DataNotFoundError,
-    DependencyError,
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.exceptions import (DataCompatibilityError, DataNotFoundError,
+                                DependencyError, ParameterError,
+                                ProcessingError)
 
 # ============================================================================
 # MAIN ENTRY POINT
@@ -175,7 +168,9 @@ async def analyze_spatial_statistics(
         elif params.analysis_type == "spatial_centrality":
             result = await _analyze_spatial_centrality(adata, cluster_key, params, ctx)
         else:
-            raise ParameterError(f"Analysis type {params.analysis_type} not implemented")
+            raise ParameterError(
+                f"Analysis type {params.analysis_type} not implemented"
+            )
 
         # COW FIX: No need to update data_store - changes already reflected via direct reference
         # All modifications to adata.obs/uns/obsp are in-place and preserved
@@ -259,7 +254,9 @@ async def analyze_spatial_statistics(
     except (DataNotFoundError, ParameterError, DataCompatibilityError):
         raise
     except Exception as e:
-        raise ProcessingError(f"Error in {params.analysis_type} analysis: {str(e)}") from e
+        raise ProcessingError(
+            f"Error in {params.analysis_type} analysis: {str(e)}"
+        ) from e
 
 
 # ============================================================================

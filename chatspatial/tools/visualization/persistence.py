@@ -10,7 +10,6 @@ This module contains:
 import glob
 import os
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional
 
 import matplotlib

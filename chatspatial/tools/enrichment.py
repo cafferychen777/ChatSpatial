@@ -664,7 +664,6 @@ async def perform_ora(
                                 degs.append(gene)
 
             gene_list = degs
-            await ctx.info(f"Using {len(gene_list)} DEGs for ORA")
         else:
             # Use highly variable genes
             if "highly_variable" in adata.var:
@@ -704,12 +703,6 @@ async def perform_ora(
         for gene in gene_list:
             if gene.upper() in gene_name_map:
                 query_genes.add(gene_name_map[gene.upper()])
-
-        if ctx and len(query_genes) > 0:
-            await ctx.info(
-                f"Applied case-insensitive gene matching: "
-                f"{len(gene_list)} query genes → {len(query_genes)} matched"
-            )
 
     # Perform hypergeometric test for each gene set
     enrichment_scores = {}
@@ -1475,8 +1468,7 @@ def load_msigdb_gene_sets(
         return filtered_sets
 
     except Exception as e:
-        logger.error(f"Failed to load MSigDB gene sets: {e}")
-        return {}
+        raise ProcessingError(f"Failed to load MSigDB gene sets: {e}") from e
 
 
 def load_go_gene_sets(
@@ -1527,8 +1519,7 @@ def load_go_gene_sets(
         return filtered_sets
 
     except Exception as e:
-        logger.error(f"Failed to load GO gene sets: {e}")
-        return {}
+        raise ProcessingError(f"Failed to load GO gene sets: {e}") from e
 
 
 def load_kegg_gene_sets(
@@ -1568,8 +1559,7 @@ def load_kegg_gene_sets(
         return filtered_sets
 
     except Exception as e:
-        logger.error(f"Failed to load KEGG pathways: {e}")
-        return {}
+        raise ProcessingError(f"Failed to load KEGG pathways: {e}") from e
 
 
 def load_reactome_gene_sets(
@@ -1598,18 +1588,14 @@ def load_reactome_gene_sets(
         organism = _get_organism_name(species)
         gene_sets = gp.get_library("Reactome_2022", organism=organism)
 
-        # Filter by size
-        filtered_sets = {}
-        for name, genes in gene_sets.items():
-            if min_size <= len(genes) <= max_size:
-                filtered_sets[name] = genes
+        # Filter by size (use shared utility for consistency)
+        filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
 
         logger.info(f"Loaded {len(filtered_sets)} Reactome pathways")
         return filtered_sets
 
     except Exception as e:
-        logger.error(f"Failed to load Reactome pathways: {e}")
-        return {}
+        raise ProcessingError(f"Failed to load Reactome pathways: {e}") from e
 
 
 def load_cell_marker_gene_sets(
@@ -1645,8 +1631,7 @@ def load_cell_marker_gene_sets(
         return filtered_sets
 
     except Exception as e:
-        logger.error(f"Failed to load cell markers: {e}")
-        return {}
+        raise ProcessingError(f"Failed to load cell markers: {e}") from e
 
 
 def load_gene_sets(

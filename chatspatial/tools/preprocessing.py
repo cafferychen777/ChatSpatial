@@ -11,19 +11,12 @@ import scipy.sparse
 from ..models.analysis import PreprocessingResult
 from ..models.data import PreprocessingParameters
 from ..spatial_mcp_adapter import ToolContext
-from ..utils.adata_utils import (
-    ensure_unique_var_names_with_ctx,
-    sample_expression_values,
-    standardize_adata,
-)
+from ..utils.adata_utils import (ensure_unique_var_names_with_ctx,
+                                 sample_expression_values, standardize_adata)
 from ..utils.compute import ensure_pca
 from ..utils.dependency_manager import require, validate_r_package
-from ..utils.exceptions import (
-    DataError,
-    DependencyError,
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.exceptions import (DataError, DependencyError, ParameterError,
+                                ProcessingError)
 from ..utils.mcp_utils import mcp_tool_error_handler
 
 
@@ -115,12 +108,10 @@ async def preprocess_data(
                 inplace=True,
             )
         except Exception as e:
-            error_msg = (
+            raise ProcessingError(
                 f"QC metrics failed: {e}. "
                 f"Data: {adata.n_obs}×{adata.n_vars}, type: {type(adata.X).__name__}"
-            )
-            await ctx.error(error_msg)
-            raise ProcessingError(error_msg) from e
+            ) from e
 
         # Store original QC metrics before filtering (including mito stats)
         mito_pct_col = "pct_counts_mt" if "pct_counts_mt" in adata.obs else None
@@ -154,10 +145,6 @@ async def preprocess_data(
 
             if n_high_mito > 0:
                 adata = adata[~high_mito_mask].copy()
-                await ctx.info(
-                    f"Filtered {n_high_mito} spots with mito% > {params.filter_mito_pct}% "
-                    f"({n_before} → {adata.n_obs} spots)"
-                )
                 # Update qc_metrics with mito filtering info
                 qc_metrics["n_spots_filtered_mito"] = int(n_high_mito)
         elif params.filter_mito_pct is not None and not mito_pct_col:
@@ -246,7 +233,6 @@ async def preprocess_data(
             )
         ctx.log_config("Normalization Configuration", norm_config)
 
-
         if params.normalization == "log":
             # Standard log normalization
             # Check if data appears to be already normalized
@@ -262,7 +248,6 @@ async def preprocess_data(
                     "• Load raw count data instead of processed data\n"
                     "• Remove the log transformation from your data before re-processing"
                 )
-                await ctx.error(error_msg)
                 raise DataError(error_msg)
 
             if params.normalize_target_sum is not None:
@@ -290,7 +275,6 @@ async def preprocess_data(
                     "• Use normalization='pearson_residuals' (built-in, similar results)\n"
                     "• Use normalization='log' (standard method)"
                 )
-                await ctx.error(full_error)
                 raise DependencyError(full_error) from e
 
             # Check if data appears to be raw counts (required for SCTransform)
@@ -298,9 +282,10 @@ async def preprocess_data(
 
             # Check for non-integer values (indicates normalized data)
             if np.any((X_sample % 1) != 0):
-                error_msg = "SCTransform requires raw count data (integers). Use normalization='log' for normalized data."
-                await ctx.error(error_msg)
-                raise DataError(error_msg)
+                raise DataError(
+                    "SCTransform requires raw count data (integers). "
+                    "Use normalization='log' for normalized data."
+                )
 
             # Map method parameter to vst.flavor
             vst_flavor = "v2" if params.sct_method == "fix-slope" else "v1"
@@ -421,17 +406,12 @@ async def preprocess_data(
                 ] = True
 
             except MemoryError:
-                error_msg = (
+                raise MemoryError(
                     f"Memory error for SCTransform on {adata.n_obs}×{adata.n_vars} matrix. "
                     f"Use normalization='log' or subsample data."
                 )
-                await ctx.error(error_msg)
-                raise MemoryError(error_msg)
             except Exception as e:
-                error_msg = f"SCTransform failed: {str(e)}"
-                await ctx.error(error_msg)
-                await ctx.info(f"Error details: {traceback.format_exc()}")
-                raise ProcessingError(error_msg) from e
+                raise ProcessingError(f"SCTransform failed: {str(e)}") from e
         elif params.normalization == "pearson_residuals":
             # Modern Pearson residuals normalization (recommended for UMI data)
 
@@ -444,7 +424,6 @@ async def preprocess_data(
                     "• Use log normalization instead: params.normalization='log'\n"
                     "• Skip normalization if data is pre-processed: params.normalization='none'"
                 )
-                await ctx.error(error_msg)
                 raise DependencyError(error_msg)
 
             # Check if data appears to be raw counts
@@ -452,14 +431,12 @@ async def preprocess_data(
 
             # Check for non-integer values (indicates normalized data)
             if np.any((X_sample % 1) != 0):
-                error_msg = (
+                raise DataError(
                     "Pearson residuals requires raw count data (integers). "
                     "Data contains non-integer values. "
                     "Use params.normalization='none' if data is already normalized, "
                     "or params.normalization='log' for standard normalization."
                 )
-                await ctx.error(error_msg)
-                raise DataError(error_msg)
 
             # Execute normalization
             try:
@@ -499,7 +476,6 @@ async def preprocess_data(
                     "Option 3: Pre-normalize your data externally, then reload with normalized values\n\n"
                     "WARNING: If your data is already normalized but appears raw, verify data integrity."
                 )
-                await ctx.error(error_msg)
                 raise DataError(error_msg)
         elif params.normalization == "scvi":
             # scVI deep learning-based normalization
@@ -512,9 +488,9 @@ async def preprocess_data(
 
             # Check for negative values (indicates already normalized data)
             if np.any(X_sample < 0):
-                error_msg = "scVI requires non-negative count data. Data contains negative values."
-                await ctx.error(error_msg)
-                raise DataError(error_msg)
+                raise DataError(
+                    "scVI requires non-negative count data. Data contains negative values."
+                )
 
             try:
                 # Note: counts layer already saved in unified preprocessing step (line 338)
@@ -578,10 +554,7 @@ async def preprocess_data(
                 }
 
             except Exception as e:
-                error_msg = f"scVI normalization failed: {str(e)}"
-                await ctx.error(error_msg)
-                await ctx.info(f"Error details: {traceback.format_exc()}")
-                raise ProcessingError(error_msg) from e
+                raise ProcessingError(f"scVI normalization failed: {str(e)}") from e
         else:
             # Catch unknown normalization methods
             valid_methods = ["log", "sct", "pearson_residuals", "none", "scvi"]
@@ -621,12 +594,10 @@ async def preprocess_data(
             try:
                 sc.pp.highly_variable_genes(adata, n_top_genes=n_hvgs)
             except Exception as e:
-                error_msg = (
+                raise ProcessingError(
                     f"HVG selection failed: {e}. "
                     f"Data: {adata.n_obs}×{adata.n_vars}, requested: {n_hvgs} HVGs."
-                )
-                await ctx.error(error_msg)
-                raise ProcessingError(error_msg) from e
+                ) from e
 
         # Exclude mitochondrial genes from HVG selection (BEST PRACTICE)
         # Mito genes can dominate HVG due to high expression and technical variation
@@ -645,17 +616,15 @@ async def preprocess_data(
         if gene_subsample_requested and params.subsample_genes < adata.n_vars:
             # Ensure HVG selection was successful
             if "highly_variable" not in adata.var:
-                error_msg = "Gene subsampling failed: no HVGs identified. Run HVG selection first."
-                await ctx.error(error_msg)
-                raise ProcessingError(error_msg)
+                raise ProcessingError(
+                    "Gene subsampling failed: no HVGs identified. Run HVG selection first."
+                )
 
             if not adata.var["highly_variable"].any():
-                error_msg = (
+                raise DataError(
                     "Gene subsampling requested but no genes were marked as highly variable. "
                     "Check HVG selection parameters or data quality."
                 )
-                await ctx.error(error_msg)
-                raise DataError(error_msg)
 
             # Use properly identified HVGs
             adata = adata[:, adata.var["highly_variable"]].copy()

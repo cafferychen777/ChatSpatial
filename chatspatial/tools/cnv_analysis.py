@@ -14,13 +14,9 @@ from ..models.analysis import CNVResult
 from ..models.data import CNVParameters
 from ..utils import validate_obs_column
 from ..utils.dependency_manager import require
-from ..utils.exceptions import (
-    DataCompatibilityError,
-    DataNotFoundError,
-    DependencyError,
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.exceptions import (DataCompatibilityError, DataNotFoundError,
+                                DependencyError, ParameterError,
+                                ProcessingError)
 
 # Numbat availability is checked lazily in _infer_cnv_numbat to avoid
 # import-time failures when rpy2/R is not installed
@@ -102,12 +98,6 @@ async def _infer_cnv_infercnvpy(
     import infercnvpy as cnv
 
     # Note: adata is already validated in infer_cnv() before dispatch
-
-    await ctx.info(
-        f"Running CNV inference with {len(params.reference_categories)} "
-        f"reference cell types: {', '.join(params.reference_categories)}"
-    )
-
     # Create a copy of adata for CNV analysis
     adata_cnv = adata.copy()
 
@@ -133,8 +123,6 @@ async def _infer_cnv_infercnvpy(
             ) from e
     else:
         # Gene positions are available, run CNV inference
-        await ctx.info("Running infercnvpy CNV inference...")
-
         # Exclude chromosomes if specified
         if params.exclude_chromosomes:
             genes_to_keep = ~adata_cnv.var["chromosome"].isin(
@@ -154,25 +142,20 @@ async def _infer_cnv_infercnvpy(
 
     # Optional: Cluster cells by CNV pattern
     if params.cluster_cells:
-        await ctx.info("Clustering cells by CNV pattern...")
         try:
             sc.pp.neighbors(adata_cnv, use_rep="X_cnv", n_neighbors=15)
             sc.tl.leiden(adata_cnv, key_added="cnv_clusters")
-            n_clusters = len(adata_cnv.obs["cnv_clusters"].unique())
-            await ctx.info(f"Identified {n_clusters} CNV-based clusters")
         except Exception as e:
             await ctx.warning(f"Failed to cluster cells by CNV: {str(e)}")
 
     # Optional: Compute dendrogram
     if params.dendrogram and params.cluster_cells:
-        await ctx.info("Computing hierarchical clustering dendrogram...")
         try:
             sc.tl.dendrogram(adata_cnv, groupby="cnv_clusters")
         except Exception as e:
             await ctx.warning(f"Failed to compute dendrogram: {str(e)}")
 
     # Extract CNV statistics
-    await ctx.info("Extracting CNV statistics...")
 
     # Check what data is available
     cnv_score_key = None
@@ -273,10 +256,6 @@ async def _infer_cnv_infercnvpy(
         "cnv_score_key": cnv_score_key,
     }
 
-    await ctx.info(
-        f"CNV analysis complete: {n_genes_analyzed} genes across {n_chromosomes} chromosomes"
-    )
-
     return CNVResult(
         data_id=data_id,
         method="infercnvpy",
@@ -321,7 +300,8 @@ async def _infer_cnv_numbat(
         import anndata2ri
         import rpy2.robjects as ro
         from rpy2.rinterface_lib import openrlib
-        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
+        from rpy2.robjects import (conversion, default_converter, numpy2ri,
+                                   pandas2ri)
 
         # Test if Numbat R package is available
         ro.r("suppressPackageStartupMessages(library(numbat))")
@@ -332,11 +312,6 @@ async def _infer_cnv_numbat(
 
     # Note: adata is already retrieved in infer_cnv() before dispatch
 
-    await ctx.info(
-        f"Running Numbat CNV inference (haplotype-aware) with genome: "
-        f"{params.numbat_genome}"
-    )
-
     # Validate allele data exists
     # Numbat requires long-format allele dataframe (from pileup_and_phase or similar)
     # Check if we have the raw allele dataframe in adata.uns
@@ -345,7 +320,6 @@ async def _infer_cnv_numbat(
         import pandas as pd
 
         df_allele = adata.uns["numbat_allele_data_raw"]
-        await ctx.info(f"Found Numbat allele data: {len(df_allele)} SNP-cell pairs")
 
         # Validate required columns
         required_cols = ["cell", "CHROM", "POS", "REF", "ALT", "AD", "DP"]
@@ -385,10 +359,6 @@ async def _infer_cnv_numbat(
             f"No reference cells found with key '{params.reference_key}' and "
             f"categories {params.reference_categories}"
         )
-
-    await ctx.info(
-        f"Running Numbat: {len(cell_barcodes)} cells, {len(ref_indices_r)} reference cells"
-    )
 
     # Create temporary directory for Numbat output
     import os
@@ -597,8 +567,6 @@ async def _infer_cnv_numbat(
             "min_cells": params.numbat_min_cells,
             "cnv_score_key": "X_cnv_numbat",
         }
-
-        await ctx.info(f"Numbat CNV complete: {statistics['n_clones']} clones detected")
 
     except Exception as e:
         raise ProcessingError(

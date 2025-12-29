@@ -23,12 +23,8 @@ from ..models.data import SpatialVariableGenesParameters  # noqa: E402
 from ..utils import validate_var_column  # noqa: E402
 from ..utils.adata_utils import require_spatial_coords  # noqa: E402
 from ..utils.dependency_manager import require  # noqa: E402
-from ..utils.exceptions import (  # noqa: E402
-    DataError,
-    DataNotFoundError,
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.exceptions import (DataError, DataNotFoundError,  # noqa: E402
+                                ParameterError, ProcessingError)
 from ..utils.mcp_utils import suppress_output  # noqa: E402
 
 
@@ -600,7 +596,11 @@ async def _identify_spatial_genes_sparkx(
 
     # NOW convert filtered sparse matrix to dense (much smaller!)
     # For sparse: toarray() already returns a new array; for dense: copy to avoid modifying original
-    counts_matrix = filtered_sparse.toarray() if hasattr(filtered_sparse, "toarray") else filtered_sparse.copy()
+    counts_matrix = (
+        filtered_sparse.toarray()
+        if hasattr(filtered_sparse, "toarray")
+        else filtered_sparse.copy()
+    )
 
     # Ensure counts are non-negative integers
     counts_matrix = np.maximum(counts_matrix, 0).astype(int)

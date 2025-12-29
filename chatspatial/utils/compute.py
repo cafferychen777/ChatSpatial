@@ -14,8 +14,6 @@ Design Principles:
 Usage:
     # In analysis tools, use these to ensure prerequisites
     computed = ensure_pca(adata)
-    if computed:
-        await ctx.info("Computed PCA")
 
     # Or use the async version with context
     await ensure_pca_async(adata, ctx)
@@ -284,67 +282,51 @@ def ensure_spatial_neighbors(
 
 async def ensure_pca_async(
     adata: "ad.AnnData",
-    ctx,  # ToolContext
+    ctx,  # ToolContext  # noqa: ARG001
     n_comps: int = 30,
     use_highly_variable: bool = True,
 ) -> bool:
     """Async version of ensure_pca with context logging."""
-    computed = ensure_pca(adata, n_comps, use_highly_variable)
-    if computed:
-        await ctx.info(f"Computed PCA with {n_comps} components")
-    return computed
+    return ensure_pca(adata, n_comps, use_highly_variable)
 
 
 async def ensure_neighbors_async(
     adata: "ad.AnnData",
-    ctx,  # ToolContext
+    ctx,  # ToolContext  # noqa: ARG001
     n_neighbors: int = 15,
     n_pcs: Optional[int] = None,
 ) -> bool:
     """Async version of ensure_neighbors with context logging."""
-    computed = ensure_neighbors(adata, n_neighbors, n_pcs)
-    if computed:
-        await ctx.info(f"Computed neighbor graph with {n_neighbors} neighbors")
-    return computed
+    return ensure_neighbors(adata, n_neighbors, n_pcs)
 
 
 async def ensure_umap_async(
     adata: "ad.AnnData",
-    ctx,  # ToolContext
+    ctx,  # ToolContext  # noqa: ARG001
     min_dist: float = 0.5,
 ) -> bool:
     """Async version of ensure_umap with context logging."""
-    computed = ensure_umap(adata, min_dist)
-    if computed:
-        await ctx.info("Computed UMAP embedding")
-    return computed
+    return ensure_umap(adata, min_dist)
 
 
 async def ensure_leiden_async(
     adata: "ad.AnnData",
-    ctx,  # ToolContext
+    ctx,  # ToolContext  # noqa: ARG001
     resolution: float = 1.0,
     key_added: str = "leiden",
 ) -> bool:
     """Async version of ensure_leiden with context logging."""
-    computed = ensure_leiden(adata, resolution, key_added)
-    if computed:
-        n_clusters = adata.obs[key_added].nunique()
-        await ctx.info(f"Computed Leiden clustering: {n_clusters} clusters")
-    return computed
+    return ensure_leiden(adata, resolution, key_added)
 
 
 async def ensure_spatial_neighbors_async(
     adata: "ad.AnnData",
-    ctx,  # ToolContext
+    ctx,  # ToolContext  # noqa: ARG001
     coord_type: Literal["grid", "generic"] = "generic",
     n_neighs: int = 6,
 ) -> bool:
     """Async version of ensure_spatial_neighbors with context logging."""
-    computed = ensure_spatial_neighbors(adata, coord_type, n_neighs)
-    if computed:
-        await ctx.info(f"Computed spatial neighbor graph ({coord_type})")
-    return computed
+    return ensure_spatial_neighbors(adata, coord_type, n_neighs)
 
 
 # =============================================================================
