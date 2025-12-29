@@ -181,163 +181,6 @@ def _check_convergence(
     return True, None
 
 
-def _generate_qc_plots(
-    ref_model,
-    cell2loc_model,
-    ctx: "ToolContext",
-    output_dir: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
-    """Generate quality control diagnostic plots for Cell2location training
-
-    Creates diagnostic visualizations including:
-    1. ELBO training history for both models
-    2. Reconstruction accuracy plots
-    3. Convergence diagnostics
-
-    Args:
-        ref_model: Trained RegressionModel
-        cell2loc_model: Trained Cell2location model
-        output_dir: Directory to save plots (if None, plots not saved to disk)
-        ctx: ToolContext for logging and data access
-
-    Returns:
-        Dictionary containing:
-        - 'ref_elbo_history': List of ELBO values for reference model
-        - 'cell2loc_elbo_history': List of ELBO values for Cell2location model
-        - 'ref_converged': Boolean indicating convergence status
-        - 'cell2loc_converged': Boolean indicating convergence status
-        - 'plots_saved': Boolean indicating if plots were saved to disk
-
-    Example:
-        >>> qc_results = _generate_qc_plots(ref_model, cell2loc_model)
-        >>> print(f"Reference model converged: {qc_results['ref_converged']}")
-    """
-    if not is_available("matplotlib"):
-        # matplotlib not available, return None
-        return None
-
-    import matplotlib.pyplot as plt
-
-    qc_results = {}
-
-    # Extract ELBO histories
-    ref_elbo = None
-    cell2loc_elbo = None
-
-    if hasattr(ref_model, "history") and ref_model.history is not None:
-        ref_history = ref_model.history
-        if "elbo_train" in ref_history:
-            ref_elbo = ref_history["elbo_train"]
-            qc_results["ref_elbo_history"] = ref_elbo
-
-    if hasattr(cell2loc_model, "history") and cell2loc_model.history is not None:
-        cell2loc_history = cell2loc_model.history
-        if "elbo_train" in cell2loc_history:
-            cell2loc_elbo = cell2loc_history["elbo_train"]
-            qc_results["cell2loc_elbo_history"] = cell2loc_elbo
-
-    # Check convergence
-    ref_converged, _ = _check_convergence(ref_model, "ReferenceModel", ctx=ctx)
-    cell2loc_converged, _ = _check_convergence(
-        cell2loc_model, "Cell2location", ctx=ctx
-    )
-
-    qc_results["ref_converged"] = ref_converged
-    qc_results["cell2loc_converged"] = cell2loc_converged
-
-    # Generate plots if we have data
-    if ref_elbo is not None or cell2loc_elbo is not None:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-        # Plot 1: Reference Model ELBO
-        if ref_elbo is not None:
-            axes[0].plot(ref_elbo, linewidth=1.5)
-            axes[0].set_xlabel("Epoch")
-            axes[0].set_ylabel("ELBO")
-            axes[0].set_title(
-                f"ReferenceModel Training\n{'Converged' if ref_converged else 'May not have converged'}"
-            )
-            axes[0].grid(True, alpha=0.3)
-        else:
-            axes[0].text(
-                0.5,
-                0.5,
-                "No ELBO history available",
-                ha="center",
-                va="center",
-                transform=axes[0].transAxes,
-            )
-            axes[0].set_title("ReferenceModel Training")
-
-        # Plot 2: Cell2location Model ELBO
-        if cell2loc_elbo is not None:
-            axes[1].plot(cell2loc_elbo, linewidth=1.5, color="orange")
-            axes[1].set_xlabel("Epoch")
-            axes[1].set_ylabel("ELBO")
-            axes[1].set_title(
-                f"Cell2location Training\n{'Converged' if cell2loc_converged else 'May not have converged'}"
-            )
-            axes[1].grid(True, alpha=0.3)
-        else:
-            axes[1].text(
-                0.5,
-                0.5,
-                "No ELBO history available",
-                ha="center",
-                va="center",
-                transform=axes[1].transAxes,
-            )
-            axes[1].set_title("Cell2location Training")
-
-        plt.tight_layout()
-
-        # Save if output directory specified
-        if output_dir is not None:
-            import os
-
-            os.makedirs(output_dir, exist_ok=True)
-            output_path = os.path.join(output_dir, "cell2location_qc_diagnostics.png")
-            plt.savefig(output_path, dpi=300, bbox_inches="tight")
-            qc_results["plots_saved"] = True
-            qc_results["plot_path"] = output_path
-        else:
-            qc_results["plots_saved"] = False
-
-        plt.close(fig)
-
-    # Note: Summary logging is handled by caller (async context)
-    # Store convergence warnings in results
-    if not ref_converged or not cell2loc_converged:
-        qc_results["convergence_warning"] = (
-            "WARNING: One or more models may not have fully converged. "
-            "Consider reviewing ELBO plots and increasing max_epochs if needed."
-        )
-
-    return qc_results
-
-
-def _get_device(use_gpu: bool) -> str:
-    """Determine the appropriate compute device.
-
-    Args:
-        use_gpu: Whether to use GPU for training
-
-    Returns:
-        Device string ('cuda' or 'cpu'). MPS is disabled due to compatibility issues.
-    """
-    if not is_available("torch") or not use_gpu:
-        return "cpu"
-
-    import torch
-
-    if torch.cuda.is_available():
-        return "cuda"
-
-    # MPS disabled: cell2location has numerical instability issues with MPS
-    # (tested with PyTorch 2.10.0, 2025-10-12, see PyTorch Issue #132605)
-    return "cpu"
-
-
 async def _prepare_anndata_for_counts(
     adata: ad.AnnData,
     data_name: str,
@@ -739,8 +582,6 @@ async def deconvolve_cell2location(
     cell2location_lr: float = 0.005,  # Phase 2: Cell2location learning rate
     ref_model_train_size: float = 1.0,  # Phase 2: Training data fraction for ref model
     cell2location_train_size: float = 1.0,  # Phase 2: Training data fraction for cell2location
-    enable_qc_plots: bool = False,  # Phase 2: Enable QC diagnostic plots
-    qc_output_dir: Optional[str] = None,  # Phase 2: Output directory for QC plots
     early_stopping: bool = False,  # Phase 3: Enable early stopping for runtime reduction
     early_stopping_patience: int = 45,  # Phase 3: Early stopping patience
     early_stopping_threshold: float = 0.0,  # Phase 3: Early stopping threshold
@@ -798,14 +639,15 @@ async def deconvolve_cell2location(
     from cell2location.models import Cell2location, RegressionModel
 
     try:
-        # Initialize QC results placeholder
-        qc_results = None
-
         # Validate cell type key exists
         validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
-        # Unified device selection
-        device = _get_device(use_gpu)
+        # Unified device selection (inlined from _get_device)
+        device = "cpu"
+        if use_gpu and is_available("torch"):
+            import torch
+            if torch.cuda.is_available():
+                device = "cuda"
 
         # Prepare data using helper functions - Cell2location expects raw count data
         # Memory optimization: helper function creates internal copy, no need to copy here
@@ -1029,13 +871,6 @@ async def deconvolve_cell2location(
             if not cell2loc_converged and cell2loc_warning:
                 await ctx.warning(cell2loc_warning)
 
-            # Phase 2: Generate QC diagnostic plots if requested
-            if enable_qc_plots:
-                await ctx.info("Generating QC diagnostic plots...")
-                qc_results = _generate_qc_plots(
-                    ref_model, cell2loc_model, output_dir=qc_output_dir, ctx=ctx
-                )
-
         except Exception as e:
             raise RuntimeError(f"Failed to train Cell2location model: {str(e)}") from e
 
@@ -1109,10 +944,6 @@ async def deconvolve_cell2location(
             except Exception as e:
                 await ctx.warning(f"Failed to extract model history: {str(e)}")
 
-        # Phase 2: Add QC results to stats if available
-        if qc_results is not None:
-            stats["qc_diagnostics"] = qc_results
-
         return proportions, stats
 
     except Exception as e:
@@ -1154,191 +985,6 @@ def is_rctd_available() -> Tuple[bool, str]:
         )
 
     return True, ""
-
-
-def _detect_gene_format(var_names: pd.Index) -> str:
-    """
-    Detect gene naming format from var_names.
-
-    Scientific basis: Human/mouse genes have standardized naming conventions:
-    - Ensembl IDs: ENSG/ENSMUSG followed by 11 digits
-    - Gene symbols: Capitalized names (human) or Title case (mouse)
-
-    Args:
-        var_names: Gene names from AnnData.var_names
-
-    Returns:
-        'ensembl', 'symbols', or 'mixed'
-    """
-    import re
-
-    sample_size = min(100, len(var_names))
-    sample = var_names[:sample_size]
-
-    ensembl_pattern = re.compile(r"^ENS(G|MUSG)\d{11}$")
-    ensembl_count = sum(1 for g in sample if ensembl_pattern.match(str(g)))
-
-    ensembl_ratio = ensembl_count / sample_size
-
-    if ensembl_ratio > 0.9:
-        return "ensembl"
-    elif ensembl_ratio < 0.1:
-        return "symbols"
-    else:
-        return "mixed"
-
-
-async def _validate_gene_format_compatibility(
-    spatial_adata: ad.AnnData, reference_adata: ad.AnnData, ctx=None
-) -> Tuple[bool, str]:
-    """
-    Validate that spatial and reference data have compatible gene naming.
-
-    Scientific rationale:
-    - Gene expression quantification relies on gene ID matching
-    - Mismatched formats lead to poor overlap and data loss
-    - Statistical power is compromised with <50% gene overlap
-
-    Args:
-        spatial_adata: Spatial data
-        reference_adata: Reference data
-        ctx: ToolContext for logging and data access
-
-    Returns:
-        (is_valid, error_message)
-    """
-    spatial_format = _detect_gene_format(spatial_adata.var_names)
-    reference_format = _detect_gene_format(reference_adata.var_names)
-
-    await ctx.info("Gene format detection:")
-    await ctx.info(
-        f"   Spatial: {spatial_format} ({len(spatial_adata.var_names)} genes)"
-    )
-    await ctx.info(
-        f"   Reference: {reference_format} ({len(reference_adata.var_names)} genes)"
-    )
-
-    # Check overlap
-    common_genes = find_common_genes(spatial_adata.var_names, reference_adata.var_names)
-    overlap_pct = len(common_genes) / len(reference_adata.var_names)
-
-    if overlap_pct < 0.3:  # Statistical threshold: <30% overlap is problematic
-        return False, (
-            f"Insufficient gene overlap: {overlap_pct:.1%}. "
-            f"Format mismatch: Spatial={spatial_format}, Reference={reference_format}. "
-            f"Sample genes - Reference: {list(reference_adata.var_names[:3])}, "
-            f"Spatial: {list(spatial_adata.var_names[:3])}"
-        )
-
-    if reference_format == "mixed" and spatial_format != "mixed":
-        await ctx.warning(
-            "WARNING:Reference has mixed gene naming (symbols + Ensembl IDs).\n"
-            "   Using order-preserving gene matching to avoid expression mismatch."
-        )
-
-    return True, ""
-
-
-def _calculate_quality_metrics(adata: ad.AnnData) -> dict:
-    """
-    Calculate lightweight quality metrics for validation.
-
-    MEMORY OPTIMIZATION: Instead of copying entire AnnData (~4GB),
-    compute only required statistics (~400KB for 50k cells).
-
-    Args:
-        adata: AnnData object to compute metrics from
-
-    Returns:
-        dict with:
-        - median_numi: Median UMI counts per cell (float, 8 bytes)
-        - n_vars: Number of genes (int, 8 bytes)
-        - numi_per_cell: UMI counts per cell (1D array, ~8 bytes * n_obs)
-
-    Memory usage: ~8 * n_obs bytes (e.g., 400KB for 50k cells)
-    vs. full copy: ~4GB for typical reference data
-    Savings: 99.99% (10000x reduction)
-    """
-    import numpy as np
-
-    # Calculate total UMI per cell
-    if hasattr(adata.X, "toarray"):
-        # Sparse matrix
-        numi_per_cell = np.array(adata.X.sum(axis=1)).flatten()
-    else:
-        # Dense matrix
-        numi_per_cell = adata.X.sum(axis=1)
-
-    return {
-        "median_numi": np.median(numi_per_cell),
-        "n_vars": adata.n_vars,
-        "numi_per_cell": numi_per_cell,
-    }
-
-
-async def _validate_subset_quality(
-    before_metrics: dict, subset_adata: ad.AnnData, data_label: str, ctx=None
-) -> None:
-    """
-    Validate that gene subsetting preserved data quality.
-
-    MEMORY OPTIMIZATION: Uses pre-computed metrics instead of full AnnData copy.
-    Saves ~4GB memory per validation (99.99% reduction).
-
-    Statistical rationale:
-    - nUMI (UMI counts) is a key quality metric
-    - >50% nUMI loss suggests gene name mismatch
-    - This is evidence of systematic error, not biological variation
-
-    Args:
-        before_metrics: Pre-computed quality metrics from _calculate_quality_metrics()
-                       (dict with 'median_numi', 'n_vars', 'numi_per_cell')
-        subset_adata: Subsetted AnnData
-        data_label: Label for logging (e.g., "Reference")
-        ctx: ToolContext for logging and data access
-
-    Raises:
-        ValueError: If data quality loss exceeds statistical threshold
-    """
-    import numpy as np
-
-    # Use pre-computed metrics (no need to recalculate)
-    original_median = before_metrics["median_numi"]
-    original_n_vars = before_metrics["n_vars"]
-
-    # Calculate subset statistics
-    if hasattr(subset_adata.X, "toarray"):
-        subset_numi = np.array(subset_adata.X.sum(axis=1)).flatten()
-    else:
-        subset_numi = subset_adata.X.sum(axis=1)
-
-    # Statistical metrics
-    subset_median = np.median(subset_numi)
-    loss_ratio = 1 - (subset_median / original_median) if original_median > 0 else 0
-
-    # Count cells with very low UMI (< 5 is RCTD's threshold)
-    low_umi_count = (subset_numi < 5).sum()
-    low_umi_pct = low_umi_count / len(subset_numi)
-
-    await ctx.info(f"{data_label} subset quality check:")
-    await ctx.info(f"   Genes: {original_n_vars} → {subset_adata.n_vars}")
-    await ctx.info(f"   Median nUMI: {original_median:.0f} → {subset_median:.0f}")
-    await ctx.info(f"   nUMI loss: {loss_ratio:.1%}")
-    await ctx.info(f"   Cells with nUMI < 5: {low_umi_count} ({low_umi_pct:.1%})")
-
-    # Statistical threshold: >50% median nUMI loss is pathological
-    if loss_ratio > 0.5:
-        raise ValueError(
-            f"{data_label} data quality compromised: {loss_ratio:.1%} UMI loss, "
-            f"{low_umi_pct:.1%} low-UMI cells. Check gene ID format matches expression matrix."
-        )
-
-    # Warning threshold: >20% loss or >10% low-UMI cells
-    if loss_ratio > 0.2 or low_umi_pct > 0.1:
-        await ctx.warning(
-            f"WARNING:Moderate {data_label} data quality loss detected.\n"
-            f"   This may impact deconvolution accuracy."
-        )
 
 
 async def deconvolve_rctd(
@@ -1443,15 +1089,6 @@ async def deconvolve_rctd(
             reference_adata, "Reference", ctx, require_int_dtype=True
         )
 
-        # === SCIENTIFIC VALIDATION: Gene Format Compatibility ===
-        # Validate gene naming format compatibility BEFORE subsetting
-        # This prevents systematic data loss from gene name mismatch
-        is_valid, error_msg = _validate_gene_format_compatibility(
-            spatial_data, reference_data, ctx
-        )
-        if not is_valid:
-            raise ValueError(error_msg)
-
         # === SCIENTIFICALLY RIGOROUS GENE MATCHING ===
         # Use order-preserving matching to avoid expression matrix misalignment
         # Rationale: For datasets with mixed gene naming (symbols + Ensembl IDs),
@@ -1470,25 +1107,10 @@ async def deconvolve_rctd(
             min_genes=min_common_genes, source_name="spatial", target_name="reference"
         )
 
-        # MEMORY OPTIMIZATION: Calculate lightweight metrics instead of full copy
-        # Before: spatial_data.copy() + reference_data.copy() = ~4GB
-        # After: _calculate_quality_metrics() = ~400KB
-        # Savings: 99.99% (10000x reduction)
-        spatial_metrics_before = _calculate_quality_metrics(spatial_data)
-        reference_metrics_before = _calculate_quality_metrics(reference_data)
-
         # Subset to common genes (view is sufficient - data already copied by
         # _prepare_anndata_for_counts, subsequent operations are read-only)
         spatial_data = spatial_data[:, common_genes]
         reference_data = reference_data[:, common_genes]
-
-        # === STATISTICAL VALIDATION: Subset Quality ===
-        # Validate that gene subsetting preserved data quality
-        # This catches gene name format mismatches that passed initial checks
-        _validate_subset_quality(
-            reference_metrics_before, reference_data, "Reference", ctx
-        )
-        _validate_subset_quality(spatial_metrics_before, spatial_data, "Spatial", ctx)
 
         if cell_type_key in reference_data.obs:
             ref_ct_counts = reference_data.obs[cell_type_key].value_counts()
@@ -1992,8 +1614,6 @@ async def deconvolve_spatial_data(
                     cell2location_lr=params.cell2location_lr,
                     ref_model_train_size=params.cell2location_ref_model_train_size,  # Phase 2: Training data fractions
                     cell2location_train_size=params.cell2location_train_size,
-                    enable_qc_plots=params.cell2location_enable_qc_plots,  # Phase 2: QC diagnostics
-                    qc_output_dir=params.cell2location_qc_output_dir,
                     early_stopping=params.cell2location_early_stopping,  # Phase 3: Early stopping for runtime reduction
                     early_stopping_patience=params.cell2location_early_stopping_patience,
                     early_stopping_threshold=params.cell2location_early_stopping_threshold,

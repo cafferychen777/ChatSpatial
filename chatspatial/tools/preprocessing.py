@@ -18,6 +18,12 @@ from ..utils.adata_utils import (
 )
 from ..utils.compute import ensure_pca
 from ..utils.dependency_manager import require, validate_r_package
+from ..utils.exceptions import (
+    DataError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 from ..utils.mcp_utils import mcp_tool_error_handler
 
 
@@ -73,7 +79,7 @@ async def preprocess_data(
 
         # Validate input data
         if adata.n_obs == 0 or adata.n_vars == 0:
-            raise ValueError(
+            raise DataError(
                 f"Dataset {data_id} is empty: {adata.n_obs} cells, {adata.n_vars} genes"
             )
 
@@ -150,7 +156,7 @@ async def preprocess_data(
                 f"Data: {adata.n_obs}×{adata.n_vars}, type: {type(adata.X).__name__}"
             )
             await ctx.error(error_msg)
-            raise RuntimeError(error_msg) from e
+            raise ProcessingError(error_msg) from e
 
         # Store original QC metrics before filtering (including mito stats)
         mito_pct_col = "pct_counts_mt" if "pct_counts_mt" in adata.obs else None
@@ -308,7 +314,7 @@ async def preprocess_data(
                     "• Remove the log transformation from your data before re-processing"
                 )
                 await ctx.error(error_msg)
-                raise ValueError(error_msg)
+                raise DataError(error_msg)
 
             if params.normalize_target_sum is not None:
                 sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
@@ -342,7 +348,7 @@ async def preprocess_data(
                     "• Use normalization='log' (standard method)"
                 )
                 await ctx.error(full_error)
-                raise ImportError(full_error) from e
+                raise DependencyError(full_error) from e
 
             # Check if data appears to be raw counts (required for SCTransform)
             X_sample = sample_expression_values(adata)
@@ -351,7 +357,7 @@ async def preprocess_data(
             if np.any((X_sample % 1) != 0):
                 error_msg = "SCTransform requires raw count data (integers). Use normalization='log' for normalized data."
                 await ctx.error(error_msg)
-                raise ValueError(error_msg)
+                raise DataError(error_msg)
 
             # Map method parameter to vst.flavor
             vst_flavor = "v2" if params.sct_method == "fix-slope" else "v1"
@@ -467,7 +473,7 @@ async def preprocess_data(
                         f"residual_variance has {len(residual_variance)} values "
                         f"but adata has {adata.n_vars} genes"
                     )
-                    raise ValueError(error_msg)
+                    raise ProcessingError(error_msg)
 
                 adata.var["sct_residual_variance"] = residual_variance
 
@@ -494,7 +500,7 @@ async def preprocess_data(
                 error_msg = f"SCTransform failed: {str(e)}"
                 await ctx.error(error_msg)
                 await ctx.info(f"Error details: {traceback.format_exc()}")
-                raise RuntimeError(error_msg) from e
+                raise ProcessingError(error_msg) from e
         elif params.normalization == "pearson_residuals":
             # Modern Pearson residuals normalization (recommended for UMI data)
             await ctx.info("Using Pearson residuals normalization...")
@@ -509,7 +515,7 @@ async def preprocess_data(
                     "• Skip normalization if data is pre-processed: params.normalization='none'"
                 )
                 await ctx.error(error_msg)
-                raise ValueError(error_msg)
+                raise DependencyError(error_msg)
 
             # Check if data appears to be raw counts
             X_sample = sample_expression_values(adata)
@@ -523,7 +529,7 @@ async def preprocess_data(
                     "or params.normalization='log' for standard normalization."
                 )
                 await ctx.error(error_msg)
-                raise ValueError(error_msg)
+                raise DataError(error_msg)
 
             # Execute normalization
             try:
@@ -536,10 +542,10 @@ async def preprocess_data(
                     "Try reducing n_hvgs or use 'log' normalization."
                 )
             except Exception as e:
-                raise RuntimeError(
+                raise ProcessingError(
                     f"Pearson residuals normalization failed: {e}. "
                     "Consider using 'log' normalization instead."
-                )
+                ) from e
         elif params.normalization == "none":
             # Explicitly skip normalization
             await ctx.info("Skipping normalization (data assumed to be pre-normalized)")
@@ -565,7 +571,7 @@ async def preprocess_data(
                     "WARNING: If your data is already normalized but appears raw, verify data integrity."
                 )
                 await ctx.error(error_msg)
-                raise ValueError(error_msg)
+                raise DataError(error_msg)
         elif params.normalization == "scvi":
             # scVI deep learning-based normalization
             # Uses variational autoencoder to learn latent representation
@@ -579,7 +585,7 @@ async def preprocess_data(
             if np.any(X_sample < 0):
                 error_msg = "scVI requires non-negative count data. Data contains negative values."
                 await ctx.error(error_msg)
-                raise ValueError(error_msg)
+                raise DataError(error_msg)
 
             await ctx.info(
                 f"Applying scVI normalization "
@@ -667,11 +673,11 @@ async def preprocess_data(
                 error_msg = f"scVI normalization failed: {str(e)}"
                 await ctx.error(error_msg)
                 await ctx.info(f"Error details: {traceback.format_exc()}")
-                raise RuntimeError(error_msg) from e
+                raise ProcessingError(error_msg) from e
         else:
             # Catch unknown normalization methods
             valid_methods = ["log", "sct", "pearson_residuals", "none", "scvi"]
-            raise ValueError(
+            raise ParameterError(
                 f"Unknown normalization method: '{params.normalization}'. "
                 f"Valid options are: {', '.join(valid_methods)}"
             )
@@ -721,7 +727,7 @@ async def preprocess_data(
                     f"Data: {adata.n_obs}×{adata.n_vars}, requested: {n_hvgs} HVGs."
                 )
                 await ctx.error(error_msg)
-                raise RuntimeError(error_msg) from e
+                raise ProcessingError(error_msg) from e
 
         # Exclude mitochondrial genes from HVG selection (BEST PRACTICE)
         # Mito genes can dominate HVG due to high expression and technical variation
@@ -754,7 +760,7 @@ async def preprocess_data(
             if "highly_variable" not in adata.var:
                 error_msg = "Gene subsampling failed: no HVGs identified. Run HVG selection first."
                 await ctx.error(error_msg)
-                raise RuntimeError(error_msg)
+                raise ProcessingError(error_msg)
 
             if not adata.var["highly_variable"].any():
                 error_msg = (
@@ -762,7 +768,7 @@ async def preprocess_data(
                     "Check HVG selection parameters or data quality."
                 )
                 await ctx.error(error_msg)
-                raise RuntimeError(error_msg)
+                raise DataError(error_msg)
 
             # Use properly identified HVGs
             adata = adata[:, adata.var["highly_variable"]].copy()
@@ -791,7 +797,7 @@ async def preprocess_data(
                 sce.pp.harmony_integrate(adata, key=params.batch_key)
                 await ctx.info("Batch effect correction completed using Harmony")
             except Exception as e:
-                raise RuntimeError(
+                raise ProcessingError(
                     f"Harmony batch correction failed: {e}. "
                     f"Check batch sizes or try scVI/BBKNN integration."
                 ) from e
@@ -865,4 +871,4 @@ async def preprocess_data(
         tb = traceback.format_exc()
         await ctx.warning(error_msg)
         await ctx.info(f"Error details: {tb}")
-        raise RuntimeError(f"{error_msg}\n{tb}")
+        raise ProcessingError(f"{error_msg}\n{tb}") from e
