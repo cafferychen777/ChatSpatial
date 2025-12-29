@@ -1200,3 +1200,76 @@ def get_adata_profile(adata: "ad.AnnData") -> Dict[str, Any]:
         "top_highly_variable_genes": top_hvg,
         "top_expressed_genes": top_expr,
     }
+
+
+# =============================================================================
+# Gene Overlap: Find and validate common genes between datasets
+# =============================================================================
+def find_common_genes(
+    genes_a: List[str],
+    genes_b: List[str],
+) -> List[str]:
+    """
+    Find common genes between two gene lists.
+
+    This is THE single function for computing gene intersections across ChatSpatial.
+
+    Args:
+        genes_a: First gene list (e.g., adata1.var_names)
+        genes_b: Second gene list (e.g., adata2.var_names)
+
+    Returns:
+        List of common gene names (order not guaranteed)
+
+    Examples:
+        # Between two AnnData objects
+        common = find_common_genes(adata1.var_names.tolist(), adata2.var_names.tolist())
+
+        # With Index objects (will be converted)
+        common = find_common_genes(list(adata.var_names), list(ref.var_names))
+    """
+    return list(set(genes_a) & set(genes_b))
+
+
+def validate_gene_overlap(
+    common_genes: List[str],
+    source_n_genes: int,
+    target_n_genes: int,
+    min_genes: int = 100,
+    source_name: str = "source",
+    target_name: str = "target",
+) -> None:
+    """
+    Validate that gene overlap meets minimum requirements.
+
+    This is THE single validation function for gene overlap across ChatSpatial.
+    Moved from deconvolution.py._validate_common_genes for reuse.
+
+    Args:
+        common_genes: List of common gene names
+        source_n_genes: Number of genes in source data
+        target_n_genes: Number of genes in target data
+        min_genes: Minimum required common genes (default: 100)
+        source_name: Name of source data for error messages
+        target_name: Name of target data for error messages
+
+    Raises:
+        DataError: If insufficient common genes
+
+    Examples:
+        # Basic validation
+        common = find_common_genes(spatial.var_names, reference.var_names)
+        validate_gene_overlap(common, spatial.n_vars, reference.n_vars)
+
+        # With custom threshold and names
+        validate_gene_overlap(
+            common, spatial.n_vars, reference.n_vars,
+            min_genes=50, source_name="spatial", target_name="reference"
+        )
+    """
+    if len(common_genes) < min_genes:
+        raise DataError(
+            f"Insufficient gene overlap: {len(common_genes)} < {min_genes} required. "
+            f"{source_name}: {source_n_genes} genes, {target_name}: {target_n_genes} genes. "
+            f"Check species/gene naming convention match."
+        )

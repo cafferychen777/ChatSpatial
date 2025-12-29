@@ -703,8 +703,8 @@ async def _identify_domains_stagate(
         # Optional: Display network statistics
         try:
             STAGATE_pyG.Stats_Spatial_Net(adata_stagate)
-        except Exception:
-            pass  # Stats display is optional
+        except Exception as e:
+            await ctx.debug(f"Stats display skipped ({type(e).__name__})")
 
         # Run STAGATE_pyG
         await ctx.info("Training STAGATE_pyG model (this may take a few minutes)...")

@@ -13,6 +13,7 @@ from .adata_utils import (  # Constants; Field discovery; Data access; Validatio
     SPATIAL_KEY,
     ensure_categorical,
     ensure_spatial_key,
+    find_common_genes,
     get_batch_key,
     get_cell_type_key,
     get_cluster_key,
@@ -24,6 +25,7 @@ from .adata_utils import (  # Constants; Field discovery; Data access; Validatio
     to_dense,
     validate_adata,
     validate_adata_basics,
+    validate_gene_overlap,
     validate_obs_column,
     validate_obs_columns,
     validate_var_column,
@@ -90,7 +92,10 @@ __all__ = [
     "validate_obs_columns",
     "validate_var_columns",
     "validate_adata_basics",
+    "validate_gene_overlap",
     "ensure_categorical",
+    # Gene overlap
+    "find_common_genes",
     # Ensure
     "ensure_spatial_key",
     # Standardization
