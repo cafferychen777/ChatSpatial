@@ -11,6 +11,12 @@ from ..models.analysis import DifferentialExpressionResult
 from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
 from ..utils.adata_utils import store_analysis_metadata
+from ..utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 async def differential_expression(
@@ -86,7 +92,7 @@ async def differential_expression(
             all_sizes = "\n".join(
                 [f"  • {g}: {n} cell(s)" for g, n in group_sizes.items()]
             )
-            raise ValueError(
+            raise DataError(
                 f"All groups have <{min_cells} cells. Cannot perform {method} test.\n\n"
                 f"Group sizes:\n{all_sizes}\n\n"
                 f"Try: find_markers(group_key='leiden') or merge small groups"
@@ -172,7 +178,7 @@ async def differential_expression(
 
     # Check if the groups exist in the group_key
     if group1 not in adata.obs[group_key].values:
-        raise ValueError(f"Group '{group1}' not found in adata.obs['{group_key}']")
+        raise ParameterError(f"Group '{group1}' not found in adata.obs['{group_key}']")
 
     # Special case for 'rest' as group2 or if group2 is None
     use_rest_as_reference = False
@@ -180,7 +186,7 @@ async def differential_expression(
         use_rest_as_reference = True
         group2 = "rest"  # Set it explicitly for display purposes
     elif group2 not in adata.obs[group_key].values:
-        raise ValueError(f"Group '{group2}' not found in adata.obs['{group_key}']")
+        raise ParameterError(f"Group '{group2}' not found in adata.obs['{group_key}']")
 
     # Perform differential expression analysis
     await ctx.info(f"Running rank_genes_groups with method '{method}'")
@@ -220,7 +226,7 @@ async def differential_expression(
 
     # If no genes were found, fail honestly
     if not top_genes:
-        raise RuntimeError(
+        raise ProcessingError(
             f"No DE genes found between {group1} and {group2}. "
             f"Check sample sizes and expression differences."
         )
@@ -249,7 +255,7 @@ async def differential_expression(
 
     # Check if raw count data is available
     if adata.raw is None:
-        raise ValueError(
+        raise DataNotFoundError(
             "Raw count data (adata.raw) required for fold change calculation. "
             "Run preprocess_data() first to preserve raw counts."
         )

@@ -23,6 +23,12 @@ from ..models.data import SpatialVariableGenesParameters  # noqa: E402
 from ..utils import validate_var_column  # noqa: E402
 from ..utils.adata_utils import require_spatial_coords  # noqa: E402
 from ..utils.dependency_manager import require  # noqa: E402
+from ..utils.exceptions import (  # noqa: E402
+    DataError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 from ..utils.mcp_utils import suppress_output  # noqa: E402
 
 
@@ -104,7 +110,7 @@ async def identify_spatial_genes(
     elif params.method == "sparkx":
         return await _identify_spatial_genes_sparkx(data_id, adata, params, ctx)
     else:
-        raise ValueError(
+        raise ParameterError(
             f"Unsupported method: {params.method}. Available methods: spatialde, sparkx"
         )
 
@@ -207,7 +213,7 @@ async def _identify_spatial_genes_spatialde(
         # Check if current data appears to be raw counts
         data_max = adata.X.max() if hasattr(adata.X, "max") else np.max(adata.X)
         if data_max <= 10:  # Likely already normalized
-            raise ValueError(
+            raise DataError(
                 "SpatialDE requires raw counts. Data appears normalized (max<=10)."
             )
 
@@ -659,7 +665,7 @@ async def _identify_spatial_genes_sparkx(
         hvg_genes_set = set(adata.var_names[adata.var["highly_variable"]])
 
         if len(hvg_genes_set) == 0:
-            raise ValueError("No HVGs found. Run preprocessing first.")
+            raise DataNotFoundError("No HVGs found. Run preprocessing first.")
 
         # Filter gene_names to only include HVGs
         hvg_mask = np.array([gene in hvg_genes_set for gene in gene_names])
@@ -667,7 +673,7 @@ async def _identify_spatial_genes_sparkx(
 
         if n_hvg == 0:
             # No overlap between current gene list and HVGs
-            raise ValueError(
+            raise DataError(
                 f"test_only_hvg=True but no overlap found between current gene list ({len(gene_names)} genes) "
                 f"and HVGs ({len(hvg_genes_set)} genes). "
                 "This may occur if adata.raw contains different genes than the preprocessed data. "
@@ -827,7 +833,7 @@ async def _identify_spatial_genes_sparkx(
                 try:
                     pvals = results.rx2("res_mtest")
                     if pvals is None:
-                        raise RuntimeError(
+                        raise ProcessingError(
                             "SPARK-X returned None for res_mtest. "
                             "This may indicate the analysis failed silently."
                         )
@@ -835,14 +841,14 @@ async def _identify_spatial_genes_sparkx(
                     # Verify expected data.frame format
                     is_dataframe = ro.r["is.data.frame"](pvals)[0]
                     if not is_dataframe:
-                        raise RuntimeError(
+                        raise ProcessingError(
                             "SPARK-X output format error. Requires SPARK >= 1.1.0."
                         )
 
                     # Extract combinedPval (raw p-values combined across kernels)
                     combined_pvals = ro.r["$"](pvals, "combinedPval")
                     if combined_pvals is None:
-                        raise RuntimeError(
+                        raise ProcessingError(
                             "SPARK-X res_mtest missing 'combinedPval' column. "
                             "This is required for spatial gene identification."
                         )
@@ -851,7 +857,7 @@ async def _identify_spatial_genes_sparkx(
                     # Extract adjustedPval (BY-corrected p-values from SPARK-X)
                     adjusted_pvals = ro.r["$"](pvals, "adjustedPval")
                     if adjusted_pvals is None:
-                        raise RuntimeError(
+                        raise ProcessingError(
                             "SPARK-X res_mtest missing 'adjustedPval' column. "
                             "This column contains BY-corrected p-values for multiple testing."
                         )
@@ -886,11 +892,11 @@ async def _identify_spatial_genes_sparkx(
                         f"SPARK-X output invalid. Requires SPARK >= 1.1.0."
                     )
                     await ctx.error(error_msg)
-                    raise RuntimeError(error_msg)
+                    raise ProcessingError(error_msg)
 
             except Exception as e:
                 await ctx.info(f"SPARK-X analysis failed: {e}")
-                raise RuntimeError(f"SPARK-X analysis failed: {e}")
+                raise ProcessingError(f"SPARK-X analysis failed: {e}")
 
     # Sort by adjusted p-value
     results_df = results_df.sort_values("adjusted_pvalue")

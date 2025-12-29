@@ -12,6 +12,7 @@ import scanpy as sc
 from ..models.analysis import IntegrationResult
 from ..models.data import IntegrationParameters
 from ..utils.dependency_manager import require
+from ..utils.exceptions import DataError, DataNotFoundError, ParameterError, ProcessingError
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -32,13 +33,13 @@ def validate_data_quality(adata, min_cells=10, min_genes=10):
         ValueError: If data quality is insufficient for integration
     """
     if adata.n_obs < min_cells:
-        raise ValueError(
+        raise DataError(
             f"Dataset has only {adata.n_obs} cells, minimum {min_cells} required for integration. "
             f"Consider combining with other datasets or use single-sample analysis."
         )
 
     if adata.n_vars < min_genes:
-        raise ValueError(
+        raise DataError(
             f"Dataset has only {adata.n_vars} genes, minimum {min_genes} required for integration. "
             f"Check if data was properly loaded and genes were not over-filtered."
         )
@@ -57,13 +58,13 @@ def validate_data_quality(adata, min_cells=10, min_genes=10):
     empty_genes = np.sum(gene_counts == 0)
 
     if empty_cells > adata.n_obs * 0.1:
-        raise ValueError(
+        raise DataError(
             f"{empty_cells} cells ({empty_cells/adata.n_obs*100:.1f}%) have zero expression. "
             f"Check data quality and consider filtering."
         )
 
     if empty_genes > adata.n_vars * 0.5:
-        raise ValueError(
+        raise DataError(
             f"{empty_genes} genes ({empty_genes/adata.n_vars*100:.1f}%) have zero expression across all cells. "
             f"Consider gene filtering before integration."
         )
@@ -163,7 +164,7 @@ def integrate_multiple_samples(
         # If already a merged dataset, ensure it has batch information
         combined = adatas
         if batch_key not in combined.obs:
-            raise ValueError(
+            raise ParameterError(
                 f"Merged dataset is missing batch information key '{batch_key}'"
             )
 
@@ -177,7 +178,7 @@ def integrate_multiple_samples(
     # 1. Log-transformed (positive values, typically 0-15 range)
     # 2. Scaled (centered around 0, can have negative values)
     if min_val >= 0 and max_val > 100:
-        raise ValueError("Data appears to be raw counts. Run preprocessing first.")
+        raise DataError("Data appears to be raw counts. Run preprocessing first.")
 
     # Check if data appears to be normalized (reasonable range after preprocessing)
     if max_val > 50:
@@ -281,7 +282,7 @@ def integrate_multiple_samples(
             )
             logging.info("scVI integration completed successfully")
         except Exception as e:
-            raise RuntimeError(
+            raise ProcessingError(
                 f"scVI integration failed: {e}. "
                 f"Ensure data is preprocessed and has ≥2 batches."
             ) from e
@@ -329,7 +330,7 @@ def integrate_multiple_samples(
     if "highly_variable" in combined.var.columns:
         n_hvg = combined.var["highly_variable"].sum()
         if n_hvg == 0:
-            raise ValueError(
+            raise DataError(
                 "No highly variable genes found. Check HVG selection parameters."
             )
         # Memory optimization: Subsetting creates view, reassignment triggers GC
@@ -378,7 +379,7 @@ def integrate_multiple_samples(
             sc.pp.scale(combined, zero_center=False, max_value=10)
             logging.info("Data scaling successful without zero centering")
         except Exception as e2:
-            raise RuntimeError(
+            raise ProcessingError(
                 f"Data scaling failed completely. Zero-center error: {e}. Non-zero-center error: {e2}. "
                 f"This usually indicates data contains extreme outliers or invalid values. "
                 f"Consider additional quality control or outlier removal."
@@ -389,7 +390,7 @@ def integrate_multiple_samples(
     max_possible_components = min(n_pcs, combined.n_vars, combined.n_obs - 1)
 
     if max_possible_components < 2:
-        raise ValueError(
+        raise DataError(
             f"Cannot perform PCA: only {max_possible_components} components possible. "
             f"Dataset has {combined.n_obs} cells and {combined.n_vars} genes. "
             f"Minimum 2 components required for downstream analysis."
@@ -406,15 +407,15 @@ def integrate_multiple_samples(
         # Sparse matrix: only check non-zero elements stored in .data
         # This avoids creating a dense copy (5-10x memory reduction)
         if np.isnan(combined.X.data).any():
-            raise ValueError("Data contains NaN values after scaling")
+            raise DataError("Data contains NaN values after scaling")
         if np.isinf(combined.X.data).any():
-            raise ValueError("Data contains infinite values after scaling")
+            raise DataError("Data contains infinite values after scaling")
     else:
         # Dense matrix: check all elements
         if np.isnan(combined.X).any():
-            raise ValueError("Data contains NaN values after scaling")
+            raise DataError("Data contains NaN values after scaling")
         if np.isinf(combined.X).any():
-            raise ValueError("Data contains infinite values after scaling")
+            raise DataError("Data contains infinite values after scaling")
 
     # Variance check removed: zero-variance genes already filtered at lines 301-323
 
@@ -435,7 +436,7 @@ def integrate_multiple_samples(
             continue
 
     if not pca_success:
-        raise RuntimeError(
+        raise ProcessingError(
             f"PCA failed for {combined.n_obs}×{combined.n_vars} data. Check data quality."
         )
 
@@ -491,7 +492,7 @@ def integrate_multiple_samples(
                 sc.pp.neighbors(combined, use_rep="X_harmony")
 
         except Exception as e:
-            raise RuntimeError(
+            raise ProcessingError(
                 f"Harmony integration failed: {e}. "
                 f"Check batch_key '{batch_key}' has ≥2 valid batches."
             ) from e
@@ -562,7 +563,7 @@ def integrate_multiple_samples(
                 sc.pp.neighbors(combined, use_rep="X_scanorama")
 
         except Exception as e:
-            raise RuntimeError(
+            raise ProcessingError(
                 f"Scanorama integration failed: {e}. "
                 f"Check gene overlap between batches."
             ) from e
@@ -639,7 +640,7 @@ def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch
     # Ensure data contains spatial coordinates
     spatial_key = get_spatial_key(combined_adata)
     if not spatial_key:
-        raise ValueError("Data is missing spatial coordinates")
+        raise DataNotFoundError("Data is missing spatial coordinates")
 
     # Get batch information
     batches = combined_adata.obs[batch_key].unique()
@@ -648,7 +649,7 @@ def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch
     if reference_batch is None:
         reference_batch = batches[0]
     elif reference_batch not in batches:
-        raise ValueError(f"Reference batch '{reference_batch}' not found in data")
+        raise ParameterError(f"Reference batch '{reference_batch}' not found in data")
 
     # Get reference batch spatial coordinates
     ref_coords = combined_adata[combined_adata.obs[batch_key] == reference_batch].obsm[
@@ -761,13 +762,13 @@ def integrate_with_scvi(
     # Validate data is preprocessed
     max_val = combined.X.max() if hasattr(combined.X, "max") else np.max(combined.X)
     if max_val > 50:
-        raise ValueError(
+        raise DataError(
             f"scVI requires preprocessed data. Max value {max_val:.1f} too high."
         )
 
     # Validate batch key
     if batch_key not in combined.obs:
-        raise ValueError(
+        raise ParameterError(
             f"Batch key '{batch_key}' not found in adata.obs. "
             f"Available columns: {list(combined.obs.columns)}"
         )
@@ -775,7 +776,7 @@ def integrate_with_scvi(
     # Check for batch diversity
     n_batches = combined.obs[batch_key].nunique()
     if n_batches < 2:
-        raise ValueError(
+        raise DataError(
             f"scVI requires at least 2 batches, found {n_batches}. "
             "Check your batch labels."
         )
