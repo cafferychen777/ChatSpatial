@@ -505,12 +505,9 @@ async def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = No
     import scanpy as sc
 
     # Ensure trajectory analysis prerequisites (lazy computation)
-    if ensure_pca(adata):
-        await ctx.info("Computed PCA for trajectory analysis")
-    if ensure_neighbors(adata):
-        await ctx.info("Computed neighbor graph for trajectory analysis")
-    if ensure_diffmap(adata):
-        await ctx.info("Computed diffusion map for DPT analysis")
+    ensure_pca(adata)
+    ensure_neighbors(adata)
+    ensure_diffmap(adata)
 
     # Set root cell if provided
     if root_cells is not None and len(root_cells) > 0:
@@ -847,35 +844,28 @@ async def _prepare_velovi_data(adata, ctx: "ToolContext"):
     """Prepare data for VELOVI according to official standards"""
     import scvelo as scv
 
-    await ctx.info("Preparing data for VELOVI using scvelo preprocessing...")
-
     adata_velovi = adata.copy()
 
     # 1. Convert layer names to VELOVI standards
     if "spliced" in adata_velovi.layers and "unspliced" in adata_velovi.layers:
         adata_velovi.layers["Ms"] = adata_velovi.layers["spliced"]
         adata_velovi.layers["Mu"] = adata_velovi.layers["unspliced"]
-        await ctx.info("Converted layer names: spliced->Ms, unspliced->Mu")
     else:
         raise DataNotFoundError("Missing required 'spliced' and 'unspliced' layers")
 
     # 2. scvelo preprocessing
-    await ctx.info("Applying scvelo preprocessing...")
-
     try:
         scv.pp.filter_and_normalize(
             adata_velovi, min_shared_counts=30, n_top_genes=2000, enforce=False
         )
-        await ctx.info("scvelo filter_and_normalize completed")
     except Exception as e:
-        await ctx.info(f"scvelo preprocessing warning: {e}")
+        await ctx.warning(f"scvelo preprocessing warning: {e}")
 
     # 3. Compute moments
     try:
         scv.pp.moments(adata_velovi, n_pcs=30, n_neighbors=30)
-        await ctx.info("scvelo moments computation completed")
     except Exception as e:
-        await ctx.info(f"moments computation warning: {e}")
+        await ctx.warning(f"moments computation warning: {e}")
 
     return adata_velovi
 
@@ -1024,8 +1014,6 @@ async def analyze_velocity_with_velovi(
             scaling = scaling.to_numpy()
         scaling = np.asarray(scaling)
 
-        await ctx.info(f"Scaling computed: shape={scaling.shape}")
-
         # Calculate final scaled velocities
         if scaling.ndim == 0:
             scaled_velocities = velocities / scaling
@@ -1051,17 +1039,6 @@ async def analyze_velocity_with_velovi(
         # Store preprocessed data object in uns for future use
         adata.uns["velovi_adata"] = adata_prepared
         adata.uns["velovi_gene_names"] = adata_prepared.var_names.tolist()
-
-        await ctx.info("Stored VELOVI results:")
-        await ctx.info(
-            f"  - Original adata.obs['velocity_velovi_norm']: {velocity_norm.shape}"
-        )
-        await ctx.info(
-            f"  - Original adata.obsm['X_velovi_latent']: {latent_repr.shape}"
-        )
-        await ctx.info(
-            f"  - Full results in adata.uns['velovi_adata'] with shape {adata_prepared.shape}"
-        )
 
         # Build results dictionary
         results = {

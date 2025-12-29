@@ -178,7 +178,7 @@ async def analyze_spatial_statistics(
         elif params.analysis_type == "spatial_centrality":
             result = await _analyze_spatial_centrality(adata, cluster_key, params, ctx)
         else:
-            raise ValueError(f"Analysis type {params.analysis_type} not implemented")
+            raise ParameterError(f"Analysis type {params.analysis_type} not implemented")
 
         # COW FIX: No need to update data_store - changes already reflected via direct reference
         # All modifications to adata.obs/uns/obsp are in-place and preserved
@@ -295,7 +295,7 @@ async def _ensure_cluster_key(
         if "cluster" in col.lower() or col in ["leiden", "louvain"]
     ]
 
-    raise ValueError(
+    raise DataNotFoundError(
         f"Cluster key '{requested_key}' not found. "
         f"Available: {available_keys if available_keys else 'None'}. "
         f"Run preprocess_data() first to generate clusters."
@@ -397,7 +397,7 @@ async def _analyze_morans_i(
             "note": "top_highest/top_lowest refer to autocorrelation strength, not positive/negative correlation",
         }
 
-    return {"error": "Moran's I computation did not produce results"}
+    raise ProcessingError("Moran's I computation did not produce results")
 
 
 async def _analyze_gearys_c(
@@ -436,7 +436,7 @@ async def _analyze_gearys_c(
                 "analysis_key": geary_key,
             }
 
-    return {"error": "Geary's C computation did not produce results"}
+    raise ProcessingError("Geary's C computation did not produce results")
 
 
 async def _analyze_neighborhood_enrichment(
@@ -460,7 +460,7 @@ async def _analyze_neighborhood_enrichment(
             "analysis_key": analysis_key,
         }
 
-    return {"error": "Neighborhood enrichment did not produce results"}
+    raise ProcessingError("Neighborhood enrichment did not produce results")
 
 
 async def _analyze_co_occurrence(
@@ -477,7 +477,7 @@ async def _analyze_co_occurrence(
 
         return {"n_clusters": len(co_occurrence), "analysis_key": analysis_key}
 
-    return {"error": "Co-occurrence analysis did not produce results"}
+    raise ProcessingError("Co-occurrence analysis did not produce results")
 
 
 async def _analyze_ripleys_k(
@@ -500,8 +500,7 @@ async def _analyze_ripleys_k(
         analysis_key = f"{cluster_key}_ripley_L"
         return {"analysis_completed": True, "analysis_key": analysis_key}
     except Exception as e:
-        await ctx.warning(f"Ripley's K analysis failed: {e}")
-        return {"error": str(e)}
+        raise ProcessingError(f"Ripley's K analysis failed: {e}") from e
 
 
 async def _analyze_getis_ord(
@@ -667,7 +666,7 @@ async def _analyze_centrality(
             "n_clusters": len(scores) if isinstance(scores, dict) else "computed",
         }
 
-    return {"error": "Centrality analysis did not produce results"}
+    raise ProcessingError("Centrality analysis did not produce results")
 
 
 # ============================================================================
@@ -691,7 +690,7 @@ async def _analyze_bivariate_moran(
     """
     # Get gene pairs from parameters - NO ARBITRARY DEFAULTS
     if not params.gene_pairs:
-        raise ValueError("Bivariate Moran's I requires gene_pairs parameter.")
+        raise ParameterError("Bivariate Moran's I requires gene_pairs parameter.")
     gene_pairs = params.gene_pairs
 
     results = {}
@@ -730,31 +729,36 @@ async def _analyze_bivariate_moran(
                 x = expr_all[:, idx1].flatten()
                 y = expr_all[:, idx2].flatten()
 
-                # Compute bivariate Moran's I
+                # Compute bivariate Moran's I using sparse matrix operations
+                # Formula: I_xy = (n / S0) * (x - x̄)ᵀ W (y - ȳ) / sqrt(Var(x) * Var(y))
+                # Reference: Wartenberg (1985), Anselin et al. (2002)
                 n = len(x)
                 x_mean = np.mean(x)
                 y_mean = np.mean(y)
 
-                numerator = 0
-                for i in range(n):
-                    for j in range(n):
-                        if w.sparse[i, j] > 0:
-                            numerator += (
-                                w.sparse[i, j] * (x[i] - x_mean) * (y[j] - y_mean)
-                            )
+                # Centered values
+                x_centered = x - x_mean
+                y_centered = y - y_mean
 
-                denominator = np.sum((x - x_mean) ** 2)
+                # OPTIMIZED: Use sparse matrix multiplication instead of O(n²) loop
+                # numerator = Σᵢ Σⱼ wᵢⱼ(xᵢ - x̄)(yⱼ - ȳ) = (x - x̄)ᵀ @ W @ (y - ȳ)
+                numerator = float(x_centered @ w.sparse @ y_centered)
+
+                # FIX: Bivariate Moran's I uses sqrt of product of both variances
+                # Not just x's variance (which was the bug)
+                var_x = np.sum(x_centered**2)
+                var_y = np.sum(y_centered**2)
+                denominator = np.sqrt(var_x * var_y)
 
                 if denominator > 0:
                     moran_i = (n / w.sparse.sum()) * (numerator / denominator)
                 else:
-                    moran_i = 0
+                    moran_i = 0.0
 
                 results[f"{gene1}_vs_{gene2}"] = float(moran_i)
 
     except Exception as e:
-        await ctx.warning(f"Bivariate Moran's I failed: {e}")
-        return {"error": str(e)}
+        raise ProcessingError(f"Bivariate Moran's I failed: {e}") from e
 
     return {
         "n_pairs_analyzed": len(results),
@@ -842,7 +846,7 @@ async def _analyze_join_count(
         }
 
     except Exception as e:
-        return {"error": str(e)}
+        raise ProcessingError(f"Join Count analysis failed: {e}") from e
 
 
 async def _analyze_local_join_count(
@@ -1001,8 +1005,7 @@ async def _analyze_local_join_count(
         }
 
     except Exception as e:
-        await ctx.warning(f"Local Join Count analysis failed: {str(e)}")
-        return {"error": f"Local Join Count analysis failed: {str(e)}"}
+        raise ProcessingError(f"Local Join Count analysis failed: {e}") from e
 
 
 async def _analyze_network_properties(
@@ -1081,7 +1084,7 @@ async def _analyze_network_properties(
         return properties
 
     except Exception as e:
-        return {"error": str(e)}
+        raise ProcessingError(f"Network properties analysis failed: {e}") from e
 
 
 async def _analyze_spatial_centrality(
@@ -1129,9 +1132,31 @@ async def _analyze_spatial_centrality(
         # but adata.obs_names are strings. We need to extract values in order.
         # Bug: pd.Series(dict) cannot align integer keys to string obs_names
         n_nodes = adata.n_obs
-        degree_vals = np.array([degree_centrality[i] for i in range(n_nodes)])
-        closeness_vals = np.array([closeness_centrality[i] for i in range(n_nodes)])
-        betweenness_vals = np.array([betweenness_centrality[i] for i in range(n_nodes)])
+
+        # Validate that all expected node keys exist in centrality results
+        # This catches edge cases like disconnected graphs or isolated nodes
+        expected_keys = set(range(n_nodes))
+        missing_degree = expected_keys - set(degree_centrality.keys())
+        missing_closeness = expected_keys - set(closeness_centrality.keys())
+        missing_betweenness = expected_keys - set(betweenness_centrality.keys())
+
+        if missing_degree or missing_closeness or missing_betweenness:
+            await ctx.warning(
+                f"Centrality computation incomplete: "
+                f"missing degree={len(missing_degree)}, "
+                f"closeness={len(missing_closeness)}, "
+                f"betweenness={len(missing_betweenness)} nodes. "
+                f"Graph may have disconnected components."
+            )
+
+        # Use .get() with default 0.0 for missing nodes (isolated/disconnected)
+        degree_vals = np.array([degree_centrality.get(i, 0.0) for i in range(n_nodes)])
+        closeness_vals = np.array(
+            [closeness_centrality.get(i, 0.0) for i in range(n_nodes)]
+        )
+        betweenness_vals = np.array(
+            [betweenness_centrality.get(i, 0.0) for i in range(n_nodes)]
+        )
 
         # Store in adata.obs (directly as numpy array)
         adata.obs["degree_centrality"] = degree_vals
@@ -1165,7 +1190,7 @@ async def _analyze_spatial_centrality(
         }
 
     except Exception as e:
-        return {"error": str(e)}
+        raise ProcessingError(f"Spatial centrality analysis failed: {e}") from e
 
 
 async def _analyze_local_moran(
@@ -1389,5 +1414,4 @@ async def _analyze_local_moran(
         }
 
     except Exception as e:
-        await ctx.warning(f"Local Moran's I analysis failed: {str(e)}")
-        return {"error": f"Local Moran's I analysis failed: {str(e)}"}
+        raise ProcessingError(f"Local Moran's I analysis failed: {e}") from e
