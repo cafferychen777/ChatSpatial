@@ -23,6 +23,12 @@ from ..models.data import SpatialDomainParameters
 from ..utils.adata_utils import require_spatial_coords
 from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
+from ..utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 async def identify_spatial_domains(
@@ -61,7 +67,7 @@ async def identify_spatial_domains(
         if "spatial" not in adata.obsm and not any(
             "spatial" in key for key in adata.obsm.keys()
         ):
-            raise ValueError("No spatial coordinates found in the dataset")
+            raise DataNotFoundError("No spatial coordinates found in the dataset")
 
         # Prepare data for domain identification
         await ctx.info("Preparing data for spatial domain identification...")
@@ -195,7 +201,7 @@ async def identify_spatial_domains(
                 adata_subset, params, ctx
             )
         else:
-            raise ValueError(
+            raise ParameterError(
                 f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain, stagate, graphst"
             )
 
@@ -256,7 +262,7 @@ async def identify_spatial_domains(
     except Exception as e:
         error_msg = f"Error in spatial domain identification: {str(e)}"
         await ctx.warning(error_msg)
-        raise RuntimeError(error_msg)
+        raise ProcessingError(error_msg) from e
 
 
 async def _identify_domains_spagcn(
@@ -411,7 +417,7 @@ async def _identify_domains_spagcn(
         try:
             # Validate input data before calling SpaGCN
             if len(x_array) != adata.shape[0]:
-                raise ValueError(
+                raise DataError(
                     f"Spatial coordinates length ({len(x_array)}) doesn't match data ({adata.shape[0]})"
                 )
 
@@ -460,14 +466,14 @@ async def _identify_domains_spagcn(
                         "Try: 1) Reducing n_domains, 2) Using leiden/louvain instead, "
                         "3) Preprocessing with fewer genes/spots, or 4) Adjusting parameters (s, b, p)."
                     )
-                    raise RuntimeError(error_msg)
+                    raise ProcessingError(error_msg)
         except Exception as spagcn_error:
             # Capture and re-raise with more details
             error_msg = (
                 f"SpaGCN detect_spatial_domains_ez_mode failed: {str(spagcn_error)}"
             )
             await ctx.warning(error_msg)
-            raise RuntimeError(error_msg) from spagcn_error
+            raise ProcessingError(error_msg) from spagcn_error
 
         await ctx.info(f"SpaGCN completed, got {len(set(domain_labels))} domains")
 
@@ -488,7 +494,7 @@ async def _identify_domains_spagcn(
         # Enhanced error reporting
         error_msg = f"SpaGCN execution failed: {str(e)}"
         await ctx.warning(f"Full error details: {traceback.format_exc()}")
-        raise RuntimeError(error_msg) from e
+        raise ProcessingError(error_msg) from e
 
 
 async def _identify_domains_clustering(
@@ -544,7 +550,7 @@ async def _identify_domains_clustering(
             except Exception as spatial_error:
                 error_msg = f"Spatial graph construction failed: {spatial_error}"
                 await ctx.error(error_msg)
-                raise RuntimeError(error_msg)
+                raise ProcessingError(error_msg) from spatial_error
 
         # Perform clustering
         await ctx.info(f"Performing {params.method} clustering...")
@@ -585,7 +591,7 @@ async def _identify_domains_clustering(
         return domain_labels, "X_pca", statistics
 
     except Exception as e:
-        raise RuntimeError(f"{params.method} clustering failed: {str(e)}")
+        raise ProcessingError(f"{params.method} clustering failed: {str(e)}") from e
 
 
 def _refine_spatial_domains(
@@ -621,7 +627,7 @@ def _refine_spatial_domains(
         labels = adata.obs[domain_key].astype(str)
 
         if len(labels) == 0:
-            raise ValueError(f"No domain labels found in {domain_key}")
+            raise DataNotFoundError(f"No domain labels found in {domain_key}")
 
         # Simple spatial smoothing: assign each spot to the most common domain in its neighborhood
         from sklearn.neighbors import NearestNeighbors
@@ -636,8 +642,8 @@ def _refine_spatial_domains(
             nbrs = NearestNeighbors(n_neighbors=k).fit(coords)
             distances, indices = nbrs.kneighbors(coords)
         except Exception as nn_error:
-            # If nearest neighbors fails, return original labels
-            raise ValueError(f"Nearest neighbors computation failed: {nn_error}")
+            # If nearest neighbors fails, raise error
+            raise ProcessingError(f"Nearest neighbors computation failed: {nn_error}") from nn_error
 
         refined_labels = []
         for i, neighbors in enumerate(indices):
@@ -665,7 +671,7 @@ def _refine_spatial_domains(
 
     except Exception as e:
         # Raise error instead of silently failing
-        raise RuntimeError(f"Failed to refine spatial domains: {str(e)}") from e
+        raise ProcessingError(f"Failed to refine spatial domains: {str(e)}") from e
 
 
 async def _identify_domains_stagate(
@@ -769,11 +775,11 @@ async def _identify_domains_stagate(
     except asyncio.TimeoutError:
         error_msg = f"STAGATE training timeout after {params.timeout or 600} seconds"
         await ctx.warning(error_msg)
-        raise RuntimeError(error_msg)
+        raise ProcessingError(error_msg)
     except Exception as e:
         error_msg = f"STAGATE execution failed: {str(e)}"
         await ctx.warning(error_msg)
-        raise RuntimeError(error_msg) from e
+        raise ProcessingError(error_msg) from e
 
 
 async def _identify_domains_graphst(
@@ -890,8 +896,8 @@ async def _identify_domains_graphst(
     except asyncio.TimeoutError:
         error_msg = f"GraphST training timeout after {params.timeout or 600} seconds"
         await ctx.warning(error_msg)
-        raise RuntimeError(error_msg)
+        raise ProcessingError(error_msg)
     except Exception as e:
         error_msg = f"GraphST execution failed: {str(e)}"
         await ctx.warning(error_msg)
-        raise RuntimeError(error_msg) from e
+        raise ProcessingError(error_msg) from e

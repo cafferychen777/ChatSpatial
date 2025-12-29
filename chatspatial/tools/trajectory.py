@@ -32,7 +32,12 @@ from ..models.data import RNAVelocityParameters, TrajectoryParameters
 from ..utils.adata_utils import get_spatial_key, require_spatial_coords, validate_adata
 from ..utils.compute import ensure_diffmap, ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
-from ..utils.exceptions import DataNotFoundError, ProcessingError
+from ..utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 from ..utils.mcp_utils import suppress_output
 
 
@@ -79,19 +84,19 @@ def prepare_gam_model_for_visualization(
 
     # Validate required data
     if time_key not in adata.obs.columns:
-        raise ValueError(
+        raise DataNotFoundError(
             f"Time key '{time_key}' not found. Run analyze_rna_velocity first."
         )
 
     if fate_key not in adata.obsm:
-        raise ValueError(
+        raise DataNotFoundError(
             f"Fate probabilities '{fate_key}' not found. Run analyze_trajectory first."
         )
 
     # Validate Lineage object has names (must be from in-memory analysis)
     fate_probs = adata.obsm[fate_key]
     if not hasattr(fate_probs, "names") or fate_probs.names is None:
-        raise ValueError(
+        raise DataError(
             "Fate probabilities must be a CellRank Lineage object with names. "
             "This requires running the full analysis pipeline in memory:\n"
             "1. analyze_rna_velocity(data_id, params={'scvelo_mode': 'dynamical'})\n"
@@ -103,7 +108,7 @@ def prepare_gam_model_for_visualization(
     # Validate genes exist
     missing_genes = [g for g in genes if g not in adata.var_names]
     if missing_genes:
-        raise ValueError(
+        raise DataNotFoundError(
             f"Genes not found in data: {missing_genes}. "
             f"Available genes: {list(adata.var_names[:10])}..."
         )
@@ -160,7 +165,7 @@ def preprocess_for_velocity(
     try:
         validate_adata(adata, {}, check_velocity=True)
     except DataNotFoundError as e:
-        raise ValueError(f"Invalid velocity data: {e}")
+        raise DataError(f"Invalid velocity data: {e}") from e
 
     # Standard preprocessing with configurable parameters
     scv.pp.filter_and_normalize(
@@ -328,10 +333,10 @@ def infer_spatial_trajectory_cellrank(
     try:
         g.compute_macrostates(n_states=n_states)
     except Exception as e:
-        raise RuntimeError(
+        raise ProcessingError(
             f"CellRank failed with n_states={n_states}: {e}. "
             f"Try reducing n_states or use method='palantir'/'dpt'."
-        )
+        ) from e
 
     # Predict terminal states
     try:
@@ -374,7 +379,7 @@ def infer_spatial_trajectory_cellrank(
             # Store in adata_for_cellrank first for consistency
             adata_for_cellrank.obs["pseudotime"] = pseudotime
         else:
-            raise RuntimeError(
+            raise ProcessingError(
                 "CellRank could not compute either terminal states or macrostates"
             )
 
@@ -476,7 +481,7 @@ def infer_pseudotime_palantir(
     # Determine early cell (start cell)
     if root_cells is not None and len(root_cells) > 0:
         if root_cells[0] not in ms_data.index:
-            raise ValueError(f"Root cell '{root_cells[0]}' not found in data")
+            raise ParameterError(f"Root cell '{root_cells[0]}' not found in data")
         start_cell = root_cells[0]
     else:
         # Use the cell at the extreme of the first diffusion component
@@ -512,7 +517,7 @@ async def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = No
         if root_cells[0] in adata.obs_names:
             adata.uns["iroot"] = np.where(adata.obs_names == root_cells[0])[0][0]
         else:
-            raise ValueError(
+            raise ParameterError(
                 f"Root cell '{root_cells[0]}' not found. "
                 f"Use valid cell ID from adata.obs_names or omit to auto-select."
             )
@@ -528,11 +533,11 @@ async def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = No
 
             sc.tl.dpt(adata)
         except Exception as e:
-            raise RuntimeError(f"DPT computation failed: {e}")
+            raise ProcessingError(f"DPT computation failed: {e}") from e
 
     # Check if dpt_pseudotime was created
     if "dpt_pseudotime" not in adata.obs.columns:
-        raise RuntimeError("DPT computation did not create 'dpt_pseudotime' column")
+        raise ProcessingError("DPT computation did not create 'dpt_pseudotime' column")
 
     # Handle any NaN values
     adata.obs["dpt_pseudotime"] = adata.obs["dpt_pseudotime"].fillna(0)
@@ -640,7 +645,7 @@ async def analyze_rna_velocity(
             raise ProcessingError(error_msg) from e
 
     else:
-        raise ValueError(f"Unknown velocity method: {params.method}")
+        raise ParameterError(f"Unknown velocity method: {params.method}")
 
     # COW FIX: No need to update data_store - changes already reflected via direct reference
     # All modifications to adata.obs/uns/obsm are in-place and preserved
@@ -767,7 +772,7 @@ async def analyze_trajectory(
             raise ProcessingError(f"DPT analysis failed: {dpt_error}") from dpt_error
 
     else:
-        raise ValueError(f"Unknown trajectory method: {params.method}")
+        raise ParameterError(f"Unknown trajectory method: {params.method}")
 
     # Ensure pseudotime key exists
     if pseudotime_key is None or pseudotime_key not in adata.obs.columns:
@@ -852,7 +857,7 @@ async def _prepare_velovi_data(adata, ctx: "ToolContext"):
         adata_velovi.layers["Mu"] = adata_velovi.layers["unspliced"]
         await ctx.info("Converted layer names: spliced->Ms, unspliced->Mu")
     else:
-        raise ValueError("Missing required 'spliced' and 'unspliced' layers")
+        raise DataNotFoundError("Missing required 'spliced' and 'unspliced' layers")
 
     # 2. scvelo preprocessing
     await ctx.info("Applying scvelo preprocessing...")
@@ -878,16 +883,16 @@ async def _prepare_velovi_data(adata, ctx: "ToolContext"):
 def _validate_velovi_data(adata):
     """VELOVI-specific data validation"""
     if "Ms" not in adata.layers or "Mu" not in adata.layers:
-        raise ValueError("Missing required layers 'Ms' and 'Mu' for VELOVI")
+        raise DataNotFoundError("Missing required layers 'Ms' and 'Mu' for VELOVI")
 
     ms_data = adata.layers["Ms"]
     mu_data = adata.layers["Mu"]
 
     if ms_data.shape != mu_data.shape:
-        raise ValueError(f"Shape mismatch: Ms {ms_data.shape} vs Mu {mu_data.shape}")
+        raise DataError(f"Shape mismatch: Ms {ms_data.shape} vs Mu {mu_data.shape}")
 
     if ms_data.ndim != 2 or mu_data.ndim != 2:
-        raise ValueError(
+        raise DataError(
             f"Expected 2D arrays, got Ms:{ms_data.ndim}D, Mu:{mu_data.ndim}D"
         )
 
@@ -1086,4 +1091,4 @@ async def analyze_velocity_with_velovi(
     except Exception as e:
         error_msg = f"VELOVI velocity analysis failed: {str(e)}"
         await ctx.error(error_msg)
-        raise RuntimeError(error_msg) from e
+        raise ProcessingError(error_msg) from e

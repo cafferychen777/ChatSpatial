@@ -27,16 +27,6 @@ from ..utils.exceptions import (
 from ..utils.mcp_utils import mcp_tool_error_handler
 
 
-def _should_use_all_genes_for_hvg(adata) -> bool:
-    """
-    Check if we should use all genes for HVG selection.
-
-    Only applies to very small gene sets (e.g., MERFISH with <100 genes)
-    where statistical HVG selection is not meaningful.
-    """
-    return adata.n_vars < 100
-
-
 @mcp_tool_error_handler()
 async def preprocess_data(
     data_id: str,
@@ -711,8 +701,8 @@ async def preprocess_data(
                 f"   • Current dataset: {adata.n_obs} cells × {adata.n_vars} total genes"
             )
 
-        # Check if we should use all genes (for very small gene sets)
-        if _should_use_all_genes_for_hvg(adata):
+        # Check if we should use all genes (for very small gene sets like MERFISH)
+        if adata.n_vars < 100:
             await ctx.info(
                 f"Small gene set detected ({adata.n_vars} genes), using all genes for analysis"
             )

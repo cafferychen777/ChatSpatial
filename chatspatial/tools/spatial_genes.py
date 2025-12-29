@@ -32,27 +32,6 @@ from ..utils.exceptions import (  # noqa: E402
 from ..utils.mcp_utils import suppress_output  # noqa: E402
 
 
-def _extract_counts_matrix(X):
-    """
-    Extract count matrix from AnnData X, handling both sparse and dense matrices efficiently.
-
-    For sparse matrices, toarray() already returns a new numpy array (no copy needed).
-    For dense matrices, we need to copy to avoid modifying the original data.
-
-    Args:
-        X: Count matrix (sparse or dense)
-
-    Returns:
-        numpy.ndarray: Count matrix as a numpy array
-    """
-    if hasattr(X, "toarray"):
-        # Sparse matrix: toarray() already returns a new array
-        return X.toarray()
-    else:
-        # Dense matrix: need to copy to avoid modifying original
-        return X.copy()
-
-
 async def identify_spatial_genes(
     data_id: str,
     ctx: "ToolContext",
@@ -754,7 +733,8 @@ async def _identify_spatial_genes_sparkx(
         n_genes_after_filter = len(gene_names)
 
     # NOW convert filtered sparse matrix to dense (much smaller!)
-    counts_matrix = _extract_counts_matrix(filtered_sparse)
+    # For sparse: toarray() already returns a new array; for dense: copy to avoid modifying original
+    counts_matrix = filtered_sparse.toarray() if hasattr(filtered_sparse, "toarray") else filtered_sparse.copy()
 
     # Ensure counts are non-negative integers
     counts_matrix = np.maximum(counts_matrix, 0).astype(int)
