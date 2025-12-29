@@ -157,13 +157,9 @@ async def _annotate_with_singler(
         common_genes = find_common_genes(test_features, ref_features)
 
         if len(common_genes) < min(50, len(test_features) * 0.1):
-            # Too few common genes
-            await ctx.error(
-                f"Insufficient gene overlap: Only {len(common_genes)} common genes. "
-                f"Test has {len(test_features)}, Reference has {len(ref_features)}"
-            )
             raise DataError(
-                f"Insufficient gene overlap for SingleR: only {len(common_genes)} common genes"
+                f"Insufficient gene overlap for SingleR: only {len(common_genes)} common genes "
+                f"(test: {len(test_features)}, reference: {len(ref_features)})"
             )
 
         # Get labels from reference - check various common column names
@@ -299,12 +295,6 @@ async def _annotate_with_singler(
         confidence_array = [confidence_scores.get(ct, 0.0) for ct in cell_types]
         adata.obs[confidence_key] = confidence_array
 
-    top_types = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
-    await ctx.info(
-        f"SingleR completed: {len(unique_types)} cell types. "
-        f"Top: {', '.join([f'{t}({c})' for t, c in top_types])}"
-    )
-
     return unique_types, counts, confidence_scores, None
 
 
@@ -336,9 +326,6 @@ async def _annotate_with_tangram(
         spatial_key = get_spatial_key(adata)
         if spatial_key:
             adata_sp.obsm[spatial_key] = adata.obsm[spatial_key].copy()
-        await ctx.info(
-            "Using raw data for Tangram (preserves original gene names and counts)"
-        )
     else:
         adata_sp = adata
         await ctx.warning(
@@ -349,10 +336,6 @@ async def _annotate_with_tangram(
     # Handle duplicate gene names
     await ensure_unique_var_names_with_ctx(adata_sc_original, ctx, "reference data")
     await ensure_unique_var_names_with_ctx(adata_sp, ctx, "spatial data")
-
-    await ctx.info(
-        f"Using reference dataset {params.reference_data_id} with {adata_sc_original.n_obs} cells"
-    )
 
     # Determine training genes
     training_genes = params.training_genes
@@ -465,11 +448,8 @@ async def _annotate_with_tangram(
                     f"Tangram history format not recognized: {type(history).__name__}. "
                     f"Upgrade tangram-sc: pip install --upgrade tangram-sc"
                 )
-                await ctx.error(error_msg)
                 raise ProcessingError(error_msg)
     except Exception as score_error:
-        await ctx.error(f"Failed to extract Tangram mapping score: {score_error}")
-        # Don't return a misleading score - fail gracefully
         raise ProcessingError(
             f"Tangram mapping completed but score extraction failed: {score_error}"
         ) from score_error
@@ -489,8 +469,6 @@ async def _annotate_with_tangram(
             adata_sp.obsm["tangram_gene_predictions"] = ad_ge.X
         except Exception as gene_error:
             await ctx.warning(f"Could not project genes: {gene_error}")
-
-    await ctx.info(f"Tangram mapping completed with score: {tangram_mapping_score}")
 
     # Project cell annotations to space using proper API function
     try:
@@ -908,16 +886,6 @@ async def _annotate_with_scanvi(
     # This will be picked up by the main function to store in adata.obs[output_key]
     adata.obs[cell_type_key] = adata_subset.obs[cell_type_key].values
 
-    # Note: Visualizations should be created using the separate visualize_data tool
-    # This maintains clean separation between analysis and visualization
-
-    await ctx.info(
-        "Cell type annotation complete. Cell types stored in 'cell_type' column"
-    )
-    await ctx.info(
-        "Use visualize_data tool with feature='cell_type' to visualize results"
-    )
-
     return cell_types, counts, confidence_scores, None
 
 
@@ -1043,14 +1011,6 @@ async def _annotate_with_mllmcelltype(
             # Extract consensus annotations
             annotations = consensus_results.get("consensus", {})
 
-            # Store additional metadata for reporting
-            consensus_proportions = consensus_results.get("consensus_proportions", {})
-            consensus_results.get("entropy", {})
-
-            await ctx.info(
-                f"Consensus reached for {len(annotations)} clusters. "
-                f"Mean consensus proportion: {sum(consensus_proportions.values()) / len(consensus_proportions):.2f}"
-            )
         else:
             # Use single model annotation
             provider = params.mllm_provider
@@ -1070,8 +1030,7 @@ async def _annotate_with_mllmcelltype(
                 base_urls=base_urls,
             )
     except Exception as e:
-        await ctx.error(f"mLLMCellType annotation failed: {str(e)}")
-        raise
+        raise ProcessingError(f"mLLMCellType annotation failed: {str(e)}") from e
 
     # Map cluster annotations back to cells
     cluster_to_celltype = {}
@@ -1101,15 +1060,6 @@ async def _annotate_with_mllmcelltype(
     # LLM-based annotations don't provide numeric confidence scores
     # We intentionally leave this empty rather than assigning misleading values
     confidence_scores = {}
-
-    # Note: Visualizations should be created using the separate visualize_data tool
-    # This maintains clean separation between analysis and visualization
-    await ctx.info(
-        f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-    )
-    await ctx.info(
-        f"Use visualize_data tool with feature='{output_key}' to visualize results"
-    )
 
     return cell_types, counts, confidence_scores, None
 
@@ -1314,16 +1264,6 @@ async def _annotate_with_cellassign(
     cell_types = valid_cell_types
     counts = adata.obs[output_key].value_counts().to_dict()
 
-    # Note: Visualizations should be created using the separate visualize_data tool
-    # This maintains clean separation between analysis and visualization
-
-    await ctx.info(
-        f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-    )
-    await ctx.info(
-        f"Use visualize_data tool with feature='{output_key}' to visualize results"
-    )
-
     return cell_types, counts, confidence_scores, None
 
 
@@ -1342,8 +1282,6 @@ async def annotate_cell_types(
     Returns:
         Annotation result
     """
-    await ctx.info(f"Annotating cell types using {params.method} method")
-
     # Retrieve the AnnData object via ToolContext
     adata = await ctx.get_adata(data_id)
 
@@ -1386,22 +1324,13 @@ async def annotate_cell_types(
             )
 
     except Exception as e:
-        await ctx.error(f"Annotation failed: {str(e)}")
-        raise
+        raise ProcessingError(f"Annotation failed: {str(e)}") from e
 
     # COW FIX: Each annotation method handles adata.obs assignment internally
     # This maintains consistency and prevents duplicate assignments
     # Construct output keys for result reporting
     output_key = f"cell_type_{params.method}"
     confidence_key = f"confidence_{params.method}" if confidence_scores else None
-
-    # Inform user about visualization options
-    await ctx.info(
-        f"Cell type annotation complete. Cell types stored in '{output_key}' column"
-    )
-    await ctx.info(
-        f"Use visualize_data tool with feature='{output_key}' to visualize results"
-    )
 
     # Store scientific metadata for reproducibility
     from ..utils.adata_utils import store_analysis_metadata
@@ -1909,7 +1838,5 @@ async def _annotate_with_sctype(
     # Cache results
     if params.sctype_use_cache and cache_key:
         await _cache_sctype_results(cache_key, results, ctx)
-
-    await ctx.info(f"sc-type completed: {len(counts)} cell types found")
 
     return results

@@ -24,7 +24,6 @@ new unified 'genes' parameter for consistent gene selection across methods.
 
 from __future__ import annotations
 
-import traceback
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import anndata as ad
@@ -119,9 +118,6 @@ async def analyze_spatial_statistics(
 
     if params.n_neighbors <= 0:
         raise ParameterError(f"n_neighbors must be positive, got {params.n_neighbors}")
-
-    # Log operation
-    await ctx.info(f"Performing {params.analysis_type} spatial analysis")
 
     # Retrieve dataset via ToolContext
     try:
@@ -254,23 +250,16 @@ async def analyze_spatial_statistics(
             statistics=statistics_dict,
         )
 
-        await ctx.info(f"Analysis completed: {params.analysis_type}")
-
         return SpatialStatisticsResult(
             data_id=data_id,
             analysis_type=params.analysis_type,
             statistics=result,
         )
 
+    except (DataNotFoundError, ParameterError, DataCompatibilityError):
+        raise
     except Exception as e:
-        error_msg = f"Error in {params.analysis_type} analysis: {str(e)}"
-        await ctx.warning(error_msg)
-        await ctx.info(f"Error details: {traceback.format_exc()}")
-
-        if isinstance(e, (DataNotFoundError, ParameterError, DataCompatibilityError)):
-            raise
-        else:
-            raise ProcessingError(error_msg) from e
+        raise ProcessingError(f"Error in {params.analysis_type} analysis: {str(e)}") from e
 
 
 # ============================================================================
@@ -284,7 +273,6 @@ async def _ensure_cluster_key(
     """Ensure a valid cluster key exists in adata."""
     if requested_key in adata.obs.columns:
         if not pd.api.types.is_categorical_dtype(adata.obs[requested_key]):
-            await ctx.info(f"Converting {requested_key} to categorical...")
             adata.obs[requested_key] = adata.obs[requested_key].astype("category")
         return requested_key
 
@@ -349,7 +337,6 @@ async def _analyze_morans_i(
         n_genes=params.n_top_genes,
         analysis_name="Moran's I",
     )
-    await ctx.info(f"Analyzing {len(genes)} genes for Moran's I...")
 
     # Optimize parallelization
     n_jobs = _get_optimal_n_jobs(adata.n_obs, params.n_jobs)
@@ -554,9 +541,6 @@ async def _analyze_getis_ord(
 
         # OPTIMIZATION: Extract all genes at once before loop (batch extraction)
         # This provides 50-150x speedup by avoiding repeated AnnData slicing overhead
-        # See test_spatial_statistics_extreme_scale.py for performance validation
-        await ctx.info(f"Extracting {len(genes)} genes for batch processing...")
-
         y_all_genes = to_dense(adata[:, genes].X)
 
         # Collect all p-values for multiple testing correction
@@ -652,8 +636,6 @@ async def _analyze_centrality(
     ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """Compute centrality scores."""
-    await ctx.info("Computing centrality scores...")
-
     sq.gr.centrality_scores(adata, cluster_key=cluster_key)
 
     analysis_key = f"{cluster_key}_centrality_scores"
@@ -710,10 +692,6 @@ async def _analyze_bivariate_moran(
         # See test_spatial_statistics_extreme_scale.py for performance validation
         all_genes_in_pairs = list(
             set([g for pair in gene_pairs for g in pair if g in adata.var_names])
-        )
-
-        await ctx.info(
-            f"Extracting {len(all_genes_in_pairs)} unique genes from {len(gene_pairs)} pairs..."
         )
 
         expr_all = to_dense(adata[:, all_genes_in_pairs].X)
@@ -949,10 +927,6 @@ async def _analyze_local_join_count(
         categories = adata.obs[cluster_key].unique()
         n_categories = len(categories)
 
-        await ctx.info(
-            f"Analyzing {n_categories} categories: {', '.join(map(str, categories))}"
-        )
-
         results = {}
 
         # Analyze each category separately
@@ -986,10 +960,6 @@ async def _analyze_local_join_count(
             "per_category_stats": results,
         }
 
-        await ctx.info(
-            f"Local Join Count analysis complete for {n_categories} categories"
-        )
-
         return {
             "method": "Local Join Count Statistics (Anselin & Li 2019)",
             "n_categories": n_categories,
@@ -1018,8 +988,6 @@ async def _analyze_network_properties(
 
     Migrated from spatial_statistics.py
     """
-    await ctx.info("Analyzing network properties...")
-
     # Check for required dependencies
     if not is_available("networkx"):
         raise DependencyError(
