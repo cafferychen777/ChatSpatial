@@ -224,7 +224,7 @@ async def get_validated_features(
     return validated
 
 
-async def validate_and_prepare_feature(
+def validate_and_prepare_feature(
     adata: ad.AnnData,
     feature: str,
     context: Optional["ToolContext"] = None,

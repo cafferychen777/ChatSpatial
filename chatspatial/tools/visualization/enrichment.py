@@ -115,10 +115,10 @@ async def create_enrichment_visualization(
 
     # Route based on plot_type or subtype
     if params.plot_type == "violin":
-        return await _create_enrichment_violin(adata, params, score_cols, context)
+        return _create_enrichment_violin(adata, params, score_cols, context)
 
     if params.subtype and params.subtype.startswith("spatial_"):
-        return await _create_enrichmap_spatial(adata, params, score_cols, context)
+        return _create_enrichmap_spatial(adata, params, score_cols, context)
 
     # Default: spatial scatter plot
     return await _create_enrichment_spatial(adata, params, score_cols, context)
@@ -183,7 +183,7 @@ async def create_pathway_enrichment_visualization(
 # =============================================================================
 
 
-async def _create_enrichment_violin(
+def _create_enrichment_violin(
     adata: "ad.AnnData",
     params: VisualizationParameters,
     score_cols: List[str],
@@ -295,7 +295,7 @@ async def _create_enrichment_spatial(
     return fig
 
 
-async def _create_enrichmap_spatial(
+def _create_enrichmap_spatial(
     adata: "ad.AnnData",
     params: VisualizationParameters,
     score_cols: List[str],
@@ -315,11 +315,11 @@ async def _create_enrichmap_spatial(
 
     try:
         if params.subtype == "spatial_cross_correlation":
-            return await _create_enrichmap_cross_correlation(
+            return _create_enrichmap_cross_correlation(
                 adata, params, library_id, em
             )
         else:
-            return await _create_enrichmap_single_score(
+            return _create_enrichmap_single_score(
                 adata, params, library_id, em, context
             )
     except DataNotFoundError:
@@ -335,7 +335,7 @@ async def _create_enrichmap_spatial(
         ) from e
 
 
-async def _create_enrichmap_cross_correlation(
+def _create_enrichmap_cross_correlation(
     adata: "ad.AnnData",
     params: VisualizationParameters,
     library_id: str,
@@ -365,7 +365,7 @@ async def _create_enrichmap_cross_correlation(
     return fig
 
 
-async def _create_enrichmap_single_score(
+def _create_enrichmap_single_score(
     adata: "ad.AnnData",
     params: VisualizationParameters,
     library_id: str,

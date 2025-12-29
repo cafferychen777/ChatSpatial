@@ -184,7 +184,7 @@ async def create_cell_communication_visualization(
         )
 
     if data.analysis_type == "spatial":
-        return await _create_spatial_lr_visualization(adata, data, params, context)
+        return _create_spatial_lr_visualization(adata, data, params, context)
     else:
         if data.method == "cellphonedb":
             subtype = params.subtype or "heatmap"
@@ -211,7 +211,7 @@ async def create_cell_communication_visualization(
 # =============================================================================
 
 
-async def _create_spatial_lr_visualization(
+def _create_spatial_lr_visualization(
     adata: "ad.AnnData",
     data: CellCommunicationData,
     params: VisualizationParameters,
