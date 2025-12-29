@@ -49,6 +49,7 @@ from ..utils.compute import ensure_spatial_neighbors_async
 from ..utils.exceptions import (
     DataCompatibilityError,
     DataNotFoundError,
+    DependencyError,
     ParameterError,
     ProcessingError,
 )
@@ -156,13 +157,13 @@ async def analyze_spatial_statistics(
         elif params.analysis_type == "local_moran":
             result = await _analyze_local_moran(adata, params, ctx)
         elif params.analysis_type == "geary":
-            result = await _analyze_gearys_c(adata, params, ctx)
+            result = _analyze_gearys_c(adata, params, ctx)
         elif params.analysis_type == "neighborhood":
-            result = await _analyze_neighborhood_enrichment(adata, cluster_key, ctx)
+            result = _analyze_neighborhood_enrichment(adata, cluster_key, ctx)
         elif params.analysis_type == "co_occurrence":
-            result = await _analyze_co_occurrence(adata, cluster_key, ctx)
+            result = _analyze_co_occurrence(adata, cluster_key, ctx)
         elif params.analysis_type == "ripley":
-            result = await _analyze_ripleys_k(adata, cluster_key, ctx)
+            result = _analyze_ripleys_k(adata, cluster_key, ctx)
         elif params.analysis_type == "getis_ord":
             result = await _analyze_getis_ord(adata, params, ctx)
         elif params.analysis_type == "centrality":
@@ -170,7 +171,7 @@ async def analyze_spatial_statistics(
         elif params.analysis_type == "bivariate_moran":
             result = await _analyze_bivariate_moran(adata, params, ctx)
         elif params.analysis_type == "join_count":
-            result = await _analyze_join_count(adata, cluster_key, params, ctx)
+            result = _analyze_join_count(adata, cluster_key, params, ctx)
         elif params.analysis_type == "local_join_count":
             result = await _analyze_local_join_count(adata, cluster_key, params, ctx)
         elif params.analysis_type == "network_properties":
@@ -185,11 +186,10 @@ async def analyze_spatial_statistics(
 
         # Ensure result is a dictionary
         if not isinstance(result, dict):
-            result = (
-                result.dict()
-                if hasattr(result, "dict")
-                else {"error": "Invalid result format"}
-            )
+            if hasattr(result, "dict"):
+                result = result.dict()
+            else:
+                raise ProcessingError("Invalid result format from analysis function")
 
         # Add metadata
         result.update(
@@ -400,7 +400,7 @@ async def _analyze_morans_i(
     raise ProcessingError("Moran's I computation did not produce results")
 
 
-async def _analyze_gearys_c(
+def _analyze_gearys_c(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
@@ -439,7 +439,7 @@ async def _analyze_gearys_c(
     raise ProcessingError("Geary's C computation did not produce results")
 
 
-async def _analyze_neighborhood_enrichment(
+def _analyze_neighborhood_enrichment(
     adata: ad.AnnData,
     cluster_key: str,
     ctx: "ToolContext",
@@ -463,7 +463,7 @@ async def _analyze_neighborhood_enrichment(
     raise ProcessingError("Neighborhood enrichment did not produce results")
 
 
-async def _analyze_co_occurrence(
+def _analyze_co_occurrence(
     adata: ad.AnnData,
     cluster_key: str,
     ctx: "ToolContext",
@@ -480,7 +480,7 @@ async def _analyze_co_occurrence(
     raise ProcessingError("Co-occurrence analysis did not produce results")
 
 
-async def _analyze_ripleys_k(
+def _analyze_ripleys_k(
     adata: ad.AnnData,
     cluster_key: str,
     ctx: "ToolContext",
@@ -767,7 +767,7 @@ async def _analyze_bivariate_moran(
     }
 
 
-async def _analyze_join_count(
+def _analyze_join_count(
     adata: ad.AnnData,
     cluster_key: str,
     params: SpatialStatisticsParameters,
@@ -819,10 +819,9 @@ async def _analyze_join_count(
     """
     # Check for required dependencies
     if not is_available("esda") or not is_available("libpysal"):
-        await ctx.warning("Join Count requires esda and libpysal packages")
-        return {
-            "error": "esda or libpysal package not installed. Install with: pip install esda libpysal"
-        }
+        raise DependencyError(
+            "esda or libpysal package not installed. Install with: pip install esda libpysal"
+        )
 
     try:
         from esda.join_counts import Join_Counts
@@ -931,10 +930,10 @@ async def _analyze_local_join_count(
     """
     # Check for required dependencies
     if not is_available("esda") or not is_available("libpysal"):
-        await ctx.warning("Local Join Count requires esda and libpysal packages")
-        return {
-            "error": "esda or libpysal package not installed (requires esda >= 2.4.0). Install with: pip install esda libpysal"
-        }
+        raise DependencyError(
+            "esda or libpysal package not installed (requires esda >= 2.4.0). "
+            "Install with: pip install esda libpysal"
+        )
 
     try:
         from esda.join_counts_local import Join_Counts_Local
@@ -1023,10 +1022,9 @@ async def _analyze_network_properties(
 
     # Check for required dependencies
     if not is_available("networkx"):
-        await ctx.warning("NetworkX not installed")
-        return {
-            "error": "networkx package required. Install with: pip install networkx"
-        }
+        raise DependencyError(
+            "networkx package required. Install with: pip install networkx"
+        )
 
     try:
         import networkx as nx
@@ -1102,9 +1100,9 @@ async def _analyze_spatial_centrality(
 
     # Check for required dependencies
     if not is_available("networkx"):
-        return {
-            "error": "NetworkX required for centrality analysis. Install with: pip install networkx"
-        }
+        raise DependencyError(
+            "NetworkX required for centrality analysis. Install with: pip install networkx"
+        )
 
     try:
         import networkx as nx

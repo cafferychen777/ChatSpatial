@@ -240,7 +240,7 @@ class SpatialResourceManager:
         if resource.content_provider:
             return resource.content_provider()
 
-        return json.dumps({"error": "No content available"})
+        raise ValueError(f"Resource has no content provider: {uri}")
 
     def _serialize_result(self, result: Any) -> Dict[str, Any]:
         """Serialize analysis results for JSON output with size control"""

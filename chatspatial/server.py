@@ -1584,7 +1584,7 @@ async def analyze_enrichment(
 
         try:
             # species is a required field in EnrichmentParameters (validated by Pydantic)
-            gene_sets = await load_gene_sets(
+            gene_sets = load_gene_sets(
                 database=params.gene_set_database,
                 species=params.species,
                 min_genes=params.min_genes,
@@ -1665,7 +1665,7 @@ async def analyze_enrichment(
         )
 
         if params.method == "pathway_gsea":
-            result_dict = await perform_gsea(
+            result_dict = perform_gsea(
                 adata=adata,
                 gene_sets=gene_sets,
                 ranking_key=params.score_keys,
@@ -1696,7 +1696,7 @@ async def analyze_enrichment(
                     "Pathway ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
                 )
         elif params.method == "pathway_ssgsea":
-            result_dict = await perform_ssgsea(
+            result_dict = perform_ssgsea(
                 adata=adata,
                 gene_sets=gene_sets,
                 min_size=params.min_genes,
@@ -1713,7 +1713,7 @@ async def analyze_enrichment(
             # For Enrichr, we need a gene list - use HVG or top variable genes
             gene_list = get_highly_variable_genes(adata, max_genes=500)
 
-            result_dict = await perform_enrichr(
+            result_dict = perform_enrichr(
                 gene_list=gene_list,
                 gene_sets=params.gene_set_database,
                 organism=params.species,  # Use explicit species from params
