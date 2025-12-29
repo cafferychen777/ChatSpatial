@@ -8,7 +8,6 @@ algorithms (Leiden, Louvain) adapted for spatial data. The primary entry point i
 function, which handles data preparation and dispatches to the selected method.
 """
 
-import traceback
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -225,9 +224,7 @@ async def identify_spatial_domains(
         return result
 
     except Exception as e:
-        error_msg = f"Error in spatial domain identification: {str(e)}"
-        await ctx.warning(error_msg)
-        raise ProcessingError(error_msg) from e
+        raise ProcessingError(f"Error in spatial domain identification: {str(e)}") from e
 
 
 async def _identify_domains_spagcn(
@@ -379,12 +376,9 @@ async def _identify_domains_spagcn(
                     )
                     raise ProcessingError(error_msg)
         except Exception as spagcn_error:
-            # Capture and re-raise with more details
-            error_msg = (
+            raise ProcessingError(
                 f"SpaGCN detect_spatial_domains_ez_mode failed: {str(spagcn_error)}"
-            )
-            await ctx.warning(error_msg)
-            raise ProcessingError(error_msg) from spagcn_error
+            ) from spagcn_error
 
         domain_labels = pd.Series(domain_labels, index=adata.obs.index).astype(str)
 
@@ -400,10 +394,7 @@ async def _identify_domains_spagcn(
         return domain_labels, None, statistics
 
     except Exception as e:
-        # Enhanced error reporting
-        error_msg = f"SpaGCN execution failed: {str(e)}"
-        await ctx.warning(f"Full error details: {traceback.format_exc()}")
-        raise ProcessingError(error_msg) from e
+        raise ProcessingError(f"SpaGCN execution failed: {str(e)}") from e
 
 
 async def _identify_domains_clustering(
@@ -448,9 +439,9 @@ async def _identify_domains_clustering(
                     adata.obsp["connectivities"] = combined_conn
 
             except Exception as spatial_error:
-                error_msg = f"Spatial graph construction failed: {spatial_error}"
-                await ctx.error(error_msg)
-                raise ProcessingError(error_msg) from spatial_error
+                raise ProcessingError(
+                    f"Spatial graph construction failed: {spatial_error}"
+                ) from spatial_error
 
         # Perform clustering
         # Use a variable to store key_added to ensure consistency
@@ -653,13 +644,11 @@ async def _identify_domains_stagate(
         return domain_labels, embeddings_key, statistics
 
     except asyncio.TimeoutError:
-        error_msg = f"STAGATE training timeout after {params.timeout or 600} seconds"
-        await ctx.warning(error_msg)
-        raise ProcessingError(error_msg)
+        raise ProcessingError(
+            f"STAGATE training timeout after {params.timeout or 600} seconds"
+        )
     except Exception as e:
-        error_msg = f"STAGATE execution failed: {str(e)}"
-        await ctx.warning(error_msg)
-        raise ProcessingError(error_msg) from e
+        raise ProcessingError(f"STAGATE execution failed: {str(e)}") from e
 
 
 async def _identify_domains_graphst(
@@ -761,10 +750,8 @@ async def _identify_domains_graphst(
         return domain_labels, embeddings_key, statistics
 
     except asyncio.TimeoutError:
-        error_msg = f"GraphST training timeout after {params.timeout or 600} seconds"
-        await ctx.warning(error_msg)
-        raise ProcessingError(error_msg)
+        raise ProcessingError(
+            f"GraphST training timeout after {params.timeout or 600} seconds"
+        )
     except Exception as e:
-        error_msg = f"GraphST execution failed: {str(e)}"
-        await ctx.warning(error_msg)
-        raise ProcessingError(error_msg) from e
+        raise ProcessingError(f"GraphST execution failed: {str(e)}") from e

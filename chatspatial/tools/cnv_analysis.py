@@ -368,9 +368,7 @@ async def _infer_cnv_numbat(
             f"Available uns keys: {list(adata.uns.keys())}"
         )
 
-    # Get expression matrix (keep sparse if possible)
-    import scipy.sparse as sp
-
+    # Get expression matrix
     count_mat = adata.X
 
     # Prepare metadata
@@ -388,8 +386,6 @@ async def _infer_cnv_numbat(
             f"categories {params.reference_categories}"
         )
 
-    # Log sparse vs dense matrix info
-    is_sparse = sp.issparse(count_mat)
     await ctx.info(
         f"Running Numbat: {len(cell_barcodes)} cells, {len(ref_indices_r)} reference cells"
     )

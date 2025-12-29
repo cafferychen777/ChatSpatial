@@ -12,7 +12,6 @@ import numpy as np
 
 # Note: anndata2ri is imported lazily inside R-based methods (RCTD, SPOTlight, CARD)
 import pandas as pd
-import scipy.sparse as sp
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -77,8 +76,6 @@ async def _apply_gene_filtering(
         return adata.copy()
 
     from cell2location.utils.filtering import filter_genes
-
-    n_genes_before = adata.n_vars
 
     # Apply official filtering
     selected = filter_genes(
@@ -1948,8 +1945,6 @@ async def deconvolve_destvi(
             normalize=False,  # DestVI already outputs proportions
             ctx=ctx,
         )
-
-        cell_types_result = list(proportions_df.columns)
 
         # Create enhanced statistics
         stats = _create_deconvolution_stats(

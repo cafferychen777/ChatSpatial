@@ -13,8 +13,7 @@ from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
 from ..utils.adata_utils import get_spatial_key
-from ..utils.dependency_manager import (is_available, require,
-                                        validate_r_package)
+from ..utils.dependency_manager import require, validate_r_package
 from ..utils.exceptions import (DataNotFoundError, DependencyError,
                                 ParameterError, ProcessingError)
 
@@ -230,8 +229,6 @@ async def _analyze_communication_liana(
                 bandwidth = 300  # Larger bandwidth for large datasets
             else:
                 bandwidth = 200  # Standard bandwidth
-
-            cutoff = params.liana_cutoff
 
             # Use Squidpy for spatial neighbor computation
             # Note: Spatial analysis requires spatial neighbors (physical coordinates), not expression neighbors
@@ -567,15 +564,8 @@ async def _analyze_communication_cellphonedb(
         import pandas as pd
         import scipy.sparse as sp
 
-        # Get matrix dimensions for reporting
-        n_genes, n_cells = (
-            adata_for_analysis.shape[1],
-            adata_for_analysis.shape[0],
-        )
-
-        # Check if data is sparse
+        # Check if data is sparse (used for efficient matrix access)
         is_sparse = sp.issparse(adata_for_analysis.X)
-        matrix_type = "sparse" if is_sparse else "dense"
 
         # Prepare meta data
         meta_df = pd.DataFrame(
