@@ -31,6 +31,13 @@ from ..utils.adata_utils import (
 from ..utils.dependency_manager import get as get_dependency
 from ..utils.dependency_manager import is_available, require
 from ..utils.mcp_utils import suppress_output
+from ..utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 # Helper functions for deconvolution
 
@@ -299,7 +306,7 @@ async def _prepare_anndata_for_counts(
             f"Deconvolution requires raw integer counts."
         )
         await ctx.error(error_msg)
-        raise ValueError(error_msg)
+        raise DataError(error_msg)
 
     # Add processing info to uns for tracking
     adata_copy.uns[f"{data_name}_data_source"] = {
@@ -490,7 +497,7 @@ async def _validate_and_process_proportions(
             f"in {neg_spots} spots. Use raw counts and check data quality."
         )
         await ctx.error(error_msg)
-        raise ValueError(error_msg)
+        raise ProcessingError(error_msg)
 
     # 3. Analyze sum deviation - inform but don't force normalization
     row_sums = proportions.sum(axis=1, skipna=True)
@@ -715,7 +722,7 @@ async def deconvolve_cell2location(
                 categorical_covariate_keys=categorical_covariate_keys,  # NEW: Technical covariates
             )
         except Exception as e:
-            raise RuntimeError(
+            raise ProcessingError(
                 f"Failed to setup reference data for RegressionModel: {str(e)}"
             ) from e
 
@@ -771,7 +778,7 @@ async def deconvolve_cell2location(
                 await ctx.warning(ref_warning)
 
         except Exception as e:
-            raise RuntimeError(f"Failed to train RegressionModel: {str(e)}") from e
+            raise ProcessingError(f"Failed to train RegressionModel: {str(e)}") from e
 
         # Export reference signatures
         try:
@@ -797,7 +804,7 @@ async def deconvolve_cell2location(
                 ].copy()
             ref_signatures.columns = ref.uns["mod"]["factor_names"]
         except Exception as e:
-            raise RuntimeError(
+            raise ProcessingError(
                 f"Failed to export reference signatures: {str(e)}"
             ) from e
 
@@ -810,7 +817,7 @@ async def deconvolve_cell2location(
                 categorical_covariate_keys=categorical_covariate_keys,  # NEW: Technical covariates
             )
         except Exception as e:
-            raise RuntimeError(
+            raise ProcessingError(
                 f"Failed to setup spatial data for Cell2location: {str(e)}"
             ) from e
 
@@ -872,7 +879,9 @@ async def deconvolve_cell2location(
                 await ctx.warning(cell2loc_warning)
 
         except Exception as e:
-            raise RuntimeError(f"Failed to train Cell2location model: {str(e)}") from e
+            raise ProcessingError(
+                f"Failed to train Cell2location model: {str(e)}"
+            ) from e
 
         # Export results
         try:
@@ -881,7 +890,7 @@ async def deconvolve_cell2location(
                 sp, sample_kwargs={"num_samples": 1000, "batch_size": 2500}
             )
         except Exception as e:
-            raise RuntimeError(
+            raise ProcessingError(
                 f"Failed to export Cell2location results: {str(e)}"
             ) from e
 
@@ -902,7 +911,7 @@ async def deconvolve_cell2location(
         if cell_abundance is None:
             # List available keys for debugging
             available_keys = list(sp.obsm.keys())
-            raise RuntimeError(
+            raise ProcessingError(
                 f"Cell2location did not produce expected output. Available keys: {available_keys}"
             )
 
@@ -947,8 +956,8 @@ async def deconvolve_cell2location(
         return proportions, stats
 
     except Exception as e:
-        if not isinstance(e, (ValueError, ImportError, RuntimeError)):
-            raise RuntimeError(f"Cell2location deconvolution failed: {str(e)}") from e
+        if not isinstance(e, (ProcessingError, DataError, ParameterError, DependencyError)):
+            raise ProcessingError(f"Cell2location deconvolution failed: {str(e)}") from e
         raise
 
 
@@ -1055,7 +1064,7 @@ async def deconvolve_rctd(
     if mode == "multi":
         n_cell_types = len(reference_adata.obs[cell_type_key].unique())
         if max_multi_types >= n_cell_types:
-            raise ValueError(
+            raise ParameterError(
                 f"MAX_MULTI_TYPES ({max_multi_types}) must be less than "
                 f"total cell types ({n_cell_types}). "
                 f"Recommended: {min(6, n_cell_types - 1)} for Visium data."
@@ -1064,7 +1073,7 @@ async def deconvolve_rctd(
     # Check if RCTD is available
     is_available, error_message = is_rctd_available()
     if not is_available:
-        raise ImportError(f"RCTD is not available: {error_message}")
+        raise DependencyError(f"RCTD is not available: {error_message}")
 
     # Import rpy2 modules
     import anndata2ri  # For sparse matrix support
@@ -1377,7 +1386,7 @@ async def deconvolve_rctd(
                     )
 
                 except Exception as e:
-                    raise RuntimeError(
+                    raise ProcessingError(
                         f"RCTD {mode} mode result extraction failed: {str(e)}"
                     ) from e
 
@@ -1400,7 +1409,7 @@ async def deconvolve_rctd(
         if (proportions < 0).any().any():
             neg_count = (proportions < 0).sum().sum()
             min_value = proportions.min().min()
-            raise ValueError(
+            raise ProcessingError(
                 f"RCTD error: {neg_count} negative values (min: {min_value:.4f}). "
                 f"Check input data quality."
             )
@@ -1446,7 +1455,7 @@ async def deconvolve_rctd(
         return proportions, stats
 
     except Exception as e:
-        raise RuntimeError(f"RCTD deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"RCTD deconvolution failed: {str(e)}") from e
     # Note: No finally block needed with localconverter context managers
 
 
@@ -1472,7 +1481,7 @@ async def deconvolve_spatial_data(
     try:
         # Validate input parameters
         if not data_id:
-            raise ValueError("Dataset ID cannot be empty")
+            raise ParameterError("Dataset ID cannot be empty")
 
         await ctx.info(f"Deconvolving spatial data using {params.method} method")
         await ctx.info(f"Parameters: {params.model_dump()}")
@@ -1480,7 +1489,7 @@ async def deconvolve_spatial_data(
         # Get spatial data via ToolContext (includes validation)
         spatial_adata = await ctx.get_adata(data_id)
         if spatial_adata.n_obs == 0:
-            raise ValueError(f"Dataset {data_id} contains no observations")
+            raise DataError(f"Dataset {data_id} contains no observations")
 
         # Ensure spatial data has unique gene names
         await ensure_unique_var_names_with_ctx(spatial_adata, ctx, "spatial data")
@@ -1500,14 +1509,14 @@ async def deconvolve_spatial_data(
             "card",
         ]:
             if not params.reference_data_id:
-                raise ValueError(
+                raise ParameterError(
                     f"Method '{params.method}' requires reference_data_id."
                 )
 
             # Get reference data via ToolContext (includes validation)
             reference_adata = await ctx.get_adata(params.reference_data_id)
             if reference_adata.n_obs == 0:
-                raise ValueError(
+                raise DataError(
                     f"Reference dataset {params.reference_data_id} contains no observations"
                 )
 
@@ -1573,7 +1582,7 @@ async def deconvolve_spatial_data(
 
             error_msg = f"Method '{params.method}' is not available due to missing dependencies. {alt_msg}"
             await ctx.error(error_msg)
-            raise ImportError(error_msg)
+            raise DependencyError(error_msg)
 
         # Run deconvolution with cleaner calls and centralized error handling
         proportions, stats = None, None
@@ -1629,7 +1638,7 @@ async def deconvolve_spatial_data(
                 is_available, error_message = is_rctd_available()
                 if not is_available:
                     await ctx.warning(f"RCTD is not available: {error_message}")
-                    raise ImportError(f"RCTD is not available: {error_message}")
+                    raise DependencyError(f"RCTD is not available: {error_message}")
 
                 proportions, stats = deconvolve_rctd(
                     spatial_adata,
@@ -1649,7 +1658,7 @@ async def deconvolve_spatial_data(
                 # Use centralized dependency manager for consistent error messages
                 scvi_mod = get_dependency("scvi-tools")
                 if scvi_mod is None:
-                    raise ImportError(
+                    raise DependencyError(
                         "scvi-tools is required for DestVI deconvolution. "
                         "Install with: pip install scvi-tools"
                     )
@@ -1677,7 +1686,7 @@ async def deconvolve_spatial_data(
                 # Use centralized dependency manager for consistent error messages
                 scvi_mod = get_dependency("scvi-tools")
                 if scvi_mod is None:
-                    raise ImportError(
+                    raise DependencyError(
                         "scvi-tools is required for Stereoscope deconvolution. "
                         "Install with: pip install scvi-tools"
                     )
@@ -1700,7 +1709,7 @@ async def deconvolve_spatial_data(
                 is_available, error_message = is_spotlight_available()
                 if not is_available:
                     await ctx.warning(f"SPOTlight is not available: {error_message}")
-                    raise ImportError(f"SPOTlight is not available: {error_message}")
+                    raise DependencyError(f"SPOTlight is not available: {error_message}")
 
                 proportions, stats = deconvolve_spotlight(
                     spatial_adata,
@@ -1726,7 +1735,7 @@ async def deconvolve_spatial_data(
                         missing.append("scvi-tools")
                     if tangram_mod is None:
                         missing.append("tangram-sc")
-                    raise ImportError(
+                    raise DependencyError(
                         f"Missing dependencies for Tangram deconvolution: {', '.join(missing)}. "
                         "Install with: pip install scvi-tools tangram-sc"
                     )
@@ -1750,7 +1759,7 @@ async def deconvolve_spatial_data(
                 is_available, error_message = is_card_available()
                 if not is_available:
                     await ctx.warning(f"CARD is not available: {error_message}")
-                    raise ImportError(f"CARD is not available: {error_message}")
+                    raise DependencyError(f"CARD is not available: {error_message}")
 
                 proportions, stats = deconvolve_card(
                     spatial_adata,
@@ -1766,7 +1775,7 @@ async def deconvolve_spatial_data(
                 )
 
             else:
-                raise ValueError(
+                raise ParameterError(
                     f"Unsupported deconvolution method: {params.method}. "
                     f"Supported methods are: flashdeconv (fastest), cell2location, rctd, destvi, stereoscope, spotlight, tangram, card"
                 )
@@ -1774,7 +1783,7 @@ async def deconvolve_spatial_data(
         except Exception as e:
             # Centralized error handling for deconvolution calls
             await ctx.warning(f"{params.method.capitalize()} failed: {str(e)}")
-            raise RuntimeError(
+            raise ProcessingError(
                 f"{params.method.capitalize()} deconvolution failed: {str(e)}"
             ) from e
 
@@ -1930,9 +1939,11 @@ async def deconvolve_spatial_data(
         return result
 
     except (
-        ValueError,
-        ImportError,
-        RuntimeError,
+        DataError,
+        DataNotFoundError,
+        ParameterError,
+        ProcessingError,
+        DependencyError,
         KeyError,
         AttributeError,
         TypeError,
@@ -1947,7 +1958,7 @@ async def deconvolve_spatial_data(
             raise
 
         await ctx.warning(f"Deconvolution failed with unexpected error: {str(e)}")
-        raise RuntimeError(
+        raise ProcessingError(
             f"Deconvolution failed with unexpected error: {str(e)}"
         ) from e
 
@@ -1999,7 +2010,7 @@ async def deconvolve_destvi(
     try:
         # Check if scvi-tools is available and import it
         if not is_available("scvi-tools"):
-            raise ImportError(
+            raise DependencyError(
                 "scvi-tools is required for DestVI deconvolution. "
                 "Install with: pip install scvi-tools"
             )
@@ -2034,7 +2045,7 @@ async def deconvolve_destvi(
         # Validate cell type information
         cell_types = ref_data.obs[cell_type_key].unique()
         if len(cell_types) < 2:
-            raise ValueError(
+            raise DataError(
                 f"Reference data must contain at least 2 cell types, found {len(cell_types)}"
             )
 
@@ -2115,7 +2126,7 @@ async def deconvolve_destvi(
 
         # Validate proportions
         if proportions_df.empty or proportions_df.shape[0] != spatial_data.n_obs:
-            raise RuntimeError("Failed to extract valid proportions from DestVI model")
+            raise ProcessingError("Failed to extract valid proportions from DestVI model")
 
         # Process results transparently - DestVI outputs proportions
         proportions_df = await _validate_and_process_proportions(
@@ -2155,7 +2166,7 @@ async def deconvolve_destvi(
     except Exception as e:
         error_msg = f"DestVI deconvolution failed: {str(e)}"
         await ctx.error(error_msg)
-        raise RuntimeError(error_msg) from e
+        raise ProcessingError(error_msg) from e
 
 
 async def deconvolve_stereoscope(
@@ -2344,7 +2355,7 @@ async def deconvolve_stereoscope(
     except Exception as e:
         error_msg = f"Stereoscope deconvolution failed: {str(e)}"
         await ctx.error(error_msg)
-        raise RuntimeError(error_msg) from e
+        raise ProcessingError(error_msg) from e
 
 
 def is_spotlight_available() -> Tuple[bool, str]:
@@ -2657,7 +2668,7 @@ async def deconvolve_spotlight(
         return proportions, stats
 
     except Exception as e:
-        raise RuntimeError(f"SPOTlight deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"SPOTlight deconvolution failed: {str(e)}") from e
 
 
 async def deconvolve_card(
@@ -2720,7 +2731,7 @@ async def deconvolve_card(
     # Check availability
     is_available, error_message = is_card_available()
     if not is_available:
-        raise ImportError(f"CARD is not available: {error_message}")
+        raise DependencyError(f"CARD is not available: {error_message}")
 
     # Import rpy2
     import anndata2ri  # For sparse matrix support
@@ -2980,7 +2991,7 @@ async def deconvolve_card(
         return proportions, stats
 
     except Exception as e:
-        raise RuntimeError(f"CARD deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"CARD deconvolution failed: {str(e)}") from e
 
 
 async def deconvolve_tangram(
@@ -3025,7 +3036,7 @@ async def deconvolve_tangram(
     try:
         # Check if scvi-tools is available and import Tangram
         if not is_available("scvi-tools"):
-            raise ImportError(
+            raise DependencyError(
                 "scvi-tools is required for Tangram deconvolution. "
                 "Install with: pip install scvi-tools"
             )
@@ -3205,7 +3216,7 @@ async def deconvolve_tangram(
         return proportions, stats
 
     except Exception as e:
-        raise RuntimeError(f"Tangram deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"Tangram deconvolution failed: {str(e)}") from e
 
 
 async def deconvolve_flashdeconv(
@@ -3249,7 +3260,7 @@ async def deconvolve_flashdeconv(
     """
     # Check availability using centralized dependency manager
     if not is_available("flashdeconv"):
-        raise ImportError(
+        raise DependencyError(
             "FlashDeconv is not available. Install with: pip install flashdeconv"
         )
 
@@ -3294,7 +3305,7 @@ async def deconvolve_flashdeconv(
 
         # Extract proportions from obsm
         if "flashdeconv" not in adata_st.obsm:
-            raise RuntimeError(
+            raise ProcessingError(
                 "FlashDeconv did not produce expected output in adata.obsm['flashdeconv']"
             )
 
@@ -3332,4 +3343,4 @@ async def deconvolve_flashdeconv(
         return proportions, stats
 
     except Exception as e:
-        raise RuntimeError(f"FlashDeconv deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"FlashDeconv deconvolution failed: {str(e)}") from e

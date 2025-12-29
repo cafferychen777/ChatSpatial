@@ -133,8 +133,7 @@ async def _infer_cnv_infercnvpy(
             ) from e
     else:
         # Gene positions are available, run CNV inference
-        if ctx:
-            await ctx.info("Running infercnvpy CNV inference...")
+        await ctx.info("Running infercnvpy CNV inference...")
 
         # Exclude chromosomes if specified
         if params.exclude_chromosomes:
@@ -142,10 +141,6 @@ async def _infer_cnv_infercnvpy(
                 params.exclude_chromosomes
             )
             adata_cnv = adata_cnv[:, genes_to_keep].copy()
-            if ctx:
-                await ctx.info(
-                    f"Excluded chromosomes: {', '.join(params.exclude_chromosomes)}"
-                )
 
         # Run infercnvpy
         cnv.tl.infercnv(
@@ -159,31 +154,25 @@ async def _infer_cnv_infercnvpy(
 
     # Optional: Cluster cells by CNV pattern
     if params.cluster_cells:
-        if ctx:
-            await ctx.info("Clustering cells by CNV pattern...")
+        await ctx.info("Clustering cells by CNV pattern...")
         try:
             sc.pp.neighbors(adata_cnv, use_rep="X_cnv", n_neighbors=15)
             sc.tl.leiden(adata_cnv, key_added="cnv_clusters")
-            if ctx:
-                n_clusters = len(adata_cnv.obs["cnv_clusters"].unique())
-                await ctx.info(f"Identified {n_clusters} CNV-based clusters")
+            n_clusters = len(adata_cnv.obs["cnv_clusters"].unique())
+            await ctx.info(f"Identified {n_clusters} CNV-based clusters")
         except Exception as e:
-            if ctx:
-                await ctx.warning(f"Failed to cluster cells by CNV: {str(e)}")
+            await ctx.warning(f"Failed to cluster cells by CNV: {str(e)}")
 
     # Optional: Compute dendrogram
     if params.dendrogram and params.cluster_cells:
-        if ctx:
-            await ctx.info("Computing hierarchical clustering dendrogram...")
+        await ctx.info("Computing hierarchical clustering dendrogram...")
         try:
             sc.tl.dendrogram(adata_cnv, groupby="cnv_clusters")
         except Exception as e:
-            if ctx:
-                await ctx.warning(f"Failed to compute dendrogram: {str(e)}")
+            await ctx.warning(f"Failed to compute dendrogram: {str(e)}")
 
     # Extract CNV statistics
-    if ctx:
-        await ctx.info("Extracting CNV statistics...")
+    await ctx.info("Extracting CNV statistics...")
 
     # Check what data is available
     cnv_score_key = None
@@ -284,11 +273,9 @@ async def _infer_cnv_infercnvpy(
         "cnv_score_key": cnv_score_key,
     }
 
-    if ctx:
-        await ctx.info(
-            f"CNV analysis complete. Analyzed {n_genes_analyzed} genes "
-            f"across {n_chromosomes} chromosomes."
-        )
+    await ctx.info(
+        f"CNV analysis complete: {n_genes_analyzed} genes across {n_chromosomes} chromosomes"
+    )
 
     return CNVResult(
         data_id=data_id,
@@ -358,12 +345,7 @@ async def _infer_cnv_numbat(
         import pandas as pd
 
         df_allele = adata.uns["numbat_allele_data_raw"]
-
-        if ctx:
-            await ctx.info(
-                f"Found Numbat allele dataframe in adata.uns['numbat_allele_data_raw']\n"
-                f"  - {len(df_allele)} SNP-cell pairs"
-            )
+        await ctx.info(f"Found Numbat allele data: {len(df_allele)} SNP-cell pairs")
 
         # Validate required columns
         required_cols = ["cell", "CHROM", "POS", "REF", "ALT", "AD", "DP"]
@@ -408,16 +390,9 @@ async def _infer_cnv_numbat(
 
     # Log sparse vs dense matrix info
     is_sparse = sp.issparse(count_mat)
-    if ctx:
-        matrix_type = "sparse" if is_sparse else "dense"
-        await ctx.info(
-            f"Preparing Numbat analysis:\n"
-            f"  - {len(cell_barcodes)} cells × {len(gene_names)} genes\n"
-            f"  - {len(ref_indices_r)} reference cells\n"
-            f"  - {len(df_allele)} SNP-cell pairs\n"
-            f"  - Genome: {params.numbat_genome}\n"
-            f"  - Matrix format: {matrix_type}"
-        )
+    await ctx.info(
+        f"Running Numbat: {len(cell_barcodes)} cells, {len(ref_indices_r)} reference cells"
+    )
 
     # Create temporary directory for Numbat output
     import os
@@ -437,13 +412,6 @@ async def _infer_cnv_numbat(
                 + numpy2ri.converter
             ):
                 # Transfer data to R environment (inside context!)
-                if ctx:
-                    transfer_msg = (
-                        f"Using anndata2ri for {'sparse' if is_sparse else 'dense'} matrix transfer to Numbat\n"
-                        f"  (spatial: ({count_mat.shape[0]}, {count_mat.shape[1]}))"
-                    )
-                    await ctx.info(transfer_msg)
-
                 ro.globalenv["count_mat"] = count_mat.T  # R expects genes × cells
                 ro.globalenv["df_allele_python"] = (
                     df_allele  # Transfer allele dataframe
@@ -460,11 +428,6 @@ async def _infer_cnv_numbat(
                 ro.globalenv["min_cells"] = params.numbat_min_cells
                 ro.globalenv["ncores"] = params.numbat_ncores
                 ro.globalenv["skip_nj"] = params.numbat_skip_nj
-
-                if ctx:
-                    await ctx.info(
-                        "Running Numbat analysis (this may take several minutes)..."
-                    )
 
                 # Run Numbat via R (inside context!)
                 ro.r(
@@ -517,9 +480,6 @@ async def _infer_cnv_numbat(
                     """
                 )
 
-        if ctx:
-            await ctx.info("Numbat analysis complete. Reading output files...")
-
         # Read results from output files (Numbat saves to TSV files, not R objects)
         import pandas as pd
 
@@ -552,14 +512,6 @@ async def _infer_cnv_numbat(
         # 4. Check for phylogeny tree (if skip_nj=FALSE)
         tree_file = os.path.join(out_dir, "tree_final_2.rds")
         has_phylo = os.path.exists(tree_file)
-
-        if ctx:
-            await ctx.info(
-                f"Results extracted:\n"
-                f"  - Clone assignments: {len(clone_post)} cells\n"
-                f"  - CNV segments: {geno.shape[1] - 1} segments\n"
-                f"  - Phylogeny: {'Available' if has_phylo else 'Not computed'}"
-            )
 
         # Process genotype matrix for AnnData storage
         # geno has structure: cell | segment1 | segment2 | ...
@@ -650,13 +602,7 @@ async def _infer_cnv_numbat(
             "cnv_score_key": "X_cnv_numbat",
         }
 
-        if ctx:
-            await ctx.info(
-                f"Numbat CNV analysis complete:\n"
-                f"  - Detected {statistics['n_clones']} clones\n"
-                f"  - Mean P(CNV): {statistics['mean_p_cnv']:.3f}\n"
-                f"  - Phylogeny: {'Available' if has_phylo else 'Not computed'}"
-            )
+        await ctx.info(f"Numbat CNV complete: {statistics['n_clones']} clones detected")
 
     except Exception as e:
         raise ProcessingError(
@@ -672,14 +618,8 @@ async def _infer_cnv_numbat(
         if os.path.exists(out_dir):
             try:
                 shutil.rmtree(out_dir)
-                if ctx:
-                    await ctx.info(f"Cleaned up temporary directory: {out_dir}")
-            except Exception as cleanup_error:
-                # Log but don't fail if cleanup fails
-                if ctx:
-                    await ctx.info(
-                        f"Warning: Failed to cleanup temp dir: {cleanup_error}"
-                    )
+            except Exception:
+                pass  # Cleanup failure is not critical
 
         # Deactivate converters
         pandas2ri.deactivate()

@@ -342,8 +342,6 @@ async def _analyze_morans_i(
     The analysis is performed on highly variable genes by default, but a
     specific gene list can be provided.
     """
-    await ctx.info("Running Moran's I spatial autocorrelation analysis...")
-
     # Unified gene selection
     genes = select_genes_for_analysis(
         adata,
@@ -408,8 +406,6 @@ async def _analyze_gearys_c(
     ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """Compute Geary's C spatial autocorrelation."""
-    await ctx.info("Running Geary's C spatial autocorrelation analysis...")
-
     # Unified gene selection
     genes = select_genes_for_analysis(
         adata,
@@ -449,8 +445,6 @@ async def _analyze_neighborhood_enrichment(
     ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """Compute neighborhood enrichment analysis."""
-    await ctx.info("Running neighborhood enrichment analysis...")
-
     sq.gr.nhood_enrichment(adata, cluster_key=cluster_key)
 
     analysis_key = f"{cluster_key}_nhood_enrichment"
@@ -475,8 +469,6 @@ async def _analyze_co_occurrence(
     ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """Compute co-occurrence analysis."""
-    await ctx.info("Running co-occurrence analysis...")
-
     sq.gr.co_occurrence(adata, cluster_key=cluster_key)
 
     analysis_key = f"{cluster_key}_co_occurrence"
@@ -494,8 +486,6 @@ async def _analyze_ripleys_k(
     ctx: "ToolContext",
 ) -> Dict[str, Any]:
     """Compute Ripley's K function."""
-    await ctx.info("Running Ripley's K function analysis...")
-
     try:
         sq.gr.ripley(
             adata,
@@ -538,8 +528,6 @@ async def _analyze_getis_ord(
     Ord, J.K. & Getis, A. (1995). Local Spatial Autocorrelation Statistics:
     Distributional Issues and an Application. Geographical Analysis, 27(4), 286-306.
     """
-    await ctx.info("Running Getis-Ord Gi* analysis...")
-
     # Unified gene selection
     genes = select_genes_for_analysis(
         adata,
@@ -576,8 +564,6 @@ async def _analyze_getis_ord(
         all_pvalues = {}
 
         for i, gene in enumerate(genes):
-            await ctx.info(f"Processing gene: {gene}")
-
             # OPTIMIZATION: Direct indexing from pre-extracted dense matrix (fast!)
             y = y_all_genes[:, i].astype(np.float64)
 
@@ -703,8 +689,6 @@ async def _analyze_bivariate_moran(
     A positive value suggests that high expression of gene A is surrounded by high
     expression of gene B.
     """
-    await ctx.info("Running Bivariate Moran's I analysis...")
-
     # Get gene pairs from parameters - NO ARBITRARY DEFAULTS
     if not params.gene_pairs:
         raise ValueError("Bivariate Moran's I requires gene_pairs parameter.")
@@ -829,8 +813,6 @@ async def _analyze_join_count(
     --------
     _analyze_local_join_count : For multi-category data (>2 categories)
     """
-    await ctx.info("Running Join Count analysis...")
-
     # Check for required dependencies
     if not is_available("esda") or not is_available("libpysal"):
         await ctx.warning("Join Count requires esda and libpysal packages")
@@ -943,8 +925,6 @@ async def _analyze_local_join_count(
     >>> for cat, stats in result['per_category_stats'].items():
     ...     print(f"{cat}: {stats['n_hotspots']} significant hotspots")
     """
-    await ctx.info("Running Local Join Count analysis for multi-category data...")
-
     # Check for required dependencies
     if not is_available("esda") or not is_available("libpysal"):
         await ctx.warning("Local Join Count requires esda and libpysal packages")

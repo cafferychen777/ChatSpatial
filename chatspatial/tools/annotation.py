@@ -128,7 +128,7 @@ async def _annotate_with_singler(
             except Exception:
                 continue  # Try next label column
         if ref_labels is None:
-            raise ValueError(f"Could not find labels in reference {reference_name}")
+            raise DataNotFoundError(f"Could not find labels in reference {reference_name}")
         ref_data = ref
 
     elif reference_data_id and reference_adata is not None:
@@ -180,7 +180,7 @@ async def _annotate_with_singler(
             ref_sample = list(ref_features)[:5]
             await ctx.info(f"Test gene sample: {test_sample}")
             await ctx.info(f"Reference gene sample: {ref_sample}")
-            raise ValueError(
+            raise DataError(
                 f"Insufficient gene overlap for SingleR: only {len(common_genes)} common genes"
             )
 
@@ -207,7 +207,7 @@ async def _annotate_with_singler(
         ref_labels = ref.get_column_data().column("label.main")
         ref_data = ref
     else:
-        raise ValueError(
+        raise DataNotFoundError(
             "No reference data. Provide reference_data_id or singler_reference."
         )
 
@@ -360,7 +360,7 @@ async def _annotate_with_tangram(
 
     # Check if reference data is provided
     if reference_adata is None:
-        raise ValueError("Tangram requires reference_data_id parameter.")
+        raise ParameterError("Tangram requires reference_data_id parameter.")
 
     # Use reference single-cell data (passed from main function via ctx.get_adata())
     adata_sc_original = reference_adata
@@ -408,7 +408,7 @@ async def _annotate_with_tangram(
         else:
             # Use highly variable genes
             if "highly_variable" not in adata_sc_original.var:
-                raise ValueError(
+                raise DataNotFoundError(
                     "HVGs not found in reference data. Run preprocessing first."
                 )
             training_genes = list(
@@ -444,7 +444,7 @@ async def _annotate_with_tangram(
                 break
 
         if cluster_label is None:
-            raise ValueError("No cluster label found. Provide cluster_label parameter.")
+            raise ParameterError("No cluster label found. Provide cluster_label parameter.")
 
         await ctx.info(f"Using '{cluster_label}' as cluster label for Tangram mapping")
 
@@ -524,13 +524,13 @@ async def _annotate_with_tangram(
                     f"Upgrade tangram-sc: pip install --upgrade tangram-sc"
                 )
                 await ctx.error(error_msg)
-                raise ValueError(error_msg)
+                raise ProcessingError(error_msg)
     except Exception as score_error:
         await ctx.error(f"Failed to extract Tangram mapping score: {score_error}")
         # Don't return a misleading score - fail gracefully
-        raise RuntimeError(
+        raise ProcessingError(
             f"Tangram mapping completed but score extraction failed: {score_error}"
-        )
+        ) from score_error
 
     # Compute validation metrics if requested
     if params.tangram_compute_validation:
@@ -577,7 +577,7 @@ async def _annotate_with_tangram(
                     if adata_sc.obs[col].dtype.name in ["object", "category"]
                 ]
 
-                raise ValueError(
+                raise ParameterError(
                     f"Cell type column '{params.cell_type_key}' not found. "
                     f"Available: {categorical_cols[:5]}"
                 )
@@ -669,7 +669,7 @@ async def _annotate_with_tangram(
 
     # Validate results before returning
     if not cell_types:
-        raise RuntimeError(
+        raise ProcessingError(
             "Tangram mapping failed - no cell type predictions generated"
         )
 
@@ -806,7 +806,7 @@ async def _annotate_with_scanvi(
 
     # Check if reference data is provided
     if reference_adata is None:
-        raise ValueError("scANVI requires reference_data_id parameter.")
+        raise ParameterError("scANVI requires reference_data_id parameter.")
 
     # Use reference single-cell data (passed from main function via ctx.get_adata())
     adata_ref_original = reference_adata
@@ -821,7 +821,7 @@ async def _annotate_with_scanvi(
     common_genes = find_common_genes(adata_ref_original.var_names, adata.var_names)
 
     if len(common_genes) < min(100, adata_ref_original.n_vars * 0.5):
-        raise ValueError(
+        raise DataError(
             f"Insufficient gene overlap: Only {len(common_genes)} common genes found. "
             f"Reference has {adata_ref_original.n_vars}, query has {adata.n_vars} genes."
         )
@@ -928,7 +928,7 @@ async def _annotate_with_scanvi(
                 # Note: adata.raw may have full genes while adata has HVG subset
                 adata_ref.layers["counts"] = adata_ref.raw[:, adata_ref.var_names].X
             else:
-                raise ValueError("scANVI requires raw counts in layers['counts'].")
+                raise DataNotFoundError("scANVI requires raw counts in layers['counts'].")
 
         # Setup AnnData for scANVI
         scvi.model.SCANVI.setup_anndata(
@@ -982,7 +982,7 @@ async def _annotate_with_scanvi(
                 :, adata_subset.var_names
             ].X
         else:
-            raise ValueError("scANVI requires raw counts in layers['counts'].")
+            raise DataNotFoundError("scANVI requires raw counts in layers['counts'].")
 
     scvi.model.SCANVI.setup_anndata(
         adata_subset,
@@ -1104,7 +1104,7 @@ async def _annotate_with_mllmcelltype(
             if adata.obs[col].dtype.name in ["object", "category"]
         ]
 
-        raise ValueError(
+        raise ParameterError(
             f"cluster_label parameter is required for mLLMCellType method.\n\n"
             f"Available categorical columns (likely clusters):\n  {', '.join(categorical_cols[:15])}\n"
             f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
@@ -1149,7 +1149,7 @@ async def _annotate_with_mllmcelltype(
             # Use interactive_consensus_annotation with multiple models
             models = params.mllm_models
             if not models:
-                raise ValueError(
+                raise ParameterError(
                     "mllm_models parameter is required when mllm_use_consensus=True. "
                     "Provide a list of model names, e.g., ['gpt-5', 'claude-sonnet-4-5-20250929', 'gemini-2.5-pro']"
                 )
@@ -1275,7 +1275,7 @@ async def _annotate_with_cellassign(
 
     # Check if marker genes are provided
     if params.marker_genes is None:
-        raise ValueError(
+        raise ParameterError(
             "CellAssign requires marker genes to be provided. "
             "Please specify marker_genes parameter with a dictionary of cell types and their marker genes."
         )
@@ -1333,7 +1333,7 @@ async def _annotate_with_cellassign(
     )
 
     if not valid_marker_genes:
-        raise ValueError(
+        raise DataError(
             f"No valid marker genes found for any cell type. "
             f"Checked {total_markers} markers against {len(all_genes)} genes in {gene_source}. "
             f"If data was preprocessed, marker genes may have been filtered out. "
@@ -1348,7 +1348,7 @@ async def _annotate_with_cellassign(
     available_marker_genes = list(set(all_marker_genes))  # Remove duplicates
 
     if not available_marker_genes:
-        raise ValueError("No marker genes found in the dataset")
+        raise DataError("No marker genes found in the dataset")
 
     # Create DataFrame with genes as index, cell types as columns
     marker_gene_matrix = pd.DataFrame(
@@ -1445,7 +1445,7 @@ async def _annotate_with_cellassign(
 
     # Verify size factors were transferred to subset
     if "size_factors" not in adata_subset.obs:
-        raise ValueError(
+        raise ProcessingError(
             "Size factors not found in adata.obs. This should not happen - "
             "they should have been computed before subsetting. Please report this bug."
         )
@@ -1529,7 +1529,7 @@ async def annotate_cell_types(
 
     # Validate method first - clean and simple
     if params.method not in SUPPORTED_METHODS:
-        raise ValueError(
+        raise ParameterError(
             f"Unsupported method: {params.method}. Supported: {sorted(SUPPORTED_METHODS)}"
         )
 
@@ -1802,7 +1802,7 @@ async def _prepare_sctype_genesets(params: AnnotationParameters, ctx: "ToolConte
     # Use sc-type database
     tissue = params.sctype_tissue
     if not tissue:
-        raise ValueError("sctype_tissue is required when not using custom markers")
+        raise ParameterError("sctype_tissue is required when not using custom markers")
 
     robjects, _, _, _, _, default_converter, openrlib, _ = validate_r_environment(ctx)
     from rpy2.robjects import conversion
@@ -1825,7 +1825,7 @@ def _convert_custom_markers_to_gs(
 ):
     """Convert custom markers to sc-type gene set format"""
     if not custom_markers:
-        raise ValueError("Custom markers dictionary is empty")
+        raise DataError("Custom markers dictionary is empty")
 
     gs_positive = {}
     gs_negative = {}
@@ -1860,7 +1860,7 @@ def _convert_custom_markers_to_gs(
             valid_celltypes += 1
 
     if valid_celltypes == 0:
-        raise ValueError(
+        raise DataError(
             "No valid cell types found in custom markers - all cell types need at least one positive marker"
         )
 
@@ -1958,7 +1958,7 @@ async def _assign_sctype_celltypes(
 ) -> tuple[List[str], List[float]]:
     """Assign cell types based on sc-type scores using softmax confidence."""
     if scores_df is None or scores_df.empty:
-        raise ValueError("Scores DataFrame is empty or None")
+        raise DataError("Scores DataFrame is empty or None")
 
     cell_types = []
     confidence_scores = []
@@ -2057,12 +2057,12 @@ async def _annotate_with_sctype(
 
     # Validate parameters
     if not params.sctype_tissue and not params.sctype_custom_markers:
-        raise ValueError(
+        raise ParameterError(
             "Either sctype_tissue or sctype_custom_markers must be specified"
         )
 
     if params.sctype_tissue and params.sctype_tissue not in SCTYPE_VALID_TISSUES:
-        raise ValueError(
+        raise ParameterError(
             f"Tissue '{params.sctype_tissue}' not supported. "
             f"Valid: {', '.join(sorted(SCTYPE_VALID_TISSUES))}"
         )
