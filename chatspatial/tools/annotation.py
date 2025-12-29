@@ -20,6 +20,7 @@ from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
 from ..utils.adata_utils import (
     ensure_unique_var_names_with_ctx,
+    find_common_genes,
     get_spatial_key,
     validate_obs_column,
 )
@@ -157,7 +158,7 @@ async def _annotate_with_singler(
         ref_features = [str(x) for x in reference_adata.var_names]
 
         # Check gene overlap
-        common_genes = set(test_features) & set(ref_features)
+        common_genes = find_common_genes(test_features, ref_features)
         await ctx.info(
             f"Gene overlap: {len(common_genes)}/{len(test_features)} test genes match reference"
         )
@@ -811,7 +812,7 @@ async def _annotate_with_scanvi(
     # Gene alignment
     await ctx.info("Aligning genes between reference and query data...")
 
-    common_genes = adata_ref_original.var_names.intersection(adata.var_names)
+    common_genes = find_common_genes(adata_ref_original.var_names, adata.var_names)
 
     if len(common_genes) < min(100, adata_ref_original.n_vars * 0.5):
         raise ValueError(
