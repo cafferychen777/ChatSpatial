@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
+from ..utils.adata_utils import get_spatial_key
 from ..utils.dependency_manager import is_available, require
 
 
@@ -969,10 +970,11 @@ async def _create_microenvironments_file(
 
         from sklearn.neighbors import NearestNeighbors
 
-        if "spatial" not in adata.obsm:
+        spatial_key = get_spatial_key(adata)
+        if spatial_key is None:
             return None
 
-        spatial_coords = adata.obsm["spatial"]
+        spatial_coords = adata.obsm[spatial_key]
 
         # Determine spatial radius
         if params.cellphonedb_spatial_radius is not None:
@@ -1095,7 +1097,8 @@ async def _analyze_communication_cellchat_r(
         validate_obs_column(adata, params.cell_type_key, "Cell type column")
 
         # Check for spatial data
-        has_spatial = "spatial" in adata.obsm
+        spatial_key = get_spatial_key(adata)
+        has_spatial = spatial_key is not None
 
         # Prepare expression matrix (genes x cells, normalized)
         # CellChat requires normalized data with comprehensive gene coverage
@@ -1141,7 +1144,7 @@ async def _analyze_communication_cellchat_r(
         # Prepare spatial coordinates if available
         spatial_locs = None
         if has_spatial and params.cellchat_distance_use:
-            spatial_coords = adata.obsm["spatial"]
+            spatial_coords = adata.obsm[spatial_key]
             spatial_locs = pd.DataFrame(
                 spatial_coords[:, :2],
                 index=adata.obs_names,

@@ -17,7 +17,12 @@ import scanpy as sc
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import ensure_unique_var_names, require_spatial_coords
+from ...utils.adata_utils import (
+    ensure_unique_var_names,
+    get_gene_expression,
+    get_genes_expression,
+    require_spatial_coords,
+)
 from ...utils.exceptions import DataNotFoundError, ProcessingError
 from .core import (
     create_figure,
@@ -77,14 +82,8 @@ async def create_multi_gene_visualization(
         if i < len(axes):
             ax = axes[i]
             try:
-                # Get gene expression
-                gene_expr = adata[:, gene].X
-                if hasattr(gene_expr, "toarray"):
-                    gene_expr = gene_expr.toarray().flatten()
-                elif hasattr(gene_expr, "A1"):
-                    gene_expr = gene_expr.A1
-                else:
-                    gene_expr = np.array(gene_expr).flatten()
+                # Get gene expression using unified utility
+                gene_expr = get_gene_expression(adata, gene)
 
                 # Apply color scaling
                 if params.color_scale == "log":
@@ -99,10 +98,10 @@ async def create_multi_gene_visualization(
                 if "spatial" in adata.obsm:
                     plot_spatial_feature(
                         adata,
-                        feature=temp_feature_key,
                         ax=ax,
+                        feature=temp_feature_key,
                         params=params,
-                        force_no_colorbar=True,
+                        show_colorbar=False,
                     )
 
                     # Set color limits
@@ -203,14 +202,8 @@ async def create_multi_gene_umap_visualization(
         if i < len(axes):
             ax = axes[i]
             try:
-                # Get gene expression
-                gene_expr = adata[:, gene].X
-                if hasattr(gene_expr, "toarray"):
-                    gene_expr = gene_expr.toarray().flatten()
-                elif hasattr(gene_expr, "A1"):
-                    gene_expr = gene_expr.A1
-                else:
-                    gene_expr = np.array(gene_expr).flatten()
+                # Get gene expression using unified utility
+                gene_expr = get_gene_expression(adata, gene)
 
                 # Apply color scaling
                 if params.color_scale == "log":
@@ -406,19 +399,9 @@ async def create_lr_pairs_visualization(
 
     for pair_idx, (ligand, receptor) in enumerate(available_pairs):
         try:
-            # Get expression data
-            ligand_expr = adata[:, ligand].X
-            receptor_expr = adata[:, receptor].X
-
-            if hasattr(ligand_expr, "toarray"):
-                ligand_expr = ligand_expr.toarray().flatten()
-                receptor_expr = receptor_expr.toarray().flatten()
-            elif hasattr(ligand_expr, "A1"):
-                ligand_expr = ligand_expr.A1
-                receptor_expr = receptor_expr.A1
-            else:
-                ligand_expr = np.array(ligand_expr).flatten()
-                receptor_expr = np.array(receptor_expr).flatten()
+            # Get expression data using unified utility
+            ligand_expr = get_gene_expression(adata, ligand)
+            receptor_expr = get_gene_expression(adata, receptor)
 
             # Apply color scaling
             if params.color_scale == "log":
@@ -434,10 +417,10 @@ async def create_lr_pairs_visualization(
                 adata.obs[temp_feature_key] = ligand_expr
                 plot_spatial_feature(
                     adata,
-                    feature=temp_feature_key,
                     ax=ax,
+                    feature=temp_feature_key,
                     params=params,
-                    force_no_colorbar=True,
+                    show_colorbar=False,
                 )
 
                 if params.show_colorbar and ax.collections:
@@ -460,10 +443,10 @@ async def create_lr_pairs_visualization(
                 adata.obs[temp_feature_key] = receptor_expr
                 plot_spatial_feature(
                     adata,
-                    feature=temp_feature_key,
                     ax=ax,
+                    feature=temp_feature_key,
                     params=params,
-                    force_no_colorbar=True,
+                    show_colorbar=False,
                 )
 
                 if params.show_colorbar and ax.collections:
@@ -568,10 +551,8 @@ async def create_gene_correlation_visualization(
             f"Creating gene correlation visualization for {len(available_genes)} genes"
         )
 
-    # Get expression matrix
-    expr_matrix = adata[:, available_genes].X
-    if hasattr(expr_matrix, "toarray"):
-        expr_matrix = expr_matrix.toarray()
+    # Get expression matrix using unified utility
+    expr_matrix = get_genes_expression(adata, available_genes)
 
     # Apply color scaling
     if params.color_scale == "log":
@@ -666,17 +647,9 @@ async def create_spatial_interaction_visualization(
 
             # Check if genes exist
             if ligand in adata.var_names and receptor in adata.var_names:
-                # Get expression
-                ligand_expr = (
-                    adata[:, ligand].X.toarray().flatten()
-                    if hasattr(adata.X, "toarray")
-                    else adata[:, ligand].X.flatten()
-                )
-                receptor_expr = (
-                    adata[:, receptor].X.toarray().flatten()
-                    if hasattr(adata.X, "toarray")
-                    else adata[:, receptor].X.flatten()
-                )
+                # Get expression using unified utility
+                ligand_expr = get_gene_expression(adata, ligand)
+                receptor_expr = get_gene_expression(adata, receptor)
 
                 # Define expression threshold
                 ligand_threshold = (
@@ -727,9 +700,7 @@ async def create_spatial_interaction_visualization(
                         ligand_indices, receptor_indices = np.where(
                             distances <= distance_threshold
                         )
-                        for li, ri in zip(
-                            ligand_indices[:50], receptor_indices[:50]
-                        ):
+                        for li, ri in zip(ligand_indices[:50], receptor_indices[:50]):
                             ax.plot(
                                 [ligand_coords[li, 0], receptor_coords[ri, 0]],
                                 [ligand_coords[li, 1], receptor_coords[ri, 1]],

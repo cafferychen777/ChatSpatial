@@ -31,12 +31,11 @@ from .basic import (
     create_violin_visualization,
 )
 from .cell_comm import create_cell_communication_visualization
-from .cnv import (
+from .cnv import create_cnv_heatmap_visualization, create_spatial_cnv_visualization
+from .deconvolution import (
     create_card_imputation_visualization,
-    create_cnv_heatmap_visualization,
-    create_spatial_cnv_visualization,
+    create_deconvolution_visualization,
 )
-from .deconvolution import create_deconvolution_visualization
 from .enrichment import create_pathway_enrichment_visualization
 from .integration import create_batch_integration_visualization
 from .multi_gene import (

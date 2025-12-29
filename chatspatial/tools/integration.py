@@ -15,7 +15,7 @@ from ..utils.dependency_manager import require
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
-from ..utils.adata_utils import store_analysis_metadata
+from ..utils.adata_utils import get_spatial_key, store_analysis_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -637,7 +637,8 @@ def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch
     from sklearn.preprocessing import StandardScaler
 
     # Ensure data contains spatial coordinates
-    if "spatial" not in combined_adata.obsm:
+    spatial_key = get_spatial_key(combined_adata)
+    if not spatial_key:
         raise ValueError("Data is missing spatial coordinates")
 
     # Get batch information
@@ -651,7 +652,7 @@ def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch
 
     # Get reference batch spatial coordinates
     ref_coords = combined_adata[combined_adata.obs[batch_key] == reference_batch].obsm[
-        "spatial"
+        spatial_key
     ]
 
     # Standardize reference coordinates
@@ -670,7 +671,7 @@ def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch
             aligned_coords.append(ref_coords_scaled)
         else:
             # Get current batch spatial coordinates
-            batch_coords = combined_adata[batch_idx].obsm["spatial"]
+            batch_coords = combined_adata[batch_idx].obsm[spatial_key]
 
             # Standardize current batch coordinates
             batch_coords_scaled = scaler.transform(batch_coords)

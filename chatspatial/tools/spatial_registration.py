@@ -150,6 +150,7 @@ def _prepare_stalign_image(
 def _register_paste(
     adata_list: List["ad.AnnData"],
     params: RegistrationParameters,
+    spatial_key: str = "spatial",
 ) -> List["ad.AnnData"]:
     """Register slices using PASTE optimal transport."""
     import paste as pst
@@ -226,10 +227,10 @@ def _register_paste(
         # Apply transformations
         for i, (adata, pi) in enumerate(zip(registered, pis_new)):
             if i == reference_idx:
-                adata.obsm["spatial_registered"] = adata.obsm["spatial"].copy()
+                adata.obsm["spatial_registered"] = adata.obsm[spatial_key].copy()
             else:
                 adata.obsm["spatial_registered"] = _transform_coordinates(
-                    pi, slices[reference_idx].obsm["spatial"]
+                    pi, slices[reference_idx].obsm[spatial_key]
                 )
 
     logger.info("PASTE registration completed")
@@ -239,6 +240,7 @@ def _register_paste(
 def _register_stalign(
     adata_list: List["ad.AnnData"],
     params: RegistrationParameters,
+    spatial_key: str = "spatial",
 ) -> List["ad.AnnData"]:
     """Register slices using STalign diffeomorphic mapping."""
     import STalign.STalign as ST
@@ -256,8 +258,8 @@ def _register_stalign(
     source, target = registered[0], registered[1]
 
     # Prepare coordinates
-    source_coords = source.obsm["spatial"].astype(np.float32)
-    target_coords = target.obsm["spatial"].astype(np.float32)
+    source_coords = source.obsm[spatial_key].astype(np.float32)
+    target_coords = target.obsm[spatial_key].astype(np.float32)
 
     # Prepare intensity
     if params.stalign_use_expression:
@@ -389,15 +391,15 @@ def register_slices(
     if len(adata_list) < 2:
         raise ParameterError("Registration requires at least 2 slices")
 
-    # Validate spatial coordinates
-    _validate_spatial_coords(adata_list)
+    # Validate spatial coordinates and get the spatial key
+    spatial_key = _validate_spatial_coords(adata_list)
 
     logger.info(f"Registering {len(adata_list)} slices using {params.method}")
 
     if params.method == "paste":
-        return _register_paste(adata_list, params)
+        return _register_paste(adata_list, params, spatial_key)
     elif params.method == "stalign":
-        return _register_stalign(adata_list, params)
+        return _register_stalign(adata_list, params, spatial_key)
     else:
         raise ParameterError(f"Unknown method: {params.method}")
 

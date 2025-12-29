@@ -25,7 +25,6 @@ from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ProcessingError
 from .core import CellCommunicationData
 
-
 # =============================================================================
 # Data Retrieval
 # =============================================================================

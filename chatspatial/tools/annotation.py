@@ -18,7 +18,11 @@ if TYPE_CHECKING:
 
 from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
-from ..utils.adata_utils import ensure_unique_var_names_with_ctx, validate_obs_column
+from ..utils.adata_utils import (
+    ensure_unique_var_names_with_ctx,
+    get_spatial_key,
+    validate_obs_column,
+)
 from ..utils.dependency_manager import (
     is_available,
     require,
@@ -359,7 +363,9 @@ async def _annotate_with_tangram(
     if adata.raw is not None:
         adata_sp = adata.raw.to_adata()
         # Preserve spatial coordinates from preprocessed data
-        adata_sp.obsm["spatial"] = adata.obsm["spatial"].copy()
+        spatial_key = get_spatial_key(adata)
+        if spatial_key:
+            adata_sp.obsm[spatial_key] = adata.obsm[spatial_key].copy()
         await ctx.info(
             "Using raw data for Tangram (preserves original gene names and counts)"
         )

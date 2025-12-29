@@ -12,11 +12,15 @@ from pydantic import BaseModel, Field
 
 from ..models.analysis import BaseAnalysisResult
 from ..spatial_mcp_adapter import ToolContext
-from ..utils.compute import (ensure_diffmap, ensure_leiden, ensure_louvain,
-                             ensure_neighbors, ensure_pca,
-                             ensure_spatial_neighbors, ensure_umap,
-                             has_clustering, has_neighbors, has_pca,
-                             has_spatial_neighbors, has_umap)
+from ..utils.compute import (
+    ensure_diffmap,
+    ensure_leiden,
+    ensure_louvain,
+    ensure_neighbors,
+    ensure_pca,
+    ensure_spatial_neighbors,
+    ensure_umap,
+)
 from ..utils.mcp_utils import mcp_tool_error_handler
 
 

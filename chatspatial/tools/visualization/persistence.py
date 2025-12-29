@@ -135,7 +135,9 @@ async def save_visualization(
             )
 
         # Generate cache key with subtype if provided
-        cache_key = f"{data_id}_{plot_type}_{subtype}" if subtype else f"{data_id}_{plot_type}"
+        cache_key = (
+            f"{data_id}_{plot_type}_{subtype}" if subtype else f"{data_id}_{plot_type}"
+        )
 
         # Check if visualization exists in cache
         visualization_cache = ctx.get_visualization_cache()

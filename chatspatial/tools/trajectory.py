@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
-from ..utils.adata_utils import validate_adata
+from ..utils.adata_utils import get_spatial_key, require_spatial_coords, validate_adata
 from ..utils.compute import ensure_diffmap, ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 from ..utils.exceptions import DataNotFoundError, ProcessingError
@@ -255,7 +255,8 @@ def infer_spatial_trajectory_cellrank(
     from scipy.spatial.distance import pdist, squareform
 
     # Check if spatial data is available
-    has_spatial = "spatial" in adata.obsm
+    spatial_key = get_spatial_key(adata)
+    has_spatial = spatial_key is not None
 
     # Adjust spatial_weight if no spatial data
     if not has_spatial and spatial_weight > 0:
@@ -271,7 +272,7 @@ def infer_spatial_trajectory_cellrank(
             adata_for_cellrank = adata.uns["velovi_adata"]
             # Transfer spatial coordinates if available
             if has_spatial:
-                adata_for_cellrank.obsm["spatial"] = adata.obsm["spatial"]
+                adata_for_cellrank.obsm["spatial"] = adata.obsm[spatial_key]
 
             # VELOVI stores velocity as 'velocity_velovi', but CellRank expects 'velocity'
             # Create a reference to the standard velocity layer name
@@ -300,7 +301,7 @@ def infer_spatial_trajectory_cellrank(
 
     if has_spatial and spatial_weight > 0:
         # Create custom spatial kernel
-        spatial_coords = adata.obsm["spatial"]
+        spatial_coords = adata.obsm[spatial_key]
         spatial_dist = squareform(pdist(spatial_coords))
         spatial_sim = np.exp(-spatial_dist / spatial_dist.mean())
         spatial_kernel = csr_matrix(spatial_sim)
@@ -405,13 +406,8 @@ def spatial_aware_embedding(adata, spatial_weight=0.3):
     from sklearn.metrics.pairwise import euclidean_distances
     from umap import UMAP
 
-    # Validate spatial data
-    try:
-        validate_adata(adata, {}, check_spatial=True)
-    except DataNotFoundError as e:
-        raise ValueError(f"Invalid spatial data: {e}")
-
-    spatial_coords = adata.obsm["spatial"]
+    # Validate and get spatial coordinates
+    spatial_coords = require_spatial_coords(adata)
 
     # Ensure PCA has been computed (lazy computation)
     ensure_pca(adata)
@@ -724,7 +720,7 @@ async def analyze_trajectory(
         try:
             with suppress_output():
                 # Optional: Run spatially-aware embedding if spatial data available
-                has_spatial = "spatial" in adata.obsm
+                has_spatial = get_spatial_key(adata) is not None
                 if has_spatial and params.spatial_weight > 0:
                     await ctx.info(
                         f"Using spatial-aware embedding with weight {params.spatial_weight}"

@@ -22,9 +22,7 @@ from ..models.analysis import SpatialVariableGenesResult  # noqa: E402
 from ..models.data import SpatialVariableGenesParameters  # noqa: E402
 from ..utils import validate_var_column  # noqa: E402
 from ..utils.adata_utils import require_spatial_coords  # noqa: E402
-from ..utils.dependency_manager import (  # noqa: E402
-    require,
-)
+from ..utils.dependency_manager import require  # noqa: E402
 from ..utils.mcp_utils import suppress_output  # noqa: E402
 
 
@@ -94,8 +92,8 @@ async def identify_spatial_genes(
     # Get data via ToolContext
     adata = await ctx.get_adata(data_id)
 
-    # Validate and extract spatial coordinates
-    spatial_coords = require_spatial_coords(adata, spatial_key=params.spatial_key)
+    # Validate spatial coordinates exist
+    require_spatial_coords(adata, spatial_key=params.spatial_key)
 
     # Log data information
     await ctx.info(f"Processing data: {adata.n_obs} spots, {adata.n_vars} genes")
@@ -838,7 +836,7 @@ async def _identify_spatial_genes_sparkx(
                     is_dataframe = ro.r["is.data.frame"](pvals)[0]
                     if not is_dataframe:
                         raise RuntimeError(
-                            f"SPARK-X output format error. Requires SPARK >= 1.1.0."
+                            "SPARK-X output format error. Requires SPARK >= 1.1.0."
                         )
 
                     # Extract combinedPval (raw p-values combined across kernels)

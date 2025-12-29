@@ -22,6 +22,21 @@ Usage:
     )
 """
 
+# Basic visualizations
+from .basic import (
+    create_dotplot_visualization,
+    create_heatmap_visualization,
+    create_spatial_visualization,
+    create_umap_visualization,
+    create_violin_visualization,
+)
+
+# Cell communication visualizations
+from .cell_comm import create_cell_communication_visualization
+
+# CNV visualizations
+from .cnv import create_cnv_heatmap_visualization, create_spatial_cnv_visualization
+
 # Core utilities and data classes
 from .core import (
     CellCommunicationData,
@@ -36,29 +51,12 @@ from .core import (
     validate_and_prepare_feature,
 )
 
-# Basic visualizations
-from .basic import (
-    create_dotplot_visualization,
-    create_heatmap_visualization,
-    create_spatial_visualization,
-    create_umap_visualization,
-    create_violin_visualization,
-)
-
+# CARD imputation (from deconvolution module)
 # Deconvolution visualizations
-from .deconvolution import create_deconvolution_visualization
-
-# Cell communication visualizations
-from .cell_comm import create_cell_communication_visualization
-
-# RNA velocity visualizations
-from .velocity import create_rna_velocity_visualization
-
-# Trajectory visualizations
-from .trajectory import create_trajectory_visualization
-
-# Spatial statistics visualizations
-from .spatial_stats import create_spatial_statistics_visualization
+from .deconvolution import (
+    create_card_imputation_visualization,
+    create_deconvolution_visualization,
+)
 
 # Enrichment visualizations
 from .enrichment import (
@@ -66,15 +64,11 @@ from .enrichment import (
     create_pathway_enrichment_visualization,
 )
 
-# CNV visualizations
-from .cnv import (
-    create_card_imputation_visualization,
-    create_cnv_heatmap_visualization,
-    create_spatial_cnv_visualization,
-)
-
 # Batch integration visualizations
 from .integration import create_batch_integration_visualization
+
+# Main entry point and handler registry (from main.py to avoid circular imports)
+from .main import PLOT_HANDLERS, visualize_data
 
 # Multi-gene visualizations
 from .multi_gene import (
@@ -92,8 +86,14 @@ from .persistence import (
     save_visualization,
 )
 
-# Main entry point and handler registry (from main.py to avoid circular imports)
-from .main import PLOT_HANDLERS, visualize_data
+# Spatial statistics visualizations
+from .spatial_stats import create_spatial_statistics_visualization
+
+# Trajectory visualizations
+from .trajectory import create_trajectory_visualization
+
+# RNA velocity visualizations
+from .velocity import create_rna_velocity_visualization
 
 __all__ = [
     # Core utilities

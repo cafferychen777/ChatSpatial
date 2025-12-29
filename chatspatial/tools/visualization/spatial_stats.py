@@ -26,7 +26,6 @@ from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import setup_multi_panel_figure
 
-
 # =============================================================================
 # Main Router
 # =============================================================================

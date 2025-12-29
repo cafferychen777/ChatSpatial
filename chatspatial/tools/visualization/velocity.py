@@ -26,8 +26,6 @@ from ...utils.exceptions import (
     DataNotFoundError,
     ParameterError,
 )
-from .core import validate_and_prepare_feature
-
 
 # =============================================================================
 # Main Router
@@ -100,7 +98,9 @@ async def _create_velocity_stream_plot(
     import scvelo as scv
 
     if "velocity_graph" not in adata.uns:
-        raise DataNotFoundError("RNA velocity not computed. Run analyze_velocity_data first.")
+        raise DataNotFoundError(
+            "RNA velocity not computed. Run analyze_velocity_data first."
+        )
 
     # Determine basis for plotting
     basis = params.basis or "spatial"
@@ -130,21 +130,17 @@ async def _create_velocity_stream_plot(
             )
 
     # Prepare feature for coloring
-    default_feature = None
-    if not params.feature:
+    feature = params.feature
+    if not feature:
+        # Auto-detect a suitable categorical column for coloring
         categorical_cols = [
             col
             for col in adata.obs.columns
             if adata.obs[col].dtype.name in ["object", "category"]
         ]
-        default_feature = categorical_cols[0] if categorical_cols else None
-
-    feature = await validate_and_prepare_feature(
-        adata,
-        params.feature,
-        context,
-        default_feature=default_feature,
-    )
+        feature = categorical_cols[0] if categorical_cols else None
+        if feature and context:
+            await context.info(f"Using '{feature}' for coloring")
 
     figsize = params.figure_size or (10, 8)
     fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)

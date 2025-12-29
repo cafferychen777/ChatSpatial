@@ -19,39 +19,18 @@ if TYPE_CHECKING:
 
 from ..models.analysis import DeconvolutionResult  # noqa: E402
 from ..models.data import DeconvolutionParameters  # noqa: E402
-from ..utils.adata_utils import ensure_unique_var_names_with_ctx
+from ..utils.adata_utils import (
+    ensure_unique_var_names_with_ctx,
+    get_spatial_key,
+    require_spatial_coords,
+    to_dense,
+    validate_obs_column,
+)
 from ..utils.dependency_manager import get as get_dependency
 from ..utils.dependency_manager import is_available, require
 from ..utils.mcp_utils import suppress_output
 
 # Helper functions for deconvolution
-
-
-def _validate_cell_type_key(
-    reference_adata: ad.AnnData,
-    cell_type_key: str,
-) -> None:
-    """Validate that cell type key exists in reference data.
-
-    Args:
-        reference_adata: Reference AnnData object
-        cell_type_key: Column name for cell type annotations
-
-    Raises:
-        ValueError: If cell_type_key not found in reference_adata.obs
-    """
-    if cell_type_key not in reference_adata.obs:
-        available_keys = [
-            k
-            for k in reference_adata.obs.columns
-            if "type" in k.lower() or "cell" in k.lower()
-        ]
-        msg = f"Cell type key '{cell_type_key}' not found in reference data."
-        if available_keys:
-            msg += f" Similar keys found: {available_keys}"
-        else:
-            msg += f" Available keys: {list(reference_adata.obs.columns)[:10]}"
-        raise ValueError(msg)
 
 
 def _validate_common_genes(
@@ -429,12 +408,7 @@ async def _prepare_anndata_for_counts(
             # Sample first, then convert (memory efficient)
             sample_size = min(100, raw_adata.X.shape[0])
             sample_genes = min(100, raw_adata.X.shape[1])
-            raw_X_sample = raw_adata.X[:sample_size, :sample_genes]
-
-            if hasattr(raw_X_sample, "toarray"):
-                sample_X = raw_X_sample.toarray()
-            else:
-                sample_X = raw_X_sample
+            sample_X = to_dense(raw_adata.X[:sample_size, :sample_genes])
 
             has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
             has_negatives = sample_X.min() < 0
@@ -478,10 +452,7 @@ async def _prepare_anndata_for_counts(
     # Check for decimals using small sample (avoid converting entire matrix)
     sample_size = min(1000, adata_copy.n_obs)
     sample_genes = min(100, adata_copy.n_vars)
-    if hasattr(adata_copy.X, "toarray"):
-        X_sample = adata_copy.X[:sample_size, :sample_genes].toarray()
-    else:
-        X_sample = adata_copy.X[:sample_size, :sample_genes]
+    X_sample = to_dense(adata_copy.X[:sample_size, :sample_genes])
     has_decimals = not np.allclose(X_sample, np.round(X_sample), atol=1e-6)
 
     # MEMORY OPTIMIZATION: Conditional dtype conversion based on downstream method
@@ -558,12 +529,7 @@ async def _prepare_reference_for_card(
             # Sample first, then convert (memory efficient)
             sample_size = min(100, raw_adata.X.shape[0])
             sample_genes = min(100, raw_adata.X.shape[1])
-            raw_X_sample = raw_adata.X[:sample_size, :sample_genes]
-
-            if hasattr(raw_X_sample, "toarray"):
-                sample_X = raw_X_sample.toarray()
-            else:
-                sample_X = raw_X_sample
+            sample_X = to_dense(raw_adata.X[:sample_size, :sample_genes])
 
             has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
             has_negatives = sample_X.min() < 0
@@ -588,12 +554,7 @@ async def _prepare_reference_for_card(
         # Sample first, then convert (more memory efficient)
         sample_size = min(100, adata_copy.n_obs)
         sample_genes = min(100, adata_copy.n_vars)
-        X_sample = adata_copy.X[:sample_size, :sample_genes]
-
-        if hasattr(X_sample, "toarray"):
-            sample_X = X_sample.toarray()
-        else:
-            sample_X = X_sample
+        sample_X = to_dense(adata_copy.X[:sample_size, :sample_genes])
 
         has_decimals = not np.allclose(sample_X, np.round(sample_X), atol=1e-6)
 
@@ -864,7 +825,7 @@ async def deconvolve_cell2location(
         qc_results = None
 
         # Validate cell type key exists
-        _validate_cell_type_key(reference_adata, cell_type_key)
+        validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
         # Unified device selection
         device = _get_device(use_gpu)
@@ -1462,7 +1423,7 @@ async def deconvolve_rctd(
         mixtures in spatial transcriptomics"
     """
     # Validate cell type key exists
-    _validate_cell_type_key(reference_adata, cell_type_key)
+    validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
     # Validate max_multi_types for multi mode
     if mode == "multi":
@@ -1563,9 +1524,10 @@ async def deconvolve_rctd(
                 )
 
         # Get spatial coordinates if available
-        if "spatial" in spatial_adata.obsm:
+        spatial_key = get_spatial_key(spatial_adata)
+        if spatial_key:
             coords = pd.DataFrame(
-                spatial_adata.obsm["spatial"],
+                spatial_adata.obsm[spatial_key],
                 index=spatial_adata.obs_names,
                 columns=["x", "y"],
             )
@@ -1955,7 +1917,7 @@ async def deconvolve_spatial_data(
             )
 
             # Check cell type key
-            _validate_cell_type_key(reference_adata, params.cell_type_key)
+            validate_obs_column(reference_adata, params.cell_type_key, "Cell type key")
 
             await ctx.info(f"Reference dataset shape: {reference_adata.shape}")
             cell_types = reference_adata.obs[params.cell_type_key].unique()
@@ -2446,7 +2408,7 @@ async def deconvolve_destvi(
         import scvi
 
         # Validate cell type key exists
-        _validate_cell_type_key(reference_adata, cell_type_key)
+        validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
         # Prepare data first (DestVI requires integer counts)
         # Memory optimization: helper function creates internal copy, no need to copy here
@@ -2637,7 +2599,7 @@ async def deconvolve_stereoscope(
     """
     try:
         # Validate cell type key exists
-        _validate_cell_type_key(reference_adata, cell_type_key)
+        validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
         # Prepare data first - Stereoscope requires raw counts
         # Memory optimization: helper function creates internal copy, no need to copy here
@@ -2899,14 +2861,10 @@ async def deconvolve_spotlight(
         from rpy2.robjects.conversion import localconverter
 
         # Validate cell type key exists
-        _validate_cell_type_key(reference_adata, cell_type_key)
+        validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
-        # Check for spatial coordinates
-        if "spatial" not in spatial_adata.obsm:
-            raise ValueError(
-                "No spatial coordinates found in spatial_adata.obsm['spatial']. "
-                "SPOTlight requires spatial coordinates for proper analysis."
-            )
+        # Validate and get spatial coordinates (SPOTlight requires them)
+        spatial_coords_original = require_spatial_coords(spatial_adata)
 
         # Prepare full datasets first
         # Memory optimization: helper function creates internal copy, no need to copy here
@@ -2947,8 +2905,8 @@ async def deconvolve_spotlight(
         spatial_counts = spatial_subset.X.astype(int)
         reference_counts = reference_subset.X.astype(int)
 
-        # Get spatial coordinates
-        spatial_coords = spatial_subset.obsm["spatial"]
+        # Use validated spatial coordinates (already validated above)
+        spatial_coords = spatial_coords_original
 
         # Cell type labels - clean special characters for R compatibility
         cell_types = reference_subset.obs[cell_type_key].astype(str)
@@ -3161,7 +3119,7 @@ async def deconvolve_card(
         RuntimeError: If CARD computation fails
     """
     # Validate cell type key exists
-    _validate_cell_type_key(reference_adata, cell_type_key)
+    validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
     # Check availability
     is_available, error_message = is_card_available()
@@ -3206,9 +3164,10 @@ async def deconvolve_card(
         reference_data = reference_data[:, common_genes]
 
         # 4. Get spatial coordinates
-        if "spatial" in spatial_adata.obsm:
+        spatial_key = get_spatial_key(spatial_adata)
+        if spatial_key:
             spatial_location = pd.DataFrame(
-                spatial_adata.obsm["spatial"],
+                spatial_adata.obsm[spatial_key],
                 index=spatial_adata.obs_names,
                 columns=["x", "y"],
             )
@@ -3480,7 +3439,7 @@ async def deconvolve_tangram(
         import mudata as md
 
         # Validate cell type key exists
-        _validate_cell_type_key(reference_adata, cell_type_key)
+        validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
         # Find common genes between datasets
         common_genes = list(
@@ -3508,11 +3467,9 @@ async def deconvolve_tangram(
         # Sample for decimal check
         sp_sample_size = min(1000, spatial_data.n_obs)
         sp_sample_genes = min(100, spatial_data.n_vars)
-        sp_sample = spatial_data.X[:sp_sample_size, :sp_sample_genes]
-        if hasattr(sp_sample, "toarray"):
-            sp_sample_dense = sp_sample.toarray()
-        else:
-            sp_sample_dense = sp_sample
+        sp_sample_dense = to_dense(
+            spatial_data.X[:sp_sample_size, :sp_sample_genes]
+        )
         sp_has_decimals = not np.allclose(
             sp_sample_dense, np.round(sp_sample_dense), atol=1e-6
         )
@@ -3523,11 +3480,9 @@ async def deconvolve_tangram(
         # Sample for decimal check
         ref_sample_size = min(1000, ref_data.n_obs)
         ref_sample_genes = min(100, ref_data.n_vars)
-        ref_sample = ref_data.X[:ref_sample_size, :ref_sample_genes]
-        if hasattr(ref_sample, "toarray"):
-            ref_sample_dense = ref_sample.toarray()
-        else:
-            ref_sample_dense = ref_sample
+        ref_sample_dense = to_dense(
+            ref_data.X[:ref_sample_size, :ref_sample_genes]
+        )
         ref_has_decimals = not np.allclose(
             ref_sample_dense, np.round(ref_sample_dense), atol=1e-6
         )
@@ -3704,7 +3659,7 @@ async def deconvolve_flashdeconv(
         await ctx.info(f"Using FlashDeconv version {fd.__version__}")
 
         # Validate inputs
-        _validate_cell_type_key(reference_adata, cell_type_key)
+        validate_obs_column(reference_adata, cell_type_key, "Cell type key")
 
         # Find common genes
         common_genes = list(
