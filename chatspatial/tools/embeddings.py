@@ -167,15 +167,12 @@ async def compute_embeddings(
     Returns:
         Summary of computed embeddings
     """
-    await ctx.info(f"Computing embeddings for dataset {data_id}")
-
     adata = await ctx.get_adata(data_id)
     computed = []
     skipped = []
 
     # Handle force recomputation by removing existing results
     if params.force:
-        await ctx.info("Force mode: removing existing embeddings for recomputation")
         if params.compute_pca and "X_pca" in adata.obsm:
             del adata.obsm["X_pca"]
             if "pca" in adata.uns:
@@ -207,7 +204,6 @@ async def compute_embeddings(
             random_state=params.random_state,
         ):
             computed.append("PCA")
-            await ctx.info(f"Computed PCA with {params.n_pcs} components")
         else:
             skipped.append("PCA (already exists)")
 
@@ -220,9 +216,6 @@ async def compute_embeddings(
             random_state=params.random_state,
         ):
             computed.append("neighbors")
-            await ctx.info(
-                f"Computed neighbor graph with {params.n_neighbors} neighbors"
-            )
         else:
             skipped.append("neighbors (already exists)")
 
@@ -234,7 +227,6 @@ async def compute_embeddings(
             random_state=params.random_state,
         ):
             computed.append("UMAP")
-            await ctx.info("Computed UMAP embedding")
         else:
             skipped.append("UMAP (already exists)")
 
@@ -250,7 +242,6 @@ async def compute_embeddings(
             ):
                 n_clusters = adata.obs[params.clustering_key].nunique()
                 computed.append(f"Leiden clustering ({n_clusters} clusters)")
-                await ctx.info(f"Computed Leiden clustering: {n_clusters} clusters")
             else:
                 skipped.append(f"{params.clustering_key} (already exists)")
                 n_clusters = adata.obs[params.clustering_key].nunique()
@@ -263,7 +254,6 @@ async def compute_embeddings(
             ):
                 n_clusters = adata.obs[params.clustering_key].nunique()
                 computed.append(f"Louvain clustering ({n_clusters} clusters)")
-                await ctx.info(f"Computed Louvain clustering: {n_clusters} clusters")
             else:
                 skipped.append(f"{params.clustering_key} (already exists)")
                 n_clusters = adata.obs[params.clustering_key].nunique()
@@ -272,9 +262,6 @@ async def compute_embeddings(
     if params.compute_diffmap:
         if ensure_diffmap(adata, n_comps=params.diffmap_n_comps):
             computed.append("diffusion map")
-            await ctx.info(
-                f"Computed diffusion map with {params.diffmap_n_comps} components"
-            )
         else:
             skipped.append("diffusion map (already exists)")
 
@@ -288,9 +275,6 @@ async def compute_embeddings(
                 n_rings=params.spatial_n_rings,
             ):
                 computed.append("spatial neighbors")
-                await ctx.info(
-                    f"Computed spatial neighbors ({params.spatial_coord_type})"
-                )
             else:
                 skipped.append("spatial neighbors (already exists)")
         except ValueError as e:
@@ -304,12 +288,6 @@ async def compute_embeddings(
 
     # Store updated data
     await ctx.set_adata(data_id, adata)
-
-    # Build summary message
-    if computed:
-        await ctx.info(f"Computed: {', '.join(computed)}")
-    if skipped:
-        await ctx.info(f"Skipped: {', '.join(skipped)}")
 
     return EmbeddingResult(
         data_id=data_id,

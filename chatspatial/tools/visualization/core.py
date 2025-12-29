@@ -403,3 +403,78 @@ def plot_spatial_feature(
         ax.set_title(title, fontsize=12)
 
     return mappable
+
+
+# =============================================================================
+# Data Inference Utilities
+# =============================================================================
+
+
+def get_categorical_columns(
+    adata: ad.AnnData,
+    limit: Optional[int] = None,
+) -> List[str]:
+    """Get categorical column names from adata.obs.
+
+    Args:
+        adata: AnnData object
+        limit: Maximum number of columns to return (None for all)
+
+    Returns:
+        List of categorical column names
+    """
+    categorical_cols = [
+        col
+        for col in adata.obs.columns
+        if adata.obs[col].dtype.name in ["object", "category"]
+    ]
+    if limit is not None:
+        return categorical_cols[:limit]
+    return categorical_cols
+
+
+def infer_basis(
+    adata: ad.AnnData,
+    preferred: Optional[str] = None,
+    priority: Optional[List[str]] = None,
+) -> Optional[str]:
+    """Infer the best embedding basis from available options.
+
+    Args:
+        adata: AnnData object
+        preferred: User-specified preferred basis (returned if valid)
+        priority: Priority order for basis selection.
+                  Default: ["spatial", "umap", "pca"]
+
+    Returns:
+        Best available basis name (without X_ prefix), or None if none found
+
+    Examples:
+        >>> infer_basis(adata)  # Auto-detect: spatial > umap > pca
+        'umap'
+        >>> infer_basis(adata, preferred='tsne')  # Use if valid
+        'tsne'
+        >>> infer_basis(adata, priority=['umap', 'spatial'])  # Custom order
+        'umap'
+    """
+    if priority is None:
+        priority = ["spatial", "umap", "pca"]
+
+    # Check preferred basis first
+    if preferred:
+        key = preferred if preferred == "spatial" else f"X_{preferred}"
+        if key in adata.obsm:
+            return preferred
+
+    # Check priority list
+    for basis in priority:
+        key = basis if basis == "spatial" else f"X_{basis}"
+        if key in adata.obsm:
+            return basis
+
+    # Fallback: return first available X_* key
+    for key in adata.obsm.keys():
+        if key.startswith("X_"):
+            return key[2:]  # Strip X_ prefix
+
+    return None

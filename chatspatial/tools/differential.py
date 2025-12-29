@@ -61,16 +61,12 @@ async def differential_expression(
     # IMPORTANT: Handle float16 data type (numba doesn't support float16)
     # Convert to float32 if needed for differential expression analysis
     if hasattr(adata.X, "dtype") and adata.X.dtype == np.float16:
-        await ctx.info(
-            "Converting data from float16 to float32 for compatibility with rank_genes_groups"
-        )
         # Create a copy to avoid modifying the original data
         adata = adata.copy()
         adata.X = adata.X.astype(np.float32)
 
     # If group1 is None, find markers for all groups
     if group1 is None:
-        await ctx.info(f"Finding marker genes for all groups in '{group_key}'")
 
         # Filter out groups with too few cells (user-configurable threshold)
         group_sizes = adata.obs[group_key].value_counts()
@@ -172,10 +168,6 @@ async def differential_expression(
         )
 
     # Original logic for specific group comparison
-    await ctx.info(
-        f"Performing differential expression analysis between {group1} and {group2}"
-    )
-
     # Check if the groups exist in the group_key
     if group1 not in adata.obs[group_key].values:
         raise ParameterError(f"Group '{group1}' not found in adata.obs['{group_key}']")
@@ -189,7 +181,6 @@ async def differential_expression(
         raise ParameterError(f"Group '{group2}' not found in adata.obs['{group_key}']")
 
     # Perform differential expression analysis
-    await ctx.info(f"Running rank_genes_groups with method '{method}'")
 
     # Prepare the AnnData object for analysis
     if use_rest_as_reference:
@@ -210,7 +201,6 @@ async def differential_expression(
     )
 
     # Extract results
-    await ctx.info("Extracting differential expression results")
 
     # Get the top genes
     top_genes = []
@@ -280,14 +270,6 @@ async def differential_expression(
         lib_sizes = raw_adata.X.sum(axis=1).flatten()
 
     median_lib_size = float(np.median(lib_sizes))
-
-    await ctx.info(
-        f"Calculating fold changes with library size normalization "
-        f"(median library size: {median_lib_size:.0f} UMIs)"
-    )
-    await ctx.info(
-        f"Group 1: {np.sum(group1_mask)} cells, Group 2: {np.sum(group2_mask)} cells"
-    )
 
     # Calculate fold change for each top gene
     for gene in top_genes:

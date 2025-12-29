@@ -24,7 +24,7 @@ from ...models.data import VisualizationParameters
 from ...utils.adata_utils import require_spatial_coords
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError
-from .core import setup_multi_panel_figure
+from .core import get_categorical_columns, setup_multi_panel_figure
 
 # =============================================================================
 # Main Router
@@ -111,11 +111,7 @@ async def _create_neighborhood_enrichment_visualization(
             if context:
                 await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
-            categorical_cols = [
-                col
-                for col in adata.obs.columns
-                if adata.obs[col].dtype.name in ["object", "category"]
-            ][:10]
+            categorical_cols = get_categorical_columns(adata, limit=10)
             raise ValueError(
                 f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
@@ -167,11 +163,7 @@ async def _create_co_occurrence_visualization(
             if context:
                 await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
-            categorical_cols = [
-                col
-                for col in adata.obs.columns
-                if adata.obs[col].dtype.name in ["object", "category"]
-            ][:10]
+            categorical_cols = get_categorical_columns(adata, limit=10)
             raise ValueError(
                 f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
@@ -227,11 +219,7 @@ async def _create_ripley_visualization(
             if context:
                 await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
-            categorical_cols = [
-                col
-                for col in adata.obs.columns
-                if adata.obs[col].dtype.name in ["object", "category"]
-            ][:10]
+            categorical_cols = get_categorical_columns(adata, limit=10)
             raise ValueError(
                 f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )
@@ -260,9 +248,10 @@ def _create_moran_visualization(
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
-    """Create Moran's I visualization.
+    """Create Moran's I volcano-style visualization.
 
     Shows -log10(p-value) vs Moran's I for spatially variable genes.
+    Color indicates Moran's I value (positive = clustered, negative = dispersed).
 
     Data requirements:
         - adata.uns['moranI']: DataFrame with I, pval_norm columns
@@ -271,46 +260,64 @@ def _create_moran_visualization(
         raise DataNotFoundError("Moran's I results not found. Expected key: moranI")
 
     moran_data = adata.uns["moranI"]
+    moran_i = moran_data["I"].values
+    pvals = moran_data["pval_norm"].values
+
+    # Handle zero/negative p-values for log transform
+    pvals_safe = np.clip(pvals, 1e-300, 1.0)
+    neg_log_pval = -np.log10(pvals_safe)
 
     figsize = params.figure_size or (10, 8)
     fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
 
+    # Color by Moran's I value (meaningful: positive=clustered, negative=dispersed)
     scatter = ax.scatter(
-        -np.log10(moran_data["pval_norm"]),
-        moran_data["I"],
+        neg_log_pval,
+        moran_i,
         s=50,
         alpha=params.alpha,
-        c=range(len(moran_data["I"])),
-        cmap=params.colormap,
+        c=moran_i,
+        cmap="RdBu_r",  # Diverging colormap centered at 0
+        vmin=-max(abs(moran_i.min()), abs(moran_i.max())),
+        vmax=max(abs(moran_i.min()), abs(moran_i.max())),
     )
 
-    # Add labels for top significant genes
-    gene_names = (
-        moran_data.index
-        if hasattr(moran_data, "index")
-        else range(len(moran_data["I"]))
-    )
-    for i, gene in enumerate(gene_names[:5]):
-        if moran_data["pval_norm"][i] < 0.05:
-            ax.annotate(
-                str(gene),
-                (-np.log10(moran_data["pval_norm"][i]), moran_data["I"][i]),
-                xytext=(5, 5),
-                textcoords="offset points",
-                fontsize=8,
-            )
+    # Label top significant genes (high I and low p-value)
+    gene_names = moran_data.index.tolist()
+    sig_threshold = -np.log10(0.05)
+    significant_mask = (neg_log_pval > sig_threshold) & (moran_i > 0)
 
-    # Add reference lines
-    ax.axhline(y=0, color="gray", linestyle="--", alpha=0.5)
-    ax.axvline(x=-np.log10(0.05), color="red", linestyle="--", alpha=0.5)
+    if np.any(significant_mask):
+        # Sort by combined score (high I * high significance)
+        scores = moran_i * neg_log_pval
+        top_indices = np.argsort(scores)[::-1][:10]  # Top 10
+
+        for idx in top_indices:
+            if significant_mask[idx]:
+                ax.annotate(
+                    gene_names[idx],
+                    (neg_log_pval[idx], moran_i[idx]),
+                    xytext=(5, 5),
+                    textcoords="offset points",
+                    fontsize=8,
+                    alpha=0.8,
+                )
+
+    # Reference lines
+    ax.axhline(y=0, color="gray", linestyle="--", alpha=0.5, label="I=0")
+    ax.axvline(x=sig_threshold, color="red", linestyle="--", alpha=0.5, label="p=0.05")
 
     title = params.title or "Moran's I Spatial Autocorrelation"
-    ax.set_title(title)
-    ax.set_xlabel("-log10(p-value)")
-    ax.set_ylabel("Moran's I")
+    ax.set_title(title, fontsize=14)
+    ax.set_xlabel("-log₁₀(p-value)", fontsize=12)
+    ax.set_ylabel("Moran's I", fontsize=12)
 
     if params.show_colorbar:
-        plt.colorbar(scatter, ax=ax, label="Gene index")
+        cbar = plt.colorbar(scatter, ax=ax)
+        cbar.set_label("Moran's I (+ clustered, − dispersed)", fontsize=10)
+
+    # Add legend for reference lines
+    ax.legend(loc="upper left", fontsize=9)
 
     plt.tight_layout()
     return fig
@@ -341,11 +348,7 @@ async def _create_centrality_visualization(
             if context:
                 await context.info(f"Inferred cluster_key: '{cluster_key}'")
         else:
-            categorical_cols = [
-                col
-                for col in adata.obs.columns
-                if adata.obs[col].dtype.name in ["object", "category"]
-            ][:10]
+            categorical_cols = get_categorical_columns(adata, limit=10)
             raise ValueError(
                 f"cluster_key required. Available: {', '.join(categorical_cols)}"
             )

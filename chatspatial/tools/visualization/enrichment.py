@@ -20,8 +20,10 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
-from .core import create_figure, plot_spatial_feature, setup_multi_panel_figure
+from ...utils.exceptions import (DataNotFoundError, ParameterError,
+                                 ProcessingError)
+from .core import (create_figure, get_categorical_columns,
+                   plot_spatial_feature, setup_multi_panel_figure)
 
 # =============================================================================
 # Helper Functions
@@ -191,14 +193,10 @@ def _create_enrichment_violin(
 ) -> plt.Figure:
     """Create violin plot of enrichment scores grouped by cluster."""
     if not params.cluster_key:
-        categorical_cols = [
-            col
-            for col in adata.obs.columns
-            if adata.obs[col].dtype.name in ["object", "category"]
-        ]
+        categorical_cols = get_categorical_columns(adata, limit=15)
         raise ParameterError(
             "Enrichment violin plot requires 'cluster_key' parameter.\n"
-            f"Available categorical columns: {', '.join(categorical_cols[:15])}"
+            f"Available categorical columns: {', '.join(categorical_cols)}"
         )
 
     if params.cluster_key not in adata.obs.columns:
@@ -315,9 +313,7 @@ def _create_enrichmap_spatial(
 
     try:
         if params.subtype == "spatial_cross_correlation":
-            return _create_enrichmap_cross_correlation(
-                adata, params, library_id, em
-            )
+            return _create_enrichmap_cross_correlation(adata, params, library_id, em)
         else:
             return _create_enrichmap_single_score(
                 adata, params, library_id, em, context

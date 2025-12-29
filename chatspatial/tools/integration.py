@@ -845,8 +845,6 @@ async def integrate_samples(
     Returns:
         Integration result
     """
-    await ctx.info(f"Integrating {len(data_ids)} samples using {params.method} method")
-
     # Collect all AnnData objects
     # Memory optimization: concatenate() creates new object without modifying sources
     # Verified by comprehensive testing: all operations preserve original datasets
@@ -865,11 +863,6 @@ async def integrate_samples(
         params=params,
     )
 
-    await ctx.info(
-        f"Integration complete. Combined dataset has {combined_adata.n_obs} cells "
-        f"and {combined_adata.n_vars} genes"
-    )
-
     # Align spatial coordinates
     # NOTE: Spatial alignment is OPTIONAL and only needed for spatial data
     # Methods like BBKNN, Harmony, MNN, Scanorama work on gene expression/PCA space
@@ -877,35 +870,21 @@ async def integrate_samples(
     if params.align_spatial:
         # Check if data actually has spatial coordinates
         if "spatial" not in combined_adata.obsm:
-            await ctx.info(
-                f"Skipping spatial coordinate alignment: Data has no spatial coordinates.\n"
-                f"Note: {params.method} integration works on gene expression/PCA space "
-                f"and does not require spatial coordinates for batch correction."
-            )
             # Skip alignment for non-spatial data - this is scientifically correct
             # BBKNN, Harmony, MNN, Scanorama are designed for scRNA-seq data without spatial info
+            pass
         else:
-            await ctx.info("Aligning spatial coordinates")
             combined_adata = align_spatial_coordinates(
                 combined_adata,
                 batch_key=params.batch_key,
                 reference_batch=params.reference_batch,
             )
 
-    # Note: Visualizations should be created using the separate visualize_data tool
-    # This maintains clean separation between analysis and visualization
-    await ctx.info(
-        "Integration analysis complete. Use visualize_data tool with "
-        "plot_type='integration_umap' or 'integration_spatial' to visualize results"
-    )
-
     # Generate new integrated dataset ID
     integrated_id = f"integrated_{'-'.join(data_ids)}"
 
     # Store integrated data using ToolContext
     await ctx.add_dataset(integrated_id, combined_adata)
-
-    await ctx.info(f"Integration complete. New dataset ID: {integrated_id}")
 
     # Return result
     return IntegrationResult(

@@ -427,8 +427,6 @@ async def register_spatial_slices_mcp(
     Returns:
         Registration result dictionary
     """
-    await ctx.info(f"Registering {source_id} to {target_id} using {method}")
-
     # Check dependencies
     if method == "paste":
         require("paste", ctx, feature="PASTE spatial registration")
@@ -465,10 +463,7 @@ async def register_spatial_slices_mcp(
             "spatial_key_registered": "spatial_registered",
         }
 
-        await ctx.info("Registration completed. Coordinates in 'spatial_registered'.")
         return result
 
     except Exception as e:
-        error_msg = f"Registration failed: {e}"
-        await ctx.error(error_msg)
-        raise ProcessingError(error_msg) from e
+        raise ProcessingError(f"Registration failed: {e}") from e
