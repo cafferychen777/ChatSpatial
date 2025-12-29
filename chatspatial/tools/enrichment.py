@@ -335,7 +335,7 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
 # ============================================================================
 
 
-async def perform_gsea(
+def perform_gsea(
     adata,
     gene_sets: Dict[str, List[str]],
     ranking_key: Optional[str] = None,
@@ -838,7 +838,7 @@ async def perform_ora(
     )
 
 
-async def perform_ssgsea(
+def perform_ssgsea(
     adata,
     gene_sets: Dict[str, List[str]],
     min_size: int = 10,
@@ -1010,7 +1010,7 @@ async def perform_ssgsea(
         raise
 
 
-async def perform_enrichr(
+def perform_enrichr(
     gene_list: List[str],
     gene_sets: Optional[str] = None,
     organism: str = "human",
@@ -1649,7 +1649,7 @@ def load_cell_marker_gene_sets(
         return {}
 
 
-async def load_gene_sets(
+def load_gene_sets(
     database: str,
     species: str = "human",
     min_genes: int = 10,

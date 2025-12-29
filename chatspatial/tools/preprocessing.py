@@ -44,23 +44,14 @@ async def preprocess_data(
         Preprocessing result summary
     """
     try:
-        await ctx.info(
-            f"Preprocessing dataset {data_id} with {params.normalization} normalization"
-        )
-
-        # Get AnnData directly via ToolContext (no redundant dict wrapping)
-        # Memory optimization: Preprocessing modifies dataset in-place (by design)
-        # Original counts are preserved in adata.raw
+        # Get AnnData directly via ToolContext
         adata = await ctx.get_adata(data_id)
 
         # Standardize data format at the entry point
-        # This eliminates all downstream special cases for data format handling
-        await ctx.info("Standardizing data structure to ChatSpatial format...")
         try:
             adata = standardize_adata(
                 adata, copy=False, strict=False, preserve_original=True
             )
-            await ctx.info("Data structure standardized successfully")
         except Exception as e:
             await ctx.warning(
                 f"Data standardization failed: {e}. Proceeding with original data."
@@ -77,26 +68,14 @@ async def preprocess_data(
         await ensure_unique_var_names_with_ctx(adata, ctx, "data")
 
         # 1. Calculate QC metrics (including mitochondrial percentage)
-        await ctx.info("Calculating QC metrics...")
         try:
             # Identify mitochondrial genes (MT-* for human, mt-* for mouse)
-            # This is needed for both QC metrics and optional filtering
             adata.var["mt"] = adata.var_names.str.startswith(("MT-", "mt-"))
-            n_mt_genes = adata.var["mt"].sum()
-            if n_mt_genes > 0:
-                await ctx.info(
-                    f"Identified {n_mt_genes} mitochondrial genes (MT-*/mt-*)"
-                )
 
             # Identify ribosomal genes (RPS*, RPL* for human, Rps*, Rpl* for mouse)
             adata.var["ribo"] = adata.var_names.str.startswith(
                 ("RPS", "RPL", "Rps", "Rpl")
             )
-            n_ribo_genes = adata.var["ribo"].sum()
-            if n_ribo_genes > 0:
-                await ctx.info(
-                    f"Identified {n_ribo_genes} ribosomal genes (RPS*/RPL*/Rps*/Rpl*)"
-                )
 
             # FIX: Adjust percent_top for small datasets
             #
@@ -128,11 +107,6 @@ async def preprocess_data(
                 sorted(set(safe_percent_top)) if safe_percent_top else None
             )
 
-            if safe_percent_top != default_percent_top[: len(safe_percent_top)]:
-                await ctx.info(
-                    f"Small dataset ({n_genes} genes): using percent_top={safe_percent_top}"
-                )
-
             # Calculate QC metrics including mitochondrial and ribosomal percentages
             sc.pp.calculate_qc_metrics(
                 adata,
@@ -163,18 +137,12 @@ async def preprocess_data(
             qc_metrics["n_mt_genes"] = int(adata.var["mt"].sum())
 
         # 2. Apply user-controlled data filtering and subsampling
-        await ctx.info("Applying data filtering and subsampling...")
-
-        # Apply gene filtering using LLM-controlled parameters
         min_cells = params.filter_genes_min_cells
         if min_cells is not None and min_cells > 0:
-            await ctx.info(f"Filtering genes: min_cells={min_cells}")
             sc.pp.filter_genes(adata, min_cells=min_cells)
 
-        # Apply cell filtering using LLM-controlled parameters
         min_genes = params.filter_cells_min_genes
         if min_genes is not None and min_genes > 0:
-            await ctx.info(f"Filtering cells: min_genes={min_genes}")
             sc.pp.filter_cells(adata, min_genes=min_genes)
 
         # Apply mitochondrial percentage filtering (BEST PRACTICE for spatial data)
@@ -192,10 +160,6 @@ async def preprocess_data(
                 )
                 # Update qc_metrics with mito filtering info
                 qc_metrics["n_spots_filtered_mito"] = int(n_high_mito)
-            else:
-                await ctx.info(
-                    f"No spots exceeded mito% threshold of {params.filter_mito_pct}%"
-                )
         elif params.filter_mito_pct is not None and not mito_pct_col:
             await ctx.warning(
                 "Mitochondrial filtering requested but no mito genes detected. "
@@ -204,9 +168,6 @@ async def preprocess_data(
 
         # Apply spot subsampling if requested
         if params.subsample_spots is not None and params.subsample_spots < adata.n_obs:
-            await ctx.info(
-                f"Subsampling from {adata.n_obs} to {params.subsample_spots} spots"
-            )
             sc.pp.subsample(
                 adata,
                 n_obs=params.subsample_spots,
@@ -217,7 +178,6 @@ async def preprocess_data(
         gene_subsample_requested = params.subsample_genes is not None
 
         # Save raw data before normalization (required for some analysis methods)
-        await ctx.info("Saving raw data for downstream analysis...")
 
         # IMPORTANT: Create a proper frozen copy for .raw to preserve counts
         # Using `adata.raw = adata` creates a view that gets modified during normalization
@@ -286,7 +246,6 @@ async def preprocess_data(
             )
         ctx.log_config("Normalization Configuration", norm_config)
 
-        await ctx.info(f"Normalizing data using {params.normalization} method...")
 
         if params.normalization == "log":
             # Standard log normalization
@@ -309,14 +268,8 @@ async def preprocess_data(
             if params.normalize_target_sum is not None:
                 sc.pp.normalize_total(adata, target_sum=params.normalize_target_sum)
             else:
-                # Calculate median and inform user transparently
+                # Calculate median for adaptive normalization
                 calculated_median = np.median(np.array(adata.X.sum(axis=1)).flatten())
-                await ctx.info(
-                    f"normalize_target_sum not specified. Using adaptive normalization:\n"
-                    f"   • Calculated median counts: {calculated_median:.0f}\n"
-                    f"   • This value was automatically determined from your data\n"
-                    f"   • For reproducible results, use: normalize_target_sum={calculated_median:.0f}"
-                )
                 sc.pp.normalize_total(adata, target_sum=calculated_median)
             sc.pp.log1p(adata)
         elif params.normalization == "sct":
@@ -351,10 +304,6 @@ async def preprocess_data(
 
             # Map method parameter to vst.flavor
             vst_flavor = "v2" if params.sct_method == "fix-slope" else "v1"
-            await ctx.info(
-                f"Applying SCTransform (vst.flavor={vst_flavor}, "
-                f"var_features={params.sct_var_features_n})"
-            )
 
             try:
                 # Import rpy2 modules
@@ -431,10 +380,6 @@ async def preprocess_data(
                 n_genes_before_sct = adata.n_vars
                 if len(kept_genes) != adata.n_vars:
                     n_filtered = adata.n_vars - len(kept_genes)
-                    await ctx.info(
-                        f"SCTransform filtered {n_filtered} additional genes internally. "
-                        f"Keeping {len(kept_genes)} genes for analysis."
-                    )
                     # Subset adata to keep only genes returned by SCTransform
                     adata = adata[:, kept_genes].copy()
                 else:
@@ -475,10 +420,6 @@ async def preprocess_data(
                     top_hvg_indices, adata.var.columns.get_loc("highly_variable")
                 ] = True
 
-                await ctx.info(
-                    f"[OK]SCTransform: {n_hvg} highly variable genes identified"
-                )
-
             except MemoryError:
                 error_msg = (
                     f"Memory error for SCTransform on {adata.n_obs}×{adata.n_vars} matrix. "
@@ -493,7 +434,6 @@ async def preprocess_data(
                 raise ProcessingError(error_msg) from e
         elif params.normalization == "pearson_residuals":
             # Modern Pearson residuals normalization (recommended for UMI data)
-            await ctx.info("Using Pearson residuals normalization...")
 
             # Check if method is available
             if not hasattr(sc.experimental.pp, "normalize_pearson_residuals"):
@@ -538,7 +478,6 @@ async def preprocess_data(
                 ) from e
         elif params.normalization == "none":
             # Explicitly skip normalization
-            await ctx.info("Skipping normalization (data assumed to be pre-normalized)")
 
             # CRITICAL: Check if data appears to be raw counts
             # HVG selection requires normalized data for statistical validity
@@ -577,13 +516,6 @@ async def preprocess_data(
                 await ctx.error(error_msg)
                 raise DataError(error_msg)
 
-            await ctx.info(
-                f"Applying scVI normalization "
-                f"(n_latent={params.scvi_n_latent}, "
-                f"n_hidden={params.scvi_n_hidden}, "
-                f"gene_likelihood={params.scvi_gene_likelihood})"
-            )
-
             try:
                 # Note: counts layer already saved in unified preprocessing step (line 338)
                 # scVI requires this layer for proper count-based modeling
@@ -609,12 +541,6 @@ async def preprocess_data(
                     gene_likelihood=params.scvi_gene_likelihood,
                 )
 
-                await ctx.info(
-                    f"Training scVI model (max_epochs={params.scvi_max_epochs}, "
-                    f"early_stopping={params.scvi_early_stopping}, "
-                    f"train_size={params.scvi_train_size})..."
-                )
-
                 # Train the model with user-configurable parameters
                 scvi_model.train(
                     max_epochs=params.scvi_max_epochs,
@@ -623,8 +549,6 @@ async def preprocess_data(
                     early_stopping_monitor="elbo_validation",
                     train_size=params.scvi_train_size,
                 )
-
-                await ctx.info("scVI training completed")
 
                 # Get latent representation (replaces PCA)
                 adata.obsm["X_scvi"] = scvi_model.get_latent_representation()
@@ -653,12 +577,6 @@ async def preprocess_data(
                     "training_completed": True,
                 }
 
-                await ctx.info(
-                    f"[OK]scVI: Latent representation stored in X_scvi "
-                    f"(shape: {adata.obsm['X_scvi'].shape})"
-                )
-                await ctx.info("[OK]scVI: Normalized expression stored in adata.X")
-
             except Exception as e:
                 error_msg = f"scVI normalization failed: {str(e)}"
                 await ctx.error(error_msg)
@@ -673,19 +591,13 @@ async def preprocess_data(
             )
 
         # 4. Find highly variable genes and apply gene subsampling
-        await ctx.info("Finding highly variable genes...")
-
         # Determine number of HVGs to select
         if gene_subsample_requested:
             # User wants to subsample genes
             n_hvgs = min(params.subsample_genes, adata.n_vars - 1, params.n_hvgs)
-            await ctx.info(
-                f"User requested {params.subsample_genes} genes, selecting {n_hvgs} highly variable genes"
-            )
         else:
             # Use standard HVG selection
             n_hvgs = min(params.n_hvgs, adata.n_vars - 1)
-            await ctx.info(f"Using {n_hvgs} highly variable genes...")
 
         # Statistical warning: Very low HVG count may lead to unstable clustering
         # Based on literature consensus: 500-5000 genes recommended, 1000-2000 typical
@@ -703,9 +615,6 @@ async def preprocess_data(
 
         # Check if we should use all genes (for very small gene sets like MERFISH)
         if adata.n_vars < 100:
-            await ctx.info(
-                f"Small gene set detected ({adata.n_vars} genes), using all genes for analysis"
-            )
             adata.var["highly_variable"] = True
         else:
             # Attempt HVG selection - no fallback for failures
@@ -725,24 +634,12 @@ async def preprocess_data(
             n_mito_hvg = (adata.var["highly_variable"] & adata.var["mt"]).sum()
             if n_mito_hvg > 0:
                 adata.var.loc[adata.var["mt"], "highly_variable"] = False
-                await ctx.info(
-                    f"Excluded {n_mito_hvg} mitochondrial genes from HVG selection "
-                    f"(genes retained in adata.raw for downstream analysis)"
-                )
 
         # Exclude ribosomal genes from HVG selection (optional)
         if params.remove_ribo_genes and "ribo" in adata.var.columns:
             n_ribo_hvg = (adata.var["highly_variable"] & adata.var["ribo"]).sum()
             if n_ribo_hvg > 0:
                 adata.var.loc[adata.var["ribo"], "highly_variable"] = False
-                await ctx.info(
-                    f"Excluded {n_ribo_hvg} ribosomal genes from HVG selection "
-                    f"(genes retained in adata.raw for downstream analysis)"
-                )
-
-        # Log final HVG count after exclusions
-        final_hvg_count = adata.var["highly_variable"].sum()
-        await ctx.info(f"Final HVG count after exclusions: {final_hvg_count}")
 
         # Apply gene subsampling if requested
         if gene_subsample_requested and params.subsample_genes < adata.n_vars:
@@ -762,7 +659,6 @@ async def preprocess_data(
 
             # Use properly identified HVGs
             adata = adata[:, adata.var["highly_variable"]].copy()
-            await ctx.info(f"Subsampled to {adata.n_vars} highly variable genes")
 
         # 5. Batch effect correction (if applicable)
         if (

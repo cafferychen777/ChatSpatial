@@ -294,7 +294,7 @@ async def _analyze_communication_liana(
 
         if has_clusters and not params.perform_spatial_analysis:
             # Single-cell style analysis with clusters
-            return await _run_liana_cluster_analysis(adata, params, ctx)
+            return _run_liana_cluster_analysis(adata, params, ctx)
         else:
             # Spatial bivariate analysis
             return await _run_liana_spatial_analysis(adata, params, ctx)
@@ -323,7 +323,7 @@ def _get_liana_resource_name(species: str, resource_preference: str) -> str:
         return resource_preference
 
 
-async def _run_liana_cluster_analysis(
+def _run_liana_cluster_analysis(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> Dict[str, Any]:
     """Run LIANA+ cluster-based analysis"""

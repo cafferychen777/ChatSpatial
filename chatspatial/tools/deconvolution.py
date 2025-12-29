@@ -3005,7 +3005,7 @@ async def deconvolve_tangram(
         raise ProcessingError(f"Tangram deconvolution failed: {str(e)}") from e
 
 
-async def deconvolve_flashdeconv(
+def deconvolve_flashdeconv(
     spatial_adata: ad.AnnData,
     reference_adata: ad.AnnData,
     cell_type_key: str,
