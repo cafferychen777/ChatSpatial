@@ -30,6 +30,12 @@ from ..utils.dependency_manager import (
     validate_r_environment,
     validate_scvi_tools,
 )
+from ..utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 # Supported annotation methods
 # Confidence behavior by method:
