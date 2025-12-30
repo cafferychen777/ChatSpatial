@@ -19,7 +19,8 @@ if TYPE_CHECKING:
 
 from ..models.analysis import SpatialDomainResult
 from ..models.data import SpatialDomainParameters
-from ..utils.adata_utils import ensure_categorical, require_spatial_coords
+from ..utils.adata_utils import (ensure_categorical, get_spatial_key,
+                                 require_spatial_coords)
 from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
@@ -57,9 +58,8 @@ async def identify_spatial_domains(
 
     try:
         # Check if spatial coordinates exist
-        if "spatial" not in adata.obsm and not any(
-            "spatial" in key for key in adata.obsm.keys()
-        ):
+        spatial_key = get_spatial_key(adata)
+        if spatial_key is None:
             raise DataNotFoundError("No spatial coordinates found in the dataset")
 
         # Prepare data for domain identification
