@@ -2,7 +2,7 @@
 Tangram deconvolution method.
 
 Tangram maps single-cell RNA-seq data to spatial transcriptomics
-data using the scvi.external.Tangram wrapper from scvi-tools.
+data using the native tangram-sc library.
 """
 
 import gc
@@ -14,7 +14,6 @@ import pandas as pd
 if TYPE_CHECKING:
     pass
 
-from ...utils.dependency_manager import is_available, require
 from ...utils.exceptions import DependencyError, ProcessingError
 from .base import DeconvolutionContext, create_deconvolution_stats
 
@@ -27,12 +26,12 @@ async def deconvolve(
     density_prior: str = "rna_count_based",
     use_gpu: bool = False,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """Deconvolve spatial data using Tangram via scvi-tools.
+    """Deconvolve spatial data using native Tangram library.
 
     Args:
         deconv_ctx: Prepared DeconvolutionContext
         n_epochs: Number of training epochs
-        mode: Mapping mode - 'cells', 'clusters', or 'constrained'
+        mode: Mapping mode - 'cells' or 'clusters'
         learning_rate: Optimizer learning rate
         density_prior: Spatial density prior - 'rna_count_based' or 'uniform'
         use_gpu: Whether to use GPU acceleration
@@ -40,83 +39,82 @@ async def deconvolve(
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
-    if not is_available("scvi-tools"):
+    # Check for tangram package (installed as tangram-sc, imported as tangram)
+    try:
+        import tangram as tg
+    except ImportError:
         raise DependencyError(
-            "scvi-tools is required for Tangram. Install with: pip install scvi-tools"
+            "tangram-sc is required for Tangram. Install with: pip install tangram-sc"
         )
 
-    require("mudata")
-    import mudata as md
-    from scvi.external import Tangram
-
     cell_type_key = deconv_ctx.cell_type_key
+    ctx = deconv_ctx.ctx
 
     try:
         # Get subset data
         spatial_data, ref_data = deconv_ctx.get_subset_data()
         common_genes = deconv_ctx.common_genes
 
-        # Create density prior
-        # Memory optimization: ravel() returns view when possible, flatten() always copies
-        if density_prior == "rna_count_based":
-            density_values = np.asarray(spatial_data.X.sum(axis=1)).ravel()
+        # Tangram requires 'cell_type' column for cluster mode
+        if "cell_type" not in ref_data.obs.columns:
+            ref_data.obs["cell_type"] = ref_data.obs[cell_type_key]
+
+        # Select marker genes for training (tangram recommendation: 100-1000 genes)
+        # Use up to 500 genes from common genes for efficiency
+        n_training_genes = min(500, len(common_genes))
+        training_genes = common_genes[:n_training_genes]
+
+        # Preprocess with tangram (this sets up required annotations)
+        tg.pp_adatas(ref_data, spatial_data, genes=training_genes)
+
+        # Set device
+        device = "cuda:0" if use_gpu else "cpu"
+
+        # Map cells to space
+        if mode == "clusters":
+            # Cluster mode: aggregate by cell type before mapping
+            ad_map = tg.map_cells_to_space(
+                ref_data,
+                spatial_data,
+                mode="clusters",
+                cluster_label=cell_type_key,
+                density_prior=density_prior,
+                num_epochs=n_epochs,
+                learning_rate=learning_rate,
+                device=device,
+            )
         else:
-            density_values = np.ones(spatial_data.n_obs)
+            # Default cells mode
+            ad_map = tg.map_cells_to_space(
+                ref_data,
+                spatial_data,
+                mode="cells",
+                density_prior=density_prior,
+                num_epochs=n_epochs,
+                learning_rate=learning_rate,
+                device=device,
+            )
 
-        density_values = density_values / density_values.sum()
-        spatial_data.obs["density_prior"] = density_values
+        # Get mapping matrix (cells x spots)
+        mapping_matrix = ad_map.X
 
-        # Create MuData object
-        mdata = md.MuData({"sc_train": ref_data, "sp_train": spatial_data})
-
-        # Setup MuData for Tangram
-        Tangram.setup_mudata(
-            mdata,
-            density_prior_key="density_prior",
-            modalities={
-                "density_prior_key": "sp_train",
-                "sc_layer": "sc_train",
-                "sp_layer": "sp_train",
-            },
-        )
-
-        # Create model
-        if mode == "constrained":
-            target_count = max(1, int(spatial_data.n_obs * 0.1))
-            tangram_model = Tangram(mdata, constrained=True, target_count=target_count)
-        else:
-            tangram_model = Tangram(mdata, constrained=False)
-
-        # Train
-        train_kwargs = {"max_epochs": n_epochs, "lr": learning_rate}
-        if use_gpu:
-            train_kwargs["accelerator"] = "gpu"
-
-        tangram_model.train(**train_kwargs)
-
-        # Get mapping matrix and calculate cell type proportions
-        mapping_matrix = tangram_model.get_mapper_matrix()
+        # Calculate cell type proportions from mapping
         cell_types = ref_data.obs[cell_type_key].unique()
 
-        # Memory-efficient vectorized aggregation using pandas groupby logic
-        # Instead of loop with repeated array creation, use matrix multiplication
-        # Create cell type indicator matrix: (n_cells,) categorical -> one-hot (n_cells x n_types)
+        # Create cell type indicator matrix
         cell_type_series = ref_data.obs[cell_type_key]
         type_indicators = pd.get_dummies(cell_type_series)
-
-        # Reorder columns to match cell_types order
         type_indicators = type_indicators.reindex(columns=cell_types, fill_value=0)
 
         # Matrix multiply: (n_types x n_cells) @ (n_cells x n_spots) = (n_types x n_spots)
-        # This computes sum of mapping weights for each cell type in one operation
         proportions_array = type_indicators.values.T @ mapping_matrix
 
-        # Create DataFrame (proportions_array is n_types x n_spots, need to transpose)
+        # Create DataFrame
         proportions = pd.DataFrame(
             proportions_array.T, index=spatial_data.obs_names, columns=cell_types
         )
 
-        # Normalize to proportions (Tangram returns equivalent cell counts)
+        # Normalize to proportions
         row_sums = proportions.sum(axis=1)
         row_sums = row_sums.replace(0, 1)  # Avoid division by zero
         proportions = proportions.div(row_sums, axis=0)
@@ -126,14 +124,15 @@ async def deconvolve(
             proportions,
             common_genes,
             "Tangram",
-            device="GPU" if use_gpu else "CPU",
+            device=device.upper(),
             n_epochs=n_epochs,
             mode=mode,
             density_prior=density_prior,
+            n_training_genes=n_training_genes,
         )
 
-        # Memory cleanup: release model and intermediate data
-        del tangram_model, mdata, mapping_matrix, type_indicators
+        # Memory cleanup
+        del ad_map, mapping_matrix, type_indicators
         del spatial_data, ref_data
         gc.collect()
 
