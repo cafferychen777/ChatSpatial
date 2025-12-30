@@ -869,23 +869,72 @@ def perform_ssgsea(
     require("gseapy", ctx, feature="ssGSEA analysis")
     import gseapy as gp
 
-    # Prepare expression data
-    expr_df = pd.DataFrame(
-        to_dense(adata.X).T, index=adata.var_names, columns=adata.obs_names
-    )
+    # Memory-efficient batch processing for large datasets
+    # Threshold: process in batches if > 1000 samples to avoid OOM
+    BATCH_SIZE = 500
+    n_samples = adata.n_obs
 
-    # Run ssGSEA
+    # Run ssGSEA (with batch processing for large datasets)
     try:
-        res = gp.ssgsea(
-            data=expr_df,
-            gene_sets=gene_sets,
-            min_size=min_size,
-            max_size=max_size,
-            permutation_num=0,  # No permutation for ssGSEA
-            no_plot=True,
-            processes=1,
-            seed=42,
-        )
+        if n_samples <= BATCH_SIZE:
+            # Small dataset: process all at once (original behavior)
+            expr_df = pd.DataFrame(
+                to_dense(adata.X).T, index=adata.var_names, columns=adata.obs_names
+            )
+            res = gp.ssgsea(
+                data=expr_df,
+                gene_sets=gene_sets,
+                min_size=min_size,
+                max_size=max_size,
+                permutation_num=0,
+                no_plot=True,
+                threads=1,
+                seed=42,
+            )
+        else:
+            # Large dataset: batch processing to reduce peak memory
+            # Memory reduction: O(n_genes × n_samples) -> O(n_genes × batch_size)
+            all_batch_results = []
+
+            for batch_start in range(0, n_samples, BATCH_SIZE):
+                batch_end = min(batch_start + BATCH_SIZE, n_samples)
+                batch_indices = list(range(batch_start, batch_end))
+
+                # Extract batch - only convert this batch to dense
+                batch_X = to_dense(adata.X[batch_indices, :])
+                batch_df = pd.DataFrame(
+                    batch_X.T,
+                    index=adata.var_names,
+                    columns=adata.obs_names[batch_indices],
+                )
+
+                batch_res = gp.ssgsea(
+                    data=batch_df,
+                    gene_sets=gene_sets,
+                    min_size=min_size,
+                    max_size=max_size,
+                    permutation_num=0,
+                    no_plot=True,
+                    threads=1,
+                    seed=42,
+                )
+
+                if hasattr(batch_res, "results"):
+                    all_batch_results.append(batch_res.results)
+
+                # Free batch memory
+                del batch_X, batch_df
+
+            # Merge batch results into unified format
+            # Create a mock result object with combined results
+            class CombinedResult:
+                def __init__(self, results_list):
+                    self.results = {}
+                    for batch_results in results_list:
+                        if isinstance(batch_results, dict):
+                            self.results.update(batch_results)
+
+            res = CombinedResult(all_batch_results)
 
         # Extract results - ssGSEA stores enrichment scores in res.results
         if hasattr(res, "results") and isinstance(res.results, dict):

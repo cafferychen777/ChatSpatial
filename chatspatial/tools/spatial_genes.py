@@ -601,12 +601,8 @@ async def _identify_spatial_genes_sparkx(
         filtered_sparse = sparse_counts
 
     # NOW convert filtered sparse matrix to dense (much smaller!)
-    # For sparse: toarray() already returns a new array; for dense: copy to avoid modifying original
-    counts_matrix = (
-        filtered_sparse.toarray()
-        if hasattr(filtered_sparse, "toarray")
-        else filtered_sparse.copy()
-    )
+    # copy=True ensures we don't modify original for dense input
+    counts_matrix = to_dense(filtered_sparse, copy=True)
 
     # Ensure counts are non-negative integers
     counts_matrix = np.maximum(counts_matrix, 0).astype(int)

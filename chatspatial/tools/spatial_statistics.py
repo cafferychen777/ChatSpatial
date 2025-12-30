@@ -38,13 +38,21 @@ if TYPE_CHECKING:
 
 from ..models.analysis import SpatialStatisticsResult
 from ..models.data import SpatialStatisticsParameters
-from ..utils.adata_utils import (ensure_categorical, require_spatial_coords,
-                                 select_genes_for_analysis, to_dense,
-                                 validate_adata_basics)
+from ..utils.adata_utils import (
+    ensure_categorical,
+    require_spatial_coords,
+    select_genes_for_analysis,
+    to_dense,
+    validate_adata_basics,
+)
 from ..utils.compute import ensure_spatial_neighbors_async
-from ..utils.exceptions import (DataCompatibilityError, DataNotFoundError,
-                                DependencyError, ParameterError,
-                                ProcessingError)
+from ..utils.exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 # ============================================================================
 # MAIN ENTRY POINT
@@ -1255,10 +1263,7 @@ async def _analyze_local_moran(
         for gene in valid_genes:
             # Extract single gene column - memory efficient for sparse matrices
             gene_idx = adata.var_names.get_loc(gene)
-            if issparse(adata.X):
-                expr = adata.X[:, gene_idx].toarray().flatten()
-            else:
-                expr = np.asarray(adata.X[:, gene_idx]).flatten()
+            expr = to_dense(adata.X[:, gene_idx]).flatten()
 
             # CRITICAL: Convert to float64 for PySAL/numba compatibility
             # PySAL's Moran_Local uses numba JIT compilation which requires
