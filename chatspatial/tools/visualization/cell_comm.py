@@ -270,7 +270,7 @@ def _create_spatial_lr_visualization(
 
     x_coords, y_coords = get_spatial_coordinates(adata)
 
-    for i, (pair, pair_idx) in enumerate(zip(valid_pairs, pair_indices)):
+    for i, (pair, pair_idx) in enumerate(zip(valid_pairs, pair_indices, strict=False)):
         ax = axes[i]
 
         if pair_idx < data.spatial_scores.shape[1]:
@@ -558,7 +558,7 @@ def _create_cellphonedb_dotplot(
         raise ProcessingError(
             f"Failed to create CellPhoneDB dotplot: {str(e)}\n\n"
             "Try using subtype='heatmap' instead."
-        )
+        ) from e
 
 
 def _create_cellphonedb_chord(
@@ -657,7 +657,7 @@ def _create_cellphonedb_chord(
         raise ProcessingError(
             f"Failed to create CellPhoneDB chord diagram: {str(e)}\n\n"
             "Try using subtype='heatmap' instead."
-        )
+        ) from e
 
 
 # =============================================================================

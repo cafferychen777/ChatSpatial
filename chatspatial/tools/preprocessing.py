@@ -139,7 +139,6 @@ async def preprocess_data(
         # Apply mitochondrial percentage filtering (BEST PRACTICE for spatial data)
         # High mito% indicates damaged cells that have lost cytoplasmic mRNA
         if params.filter_mito_pct is not None and mito_pct_col:
-            n_before = adata.n_obs
             high_mito_mask = adata.obs[mito_pct_col] > params.filter_mito_pct
             n_high_mito = high_mito_mask.sum()
 
@@ -405,11 +404,11 @@ async def preprocess_data(
                     top_hvg_indices, adata.var.columns.get_loc("highly_variable")
                 ] = True
 
-            except MemoryError:
+            except MemoryError as e:
                 raise MemoryError(
                     f"Memory error for SCTransform on {adata.n_obs}×{adata.n_vars} matrix. "
                     f"Use normalization='log' or subsample data."
-                )
+                ) from e
             except Exception as e:
                 raise ProcessingError(f"SCTransform failed: {str(e)}") from e
         elif params.normalization == "pearson_residuals":
@@ -443,11 +442,11 @@ async def preprocess_data(
                 # Apply Pearson residuals normalization (to all genes)
                 # Note: High variable gene selection happens later in the pipeline
                 sc.experimental.pp.normalize_pearson_residuals(adata)
-            except MemoryError:
+            except MemoryError as e:
                 raise MemoryError(
                     f"Insufficient memory for Pearson residuals on {adata.n_obs}×{adata.n_vars} matrix. "
                     "Try reducing n_hvgs or use 'log' normalization."
-                )
+                ) from e
             except Exception as e:
                 raise ProcessingError(
                     f"Pearson residuals normalization failed: {e}. "

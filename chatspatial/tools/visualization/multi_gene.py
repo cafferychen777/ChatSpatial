@@ -390,7 +390,7 @@ async def create_lr_pairs_visualization(
     temp_feature_key = "lr_expr_temp_viz_99_unique"
     ax_idx = 0
 
-    for pair_idx, (ligand, receptor) in enumerate(available_pairs):
+    for _pair_idx, (ligand, receptor) in enumerate(available_pairs):
         try:
             # Get expression data using unified utility
             ligand_expr = get_gene_expression(adata, ligand)
@@ -693,7 +693,7 @@ async def create_spatial_interaction_visualization(
                         ligand_indices, receptor_indices = np.where(
                             distances <= distance_threshold
                         )
-                        for li, ri in zip(ligand_indices[:50], receptor_indices[:50]):
+                        for li, ri in zip(ligand_indices[:50], receptor_indices[:50], strict=False):
                             ax.plot(
                                 [ligand_coords[li, 0], receptor_coords[ri, 0]],
                                 [ligand_coords[li, 1], receptor_coords[ri, 1]],

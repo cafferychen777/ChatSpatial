@@ -365,14 +365,14 @@ async def _identify_domains_spagcn(
                     domain_labels = await asyncio.wait_for(
                         future, timeout=timeout_seconds
                     )
-                except asyncio.TimeoutError:
+                except asyncio.TimeoutError as e:
                     error_msg = (
                         f"SpaGCN timed out after {timeout_seconds:.0f} seconds. "
                         f"Dataset: {n_spots} spots, {adata.n_vars} genes. "
                         "Try: 1) Reducing n_domains, 2) Using leiden/louvain instead, "
                         "3) Preprocessing with fewer genes/spots, or 4) Adjusting parameters (s, b, p)."
                     )
-                    raise ProcessingError(error_msg)
+                    raise ProcessingError(error_msg) from e
         except Exception as spagcn_error:
             raise ProcessingError(
                 f"SpaGCN detect_spatial_domains_ez_mode failed: {str(spagcn_error)}"
@@ -643,10 +643,10 @@ async def _identify_domains_stagate(
 
         return domain_labels, embeddings_key, statistics
 
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as e:
         raise ProcessingError(
             f"STAGATE training timeout after {params.timeout or 600} seconds"
-        )
+        ) from e
     except Exception as e:
         raise ProcessingError(f"STAGATE execution failed: {str(e)}") from e
 
@@ -749,9 +749,9 @@ async def _identify_domains_graphst(
 
         return domain_labels, embeddings_key, statistics
 
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as e:
         raise ProcessingError(
             f"GraphST training timeout after {params.timeout or 600} seconds"
-        )
+        ) from e
     except Exception as e:
         raise ProcessingError(f"GraphST execution failed: {str(e)}") from e

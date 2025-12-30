@@ -302,11 +302,11 @@ def _create_enrichmap_spatial(
     """Create EnrichMap spatial autocorrelation visualizations."""
     try:
         import enrichmap as em
-    except ImportError:
+    except ImportError as e:
         raise ProcessingError(
             f"Spatial enrichment visualization ('{params.subtype}') requires EnrichMap.\n"
             "Install with: pip install enrichmap"
-        )
+        ) from e
 
     _ensure_enrichmap_compatibility(adata)
     library_id = adata.obs["library_id"].unique()[0]

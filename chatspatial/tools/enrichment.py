@@ -426,7 +426,7 @@ def perform_gsea(
 
                 # Compute Signal-to-Noise Ratio
                 s2n = (mean1 - mean2) / (std1 + std2)
-                ranking = dict(zip(var_names, s2n))
+                ranking = dict(zip(var_names, s2n, strict=True))
 
             else:
                 # Multi-group: Use Coefficient of Variation (normalized variance)
@@ -440,7 +440,7 @@ def perform_gsea(
                 nonzero_mask = np.abs(mean) > 1e-10
                 cv[nonzero_mask] = std[nonzero_mask] / np.abs(mean[nonzero_mask])
 
-                ranking = dict(zip(var_names, cv))
+                ranking = dict(zip(var_names, cv, strict=False))
         else:
             # No group information: Use best available ranking method
             if "highly_variable_rank" in adata.var:
@@ -459,7 +459,7 @@ def perform_gsea(
                 nonzero_mask = np.abs(mean) > 1e-10
                 cv[nonzero_mask] = std[nonzero_mask] / np.abs(mean[nonzero_mask])
 
-                ranking = dict(zip(var_names, cv))
+                ranking = dict(zip(var_names, cv, strict=False))
 
     # Run GSEA preranked
     try:
@@ -490,7 +490,7 @@ def perform_gsea(
         adjusted_pvalues = {}
         gene_set_statistics = {}
 
-        for idx, row in results_df.iterrows():
+        for _idx, row in results_df.iterrows():
             term = row["Term"]
             enrichment_scores[term] = row["ES"]
             pvalues[term] = row["NOM p-val"]
@@ -747,7 +747,7 @@ async def perform_ora(
     if pvalues:
         pval_array = np.array(list(pvalues.values()))
         _, adjusted_pvals, _, _ = multipletests(pval_array, method="fdr_bh")
-        adjusted_pvalues = dict(zip(pvalues.keys(), adjusted_pvals))
+        adjusted_pvalues = dict(zip(pvalues.keys(), adjusted_pvals, strict=False))
     else:
         adjusted_pvalues = {}
 
@@ -1064,7 +1064,7 @@ def perform_enrichr(
         adjusted_pvalues = {}
         gene_set_statistics = {}
 
-        for idx, row in all_results.iterrows():
+        for _idx, row in all_results.iterrows():
             term = row["Term"]
             enrichment_scores[term] = row["Combined Score"]
             pvalues[term] = row["P-value"]
@@ -1087,12 +1087,12 @@ def perform_enrichr(
 
         # Collect genes found in results
         genes_found_in_results = []
-        for idx, row in all_results.iterrows():
+        for _idx, row in all_results.iterrows():
             if isinstance(row["Genes"], str):
                 genes_found_in_results.extend(row["Genes"].split(";"))
 
         # Add odds ratios to gene_set_statistics
-        for idx, row in all_results.iterrows():
+        for _idx, row in all_results.iterrows():
             term = row["Term"]
             gene_set_statistics[term]["odds_ratio"] = row.get("Odds Ratio", 1.0)
 

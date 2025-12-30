@@ -10,7 +10,8 @@ This module provides:
 One file for all AnnData-related utilities. No duplication.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import (TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set,
+                    Tuple)
 
 import numpy as np
 import pandas as pd

@@ -255,7 +255,7 @@ async def create_cnv_heatmap_visualization(
             ax.set_yticklabels(
                 [
                     f"{label} (n={size})"
-                    for label, size in zip(group_labels, group_sizes)
+                    for label, size in zip(group_labels, group_sizes, strict=False)
                 ]
             )
             ax.set_ylabel(params.feature, fontsize=12, fontweight="bold")
