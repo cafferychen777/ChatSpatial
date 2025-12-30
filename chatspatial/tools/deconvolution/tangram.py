@@ -8,7 +8,6 @@ data using the native tangram-sc library.
 import gc
 from typing import TYPE_CHECKING, Any, Dict, Tuple
 
-import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -42,13 +41,12 @@ async def deconvolve(
     # Check for tangram package (installed as tangram-sc, imported as tangram)
     try:
         import tangram as tg
-    except ImportError:
+    except ImportError as e:
         raise DependencyError(
             "tangram-sc is required for Tangram. Install with: pip install tangram-sc"
-        )
+        ) from e
 
     cell_type_key = deconv_ctx.cell_type_key
-    ctx = deconv_ctx.ctx
 
     try:
         # Get subset data

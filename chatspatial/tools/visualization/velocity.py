@@ -285,10 +285,7 @@ async def _create_velocity_heatmap(
     require("scvelo", feature="velocity heatmap")
     import scvelo as scv
 
-    if "latent_time" not in adata.obs.columns:
-        raise DataNotFoundError(
-            "latent_time required. Run velocity analysis with dynamical mode."
-        )
+    validate_obs_column(adata, "latent_time", "Latent time")
 
     if params.feature:
         if isinstance(params.feature, str):

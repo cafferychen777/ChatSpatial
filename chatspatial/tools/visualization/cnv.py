@@ -14,7 +14,7 @@ import pandas as pd
 import seaborn as sns
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import require_spatial_coords
+from ...utils.adata_utils import require_spatial_coords, validate_obs_column
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError
 from .core import plot_spatial_feature
@@ -87,14 +87,7 @@ async def create_spatial_cnv_visualization(
             raise DataNotFoundError(error_msg)
 
     # Validate feature exists
-    if feature_to_plot not in adata.obs.columns:
-        error_msg = (
-            f"Feature '{feature_to_plot}' not found in adata.obs. "
-            f"Available CNV features: {[col for col in adata.obs.columns if 'cnv' in col.lower() or 'numbat' in col.lower()]}"
-        )
-        if context:
-            await context.warning(error_msg)
-        raise DataNotFoundError(error_msg)
+    validate_obs_column(adata, feature_to_plot, "CNV feature")
 
     if context:
         await context.info(f"Visualizing {feature_to_plot} on spatial coordinates")
