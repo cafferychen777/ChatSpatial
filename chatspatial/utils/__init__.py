@@ -12,6 +12,7 @@ from .adata_utils import (  # Constants; Field discovery; Data access; Validatio
     CLUSTER_KEY,
     SPATIAL_KEY,
     ensure_categorical,
+    ensure_counts_layer,
     ensure_spatial_key,
     find_common_genes,
     get_batch_key,
@@ -97,6 +98,7 @@ __all__ = [
     # Gene overlap
     "find_common_genes",
     # Ensure
+    "ensure_counts_layer",
     "ensure_spatial_key",
     # Standardization
     "standardize_adata",

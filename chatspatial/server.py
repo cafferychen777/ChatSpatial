@@ -63,7 +63,11 @@ from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .spatial_mcp_adapter import get_tool_annotations  # noqa: E402
 from .utils.adata_utils import get_highly_variable_genes  # noqa: E402
-from .utils.exceptions import ProcessingError  # noqa: E402
+from .utils.exceptions import (  # noqa: E402
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 from .utils.mcp_utils import mcp_tool_error_handler  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -87,7 +91,7 @@ def validate_dataset(data_id: str) -> None:
         ValueError: If the dataset is not found
     """
     if not data_manager.dataset_exists(data_id):
-        raise ValueError(f"Dataset {data_id} not found")
+        raise DataNotFoundError(f"Dataset {data_id} not found")
 
 
 @mcp.tool(annotations=get_tool_annotations("load_data"))
@@ -715,7 +719,7 @@ async def annotate_cell_types(
     # Validate reference data for methods that require it
     if params.method in ["tangram", "scanvi", "singler"] and params.reference_data_id:
         if not data_manager.dataset_exists(params.reference_data_id):
-            raise ValueError(f"Reference dataset {params.reference_data_id} not found")
+            raise DataNotFoundError(f"Reference dataset {params.reference_data_id} not found")
 
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
@@ -1245,7 +1249,7 @@ async def deconvolve_data(
     # Validate reference data if provided
     if params.reference_data_id:
         if not data_manager.dataset_exists(params.reference_data_id):
-            raise ValueError(f"Reference dataset {params.reference_data_id} not found")
+            raise DataNotFoundError(f"Reference dataset {params.reference_data_id} not found")
 
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
@@ -1561,7 +1565,7 @@ async def analyze_enrichment(
 
     # Check if params is None (parameter is required now)
     if params is None:
-        raise ValueError(
+        raise ParameterError(
             "params parameter is required for enrichment analysis.\n"
             "You must provide EnrichmentParameters with at least 'species' specified.\n"
             "Example: params={'species': 'mouse', 'method': 'pathway_ora'}"
@@ -1724,7 +1728,7 @@ async def analyze_enrichment(
                     "Pathway Enrichr analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
                 )
         else:
-            raise ValueError(f"Unknown enrichment method: {params.method}")
+            raise ParameterError(f"Unknown enrichment method: {params.method}")
 
     # Note: No writeback needed - adata modifications are in-place on the same object
 

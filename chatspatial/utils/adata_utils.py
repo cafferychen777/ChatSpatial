@@ -404,14 +404,13 @@ def standardize_adata(adata: "ad.AnnData", copy: bool = True) -> "ad.AnnData":
     # Make gene names unique
     ensure_unique_var_names(adata)
 
-    # Ensure categorical columns
+    # Ensure categorical columns for known key types
     all_categorical_keys = (
         ALTERNATIVE_CELL_TYPE_KEYS | ALTERNATIVE_CLUSTER_KEYS | ALTERNATIVE_BATCH_KEYS
     )
     for key in adata.obs.columns:
         if key in all_categorical_keys:
-            if not pd.api.types.is_categorical_dtype(adata.obs[key]):
-                adata.obs[key] = adata.obs[key].astype("category")
+            ensure_categorical(adata, key)
 
     return adata
 
@@ -808,6 +807,59 @@ def check_is_integer_counts(X: Any, sample_size: int = 100) -> Tuple[bool, bool,
     is_integer = not has_negatives and not has_decimals
 
     return is_integer, has_negatives, has_decimals
+
+
+def ensure_counts_layer(
+    adata: "ad.AnnData",
+    layer_name: str = "counts",
+    error_message: Optional[str] = None,
+) -> bool:
+    """Ensure a counts layer exists in AnnData, creating from raw if needed.
+
+    This is the single source of truth for counts layer preparation.
+    Used by scVI-tools methods (scANVI, Cell2location, etc.) that require
+    raw counts in a specific layer.
+
+    Args:
+        adata: AnnData object (modified in-place)
+        layer_name: Name of the layer to ensure (default: "counts")
+        error_message: Custom error message if counts cannot be created
+
+    Returns:
+        True if layer was created, False if already existed
+
+    Raises:
+        DataNotFoundError: If counts layer cannot be created
+
+    Note:
+        When adata has been subsetted to HVGs, this function correctly
+        subsets adata.raw to match the current var_names.
+
+    Examples:
+        # Ensure counts layer exists before scANVI setup
+        ensure_counts_layer(adata_ref)
+        scvi.model.SCANVI.setup_anndata(adata_ref, layer="counts", ...)
+
+        # With custom error message
+        ensure_counts_layer(adata, error_message="scANVI requires raw counts")
+    """
+    from .exceptions import DataNotFoundError
+
+    if layer_name in adata.layers:
+        return False
+
+    if adata.raw is not None:
+        # Get raw counts, subsetting to current var_names
+        # Note: adata.raw may have full genes while adata has HVG subset
+        adata.layers[layer_name] = adata.raw[:, adata.var_names].X
+        return True
+
+    # Cannot create counts layer
+    default_error = (
+        f"Cannot create '{layer_name}' layer: adata.raw is None. "
+        "Load unpreprocessed data or ensure adata.raw is preserved during preprocessing."
+    )
+    raise DataNotFoundError(error_message or default_error)
 
 
 class RawDataResult:

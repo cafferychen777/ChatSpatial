@@ -18,7 +18,8 @@ if TYPE_CHECKING:
 
 from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
-from ..utils.adata_utils import (ensure_unique_var_names_with_ctx,
+from ..utils.adata_utils import (ensure_categorical, ensure_counts_layer,
+                                 ensure_unique_var_names_with_ctx,
                                  find_common_genes, get_spatial_key,
                                  validate_obs_column)
 from ..utils.dependency_manager import (is_available, require,
@@ -279,7 +280,7 @@ async def _annotate_with_singler(
 
     # Add to AnnData
     adata.obs[output_key] = cell_types
-    adata.obs[output_key] = adata.obs[output_key].astype("category")
+    ensure_categorical(adata, output_key)
 
     # Only add confidence column if we have real confidence values
     if confidence_scores:
@@ -532,7 +533,7 @@ async def _annotate_with_tangram(
 
         # Assign cell type based on highest probability (argmax is same before/after normalization)
         adata_sp.obs[output_key] = cell_type_prob.idxmax(axis=1)
-        adata_sp.obs[output_key] = adata_sp.obs[output_key].astype("category")
+        ensure_categorical(adata_sp, output_key)
 
         # Get counts
         counts = adata_sp.obs[output_key].value_counts().to_dict()
@@ -768,15 +769,10 @@ async def _annotate_with_scanvi(
     else:
         # Direct SCANVI training (existing approach)
         # Ensure counts layer exists (create from adata.raw if needed)
-        if "counts" not in adata_ref.layers:
-            if adata_ref.raw is not None:
-                # Get raw counts from adata.raw, subset to current var_names
-                # Note: adata.raw may have full genes while adata has HVG subset
-                adata_ref.layers["counts"] = adata_ref.raw[:, adata_ref.var_names].X
-            else:
-                raise DataNotFoundError(
-                    "scANVI requires raw counts in layers['counts']."
-                )
+        ensure_counts_layer(
+            adata_ref,
+            error_message="scANVI requires raw counts in layers['counts'].",
+        )
 
         # Setup AnnData for scANVI
         scvi.model.SCANVI.setup_anndata(
@@ -811,15 +807,10 @@ async def _annotate_with_scanvi(
         adata_subset.obs[batch_key] = "query_batch"
 
     # Ensure counts layer exists for query data (create from adata.raw if needed)
-    if "counts" not in adata_subset.layers:
-        if adata_subset.raw is not None:
-            # Get raw counts from adata.raw, subset to current var_names
-            # Note: adata.raw may have full genes while adata has HVG subset
-            adata_subset.layers["counts"] = adata_subset.raw[
-                :, adata_subset.var_names
-            ].X
-        else:
-            raise DataNotFoundError("scANVI requires raw counts in layers['counts'].")
+    ensure_counts_layer(
+        adata_subset,
+        error_message="scANVI requires raw counts in layers['counts'].",
+    )
 
     scvi.model.SCANVI.setup_anndata(
         adata_subset,
@@ -843,7 +834,7 @@ async def _annotate_with_scanvi(
     # COW FIX: Get predictions from adata_subset, then add to original adata
     predictions = spatial_model.predict()
     adata_subset.obs[cell_type_key] = predictions
-    adata_subset.obs[cell_type_key] = adata_subset.obs[cell_type_key].astype("category")
+    ensure_categorical(adata_subset, cell_type_key)
 
     # Extract results from adata_subset
     cell_types = list(adata_subset.obs[cell_type_key].cat.categories)
@@ -1045,7 +1036,7 @@ async def _annotate_with_mllmcelltype(
         await ctx.warning(f"Found {unmapped.sum()} cells in unmapped clusters")
         adata.obs.loc[unmapped, output_key] = "Unknown"
 
-    adata.obs[output_key] = adata.obs[output_key].astype("category")
+    ensure_categorical(adata, output_key)
 
     # Get cell types and counts
     cell_types = list(adata.obs[output_key].unique())
@@ -1252,7 +1243,7 @@ async def _annotate_with_cellassign(
         # CellAssign returned indices, not probabilities - no confidence available
         confidence_scores = {}  # Empty dict indicates no confidence data
 
-    adata.obs[output_key] = adata.obs[output_key].astype("category")
+    ensure_categorical(adata, output_key)
 
     # Get cell types and counts
     cell_types = valid_cell_types
