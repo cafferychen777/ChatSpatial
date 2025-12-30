@@ -104,6 +104,13 @@ def integrate_multiple_samples(
 
     # Merge datasets
     if isinstance(adatas, list):
+        # Validate list has at least 2 datasets for integration
+        if len(adatas) < 2:
+            raise ParameterError(
+                f"Integration requires at least 2 datasets, got {len(adatas)}. "
+                "Use preprocess_data for single dataset processing."
+            )
+
         # Check if datasets have batch labels
         has_batch_labels = all(batch_key in adata.obs for adata in adatas)
 
