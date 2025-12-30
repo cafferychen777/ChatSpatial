@@ -626,18 +626,63 @@ async def _identify_domains_stagate(
 
         # Get embeddings
         embeddings_key = "STAGATE"
+        n_clusters_target = params.n_domains
 
-        # Perform clustering on STAGATE embeddings (algorithm requirement)
-        # STAGATE-specific neighbors computation (algorithm requirement)
-        sc.pp.neighbors(
-            adata_stagate,
-            use_rep="STAGATE",
-            n_neighbors=params.cluster_n_neighbors or 15,
-        )
+        # Perform mclust clustering on STAGATE embeddings
+        # Note: We use our own mclust implementation because STAGATE_pyG.mclust_R
+        # has rpy2 compatibility issues with newer versions
+        try:
+            import numpy as np
+            import rpy2.robjects as robjects
+            from rpy2.robjects import numpy2ri
 
-        # Use leiden clustering (mclust is optional and has compatibility issues)
-        sc.tl.leiden(adata_stagate, resolution=params.cluster_resolution or 1.0)
-        domain_labels = adata_stagate.obs["leiden"].astype(str)
+            # Activate numpy to R conversion
+            numpy2ri.activate()
+
+            # Set random seed
+            random_seed = params.stagate_random_seed or 42
+            np.random.seed(random_seed)
+            robjects.r["set.seed"](random_seed)
+
+            # Load mclust library
+            robjects.r.library("mclust")
+
+            # Get embedding data and convert to float64 (required for R)
+            embedding_data = adata_stagate.obsm[embeddings_key].astype(np.float64)
+
+            # Assign data to R environment (correct way to pass data)
+            robjects.r.assign("stagate_embedding", embedding_data)
+
+            # Call Mclust directly via R code
+            robjects.r(f"mclust_result <- Mclust(stagate_embedding, G={n_clusters_target})")
+
+            # Extract classification results
+            mclust_labels = np.array(robjects.r("mclust_result$classification"))
+
+            # Store in adata
+            adata_stagate.obs["mclust"] = mclust_labels
+            adata_stagate.obs["mclust"] = adata_stagate.obs["mclust"].astype(int)
+            adata_stagate.obs["mclust"] = adata_stagate.obs["mclust"].astype("category")
+
+            domain_labels = adata_stagate.obs["mclust"].astype(str)
+            clustering_method = "mclust"
+
+            # Deactivate numpy2ri to avoid conflicts
+            numpy2ri.deactivate()
+
+        except ImportError as e:
+            raise ProcessingError(
+                f"STAGATE requires rpy2 for mclust clustering: {e}. "
+                "Install with: pip install rpy2"
+            ) from e
+        except Exception as mclust_error:
+            # mclust unavailable - provide clear guidance
+            raise ProcessingError(
+                f"STAGATE mclust clustering failed with n_domains={n_clusters_target}: "
+                f"{type(mclust_error).__name__}: {mclust_error}. "
+                "To fix: Install R and run 'install.packages(\"mclust\")' in R, then 'pip install rpy2'. "
+                "Alternatively, use method='leiden' or method='spagcn' which don't require R."
+            ) from mclust_error
 
         # Copy embeddings to original adata
         adata.obsm[embeddings_key] = adata_stagate.obsm["STAGATE"]
@@ -645,6 +690,8 @@ async def _identify_domains_stagate(
         statistics = {
             "method": "stagate_pyg",
             "n_clusters": len(domain_labels.unique()),
+            "target_n_clusters": n_clusters_target,
+            "clustering_method": clustering_method,
             "rad_cutoff": rad_cutoff,
             "device": str(device),
             "framework": "PyTorch Geometric",

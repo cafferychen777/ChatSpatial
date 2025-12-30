@@ -87,8 +87,10 @@ def setup_multi_panel_figure(
 
     axes = axes.flatten()
 
+    # Only set suptitle if title is explicitly provided and non-empty
     title = params.title or default_title
-    fig.suptitle(title, fontsize=16)
+    if title:
+        fig.suptitle(title, fontsize=16)
 
     for i in range(n_panels, len(axes)):
         axes[i].axis("off")
