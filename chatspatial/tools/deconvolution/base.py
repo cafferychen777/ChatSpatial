@@ -15,8 +15,13 @@ import pandas as pd
 if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
-from ...utils.adata_utils import (find_common_genes, get_raw_data_source,
-                                  validate_gene_overlap, validate_obs_column)
+from ...utils.adata_utils import (
+    find_common_genes,
+    get_raw_data_source,
+    to_dense,
+    validate_gene_overlap,
+    validate_obs_column,
+)
 from ...utils.exceptions import DataError, ProcessingError
 
 # =============================================================================
@@ -77,19 +82,12 @@ async def prepare_anndata_for_counts(
 
     # Convert to int32 if required (R-based methods need integer counts)
     # This also densifies sparse matrices for R compatibility
-    # Memory optimization: avoid double allocation from toarray().astype() chain
     if require_int_dtype and result.is_integer_counts:
-        if hasattr(adata_copy.X, "toarray"):
-            # Sparse matrix -> dense int32 in single allocation
-            # Using np.asarray with dtype avoids intermediate float array
-            dense = adata_copy.X.toarray()
-            if dense.dtype != np.int32:
-                adata_copy.X = dense.astype(np.int32, copy=False)
-            else:
-                adata_copy.X = dense
-        elif adata_copy.X.dtype != np.int32:
-            # Any non-int32 dtype -> int32, copy=False avoids extra allocation if possible
-            adata_copy.X = np.asarray(adata_copy.X).astype(np.int32, copy=False)
+        dense = to_dense(adata_copy.X)
+        if dense.dtype != np.int32:
+            adata_copy.X = dense.astype(np.int32, copy=False)
+        else:
+            adata_copy.X = dense
 
     return adata_copy
 

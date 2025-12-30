@@ -448,14 +448,14 @@ async def _run_liana_spatial_analysis(
 
     # Store results in adata
     adata.uns["liana_spatial_res"] = lrdata.var
-    adata.obsm["liana_spatial_scores"] = lrdata.X.toarray()
+    adata.obsm["liana_spatial_scores"] = to_dense(lrdata.X)
     adata.uns["liana_spatial_interactions"] = lrdata.var.index.tolist()
 
     if "pvals" in lrdata.layers:
-        adata.obsm["liana_spatial_pvals"] = lrdata.layers["pvals"].toarray()
+        adata.obsm["liana_spatial_pvals"] = to_dense(lrdata.layers["pvals"])
 
     if "cats" in lrdata.layers:
-        adata.obsm["liana_spatial_cats"] = lrdata.layers["cats"].toarray()
+        adata.obsm["liana_spatial_cats"] = to_dense(lrdata.layers["cats"])
 
     # Store standardized L-R pairs for visualization
     detected_lr_pairs = []
@@ -620,11 +620,7 @@ async def _analyze_communication_cellphonedb(
 
                 # Write gene-by-gene (memory constant)
                 for i, gene_name in enumerate(adata_for_analysis.var_names):
-                    if is_sparse:
-                        # Extract gene expression across all cells
-                        gene_expression = X_csc[:, i].toarray().flatten()
-                    else:
-                        gene_expression = X_csc[:, i]
+                    gene_expression = to_dense(X_csc[:, i]).flatten()
                     writer.writerow([gene_name] + list(gene_expression))
 
             meta_df.to_csv(meta_file, sep="\t", index=False)
@@ -1004,43 +1000,12 @@ async def _analyze_communication_cellchat_r(
         else:
             data_source = adata
 
-        expr_matrix = pd.DataFrame(
-            to_dense(data_source.X).T,
-            index=data_source.var_names,
-            columns=adata.obs_names,
-        )
-
-        # Prepare metadata
-        # CellChat doesn't allow labels starting with '0', so we add prefix for numeric labels
-        cell_labels = adata.obs[params.cell_type_key].astype(str).values
-        # Check if any label is '0' or starts with a digit - add 'cluster_' prefix
-        if any(label == "0" or (label and label[0].isdigit()) for label in cell_labels):
-            cell_labels = [f"cluster_{label}" for label in cell_labels]
-        meta_df = pd.DataFrame(
-            {"labels": cell_labels},
-            index=adata.obs_names,
-        )
-
-        # Prepare spatial coordinates if available
-        spatial_locs = None
-        if has_spatial and params.cellchat_distance_use:
-            spatial_coords = adata.obsm[spatial_key]
-            spatial_locs = pd.DataFrame(
-                spatial_coords[:, :2],
-                index=adata.obs_names,
-                columns=["x", "y"],
-            )
-
-        # Run CellChat in R
+        # Run CellChat in R - start early to get gene list for pre-filtering
         with localconverter(
             ro.default_converter + pandas2ri.converter + numpy2ri.converter
         ):
             # Load CellChat
             ro.r("library(CellChat)")
-
-            # Transfer data to R
-            ro.globalenv["expr_matrix"] = expr_matrix
-            ro.globalenv["meta_df"] = meta_df
 
             # Set species-specific database
             species_db_map = {
@@ -1050,7 +1015,78 @@ async def _analyze_communication_cellchat_r(
             }
             db_name = species_db_map.get(params.species, "CellChatDB.human")
 
-            # Create CellChat object
+            # Memory optimization: Get CellChatDB gene list and pre-filter
+            # This reduces memory from O(n_cells × n_all_genes) to O(n_cells × n_db_genes)
+            # Typical savings: 20000 genes → 1500 genes = 13x memory reduction
+            ro.r(
+                f"""
+                CellChatDB <- {db_name}
+                # Get all genes used in CellChatDB (ligands, receptors, cofactors)
+                cellchat_genes <- unique(c(
+                    CellChatDB$geneInfo$Symbol,
+                    unlist(strsplit(CellChatDB$interaction$ligand, "_")),
+                    unlist(strsplit(CellChatDB$interaction$receptor, "_"))
+                ))
+                cellchat_genes <- cellchat_genes[!is.na(cellchat_genes)]
+            """
+            )
+            cellchat_genes_r = ro.r("cellchat_genes")
+            cellchat_genes = set(cellchat_genes_r)
+
+            # Filter to genes present in both data and CellChatDB
+            common_genes = data_source.var_names.intersection(cellchat_genes)
+            n_total_genes = len(data_source.var_names)
+            n_filtered_genes = len(common_genes)
+
+            if n_filtered_genes == 0:
+                raise ValueError(
+                    f"No genes overlap between data and {db_name}. "
+                    f"Check if species parameter matches your data."
+                )
+
+            # Create expression matrix with only CellChatDB genes (memory efficient)
+            gene_indices = [
+                data_source.var_names.get_loc(g) for g in common_genes
+            ]
+            expr_matrix = pd.DataFrame(
+                to_dense(data_source.X[:, gene_indices]).T,
+                index=common_genes,
+                columns=adata.obs_names,
+            )
+
+            logger.info(
+                f"CellChat gene pre-filtering: {n_filtered_genes}/{n_total_genes} genes "
+                f"(memory reduced by {n_total_genes / max(n_filtered_genes, 1):.1f}x)"
+            )
+
+            # Prepare metadata
+            # CellChat doesn't allow labels starting with '0', so add prefix for numeric
+            cell_labels = adata.obs[params.cell_type_key].astype(str).values
+            # Check if any label is '0' or starts with a digit - add 'cluster_' prefix
+            if any(
+                label == "0" or (label and label[0].isdigit()) for label in cell_labels
+            ):
+                cell_labels = [f"cluster_{label}" for label in cell_labels]
+            meta_df = pd.DataFrame(
+                {"labels": cell_labels},
+                index=adata.obs_names,
+            )
+
+            # Prepare spatial coordinates if available
+            spatial_locs = None
+            if has_spatial and params.cellchat_distance_use:
+                spatial_coords = adata.obsm[spatial_key]
+                spatial_locs = pd.DataFrame(
+                    spatial_coords[:, :2],
+                    index=adata.obs_names,
+                    columns=["x", "y"],
+                )
+
+            # Transfer data to R
+            ro.globalenv["expr_matrix"] = expr_matrix
+            ro.globalenv["meta_df"] = meta_df
+
+            # Create CellChat object (db_name already set during gene pre-filtering)
             if (
                 has_spatial
                 and params.cellchat_distance_use

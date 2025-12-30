@@ -10,9 +10,13 @@ import scanpy as sc
 from ..models.analysis import DifferentialExpressionResult
 from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
-from ..utils.adata_utils import store_analysis_metadata
-from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
-                                ProcessingError)
+from ..utils.adata_utils import store_analysis_metadata, to_dense
+from ..utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 async def differential_expression(
@@ -273,10 +277,7 @@ async def differential_expression(
             gene_idx = raw_adata.var_names.get_loc(gene)
 
             # Get raw counts for this gene
-            if hasattr(raw_adata.X, "toarray"):
-                gene_raw_counts = raw_adata.X[:, gene_idx].toarray().flatten()
-            else:
-                gene_raw_counts = raw_adata.X[:, gene_idx].flatten()
+            gene_raw_counts = to_dense(raw_adata.X[:, gene_idx]).flatten()
 
             # Normalize by library size (CPM-like normalization)
             # normalized_counts = raw_counts * (median_lib_size / spot_lib_size)
