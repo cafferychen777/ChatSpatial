@@ -725,7 +725,7 @@ async def _identify_domains_graphst(
     import concurrent.futures
 
     import torch
-    from GraphST import GraphST
+    from GraphST.GraphST import GraphST
     from GraphST.utils import clustering as graphst_clustering
 
     try:
