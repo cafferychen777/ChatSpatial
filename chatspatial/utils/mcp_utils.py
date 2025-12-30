@@ -45,45 +45,41 @@ def suppress_output():
 # =============================================================================
 def _get_return_type_category(func) -> str:
     """
-    Determine what category of return type a function has.
+    Determine return type category using proper type inspection.
 
     Returns one of: "image", "basemodel", "str", "simple", "unknown"
     """
     try:
+        from typing import Union, get_args, get_origin
+
+        from mcp.types import ImageContent
+        from pydantic import BaseModel
+
         hints = get_type_hints(func)
         return_type = hints.get("return", None)
 
         if return_type is None:
             return "unknown"
 
-        type_str = str(return_type)
+        # Handle Union types (including Optional which is Union[X, None])
+        origin = get_origin(return_type)
+        if origin is Union:
+            types = [t for t in get_args(return_type) if t is not type(None)]
+        else:
+            types = [return_type]
 
-        if "ImageContent" in type_str:
-            return "image"
+        # Check ImageContent first (it's a BaseModel subclass, so order matters)
+        for t in types:
+            if isinstance(t, type) and issubclass(t, ImageContent):
+                return "image"
 
-        # Pydantic model types from models/analysis.py
-        basemodel_types = [
-            "SpatialDataset",
-            "PreprocessingResult",
-            "AnnotationResult",
-            "SpatialStatisticsResult",
-            "DifferentialExpressionResult",
-            "CNVResult",
-            "DeconvolutionResult",
-            "CellCommunicationResult",
-            "EnrichmentResult",
-            "RNAVelocityResult",
-            "TrajectoryResult",
-            "IntegrationResult",
-            "SpatialDomainResult",
-            "SpatialVariableGenesResult",
-        ]
-
-        for model_type in basemodel_types:
-            if model_type in type_str:
+        # Check for BaseModel subclasses
+        for t in types:
+            if isinstance(t, type) and issubclass(t, BaseModel):
                 return "basemodel"
 
-        if type_str in ["<class 'str'>", "str", "typing.Optional[str]"]:
+        # Check for str
+        if str in types:
             return "str"
 
         return "simple"
@@ -106,21 +102,7 @@ def mcp_tool_error_handler(include_traceback: bool = True):
         @wraps(func)
         async def wrapper(*args, **kwargs):
             try:
-                result = await func(*args, **kwargs)
-
-                # Return results directly - let FastMCP handle serialization
-                from mcp.types import ImageContent
-                from pydantic import BaseModel
-
-                if isinstance(result, ImageContent):
-                    return result
-                if isinstance(result, tuple) and len(result) >= 1:
-                    if isinstance(result[0], ImageContent):
-                        return result
-                if isinstance(result, BaseModel):
-                    return result
-
-                return result
+                return await func(*args, **kwargs)
 
             except Exception as e:
                 error_msg = str(e)
