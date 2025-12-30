@@ -654,6 +654,12 @@ def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch
     # Get batch information
     batches = combined_adata.obs[batch_key].unique()
 
+    if len(batches) == 0:
+        raise DataError(
+            f"No batch labels found in '{batch_key}' column. "
+            "Ensure data has valid batch annotations."
+        )
+
     # If reference batch not specified, use the first batch
     if reference_batch is None:
         reference_batch = batches[0]

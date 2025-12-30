@@ -35,6 +35,9 @@ async def _apply_gene_filtering(
     """Apply cell2location's official gene filtering.
 
     Reference: cell2location tutorial - "very permissive gene selection"
+
+    Note: The original filter_genes function creates a matplotlib figure.
+    We suppress this by using Agg backend and closing the figure immediately.
     """
     if not is_available("cell2location"):
         await ctx.warning(
@@ -43,15 +46,34 @@ async def _apply_gene_filtering(
         )
         return adata.copy()
 
-    from cell2location.utils.filtering import filter_genes
+    # Suppress matplotlib figure from filter_genes
+    import matplotlib
+    import matplotlib.pyplot as plt
 
-    selected = filter_genes(
-        adata,
-        cell_count_cutoff=cell_count_cutoff,
-        cell_percentage_cutoff2=cell_percentage_cutoff2,
-        nonz_mean_cutoff=nonz_mean_cutoff,
-    )
-    return adata[:, selected].copy()
+    original_backend = matplotlib.get_backend()
+    matplotlib.use("Agg")
+    plt.ioff()
+
+    try:
+        from cell2location.utils.filtering import filter_genes
+
+        selected = filter_genes(
+            adata,
+            cell_count_cutoff=cell_count_cutoff,
+            cell_percentage_cutoff2=cell_percentage_cutoff2,
+            nonz_mean_cutoff=nonz_mean_cutoff,
+        )
+        # Close any figures created by filter_genes
+        plt.close("all")
+
+        return adata[:, selected].copy()
+    finally:
+        # Restore original backend if needed
+        if original_backend != "Agg":
+            try:
+                matplotlib.use(original_backend)
+            except Exception:
+                pass  # Backend might not be switchable
 
 
 async def deconvolve(
