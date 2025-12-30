@@ -328,7 +328,7 @@ def _run_liana_cluster_analysis(
         min_cells=params.min_cells,
         n_perms=n_perms,
         verbose=False,
-        use_raw=True if adata.raw is not None else False,
+        use_raw=adata.raw is not None,
     )
 
     # Get results
