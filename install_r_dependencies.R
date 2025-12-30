@@ -76,10 +76,11 @@ cat("Step 2: Installing CRAN Packages\n")
 cat("---------------------------------\n")
 
 cran_packages <- c(
-  "dplyr",        # Data manipulation (required by scType, Numbat)
+  "dplyr",        # Data manipulation (required by scType, Numbat, CellChat)
   "openxlsx",     # Excel file reading (required by scType)
   "HGNChelper",   # Gene name validation (required by scType)
-  "SPARK"         # Spatial variable genes (SPARK method)
+  "SPARK",        # Spatial variable genes (SPARK method)
+  "sctransform"   # SCTransform v2 normalization (variance-stabilizing)
 )
 
 for (pkg in cran_packages) {
@@ -127,6 +128,12 @@ github_packages <- list(
     cmd = "devtools::install_github('YingMa0107/CARD', upgrade = 'never')"
   ),
   list(
+    name = "CellChat",
+    repo = "jinworks/CellChat",
+    method = "Cell-cell communication",
+    cmd = "devtools::install_github('jinworks/CellChat', upgrade = 'never')"
+  ),
+  list(
     name = "numbat",
     repo = "kharchenkolab/numbat",
     method = "CNV analysis",
@@ -169,6 +176,8 @@ if (length(failed_packages) > 0) {
   cat("  • RCTD deconvolution (spacexr)\n")
   cat("  • SPOTlight deconvolution (SPOTlight)\n")
   cat("  • CARD deconvolution (CARD)\n")
+  cat("  • CellChat cell communication (CellChat)\n")
+  cat("  • SCTransform normalization (sctransform)\n")
   cat("  • scType cell type annotation (dplyr, openxlsx, HGNChelper)\n")
   cat("  • Numbat CNV analysis (numbat)\n")
   cat("  • SPARK spatial variable genes (SPARK)\n")
