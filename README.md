@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/images/chatspatial-logo.png" alt="ChatSpatial Logo" width="300"/>
+<img src="https://raw.githubusercontent.com/cafferychen777/ChatSpatial/main/assets/images/chatspatial-logo.png" alt="ChatSpatial Logo" width="300"/>
 
 # ChatSpatial
 
