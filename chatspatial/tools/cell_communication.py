@@ -854,6 +854,13 @@ async def _analyze_communication_cellphonedb(
 
     except Exception as e:
         raise ProcessingError(f"CellPhoneDB analysis failed: {str(e)}") from e
+    finally:
+        # Cleanup: Remove temporary microenvironments file if created
+        if microenvs_file is not None:
+            try:
+                os.remove(microenvs_file)
+            except OSError:
+                pass  # Cleanup failure is not critical
 
 
 async def _create_microenvironments_file(
