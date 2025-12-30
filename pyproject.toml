@@ -4,8 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chatspatial"
-version = "1.0.0"
+version = "1.0.1"
 description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Chen Yang", email = "cafferychen777@tamu.edu"}
+]
+keywords = ["spatial-transcriptomics", "single-cell", "mcp", "llm", "bioinformatics", "scanpy", "squidpy"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
 requires-python = ">=3.10,<3.14"
 dependencies = [
     # ========== Core Foundation (Essential) ==========
@@ -156,6 +174,12 @@ dev = [
     "isort>=5.0.0",
     "pre-commit>=3.0.0,<5.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/cafferychen777/ChatSpatial"
+Documentation = "https://chatspatial.readthedocs.io"
+Repository = "https://github.com/cafferychen777/ChatSpatial"
+Issues = "https://github.com/cafferychen777/ChatSpatial/issues"
 
 [project.scripts]
 chatspatial = "chatspatial.__main__:main"
