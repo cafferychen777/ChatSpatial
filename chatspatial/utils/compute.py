@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 import scanpy as sc
 
 from .adata_utils import ensure_categorical
-from .exceptions import DataNotFoundError, ProcessingError
+from .exceptions import DataNotFoundError
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -325,80 +325,3 @@ def has_spatial_neighbors(adata: "ad.AnnData") -> bool:
 def has_hvg(adata: "ad.AnnData") -> bool:
     """Check if highly variable genes are marked."""
     return "highly_variable" in adata.var and adata.var["highly_variable"].any()
-
-
-# =============================================================================
-# Requirement Functions (Raise error if missing)
-# =============================================================================
-
-
-class ComputationMissingError(ProcessingError):
-    """Raised when a required computation is missing."""
-
-    pass
-
-
-def require_pca(adata: "ad.AnnData", tool_name: str = "This analysis") -> None:
-    """Require PCA to be available, raise error if missing."""
-    if not has_pca(adata):
-        raise ComputationMissingError(
-            f"{tool_name} requires PCA.\n\n"
-            "Solutions:\n"
-            "1. Run preprocess_data() first (includes PCA by default)\n"
-            "2. Or run compute_embeddings() to compute PCA explicitly"
-        )
-
-
-def require_neighbors(adata: "ad.AnnData", tool_name: str = "This analysis") -> None:
-    """Require neighborhood graph to be available."""
-    if not has_neighbors(adata):
-        raise ComputationMissingError(
-            f"{tool_name} requires a neighborhood graph.\n\n"
-            "Solutions:\n"
-            "1. Run preprocess_data() first\n"
-            "2. Or run compute_embeddings() to compute neighbors explicitly"
-        )
-
-
-def require_clustering(
-    adata: "ad.AnnData",
-    key: str = "leiden",
-    tool_name: str = "This analysis",
-) -> None:
-    """Require clustering results to be available."""
-    if not has_clustering(adata, key):
-        available = [
-            c for c in adata.obs.columns if c in ["leiden", "louvain", "cluster"]
-        ]
-        available_str = f" Available: {available}" if available else ""
-        raise ComputationMissingError(
-            f"{tool_name} requires clustering results in '{key}'.{available_str}\n\n"
-            "Solutions:\n"
-            "1. Run identify_spatial_domains() to compute clustering\n"
-            "2. Or specify a different cluster_key that exists in your data"
-        )
-
-
-def require_spatial_neighbors(
-    adata: "ad.AnnData",
-    tool_name: str = "This analysis",
-) -> None:
-    """Require spatial neighborhood graph to be available."""
-    if not has_spatial_neighbors(adata):
-        raise ComputationMissingError(
-            f"{tool_name} requires spatial neighbors.\n\n"
-            "The spatial neighborhood graph is computed automatically by preprocess_data() "
-            "for spatial transcriptomics data.\n\n"
-            "If missing, you can compute it manually:\n"
-            "  import squidpy as sq\n"
-            "  sq.gr.spatial_neighbors(adata, coord_type='generic', n_neighs=6)"
-        )
-
-
-def require_hvg(adata: "ad.AnnData", tool_name: str = "This analysis") -> None:
-    """Require highly variable genes to be available."""
-    if not has_hvg(adata):
-        raise ComputationMissingError(
-            f"{tool_name} requires highly variable genes (HVG).\n\n"
-            "Solution: Run preprocess_data() first to compute HVGs."
-        )

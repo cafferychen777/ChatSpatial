@@ -586,23 +586,11 @@ class DependencyManager:
         raise ImportError(error_msg)
 
 
-# Global singleton instance for convenient access
-_manager: Optional[DependencyManager] = None
-
-
-def get_manager() -> DependencyManager:
-    """Get the global DependencyManager instance.
-
-    Returns:
-        The singleton DependencyManager instance
-    """
-    global _manager
-    if _manager is None:
-        _manager = DependencyManager()
-    return _manager
-
-
 # Convenience functions for common operations
+# Note: DependencyManager uses __new__ singleton, so DependencyManager() always
+# returns the same instance. No need for module-level caching.
+
+
 def require(
     name: str,
     ctx: Optional["ToolContext"] = None,
@@ -612,7 +600,7 @@ def require(
 
     See DependencyManager.require for details.
     """
-    return get_manager().require(name, ctx, feature)
+    return DependencyManager().require(name, ctx, feature)
 
 
 def get(
@@ -624,7 +612,7 @@ def get(
 
     See DependencyManager.get for details.
     """
-    return get_manager().get(name, ctx, warn_if_missing)
+    return DependencyManager().get(name, ctx, warn_if_missing)
 
 
 def is_available(name: str) -> bool:
@@ -632,7 +620,7 @@ def is_available(name: str) -> bool:
 
     See DependencyManager.is_available for details.
     """
-    return get_manager().is_available(name)
+    return DependencyManager().is_available(name)
 
 
 # R-specific validation (common pattern across tools)
@@ -655,7 +643,7 @@ def validate_r_environment(
     Raises:
         ImportError: If rpy2 or required R packages are not available
     """
-    manager = get_manager()
+    manager = DependencyManager()
 
     # Check Python packages
     if not manager.is_available("rpy2"):
@@ -675,8 +663,7 @@ def validate_r_environment(
         import anndata2ri
         import rpy2.robjects as robjects
         from rpy2.rinterface_lib import openrlib
-        from rpy2.robjects import (conversion, default_converter, numpy2ri,
-                                   pandas2ri)
+        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
         from rpy2.robjects.conversion import localconverter
         from rpy2.robjects.packages import importr
 
@@ -751,7 +738,7 @@ def validate_scvi_tools(
     Raises:
         ImportError: If scvi-tools or required components are not available
     """
-    manager = get_manager()
+    manager = DependencyManager()
     scvi = manager.require("scvi-tools", ctx, "scvi-tools methods")
 
     if components:
@@ -819,7 +806,7 @@ def validate_r_package(
             install_cmd="devtools::install_github('kharchenkolab/numbat')"
         )
     """
-    manager = get_manager()
+    manager = DependencyManager()
 
     if not manager.is_available("rpy2"):
         raise ImportError(
@@ -873,7 +860,7 @@ def check_r_packages(
     Returns:
         List of missing package names (empty if all available)
     """
-    manager = get_manager()
+    manager = DependencyManager()
 
     if not manager.is_available("rpy2"):
         return packages  # All missing if rpy2 not available
@@ -889,5 +876,3 @@ def check_r_packages(
         ctx.debug(f"Missing R packages: {', '.join(missing)}")
 
     return missing
-
-

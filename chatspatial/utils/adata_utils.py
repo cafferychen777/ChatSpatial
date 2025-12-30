@@ -306,28 +306,6 @@ def validate_var_column(
         )
 
 
-def validate_obs_columns(adata: "ad.AnnData", columns: List[str]) -> None:
-    """Validate that multiple columns exist in adata.obs."""
-    missing = [col for col in columns if col not in adata.obs.columns]
-    if missing:
-        available = ", ".join(list(adata.obs.columns)[:10])
-        suffix = "..." if len(adata.obs.columns) > 10 else ""
-        raise DataError(
-            f"Columns not found in adata.obs: {', '.join(missing)}. Available: {available}{suffix}"
-        )
-
-
-def validate_var_columns(adata: "ad.AnnData", columns: List[str]) -> None:
-    """Validate that multiple columns exist in adata.var."""
-    missing = [col for col in columns if col not in adata.var.columns]
-    if missing:
-        available = ", ".join(list(adata.var.columns)[:10])
-        suffix = "..." if len(adata.var.columns) > 10 else ""
-        raise DataError(
-            f"Columns not found in adata.var: {', '.join(missing)}. Available: {available}{suffix}"
-        )
-
-
 def validate_adata_basics(
     adata: "ad.AnnData",
     min_obs: int = 1,

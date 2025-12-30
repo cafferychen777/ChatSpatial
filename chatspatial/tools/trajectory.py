@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
 from ..utils.adata_utils import (get_spatial_key, require_spatial_coords,
-                                 validate_adata)
+                                 validate_adata, validate_obs_column)
 from ..utils.compute import ensure_diffmap, ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
@@ -80,10 +80,7 @@ def prepare_gam_model_for_visualization(
     from cellrank.models import GAM
 
     # Validate required data
-    if time_key not in adata.obs.columns:
-        raise DataNotFoundError(
-            f"Time key '{time_key}' not found. Run analyze_rna_velocity first."
-        )
+    validate_obs_column(adata, time_key, "Time key")
 
     if fate_key not in adata.obsm:
         raise DataNotFoundError(

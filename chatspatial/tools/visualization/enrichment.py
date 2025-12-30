@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
+from ...utils.adata_utils import validate_obs_column
 from ...utils.exceptions import (DataNotFoundError, ParameterError,
                                  ProcessingError)
 from .core import (create_figure, get_categorical_columns,
@@ -199,10 +200,7 @@ def _create_enrichment_violin(
             f"Available categorical columns: {', '.join(categorical_cols)}"
         )
 
-    if params.cluster_key not in adata.obs.columns:
-        raise DataNotFoundError(
-            f"Grouping variable '{params.cluster_key}' not found in adata.obs"
-        )
+    validate_obs_column(adata, params.cluster_key, "Grouping variable")
 
     # Determine scores to plot
     scores_to_plot = _resolve_feature_list(
@@ -375,8 +373,7 @@ def _create_enrichmap_single_score(
         )
 
     score_col = f"{params.feature}_score"
-    if score_col not in adata.obs.columns:
-        raise DataNotFoundError(f"Score column '{score_col}' not found")
+    validate_obs_column(adata, score_col, "Score column")
 
     if params.subtype == "spatial_correlogram":
         em.pl.morans_correlogram(adata, score_key=score_col, library_id=library_id)

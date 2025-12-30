@@ -261,10 +261,10 @@ async def deconvolve(
         )
 
         # Add model performance metrics
-        if hasattr(cell2loc_model, "history") and cell2loc_model.history:
+        if hasattr(cell2loc_model, "history") and cell2loc_model.history is not None:
             history = cell2loc_model.history
-            if "elbo_train" in history and history["elbo_train"]:
-                stats["final_elbo"] = float(history["elbo_train"][-1])
+            if "elbo_train" in history and not history["elbo_train"].empty:
+                stats["final_elbo"] = float(history["elbo_train"].iloc[-1])
 
         # Memory cleanup: release models and intermediate data
         # Cell2location is particularly memory-intensive with two-stage training
@@ -329,7 +329,12 @@ def _extract_reference_signatures(ref: "ad.AnnData") -> pd.DataFrame:
 
 
 def _extract_cell_abundance(sp: "ad.AnnData"):
-    """Extract cell abundance from Cell2location results."""
+    """Extract cell abundance from Cell2location results.
+
+    Cell2location stores results as DataFrames with prefixed column names like
+    'q05cell_abundance_w_sf_CellType'. We need to extract the values and
+    return them as a numpy array for consistent downstream processing.
+    """
     possible_keys = [
         "q05_cell_abundance_w_sf",
         "means_cell_abundance_w_sf",
@@ -338,7 +343,12 @@ def _extract_cell_abundance(sp: "ad.AnnData"):
 
     for key in possible_keys:
         if key in sp.obsm:
-            return sp.obsm[key]
+            result = sp.obsm[key]
+            # Cell2location returns DataFrame with prefixed column names
+            # Extract values as numpy array for consistent processing
+            if hasattr(result, "values"):
+                return result.values
+            return result
 
     raise ProcessingError(
         f"Cell2location did not produce expected output. "

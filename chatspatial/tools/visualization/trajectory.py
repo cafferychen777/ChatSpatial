@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
+from ...utils.adata_utils import validate_obs_column
 from ...utils.dependency_manager import require
 from ...utils.exceptions import (DataCompatibilityError, DataNotFoundError,
                                  ParameterError)
@@ -116,10 +117,7 @@ async def _create_trajectory_pseudotime_plot(
                 "No pseudotime found. Run trajectory analysis first."
             )
 
-    if pseudotime_key not in adata.obs.columns:
-        raise DataNotFoundError(
-            f"Pseudotime column '{pseudotime_key}' not found. Run trajectory analysis first."
-        )
+    validate_obs_column(adata, pseudotime_key, "Pseudotime column")
 
     # Check if RNA velocity is available
     has_velocity = "velocity_graph" in adata.uns

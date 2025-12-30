@@ -12,8 +12,7 @@ import numpy as np
 from scipy.stats import entropy
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import get_spatial_key
-from ...utils.exceptions import DataNotFoundError
+from ...utils.adata_utils import get_spatial_key, validate_obs_column
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -50,13 +49,9 @@ async def create_batch_integration_visualization(
     if context:
         await context.info("Creating batch integration quality visualization")
 
-    # Check if batch information exists - STRICT validation, no fallback
+    # Validate batch key exists
     batch_key = params.batch_key
-    if batch_key not in adata.obs.columns:
-        raise DataNotFoundError(
-            f"Batch key '{batch_key}' not found. "
-            f"Run integrate_samples() first or specify correct batch_key."
-        )
+    validate_obs_column(adata, batch_key, "Batch key")
 
     # Create multi-panel figure (2x2 layout)
     figsize = params.figure_size if params.figure_size else (16, 12)
