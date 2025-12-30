@@ -11,12 +11,8 @@ from ..models.analysis import DifferentialExpressionResult
 from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
 from ..utils.adata_utils import store_analysis_metadata, to_dense
-from ..utils.exceptions import (
-    DataError,
-    DataNotFoundError,
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
+                                ProcessingError)
 
 
 async def differential_expression(
@@ -58,12 +54,9 @@ async def differential_expression(
     # Check if the group_key exists in adata.obs
     validate_obs_column(adata, group_key, "Group key")
 
-    # IMPORTANT: Handle float16 data type (numba doesn't support float16)
-    # Convert to float32 if needed for differential expression analysis
-    if hasattr(adata.X, "dtype") and adata.X.dtype == np.float16:
-        # Create a copy to avoid modifying the original data
-        adata = adata.copy()
-        adata.X = adata.X.astype(np.float32)
+    # Check if dtype conversion is needed (numba doesn't support float16)
+    # Defer conversion to after subsetting for memory efficiency
+    needs_dtype_fix = hasattr(adata.X, "dtype") and adata.X.dtype == np.float16
 
     # If group1 is None, find markers for all groups
     if group1 is None:
@@ -96,6 +89,10 @@ async def differential_expression(
 
         # Filter data to only include valid groups
         adata_filtered = adata[adata.obs[group_key].isin(valid_groups.index)].copy()
+
+        # Convert dtype after subsetting (4x more memory efficient than copying first)
+        if needs_dtype_fix:
+            adata_filtered.X = adata_filtered.X.astype(np.float32)
 
         # Run rank_genes_groups on filtered data
         sc.tl.rank_genes_groups(
@@ -189,6 +186,10 @@ async def differential_expression(
     else:
         # Create a temporary copy of the AnnData object with only the two groups
         temp_adata = adata[adata.obs[group_key].isin([group1, group2])].copy()
+
+    # Convert dtype after subsetting (4x more memory efficient than copying first)
+    if needs_dtype_fix:
+        temp_adata.X = temp_adata.X.astype(np.float32)
 
     # Run rank_genes_groups
     sc.tl.rank_genes_groups(

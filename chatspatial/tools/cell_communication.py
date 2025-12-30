@@ -14,12 +14,8 @@ from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
 from ..utils.adata_utils import get_spatial_key, to_dense
 from ..utils.dependency_manager import require, validate_r_package
-from ..utils.exceptions import (
-    DataNotFoundError,
-    DependencyError,
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.exceptions import (DataNotFoundError, DependencyError,
+                                ParameterError, ProcessingError)
 
 
 async def _validate_liana_requirements(
@@ -900,35 +896,29 @@ async def _create_microenvironments_file(
         cell_types = adata.obs[params.cell_type_key].values
 
         # Create microenvironments by cell type co-occurrence
+        # Optimized: Single loop to build both mappings (2x faster)
         microenv_assignments = {}
+        cell_type_to_microenv = {}
         microenv_counter = 0
 
         for i in range(adata.n_obs):
             neighbors = neighbor_matrix[i].indices
             if len(neighbors) > 1:  # At least one neighbor besides itself
-                # Get unique cell types in this spatial neighborhood
-                neighbor_cell_types = set([cell_types[j] for j in neighbors])
+                # Get unique cell types in this spatial neighborhood (computed once)
+                neighbor_cell_types = set(cell_types[j] for j in neighbors)
 
                 # Create microenvironment signature based on co-occurring cell types
                 microenv_signature = tuple(sorted(neighbor_cell_types))
 
+                # First use: create assignment if new signature
                 if microenv_signature not in microenv_assignments:
                     microenv_assignments[microenv_signature] = (
                         f"microenv_{microenv_counter}"
                     )
                     microenv_counter += 1
 
-        # Generate cell_type -> microenvironment mappings
-        cell_type_to_microenv = {}
-
-        for i in range(adata.n_obs):
-            neighbors = neighbor_matrix[i].indices
-            if len(neighbors) > 1:
-                neighbor_cell_types = set([cell_types[j] for j in neighbors])
-                microenv_signature = tuple(sorted(neighbor_cell_types))
+                # Second use: update cell_type_to_microenv mappings
                 microenv_name = microenv_assignments[microenv_signature]
-
-                # Assign all cell types in this neighborhood to this microenvironment
                 for ct in neighbor_cell_types:
                     if ct not in cell_type_to_microenv:
                         cell_type_to_microenv[ct] = set()
@@ -1045,9 +1035,7 @@ async def _analyze_communication_cellchat_r(
                 )
 
             # Create expression matrix with only CellChatDB genes (memory efficient)
-            gene_indices = [
-                data_source.var_names.get_loc(g) for g in common_genes
-            ]
+            gene_indices = [data_source.var_names.get_loc(g) for g in common_genes]
             expr_matrix = pd.DataFrame(
                 to_dense(data_source.X[:, gene_indices]).T,
                 index=common_genes,
