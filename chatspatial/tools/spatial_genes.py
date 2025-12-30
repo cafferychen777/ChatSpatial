@@ -23,12 +23,8 @@ from ..models.data import SpatialVariableGenesParameters  # noqa: E402
 from ..utils import validate_var_column  # noqa: E402
 from ..utils.adata_utils import require_spatial_coords, to_dense  # noqa: E402
 from ..utils.dependency_manager import require  # noqa: E402
-from ..utils.exceptions import (
-    DataError,
-    DataNotFoundError,  # noqa: E402
-    ParameterError,
-    ProcessingError,
-)
+from ..utils.exceptions import DataNotFoundError  # noqa: E402
+from ..utils.exceptions import DataError, ParameterError, ProcessingError
 from ..utils.mcp_utils import suppress_output  # noqa: E402
 
 

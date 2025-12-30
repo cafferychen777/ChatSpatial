@@ -176,9 +176,18 @@ filterwarnings = [
     "ignore:.*numpy.*version.*:UserWarning",
 ]
 
-[tool.setuptools]
-# Explicit package discovery to avoid including test/data directories
-packages = ["chatspatial"]
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["chatspatial", "chatspatial.*"]
+exclude = ["tests", "tests.*", "chatspatial.tests", "chatspatial.tests.*"]
 
 [tool.setuptools.package-data]
 chatspatial = ["py.typed"]

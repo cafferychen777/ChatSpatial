@@ -11,9 +11,15 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 from ..spatial_mcp_adapter import ToolContext
-from ..utils.compute import (ensure_diffmap, ensure_leiden, ensure_louvain,
-                             ensure_neighbors, ensure_pca,
-                             ensure_spatial_neighbors, ensure_umap)
+from ..utils.compute import (
+    ensure_diffmap,
+    ensure_leiden,
+    ensure_louvain,
+    ensure_neighbors,
+    ensure_pca,
+    ensure_spatial_neighbors,
+    ensure_umap,
+)
 from ..utils.mcp_utils import mcp_tool_error_handler
 
 

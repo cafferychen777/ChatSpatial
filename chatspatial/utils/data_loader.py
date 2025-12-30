@@ -16,8 +16,12 @@ from typing import Any, Dict, Literal, Optional
 
 from .adata_utils import ensure_unique_var_names, get_adata_profile
 from .dependency_manager import is_available
-from .exceptions import (DataCompatibilityError, DataNotFoundError,
-                         ParameterError, ProcessingError)
+from .exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +29,7 @@ logger = logging.getLogger(__name__)
 async def load_spatial_data(
     data_path: str,
     data_type: Literal[
-        "10x_visium", "slide_seq", "merfish", "seqfish", "other", "auto"
+        "10x_visium", "slide_seq", "merfish", "seqfish", "other", "auto", "h5ad"
     ] = "auto",
     name: Optional[str] = None,
 ) -> Dict[str, Any]:

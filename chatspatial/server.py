@@ -43,8 +43,8 @@ from .models.analysis import TrajectoryResult  # noqa: E402
 from .models.data import AnnotationParameters  # noqa: E402
 from .models.data import CellCommunicationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
-from .models.data import DeconvolutionParameters  # noqa: E402
 from .models.data import ColumnInfo  # noqa: E402
+from .models.data import DeconvolutionParameters  # noqa: E402
 from .models.data import EnrichmentParameters  # noqa: E402
 from .models.data import IntegrationParameters  # noqa: E402
 from .models.data import PreprocessingParameters  # noqa: E402
@@ -713,7 +713,9 @@ async def annotate_cell_types(
     # Validate reference data for methods that require it
     if params.method in ["tangram", "scanvi", "singler"] and params.reference_data_id:
         if not data_manager.dataset_exists(params.reference_data_id):
-            raise DataNotFoundError(f"Reference dataset {params.reference_data_id} not found")
+            raise DataNotFoundError(
+                f"Reference dataset {params.reference_data_id} not found"
+            )
 
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
@@ -790,8 +792,9 @@ async def analyze_spatial_statistics(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import spatial_statistics (squidpy is slow to import)
-    from .tools.spatial_statistics import \
-        analyze_spatial_statistics as _analyze_spatial_statistics
+    from .tools.spatial_statistics import (
+        analyze_spatial_statistics as _analyze_spatial_statistics,
+    )
 
     # Call spatial statistics analysis function with ToolContext
     result = await _analyze_spatial_statistics(data_id, ctx, params)
@@ -1242,7 +1245,9 @@ async def deconvolve_data(
     # Validate reference data if provided
     if params.reference_data_id:
         if not data_manager.dataset_exists(params.reference_data_id):
-            raise DataNotFoundError(f"Reference dataset {params.reference_data_id} not found")
+            raise DataNotFoundError(
+                f"Reference dataset {params.reference_data_id} not found"
+            )
 
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
@@ -1293,8 +1298,7 @@ async def identify_spatial_domains(
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
     # Import spatial domains function
-    from .tools.spatial_domains import \
-        identify_spatial_domains as identify_domains_func
+    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1461,8 +1465,9 @@ async def analyze_cell_communication(
           • Signaling ranges: Literature-based (Wnt/Wg: ~50-100 µm)
     """
     # Import cell communication function
-    from .tools.cell_communication import \
-        analyze_cell_communication as analyze_comm_func
+    from .tools.cell_communication import (
+        analyze_cell_communication as analyze_comm_func,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1546,8 +1551,9 @@ async def analyze_enrichment(
     """
     # Import enrichment analysis function
 
-    from .tools.enrichment import \
-        perform_spatial_enrichment as perform_enrichment_analysis
+    from .tools.enrichment import (
+        perform_spatial_enrichment as perform_enrichment_analysis,
+    )
 
     # Validate dataset
     validate_dataset(data_id)
@@ -1653,8 +1659,12 @@ async def analyze_enrichment(
             )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (perform_enrichr, perform_gsea,
-                                       perform_ora, perform_ssgsea)
+        from .tools.enrichment import (
+            perform_enrichr,
+            perform_gsea,
+            perform_ora,
+            perform_ssgsea,
+        )
 
         if params.method == "pathway_gsea":
             result_dict = perform_gsea(

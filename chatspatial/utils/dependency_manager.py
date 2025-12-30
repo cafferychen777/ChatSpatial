@@ -404,6 +404,7 @@ class DependencyManager:
 
     _instance: Optional["DependencyManager"] = None
     _lock = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> "DependencyManager":
         """Singleton pattern for global access."""

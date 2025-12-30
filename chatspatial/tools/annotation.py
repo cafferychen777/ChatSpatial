@@ -1132,8 +1132,8 @@ async def _annotate_with_cellassign(
         all_marker_genes.extend(genes)
     available_marker_genes = list(set(all_marker_genes))  # Remove duplicates
 
-    if not available_marker_genes:
-        raise DataError("No marker genes found in the dataset")
+    # Note: available_marker_genes cannot be empty here because valid_marker_genes
+    # is already validated at line 1120 to have at least one cell type with genes
 
     # Create DataFrame with genes as index, cell types as columns
     marker_gene_matrix = pd.DataFrame(

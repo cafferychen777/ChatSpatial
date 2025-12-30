@@ -10,17 +10,15 @@ This module contains:
 import glob
 import os
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
 
 from ...models.data import VisualizationParameters
-from ...utils.exceptions import (DataNotFoundError, ParameterError,
-                                 ProcessingError)
+from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
 from ...utils.image_utils import get_cached_figure, load_visualization_metadata
-from ...utils.path_utils import (get_output_dir_from_config,
-                                 get_safe_output_path)
+from ...utils.path_utils import get_output_dir_from_config, get_safe_output_path
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -213,7 +211,7 @@ async def save_visualization(
 
         try:
             # Prepare save parameters
-            save_params = {
+            save_params: Dict[str, Any] = {
                 "bbox_inches": "tight",
                 "facecolor": "white",
                 "edgecolor": "none",

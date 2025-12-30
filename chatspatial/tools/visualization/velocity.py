@@ -21,8 +21,11 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import validate_obs_column
 from ...utils.dependency_manager import require
-from ...utils.exceptions import (DataCompatibilityError, DataNotFoundError,
-                                 ParameterError)
+from ...utils.exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    ParameterError,
+)
 from .core import get_categorical_columns, infer_basis
 
 # =============================================================================

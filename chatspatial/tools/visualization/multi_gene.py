@@ -17,12 +17,19 @@ import scanpy as sc
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import (ensure_unique_var_names, get_gene_expression,
-                                  get_genes_expression, require_spatial_coords)
-from ...utils.exceptions import (DataNotFoundError, ParameterError,
-                                 ProcessingError)
-from .core import (create_figure, get_validated_features, plot_spatial_feature,
-                   setup_multi_panel_figure)
+from ...utils.adata_utils import (
+    ensure_unique_var_names,
+    get_gene_expression,
+    get_genes_expression,
+    require_spatial_coords,
+)
+from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from .core import (
+    create_figure,
+    get_validated_features,
+    plot_spatial_feature,
+    setup_multi_panel_figure,
+)
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -632,7 +639,7 @@ async def create_spatial_interaction_visualization(
         )
 
         # Color mapping for different LR pairs
-        colors = plt.cm.Set3(np.linspace(0, 1, len(params.lr_pairs)))
+        colors = plt.get_cmap("Set3")(np.linspace(0, 1, len(params.lr_pairs)))
 
         interaction_count = 0
         for i, (ligand, receptor) in enumerate(params.lr_pairs):
@@ -693,7 +700,9 @@ async def create_spatial_interaction_visualization(
                         ligand_indices, receptor_indices = np.where(
                             distances <= distance_threshold
                         )
-                        for li, ri in zip(ligand_indices[:50], receptor_indices[:50], strict=False):
+                        for li, ri in zip(
+                            ligand_indices[:50], receptor_indices[:50], strict=False
+                        ):
                             ax.plot(
                                 [ligand_coords[li, 0], receptor_coords[ri, 0]],
                                 [ligand_coords[li, 1], receptor_coords[ri, 1]],

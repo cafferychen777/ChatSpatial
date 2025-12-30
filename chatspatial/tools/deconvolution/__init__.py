@@ -29,8 +29,7 @@ if TYPE_CHECKING:
 
 from ...models.analysis import DeconvolutionResult
 from ...models.data import DeconvolutionParameters
-from ...utils.adata_utils import (ensure_unique_var_names_with_ctx,
-                                  validate_obs_column)
+from ...utils.adata_utils import ensure_unique_var_names_with_ctx, validate_obs_column
 from ...utils.exceptions import DataError, DependencyError, ParameterError
 from .base import DeconvolutionContext
 

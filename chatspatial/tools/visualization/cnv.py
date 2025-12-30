@@ -6,7 +6,7 @@ This module contains:
 - Spatial CNV projection visualization
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -210,18 +210,18 @@ async def create_cnv_heatmap_visualization(
             unique_groups = sorted(feature_values.unique())
 
             # Compute mean CNV for each group
-            aggregated_cnv = []
-            group_labels = []
-            group_sizes = []
+            aggregated_cnv_list: List[Any] = []
+            group_labels: List[str] = []
+            group_sizes: List[Any] = []
 
             for group in unique_groups:
                 group_mask = feature_values == group
                 group_cnv = cnv_matrix[group_mask, :].mean(axis=0)
-                aggregated_cnv.append(group_cnv)
+                aggregated_cnv_list.append(group_cnv)
                 group_labels.append(str(group))
                 group_sizes.append(group_mask.sum())
 
-            aggregated_cnv = np.array(aggregated_cnv)
+            aggregated_cnv = np.array(aggregated_cnv_list)
 
             # Calculate appropriate figure width based on number of bins
             n_bins = aggregated_cnv.shape[1]
@@ -251,7 +251,12 @@ async def create_cnv_heatmap_visualization(
                     for label, size in zip(group_labels, group_sizes, strict=False)
                 ]
             )
-            ax.set_ylabel(params.feature, fontsize=12, fontweight="bold")
+            feature_label = (
+                params.feature
+                if isinstance(params.feature, str)
+                else ", ".join(params.feature) if params.feature else ""
+            )
+            ax.set_ylabel(feature_label, fontsize=12, fontweight="bold")
 
             # Set x-axis
             ax.set_xlabel("Genomic position (binned)", fontsize=12)

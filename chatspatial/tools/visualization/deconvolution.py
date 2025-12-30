@@ -28,8 +28,7 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import get_spatial_key, require_spatial_coords
 from ...utils.exceptions import DataNotFoundError, ParameterError
-from .core import (DeconvolutionData, plot_spatial_feature,
-                   setup_multi_panel_figure)
+from .core import DeconvolutionData, plot_spatial_feature, setup_multi_panel_figure
 
 # =============================================================================
 # Data Retrieval
@@ -119,7 +118,7 @@ async def get_deconvolution_data(
     )
 
     # Check if dominant type annotation exists
-    dominant_type_key = f"dominant_celltype_{method}"
+    dominant_type_key: Optional[str] = f"dominant_celltype_{method}"
     if dominant_type_key not in adata.obs.columns:
         dominant_type_key = None
 
@@ -445,8 +444,8 @@ async def _create_stacked_barplot(
         f"Cell Type Proportions ({data.method})\n"
         f"Sorted by: {params.sort_by.replace('_', ' ').title()}"
     )
-    ax.set_ylim([0, 1])
-    ax.set_xlim([0, len(proportions_sorted)])
+    ax.set_ylim((0, 1))
+    ax.set_xlim((0, len(proportions_sorted)))
     ax.legend(
         bbox_to_anchor=(1.05, 1),
         loc="upper left",
@@ -520,8 +519,8 @@ async def _create_scatterpie_plot(
     x_min, x_max = coords_plot[:, 0].min(), coords_plot[:, 0].max()
     y_min, y_max = coords_plot[:, 1].min(), coords_plot[:, 1].max()
     padding = pie_radius * 2
-    ax.set_xlim([x_min - padding, x_max + padding])
-    ax.set_ylim([y_min - padding, y_max + padding])
+    ax.set_xlim((x_min - padding, x_max + padding))
+    ax.set_ylim((y_min - padding, y_max + padding))
 
     ax.set_xlabel("Spatial X")
     ax.set_ylabel("Spatial Y")

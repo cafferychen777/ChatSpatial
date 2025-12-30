@@ -480,5 +480,5 @@ async def _create_getis_ord_visualization(
             ax.set_aspect("equal")
             ax.invert_yaxis()
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.tight_layout(rect=(0, 0, 1, 0.95))
     return fig

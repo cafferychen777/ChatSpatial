@@ -12,8 +12,12 @@ import scanpy as sc
 from ..models.analysis import IntegrationResult
 from ..models.data import IntegrationParameters
 from ..utils.dependency_manager import require
-from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
-                                ProcessingError)
+from ..utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -655,10 +659,7 @@ def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch
     batches = combined_adata.obs[batch_key].unique()
 
     if len(batches) == 0:
-        raise DataError(
-            f"No batch labels found in '{batch_key}' column. "
-            "Ensure data has valid batch annotations."
-        )
+        raise DataError("Dataset is empty, cannot perform spatial registration")
 
     # If reference batch not specified, use the first batch
     if reference_batch is None:

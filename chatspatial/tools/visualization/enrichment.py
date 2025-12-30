@@ -21,10 +21,13 @@ if TYPE_CHECKING:
 
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import validate_obs_column
-from ...utils.exceptions import (DataNotFoundError, ParameterError,
-                                 ProcessingError)
-from .core import (create_figure, get_categorical_columns,
-                   plot_spatial_feature, setup_multi_panel_figure)
+from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from .core import (
+    create_figure,
+    get_categorical_columns,
+    plot_spatial_feature,
+    setup_multi_panel_figure,
+)
 
 # =============================================================================
 # Helper Functions

@@ -350,7 +350,7 @@ class SpatialMCPAdapter:
             from .tools.visualization import visualize_data
 
             # Create visualization parameters
-            params = VisualizationParameters(plot_type=plot_type)
+            params = VisualizationParameters(plot_type=plot_type)  # type: ignore[call-arg]
 
             # Get dataset
             dataset_info = await self.data_manager.get_dataset(data_id)
@@ -461,7 +461,9 @@ class DefaultSpatialDataManager:
 
         results = self.data_store[data_id].get("results", {})
         if result_type not in results:
-            raise DataNotFoundError(f"No {result_type} results found for dataset {data_id}")
+            raise DataNotFoundError(
+                f"No {result_type} results found for dataset {data_id}"
+            )
 
         return results[result_type]
 

@@ -192,12 +192,15 @@ async def get_validated_features(
     Returns:
         List of validated feature names
     """
-    features = params.feature if isinstance(params.feature, list) else [params.feature]
-    validated = []
+    if params.feature is None:
+        features: List[str] = []
+    elif isinstance(params.feature, list):
+        features = params.feature
+    else:
+        features = [params.feature]
+    validated: List[str] = []
 
     for feat in features:
-        if feat is None:
-            continue
 
         # Check if feature is in var_names (genes)
         if feat in adata.var_names:
@@ -315,7 +318,7 @@ def plot_spatial_feature(
         ScalarMappable for colorbar creation, or None for categorical data
     """
     if params is None:
-        params = VisualizationParameters()
+        params = VisualizationParameters()  # type: ignore[call-arg]
 
     # Get spatial coordinates
     coords = require_spatial_coords(adata, spatial_key=spatial_key)

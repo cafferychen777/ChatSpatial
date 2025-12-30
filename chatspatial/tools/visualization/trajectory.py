@@ -23,10 +23,12 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import validate_obs_column
 from ...utils.dependency_manager import require
-from ...utils.exceptions import (DataCompatibilityError, DataNotFoundError,
-                                 ParameterError)
-from .core import (get_categorical_columns, infer_basis,
-                   setup_multi_panel_figure)
+from ...utils.exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    ParameterError,
+)
+from .core import get_categorical_columns, infer_basis, setup_multi_panel_figure
 
 # =============================================================================
 # Main Router
@@ -208,7 +210,7 @@ async def _create_trajectory_pseudotime_plot(
                 transform=ax2.transAxes,
             )
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
 

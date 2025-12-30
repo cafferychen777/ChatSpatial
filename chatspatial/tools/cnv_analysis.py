@@ -14,9 +14,13 @@ from ..models.analysis import CNVResult
 from ..models.data import CNVParameters
 from ..utils import validate_obs_column
 from ..utils.dependency_manager import require
-from ..utils.exceptions import (DataCompatibilityError, DataNotFoundError,
-                                DependencyError, ParameterError,
-                                ProcessingError)
+from ..utils.exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 # Numbat availability is checked lazily in _infer_cnv_numbat to avoid
 # import-time failures when rpy2/R is not installed
@@ -300,8 +304,7 @@ async def _infer_cnv_numbat(
         import anndata2ri
         import rpy2.robjects as ro
         from rpy2.rinterface_lib import openrlib
-        from rpy2.robjects import (conversion, default_converter, numpy2ri,
-                                   pandas2ri)
+        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
 
         # Test if Numbat R package is available
         ro.r("suppressPackageStartupMessages(library(numbat))")

@@ -351,7 +351,7 @@ def _run_liana_cluster_analysis(
         # Vectorized string concatenation
         ligands = top_pairs_df["ligand_complex"].values
         receptors = top_pairs_df["receptor_complex"].values
-        top_lr_pairs = [f"{l}_{r}" for l, r in zip(ligands, receptors)]
+        top_lr_pairs = [f"{lig}_{rec}" for lig, rec in zip(ligands, receptors)]
         detected_lr_pairs = list(zip(ligands, receptors))
 
     # Store in standardized format for visualization
@@ -1023,10 +1023,8 @@ async def _analyze_communication_cellchat_r(
 
             # Filter to genes present in both data and CellChatDB
             common_genes = data_source.var_names.intersection(cellchat_genes)
-            n_total_genes = len(data_source.var_names)
-            n_filtered_genes = len(common_genes)
 
-            if n_filtered_genes == 0:
+            if len(common_genes) == 0:
                 raise ValueError(
                     f"No genes overlap between data and {db_name}. "
                     f"Check if species parameter matches your data."
@@ -1038,11 +1036,6 @@ async def _analyze_communication_cellchat_r(
                 to_dense(data_source.X[:, gene_indices]).T,
                 index=common_genes,
                 columns=adata.obs_names,
-            )
-
-            logger.info(
-                f"CellChat gene pre-filtering: {n_filtered_genes}/{n_total_genes} genes "
-                f"(memory reduced by {n_total_genes / max(n_filtered_genes, 1):.1f}x)"
             )
 
             # Prepare metadata

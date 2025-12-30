@@ -14,24 +14,36 @@ from mcp.server.fastmcp.utilities.types import ImageContent
 from mcp.types import EmbeddedResource
 
 from ...models.data import VisualizationParameters
-from ...utils.exceptions import (DataCompatibilityError, DataNotFoundError,
-                                 ParameterError, ProcessingError)
+from ...utils.exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 from ...utils.image_utils import optimize_fig_to_image_with_cache
+
 # Import all visualization handlers
-from .basic import (create_dotplot_visualization, create_heatmap_visualization,
-                    create_spatial_visualization, create_umap_visualization,
-                    create_violin_visualization)
+from .basic import (
+    create_dotplot_visualization,
+    create_heatmap_visualization,
+    create_spatial_visualization,
+    create_umap_visualization,
+    create_violin_visualization,
+)
 from .cell_comm import create_cell_communication_visualization
-from .cnv import (create_cnv_heatmap_visualization,
-                  create_spatial_cnv_visualization)
-from .deconvolution import (create_card_imputation_visualization,
-                            create_deconvolution_visualization)
+from .cnv import create_cnv_heatmap_visualization, create_spatial_cnv_visualization
+from .deconvolution import (
+    create_card_imputation_visualization,
+    create_deconvolution_visualization,
+)
 from .enrichment import create_pathway_enrichment_visualization
 from .integration import create_batch_integration_visualization
-from .multi_gene import (create_gene_correlation_visualization,
-                         create_lr_pairs_visualization,
-                         create_multi_gene_visualization,
-                         create_spatial_interaction_visualization)
+from .multi_gene import (
+    create_gene_correlation_visualization,
+    create_lr_pairs_visualization,
+    create_multi_gene_visualization,
+    create_spatial_interaction_visualization,
+)
 from .spatial_stats import create_spatial_statistics_visualization
 from .trajectory import create_trajectory_visualization
 from .velocity import create_rna_velocity_visualization
@@ -72,7 +84,7 @@ PLOT_HANDLERS = {
 async def visualize_data(
     data_id: str,
     ctx: "ToolContext",
-    params: VisualizationParameters = VisualizationParameters(),
+    params: VisualizationParameters = VisualizationParameters(),  # type: ignore[call-arg]
 ) -> Union[ImageContent, Tuple[ImageContent, EmbeddedResource]]:
     """Visualize spatial transcriptomics data.
 

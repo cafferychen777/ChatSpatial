@@ -19,7 +19,7 @@ Key functionalities are organized into two main analysis pipelines:
    should be explicitly selected.
 """
 
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -29,12 +29,20 @@ if TYPE_CHECKING:
 
 from ..models.analysis import RNAVelocityResult, TrajectoryResult
 from ..models.data import RNAVelocityParameters, TrajectoryParameters
-from ..utils.adata_utils import (get_spatial_key, require_spatial_coords,
-                                 validate_adata, validate_obs_column)
+from ..utils.adata_utils import (
+    get_spatial_key,
+    require_spatial_coords,
+    validate_adata,
+    validate_obs_column,
+)
 from ..utils.compute import ensure_diffmap, ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
-from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
-                                ProcessingError)
+from ..utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 from ..utils.mcp_utils import suppress_output
 
 
@@ -493,7 +501,7 @@ def infer_pseudotime_palantir(
     return adata
 
 
-def compute_dpt_trajectory(adata, root_cells=None, ctx: "ToolContext" = None):
+def compute_dpt_trajectory(adata, root_cells=None, ctx: Optional["ToolContext"] = None):
     """Compute Diffusion Pseudotime trajectory analysis."""
     import numpy as np
     import scanpy as sc
@@ -755,7 +763,7 @@ async def analyze_trajectory(
         results_keys_dict["uns"].append("iroot")
 
     # Prepare parameters dict
-    parameters_dict = {"spatial_weight": params.spatial_weight}
+    parameters_dict: Dict[str, Any] = {"spatial_weight": params.spatial_weight}
     if method_used == "cellrank":
         parameters_dict.update(
             {
@@ -856,7 +864,7 @@ async def analyze_velocity_with_velovi(
     n_hidden: int = 128,
     n_latent: int = 10,
     use_gpu: bool = False,
-    ctx: "ToolContext" = None,
+    ctx: Optional["ToolContext"] = None,
 ) -> Dict[str, Any]:
     """
     Analyzes RNA velocity using the deep learning model VELOVI.

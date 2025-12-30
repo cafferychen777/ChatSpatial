@@ -9,7 +9,7 @@ This module contains:
 - Dot plots
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -21,12 +21,20 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import (ensure_categorical, get_gene_expression,
-                                  validate_obs_column)
+from ...utils.adata_utils import (
+    ensure_categorical,
+    get_gene_expression,
+    validate_obs_column,
+)
 from ...utils.compute import ensure_umap
 from ...utils.exceptions import DataNotFoundError, ParameterError
-from .core import (add_colorbar, create_figure, get_colormap,
-                   plot_spatial_feature, setup_multi_panel_figure)
+from .core import (
+    add_colorbar,
+    create_figure,
+    get_colormap,
+    plot_spatial_feature,
+    setup_multi_panel_figure,
+)
 
 # =============================================================================
 # Spatial Visualization
@@ -48,8 +56,12 @@ async def create_spatial_visualization(
     Returns:
         matplotlib Figure object
     """
-    features = params.feature if isinstance(params.feature, list) else [params.feature]
-    features = [f for f in features if f is not None]
+    if params.feature is None:
+        features: List[str] = []
+    elif isinstance(params.feature, list):
+        features = params.feature
+    else:
+        features = [params.feature]
 
     if not features:
         # Default to leiden clustering if available
@@ -61,7 +73,7 @@ async def create_spatial_visualization(
             )
 
     n_features = len(features)
-    fig, axes = setup_multi_panel_figure(n_features, params, "Spatial visualization")
+    fig, axes = setup_multi_panel_figure(n_features, params, "")
 
     for i, feature in enumerate(features):
         ax = axes[i]
@@ -135,12 +147,13 @@ async def create_umap_visualization(
     umap_coords = adata.obsm["X_umap"]
 
     # Get color values
+    spot_size = params.spot_size if params.spot_size is not None else 150.0
     if color_by is None:
         # No color - just plot points
         ax.scatter(
             umap_coords[:, 0],
             umap_coords[:, 1],
-            s=params.spot_size // 3,
+            s=spot_size // 3,
             alpha=params.alpha,
             c="steelblue",
         )
@@ -153,7 +166,7 @@ async def create_umap_visualization(
             umap_coords[:, 1],
             c=values,
             cmap=params.colormap,
-            s=params.spot_size // 3,
+            s=spot_size // 3,
             alpha=params.alpha,
         )
         if params.show_colorbar:
@@ -177,7 +190,7 @@ async def create_umap_visualization(
                     umap_coords[mask, 0],
                     umap_coords[mask, 1],
                     c=[colors[i]],
-                    s=params.spot_size // 3,
+                    s=spot_size // 3,
                     alpha=params.alpha,
                     label=cat,
                 )
@@ -195,7 +208,7 @@ async def create_umap_visualization(
                 umap_coords[:, 1],
                 c=values,
                 cmap=params.colormap,
-                s=params.spot_size // 3,
+                s=spot_size // 3,
                 alpha=params.alpha,
             )
             if params.show_colorbar:
@@ -239,8 +252,13 @@ async def create_heatmap_visualization(
 
     validate_obs_column(adata, params.cluster_key, "cluster_key")
 
-    features = params.feature if isinstance(params.feature, list) else [params.feature]
-    features = [f for f in features if f is not None and f in adata.var_names]
+    if params.feature is None:
+        features_raw: List[str] = []
+    elif isinstance(params.feature, list):
+        features_raw = params.feature
+    else:
+        features_raw = [params.feature]
+    features = [f for f in features_raw if f in adata.var_names]
 
     if not features:
         raise ParameterError("No valid gene features provided for heatmap")
@@ -251,7 +269,8 @@ async def create_heatmap_visualization(
         )
 
     # Use scanpy's heatmap function
-    fig = sc.pl.heatmap(
+    # Note: return_fig=True causes issues with newer matplotlib versions
+    sc.pl.heatmap(
         adata,
         var_names=features,
         groupby=params.cluster_key,
@@ -260,8 +279,8 @@ async def create_heatmap_visualization(
         dendrogram=params.dotplot_dendrogram,
         swap_axes=params.dotplot_swap_axes,
         standard_scale=params.dotplot_standard_scale,
-        return_fig=True,
     )
+    fig = plt.gcf()
 
     return fig
 
@@ -291,8 +310,13 @@ async def create_violin_visualization(
 
     validate_obs_column(adata, params.cluster_key, "cluster_key")
 
-    features = params.feature if isinstance(params.feature, list) else [params.feature]
-    features = [f for f in features if f is not None and f in adata.var_names]
+    if params.feature is None:
+        features_raw: List[str] = []
+    elif isinstance(params.feature, list):
+        features_raw = params.feature
+    else:
+        features_raw = [params.feature]
+    features = [f for f in features_raw if f in adata.var_names]
 
     if not features:
         raise ParameterError("No valid gene features provided for violin plot")
@@ -303,13 +327,15 @@ async def create_violin_visualization(
         )
 
     # Use scanpy's violin function
-    fig = sc.pl.violin(
+    # Note: return_fig=True causes issues with newer matplotlib/seaborn versions
+    # Instead, we use plt.gcf() to get the current figure
+    sc.pl.violin(
         adata,
         keys=features,
         groupby=params.cluster_key,
         show=False,
-        return_fig=True,
     )
+    fig = plt.gcf()
 
     return fig
 
@@ -339,8 +365,13 @@ async def create_dotplot_visualization(
 
     validate_obs_column(adata, params.cluster_key, "cluster_key")
 
-    features = params.feature if isinstance(params.feature, list) else [params.feature]
-    features = [f for f in features if f is not None and f in adata.var_names]
+    if params.feature is None:
+        features_raw: List[str] = []
+    elif isinstance(params.feature, list):
+        features_raw = params.feature
+    else:
+        features_raw = [params.feature]
+    features = [f for f in features_raw if f in adata.var_names]
 
     if not features:
         raise ParameterError("No valid gene features provided for dot plot")
@@ -351,13 +382,14 @@ async def create_dotplot_visualization(
         )
 
     # Build kwargs for dotplot
+    # Note: return_fig=True returns DotPlot object, not Figure
+    # Use plt.gcf() instead to get the figure
     dotplot_kwargs = {
         "adata": adata,
         "var_names": features,
         "groupby": params.cluster_key,
         "cmap": params.colormap,
         "show": False,
-        "return_fig": True,
     }
 
     # Add optional parameters
@@ -377,6 +409,7 @@ async def create_dotplot_visualization(
         dotplot_kwargs["var_group_positions"] = list(params.dotplot_var_groups.keys())
         dotplot_kwargs["var_group_labels"] = list(params.dotplot_var_groups.keys())
 
-    fig = sc.pl.dotplot(**dotplot_kwargs)
+    sc.pl.dotplot(**dotplot_kwargs)
+    fig = plt.gcf()
 
     return fig

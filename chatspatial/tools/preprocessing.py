@@ -11,12 +11,19 @@ import scipy.sparse
 from ..models.analysis import PreprocessingResult
 from ..models.data import PreprocessingParameters
 from ..spatial_mcp_adapter import ToolContext
-from ..utils.adata_utils import (ensure_unique_var_names_with_ctx,
-                                 sample_expression_values, standardize_adata)
+from ..utils.adata_utils import (
+    ensure_unique_var_names_with_ctx,
+    sample_expression_values,
+    standardize_adata,
+)
 from ..utils.compute import ensure_pca
 from ..utils.dependency_manager import require, validate_r_package
-from ..utils.exceptions import (DataError, DependencyError, ParameterError,
-                                ProcessingError)
+from ..utils.exceptions import (
+    DataError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 from ..utils.mcp_utils import mcp_tool_error_handler
 
 

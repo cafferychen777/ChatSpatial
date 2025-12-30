@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 
 # Standard savefig parameters for consistent figure output
-SAVEFIG_PARAMS = {
+SAVEFIG_PARAMS: Dict[str, Any] = {
     "bbox_inches": "tight",
     "transparent": False,
     "facecolor": "white",

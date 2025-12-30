@@ -59,7 +59,7 @@ async def create_batch_integration_visualization(
 
     batch_values = adata.obs[batch_key]
     unique_batches = batch_values.unique()
-    colors = plt.cm.Set3(np.linspace(0, 1, len(unique_batches)))
+    colors = plt.get_cmap("Set3")(np.linspace(0, 1, len(unique_batches)))
 
     # Panel 1: UMAP colored by batch (shows mixing)
     if "X_umap" in adata.obsm:

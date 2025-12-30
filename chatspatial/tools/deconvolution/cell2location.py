@@ -21,8 +21,12 @@ from ...utils.adata_utils import find_common_genes, validate_gene_overlap
 from ...utils.dependency_manager import is_available, require
 from ...utils.exceptions import DataError, ProcessingError
 from ...utils.mcp_utils import suppress_output
-from .base import (DeconvolutionContext, check_model_convergence,
-                   create_deconvolution_stats, prepare_anndata_for_counts)
+from .base import (
+    DeconvolutionContext,
+    check_model_convergence,
+    create_deconvolution_stats,
+    prepare_anndata_for_counts,
+)
 
 
 async def _apply_gene_filtering(

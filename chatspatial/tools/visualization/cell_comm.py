@@ -21,8 +21,7 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import get_spatial_coordinates, validate_obs_column
 from ...utils.dependency_manager import require
-from ...utils.exceptions import (DataNotFoundError, ParameterError,
-                                 ProcessingError)
+from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
 from .core import CellCommunicationData
 
 # =============================================================================
