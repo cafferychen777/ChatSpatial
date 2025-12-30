@@ -803,6 +803,14 @@ class AnnotationParameters(BaseModel):
     tangram_compute_validation: bool = False  # Whether to compute validation metrics
     tangram_project_genes: bool = False  # Whether to project gene expression
 
+    # Tangram regularization parameters (optional)
+    tangram_lambda_r: Optional[float] = (
+        None  # Regularization parameter for entropy term in Tangram loss
+    )
+    tangram_lambda_neighborhood: Optional[float] = (
+        None  # Neighborhood regularization parameter for spatial smoothness
+    )
+
     # General parameters for batch effect and data handling
     batch_key: Optional[str] = None  # For batch effect correction
     layer: Optional[str] = None  # Which layer to use for analysis
