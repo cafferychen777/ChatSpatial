@@ -1248,20 +1248,22 @@ async def _analyze_local_moran(
         alpha = params.local_moran_alpha
         use_fdr = params.local_moran_fdr_correction
 
-        # Extract all genes at once for efficiency
-        if issparse(adata.X):
-            expr_all_genes = adata[:, valid_genes].X.toarray()
-        else:
-            expr_all_genes = adata[:, valid_genes].X
-
-        # CRITICAL: Convert to float64 for PySAL/numba compatibility
-        # PySAL's Moran_Local uses numba JIT compilation which requires
-        # consistent dtypes (float64) for matrix operations
-        expr_all_genes = np.asarray(expr_all_genes, dtype=np.float64)
-
+        # Memory-efficient streaming: extract one gene at a time
+        # This reduces memory from O(n_spots × n_genes) to O(n_spots)
+        # Critical for large datasets (Visium HD: 50K+ spots × 500 genes = 200MB+)
         results = {}
-        for gene_idx, gene in enumerate(valid_genes):
-            expr = expr_all_genes[:, gene_idx].flatten()
+        for gene in valid_genes:
+            # Extract single gene column - memory efficient for sparse matrices
+            gene_idx = adata.var_names.get_loc(gene)
+            if issparse(adata.X):
+                expr = adata.X[:, gene_idx].toarray().flatten()
+            else:
+                expr = np.asarray(adata.X[:, gene_idx]).flatten()
+
+            # CRITICAL: Convert to float64 for PySAL/numba compatibility
+            # PySAL's Moran_Local uses numba JIT compilation which requires
+            # consistent dtypes (float64) for matrix operations
+            expr = expr.astype(np.float64, copy=False)
 
             # Run PySAL Local Moran's I with permutation testing
             lisa = Moran_Local(expr, w, permutations=permutations)

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
-from ..utils.adata_utils import store_analysis_metadata
+from ..utils.adata_utils import store_analysis_metadata, to_dense
 from ..utils.dependency_manager import require
 from ..utils.exceptions import ParameterError, ProcessingError
 
@@ -870,14 +870,9 @@ def perform_ssgsea(
     import gseapy as gp
 
     # Prepare expression data
-    if hasattr(adata.X, "toarray"):
-        expr_df = pd.DataFrame(
-            adata.X.toarray().T, index=adata.var_names, columns=adata.obs_names
-        )
-    else:
-        expr_df = pd.DataFrame(
-            adata.X.T, index=adata.var_names, columns=adata.obs_names
-        )
+    expr_df = pd.DataFrame(
+        to_dense(adata.X).T, index=adata.var_names, columns=adata.obs_names
+    )
 
     # Run ssGSEA
     try:

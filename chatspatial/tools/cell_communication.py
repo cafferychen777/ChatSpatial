@@ -12,10 +12,14 @@ if TYPE_CHECKING:
 from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
-from ..utils.adata_utils import get_spatial_key
+from ..utils.adata_utils import get_spatial_key, to_dense
 from ..utils.dependency_manager import require, validate_r_package
-from ..utils.exceptions import (DataNotFoundError, DependencyError,
-                                ParameterError, ProcessingError)
+from ..utils.exceptions import (
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 async def _validate_liana_requirements(
@@ -1000,18 +1004,11 @@ async def _analyze_communication_cellchat_r(
         else:
             data_source = adata
 
-        if hasattr(data_source.X, "toarray"):
-            expr_matrix = pd.DataFrame(
-                data_source.X.toarray().T,
-                index=data_source.var_names,
-                columns=adata.obs_names,
-            )
-        else:
-            expr_matrix = pd.DataFrame(
-                data_source.X.T,
-                index=data_source.var_names,
-                columns=adata.obs_names,
-            )
+        expr_matrix = pd.DataFrame(
+            to_dense(data_source.X).T,
+            index=data_source.var_names,
+            columns=adata.obs_names,
+        )
 
         # Prepare metadata
         # CellChat doesn't allow labels starting with '0', so we add prefix for numeric labels
