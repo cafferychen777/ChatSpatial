@@ -13,7 +13,7 @@ import pandas as pd
 if TYPE_CHECKING:
     pass
 
-from ...utils.adata_utils import require_spatial_coords
+from ...utils.adata_utils import require_spatial_coords, to_dense
 from ...utils.dependency_manager import validate_r_package
 from ...utils.exceptions import ProcessingError
 from .base import DeconvolutionContext, create_deconvolution_stats
@@ -66,22 +66,15 @@ async def deconvolve(
         # Ensure integer counts for R interface
         # Note: DeconvolutionContext.prepare() already converted to int32 for R-based methods
         # but we convert here explicitly to handle any edge cases
-        # Memory optimization: avoid double allocation from toarray().astype() chain
-        if hasattr(spatial_data.X, "toarray"):
-            dense = spatial_data.X.toarray()
-            spatial_counts = (
-                dense.astype(np.int32, copy=False) if dense.dtype != np.int32 else dense
-            )
-        else:
-            spatial_counts = np.asarray(spatial_data.X, dtype=np.int32)
+        dense = to_dense(spatial_data.X)
+        spatial_counts = (
+            dense.astype(np.int32, copy=False) if dense.dtype != np.int32 else dense
+        )
 
-        if hasattr(reference_data.X, "toarray"):
-            dense = reference_data.X.toarray()
-            reference_counts = (
-                dense.astype(np.int32, copy=False) if dense.dtype != np.int32 else dense
-            )
-        else:
-            reference_counts = np.asarray(reference_data.X, dtype=np.int32)
+        dense = to_dense(reference_data.X)
+        reference_counts = (
+            dense.astype(np.int32, copy=False) if dense.dtype != np.int32 else dense
+        )
 
         # Clean cell type labels
         cell_types = reference_data.obs[cell_type_key].astype(str)

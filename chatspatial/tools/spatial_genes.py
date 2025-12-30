@@ -21,10 +21,14 @@ if TYPE_CHECKING:
 from ..models.analysis import SpatialVariableGenesResult  # noqa: E402
 from ..models.data import SpatialVariableGenesParameters  # noqa: E402
 from ..utils import validate_var_column  # noqa: E402
-from ..utils.adata_utils import require_spatial_coords  # noqa: E402
+from ..utils.adata_utils import require_spatial_coords, to_dense  # noqa: E402
 from ..utils.dependency_manager import require  # noqa: E402
-from ..utils.exceptions import (DataError, DataNotFoundError,  # noqa: E402
-                                ParameterError, ProcessingError)
+from ..utils.exceptions import (
+    DataError,
+    DataNotFoundError,  # noqa: E402
+    ParameterError,
+    ProcessingError,
+)
 from ..utils.mcp_utils import suppress_output  # noqa: E402
 
 
@@ -230,11 +234,7 @@ async def _identify_spatial_genes_spatialde(
 
     # Now create DataFrame from the SUBSET (much smaller memory footprint)
     counts = pd.DataFrame(
-        (
-            final_adata_subset.X.toarray()
-            if hasattr(final_adata_subset.X, "toarray")
-            else final_adata_subset.X
-        ),
+        to_dense(final_adata_subset.X),
         columns=final_adata_subset.var_names,
         index=final_adata_subset.obs_names,
     )
@@ -339,8 +339,12 @@ async def _identify_spatial_genes_spatialde(
     gene_statistics = dict(
         zip(top_stats_results["g"], top_stats_results["LLR"], strict=False)
     )  # Log-likelihood ratio
-    p_values = dict(zip(top_stats_results["g"], top_stats_results["pval"], strict=False))
-    q_values = dict(zip(top_stats_results["g"], top_stats_results["qval"], strict=False))
+    p_values = dict(
+        zip(top_stats_results["g"], top_stats_results["pval"], strict=False)
+    )
+    q_values = dict(
+        zip(top_stats_results["g"], top_stats_results["qval"], strict=False)
+    )
 
     # Create SpatialDE-specific results
     # Only return summary statistics (top 10 genes) to avoid exceeding MCP token limit
@@ -590,7 +594,9 @@ async def _identify_spatial_genes_sparkx(
     # Apply combined filter mask to sparse matrix (still sparse!)
     if gene_mask.sum() < len(gene_names):
         filtered_sparse = sparse_counts[:, gene_mask]
-        gene_names = [gene for gene, keep in zip(gene_names, gene_mask, strict=False) if keep]
+        gene_names = [
+            gene for gene, keep in zip(gene_names, gene_mask, strict=False) if keep
+        ]
     else:
         filtered_sparse = sparse_counts
 
@@ -793,11 +799,13 @@ async def _identify_spatial_genes_sparkx(
     # Store results in adata
     results_key = f"sparkx_results_{data_id}"
     adata.var["sparkx_pval"] = pd.Series(
-        dict(zip(results_df["gene"], results_df["pvalue"], strict=False)), name="sparkx_pval"
+        dict(zip(results_df["gene"], results_df["pvalue"], strict=False)),
+        name="sparkx_pval",
     ).reindex(adata.var_names, fill_value=1.0)
 
     adata.var["sparkx_qval"] = pd.Series(
-        dict(zip(results_df["gene"], results_df["adjusted_pvalue"], strict=False)), name="sparkx_qval"
+        dict(zip(results_df["gene"], results_df["adjusted_pvalue"], strict=False)),
+        name="sparkx_qval",
     ).reindex(adata.var_names, fill_value=1.0)
 
     # Store scientific metadata for reproducibility
@@ -835,10 +843,18 @@ async def _identify_spatial_genes_sparkx(
     MAX_STATS_TO_RETURN = 100
     top_stats_genes = significant_genes[:MAX_STATS_TO_RETURN]
     top_stats_results = results_df[results_df["gene"].isin(top_stats_genes)]
-    gene_statistics = dict(zip(top_stats_results["gene"], top_stats_results["pvalue"], strict=False))
-    p_values = dict(zip(top_stats_results["gene"], top_stats_results["pvalue"], strict=False))
+    gene_statistics = dict(
+        zip(top_stats_results["gene"], top_stats_results["pvalue"], strict=False)
+    )
+    p_values = dict(
+        zip(top_stats_results["gene"], top_stats_results["pvalue"], strict=False)
+    )
     q_values = dict(
-        zip(top_stats_results["gene"], top_stats_results["adjusted_pvalue"], strict=False)
+        zip(
+            top_stats_results["gene"],
+            top_stats_results["adjusted_pvalue"],
+            strict=False,
+        )
     )
 
     # Create SPARK-X specific results

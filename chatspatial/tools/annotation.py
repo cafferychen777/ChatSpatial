@@ -18,15 +18,27 @@ if TYPE_CHECKING:
 
 from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
-from ..utils.adata_utils import (ensure_categorical, ensure_counts_layer,
-                                 ensure_unique_var_names_with_ctx,
-                                 find_common_genes, get_spatial_key,
-                                 validate_obs_column)
-from ..utils.dependency_manager import (is_available, require,
-                                        validate_r_environment,
-                                        validate_scvi_tools)
-from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
-                                ProcessingError)
+from ..utils.adata_utils import (
+    ensure_categorical,
+    ensure_counts_layer,
+    ensure_unique_var_names_with_ctx,
+    find_common_genes,
+    get_spatial_key,
+    to_dense,
+    validate_obs_column,
+)
+from ..utils.dependency_manager import (
+    is_available,
+    require,
+    validate_r_environment,
+    validate_scvi_tools,
+)
+from ..utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 # Supported annotation methods
 # Confidence behavior by method:
@@ -1169,10 +1181,7 @@ async def _annotate_with_cellassign(
         adata_subset = adata[:, available_marker_genes].copy()
 
     # Check for invalid values in the data
-    if hasattr(adata_subset.X, "toarray"):
-        X_array = adata_subset.X.toarray()
-    else:
-        X_array = adata_subset.X
+    X_array = to_dense(adata_subset.X)
 
     # Replace any NaN or Inf values with zeros
     if np.any(np.isnan(X_array)) or np.any(np.isinf(X_array)):
@@ -1495,12 +1504,8 @@ def _get_sctype_cache_key(adata, params: AnnotationParameters) -> str:
     data_hash = hashlib.md5()
 
     # Hash expression data (sample first 1000 cells and 500 genes for efficiency)
-    if hasattr(adata.X, "toarray"):
-        sample_data = adata.X[
-            : min(1000, adata.n_obs), : min(500, adata.n_vars)
-        ].toarray()
-    else:
-        sample_data = adata.X[: min(1000, adata.n_obs), : min(500, adata.n_vars)]
+    sample_slice = adata.X[: min(1000, adata.n_obs), : min(500, adata.n_vars)]
+    sample_data = to_dense(sample_slice)
     data_hash.update(sample_data.tobytes())
 
     # Hash relevant parameters
