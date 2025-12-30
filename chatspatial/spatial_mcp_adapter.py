@@ -15,6 +15,7 @@ from mcp.types import EmbeddedResource, ImageContent, ToolAnnotations
 
 # Import MCP improvements
 from .models.data import VisualizationParameters
+from .utils.exceptions import DataNotFoundError, ParameterError
 
 logger = logging.getLogger(__name__)
 
@@ -235,12 +236,12 @@ class SpatialResourceManager:
         """Read resource content"""
         resource = await self.get_resource(uri)
         if not resource:
-            raise ValueError(f"Resource not found: {uri}")
+            raise DataNotFoundError(f"Resource not found: {uri}")
 
         if resource.content_provider:
             return resource.content_provider()
 
-        raise ValueError(f"Resource has no content provider: {uri}")
+        raise DataNotFoundError(f"Resource has no content provider: {uri}")
 
     def _serialize_result(self, result: Any) -> Dict[str, Any]:
         """Serialize analysis results for JSON output with size control"""
@@ -427,7 +428,7 @@ class DefaultSpatialDataManager:
     async def get_dataset(self, data_id: str) -> Any:
         """Get a dataset by ID"""
         if data_id not in self.data_store:
-            raise ValueError(f"Dataset {data_id} not found")
+            raise DataNotFoundError(f"Dataset {data_id} not found")
         return self.data_store[data_id]
 
     async def list_datasets(self) -> List[Dict[str, Any]]:
@@ -446,7 +447,7 @@ class DefaultSpatialDataManager:
     async def save_result(self, data_id: str, result_type: str, result: Any) -> None:
         """Save analysis results"""
         if data_id not in self.data_store:
-            raise ValueError(f"Dataset {data_id} not found")
+            raise DataNotFoundError(f"Dataset {data_id} not found")
 
         if "results" not in self.data_store[data_id]:
             self.data_store[data_id]["results"] = {}
@@ -456,11 +457,11 @@ class DefaultSpatialDataManager:
     async def get_result(self, data_id: str, result_type: str) -> Any:
         """Get analysis results"""
         if data_id not in self.data_store:
-            raise ValueError(f"Dataset {data_id} not found")
+            raise DataNotFoundError(f"Dataset {data_id} not found")
 
         results = self.data_store[data_id].get("results", {})
         if result_type not in results:
-            raise ValueError(f"No {result_type} results found for dataset {data_id}")
+            raise DataNotFoundError(f"No {result_type} results found for dataset {data_id}")
 
         return results[result_type]
 
@@ -486,10 +487,10 @@ class DefaultSpatialDataManager:
             adata: New AnnData object to store
 
         Raises:
-            ValueError: If dataset not found
+            DataNotFoundError: If dataset not found
         """
         if data_id not in self.data_store:
-            raise ValueError(f"Dataset {data_id} not found")
+            raise DataNotFoundError(f"Dataset {data_id} not found")
         self.data_store[data_id]["adata"] = adata
 
     async def create_dataset(
@@ -511,10 +512,10 @@ class DefaultSpatialDataManager:
             metadata: Optional additional metadata dict
 
         Raises:
-            ValueError: If dataset with same ID already exists
+            ParameterError: If dataset with same ID already exists
         """
         if data_id in self.data_store:
-            raise ValueError(
+            raise ParameterError(
                 f"Dataset {data_id} already exists. Use update_adata() to update."
             )
         dataset_info: Dict[str, Any] = {"adata": adata}

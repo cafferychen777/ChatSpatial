@@ -23,6 +23,9 @@ from typing import TYPE_CHECKING, Literal, Optional
 
 import scanpy as sc
 
+from .adata_utils import ensure_categorical
+from .exceptions import DataNotFoundError, ProcessingError
+
 if TYPE_CHECKING:
     import anndata as ad
 
@@ -171,8 +174,7 @@ def ensure_leiden(
         random_state=random_state,
     )
 
-    # Ensure categorical dtype
-    adata.obs[key_added] = adata.obs[key_added].astype("category")
+    ensure_categorical(adata, key_added)
     return True
 
 
@@ -208,7 +210,7 @@ def ensure_louvain(
         random_state=random_state,
     )
 
-    adata.obs[key_added] = adata.obs[key_added].astype("category")
+    ensure_categorical(adata, key_added)
     return True
 
 
@@ -261,7 +263,7 @@ def ensure_spatial_neighbors(
         return False
 
     if spatial_key not in adata.obsm:
-        raise ValueError(
+        raise DataNotFoundError(
             f"Spatial coordinates not found in adata.obsm['{spatial_key}']"
         )
 
@@ -276,47 +278,8 @@ def ensure_spatial_neighbors(
 
 
 # =============================================================================
-# Async Wrappers with Context Logging
+# Async Wrapper for Spatial Neighbors (used by spatial_statistics.py)
 # =============================================================================
-
-
-async def ensure_pca_async(
-    adata: "ad.AnnData",
-    ctx,  # ToolContext  # noqa: ARG001
-    n_comps: int = 30,
-    use_highly_variable: bool = True,
-) -> bool:
-    """Async version of ensure_pca with context logging."""
-    return ensure_pca(adata, n_comps, use_highly_variable)
-
-
-async def ensure_neighbors_async(
-    adata: "ad.AnnData",
-    ctx,  # ToolContext  # noqa: ARG001
-    n_neighbors: int = 15,
-    n_pcs: Optional[int] = None,
-) -> bool:
-    """Async version of ensure_neighbors with context logging."""
-    return ensure_neighbors(adata, n_neighbors, n_pcs)
-
-
-async def ensure_umap_async(
-    adata: "ad.AnnData",
-    ctx,  # ToolContext  # noqa: ARG001
-    min_dist: float = 0.5,
-) -> bool:
-    """Async version of ensure_umap with context logging."""
-    return ensure_umap(adata, min_dist)
-
-
-async def ensure_leiden_async(
-    adata: "ad.AnnData",
-    ctx,  # ToolContext  # noqa: ARG001
-    resolution: float = 1.0,
-    key_added: str = "leiden",
-) -> bool:
-    """Async version of ensure_leiden with context logging."""
-    return ensure_leiden(adata, resolution, key_added)
 
 
 async def ensure_spatial_neighbors_async(
@@ -369,7 +332,7 @@ def has_hvg(adata: "ad.AnnData") -> bool:
 # =============================================================================
 
 
-class ComputationMissingError(Exception):
+class ComputationMissingError(ProcessingError):
     """Raised when a required computation is missing."""
 
     pass

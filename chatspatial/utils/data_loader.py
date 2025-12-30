@@ -16,6 +16,12 @@ from typing import Any, Dict, Literal, Optional
 
 from .adata_utils import ensure_unique_var_names, get_adata_profile
 from .dependency_manager import is_available
+from .exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +173,7 @@ async def load_spatial_data(
                                     f"Could not load spatial information: {str(e)}"
                                 )
                 else:
-                    raise ValueError(
+                    raise DataCompatibilityError(
                         f"Directory {data_path} does not have the expected 10x Visium structure"
                     )
             elif os.path.isfile(data_path) and data_path.endswith(".h5"):
@@ -204,7 +210,7 @@ async def load_spatial_data(
                         "The h5ad file does not contain spatial information typically required for 10x Visium data"
                     )
             else:
-                raise ValueError(
+                raise ParameterError(
                     f"Unsupported file format for 10x_visium: {data_path}. Supported formats: directory with Visium structure, .h5 file, or .h5ad file"
                 )
 
@@ -215,7 +221,7 @@ async def load_spatial_data(
                 except Exception as e:
                     logger.warning(f"Could not compute spatial neighbors: {str(e)}")
         except FileNotFoundError as e:
-            raise ValueError(f"File not found: {str(e)}")
+            raise DataNotFoundError(f"File not found: {str(e)}") from e
         except Exception as e:
             # Provide more detailed error information
             error_msg = f"Error loading 10x Visium data from {data_path}: {str(e)}"
@@ -239,7 +245,7 @@ async def load_spatial_data(
                 )
                 error_msg += "\n2. Ensuring spatial folder contains: tissue_positions_list.csv and scalefactors_json.json"
 
-            raise ValueError(error_msg)
+            raise ProcessingError(error_msg) from e
     elif data_type == "h5ad" or data_type in [
         "slide_seq",
         "merfish",
@@ -250,9 +256,9 @@ async def load_spatial_data(
         try:
             adata = sc.read_h5ad(data_path)
         except Exception as e:
-            raise ValueError(f"Error loading {data_type} data: {str(e)}")
+            raise ProcessingError(f"Error loading {data_type} data: {str(e)}") from e
     else:
-        raise ValueError(f"Unsupported data type: {data_type}")
+        raise ParameterError(f"Unsupported data type: {data_type}")
 
     # Set dataset name
     dataset_name = name or os.path.basename(data_path).split(".")[0]
@@ -425,7 +431,7 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
                 ]
                 positions["in_tissue"] = 1  # Assume all spots are in tissue
             else:
-                raise ValueError(
+                raise DataCompatibilityError(
                     f"Unexpected tissue positions format with {len(positions.columns)} columns"
                 )
 
@@ -449,7 +455,7 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
             common_barcodes = adata.obs_names.intersection(positions.index)
 
         if len(common_barcodes) == 0:
-            raise ValueError(
+            raise DataCompatibilityError(
                 "No matching barcodes between expression data and spatial coordinates"
             )
 

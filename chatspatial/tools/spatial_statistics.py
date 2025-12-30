@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
 from ..models.analysis import SpatialStatisticsResult
 from ..models.data import SpatialStatisticsParameters
-from ..utils.adata_utils import (require_spatial_coords,
+from ..utils.adata_utils import (ensure_categorical, require_spatial_coords,
                                  select_genes_for_analysis, to_dense,
                                  validate_adata_basics)
 from ..utils.compute import ensure_spatial_neighbors_async
@@ -265,26 +265,25 @@ async def analyze_spatial_statistics(
 
 
 async def _ensure_cluster_key(
-    adata: ad.AnnData, requested_key: str, ctx: "ToolContext"
+    adata: ad.AnnData, requested_key: str, ctx: "ToolContext"  # noqa: ARG001
 ) -> str:
-    """Ensure a valid cluster key exists in adata."""
-    if requested_key in adata.obs.columns:
-        if not pd.api.types.is_categorical_dtype(adata.obs[requested_key]):
-            adata.obs[requested_key] = adata.obs[requested_key].astype("category")
-        return requested_key
+    """Ensure a valid cluster key exists in adata and is categorical."""
+    if requested_key not in adata.obs.columns:
+        # NO FALLBACK: User's explicit clustering choice must be respected
+        available_keys = [
+            col
+            for col in adata.obs.columns
+            if "cluster" in col.lower() or col in ["leiden", "louvain"]
+        ]
+        raise DataNotFoundError(
+            f"Cluster key '{requested_key}' not found. "
+            f"Available: {available_keys if available_keys else 'None'}. "
+            f"Run preprocess_data() first to generate clusters."
+        )
 
-    # NO FALLBACK: User's explicit clustering choice must be respected
-    available_keys = [
-        col
-        for col in adata.obs.columns
-        if "cluster" in col.lower() or col in ["leiden", "louvain"]
-    ]
-
-    raise DataNotFoundError(
-        f"Cluster key '{requested_key}' not found. "
-        f"Available: {available_keys if available_keys else 'None'}. "
-        f"Run preprocess_data() first to generate clusters."
-    )
+    # Use centralized ensure_categorical (handles type check internally)
+    ensure_categorical(adata, requested_key)
+    return requested_key
 
 
 def _get_optimal_n_jobs(n_obs: int, requested_n_jobs: Optional[int] = None) -> int:

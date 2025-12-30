@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 from ..models.analysis import SpatialDomainResult
 from ..models.data import SpatialDomainParameters
-from ..utils.adata_utils import require_spatial_coords
+from ..utils.adata_utils import ensure_categorical, require_spatial_coords
 from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 from ..utils.exceptions import (DataError, DataNotFoundError, ParameterError,
@@ -171,7 +171,7 @@ async def identify_spatial_domains(
         # Store domain labels in original adata
         domain_key = f"spatial_domains_{params.method}"
         adata.obs[domain_key] = domain_labels
-        adata.obs[domain_key] = adata.obs[domain_key].astype("category")
+        ensure_categorical(adata, domain_key)
 
         # Store embeddings if available
         if embeddings_key and embeddings_key in adata_subset.obsm:

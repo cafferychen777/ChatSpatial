@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 from mcp.types import ImageContent
 
+from .exceptions import ProcessingError
+
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
@@ -154,7 +156,7 @@ def fig_to_image(
     except Exception as e:
         if close_fig:
             plt.close(fig)
-        raise RuntimeError(f"Failed to convert figure to image: {str(e)}") from e
+        raise ProcessingError(f"Failed to convert figure to image: {str(e)}") from e
 
 
 # ============ Token Optimization and Publication Export Support ============
