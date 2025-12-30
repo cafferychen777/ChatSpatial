@@ -515,7 +515,7 @@ def _refine_spatial_domains(
         labels = adata.obs[domain_key].astype(str)
 
         if len(labels) == 0:
-            raise DataNotFoundError(f"No domain labels found in {domain_key}")
+            raise DataNotFoundError("Dataset is empty, cannot refine domains")
 
         # Simple spatial smoothing: assign each spot to the most common domain in its neighborhood
         from sklearn.neighbors import NearestNeighbors
