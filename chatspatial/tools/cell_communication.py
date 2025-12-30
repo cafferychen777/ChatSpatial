@@ -14,8 +14,12 @@ from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
 from ..utils.adata_utils import get_spatial_key, to_dense
 from ..utils.dependency_manager import require, validate_r_package
-from ..utils.exceptions import (DataNotFoundError, DependencyError,
-                                ParameterError, ProcessingError)
+from ..utils.exceptions import (
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 async def _validate_liana_requirements(
@@ -339,22 +343,16 @@ def _run_liana_cluster_analysis(
         liana_res[liana_res["magnitude_rank"] <= significance_alpha]
     )
 
-    # Get top pairs
+    # Get top pairs using vectorized operations (faster than iterrows)
     top_lr_pairs = []
-    if "magnitude_rank" in liana_res.columns:
-        top_pairs_df = liana_res.nsmallest(params.plot_top_pairs, "magnitude_rank")
-        top_lr_pairs = [
-            f"{row['ligand_complex']}_{row['receptor_complex']}"
-            for _, row in top_pairs_df.iterrows()
-        ]
-
-    # Store standardized L-R pairs for visualization
     detected_lr_pairs = []
     if "magnitude_rank" in liana_res.columns:
-        for _, row in top_pairs_df.iterrows():
-            ligand = row["ligand_complex"]
-            receptor = row["receptor_complex"]
-            detected_lr_pairs.append((ligand, receptor))
+        top_pairs_df = liana_res.nsmallest(params.plot_top_pairs, "magnitude_rank")
+        # Vectorized string concatenation
+        ligands = top_pairs_df["ligand_complex"].values
+        receptors = top_pairs_df["receptor_complex"].values
+        top_lr_pairs = [f"{l}_{r}" for l, r in zip(ligands, receptors)]
+        detected_lr_pairs = list(zip(ligands, receptors))
 
     # Store in standardized format for visualization
     adata.uns["detected_lr_pairs"] = detected_lr_pairs

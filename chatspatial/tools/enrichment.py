@@ -1108,11 +1108,17 @@ def perform_enrichr(
         adjusted_pvalues = {}
         gene_set_statistics = {}
 
+        # Process all results in a single pass (optimized: 3 loops -> 1)
+        genes_found_in_results = []
         for _idx, row in all_results.iterrows():
             term = row["Term"]
             enrichment_scores[term] = row["Combined Score"]
             pvalues[term] = row["P-value"]
             adjusted_pvalues[term] = row["Adjusted P-value"]
+
+            genes_str = row["Genes"]
+            genes_list = genes_str.split(";") if isinstance(genes_str, str) else []
+            genes_found_in_results.extend(genes_list)
 
             gene_set_statistics[term] = {
                 "combined_score": row["Combined Score"],
@@ -1120,25 +1126,13 @@ def perform_enrichr(
                 "adjusted_pval": row["Adjusted P-value"],
                 "z_score": row.get("Z-score", np.nan),
                 "overlap": row["Overlap"],
-                "genes": (
-                    row["Genes"].split(";") if isinstance(row["Genes"], str) else []
-                ),
+                "genes": genes_list,
+                "odds_ratio": row.get("Odds Ratio", 1.0),
             }
 
         # Get top results
         all_results_sorted = all_results.sort_values("Combined Score", ascending=False)
         top_gene_sets = all_results_sorted.head(10)["Term"].tolist()
-
-        # Collect genes found in results
-        genes_found_in_results = []
-        for _idx, row in all_results.iterrows():
-            if isinstance(row["Genes"], str):
-                genes_found_in_results.extend(row["Genes"].split(";"))
-
-        # Add odds ratios to gene_set_statistics
-        for _idx, row in all_results.iterrows():
-            term = row["Term"]
-            gene_set_statistics[term]["odds_ratio"] = row.get("Odds Ratio", 1.0)
 
         # Filter all result dictionaries to only significant pathways (reduces MCP response size)
         # Uses method-based FDR threshold: Enrichr = 0.05 (same as ORA, hypergeometric-based)
