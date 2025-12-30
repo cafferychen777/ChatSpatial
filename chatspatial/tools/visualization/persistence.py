@@ -254,7 +254,7 @@ async def save_visualization(
     except (DataNotFoundError, ParameterError):
         raise
     except Exception as e:
-        raise ProcessingError(f"Failed to save visualization: {str(e)}")
+        raise ProcessingError(f"Failed to save visualization: {str(e)}") from e
 
 
 async def export_all_visualizations(
@@ -346,7 +346,7 @@ async def export_all_visualizations(
     except ProcessingError:
         raise
     except Exception as e:
-        raise ProcessingError(f"Failed to export visualizations: {str(e)}")
+        raise ProcessingError(f"Failed to export visualizations: {str(e)}") from e
 
 
 async def clear_visualization_cache(
@@ -373,4 +373,4 @@ async def clear_visualization_cache(
         return cleared_count
 
     except Exception as e:
-        raise ProcessingError(f"Failed to clear cache: {str(e)}")
+        raise ProcessingError(f"Failed to clear cache: {str(e)}") from e

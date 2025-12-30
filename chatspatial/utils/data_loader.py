@@ -16,12 +16,8 @@ from typing import Any, Dict, Literal, Optional
 
 from .adata_utils import ensure_unique_var_names, get_adata_profile
 from .dependency_manager import is_available
-from .exceptions import (
-    DataCompatibilityError,
-    DataNotFoundError,
-    ParameterError,
-    ProcessingError,
-)
+from .exceptions import (DataCompatibilityError, DataNotFoundError,
+                         ParameterError, ProcessingError)
 
 logger = logging.getLogger(__name__)
 
@@ -282,7 +278,7 @@ async def load_spatial_data(
     # Must check for actual hires or lowres images, not just non-empty dict
     tissue_image_available = False
     if "spatial" in adata.uns and isinstance(adata.uns["spatial"], dict):
-        for sample_key, sample_data in adata.uns["spatial"].items():
+        for _sample_key, sample_data in adata.uns["spatial"].items():
             # Each sample_data should be a dict with "images" key
             if isinstance(sample_data, dict) and "images" in sample_data:
                 images_dict = sample_data["images"]

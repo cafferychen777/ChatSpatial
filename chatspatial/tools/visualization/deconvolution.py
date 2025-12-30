@@ -501,7 +501,7 @@ async def _create_scatterpie_plot(
         prop_normalized = prop_values / prop_values.sum()
 
         start_angle = 0
-        for cell_type, proportion in zip(cell_types, prop_normalized):
+        for cell_type, proportion in zip(cell_types, prop_normalized, strict=False):
             if proportion > 0.01:
                 angle = proportion * 360
                 wedge = Wedge(

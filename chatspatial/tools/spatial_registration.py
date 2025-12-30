@@ -225,7 +225,7 @@ def _register_paste(
         )
 
         # Apply transformations
-        for i, (adata, pi) in enumerate(zip(registered, pis_new)):
+        for i, (adata, pi) in enumerate(zip(registered, pis_new, strict=False)):
             if i == reference_idx:
                 adata.obsm["spatial_registered"] = adata.obsm[spatial_key].copy()
             else:

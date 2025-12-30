@@ -337,10 +337,10 @@ async def _identify_spatial_genes_spatialde(
     top_stats_genes = significant_genes[:MAX_STATS_TO_RETURN]
     top_stats_results = results[results["g"].isin(top_stats_genes)]
     gene_statistics = dict(
-        zip(top_stats_results["g"], top_stats_results["LLR"])
+        zip(top_stats_results["g"], top_stats_results["LLR"], strict=False)
     )  # Log-likelihood ratio
-    p_values = dict(zip(top_stats_results["g"], top_stats_results["pval"]))
-    q_values = dict(zip(top_stats_results["g"], top_stats_results["qval"]))
+    p_values = dict(zip(top_stats_results["g"], top_stats_results["pval"], strict=False))
+    q_values = dict(zip(top_stats_results["g"], top_stats_results["qval"], strict=False))
 
     # Create SpatialDE-specific results
     # Only return summary statistics (top 10 genes) to avoid exceeding MCP token limit
@@ -590,7 +590,7 @@ async def _identify_spatial_genes_sparkx(
     # Apply combined filter mask to sparse matrix (still sparse!)
     if gene_mask.sum() < len(gene_names):
         filtered_sparse = sparse_counts[:, gene_mask]
-        gene_names = [gene for gene, keep in zip(gene_names, gene_mask) if keep]
+        gene_names = [gene for gene, keep in zip(gene_names, gene_mask, strict=False) if keep]
     else:
         filtered_sparse = sparse_counts
 
@@ -624,7 +624,7 @@ async def _identify_spatial_genes_sparkx(
             except Exception as e:
                 raise ImportError(
                     f"SPARK not installed in R. Install with: install.packages('SPARK'). Error: {e}"
-                )
+                ) from e
 
             # Convert to R format (already in context)
             # Count matrix: genes × spots
@@ -719,10 +719,10 @@ async def _identify_spatial_genes_sparkx(
                         f"SPARK-X p-value extraction failed: {e}\n\n"
                         f"Expected SPARK-X output format:\n"
                         f"SPARK-X output invalid. Requires SPARK >= 1.1.0."
-                    )
+                    ) from e
 
             except Exception as e:
-                raise ProcessingError(f"SPARK-X analysis failed: {e}")
+                raise ProcessingError(f"SPARK-X analysis failed: {e}") from e
 
     # Sort by adjusted p-value
     results_df = results_df.sort_values("adjusted_pvalue")
@@ -793,11 +793,11 @@ async def _identify_spatial_genes_sparkx(
     # Store results in adata
     results_key = f"sparkx_results_{data_id}"
     adata.var["sparkx_pval"] = pd.Series(
-        dict(zip(results_df["gene"], results_df["pvalue"])), name="sparkx_pval"
+        dict(zip(results_df["gene"], results_df["pvalue"], strict=False)), name="sparkx_pval"
     ).reindex(adata.var_names, fill_value=1.0)
 
     adata.var["sparkx_qval"] = pd.Series(
-        dict(zip(results_df["gene"], results_df["adjusted_pvalue"])), name="sparkx_qval"
+        dict(zip(results_df["gene"], results_df["adjusted_pvalue"], strict=False)), name="sparkx_qval"
     ).reindex(adata.var_names, fill_value=1.0)
 
     # Store scientific metadata for reproducibility
@@ -835,10 +835,10 @@ async def _identify_spatial_genes_sparkx(
     MAX_STATS_TO_RETURN = 100
     top_stats_genes = significant_genes[:MAX_STATS_TO_RETURN]
     top_stats_results = results_df[results_df["gene"].isin(top_stats_genes)]
-    gene_statistics = dict(zip(top_stats_results["gene"], top_stats_results["pvalue"]))
-    p_values = dict(zip(top_stats_results["gene"], top_stats_results["pvalue"]))
+    gene_statistics = dict(zip(top_stats_results["gene"], top_stats_results["pvalue"], strict=False))
+    p_values = dict(zip(top_stats_results["gene"], top_stats_results["pvalue"], strict=False))
     q_values = dict(
-        zip(top_stats_results["gene"], top_stats_results["adjusted_pvalue"])
+        zip(top_stats_results["gene"], top_stats_results["adjusted_pvalue"], strict=False)
     )
 
     # Create SPARK-X specific results

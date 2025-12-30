@@ -385,7 +385,7 @@ def integrate_multiple_samples(
                 f"Data scaling failed completely. Zero-center error: {e}. Non-zero-center error: {e2}. "
                 f"This usually indicates data contains extreme outliers or invalid values. "
                 f"Consider additional quality control or outlier removal."
-            )
+            ) from e2
 
     # PCA with proper error handling
     # Determine safe number of components
@@ -687,7 +687,7 @@ def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch
 
     # Fill aligned coordinates back to original data
     start_idx = 0
-    for batch, coords in zip(batches, aligned_coords):
+    for batch, coords in zip(batches, aligned_coords, strict=False):
         batch_idx = combined_adata.obs[batch_key] == batch
         n_cells = np.sum(batch_idx)
         combined_adata.obsm["spatial_aligned"][start_idx : start_idx + n_cells] = coords
