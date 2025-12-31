@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cafferychen777/chatspatial",
+  "description": "Natural language-driven spatial transcriptomics analysis via Model Context Protocol. Integrates 60+ analytical methods across 15 categories including preprocessing, visualization, spatial statistics, cell communication, deconvolution, trajectory analysis, and more.",
+  "repository": {
+    "url": "https://github.com/cafferychen777/ChatSpatial",
+    "source": "github"
+  },
+  "version": "1.0.2",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "chatspatial",
+      "version": "1.0.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtime": "python"
+    }
+  ]
+}
