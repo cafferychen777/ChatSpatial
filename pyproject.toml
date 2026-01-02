@@ -83,6 +83,9 @@ dependencies = [
 
     # Gene set enrichment (commonly used)
     "gseapy>=1.0.0",
+
+    # Spatial deconvolution (default method)
+    "flashdeconv>=0.1.0",  # Ultra-fast deconvolution using random sketching
 ]
 
 [project.optional-dependencies]
@@ -145,6 +148,9 @@ full = [
     # ========== CNV Analysis ==========
     "infercnvpy>=0.4.0",  # Copy number variation inference from spatial transcriptomics
     # Note: Numbat CNV analysis also supported via rpy2 (requires R package: install.packages('numbat'))
+
+    # ========== Advanced Differential Expression ==========
+    "pydeseq2>=0.4.0",  # Python DESeq2 for pseudobulk differential expression
 
     # ========== Spatial Enrichment Extensions ==========
     "enrichmap",  # Enrichment map visualization (Python >=3.10)

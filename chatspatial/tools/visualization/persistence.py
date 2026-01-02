@@ -7,8 +7,6 @@ This module contains:
 - clear_visualization_cache: Clear visualization cache
 """
 
-import glob
-import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -17,7 +15,6 @@ import matplotlib.pyplot as plt
 
 from ...models.data import VisualizationParameters
 from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
-from ...utils.image_utils import get_cached_figure, load_visualization_metadata
 from ...utils.path_utils import get_output_dir_from_config, get_safe_output_path
 
 if TYPE_CHECKING:
@@ -134,9 +131,8 @@ async def save_visualization(
             f"{data_id}_{plot_type}_{subtype}" if subtype else f"{data_id}_{plot_type}"
         )
 
-        # Check if visualization exists in cache
-        visualization_cache = ctx.get_visualization_cache()
-        cache_key_exists = cache_key in visualization_cache
+        # Check if visualization exists in registry
+        viz_entry = ctx.get_visualization(cache_key)
 
         # Set default DPI based on format
         if dpi is None:
@@ -169,45 +165,29 @@ async def save_visualization(
         # Full path for the file
         file_path = output_path / filename
 
-        # 1. Try to get figure from in-memory cache (fast path)
-        cached_fig = get_cached_figure(cache_key) if cache_key_exists else None
+        # Get visualization params from registry and regenerate figure
+        if viz_entry is None:
+            raise DataNotFoundError(
+                f"Visualization '{plot_type}' not found. Use visualize_data() first."
+            )
 
-        # 2. If not in memory, regenerate from JSON metadata (secure approach)
-        if cached_fig is None:
-            metadata_path = f"/tmp/chatspatial/figures/{cache_key}.json"
-            if os.path.exists(metadata_path):
-                try:
-                    metadata = load_visualization_metadata(metadata_path)
-                    saved_params = metadata.get("params", {})
+        # Regenerate figure from stored params (first principles: params + data = output)
+        try:
+            # Get params from registry entry and override DPI
+            viz_params_dict = viz_entry.params.model_dump()
+            viz_params_dict["dpi"] = dpi
+            viz_params = VisualizationParameters(**viz_params_dict)
 
-                    # Override DPI with user's request for export
-                    if dpi is not None:
-                        saved_params["dpi"] = dpi
+            # Regenerate the figure
+            adata = await ctx.get_adata(data_id)
+            cached_fig = await _regenerate_figure_for_export(
+                adata, viz_params, ctx._mcp_context
+            )
 
-                    viz_params = VisualizationParameters(**saved_params)
-
-                    # Regenerate the figure
-                    adata = await ctx.get_adata(data_id)
-                    fig = await _regenerate_figure_for_export(
-                        adata, viz_params, ctx._mcp_context
-                    )
-                    cached_fig = fig
-
-                except Exception as e:
-                    await ctx.warning(
-                        f"Failed to regenerate figure from metadata: {str(e)}"
-                    )
-
-        # Figure must exist (either in memory or regenerated)
-        if cached_fig is None:
-            if not cache_key_exists:
-                raise DataNotFoundError(
-                    f"Visualization '{plot_type}' not found. Use visualize_data() first."
-                )
-            else:
-                raise ProcessingError(
-                    f"Cannot regenerate '{cache_key}'. Reload dataset and visualize again."
-                )
+        except Exception as e:
+            raise ProcessingError(
+                f"Failed to regenerate '{cache_key}': {str(e)}"
+            ) from e
 
         try:
             # Prepare save parameters
@@ -275,31 +255,12 @@ async def export_all_visualizations(
         List of paths to saved files
     """
     try:
-        visualization_cache = ctx.get_visualization_cache()
+        # Get visualization keys from registry (single source of truth)
+        relevant_keys = ctx.list_visualizations(data_id)
 
-        # Strategy 1: Check session cache first (fast path)
-        relevant_keys = [
-            k for k in visualization_cache.keys() if k.startswith(f"{data_id}_")
-        ]
-
-        # Strategy 2: Fallback to JSON metadata files (persistent storage)
         if not relevant_keys:
-            # Scan metadata directory for this dataset
-            metadata_dir = "/tmp/chatspatial/figures"
-            metadata_pattern = f"{metadata_dir}/{data_id}_*.json"
-            metadata_files = glob.glob(metadata_pattern)
-
-            if metadata_files:
-                # Extract cache keys from metadata filenames
-                relevant_keys = [
-                    os.path.basename(f).replace(".json", "") for f in metadata_files
-                ]
-            else:
-                await ctx.warning(
-                    f"No visualizations found for dataset '{data_id}' "
-                    f"(neither in session cache nor metadata files)"
-                )
-                return []
+            await ctx.warning(f"No visualizations found for dataset '{data_id}'")
+            return []
 
         saved_files = []
 

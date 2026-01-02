@@ -317,6 +317,13 @@ DEPENDENCY_REGISTRY: Dict[str, DependencyInfo] = {
         description="Louvain community detection algorithm",
         category=DependencyCategory.CORE,
     ),
+    # Differential Expression
+    "pydeseq2": DependencyInfo(
+        module_name="pydeseq2",
+        install_cmd="pip install pydeseq2",
+        description="Python implementation of DESeq2 for pseudobulk differential expression",
+        category=DependencyCategory.CORE,
+    ),
     # Enrichment analysis
     "enrichmap": DependencyInfo(
         module_name="enrichmap",

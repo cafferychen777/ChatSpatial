@@ -7,10 +7,8 @@ All functions return Image objects that can be directly used in MCP tools.
 
 import base64
 import io
-import json
 import os
 import uuid
-import weakref
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 from mcp.types import ImageContent
@@ -161,102 +159,6 @@ def fig_to_image(
 
 # ============ Token Optimization and Publication Export Support ============
 
-# Global Figure cache (using weak references to avoid memory leaks)
-_figure_cache: Dict[str, weakref.ReferenceType] = {}
-
-
-def cache_figure(key: str, fig: "plt.Figure"):
-    """Cache matplotlib figure object for high-quality export
-
-    Args:
-        key: Cache key (usually data_id_plot_type)
-        fig: Matplotlib figure to cache
-    """
-    _figure_cache[key] = weakref.ref(fig)
-
-
-def get_cached_figure(key: str) -> Optional["plt.Figure"]:
-    """Get cached figure object
-
-    Args:
-        key: Cache key
-
-    Returns:
-        Cached figure or None if not found/expired
-    """
-    if key in _figure_cache:
-        fig_ref = _figure_cache[key]
-        fig = fig_ref()
-        if fig is not None:
-            return fig
-    return None
-
-
-def save_visualization_metadata(
-    path: str,
-    data_id: str,
-    plot_type: str,
-    params: Any,
-) -> bool:
-    """Save visualization metadata as JSON for later regeneration.
-
-    This replaces unsafe pickle serialization with a secure JSON-based approach.
-    Instead of storing the matplotlib figure object, we store the parameters
-    needed to regenerate it. This is fundamentally more secure because:
-    1. JSON cannot contain executable code (unlike pickle)
-    2. Parameters are human-readable and auditable
-    3. Regeneration uses the original trusted codebase
-
-    Args:
-        path: Path to save JSON metadata file
-        data_id: Dataset identifier
-        plot_type: Type of plot (with optional subtype suffix)
-        params: VisualizationParameters object or dict
-
-    Returns:
-        True if saved successfully
-    """
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-
-    # Convert params to dict if it's a Pydantic model
-    if hasattr(params, "model_dump"):
-        params_dict = params.model_dump()
-    elif hasattr(params, "dict"):
-        params_dict = params.dict()  # Pydantic v1 fallback
-    elif isinstance(params, dict):
-        params_dict = params
-    else:
-        params_dict = {}
-
-    metadata = {
-        "data_id": data_id,
-        "plot_type": plot_type,
-        "params": params_dict,
-        "version": "1.0",  # For future compatibility
-    }
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2, default=str)
-
-    return True
-
-
-def load_visualization_metadata(path: str) -> Dict[str, Any]:
-    """Load visualization metadata from JSON file.
-
-    Args:
-        path: Path to JSON metadata file
-
-    Returns:
-        Dictionary containing data_id, plot_type, and params
-
-    Raises:
-        FileNotFoundError: If metadata file doesn't exist
-        json.JSONDecodeError: If file is not valid JSON
-    """
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
 
 async def optimize_fig_to_image_with_cache(
     fig: "plt.Figure",
@@ -266,22 +168,25 @@ async def optimize_fig_to_image_with_cache(
     plot_type: Optional[str] = None,
     mode: str = "auto",
 ) -> Union[ImageContent, str]:
-    """Optimized image conversion with Figure caching for high-quality export
+    """Optimized image conversion for MCP protocol efficiency.
 
     This function implements MCP 2025 best practice token optimization:
     - Small images (<70KB): Direct embedding as ImageContent
     - Large images (≥70KB): Save to file, return path as text (URI over embedded content)
-    - Caches Figure object for later high-quality export
 
     Following MCP specification recommendation:
     "Prefer using URIs over embedded content for large files"
 
+    NOTE: Visualization metadata for regeneration is stored separately in
+    VisualizationRegistry (see server.py). This function only handles
+    image generation and file saving.
+
     Args:
         fig: Matplotlib figure
-        params: Visualization parameters
-        ctx: ToolContext for logging and data access
-        data_id: Dataset ID (for cache key)
-        plot_type: Plot type (for cache key)
+        params: Visualization parameters (used for DPI extraction)
+        ctx: ToolContext (unused, kept for API compatibility)
+        data_id: Dataset ID (unused, kept for API compatibility)
+        plot_type: Plot type (used for filename generation)
         mode: Optimization mode - "auto" or "direct"
 
     Returns:
@@ -291,21 +196,8 @@ async def optimize_fig_to_image_with_cache(
     _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
     import matplotlib.pyplot as plt
 
-    # Initialize variables
-    cache_key = None
-
-    # Cache Figure object for in-session high-quality export (WeakRef only)
-    # For cross-session persistence, we save JSON metadata (not pickle)
-    if data_id and plot_type:
-        cache_key = f"{data_id}_{plot_type}"
-        cache_figure(cache_key, fig)
-
-        # Save visualization metadata as JSON (secure, no pickle)
-        # This allows regenerating the figure in future sessions
-        os.makedirs("/tmp/chatspatial/figures", exist_ok=True)
-        metadata_path = f"/tmp/chatspatial/figures/{cache_key}.json"
-        save_visualization_metadata(metadata_path, data_id, plot_type, params)
-
+    # NOTE: Visualization metadata is now stored in VisualizationRegistry (server.py)
+    # This function only handles image generation and file saving
     # Generate image once with ACTUAL parameters (not estimation)
     target_dpi = params.dpi if hasattr(params, "dpi") and params.dpi else 100
 
@@ -361,9 +253,6 @@ async def optimize_fig_to_image_with_cache(
     import matplotlib.pyplot as plt
 
     plt.close(fig)
-
-    # NOTE: JSON metadata saved above enables figure regeneration
-    # Data + params are the source of truth, not serialized figure objects
 
     # Return text message with file path (MCP best practice for large files)
     # FastMCP will auto-convert str to TextContent

@@ -272,7 +272,8 @@ def get_colormap(name: str, n_colors: Optional[int] = None):
         n_colors: Number of discrete colors (for categorical data)
 
     Returns:
-        Colormap object or list of colors
+        If n_colors is specified: List of colors (always indexable)
+        Otherwise: Colormap object (for continuous data)
     """
     # Check if it's a seaborn palette
     if name in ["tab10", "tab20", "Set1", "Set2", "Set3", "Paired", "husl"]:
@@ -280,8 +281,15 @@ def get_colormap(name: str, n_colors: Optional[int] = None):
             return sns.color_palette(name, n_colors=n_colors)
         return sns.color_palette(name)
 
-    # Otherwise use matplotlib
-    return plt.get_cmap(name)
+    # For matplotlib colormaps
+    cmap = plt.get_cmap(name)
+
+    # If n_colors is specified, sample discrete colors from the colormap
+    # This ensures the return value is always indexable for categorical data
+    if n_colors:
+        return [cmap(i / max(n_colors - 1, 1)) for i in range(n_colors)]
+
+    return cmap
 
 
 def get_diverging_colormap(center: float = 0.0) -> str:

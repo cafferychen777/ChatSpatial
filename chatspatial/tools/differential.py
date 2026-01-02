@@ -2,15 +2,17 @@
 Differential expression analysis tools for spatial transcriptomics data.
 """
 
-from typing import Optional
-
 import numpy as np
+import pandas as pd
 import scanpy as sc
+from scipy import sparse
 
 from ..models.analysis import DifferentialExpressionResult
+from ..models.data import DifferentialExpressionParameters
 from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
 from ..utils.adata_utils import store_analysis_metadata, to_dense
+from ..utils.dependency_manager import require
 from ..utils.exceptions import (
     DataError,
     DataNotFoundError,
@@ -22,36 +24,31 @@ from ..utils.exceptions import (
 async def differential_expression(
     data_id: str,
     ctx: ToolContext,
-    group_key: str,
-    group1: Optional[str] = None,
-    group2: Optional[str] = None,
-    method: str = "wilcoxon",
-    n_top_genes: int = 50,
-    pseudocount: float = 1.0,
-    min_cells: int = 3,
+    params: DifferentialExpressionParameters,
 ) -> DifferentialExpressionResult:
-    """Perform differential expression analysis
+    """Perform differential expression analysis.
 
     Args:
         data_id: Dataset ID
         ctx: Tool context for data access and logging
-        group_key: Key in adata.obs for grouping cells
-        group1: First group for comparison (if None, find markers for all groups)
-        group2: Second group for comparison (if None, compare against rest)
-        n_top_genes: Number of top differentially expressed genes to return
-        method: Statistical method for DE analysis
-        pseudocount: Pseudocount added before log2 fold change calculation.
-                    Default: 1.0 (standard practice, prevents log(0)).
-                    Lower values (0.1-0.5): More sensitive to low-expression changes.
-                    Higher values (1-10): More stable for sparse/noisy data.
-        min_cells: Minimum number of cells per group for statistical testing.
-                  Default: 3 (minimum required for Wilcoxon test).
-                  Increase to 10-30 for more robust results.
-                  Groups with fewer cells are skipped with a warning.
+        params: Differential expression parameters
 
     Returns:
         Differential expression analysis result
     """
+    # Extract parameters from params object
+    group_key = params.group_key
+    group1 = params.group1
+    group2 = params.group2
+    method = params.method
+    n_top_genes = params.n_top_genes
+    pseudocount = params.pseudocount
+    min_cells = params.min_cells
+
+    # Dispatch to pydeseq2 if requested
+    if method == "pydeseq2":
+        return await _run_pydeseq2(data_id, ctx, params)
+
     # Get AnnData directly via ToolContext (no redundant dict wrapping)
     adata = await ctx.get_adata(data_id)
 
@@ -367,4 +364,258 @@ async def differential_expression(
         n_genes=len(top_genes),
         top_genes=top_genes,
         statistics=statistics,
+    )
+
+
+async def _run_pydeseq2(
+    data_id: str,
+    ctx: ToolContext,
+    params: DifferentialExpressionParameters,
+) -> DifferentialExpressionResult:
+    """Run PyDESeq2 pseudobulk differential expression analysis.
+
+    This function performs pseudobulk aggregation by summing raw counts within
+    each sample/group combination, then uses PyDESeq2 for DE analysis.
+
+    Args:
+        data_id: Dataset ID
+        ctx: Tool context for data access and logging
+        params: Differential expression parameters
+
+    Returns:
+        Differential expression analysis result
+
+    Raises:
+        ParameterError: If sample_key is not provided
+        ImportError: If pydeseq2 is not installed
+    """
+    # Validate sample_key is provided
+    if params.sample_key is None:
+        raise ParameterError(
+            "sample_key is required for pydeseq2 method.\n"
+            "Provide a column in adata.obs that identifies biological replicates "
+            "(e.g., 'sample', 'patient_id', 'batch').\n"
+            "Example: find_markers(group_key='cell_type', method='pydeseq2', "
+            "sample_key='sample')"
+        )
+
+    # Import pydeseq2 (require() raises ImportError if not available)
+    require("pydeseq2", ctx, feature="DESeq2 differential expression")
+    from pydeseq2.dds import DeseqDataSet
+    from pydeseq2.ds import DeseqStats
+
+    # Get data
+    adata = await ctx.get_adata(data_id)
+
+    # Validate columns
+    validate_obs_column(adata, params.group_key, "Group key")
+    validate_obs_column(adata, params.sample_key, "Sample key")
+
+    # Get raw counts (required for DESeq2)
+    if adata.raw is not None:
+        raw_X = adata.raw.X
+        var_names = adata.raw.var_names
+    else:
+        raw_X = adata.X
+        var_names = adata.var_names
+
+    # Convert to dense if sparse
+    if sparse.issparse(raw_X):
+        raw_X = raw_X.toarray()
+
+    # Validate counts are integers (DESeq2 requirement)
+    if not np.allclose(raw_X, raw_X.astype(int)):
+        await ctx.warning(
+            "Data appears to be normalized. DESeq2 requires raw integer counts. "
+            "Results may be inaccurate."
+        )
+
+    # Determine comparison groups
+    group_key = params.group_key
+    sample_key = params.sample_key
+    group1 = params.group1
+    group2 = params.group2
+
+    # If group1 is None, find first two groups for pairwise comparison
+    unique_groups = adata.obs[group_key].unique()
+    if group1 is None:
+        if len(unique_groups) < 2:
+            raise DataError(
+                f"Need at least 2 groups for DE analysis, found {len(unique_groups)}"
+            )
+        group1 = str(unique_groups[0])
+        group2 = str(unique_groups[1])
+        await ctx.info(
+            f"No group specified, comparing first two groups: {group1} vs {group2}"
+        )
+    elif group2 is None or group2 == "rest":
+        # Compare group1 vs all others combined as "rest"
+        group2 = "rest"
+
+    # Create pseudobulk aggregation
+    await ctx.info(f"Creating pseudobulk samples by {sample_key} and {group_key}...")
+
+    # Build aggregation key
+    if group2 == "rest":
+        # Binary comparison: group1 vs rest
+        condition = adata.obs[group_key].apply(
+            lambda x: group1 if x == group1 else "rest"
+        )
+    else:
+        # Pairwise comparison: filter to only group1 and group2
+        mask = adata.obs[group_key].isin([group1, group2])
+        adata = adata[mask].copy()
+        raw_X = raw_X[mask.values]
+        condition = adata.obs[group_key].astype(str)
+
+    # Create pseudobulk by aggregating (summing) counts per sample+condition
+    adata.obs["_de_condition"] = condition.values
+    adata.obs["_pseudobulk_id"] = (
+        adata.obs[sample_key].astype(str) + "_" + adata.obs["_de_condition"].astype(str)
+    )
+
+    # Aggregate counts
+    pseudobulk_groups = adata.obs.groupby("_pseudobulk_id")
+    pseudobulk_ids = list(pseudobulk_groups.groups.keys())
+    n_samples = len(pseudobulk_ids)
+
+    await ctx.info(f"Aggregated into {n_samples} pseudobulk samples")
+
+    if n_samples < 4:
+        raise DataError(
+            f"DESeq2 requires at least 2 samples per group. "
+            f"Found only {n_samples} total pseudobulk samples. "
+            f"Add more biological replicates or use a different method (wilcoxon)."
+        )
+
+    # Build pseudobulk count matrix
+    pseudobulk_counts = np.zeros((n_samples, raw_X.shape[1]), dtype=np.int64)
+    pseudobulk_metadata = []
+
+    for i, pb_id in enumerate(pseudobulk_ids):
+        # Get indices for this pseudobulk group
+        group_labels = pseudobulk_groups.groups[pb_id]
+        # Convert pandas Index to integer positional indices for numpy array indexing
+        int_idx = adata.obs.index.get_indexer(group_labels)
+        pseudobulk_counts[i] = raw_X[int_idx].sum(axis=0).astype(np.int64)
+        # Get condition from first cell in this group
+        first_int_idx = int_idx[0]
+        pseudobulk_metadata.append(
+            {
+                "sample_id": pb_id,
+                "condition": adata.obs.iloc[first_int_idx]["_de_condition"],
+                "sample": adata.obs.iloc[first_int_idx][sample_key],
+            }
+        )
+
+    # Create metadata DataFrame
+    metadata_df = pd.DataFrame(pseudobulk_metadata)
+    metadata_df = metadata_df.set_index("sample_id")
+
+    # Create count DataFrame
+    counts_df = pd.DataFrame(pseudobulk_counts, index=pseudobulk_ids, columns=var_names)
+
+    # Check sample counts per condition
+    condition_counts = metadata_df["condition"].value_counts()
+    await ctx.info(f"Samples per condition: {condition_counts.to_dict()}")
+
+    if any(condition_counts < 2):
+        raise DataError(
+            f"DESeq2 requires at least 2 samples per condition. "
+            f"Current counts: {condition_counts.to_dict()}"
+        )
+
+    # Run PyDESeq2
+    await ctx.info("Running PyDESeq2 differential expression analysis...")
+
+    try:
+        # Create DESeq2 dataset
+        dds = DeseqDataSet(
+            counts=counts_df,
+            metadata=metadata_df,
+            design_factors="condition",
+        )
+
+        # Run DESeq2 pipeline
+        dds.deseq2()
+
+        # Get results
+        stat_res = DeseqStats(dds, contrast=["condition", group1, group2])
+        stat_res.summary()
+
+        # Get results DataFrame
+        results_df = stat_res.results_df
+
+    except Exception as e:
+        raise ProcessingError(
+            f"PyDESeq2 analysis failed: {str(e)}\n"
+            "This may be due to low sample counts or data issues."
+        ) from e
+
+    # Extract top DE genes
+    # Sort by adjusted p-value, filter significant genes
+    results_df = results_df.dropna(subset=["padj"])
+    results_df = results_df.sort_values("padj")
+
+    top_genes = results_df.head(params.n_top_genes).index.tolist()
+
+    if not top_genes:
+        raise ProcessingError(
+            f"No DE genes found between {group1} and {group2}. "
+            "Check sample sizes and expression differences."
+        )
+
+    # Get statistics
+    n_sig_genes = (results_df["padj"] < 0.05).sum()
+    mean_log2fc = results_df.head(params.n_top_genes)["log2FoldChange"].mean()
+    median_pvalue = results_df.head(params.n_top_genes)["padj"].median()
+
+    # Store results in adata.uns for persistence
+    adata.uns["pydeseq2_results"] = {
+        "results_df": results_df.to_dict(),
+        "comparison": f"{group1} vs {group2}",
+        "n_samples": n_samples,
+    }
+
+    # Store metadata for scientific provenance tracking
+    store_analysis_metadata(
+        adata,
+        analysis_name="differential_expression",
+        method="pydeseq2",
+        parameters={
+            "group_key": group_key,
+            "sample_key": sample_key,
+            "group1": group1,
+            "group2": group2,
+            "comparison_type": "pseudobulk",
+            "n_top_genes": params.n_top_genes,
+        },
+        results_keys={"uns": ["pydeseq2_results"]},
+        statistics={
+            "method": "pydeseq2",
+            "group1": group1,
+            "group2": group2,
+            "n_pseudobulk_samples": n_samples,
+            "n_significant_genes": int(n_sig_genes),
+            "mean_log2fc": float(mean_log2fc) if not np.isnan(mean_log2fc) else None,
+            "median_padj": (
+                float(median_pvalue) if not np.isnan(median_pvalue) else None
+            ),
+        },
+    )
+
+    return DifferentialExpressionResult(
+        data_id=data_id,
+        comparison=f"{group1} vs {group2}",
+        n_genes=len(top_genes),
+        top_genes=top_genes,
+        statistics={
+            "method": "pydeseq2",
+            "n_pseudobulk_samples": n_samples,
+            "n_significant_genes": int(n_sig_genes),
+            "mean_log2fc": float(mean_log2fc) if not np.isnan(mean_log2fc) else None,
+            "median_padj": (
+                float(median_pvalue) if not np.isnan(median_pvalue) else None
+            ),
+        },
     )

@@ -3,15 +3,22 @@ Spatial MCP Adapter for ChatSpatial
 
 This module provides a clean abstraction layer between MCP protocol requirements
 and ChatSpatial's spatial analysis functionality.
+
+Design Principles:
+- Single source of truth: One registry for visualization state
+- Store params, not bytes: Images can be regenerated on demand
+- LRU eviction: Automatic memory management
 """
 
-import json
 import logging
+import os
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import EmbeddedResource, ImageContent, ToolAnnotations
+from mcp.types import ToolAnnotations
 
 # Import MCP improvements
 from .models.data import VisualizationParameters
@@ -148,256 +155,158 @@ def get_tool_annotations(tool_name: str) -> ToolAnnotations:
     )
 
 
+# =============================================================================
+# VISUALIZATION REGISTRY - Single Source of Truth
+# =============================================================================
+# First Principles Design:
+# - Store params, not bytes: Images can be regenerated on demand from params
+# - LRU eviction: Automatic memory management prevents unbounded growth
+# - Unified cache key: {data_id}_{plot_type}[_{subtype}]
+# =============================================================================
+
+
 @dataclass
-class MCPResource:
-    """MCP Resource representation"""
+class VisualizationEntry:
+    """A single visualization entry in the registry.
 
-    uri: str
-    name: str
-    mime_type: str
-    description: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    content_provider: Optional[Callable[[], Union[str, bytes]]] = None
+    Stores the parameters needed to regenerate a visualization, not the image bytes.
+    This follows the first principle: data + params = reproducible output.
+    """
+
+    params: VisualizationParameters
+    file_path: Optional[str] = None  # Path to saved PNG (if large image)
+    timestamp: float = field(default_factory=time.time)
 
 
-class SpatialResourceManager:
-    """Manages MCP resources for spatial data"""
+class VisualizationRegistry:
+    """Single source of truth for visualization state.
 
-    def __init__(self, data_manager: "DefaultSpatialDataManager"):
-        self.data_manager = data_manager
-        self._resources: Dict[str, MCPResource] = {}
+    Design Principles:
+    - Store params, not bytes: Images regenerated on demand
+    - LRU eviction: Oldest entries removed when max_entries exceeded
+    - Unified interface: One place for all visualization state
+    """
 
-    async def create_dataset_resource(
-        self, data_id: str, dataset_info: Dict[str, Any]
-    ) -> MCPResource:
-        """Create a resource for a dataset"""
-        resource = MCPResource(
-            uri=f"spatial://datasets/{data_id}",
-            name=dataset_info.get("name", f"Dataset {data_id}"),
-            mime_type="application/x-anndata",
-            description=f"Spatial dataset with {dataset_info.get('n_cells', 0)} cells",
-            metadata={
-                "n_cells": dataset_info.get("n_cells", 0),
-                "n_genes": dataset_info.get("n_genes", 0),
-                "data_type": dataset_info.get("type", "unknown"),
-                "has_spatial": dataset_info.get("has_spatial", False),
-            },
-            content_provider=lambda: json.dumps(dataset_info, indent=2),
-        )
-        self._resources[resource.uri] = resource
-        return resource
+    def __init__(self, max_entries: int = 100):
+        """Initialize the registry with LRU capacity.
 
-    async def create_result_resource(
-        self, data_id: str, result_type: str, result: Any
-    ) -> MCPResource:
-        """Create a resource for analysis results"""
-        resource = MCPResource(
-            uri=f"spatial://results/{data_id}/{result_type}",
-            name=f"{result_type.title()} results for {data_id}",
-            mime_type="application/json",
-            description=f"Analysis results: {result_type}",
-            content_provider=lambda: json.dumps(
-                self._serialize_result(result), indent=2
-            ),
-        )
-        self._resources[resource.uri] = resource
-        return resource
-
-    async def create_visualization_resource(
-        self, viz_id: str, image_data: bytes, metadata: Dict[str, Any]
-    ) -> MCPResource:
-        """Create a resource for visualization
-
-        Note: This function only creates a resource for MCP protocol.
-        The actual visualization caching is handled in server.py using cache_key
-        (without timestamp) for easier retrieval by save/export functions.
+        Args:
+            max_entries: Maximum number of entries before LRU eviction
         """
-        resource = MCPResource(
-            uri=f"spatial://visualizations/{viz_id}",
-            name=metadata.get("name", f"Visualization {viz_id}"),
-            mime_type="image/png",
-            description=metadata.get("description", "Spatial visualization"),
-            metadata=metadata,
-            content_provider=lambda: image_data,
+        self._entries: OrderedDict[str, VisualizationEntry] = OrderedDict()
+        self._max_entries = max_entries
+
+    def store(
+        self,
+        key: str,
+        params: VisualizationParameters,
+        file_path: Optional[str] = None,
+    ) -> None:
+        """Store a visualization entry.
+
+        Args:
+            key: Cache key format: {data_id}_{plot_type}[_{subtype}]
+            params: Visualization parameters for regeneration
+            file_path: Optional path to saved image file
+        """
+        # Move to end if exists (LRU behavior)
+        if key in self._entries:
+            self._entries.move_to_end(key)
+
+        self._entries[key] = VisualizationEntry(
+            params=params,
+            file_path=file_path,
+            timestamp=time.time(),
         )
-        self._resources[resource.uri] = resource
-        # DO NOT cache with viz_id - caching is done in server.py with cache_key
-        return resource
 
-    async def get_resource(self, uri: str) -> Optional[MCPResource]:
-        """Get a resource by URI"""
-        return self._resources.get(uri)
+        # LRU eviction
+        while len(self._entries) > self._max_entries:
+            oldest_key, oldest_entry = self._entries.popitem(last=False)
+            # Clean up file if exists
+            if oldest_entry.file_path and os.path.exists(oldest_entry.file_path):
+                try:
+                    os.remove(oldest_entry.file_path)
+                except OSError:
+                    pass
 
-    async def list_resources(self) -> List[MCPResource]:
-        """List all available resources"""
-        return list(self._resources.values())
+    def get(self, key: str) -> Optional[VisualizationEntry]:
+        """Get a visualization entry.
 
-    async def read_resource_content(self, uri: str) -> Union[str, bytes]:
-        """Read resource content"""
-        resource = await self.get_resource(uri)
-        if not resource:
-            raise DataNotFoundError(f"Resource not found: {uri}")
+        Args:
+            key: Cache key to look up
 
-        if resource.content_provider:
-            return resource.content_provider()
+        Returns:
+            VisualizationEntry if found, None otherwise
+        """
+        if key in self._entries:
+            self._entries.move_to_end(key)  # LRU touch
+            return self._entries[key]
+        return None
 
-        raise DataNotFoundError(f"Resource has no content provider: {uri}")
+    def exists(self, key: str) -> bool:
+        """Check if a visualization exists in registry."""
+        return key in self._entries
 
-    def _serialize_result(self, result: Any) -> Dict[str, Any]:
-        """Serialize analysis results for JSON output with size control"""
-        if hasattr(result, "dict"):
-            result_dict = result.dict()
+    def list_for_dataset(self, data_id: str) -> List[str]:
+        """List all visualization keys for a dataset.
 
-            # Size control for CellCommunicationResult to prevent token overflow
-            if hasattr(result, "method") and "liana" in getattr(result, "method", ""):
-                return self._safe_serialize_communication_result(result_dict)
+        Args:
+            data_id: Dataset identifier
 
-            return result_dict
-        elif hasattr(result, "__dict__"):
-            return {k: v for k, v in result.__dict__.items() if not k.startswith("_")}
-        else:
-            return {"result": str(result)}
+        Returns:
+            List of cache keys matching the dataset
+        """
+        prefix = f"{data_id}_"
+        return [k for k in self._entries.keys() if k.startswith(prefix)]
 
-    def _safe_serialize_communication_result(
-        self, result_dict: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Size-controlled serialization for cell communication results"""
-        # ULTRATHINK: Prevent token overflow by applying truncation rules to large fields
-        safe_dict = result_dict.copy()
+    def clear(self, prefix: Optional[str] = None) -> int:
+        """Clear visualizations from registry.
 
-        # Rule 1: Limit top_lr_pairs to prevent overflow from large L-R pair lists
-        if "top_lr_pairs" in safe_dict and len(safe_dict["top_lr_pairs"]) > 10:
-            safe_dict["top_lr_pairs"] = safe_dict["top_lr_pairs"][:10]
-            safe_dict["top_lr_pairs_truncated"] = True
+        Args:
+            prefix: Optional prefix to filter which keys to clear.
+                   If None, clears all visualizations.
 
-        # Rule 2: Filter statistics to remove large objects while keeping basic metrics
-        if "statistics" in safe_dict and isinstance(safe_dict["statistics"], dict):
-            stats = safe_dict["statistics"]
-            # Keep only simple key-value pairs, exclude complex objects
-            safe_stats = {
-                k: v
-                for k, v in stats.items()
-                if not isinstance(v, (list, dict)) or len(str(v)) < 1000
-            }
-            safe_dict["statistics"] = safe_stats
+        Returns:
+            Number of entries cleared
+        """
+        if prefix is None:
+            count = len(self._entries)
+            # Clean up all files
+            for entry in self._entries.values():
+                if entry.file_path and os.path.exists(entry.file_path):
+                    try:
+                        os.remove(entry.file_path)
+                    except OSError:
+                        pass
+            self._entries.clear()
+            return count
 
-        # Rule 3: Add size control marker for debugging
-        safe_dict["_serialization_controlled"] = True
+        keys_to_remove = [k for k in self._entries if k.startswith(prefix)]
+        for key in keys_to_remove:
+            entry = self._entries.pop(key)
+            if entry.file_path and os.path.exists(entry.file_path):
+                try:
+                    os.remove(entry.file_path)
+                except OSError:
+                    pass
+        return len(keys_to_remove)
 
-        return safe_dict
+    def keys(self) -> List[str]:
+        """Return all keys in the registry."""
+        return list(self._entries.keys())
 
 
 class SpatialMCPAdapter:
-    """Main adapter class that bridges MCP and spatial analysis functionality"""
+    """Main adapter class that bridges MCP and spatial analysis functionality.
+
+    Simplified design: Only manages data and visualization registry.
+    Removed dead code (ResourceManager was never registered to MCP server).
+    """
 
     def __init__(self, mcp_server: FastMCP, data_manager: "DefaultSpatialDataManager"):
         self.mcp = mcp_server
         self.data_manager = data_manager
-        self.resource_manager = SpatialResourceManager(data_manager)
-        # Session-level cache for rendered visualizations
-        # Stored at adapter level (not ResourceManager) for clear ownership
-        self.visualization_cache: Dict[str, Any] = {}
-
-    async def handle_resource_list(self) -> List[Dict[str, Any]]:
-        """Handle MCP resource list request"""
-        resources = await self.resource_manager.list_resources()
-        return [
-            {
-                "uri": r.uri,
-                "name": r.name,
-                "mimeType": r.mime_type,
-                "description": r.description,
-                "metadata": r.metadata,
-            }
-            for r in resources
-        ]
-
-    async def handle_resource_read(self, uri: str) -> Dict[str, Any]:
-        """Handle MCP resource read request"""
-        content = await self.resource_manager.read_resource_content(uri)
-
-        if isinstance(content, bytes):
-            # Binary content (like images)
-            import base64
-
-            return {
-                "contents": [
-                    {
-                        "uri": uri,
-                        "mimeType": "image/png",
-                        "blob": base64.b64encode(content).decode("utf-8"),
-                    }
-                ]
-            }
-        else:
-            # Text content
-            return {
-                "contents": [
-                    {"uri": uri, "mimeType": "application/json", "text": content}
-                ]
-            }
-
-    async def create_visualization_from_result(
-        self,
-        data_id: str,
-        plot_type: str,
-        result: Any,
-        context: Optional[Context] = None,
-    ) -> Optional[Union[ImageContent, tuple[ImageContent, EmbeddedResource]]]:
-        """Create visualization from analysis result"""
-        try:
-            # Import visualization function
-            from .tools.visualization import visualize_data
-
-            # Create visualization parameters
-            params = VisualizationParameters(plot_type=plot_type)  # type: ignore[call-arg]
-
-            # Get dataset
-            dataset_info = await self.data_manager.get_dataset(data_id)
-
-            # Call visualization
-            image = await visualize_data(
-                data_id, {"data_id": dataset_info}, params, context
-            )
-
-            if image:
-                # Create resource for the visualization
-                import time
-
-                # Use consistent cache key (no timestamp for easier lookup)
-                cache_key = f"{data_id}_{plot_type}"
-                viz_id = f"{cache_key}_{int(time.time())}"  # Resource ID with timestamp
-
-                metadata = {
-                    "data_id": data_id,
-                    "plot_type": plot_type,
-                    "timestamp": int(time.time()),
-                    "name": f"{plot_type} visualization",
-                    "description": f"Visualization of {plot_type} for dataset {data_id}",
-                }
-
-                # Decode base64 string to bytes before caching
-                import base64
-
-                image_bytes = base64.b64decode(image.data)
-
-                # Store with consistent cache_key (for save_visualization lookup)
-                await self.resource_manager.create_visualization_resource(
-                    cache_key, image_bytes, metadata
-                )
-
-                if context:
-                    await context.info(
-                        f"Created visualization resource: spatial://visualizations/{viz_id}"
-                    )
-
-            return image
-
-        except Exception as e:
-            logger.error(f"Error creating visualization: {e}")
-            if context:
-                await context.error(f"Failed to create visualization: {str(e)}")
-            return None
+        self.visualization_registry = VisualizationRegistry(max_entries=100)
 
 
 class DefaultSpatialDataManager:
@@ -558,7 +467,7 @@ class ToolContext:
 
     _data_manager: "DefaultSpatialDataManager"
     _mcp_context: Optional[Context] = None
-    _visualization_cache: Optional[Dict[str, Any]] = None
+    _visualization_registry: Optional["VisualizationRegistry"] = None
     _logger: Optional[logging.Logger] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -675,41 +584,71 @@ class ToolContext:
         if self._mcp_context:
             await self._mcp_context.error(msg)
 
-    def get_visualization_cache(self) -> Dict[str, Any]:
-        """Get the visualization cache dict.
+    def get_visualization_registry(self) -> Optional["VisualizationRegistry"]:
+        """Get the visualization registry.
 
         Returns:
-            The visualization cache dictionary. Returns empty dict if not set.
+            VisualizationRegistry instance if set, None otherwise
         """
-        if self._visualization_cache is None:
-            return {}
-        return self._visualization_cache
+        return self._visualization_registry
 
-    def set_visualization(self, key: str, value: Any) -> None:
-        """Store a visualization in the cache.
+    def store_visualization(
+        self,
+        key: str,
+        params: VisualizationParameters,
+        file_path: Optional[str] = None,
+    ) -> None:
+        """Store a visualization in the registry.
+
+        Args:
+            key: Cache key format: {data_id}_{plot_type}[_{subtype}]
+            params: Visualization parameters for regeneration
+            file_path: Optional path to saved image file
+        """
+        if self._visualization_registry is not None:
+            self._visualization_registry.store(key, params, file_path)
+
+    def get_visualization(self, key: str) -> Optional[VisualizationEntry]:
+        """Get a visualization entry from the registry.
 
         Args:
             key: Cache key for the visualization
-            value: Visualization data (bytes, dict, or other)
-        """
-        if self._visualization_cache is not None:
-            self._visualization_cache[key] = value
-
-    def get_visualization(self, key: str) -> Optional[Any]:
-        """Get a visualization from the cache.
-
-        Args:
-            key: Cache key for the visualization
 
         Returns:
-            Visualization data if found, None otherwise
+            VisualizationEntry if found, None otherwise
         """
-        if self._visualization_cache is None:
+        if self._visualization_registry is None:
             return None
-        return self._visualization_cache.get(key)
+        return self._visualization_registry.get(key)
+
+    def visualization_exists(self, key: str) -> bool:
+        """Check if a visualization exists in registry.
+
+        Args:
+            key: Cache key to check
+
+        Returns:
+            True if exists, False otherwise
+        """
+        if self._visualization_registry is None:
+            return False
+        return self._visualization_registry.exists(key)
+
+    def list_visualizations(self, data_id: str) -> List[str]:
+        """List all visualization keys for a dataset.
+
+        Args:
+            data_id: Dataset identifier
+
+        Returns:
+            List of cache keys matching the dataset
+        """
+        if self._visualization_registry is None:
+            return []
+        return self._visualization_registry.list_for_dataset(data_id)
 
     def clear_visualizations(self, prefix: Optional[str] = None) -> int:
-        """Clear visualizations from the cache.
+        """Clear visualizations from the registry.
 
         Args:
             prefix: Optional prefix to filter which keys to clear.
@@ -718,18 +657,9 @@ class ToolContext:
         Returns:
             Number of visualizations cleared
         """
-        if self._visualization_cache is None:
+        if self._visualization_registry is None:
             return 0
-
-        if prefix is None:
-            count = len(self._visualization_cache)
-            self._visualization_cache.clear()
-            return count
-
-        keys_to_remove = [k for k in self._visualization_cache if k.startswith(prefix)]
-        for key in keys_to_remove:
-            del self._visualization_cache[key]
-        return len(keys_to_remove)
+        return self._visualization_registry.clear(prefix)
 
 
 def create_spatial_mcp_server(

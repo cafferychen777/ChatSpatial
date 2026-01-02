@@ -45,6 +45,7 @@ from .models.data import CellCommunicationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
 from .models.data import ColumnInfo  # noqa: E402
 from .models.data import DeconvolutionParameters  # noqa: E402
+from .models.data import DifferentialExpressionParameters  # noqa: E402
 from .models.data import EnrichmentParameters  # noqa: E402
 from .models.data import IntegrationParameters  # noqa: E402
 from .models.data import PreprocessingParameters  # noqa: E402
@@ -69,10 +70,10 @@ logger = logging.getLogger(__name__)
 # Create MCP server and adapter
 mcp, adapter = create_spatial_mcp_server("ChatSpatial")
 
-# Get data manager and visualization cache from adapter
+# Get data manager and visualization registry from adapter
 # These module-level aliases provide consistent access patterns
 data_manager = adapter.data_manager
-visualization_cache = adapter.visualization_cache
+visualization_registry = adapter.visualization_registry
 
 
 def validate_dataset(data_id: str) -> None:
@@ -124,9 +125,6 @@ async def load_data(
         await context.info(
             f"Successfully loaded {dataset_info['type']} data with {dataset_info['n_cells']} cells and {dataset_info['n_genes']} genes"
         )
-
-    # Create resource for the dataset
-    await adapter.resource_manager.create_dataset_resource(data_id, dataset_info)
 
     # Convert column info from dict to ColumnInfo objects
     obs_columns = (
@@ -393,7 +391,7 @@ async def visualize_data(
     ctx = ToolContext(
         _data_manager=data_manager,
         _mcp_context=context,
-        _visualization_cache=visualization_cache,
+        _visualization_registry=visualization_registry,
     )
 
     # Parameter validation is handled by Pydantic model
@@ -402,83 +400,34 @@ async def visualize_data(
     # Call visualization function with ToolContext
     image = await visualize_func(data_id, ctx, params)
 
-    # Create visualization resource and return the image
+    # Store visualization params and return the image
     if image is not None:
-        import time
-
         # Generate cache key with subtype if applicable
         # This handles plot types with subtypes (e.g., deconvolution, spatial_statistics)
         subtype = params.subtype  # Optional field with default None
 
         if subtype:
             cache_key = f"{data_id}_{params.plot_type}_{subtype}"
-            viz_id = f"{data_id}_{params.plot_type}_{subtype}_{int(time.time())}"
         else:
             cache_key = f"{data_id}_{params.plot_type}"
-            viz_id = f"{data_id}_{params.plot_type}_{int(time.time())}"
-
-        metadata = {
-            "data_id": data_id,
-            "plot_type": params.plot_type,
-            "subtype": subtype or "N/A",
-            "feature": params.feature or "N/A",
-            "timestamp": int(time.time()),
-            "name": f"{params.plot_type} - {params.feature or 'N/A'}",
-            "description": f"Visualization of {data_id}",
-        }
 
         # Handle two return types: str (large images) or ImageContent (small images)
+        # Extract file_path if image is saved to disk
+        file_path = None
         if isinstance(image, str):
             # Large image: file path returned as text (MCP 2025 best practice)
-            # Store a marker in cache indicating file path return
-            ctx.set_visualization(
-                cache_key,
-                {
-                    "type": "file_path",
-                    "message": image,
-                    "timestamp": int(time.time()),
-                },
-            )
+            # Extract path from message (format: "Visualization saved: <path>\n...")
+            if "Visualization saved:" in image:
+                file_path = image.split("\n")[0].replace("Visualization saved: ", "")
 
-            if context:
-                await context.info(
-                    "Large visualization saved to disk (following MCP best practice: URI over embedded content)"
-                )
-                await context.info(
-                    f"Visualization type: {params.plot_type}, feature: {params.feature or 'N/A'}"
-                )
-
-            return image  # Return str directly (FastMCP converts to TextContent)
-
-        # ImageContent (small images <70KB)
-        image_data = image.data
-
-        # Decode base64 string to bytes before caching
-        import base64
-
-        image_bytes = base64.b64decode(image_data)
-
-        # Store in cache with simple key for easy retrieval
-        ctx.set_visualization(cache_key, image_bytes)
-
-        # Also create resource with timestamped ID for uniqueness
-        await adapter.resource_manager.create_visualization_resource(
-            viz_id, image_bytes, metadata
-        )
-
-        file_size_kb = len(image_data) / 1024
+        # Store visualization params in registry (for regeneration on demand)
+        ctx.store_visualization(cache_key, params, file_path)
 
         if context:
-            await context.info(
-                f"Image saved as resource: spatial://visualizations/{viz_id} ({file_size_kb:.1f}KB)"
-            )
             await context.info(
                 f"Visualization type: {params.plot_type}, feature: {params.feature or 'N/A'}"
             )
 
-        # Return the image (currently always a file path string with DIRECT_EMBED_THRESHOLD = 0)
-        # When threshold > 0 in future, may return ImageContent object directly
-        # The error handler knows how to handle both types correctly
         return image
 
     else:
@@ -532,7 +481,7 @@ async def save_visualization(
     ctx = ToolContext(
         _data_manager=data_manager,
         _mcp_context=context,
-        _visualization_cache=visualization_cache,
+        _visualization_registry=visualization_registry,
     )
 
     result = await save_func(
@@ -589,7 +538,7 @@ async def export_all_visualizations(
     ctx = ToolContext(
         _data_manager=data_manager,
         _mcp_context=context,
-        _visualization_cache=visualization_cache,
+        _visualization_registry=visualization_registry,
     )
 
     result = await export_func(
@@ -627,7 +576,7 @@ async def clear_visualization_cache(
     ctx = ToolContext(
         _data_manager=data_manager,
         _mcp_context=context,
-        _visualization_cache=visualization_cache,
+        _visualization_registry=visualization_registry,
     )
 
     result = await clear_func(ctx=ctx, data_id=data_id)
@@ -731,9 +680,6 @@ async def annotate_cell_types(
     # Save annotation result
     await data_manager.save_result(data_id, "annotation", result)
 
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(data_id, "annotation", result)
-
     # Visualization should be done separately via visualization tools
 
     return result
@@ -804,11 +750,6 @@ async def analyze_spatial_statistics(
     # Save spatial statistics result
     await data_manager.save_result(data_id, "spatial_statistics", result)
 
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(
-        data_id, "spatial_statistics", result
-    )
-
     # Note: Visualization should be created separately using create_visualization tool
     # This maintains clean separation between analysis and visualization
 
@@ -826,6 +767,7 @@ async def find_markers(
     n_top_genes: int = 25,  # Number of top differentially expressed genes to return
     pseudocount: float = 1.0,  # Pseudocount for log2 fold change calculation
     min_cells: int = 3,  # Minimum cells per group for statistical testing
+    sample_key: Optional[str] = None,  # Sample key for pseudobulk (pydeseq2)
     context: Optional[Context] = None,
 ) -> DifferentialExpressionResult:
     """Find differentially expressed genes between groups
@@ -845,6 +787,9 @@ async def find_markers(
                   Default: 3 (minimum required for Wilcoxon test).
                   Increase to 10-30 for more robust statistical results.
                   Groups with fewer cells are automatically skipped with a warning.
+        sample_key: Column name in adata.obs for sample/replicate identifier.
+                   REQUIRED for 'pydeseq2' method to perform pseudobulk aggregation.
+                   Common values: 'sample', 'patient_id', 'batch', 'replicate'.
 
     Returns:
         Differential expression result with top marker genes
@@ -855,29 +800,28 @@ async def find_markers(
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Lazy import differential expression tool
-    from .tools.differential import differential_expression
-
-    # Call differential expression function with ToolContext
-    result = await differential_expression(
-        data_id=data_id,
-        ctx=ctx,
+    # Create params object for unified signature pattern
+    params = DifferentialExpressionParameters(
         group_key=group_key,
         group1=group1,
         group2=group2,
-        method=method,
+        method=method,  # type: ignore[arg-type]
         n_top_genes=n_top_genes,
         pseudocount=pseudocount,
         min_cells=min_cells,
+        sample_key=sample_key,
     )
+
+    # Lazy import differential expression tool
+    from .tools.differential import differential_expression
+
+    # Call differential expression function with unified (data_id, ctx, params) signature
+    result = await differential_expression(data_id, ctx, params)
 
     # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save differential expression result
     await data_manager.save_result(data_id, "differential_expression", result)
-
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(data_id, "markers", result)
 
     return result
 
@@ -988,9 +932,6 @@ async def analyze_cnv(
     # Save CNV result
     await data_manager.save_result(data_id, "cnv_analysis", result)
 
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(data_id, "cnv", result)
-
     return result
 
 
@@ -1034,9 +975,6 @@ async def analyze_velocity_data(
 
     # Save velocity result
     await data_manager.save_result(data_id, "rna_velocity", result)
-
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(data_id, "velocity", result)
 
     # Visualization should be done separately via visualization tools
 
@@ -1083,9 +1021,6 @@ async def analyze_trajectory_data(
     # Save trajectory result
     await data_manager.save_result(data_id, "trajectory", result)
 
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(data_id, "trajectory", result)
-
     # Visualization should be done separately via visualization tools
 
     return result
@@ -1130,22 +1065,9 @@ async def integrate_samples(
     # Note: integrate_func uses ctx.add_dataset() to store the integrated dataset
     result = await integrate_func(data_ids, ctx, params)
 
-    # Save integrated dataset resource
-    integrated_id = result.data_id
-    if integrated_id and data_manager.dataset_exists(integrated_id):
-        # Create resource for integrated dataset
-        dataset_info = await data_manager.get_dataset(integrated_id)
-        await adapter.resource_manager.create_dataset_resource(
-            integrated_id, dataset_info
-        )
-
     # Save integration result
+    integrated_id = result.data_id
     await data_manager.save_result(integrated_id, "integration", result)
-
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(
-        integrated_id, "integration", result
-    )
 
     return result
 
@@ -1263,11 +1185,6 @@ async def deconvolve_data(
     # Save deconvolution result
     await data_manager.save_result(data_id, "deconvolution", result)
 
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(
-        data_id, "deconvolution", result
-    )
-
     # Visualization should be done separately via visualization tools
 
     return result
@@ -1313,9 +1230,6 @@ async def identify_spatial_domains(
 
     # Save spatial domains result
     await data_manager.save_result(data_id, "spatial_domains", result)
-
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(data_id, "domains", result)
 
     return result
 
@@ -1482,11 +1396,6 @@ async def analyze_cell_communication(
 
     # Save communication result
     await data_manager.save_result(data_id, "cell_communication", result)
-
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(
-        data_id, "communication", result
-    )
 
     # Visualization should be done separately via visualization tools
 
@@ -1736,9 +1645,6 @@ async def analyze_enrichment(
     # Save enrichment result
     await data_manager.save_result(data_id, "enrichment", result)
 
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(data_id, "enrichment", result)
-
     return result
 
 
@@ -1787,11 +1693,6 @@ async def find_spatial_genes(
     # Save spatial genes result
     await data_manager.save_result(data_id, "spatial_genes", result)
 
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(
-        data_id, "spatial_genes", result
-    )
-
     # Visualization should be done separately via visualization tools
 
     return result
@@ -1833,11 +1734,6 @@ async def register_spatial_data(
 
     # Save registration result
     await data_manager.save_result(source_id, "registration", result)
-
-    # Create result resource
-    await adapter.resource_manager.create_result_resource(
-        source_id, "registration", result
-    )
 
     return result
 

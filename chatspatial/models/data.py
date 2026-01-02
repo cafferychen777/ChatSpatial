@@ -341,6 +341,93 @@ class PreprocessingParameters(BaseModel):
     )
 
 
+class DifferentialExpressionParameters(BaseModel):
+    """Differential expression analysis parameters model.
+
+    This model encapsulates all parameters for differential expression analysis,
+    following the unified (data_id, ctx, params) signature pattern.
+    """
+
+    group_key: str = Field(
+        ...,
+        description=(
+            "Column name in adata.obs for grouping cells/spots. "
+            "Common values: 'leiden', 'louvain', 'cell_type', 'seurat_clusters'"
+        ),
+    )
+
+    group1: Optional[str] = Field(
+        None,
+        description=(
+            "First group for comparison. If None, find markers for all groups "
+            "(one-vs-rest comparison for each group)."
+        ),
+    )
+
+    group2: Optional[str] = Field(
+        None,
+        description=(
+            "Second group for comparison. If None or 'rest', compare group1 against "
+            "all other cells. Only used when group1 is specified."
+        ),
+    )
+
+    method: Literal[
+        "wilcoxon", "t-test", "t-test_overestim_var", "logreg", "pydeseq2"
+    ] = Field(
+        "wilcoxon",
+        description=(
+            "Statistical method for differential expression analysis.\n"
+            "• 'wilcoxon' (default): Wilcoxon rank-sum test, robust to outliers\n"
+            "• 't-test': Standard t-test, assumes normal distribution\n"
+            "• 't-test_overestim_var': t-test with overestimated variance\n"
+            "• 'logreg': Logistic regression\n"
+            "• 'pydeseq2': DESeq2 pseudobulk method (requires sample_key for aggregation)\n"
+            "  - More accurate for multi-sample studies\n"
+            "  - Accounts for biological replicates and batch effects\n"
+            "  - Requires: pip install pydeseq2"
+        ),
+    )
+
+    sample_key: Optional[str] = Field(
+        None,
+        description=(
+            "Column name in adata.obs for sample/replicate identifier.\n"
+            "REQUIRED for 'pydeseq2' method to perform pseudobulk aggregation.\n"
+            "Common values: 'sample', 'patient_id', 'batch', 'replicate'\n"
+            "Each unique value becomes a pseudobulk sample by summing counts within groups."
+        ),
+    )
+
+    n_top_genes: Annotated[int, Field(gt=0, le=500)] = Field(
+        50,
+        description=(
+            "Number of top differentially expressed genes to return per group. "
+            "Default: 50. Range: 1-500."
+        ),
+    )
+
+    pseudocount: Annotated[float, Field(gt=0, le=100)] = Field(
+        1.0,
+        description=(
+            "Pseudocount added before log2 fold change calculation to avoid log(0).\n"
+            "• 1.0 (default): Standard practice, stable for most data\n"
+            "• 0.1-0.5: More sensitive to low-expression changes\n"
+            "• 1-10: More stable for sparse/noisy data"
+        ),
+    )
+
+    min_cells: Annotated[int, Field(gt=0, le=1000)] = Field(
+        3,
+        description=(
+            "Minimum number of cells per group for statistical testing.\n"
+            "• 3 (default): Minimum required for Wilcoxon test\n"
+            "• 10-30: More robust statistical results\n"
+            "Groups with fewer cells are automatically skipped with a warning."
+        ),
+    )
+
+
 class VisualizationParameters(BaseModel):
     """Visualization parameters model"""
 
