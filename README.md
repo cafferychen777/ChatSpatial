@@ -141,3 +141,5 @@ Find spatially variable genes and create a heatmap
 **MIT License** · [GitHub](https://github.com/cafferychen777/ChatSpatial) · [Issues](https://github.com/cafferychen777/ChatSpatial/issues)
 
 </div>
+
+<!-- mcp-name: io.github.cafferychen777/chatspatial -->

@@ -6,12 +6,12 @@
     "url": "https://github.com/cafferychen777/ChatSpatial",
     "source": "github"
   },
-  "version": "1.0.2",
+  "version": "1.0.3",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "chatspatial",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "transport": {
         "type": "stdio"
       },
