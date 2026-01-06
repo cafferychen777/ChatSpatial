@@ -94,13 +94,9 @@ Depends on dataset size:
 ### How do I update ChatSpatial?
 
 ```bash
-# Stable version
 pip install --upgrade chatspatial
-
-# Development version
-cd chatspatial
-git pull
-pip install -e ".[full]"
+# or for full version:
+pip install --upgrade chatspatial[full]
 ```
 
 ### What if I encounter a bug?
