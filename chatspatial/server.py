@@ -30,6 +30,7 @@ from mcp.types import ImageContent  # noqa: E402
 from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
 from .models.analysis import CNVResult  # noqa: E402
+from .models.analysis import ConditionComparisonResult  # noqa: E402
 from .models.analysis import DeconvolutionResult  # noqa: E402
 from .models.analysis import DifferentialExpressionResult  # noqa: E402
 from .models.analysis import EnrichmentResult  # noqa: E402
@@ -44,6 +45,7 @@ from .models.data import AnnotationParameters  # noqa: E402
 from .models.data import CellCommunicationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
 from .models.data import ColumnInfo  # noqa: E402
+from .models.data import ConditionComparisonParameters  # noqa: E402
 from .models.data import DeconvolutionParameters  # noqa: E402
 from .models.data import DifferentialExpressionParameters  # noqa: E402
 from .models.data import EnrichmentParameters  # noqa: E402
@@ -822,6 +824,102 @@ async def find_markers(
 
     # Save differential expression result
     await data_manager.save_result(data_id, "differential_expression", result)
+
+    return result
+
+
+@mcp.tool(annotations=get_tool_annotations("compare_conditions"))
+@mcp_tool_error_handler()
+async def compare_conditions(
+    data_id: str,
+    condition_key: str,
+    condition1: str,
+    condition2: str,
+    sample_key: str,
+    cell_type_key: Optional[str] = None,
+    method: str = "pseudobulk",
+    n_top_genes: int = 50,
+    min_cells_per_sample: int = 10,
+    min_samples_per_condition: int = 2,
+    padj_threshold: float = 0.05,
+    log2fc_threshold: float = 0.0,
+    context: Optional[Context] = None,
+) -> ConditionComparisonResult:
+    """Compare experimental conditions across multiple biological samples.
+
+    This tool performs pseudobulk differential expression analysis to compare
+    conditions (e.g., Treatment vs Control) across biological replicates.
+    It properly accounts for sample-level variation using DESeq2.
+
+    Args:
+        data_id: Dataset ID
+        condition_key: Column name in adata.obs containing experimental conditions
+                      (e.g., 'treatment', 'disease_status', 'timepoint')
+        condition1: First condition for comparison (typically experimental group)
+        condition2: Second condition for comparison (typically control group)
+        sample_key: Column name in adata.obs identifying biological replicates
+                   (e.g., 'patient_id', 'sample', 'replicate')
+        cell_type_key: Optional column for cell type stratification. If provided,
+                      analysis is performed separately for each cell type.
+        method: Analysis method (currently only 'pseudobulk' is supported)
+        n_top_genes: Number of top genes to return per comparison
+        min_cells_per_sample: Minimum cells required per sample to be included
+        min_samples_per_condition: Minimum samples required per condition
+        padj_threshold: Adjusted p-value threshold for significance
+        log2fc_threshold: Log2 fold change threshold for significance
+
+    Returns:
+        ConditionComparisonResult with differential expression results
+
+    Example:
+        # Global comparison
+        compare_conditions(
+            data_id="data1",
+            condition_key="treatment",
+            condition1="Drug",
+            condition2="Control",
+            sample_key="patient_id"
+        )
+
+        # Cell type stratified
+        compare_conditions(
+            data_id="data1",
+            condition_key="treatment",
+            condition1="Drug",
+            condition2="Control",
+            sample_key="patient_id",
+            cell_type_key="cell_type"
+        )
+    """
+    # Validate dataset
+    validate_dataset(data_id)
+
+    # Create ToolContext
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
+    # Create params object
+    params = ConditionComparisonParameters(
+        condition_key=condition_key,
+        condition1=condition1,
+        condition2=condition2,
+        sample_key=sample_key,
+        cell_type_key=cell_type_key,
+        method=method,  # type: ignore[arg-type]
+        n_top_genes=n_top_genes,
+        min_cells_per_sample=min_cells_per_sample,
+        min_samples_per_condition=min_samples_per_condition,
+        padj_threshold=padj_threshold,
+        log2fc_threshold=log2fc_threshold,
+    )
+
+    # Lazy import
+    from .tools.condition_comparison import compare_conditions as _compare_conditions
+
+    # Run analysis
+    result = await _compare_conditions(data_id, ctx, params)
+
+    # Save result
+    await data_manager.save_result(data_id, "condition_comparison", result)
 
     return result
 

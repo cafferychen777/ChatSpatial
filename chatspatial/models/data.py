@@ -2284,3 +2284,110 @@ class RegistrationParameters(BaseModel):
         False,
         description="Use GPU acceleration (PASTE with PyTorch backend, STalign).",
     )
+
+
+class ConditionComparisonParameters(BaseModel):
+    """Parameters for multi-sample condition comparison analysis.
+
+    This tool compares gene expression between experimental conditions (e.g., Treatment vs Control)
+    across multiple biological samples, using proper statistical methods that account for
+    sample-level variation.
+
+    Key difference from find_markers:
+    - find_markers: Compares cell types/clusters WITHIN a dataset (e.g., T cell vs B cell)
+    - compare_conditions: Compares CONDITIONS ACROSS samples (e.g., Treatment vs Control)
+    """
+
+    # Required parameters
+    condition_key: str = Field(
+        ...,
+        description=(
+            "Column name in adata.obs containing experimental conditions. "
+            "Examples: 'treatment', 'condition', 'group', 'disease_state'"
+        ),
+    )
+
+    condition1: str = Field(
+        ...,
+        description=(
+            "First condition for comparison (typically the experimental/treatment group). "
+            "Example: 'Treatment', 'Disease', 'Tumor'"
+        ),
+    )
+
+    condition2: str = Field(
+        ...,
+        description=(
+            "Second condition for comparison (typically the control/reference group). "
+            "Example: 'Control', 'Healthy', 'Normal'"
+        ),
+    )
+
+    sample_key: str = Field(
+        ...,
+        description=(
+            "Column name in adata.obs identifying biological replicates/samples. "
+            "This is CRITICAL for proper statistical inference - cells from the same sample "
+            "are not independent observations. "
+            "Examples: 'sample_id', 'patient_id', 'replicate', 'batch'"
+        ),
+    )
+
+    # Optional parameters
+    cell_type_key: Optional[str] = Field(
+        None,
+        description=(
+            "Column name in adata.obs for cell type annotations. "
+            "If provided, differential expression is performed separately for each cell type, "
+            "enabling cell type-specific condition effects. "
+            "Examples: 'cell_type', 'leiden', 'cell_type_tangram'"
+        ),
+    )
+
+    method: Literal["pseudobulk"] = Field(
+        "pseudobulk",
+        description=(
+            "Method for differential expression analysis.\n"
+            "• 'pseudobulk' (default): Aggregate cells by sample, then use DESeq2\n"
+            "  - Best practice for multi-sample studies\n"
+            "  - Properly accounts for biological variation\n"
+            "  - Requires at least 2 samples per condition\n"
+            "Future methods (not yet implemented):\n"
+            "• 'cside': Cell type-Specific Inference of DE (from spacexr)\n"
+            "• 'despace': Differential Spatial Patterns (from DESpace)"
+        ),
+    )
+
+    n_top_genes: Annotated[int, Field(gt=0, le=500)] = Field(
+        50,
+        description="Number of top differentially expressed genes to return per comparison.",
+    )
+
+    min_cells_per_sample: Annotated[int, Field(gt=0)] = Field(
+        10,
+        description=(
+            "Minimum number of cells per sample to include in analysis. "
+            "Samples with fewer cells are excluded to ensure reliable aggregation."
+        ),
+    )
+
+    min_samples_per_condition: Annotated[int, Field(gt=0)] = Field(
+        2,
+        description=(
+            "Minimum number of samples required per condition. "
+            "DESeq2 requires at least 2 samples per group for variance estimation."
+        ),
+    )
+
+    padj_threshold: Annotated[float, Field(gt=0, lt=1)] = Field(
+        0.05,
+        description="Adjusted p-value threshold for significance (default: 0.05).",
+    )
+
+    log2fc_threshold: Annotated[float, Field(ge=0)] = Field(
+        0.0,
+        description=(
+            "Minimum absolute log2 fold change threshold. "
+            "Set to 0 for no filtering, or e.g., 1.0 for 2-fold change minimum."
+        ),
+    )

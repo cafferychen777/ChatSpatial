@@ -321,3 +321,81 @@ class CNVResult(BaseModel):
     visualization_available: bool = False  # Whether visualization is available
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class DEGene(BaseModel):
+    """A single differentially expressed gene with statistics"""
+
+    gene: str
+    log2fc: float
+    pvalue: float
+    padj: float
+    mean_expr_condition1: Optional[float] = None
+    mean_expr_condition2: Optional[float] = None
+
+
+class CellTypeComparisonResult(BaseModel):
+    """Differential expression result for a single cell type"""
+
+    cell_type: str
+    n_cells_condition1: int
+    n_cells_condition2: int
+    n_samples_condition1: int
+    n_samples_condition2: int
+    n_significant_genes: int
+    top_upregulated: List[DEGene]  # Upregulated in condition1
+    top_downregulated: List[DEGene]  # Downregulated in condition1
+    all_de_genes: List[DEGene] = Field(
+        default_factory=list,
+        exclude=True,  # Exclude from MCP response to reduce size
+    )
+
+
+class ConditionComparisonResult(BaseModel):
+    """Result of multi-sample condition comparison analysis.
+
+    Attributes:
+        data_id: Dataset identifier
+        method: Method used for differential expression
+        comparison: Human-readable comparison string (e.g., "Treatment vs Control")
+        condition_key: Column used for condition grouping
+        condition1: First condition (experimental group)
+        condition2: Second condition (reference group)
+        sample_key: Column used for sample identification
+        cell_type_key: Column used for cell type stratification (if provided)
+        n_samples_condition1: Number of samples in condition1
+        n_samples_condition2: Number of samples in condition2
+        global_results: Results when no cell type stratification (cell_type_key=None)
+        cell_type_results: Results stratified by cell type (when cell_type_key provided)
+        results_key: Key in adata.uns where full results are stored
+        statistics: Overall statistics about the comparison
+    """
+
+    data_id: str
+    method: str
+    comparison: str
+    condition_key: str
+    condition1: str
+    condition2: str
+    sample_key: str
+    cell_type_key: Optional[str] = None
+
+    # Sample counts
+    n_samples_condition1: int
+    n_samples_condition2: int
+
+    # Global results (when cell_type_key is None)
+    global_n_significant: Optional[int] = None
+    global_top_upregulated: Optional[List[DEGene]] = None
+    global_top_downregulated: Optional[List[DEGene]] = None
+
+    # Cell type stratified results (when cell_type_key is provided)
+    cell_type_results: Optional[List[CellTypeComparisonResult]] = None
+
+    # Storage keys
+    results_key: str  # Key in adata.uns for full results
+
+    # Summary statistics
+    statistics: Dict[str, Any]
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
