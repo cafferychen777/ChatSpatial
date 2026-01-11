@@ -21,7 +21,7 @@ from ..models.data import AnnotationParameters
 from ..utils.adata_utils import (
     ensure_categorical,
     ensure_counts_layer,
-    ensure_unique_var_names_with_ctx,
+    ensure_unique_var_names_async,
     find_common_genes,
     get_spatial_key,
     to_dense,
@@ -154,8 +154,8 @@ async def _annotate_with_singler(
     elif reference_data_id and reference_adata is not None:
         # Use provided reference data (passed from main function via ctx.get_adata())
         # Handle duplicate gene names
-        await ensure_unique_var_names_with_ctx(reference_adata, ctx, "reference data")
-        if await ensure_unique_var_names_with_ctx(adata, ctx, "query data") > 0:
+        await ensure_unique_var_names_async(reference_adata, ctx, "reference data")
+        if await ensure_unique_var_names_async(adata, ctx, "query data") > 0:
             # Update test_features after fixing
             test_features = [str(x) for x in adata.var_names]
 
@@ -364,8 +364,8 @@ async def _annotate_with_tangram(
     # =============================================================================
 
     # Handle duplicate gene names
-    await ensure_unique_var_names_with_ctx(adata_sc_original, ctx, "reference data")
-    await ensure_unique_var_names_with_ctx(adata_sp, ctx, "spatial data")
+    await ensure_unique_var_names_async(adata_sc_original, ctx, "reference data")
+    await ensure_unique_var_names_async(adata_sp, ctx, "spatial data")
 
     # Determine training genes
     training_genes = params.training_genes
@@ -720,8 +720,8 @@ async def _annotate_with_scanvi(
     adata_ref_original = reference_adata
 
     # Handle duplicate gene names
-    await ensure_unique_var_names_with_ctx(adata_ref_original, ctx, "reference data")
-    await ensure_unique_var_names_with_ctx(adata, ctx, "query data")
+    await ensure_unique_var_names_async(adata_ref_original, ctx, "reference data")
+    await ensure_unique_var_names_async(adata, ctx, "query data")
 
     # Gene alignment
     common_genes = find_common_genes(adata_ref_original.var_names, adata.var_names)

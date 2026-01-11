@@ -22,62 +22,13 @@ from ..utils.exceptions import (
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
-from ..utils.adata_utils import get_spatial_key, store_analysis_metadata
+from ..utils.adata_utils import (
+    get_spatial_key,
+    store_analysis_metadata,
+    validate_adata_basics,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def validate_data_quality(adata, min_cells=10, min_genes=10):
-    """Validate data quality before integration
-
-    Args:
-        adata: AnnData object
-        min_cells: Minimum number of cells required
-        min_genes: Minimum number of genes required
-
-    Raises:
-        ValueError: If data quality is insufficient for integration
-    """
-    if adata.n_obs < min_cells:
-        raise DataError(
-            f"Dataset has only {adata.n_obs} cells, minimum {min_cells} required for integration. "
-            f"Consider combining with other datasets or use single-sample analysis."
-        )
-
-    if adata.n_vars < min_genes:
-        raise DataError(
-            f"Dataset has only {adata.n_vars} genes, minimum {min_genes} required for integration. "
-            f"Check if data was properly loaded and genes were not over-filtered."
-        )
-
-    # Check for empty cells or genes
-    if hasattr(adata.X, "toarray"):
-        # Sparse-aware: use getnnz() method (no conversion needed)
-        cell_counts = np.array(adata.X.getnnz(axis=1)).flatten()
-        gene_counts = np.array(adata.X.getnnz(axis=0)).flatten()
-    else:
-        # Dense matrix
-        cell_counts = np.sum(adata.X > 0, axis=1)
-        gene_counts = np.sum(adata.X > 0, axis=0)
-
-    empty_cells = np.sum(cell_counts == 0)
-    empty_genes = np.sum(gene_counts == 0)
-
-    if empty_cells > adata.n_obs * 0.1:
-        raise DataError(
-            f"{empty_cells} cells ({empty_cells/adata.n_obs*100:.1f}%) have zero expression. "
-            f"Check data quality and consider filtering."
-        )
-
-    if empty_genes > adata.n_vars * 0.5:
-        raise DataError(
-            f"{empty_genes} genes ({empty_genes/adata.n_vars*100:.1f}%) have zero expression across all cells. "
-            f"Consider gene filtering before integration."
-        )
-
-    logging.info(
-        f"Data quality validation passed: {adata.n_obs} cells, {adata.n_vars} genes"
-    )
 
 
 def integrate_multiple_samples(
@@ -201,7 +152,7 @@ def integrate_multiple_samples(
         )
 
     # Validate data quality before processing
-    validate_data_quality(combined)
+    validate_adata_basics(combined, min_obs=10, min_vars=10, check_empty_ratio=True)
 
     # Check if data has highly variable genes marked (should be done in preprocessing)
     if "highly_variable" not in combined.var.columns:

@@ -12,7 +12,7 @@ from ..models.analysis import PreprocessingResult
 from ..models.data import PreprocessingParameters
 from ..spatial_mcp_adapter import ToolContext
 from ..utils.adata_utils import (
-    ensure_unique_var_names_with_ctx,
+    ensure_unique_var_names_async,
     sample_expression_values,
     standardize_adata,
 )
@@ -65,7 +65,7 @@ async def preprocess_data(
             )
 
         # Handle duplicate gene names (must be done before gene-based operations)
-        await ensure_unique_var_names_with_ctx(adata, ctx, "data")
+        await ensure_unique_var_names_async(adata, ctx, "data")
 
         # 1. Calculate QC metrics (including mitochondrial percentage)
         try:

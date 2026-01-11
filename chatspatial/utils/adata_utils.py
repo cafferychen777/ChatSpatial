@@ -6,8 +6,27 @@ This module provides:
 2. Field discovery functions (get_*_key)
 3. Data access functions (get_*)
 4. Validation functions (validate_*)
+5. Ensure functions (ensure_*)
 
 One file for all AnnData-related utilities. No duplication.
+
+Naming Conventions (MUST follow across codebase):
+-------------------------------------------------
+- validate_*(adata, ...) -> None
+    Check-only. Raises exception if validation fails.
+    Does NOT modify data. Use for precondition checks.
+    Example: validate_obs_column(adata, "leiden")
+
+- ensure_*(adata, ...) -> bool
+    Check-and-fix. Returns True if action was taken, False if already OK.
+    MAY modify data in-place. Idempotent (safe to call multiple times).
+    Example: ensure_categorical(adata, "leiden")
+
+- require(name, ctx, feature) -> module
+    Dependency check. Raises ImportError with install instructions if missing.
+    Used in dependency_manager.py only.
+
+Async variants: Add '_async' suffix (e.g., ensure_unique_var_names_async).
 """
 
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set, Tuple
@@ -309,14 +328,55 @@ def validate_adata_basics(
     adata: "ad.AnnData",
     min_obs: int = 1,
     min_vars: int = 1,
+    check_empty_ratio: bool = False,
+    max_empty_obs_ratio: float = 0.1,
+    max_empty_vars_ratio: float = 0.5,
 ) -> None:
-    """Validate basic AnnData structure."""
+    """Validate basic AnnData structure.
+
+    Args:
+        adata: AnnData object to validate
+        min_obs: Minimum number of observations (cells/spots) required
+        min_vars: Minimum number of variables (genes) required
+        check_empty_ratio: If True, also check for empty cells/genes
+        max_empty_obs_ratio: Max fraction of cells with zero expression (default 10%)
+        max_empty_vars_ratio: Max fraction of genes with zero expression (default 50%)
+
+    Raises:
+        DataError: If validation fails
+    """
     if adata is None:
         raise DataError("AnnData object cannot be None")
     if adata.n_obs < min_obs:
         raise DataError(f"Dataset has {adata.n_obs} observations, need {min_obs}")
     if adata.n_vars < min_vars:
         raise DataError(f"Dataset has {adata.n_vars} variables, need {min_vars}")
+
+    if check_empty_ratio:
+        # Count non-zero entries per cell/gene (sparse-aware)
+        if sparse.issparse(adata.X):
+            cell_nnz = np.array(adata.X.getnnz(axis=1)).flatten()
+            gene_nnz = np.array(adata.X.getnnz(axis=0)).flatten()
+        else:
+            cell_nnz = np.sum(adata.X > 0, axis=1)
+            gene_nnz = np.sum(adata.X > 0, axis=0)
+
+        empty_cells = np.sum(cell_nnz == 0)
+        empty_genes = np.sum(gene_nnz == 0)
+
+        if empty_cells > adata.n_obs * max_empty_obs_ratio:
+            pct = empty_cells / adata.n_obs * 100
+            raise DataError(
+                f"{empty_cells} cells ({pct:.1f}%) have zero expression. "
+                f"Check data quality and consider filtering."
+            )
+
+        if empty_genes > adata.n_vars * max_empty_vars_ratio:
+            pct = empty_genes / adata.n_vars * 100
+            raise DataError(
+                f"{empty_genes} genes ({pct:.1f}%) have zero expression. "
+                f"Consider gene filtering."
+            )
 
 
 def ensure_categorical(adata: "ad.AnnData", column: str) -> None:
@@ -737,13 +797,15 @@ def ensure_unique_var_names(
     return n_duplicates
 
 
-async def ensure_unique_var_names_with_ctx(
+async def ensure_unique_var_names_async(
     adata: "ad.AnnData",
     ctx: Any,  # ToolContext, use Any to avoid circular import
     label: str = "data",
 ) -> int:
     """
     Ensure gene names are unique with user feedback via ctx.
+
+    Async variant of ensure_unique_var_names with context logging.
 
     Args:
         adata: AnnData object (modified in-place)

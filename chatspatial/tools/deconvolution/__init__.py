@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 from ...models.analysis import DeconvolutionResult
 from ...models.data import DeconvolutionParameters
-from ...utils.adata_utils import ensure_unique_var_names_with_ctx, validate_obs_column
+from ...utils.adata_utils import ensure_unique_var_names_async, validate_obs_column
 from ...utils.exceptions import DataError, DependencyError, ParameterError
 from .base import DeconvolutionContext
 
@@ -67,7 +67,7 @@ async def deconvolve_spatial_data(
     if spatial_adata.n_obs == 0:
         raise DataError(f"Dataset {data_id} contains no observations")
 
-    await ensure_unique_var_names_with_ctx(spatial_adata, ctx, "spatial data")
+    await ensure_unique_var_names_async(spatial_adata, ctx, "spatial data")
 
     # Load reference data for methods that require it
     reference_adata = None
@@ -83,7 +83,7 @@ async def deconvolve_spatial_data(
                 f"Reference dataset {params.reference_data_id} contains no observations"
             )
 
-        await ensure_unique_var_names_with_ctx(reference_adata, ctx, "reference data")
+        await ensure_unique_var_names_async(reference_adata, ctx, "reference data")
         validate_obs_column(reference_adata, params.cell_type_key, "Cell type key")
 
     # Check method availability
