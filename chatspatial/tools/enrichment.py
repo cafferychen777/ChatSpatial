@@ -14,6 +14,7 @@ import pandas as pd
 from scipy import stats
 
 if TYPE_CHECKING:
+    from ..models.data import EnrichmentParameters
     from ..spatial_mcp_adapter import ToolContext
 from statsmodels.stats.multitest import multipletests
 
@@ -1735,3 +1736,156 @@ def load_gene_sets(
 
     gene_sets = database_map[database]()
     return gene_sets
+
+
+# ============================================================================
+# UNIFIED ENRICHMENT ANALYSIS ENTRY POINT
+# ============================================================================
+
+
+async def analyze_enrichment(
+    data_id: str,
+    ctx: "ToolContext",
+    params: "EnrichmentParameters",
+) -> EnrichmentResult:
+    """
+    Unified entry point for gene set enrichment analysis.
+
+    This function handles all enrichment methods with a consistent interface:
+    - Gene set loading from databases
+    - Method dispatch (GSEA, ORA, ssGSEA, Enrichr, spatial)
+    - Error handling with clear messages
+
+    Args:
+        data_id: Dataset ID
+        ctx: ToolContext for data access and logging
+        params: EnrichmentParameters with method, species, database, etc.
+
+    Returns:
+        EnrichmentResult with enrichment scores and statistics
+
+    Raises:
+        ParameterError: If params is None or invalid
+        ProcessingError: If gene set loading or analysis fails
+    """
+    # Import here to avoid circular imports
+    from ..utils.adata_utils import get_highly_variable_genes
+
+    # Validate params
+    if params is None:
+        raise ParameterError(
+            "params parameter is required for enrichment analysis.\n"
+            "You must provide EnrichmentParameters with at least 'species' specified.\n"
+            "Example: params={'species': 'mouse', 'method': 'pathway_ora'}"
+        )
+
+    # Get adata
+    adata = await ctx.get_adata(data_id)
+
+    # Load gene sets
+    gene_sets = params.gene_sets
+    if gene_sets is None and params.gene_set_database:
+        await ctx.info(f"Loading gene sets from {params.gene_set_database}")
+        try:
+            gene_sets = load_gene_sets(
+                database=params.gene_set_database,
+                species=params.species,
+                min_genes=params.min_genes,
+                max_genes=params.max_genes,
+                ctx=ctx,
+            )
+            await ctx.info(
+                f"Loaded {len(gene_sets)} gene sets from {params.gene_set_database}"
+            )
+        except Exception as e:
+            await ctx.error(f"Gene set database loading failed: {e}")
+            raise ProcessingError(
+                f"Failed to load gene sets from {params.gene_set_database}: {e}\n\n"
+                f"SOLUTIONS:\n"
+                f"1. Check your internet connection\n"
+                f"2. Verify species parameter: '{params.species}'\n"
+                f"3. Try a different database (KEGG_Pathways, GO_Biological_Process)\n"
+                f"4. Provide custom gene sets via 'gene_sets' parameter"
+            ) from e
+
+    # Validate gene sets
+    if gene_sets is None or len(gene_sets) == 0:
+        raise ProcessingError(
+            "No valid gene sets available. "
+            "Please provide gene sets via 'gene_sets' parameter or "
+            "specify a valid 'gene_set_database'."
+        )
+
+    # Dispatch to appropriate method
+    if params.method == "spatial_enrichmap":
+        result = await perform_spatial_enrichment(
+            data_id=data_id,
+            ctx=ctx,
+            gene_sets=gene_sets,
+            score_keys=params.score_keys,
+            spatial_key=params.spatial_key,
+            n_neighbors=params.n_neighbors,
+            smoothing=params.smoothing,
+            correct_spatial_covariates=params.correct_spatial_covariates,
+            batch_key=params.batch_key,
+            species=params.species,
+            database=params.gene_set_database,
+        )
+        await ctx.info(
+            "Spatial enrichment complete. Use visualize_data with "
+            "plot_type='pathway_enrichment' to visualize."
+        )
+
+    elif params.method == "pathway_gsea":
+        result = perform_gsea(
+            adata=adata,
+            gene_sets=gene_sets,
+            ranking_key=params.score_keys,
+            permutation_num=params.n_permutations,
+            min_size=params.min_genes,
+            max_size=params.max_genes,
+            species=params.species,
+            database=params.gene_set_database,
+            ctx=ctx,
+        )
+        await ctx.info("GSEA complete. Use visualize_data to see results.")
+
+    elif params.method == "pathway_ora":
+        result = await perform_ora(
+            adata=adata,
+            gene_sets=gene_sets,
+            pvalue_threshold=params.pvalue_cutoff,
+            min_size=params.min_genes,
+            max_size=params.max_genes,
+            species=params.species,
+            database=params.gene_set_database,
+            ctx=ctx,
+        )
+        await ctx.info("ORA complete. Use visualize_data to see results.")
+
+    elif params.method == "pathway_ssgsea":
+        result = perform_ssgsea(
+            adata=adata,
+            gene_sets=gene_sets,
+            min_size=params.min_genes,
+            max_size=params.max_genes,
+            species=params.species,
+            database=params.gene_set_database,
+            ctx=ctx,
+        )
+        await ctx.info("ssGSEA complete. Use visualize_data to see results.")
+
+    elif params.method == "pathway_enrichr":
+        gene_list = get_highly_variable_genes(adata, max_genes=500)
+        result = perform_enrichr(
+            gene_list=gene_list,
+            gene_sets=params.gene_set_database,
+            organism=params.species,
+            ctx=ctx,
+        )
+        await ctx.info("Enrichr complete. Use visualize_data to see results.")
+
+    else:
+        raise ParameterError(f"Unknown enrichment method: {params.method}")
+
+    return result

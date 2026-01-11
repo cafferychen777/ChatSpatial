@@ -61,10 +61,7 @@ from .models.data import VisualizationParameters  # noqa: E402
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .spatial_mcp_adapter import get_tool_annotations  # noqa: E402
-from .utils.adata_utils import get_highly_variable_genes  # noqa: E402
 from .utils.exceptions import DataNotFoundError  # noqa: E402
-from .utils.exceptions import ParameterError  # noqa: E402
-from .utils.exceptions import ProcessingError  # noqa: E402
 from .utils.mcp_utils import mcp_tool_error_handler  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -116,17 +113,19 @@ async def load_data(
     Returns:
         Comprehensive dataset information including metadata profiles
     """
-    if context:
-        await context.info(f"Loading data from {data_path} (type: {data_type})")
+    # Create ToolContext for consistent logging
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
+    await ctx.info(f"Loading data from {data_path} (type: {data_type})")
 
     # Load data using data manager
     data_id = await data_manager.load_dataset(data_path, data_type, name)
     dataset_info = await data_manager.get_dataset(data_id)
 
-    if context:
-        await context.info(
-            f"Successfully loaded {dataset_info['type']} data with {dataset_info['n_cells']} cells and {dataset_info['n_genes']} genes"
-        )
+    await ctx.info(
+        f"Successfully loaded {dataset_info['type']} data with "
+        f"{dataset_info['n_cells']} cells and {dataset_info['n_genes']} genes"
+    )
 
     # Convert column info from dict to ColumnInfo objects
     obs_columns = (
@@ -209,16 +208,16 @@ async def preprocess_data(
 
         Cell communication analysis automatically uses adata.raw when available.
     """
-    # Import to avoid name conflict
-    from .tools.preprocessing import preprocess_data as preprocess_func
-
     # Validate dataset
     validate_dataset(data_id)
 
-    # Create ToolContext for clean data access (no redundant dict wrapping)
+    # Create ToolContext
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Call preprocessing function with ToolContext
+    # Lazy import (avoid name conflict with MCP tool)
+    from .tools.preprocessing import preprocess_data as preprocess_func
+
+    # Call preprocessing function
     result = await preprocess_func(data_id, ctx, params)
 
     # Note: No writeback needed - adata modifications are in-place on the same object
@@ -271,11 +270,12 @@ async def compute_embeddings(
     Returns:
         Summary of computed embeddings
     """
-    from .tools.embeddings import EmbeddingParameters
-    from .tools.embeddings import compute_embeddings as compute_embeddings_func
-
     # Validate dataset
     validate_dataset(data_id)
+
+    # Lazy import
+    from .tools.embeddings import EmbeddingParameters
+    from .tools.embeddings import compute_embeddings as compute_embeddings_func
 
     # Create parameters
     params = EmbeddingParameters(
@@ -1101,16 +1101,16 @@ async def analyze_trajectory_data(
         - cellrank: RNA velocity-based trajectory inference (implemented when cellrank installed)
         - velovi: scvi-tools VeloVI (implemented when scvi-tools available)
     """
-    # Import trajectory function
-    from .tools.trajectory import analyze_trajectory
-
     # Validate dataset
     validate_dataset(data_id)
 
-    # Create ToolContext for clean data access (no redundant dict wrapping)
+    # Create ToolContext
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Call trajectory function with ToolContext
+    # Lazy import trajectory function
+    from .tools.trajectory import analyze_trajectory
+
+    # Call trajectory function
     result = await analyze_trajectory(data_id, ctx, params)
 
     # Note: No writeback needed - adata modifications are in-place on the same object
@@ -1148,15 +1148,15 @@ async def integrate_samples(
         - multivi: Requires MuData format (not compatible with current workflow)
         - contrastivevi: Not integrated (designed for Perturb-seq use cases)
     """
-    # Import integration function
-    from .tools.integration import integrate_samples as integrate_func
-
-    # Validate all datasets
+    # Validate all datasets first
     for data_id in data_ids:
         validate_dataset(data_id)
 
-    # Create ToolContext for clean data access (no redundant dict wrapping)
+    # Create ToolContext for clean data access
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
+    # Lazy import to avoid slow startup
+    from .tools.integration import integrate_samples as integrate_func
 
     # Call integration function with ToolContext
     # Note: integrate_func uses ctx.add_dataset() to store the integrated dataset
@@ -1311,14 +1311,14 @@ async def identify_spatial_domains(
         - graphst: GraphST graph self-supervised contrastive learning (implemented; optional dependency GraphST)
         - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
     """
-    # Import spatial domains function
-    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
-
-    # Validate dataset
+    # Validate dataset first
     validate_dataset(data_id)
 
-    # Create ToolContext for clean data access (no redundant dict wrapping)
+    # Create ToolContext for clean data access
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
+    # Lazy import to avoid slow startup
+    from .tools.spatial_domains import identify_spatial_domains as identify_domains_func
 
     # Call spatial domains function with ToolContext
     result = await identify_domains_func(data_id, ctx, params)
@@ -1475,16 +1475,16 @@ async def analyze_cell_communication(
           • Visium resolution: 10x Genomics Technical Note
           • Signaling ranges: Literature-based (Wnt/Wg: ~50-100 µm)
     """
-    # Import cell communication function
+    # Validate dataset first
+    validate_dataset(data_id)
+
+    # Create ToolContext for clean data access
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
+    # Lazy import to avoid slow startup
     from .tools.cell_communication import (
         analyze_cell_communication as analyze_comm_func,
     )
-
-    # Validate dataset
-    validate_dataset(data_id)
-
-    # Create ToolContext for clean data access (no redundant dict wrapping)
-    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Call cell communication function with ToolContext
     result = await analyze_comm_func(data_id, ctx, params)
@@ -1555,183 +1555,18 @@ async def analyze_enrichment(
     For mouse data:  params={"species": "mouse", "gene_set_database": "KEGG_Pathways"}
     For human data:  params={"species": "human", "gene_set_database": "KEGG_Pathways"}
     """
-    # Import enrichment analysis function
-
-    from .tools.enrichment import (
-        perform_spatial_enrichment as perform_enrichment_analysis,
-    )
+    from .tools.enrichment import analyze_enrichment as analyze_enrichment_func
 
     # Validate dataset
     validate_dataset(data_id)
 
-    # Create ToolContext for clean data access (no redundant dict wrapping)
+    # Create ToolContext
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Check if params is None (parameter is required now)
-    if params is None:
-        raise ParameterError(
-            "params parameter is required for enrichment analysis.\n"
-            "You must provide EnrichmentParameters with at least 'species' specified.\n"
-            "Example: params={'species': 'mouse', 'method': 'pathway_ora'}"
-        )
+    # Call enrichment analysis (all business logic is in tools/enrichment.py)
+    result = await analyze_enrichment_func(data_id, ctx, params)
 
-    # Get adata for gene set handling
-    adata = await ctx.get_adata(data_id)
-
-    # Handle gene sets - either user-provided or from database
-    gene_sets = params.gene_sets
-
-    # If no gene sets provided, load from database
-    if gene_sets is None and params.gene_set_database:
-        await ctx.info(f"Loading gene sets from {params.gene_set_database}")
-
-        # Load gene sets based on database name
-        # Note: gseapy dependency is handled inside enrichment.py via is_gseapy_available()
-        from .tools.enrichment import load_gene_sets
-
-        try:
-            # species is a required field in EnrichmentParameters (validated by Pydantic)
-            gene_sets = load_gene_sets(
-                database=params.gene_set_database,
-                species=params.species,
-                min_genes=params.min_genes,
-                max_genes=params.max_genes,
-                ctx=ctx,
-            )
-
-            await ctx.info(
-                f"Loaded {len(gene_sets)} gene sets from {params.gene_set_database}"
-            )
-
-        except Exception as e:
-            # NO FALLBACK: Enrichment analysis requires specific gene sets for scientific validity
-            error_msg = (
-                f"Failed to load gene sets from {params.gene_set_database}: {e}\n\n"
-                f"ENRICHMENT ANALYSIS REQUIRES SPECIFIC GENE SETS\n\n"
-                f"Gene set enrichment analysis cannot proceed with arbitrary gene substitutions.\n"
-                f"This preserves scientific integrity and prevents misleading results.\n\n"
-                f"SOLUTIONS:\n"
-                f"1. Check your internet connection (required for database access)\n"
-                f"2. Verify species parameter: '{params.species}' (use 'human' or 'mouse')\n"
-                f"3. Try a different database:\n"
-                f"   - 'KEGG_Pathways' (recommended for pathway analysis)\n"
-                f"   - 'GO_Biological_Process' (for biological processes)\n"
-                f"   - 'Reactome_Pathways' (for molecular pathways)\n"
-                f"   - 'MSigDB_Hallmark' (for hallmark gene sets)\n"
-                f"4. Provide custom gene sets via 'gene_sets' parameter\n"
-                f"5. Use spatial analysis tools for data-driven insights without predefined pathways\n\n"
-                f"WHY NO FALLBACK:\n"
-                f"Using different gene sets (like highly variable genes) would produce\n"
-                f"scientifically different results while appearing to be pathway analysis."
-            )
-
-            await ctx.error(f"Gene set database loading failed: {e}")
-            await ctx.error("No fallback - preserving scientific integrity")
-
-            raise ProcessingError(error_msg) from e
-
-    # Verify we have valid gene sets (should not be None after proper error handling above)
-    if gene_sets is None or len(gene_sets) == 0:
-        # This should not happen with proper error handling above, but safety check
-        raise ProcessingError(
-            "No valid gene sets available for enrichment analysis. "
-            "Please provide gene sets via 'gene_sets' parameter or specify a valid 'gene_set_database'."
-        )
-
-    # Call appropriate enrichment function based on method
-    if params.method == "spatial_enrichmap":
-        # Spatial enrichment analysis using EnrichMap
-        result_dict = await perform_enrichment_analysis(
-            data_id=data_id,
-            ctx=ctx,
-            gene_sets=gene_sets,
-            score_keys=params.score_keys,
-            spatial_key=params.spatial_key,
-            n_neighbors=params.n_neighbors,
-            smoothing=params.smoothing,
-            correct_spatial_covariates=params.correct_spatial_covariates,
-            batch_key=params.batch_key,
-            gene_weights=params.gene_weights,
-            species=params.species,
-            database=params.gene_set_database,
-        )
-        await ctx.info(
-            "Spatial enrichment analysis complete. Use visualize_data with plot_type='pathway_enrichment' "
-            "and subtype='spatial_score' (or 'spatial_correlogram', 'spatial_variogram', 'spatial_cross_correlation') to visualize results"
-        )
-    else:
-        # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
-        from .tools.enrichment import (
-            perform_enrichr,
-            perform_gsea,
-            perform_ora,
-            perform_ssgsea,
-        )
-
-        if params.method == "pathway_gsea":
-            result_dict = perform_gsea(
-                adata=adata,
-                gene_sets=gene_sets,
-                ranking_key=params.score_keys,
-                permutation_num=params.n_permutations,
-                min_size=params.min_genes,
-                max_size=params.max_genes,
-                species=params.species,
-                database=params.gene_set_database,
-                ctx=ctx,
-            )
-            await ctx.info(
-                "Pathway GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
-            )
-        elif params.method == "pathway_ora":
-            result_dict = await perform_ora(
-                adata=adata,
-                gene_sets=gene_sets,
-                pvalue_threshold=params.pvalue_cutoff,
-                min_size=params.min_genes,
-                max_size=params.max_genes,
-                species=params.species,
-                database=params.gene_set_database,
-                ctx=ctx,
-            )
-            await ctx.info(
-                "Pathway ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
-            )
-        elif params.method == "pathway_ssgsea":
-            result_dict = perform_ssgsea(
-                adata=adata,
-                gene_sets=gene_sets,
-                min_size=params.min_genes,
-                max_size=params.max_genes,
-                species=params.species,
-                database=params.gene_set_database,
-                ctx=ctx,
-            )
-            await ctx.info(
-                "Pathway ssGSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
-            )
-        elif params.method == "pathway_enrichr":
-            # For Enrichr, we need a gene list - use HVG or top variable genes
-            gene_list = get_highly_variable_genes(adata, max_genes=500)
-
-            result_dict = perform_enrichr(
-                gene_list=gene_list,
-                gene_sets=params.gene_set_database,
-                organism=params.species,  # Use explicit species from params
-                ctx=ctx,
-            )
-            await ctx.info(
-                "Pathway Enrichr analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
-            )
-        else:
-            raise ParameterError(f"Unknown enrichment method: {params.method}")
-
-    # Note: No writeback needed - adata modifications are in-place on the same object
-
-    # result_dict is already an EnrichmentResult object
-    result = result_dict
-
-    # Save enrichment result
+    # Save result
     await data_manager.save_result(data_id, "enrichment", result)
 
     return result
@@ -1807,15 +1642,15 @@ async def register_spatial_data(
     Returns:
         Registration result with transformation matrix
     """
-    # Import registration function
-    from .tools.spatial_registration import register_spatial_slices_mcp
-
-    # Validate datasets
+    # Validate datasets first
     validate_dataset(source_id)
     validate_dataset(target_id)
 
     # Create ToolContext for unified data access
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
+    # Lazy import to avoid slow startup
+    from .tools.spatial_registration import register_spatial_slices_mcp
 
     # Call registration function using ToolContext
     # Note: registration modifies adata in-place, changes reflected via reference
