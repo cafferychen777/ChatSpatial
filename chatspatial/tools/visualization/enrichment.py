@@ -569,16 +569,48 @@ def _resolve_feature_list(
 def _gsea_results_to_dataframe(gsea_results) -> pd.DataFrame:
     """Convert GSEA results to DataFrame."""
     if isinstance(gsea_results, pd.DataFrame):
-        return gsea_results.copy()
-    if isinstance(gsea_results, dict):
+        df = gsea_results.copy()
+    elif isinstance(gsea_results, dict):
         rows = []
         for pathway, data in gsea_results.items():
             if isinstance(data, dict):
                 row = {"Term": pathway}
                 row.update(data)
                 rows.append(row)
-        return pd.DataFrame(rows)
-    raise ParameterError("Unsupported GSEA results format")
+        df = pd.DataFrame(rows)
+    else:
+        raise ParameterError("Unsupported GSEA results format")
+
+    # Standardize column names for gseapy compatibility
+    return _standardize_gsea_columns(df)
+
+
+def _standardize_gsea_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Standardize column names to gseapy expected format.
+
+    gseapy expects specific column names like 'Adjusted P-value', 'P-value', etc.
+    This function maps common alternative names to the expected format.
+    """
+    column_mapping = {
+        # P-value variants
+        "adjusted_pvalue": "Adjusted P-value",
+        "pvalue": "P-value",
+        "p_value": "P-value",
+        # Other common mappings
+        "pathway": "Term",
+        "nes": "NES",
+        "es": "ES",
+    }
+
+    rename_dict = {}
+    for old_name, new_name in column_mapping.items():
+        if old_name in df.columns and new_name not in df.columns:
+            rename_dict[old_name] = new_name
+
+    if rename_dict:
+        df = df.rename(columns=rename_dict)
+
+    return df
 
 
 def _nested_dict_to_dataframe(gsea_results: dict):
@@ -590,12 +622,28 @@ def _nested_dict_to_dataframe(gsea_results: dict):
                 row = {"Term": pathway, "Group": condition}
                 row.update(data)
                 rows.append(row)
-    return pd.DataFrame(rows), "Group"
+    df = pd.DataFrame(rows)
+    # Standardize column names for gseapy compatibility
+    return _standardize_gsea_columns(df), "Group"
 
 
 def _find_pvalue_column(df: pd.DataFrame) -> str:
-    """Find the p-value column in GSEA results DataFrame."""
-    for col in ["Adjusted P-value", "FDR q-val", "fdr", "P-value", "NOM p-val", "pval"]:
+    """Find the p-value column in GSEA results DataFrame.
+
+    Handles multiple naming conventions from different enrichment methods.
+    """
+    # Check common p-value column names (order by preference)
+    candidates = [
+        "Adjusted P-value",  # gseapy standard
+        "adjusted_pvalue",  # ChatSpatial internal format
+        "FDR q-val",  # GSEA standard
+        "fdr",
+        "P-value",
+        "pvalue",
+        "NOM p-val",
+        "pval",
+    ]
+    for col in candidates:
         if col in df.columns:
             return col
     return "Adjusted P-value"
