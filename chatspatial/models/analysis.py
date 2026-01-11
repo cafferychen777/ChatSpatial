@@ -16,7 +16,17 @@ else:
         ImageContent = Any  # type: ignore[misc,assignment]
 
 
-class PreprocessingResult(BaseModel):
+class BaseAnalysisResult(BaseModel):
+    """Base class for all analysis results.
+
+    Provides common configuration and optional shared fields.
+    All analysis result models should inherit from this class.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class PreprocessingResult(BaseAnalysisResult):
     """Result of data preprocessing"""
 
     data_id: str
@@ -27,7 +37,7 @@ class PreprocessingResult(BaseModel):
     qc_metrics: Optional[Dict[str, Any]] = None
 
 
-class DifferentialExpressionResult(BaseModel):
+class DifferentialExpressionResult(BaseAnalysisResult):
     """Result of differential expression analysis"""
 
     data_id: str
@@ -37,7 +47,7 @@ class DifferentialExpressionResult(BaseModel):
     statistics: Dict[str, Any]
 
 
-class AnnotationResult(BaseModel):
+class AnnotationResult(BaseAnalysisResult):
     """Result of cell type annotation
 
     Attributes:
@@ -64,10 +74,8 @@ class AnnotationResult(BaseModel):
     confidence_scores: Optional[Dict[str, float]] = None
     tangram_mapping_score: Optional[float] = None  # For Tangram method - mapping score
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class SpatialStatisticsResult(BaseModel):
+class SpatialStatisticsResult(BaseAnalysisResult):
     """Result of spatial analysis
 
     Note: Visualization is handled separately via the visualize_data tool.
@@ -79,7 +87,7 @@ class SpatialStatisticsResult(BaseModel):
     statistics: Optional[Dict[str, Any]] = None
 
 
-class RNAVelocityResult(BaseModel):
+class RNAVelocityResult(BaseAnalysisResult):
     """Result of RNA velocity analysis"""
 
     data_id: str
@@ -87,10 +95,8 @@ class RNAVelocityResult(BaseModel):
     velocity_graph_key: Optional[str] = None  # Key for velocity graph in adata.uns
     mode: str  # RNA velocity computation mode
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class TrajectoryResult(BaseModel):
+class TrajectoryResult(BaseAnalysisResult):
     """Result of trajectory analysis"""
 
     data_id: str
@@ -100,20 +106,16 @@ class TrajectoryResult(BaseModel):
     method: str  # Trajectory analysis method used
     spatial_weight: float  # Spatial information weight
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class IntegrationResult(BaseModel):
+class IntegrationResult(BaseAnalysisResult):
     """Result of sample integration"""
 
     data_id: str
     n_samples: int
     integration_method: str
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class DeconvolutionResult(BaseModel):
+class DeconvolutionResult(BaseAnalysisResult):
     """Result of spatial deconvolution
 
     Attributes:
@@ -134,10 +136,8 @@ class DeconvolutionResult(BaseModel):
     proportions_key: str  # Key in adata.obsm where cell type proportions are stored
     statistics: Dict[str, Any]  # Statistics about the deconvolution results
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class SpatialDomainResult(BaseModel):
+class SpatialDomainResult(BaseAnalysisResult):
     """Result of spatial domain identification"""
 
     data_id: str
@@ -153,10 +153,8 @@ class SpatialDomainResult(BaseModel):
         None  # Key in adata.obsm where embeddings are stored
     )
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class SpatialVariableGenesResult(BaseModel):
+class SpatialVariableGenesResult(BaseAnalysisResult):
     """Result of spatial variable genes identification"""
 
     data_id: str
@@ -180,10 +178,8 @@ class SpatialVariableGenesResult(BaseModel):
     spatialde_results: Optional[Dict[str, Any]] = None  # SpatialDE-specific results
     sparkx_results: Optional[Dict[str, Any]] = None  # SPARK-X specific results
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class CellCommunicationResult(BaseModel):
+class CellCommunicationResult(BaseAnalysisResult):
     """Result of cell-cell communication analysis"""
 
     data_id: str
@@ -232,10 +228,8 @@ class CellCommunicationResult(BaseModel):
     # Statistics
     statistics: Dict[str, Any]  # General statistics about the communication analysis
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class EnrichmentResult(BaseModel):
+class EnrichmentResult(BaseAnalysisResult):
     """Result from gene set enrichment analysis
 
     Note on serialization:
@@ -292,10 +286,8 @@ class EnrichmentResult(BaseModel):
         exclude=True,
     )
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class CNVResult(BaseModel):
+class CNVResult(BaseAnalysisResult):
     """Result of Copy Number Variation (CNV) analysis
 
     Attributes:
@@ -320,10 +312,8 @@ class CNVResult(BaseModel):
     statistics: Optional[Dict[str, Any]] = None  # CNV statistics
     visualization_available: bool = False  # Whether visualization is available
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class DEGene(BaseModel):
+class DEGene(BaseAnalysisResult):
     """A single differentially expressed gene with statistics"""
 
     gene: str
@@ -334,7 +324,7 @@ class DEGene(BaseModel):
     mean_expr_condition2: Optional[float] = None
 
 
-class CellTypeComparisonResult(BaseModel):
+class CellTypeComparisonResult(BaseAnalysisResult):
     """Differential expression result for a single cell type"""
 
     cell_type: str
@@ -351,7 +341,7 @@ class CellTypeComparisonResult(BaseModel):
     )
 
 
-class ConditionComparisonResult(BaseModel):
+class ConditionComparisonResult(BaseAnalysisResult):
     """Result of multi-sample condition comparison analysis.
 
     Attributes:
@@ -397,5 +387,3 @@ class ConditionComparisonResult(BaseModel):
 
     # Summary statistics
     statistics: Dict[str, Any]
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)

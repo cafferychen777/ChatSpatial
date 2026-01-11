@@ -425,10 +425,9 @@ async def visualize_data(
         # Store visualization params in registry (for regeneration on demand)
         ctx.store_visualization(cache_key, params, file_path)
 
-        if context:
-            await context.info(
-                f"Visualization type: {params.plot_type}, feature: {params.feature or 'N/A'}"
-            )
+        await ctx.info(
+            f"Visualization type: {params.plot_type}, feature: {params.feature or 'N/A'}"
+        )
 
         return image
 
@@ -1584,8 +1583,7 @@ async def analyze_enrichment(
 
     # If no gene sets provided, load from database
     if gene_sets is None and params.gene_set_database:
-        if context:
-            await context.info(f"Loading gene sets from {params.gene_set_database}")
+        await ctx.info(f"Loading gene sets from {params.gene_set_database}")
 
         # Load gene sets based on database name
         # Note: gseapy dependency is handled inside enrichment.py via is_gseapy_available()
@@ -1601,10 +1599,9 @@ async def analyze_enrichment(
                 ctx=ctx,
             )
 
-            if context:
-                await context.info(
-                    f"Loaded {len(gene_sets)} gene sets from {params.gene_set_database}"
-                )
+            await ctx.info(
+                f"Loaded {len(gene_sets)} gene sets from {params.gene_set_database}"
+            )
 
         except Exception as e:
             # NO FALLBACK: Enrichment analysis requires specific gene sets for scientific validity
@@ -1628,9 +1625,8 @@ async def analyze_enrichment(
                 f"scientifically different results while appearing to be pathway analysis."
             )
 
-            if context:
-                await context.error(f"Gene set database loading failed: {e}")
-                await context.error("No fallback - preserving scientific integrity")
+            await ctx.error(f"Gene set database loading failed: {e}")
+            await ctx.error("No fallback - preserving scientific integrity")
 
             raise ProcessingError(error_msg) from e
 
@@ -1659,11 +1655,10 @@ async def analyze_enrichment(
             species=params.species,
             database=params.gene_set_database,
         )
-        if context:
-            await context.info(
-                "Spatial enrichment analysis complete. Use visualize_data with plot_type='pathway_enrichment' "
-                "and subtype='spatial_score' (or 'spatial_correlogram', 'spatial_variogram', 'spatial_cross_correlation') to visualize results"
-            )
+        await ctx.info(
+            "Spatial enrichment analysis complete. Use visualize_data with plot_type='pathway_enrichment' "
+            "and subtype='spatial_score' (or 'spatial_correlogram', 'spatial_variogram', 'spatial_cross_correlation') to visualize results"
+        )
     else:
         # Generic enrichment analysis (GSEA, ORA, ssGSEA, Enrichr)
         from .tools.enrichment import (
@@ -1685,10 +1680,9 @@ async def analyze_enrichment(
                 database=params.gene_set_database,
                 ctx=ctx,
             )
-            if context:
-                await context.info(
-                    "Pathway GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
-                )
+            await ctx.info(
+                "Pathway GSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
+            )
         elif params.method == "pathway_ora":
             result_dict = await perform_ora(
                 adata=adata,
@@ -1700,10 +1694,9 @@ async def analyze_enrichment(
                 database=params.gene_set_database,
                 ctx=ctx,
             )
-            if context:
-                await context.info(
-                    "Pathway ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
-                )
+            await ctx.info(
+                "Pathway ORA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
+            )
         elif params.method == "pathway_ssgsea":
             result_dict = perform_ssgsea(
                 adata=adata,
@@ -1714,10 +1707,9 @@ async def analyze_enrichment(
                 database=params.gene_set_database,
                 ctx=ctx,
             )
-            if context:
-                await context.info(
-                    "Pathway ssGSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
-                )
+            await ctx.info(
+                "Pathway ssGSEA analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
+            )
         elif params.method == "pathway_enrichr":
             # For Enrichr, we need a gene list - use HVG or top variable genes
             gene_list = get_highly_variable_genes(adata, max_genes=500)
@@ -1728,10 +1720,9 @@ async def analyze_enrichment(
                 organism=params.species,  # Use explicit species from params
                 ctx=ctx,
             )
-            if context:
-                await context.info(
-                    "Pathway Enrichr analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
-                )
+            await ctx.info(
+                "Pathway Enrichr analysis complete. Use create_visualization tool with plot_type='pathway_enrichment' to visualize results"
+            )
         else:
             raise ParameterError(f"Unknown enrichment method: {params.method}")
 

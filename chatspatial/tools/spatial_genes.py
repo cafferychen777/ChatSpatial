@@ -25,7 +25,7 @@ from ..utils.adata_utils import require_spatial_coords, to_dense  # noqa: E402
 from ..utils.dependency_manager import require  # noqa: E402
 from ..utils.exceptions import DataNotFoundError  # noqa: E402
 from ..utils.exceptions import DataError, ParameterError, ProcessingError
-from ..utils.mcp_utils import suppress_output  # noqa: E402
+from ..utils.mcp_utils import suppress_output, truncate_for_mcp  # noqa: E402
 
 
 async def identify_spatial_genes(
@@ -278,16 +278,10 @@ async def _identify_spatial_genes_spatialde(
     # Filter significant genes
     significant_genes_all = results[results["qval"] < 0.05]["g"].tolist()
 
-    # IMPORTANT: Limit returned gene list to avoid MCP token overflow
-    # Return top 500 significant genes by default (full list stored in adata.var)
-    MAX_GENES_TO_RETURN = 500
-    significant_genes = significant_genes_all[:MAX_GENES_TO_RETURN]
-
-    # Get top genes if requested
-    # IMPORTANT: n_top_genes only limits the number of _significant_ genes returned
-    # If no significant genes exist, return empty list (not non-significant genes)
-    if params.n_top_genes is not None and len(significant_genes) > 0:
-        significant_genes = significant_genes[: params.n_top_genes]
+    # Truncate for MCP response (full results stored in adata.var)
+    significant_genes = truncate_for_mcp(
+        significant_genes_all, user_limit=params.n_top_genes
+    )
 
     # Store results in adata
     results_key = f"spatialde_results_{data_id}"
@@ -730,16 +724,10 @@ async def _identify_spatial_genes_sparkx(
         "gene"
     ].tolist()
 
-    # IMPORTANT: Limit returned gene list to avoid MCP token overflow
-    # Return top 500 significant genes by default (full list stored in adata.var)
-    MAX_GENES_TO_RETURN = 500
-    significant_genes = significant_genes_all[:MAX_GENES_TO_RETURN]
-
-    # Get top genes if requested
-    # IMPORTANT: n_top_genes only limits the number of _significant_ genes returned
-    # If no significant genes exist, return empty list (not non-significant genes)
-    if params.n_top_genes is not None and len(significant_genes) > 0:
-        significant_genes = significant_genes[: params.n_top_genes]
+    # Truncate for MCP response (full results stored in adata.var)
+    significant_genes = truncate_for_mcp(
+        significant_genes_all, user_limit=params.n_top_genes
+    )
 
     # TIER 3: Housekeeping gene warnings (post-processing quality check)
     if params.warn_housekeeping and len(results_df) > 0:

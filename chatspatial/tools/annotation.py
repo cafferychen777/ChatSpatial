@@ -7,7 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -40,6 +40,27 @@ from ..utils.exceptions import (
     ProcessingError,
 )
 
+
+class AnnotationMethodOutput(NamedTuple):
+    """Unified output from all annotation methods.
+
+    This provides a consistent return type across all annotation methods,
+    improving code clarity and preventing positional argument confusion.
+
+    Attributes:
+        cell_types: List of unique cell type names identified (deduplicated)
+        counts: Mapping of cell type names to number of cells assigned
+        confidence: Mapping of cell type names to confidence scores.
+                   Empty dict indicates no confidence data available.
+        mapping_score: Optional method-specific quality score (e.g., Tangram mapping score)
+    """
+
+    cell_types: List[str]
+    counts: Dict[str, int]
+    confidence: Dict[str, float]
+    mapping_score: Optional[float] = None
+
+
 # Supported annotation methods
 # Confidence behavior by method:
 #   - singler/tangram/sctype: Real confidence scores (correlation/probability/scoring)
@@ -59,8 +80,10 @@ async def _annotate_with_singler(
     adata,
     params: AnnotationParameters,
     ctx: "ToolContext",
+    output_key: str,
+    confidence_key: str,
     reference_adata: Optional[Any] = None,
-):
+) -> AnnotationMethodOutput:
     """Annotate cell types using SingleR reference-based method"""
     # Validate and import dependencies
     require("singler", ctx, feature="SingleR annotation")
@@ -286,11 +309,7 @@ async def _annotate_with_singler(
         # Don't assign misleading confidence values
         pass
 
-    # Use method-prefixed output keys to avoid overwriting
-    output_key = f"cell_type_{params.method}"
-    confidence_key = f"confidence_{params.method}"
-
-    # Add to AnnData
+    # Add to AnnData (keys provided by caller for single-point control)
     adata.obs[output_key] = cell_types
     ensure_categorical(adata, output_key)
 
@@ -300,15 +319,21 @@ async def _annotate_with_singler(
         confidence_array = [confidence_scores.get(ct, 0.0) for ct in cell_types]
         adata.obs[confidence_key] = confidence_array
 
-    return unique_types, counts, confidence_scores, None
+    return AnnotationMethodOutput(
+        cell_types=unique_types,
+        counts=counts,
+        confidence=confidence_scores,
+    )
 
 
 async def _annotate_with_tangram(
     adata,
     params: AnnotationParameters,
     ctx: "ToolContext",
+    output_key: str,
+    confidence_key: str,
     reference_adata: Optional[Any] = None,
-):
+) -> AnnotationMethodOutput:
     """Annotate cell types using Tangram method"""
     # Validate dependencies with comprehensive error reporting
     require("tangram", ctx, feature="Tangram annotation")
@@ -508,14 +533,10 @@ async def _annotate_with_tangram(
         await ctx.warning(f"Could not project cell annotations: {proj_error}")
         # Continue without projection
 
-    # Get cell type predictions
+    # Get cell type predictions (keys provided by caller for single-point control)
     cell_types = []
     counts = {}
     confidence_scores = {}
-
-    # Use method-prefixed output keys to avoid overwriting
-    output_key = f"cell_type_{params.method}"
-    confidence_key = f"confidence_{params.method}"
 
     if "tangram_ct_pred" in adata_sp.obsm:
         cell_type_df = adata_sp.obsm["tangram_ct_pred"]
@@ -581,10 +602,6 @@ async def _annotate_with_tangram(
         if output_key in adata_sp.obs:
             adata.obs[output_key] = adata_sp.obs[output_key]
 
-        # Copy confidence scores if they exist
-        if confidence_key and confidence_key in adata_sp.obs:
-            adata.obs[confidence_key] = adata_sp.obs[confidence_key]
-
         # Copy tangram_ct_pred from obsm
         if "tangram_ct_pred" in adata_sp.obsm:
             adata.obsm["tangram_ct_pred"] = adata_sp.obsm["tangram_ct_pred"]
@@ -595,16 +612,22 @@ async def _annotate_with_tangram(
                 "tangram_gene_predictions"
             ]
 
-    # Final completion log included in main annotate_cell_types function
-    return cell_types, counts, confidence_scores, tangram_mapping_score
+    return AnnotationMethodOutput(
+        cell_types=cell_types,
+        counts=counts,
+        confidence=confidence_scores,
+        mapping_score=tangram_mapping_score,
+    )
 
 
 async def _annotate_with_scanvi(
     adata,
     params: AnnotationParameters,
     ctx: "ToolContext",
+    output_key: str,
+    confidence_key: str,
     reference_adata: Optional[Any] = None,
-):
+) -> AnnotationMethodOutput:
     """Annotate cell types using scANVI (semi-supervised variational inference).
 
     scANVI (single-cell ANnotation using Variational Inference) is a deep learning
@@ -880,16 +903,31 @@ async def _annotate_with_scanvi(
             {}
         )  # Empty dict clearly indicates no confidence data available
 
-    # COW FIX: Add prediction results to original adata.obs
-    # This will be picked up by the main function to store in adata.obs[output_key]
-    adata.obs[cell_type_key] = adata_subset.obs[cell_type_key].values
+    # COW FIX: Add prediction results to original adata.obs using output_key
+    adata.obs[output_key] = adata_subset.obs[cell_type_key].values
+    ensure_categorical(adata, output_key)
 
-    return cell_types, counts, confidence_scores, None
+    # Store confidence if available
+    if confidence_scores:
+        confidence_array = [
+            confidence_scores.get(ct, 0.0) for ct in adata.obs[output_key]
+        ]
+        adata.obs[confidence_key] = confidence_array
+
+    return AnnotationMethodOutput(
+        cell_types=cell_types,
+        counts=counts,
+        confidence=confidence_scores,
+    )
 
 
 async def _annotate_with_mllmcelltype(
-    adata, params: AnnotationParameters, ctx: "ToolContext"
-):
+    adata,
+    params: AnnotationParameters,
+    ctx: "ToolContext",
+    output_key: str,
+    confidence_key: str,
+) -> AnnotationMethodOutput:
     """Annotate cell types using mLLMCellType (LLM-based) method.
 
     Supports both single-model and multi-model consensus annotation.
@@ -1036,10 +1074,7 @@ async def _annotate_with_mllmcelltype(
         cluster_id = cluster_name.replace("Cluster_", "")
         cluster_to_celltype[cluster_id] = cell_type
 
-    # Use method-prefixed output keys to avoid overwriting
-    output_key = f"cell_type_{params.method}"
-
-    # Apply cell type annotations to cells
+    # Apply cell type annotations to cells (key provided by caller)
     adata.obs[output_key] = adata.obs[cluster_key].astype(str).map(cluster_to_celltype)
 
     # Handle any unmapped clusters
@@ -1056,14 +1091,20 @@ async def _annotate_with_mllmcelltype(
 
     # LLM-based annotations don't provide numeric confidence scores
     # We intentionally leave this empty rather than assigning misleading values
-    confidence_scores = {}
-
-    return cell_types, counts, confidence_scores, None
+    return AnnotationMethodOutput(
+        cell_types=cell_types,
+        counts=counts,
+        confidence={},
+    )
 
 
 async def _annotate_with_cellassign(
-    adata, params: AnnotationParameters, ctx: "ToolContext"
-):
+    adata,
+    params: AnnotationParameters,
+    ctx: "ToolContext",
+    output_key: str,
+    confidence_key: str,
+) -> AnnotationMethodOutput:
     """Annotate cell types using CellAssign method"""
 
     # Validate dependencies with comprehensive error reporting
@@ -1227,10 +1268,7 @@ async def _annotate_with_cellassign(
     # Get predictions
     predictions = model.predict()
 
-    # Use method-prefixed output keys to avoid overwriting
-    output_key = f"cell_type_{params.method}"
-
-    # Handle different prediction formats
+    # Handle different prediction formats (key provided by caller)
     if isinstance(predictions, pd.DataFrame):
         # CellAssign returns DataFrame with probabilities
         predicted_indices = predictions.values.argmax(axis=1)
@@ -1254,11 +1292,21 @@ async def _annotate_with_cellassign(
 
     ensure_categorical(adata, output_key)
 
+    # Store confidence if available
+    if confidence_scores:
+        confidence_array = [
+            confidence_scores.get(ct, 0.0) for ct in adata.obs[output_key]
+        ]
+        adata.obs[confidence_key] = confidence_array
+
     # Get cell types and counts
-    cell_types = valid_cell_types
     counts = adata.obs[output_key].value_counts().to_dict()
 
-    return cell_types, counts, confidence_scores, None
+    return AnnotationMethodOutput(
+        cell_types=valid_cell_types,
+        counts=counts,
+        confidence=confidence_scores,
+    )
 
 
 async def annotate_cell_types(
@@ -1290,48 +1338,55 @@ async def annotate_cell_types(
     if params.method in ["tangram", "scanvi", "singler"] and params.reference_data_id:
         reference_adata = await ctx.get_adata(params.reference_data_id)
 
+    # Generate output keys in ONE place (single-point control)
+    output_key = f"cell_type_{params.method}"
+    confidence_key = f"confidence_{params.method}"
+
     # Route to appropriate annotation method
     try:
         if params.method == "tangram":
-            cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_tangram(adata, params, ctx, reference_adata)
+            result = await _annotate_with_tangram(
+                adata, params, ctx, output_key, confidence_key, reference_adata
             )
         elif params.method == "scanvi":
-            cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_scanvi(adata, params, ctx, reference_adata)
+            result = await _annotate_with_scanvi(
+                adata, params, ctx, output_key, confidence_key, reference_adata
             )
         elif params.method == "cellassign":
-            cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_cellassign(adata, params, ctx)
+            result = await _annotate_with_cellassign(
+                adata, params, ctx, output_key, confidence_key
             )
         elif params.method == "mllmcelltype":
-            cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_mllmcelltype(adata, params, ctx)
+            result = await _annotate_with_mllmcelltype(
+                adata, params, ctx, output_key, confidence_key
             )
         elif params.method == "singler":
-            cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_singler(adata, params, ctx, reference_adata)
+            result = await _annotate_with_singler(
+                adata, params, ctx, output_key, confidence_key, reference_adata
             )
         else:  # sctype
-            cell_types, counts, confidence_scores, tangram_mapping_score = (
-                await _annotate_with_sctype(adata, params, ctx)
+            result = await _annotate_with_sctype(
+                adata, params, ctx, output_key, confidence_key
             )
 
     except Exception as e:
         raise ProcessingError(f"Annotation failed: {str(e)}") from e
 
-    # COW FIX: Each annotation method handles adata.obs assignment internally
-    # This maintains consistency and prevents duplicate assignments
-    # Construct output keys for result reporting
-    output_key = f"cell_type_{params.method}"
-    confidence_key = f"confidence_{params.method}" if confidence_scores else None
+    # Extract values from unified result type
+    cell_types = result.cell_types
+    counts = result.counts
+    confidence_scores = result.confidence
+    tangram_mapping_score = result.mapping_score
+
+    # Determine if confidence_key should be reported (only if we have confidence data)
+    confidence_key_for_result = confidence_key if confidence_scores else None
 
     # Store scientific metadata for reproducibility
     from ..utils.adata_utils import store_analysis_metadata
 
     # Extract results keys
     results_keys_dict = {"obs": [output_key], "obsm": [], "uns": []}
-    if confidence_key:
+    if confidence_key_for_result:
         results_keys_dict["obs"].append(confidence_key)
 
     # Add method-specific result keys
@@ -1399,7 +1454,7 @@ async def annotate_cell_types(
         data_id=data_id,
         method=params.method,
         output_key=output_key,
-        confidence_key=confidence_key,
+        confidence_key=confidence_key_for_result,
         cell_types=cell_types,
         counts=counts,
         confidence_scores=confidence_scores,
@@ -1776,8 +1831,12 @@ def _load_cached_sctype_results(cache_key: str, ctx: "ToolContext") -> Optional[
 
 
 async def _annotate_with_sctype(
-    adata: sc.AnnData, params: AnnotationParameters, ctx: "ToolContext"
-) -> tuple[List[str], Dict[str, int], Dict[str, float], Optional[float]]:
+    adata: sc.AnnData,
+    params: AnnotationParameters,
+    ctx: "ToolContext",
+    output_key: str,
+    confidence_key: str,
+) -> AnnotationMethodOutput:
     """Annotate cell types using sc-type method."""
     # Validate R environment
     validate_r_environment(ctx)
@@ -1800,31 +1859,46 @@ async def _annotate_with_sctype(
         cache_key = _get_sctype_cache_key(adata, params)
         cached = _load_cached_sctype_results(cache_key, ctx)
         if cached:
-            return cached
+            # Convert cached tuple to AnnotationMethodOutput
+            cell_types, counts, confidence, _ = cached
+            # Still need to store in adata.obs when using cache
+            adata.obs[output_key] = pd.Categorical(cell_types)
+            return AnnotationMethodOutput(
+                cell_types=cell_types,
+                counts=counts,
+                confidence=confidence,
+            )
 
     # Run sc-type pipeline
     _load_sctype_functions(ctx)
     gs_list = _prepare_sctype_genesets(params, ctx)
     scores_df = _run_sctype_scoring(adata, gs_list, params, ctx)
-    cell_types, confidence_scores = _assign_sctype_celltypes(scores_df, ctx)
+    per_cell_types, per_cell_confidence = _assign_sctype_celltypes(scores_df, ctx)
 
     # Calculate statistics
-    counts = _calculate_sctype_stats(cell_types)
+    counts = _calculate_sctype_stats(per_cell_types)
 
-    # Average confidence per cell type
+    # Average confidence per cell type (for return value)
     confidence_by_celltype = {}
-    for ct in set(cell_types):
-        ct_confs = [c for i, c in enumerate(confidence_scores) if cell_types[i] == ct]
+    for ct in set(per_cell_types):
+        ct_confs = [
+            c for i, c in enumerate(per_cell_confidence) if per_cell_types[i] == ct
+        ]
         confidence_by_celltype[ct] = sum(ct_confs) / len(ct_confs) if ct_confs else 0.0
 
-    # Store in adata.obs
-    adata.obs[f"cell_type_{params.method}"] = pd.Categorical(cell_types)
-    adata.obs[f"confidence_{params.method}"] = confidence_scores
+    # Store in adata.obs (keys provided by caller)
+    adata.obs[output_key] = pd.Categorical(per_cell_types)
+    adata.obs[confidence_key] = per_cell_confidence
 
-    results = (list(set(cell_types)), counts, confidence_by_celltype, None)
+    unique_cell_types = list(set(per_cell_types))
 
-    # Cache results
+    # Cache results (as tuple for compatibility)
     if params.sctype_use_cache and cache_key:
-        await _cache_sctype_results(cache_key, results, ctx)
+        cache_tuple = (unique_cell_types, counts, confidence_by_celltype, None)
+        await _cache_sctype_results(cache_key, cache_tuple, ctx)
 
-    return results
+    return AnnotationMethodOutput(
+        cell_types=unique_cell_types,
+        counts=counts,
+        confidence=confidence_by_celltype,
+    )

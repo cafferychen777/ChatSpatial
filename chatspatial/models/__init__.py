@@ -5,8 +5,12 @@ Data models for spatial transcriptomics analysis.
 # Import result models from analysis module
 from .analysis import (
     AnnotationResult,
+    BaseAnalysisResult,
     CellCommunicationResult,
+    CellTypeComparisonResult,
     CNVResult,
+    ConditionComparisonResult,
+    DEGene,
     DeconvolutionResult,
     DifferentialExpressionResult,
     EnrichmentResult,
@@ -25,7 +29,9 @@ from .data import (
     CellCommunicationParameters,
     CNVParameters,
     ColumnInfo,
+    ConditionComparisonParameters,
     DeconvolutionParameters,
+    DifferentialExpressionParameters,
     EnrichmentParameters,
     IntegrationParameters,
     PreprocessingParameters,
@@ -39,10 +45,15 @@ from .data import (
 )
 
 __all__ = [
+    # Base class
+    "BaseAnalysisResult",
     # Result models
     "AnnotationResult",
     "CellCommunicationResult",
+    "CellTypeComparisonResult",
     "CNVResult",
+    "ConditionComparisonResult",
+    "DEGene",
     "DeconvolutionResult",
     "DifferentialExpressionResult",
     "EnrichmentResult",
@@ -58,7 +69,9 @@ __all__ = [
     "CellCommunicationParameters",
     "CNVParameters",
     "ColumnInfo",
+    "ConditionComparisonParameters",
     "DeconvolutionParameters",
+    "DifferentialExpressionParameters",
     "EnrichmentParameters",
     "IntegrationParameters",
     "PreprocessingParameters",
