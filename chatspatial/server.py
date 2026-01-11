@@ -1062,8 +1062,8 @@ async def analyze_velocity_data(
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Lazy import trajectory analysis tool
-    from .tools.trajectory import analyze_rna_velocity
+    # Lazy import velocity analysis tool
+    from .tools.velocity import analyze_rna_velocity
 
     # Call RNA velocity function with ToolContext
     result = await analyze_rna_velocity(data_id, ctx, params)
