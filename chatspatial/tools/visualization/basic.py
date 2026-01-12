@@ -32,6 +32,7 @@ from .core import (
     add_colorbar,
     create_figure,
     get_colormap,
+    get_validated_features,
     plot_spatial_feature,
     setup_multi_panel_figure,
 )
@@ -252,14 +253,7 @@ async def create_heatmap_visualization(
 
     validate_obs_column(adata, params.cluster_key, "cluster_key")
 
-    if params.feature is None:
-        features_raw: List[str] = []
-    elif isinstance(params.feature, list):
-        features_raw = params.feature
-    else:
-        features_raw = [params.feature]
-    features = [f for f in features_raw if f in adata.var_names]
-
+    features = await get_validated_features(adata, params, context, genes_only=True)
     if not features:
         raise ParameterError("No valid gene features provided for heatmap")
 
@@ -310,14 +304,7 @@ async def create_violin_visualization(
 
     validate_obs_column(adata, params.cluster_key, "cluster_key")
 
-    if params.feature is None:
-        features_raw: List[str] = []
-    elif isinstance(params.feature, list):
-        features_raw = params.feature
-    else:
-        features_raw = [params.feature]
-    features = [f for f in features_raw if f in adata.var_names]
-
+    features = await get_validated_features(adata, params, context, genes_only=True)
     if not features:
         raise ParameterError("No valid gene features provided for violin plot")
 
@@ -365,14 +352,7 @@ async def create_dotplot_visualization(
 
     validate_obs_column(adata, params.cluster_key, "cluster_key")
 
-    if params.feature is None:
-        features_raw: List[str] = []
-    elif isinstance(params.feature, list):
-        features_raw = params.feature
-    else:
-        features_raw = [params.feature]
-    features = [f for f in features_raw if f in adata.var_names]
-
+    features = await get_validated_features(adata, params, context, genes_only=True)
     if not features:
         raise ParameterError("No valid gene features provided for dot plot")
 

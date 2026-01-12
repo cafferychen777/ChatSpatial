@@ -182,6 +182,7 @@ async def get_validated_features(
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
     max_features: Optional[int] = None,
+    genes_only: bool = False,
 ) -> List[str]:
     """Validate and return features for visualization.
 
@@ -190,6 +191,8 @@ async def get_validated_features(
         params: Visualization parameters containing feature specification
         context: Optional tool context for logging
         max_features: Maximum number of features to return (truncates if exceeded)
+        genes_only: If True, only validate against var_names (genes).
+                   If False, also check obs columns and obsm keys.
 
     Returns:
         List of validated feature names
@@ -203,21 +206,23 @@ async def get_validated_features(
     validated: List[str] = []
 
     for feat in features:
-
         # Check if feature is in var_names (genes)
         if feat in adata.var_names:
             validated.append(feat)
-        # Check if feature is in obs columns
-        elif feat in adata.obs.columns:
-            validated.append(feat)
-        # Check if feature is an obsm key
-        elif feat in adata.obsm:
-            validated.append(feat)
+        elif not genes_only:
+            # Also check obs columns and obsm keys
+            if feat in adata.obs.columns:
+                validated.append(feat)
+            elif feat in adata.obsm:
+                validated.append(feat)
+            else:
+                if context:
+                    await context.warning(
+                        f"Feature '{feat}' not found in genes, obs, or obsm"
+                    )
         else:
             if context:
-                await context.warning(
-                    f"Feature '{feat}' not found in genes, obs, or obsm"
-                )
+                await context.warning(f"Gene '{feat}' not found in var_names")
 
     # Truncate if max_features specified
     if max_features is not None and len(validated) > max_features:
