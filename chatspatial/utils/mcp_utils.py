@@ -1,7 +1,7 @@
 """
 MCP utilities for ChatSpatial.
 
-Tools for MCP server: error handling decorator, output suppression, response truncation.
+Tools for MCP server: error handling decorator and output suppression.
 """
 
 import io
@@ -10,54 +10,7 @@ import traceback
 import warnings
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from functools import wraps
-from typing import List, Optional, TypeVar, get_type_hints
-
-T = TypeVar("T")
-
-# =============================================================================
-# MCP Response Truncation
-# =============================================================================
-# MCP has token limits. Large result lists (e.g., 5000 genes) can overflow.
-# This constant and function provide a consistent way to truncate results.
-# Full results are always stored in adata for downstream analysis.
-
-MCP_DEFAULT_MAX_ITEMS = 500  # Safe default for MCP response size
-
-
-def truncate_for_mcp(
-    items: List[T],
-    max_items: int = MCP_DEFAULT_MAX_ITEMS,
-    user_limit: Optional[int] = None,
-) -> List[T]:
-    """Truncate a list to avoid MCP token overflow.
-
-    This function provides a consistent way to limit result sizes returned
-    to MCP clients. Full results should always be stored in adata.
-
-    Args:
-        items: List to truncate
-        max_items: Maximum items to return (default: 500)
-        user_limit: Optional user-specified limit (takes precedence if smaller)
-
-    Returns:
-        Truncated list
-
-    Example:
-        # In spatial_genes.py
-        significant_genes = truncate_for_mcp(
-            significant_genes_all,
-            user_limit=params.n_top_genes
-        )
-    """
-    # First apply MCP limit
-    result = items[:max_items]
-
-    # Then apply user limit if specified and if there are items
-    if user_limit is not None and len(result) > 0:
-        result = result[:user_limit]
-
-    return result
-
+from typing import get_type_hints
 
 # =============================================================================
 # Output Suppression

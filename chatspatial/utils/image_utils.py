@@ -7,7 +7,6 @@ All functions return Image objects that can be directly used in MCP tools.
 
 import base64
 import io
-import os
 import uuid
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
@@ -15,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
 from mcp.types import ImageContent
 
 from .exceptions import ProcessingError
+from .path_utils import get_safe_output_path
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -243,14 +243,14 @@ async def optimize_fig_to_image_with_cache(
     )
     actual_size = buf.tell()
 
-    # Save to file
-    os.makedirs("/tmp/chatspatial/visualizations", exist_ok=True)
+    # Save to file (use centralized path utility for consistent output handling)
+    output_dir = get_safe_output_path("./visualizations")
     filename = (
         f"{plot_type}_{uuid.uuid4().hex[:8]}.png"
         if plot_type
         else f"viz_{uuid.uuid4().hex[:8]}.png"
     )
-    filepath = f"/tmp/chatspatial/visualizations/{filename}"
+    filepath = output_dir / filename
 
     buf.seek(0)
     with open(filepath, "wb") as f:
