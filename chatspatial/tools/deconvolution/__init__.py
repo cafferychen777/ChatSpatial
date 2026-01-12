@@ -356,5 +356,7 @@ async def _store_results(
         n_cell_types=len(cell_types),
         cell_types=cell_types,
         proportions_key=proportions_key,
-        statistics=stats,
+        n_spots=stats.get("n_spots", 0),
+        genes_used=stats.get("genes_used", stats.get("common_genes", 0)),
+        statistics=stats,  # Excluded from MCP response via Field(exclude=True)
     )

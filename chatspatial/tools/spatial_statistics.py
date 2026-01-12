@@ -265,10 +265,18 @@ async def analyze_spatial_statistics(
             statistics=statistics_dict,
         )
 
+        # Extract summary fields for MCP response (detailed statistics excluded)
+        summary = _extract_result_summary(result, params.analysis_type)
+
         return SpatialStatisticsResult(
             data_id=data_id,
             analysis_type=params.analysis_type,
-            statistics=result,
+            n_features_analyzed=summary["n_features_analyzed"],
+            n_significant=summary["n_significant"],
+            top_features=summary["top_features"],
+            summary_metrics=summary["summary_metrics"],
+            results_key=summary.get("results_key"),
+            statistics=result,  # Excluded from MCP response via Field(exclude=True)
         )
 
     except (DataNotFoundError, ParameterError, DataCompatibilityError):
@@ -282,6 +290,114 @@ async def analyze_spatial_statistics(
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
+
+def _extract_result_summary(
+    result: Dict[str, Any], analysis_type: str
+) -> Dict[str, Any]:
+    """Extract compact summary from analysis result for MCP response.
+
+    This function extracts the most informative fields from detailed analysis results,
+    keeping the MCP response small while preserving actionable insights for the LLM.
+
+    Args:
+        result: Full result dictionary from analysis function
+        analysis_type: Type of spatial analysis performed
+
+    Returns:
+        Dictionary with standardized summary fields:
+        - n_features_analyzed: Number of genes/clusters analyzed
+        - n_significant: Number of significant results
+        - top_features: List of top significant features (max 10)
+        - summary_metrics: Key numeric metrics
+        - results_key: Key in adata.uns for full results (if applicable)
+    """
+    summary: Dict[str, Any] = {
+        "n_features_analyzed": 0,
+        "n_significant": 0,
+        "top_features": [],
+        "summary_metrics": {},
+        "results_key": None,
+    }
+
+    # Extract based on analysis type
+    if analysis_type == "moran":
+        summary["n_features_analyzed"] = result.get("n_genes_analyzed", 0)
+        summary["n_significant"] = result.get("n_significant", 0)
+        summary["top_features"] = result.get("top_highest_autocorrelation", [])[:10]
+        summary["summary_metrics"] = {"mean_morans_i": result.get("mean_morans_i", 0.0)}
+        summary["results_key"] = result.get("analysis_key")
+
+    elif analysis_type == "geary":
+        summary["n_features_analyzed"] = result.get("n_genes_analyzed", 0)
+        summary["summary_metrics"] = {"mean_gearys_c": result.get("mean_gearys_c", 0.0)}
+        summary["results_key"] = result.get("analysis_key")
+
+    elif analysis_type == "local_moran":
+        summary["n_features_analyzed"] = result.get("n_genes_analyzed", 0)
+        summary["n_significant"] = result.get("n_significant_total", 0)
+        summary["top_features"] = result.get("top_clustered_genes", [])[:10]
+        summary["summary_metrics"] = {
+            "mean_hotspots": result.get("mean_hotspots_per_gene", 0.0),
+            "mean_coldspots": result.get("mean_coldspots_per_gene", 0.0),
+        }
+
+    elif analysis_type == "getis_ord":
+        genes_analyzed = result.get("genes_analyzed", [])
+        summary["n_features_analyzed"] = len(genes_analyzed)
+        summary["top_features"] = genes_analyzed[:10]
+        # Count total hotspots across all genes
+        per_gene_results = result.get("results", {})
+        total_hot = sum(r.get("n_hot_spots", 0) for r in per_gene_results.values())
+        total_cold = sum(r.get("n_cold_spots", 0) for r in per_gene_results.values())
+        summary["summary_metrics"] = {
+            "total_hotspots": total_hot,
+            "total_coldspots": total_cold,
+        }
+
+    elif analysis_type == "neighborhood":
+        summary["n_features_analyzed"] = result.get("n_clusters", 0)
+        summary["summary_metrics"] = {
+            "max_enrichment": result.get("max_enrichment", 0.0),
+            "min_enrichment": result.get("min_enrichment", 0.0),
+        }
+        summary["results_key"] = result.get("analysis_key")
+
+    elif analysis_type == "co_occurrence":
+        summary["n_features_analyzed"] = result.get("n_clusters", 0)
+        summary["results_key"] = result.get("analysis_key")
+
+    elif analysis_type == "ripley":
+        summary["n_features_analyzed"] = result.get("n_clusters", 0)
+        summary["results_key"] = result.get("analysis_key")
+
+    elif analysis_type == "centrality":
+        summary["n_features_analyzed"] = result.get("n_clusters", 0)
+        summary["results_key"] = result.get("analysis_key")
+
+    elif analysis_type == "bivariate_moran":
+        pairs = result.get("gene_pairs", [])
+        summary["n_features_analyzed"] = len(pairs)
+        summary["top_features"] = [f"{p[0]}-{p[1]}" for p in pairs[:10]]
+        # Extract significant correlations
+        per_pair = result.get("results", {})
+        significant = [k for k, v in per_pair.items() if abs(v.get("moran_i", 0)) > 0.3]
+        summary["n_significant"] = len(significant)
+
+    elif analysis_type in ["join_count", "local_join_count"]:
+        summary["n_features_analyzed"] = result.get("n_categories", 0)
+        summary["n_significant"] = result.get("n_significant", 0)
+        summary["results_key"] = result.get("analysis_key")
+
+    elif analysis_type in ["network_properties", "spatial_centrality"]:
+        summary["results_key"] = result.get("analysis_key")
+        summary["summary_metrics"] = {
+            k: v
+            for k, v in result.items()
+            if isinstance(v, (int, float)) and k not in ("n_cells", "n_neighbors")
+        }
+
+    return summary
 
 
 def _get_optimal_n_jobs(n_obs: int, requested_n_jobs: Optional[int] = None) -> int:

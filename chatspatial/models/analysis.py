@@ -38,13 +38,31 @@ class PreprocessingResult(BaseAnalysisResult):
 
 
 class DifferentialExpressionResult(BaseAnalysisResult):
-    """Result of differential expression analysis"""
+    """Result of differential expression analysis
+
+    Note on serialization:
+        For consistency with other result models, the statistics dict is excluded
+        from JSON serialization. Key summary info is in explicit fields.
+
+        Fields included in MCP response:
+        - data_id, comparison (basic info)
+        - n_genes (count)
+        - top_genes (top differentially expressed genes)
+
+        Fields excluded from MCP response:
+        - statistics (detailed DE metrics per group)
+    """
 
     data_id: str
     comparison: str
     n_genes: int
-    top_genes: List[str]
-    statistics: Dict[str, Any]
+    top_genes: List[str] = Field(default_factory=list)
+
+    # Detailed statistics - excluded from MCP response
+    statistics: Dict[str, Any] = Field(
+        default_factory=dict,
+        exclude=True,  # Exclude from JSON serialization to LLM
+    )
 
 
 class AnnotationResult(BaseAnalysisResult):
@@ -78,13 +96,39 @@ class AnnotationResult(BaseAnalysisResult):
 class SpatialStatisticsResult(BaseAnalysisResult):
     """Result of spatial analysis
 
-    Note: Visualization is handled separately via the visualize_data tool.
-    This model only contains statistical results and metadata.
+    Note on serialization:
+        To minimize MCP response size, detailed per-gene/per-spot statistics are
+        excluded from JSON serialization using Field(exclude=True). Summary fields
+        are always included.
+
+        Fields included in MCP response:
+        - data_id, analysis_type (basic info)
+        - n_features_analyzed, n_significant (summary counts)
+        - top_features (top significant genes/clusters)
+        - summary_metrics (compact key metrics)
+        - results_key (for accessing full results)
+
+        Fields excluded from MCP response (stored in adata):
+        - statistics (full detailed results dict)
+
+        Visualization is handled separately via the visualize_data tool.
     """
 
     data_id: str
     analysis_type: str
-    statistics: Optional[Dict[str, Any]] = None
+
+    # Summary fields - always included in MCP response
+    n_features_analyzed: int = 0
+    n_significant: int = 0
+    top_features: List[str] = Field(default_factory=list)
+    summary_metrics: Dict[str, float] = Field(default_factory=dict)
+    results_key: Optional[str] = None  # Key in adata.uns for full results
+
+    # Detailed statistics - excluded from MCP response
+    statistics: Optional[Dict[str, Any]] = Field(
+        default=None,
+        exclude=True,  # Exclude from JSON serialization to LLM
+    )
 
 
 class RNAVelocityResult(BaseAnalysisResult):
@@ -118,14 +162,17 @@ class IntegrationResult(BaseAnalysisResult):
 class DeconvolutionResult(BaseAnalysisResult):
     """Result of spatial deconvolution
 
-    Attributes:
-        data_id: Dataset identifier
-        method: Deconvolution method used
-        dominant_type_key: Column name in adata.obs where dominant cell type is stored (e.g., "dominant_celltype_cell2location")
-        cell_types: List of cell types identified
-        n_cell_types: Number of cell types
-        proportions_key: Key in adata.obsm where cell type proportions are stored
-        statistics: Statistics about the deconvolution results
+    Note on serialization:
+        To minimize MCP response size, detailed per-cell-type statistics are
+        excluded from JSON serialization using Field(exclude=True).
+
+        Fields included in MCP response:
+        - data_id, method, n_cell_types, cell_types (basic info)
+        - n_spots, genes_used (summary counts)
+        - dominant_type_key, proportions_key (storage keys)
+
+        Fields excluded from MCP response (stored in adata):
+        - statistics (includes mean_proportions, dominant_types dicts)
     """
 
     data_id: str
@@ -134,11 +181,33 @@ class DeconvolutionResult(BaseAnalysisResult):
     cell_types: List[str]
     n_cell_types: int
     proportions_key: str  # Key in adata.obsm where cell type proportions are stored
-    statistics: Dict[str, Any]  # Statistics about the deconvolution results
+
+    # Summary fields - always included
+    n_spots: int = 0
+    genes_used: int = 0
+
+    # Detailed statistics - excluded from MCP response
+    statistics: Dict[str, Any] = Field(
+        default_factory=dict,
+        exclude=True,  # Exclude from JSON serialization to LLM
+    )
 
 
 class SpatialDomainResult(BaseAnalysisResult):
-    """Result of spatial domain identification"""
+    """Result of spatial domain identification
+
+    Note on serialization:
+        For consistency with other result models, the detailed statistics dict
+        is excluded from JSON serialization. Key summary info is in explicit fields.
+
+        Fields included in MCP response:
+        - data_id, method, n_domains (basic info)
+        - domain_key, refined_domain_key, embeddings_key (storage keys)
+        - domain_counts (number of spots per domain - typically compact)
+
+        Fields excluded from MCP response:
+        - statistics (method parameters, stored in adata.uns)
+    """
 
     data_id: str
     method: str
@@ -148,9 +217,14 @@ class SpatialDomainResult(BaseAnalysisResult):
     refined_domain_key: Optional[str] = (
         None  # Key for refined domains if refinement was applied
     )
-    statistics: Dict[str, Any]  # Statistics about the domain identification
     embeddings_key: Optional[str] = (
         None  # Key in adata.obsm where embeddings are stored
+    )
+
+    # Detailed statistics - excluded from MCP response
+    statistics: Dict[str, Any] = Field(
+        default_factory=dict,
+        exclude=True,  # Exclude from JSON serialization to LLM
     )
 
 
@@ -207,7 +281,20 @@ class SpatialVariableGenesResult(BaseAnalysisResult):
 
 
 class CellCommunicationResult(BaseAnalysisResult):
-    """Result of cell-cell communication analysis"""
+    """Result of cell-cell communication analysis
+
+    Note on serialization:
+        To minimize MCP response size, detailed statistics are excluded from
+        JSON serialization. Key summary info is in explicit fields.
+
+        Fields included in MCP response:
+        - data_id, method, species, database (basic info)
+        - n_lr_pairs, n_significant_pairs, top_lr_pairs (summary)
+        - Various *_key fields (storage keys for accessing full results)
+
+        Fields excluded from MCP response:
+        - statistics (detailed analysis metrics)
+    """
 
     data_id: str
     method: str
@@ -220,7 +307,7 @@ class CellCommunicationResult(BaseAnalysisResult):
     global_results_key: Optional[str] = (
         None  # Key in adata.uns where global results are stored
     )
-    top_lr_pairs: List[str]  # List of top significant LR pairs
+    top_lr_pairs: List[str] = Field(default_factory=list)  # Top significant LR pairs
 
     # Local analysis results (if performed)
     local_analysis_performed: bool = False
@@ -252,8 +339,11 @@ class CellCommunicationResult(BaseAnalysisResult):
         None  # Key in adata.obs where communication patterns are stored
     )
 
-    # Statistics
-    statistics: Dict[str, Any]  # General statistics about the communication analysis
+    # Detailed statistics - excluded from MCP response
+    statistics: Dict[str, Any] = Field(
+        default_factory=dict,
+        exclude=True,  # Exclude from JSON serialization to LLM
+    )
 
 
 class EnrichmentResult(BaseAnalysisResult):
@@ -317,16 +407,18 @@ class EnrichmentResult(BaseAnalysisResult):
 class CNVResult(BaseAnalysisResult):
     """Result of Copy Number Variation (CNV) analysis
 
-    Attributes:
-        data_id: Dataset identifier
-        method: CNV inference method used (e.g., "infercnvpy")
-        reference_key: Column name in adata.obs used for reference cell types
-        reference_categories: List of cell types/clusters used as normal reference
-        n_chromosomes: Number of chromosomes analyzed
-        n_genes_analyzed: Number of genes included in CNV analysis
-        cnv_score_key: Key in adata.obsm where CNV scores are stored (e.g., "X_cnv")
-        statistics: Statistics about CNV detection (e.g., mean CNV, cell counts)
-        visualization_available: Whether CNV heatmap visualization data is available
+    Note on serialization:
+        For consistency with other result models, the statistics dict is excluded
+        from JSON serialization. Key summary info is in explicit fields.
+
+        Fields included in MCP response:
+        - data_id, method, reference_key, reference_categories (basic info)
+        - n_chromosomes, n_genes_analyzed (summary counts)
+        - cnv_score_key (storage key)
+        - visualization_available (status flag)
+
+        Fields excluded from MCP response:
+        - statistics (detailed CNV metrics)
     """
 
     data_id: str
@@ -336,8 +428,13 @@ class CNVResult(BaseAnalysisResult):
     n_chromosomes: int  # Number of chromosomes analyzed
     n_genes_analyzed: int  # Number of genes analyzed
     cnv_score_key: Optional[str] = None  # Key in adata.obsm (e.g., "X_cnv")
-    statistics: Optional[Dict[str, Any]] = None  # CNV statistics
     visualization_available: bool = False  # Whether visualization is available
+
+    # Detailed statistics - excluded from MCP response
+    statistics: Optional[Dict[str, Any]] = Field(
+        default=None,
+        exclude=True,  # Exclude from JSON serialization to LLM
+    )
 
 
 class DEGene(BaseAnalysisResult):
