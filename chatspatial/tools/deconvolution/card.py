@@ -13,16 +13,17 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    pass
+    import anndata as ad
 
 from ...utils.adata_utils import get_spatial_key
 from ...utils.dependency_manager import validate_r_package
 from ...utils.exceptions import ProcessingError
-from .base import DeconvolutionContext, create_deconvolution_stats
+from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
 async def deconvolve(
-    deconv_ctx: DeconvolutionContext,
+    data: PreparedDeconvolutionData,
+    original_spatial: "ad.AnnData",
     sample_key: Optional[str] = None,
     minCountGene: int = 100,
     minCountSpot: int = 5,
@@ -33,7 +34,8 @@ async def deconvolve(
     """Deconvolve spatial data using CARD R package.
 
     Args:
-        deconv_ctx: Prepared DeconvolutionContext
+        data: Prepared deconvolution data (immutable)
+        original_spatial: Original spatial AnnData (for spatial coordinates)
         sample_key: Optional sample/batch key in reference data
         minCountGene: Include genes with at least this many counts
         minCountSpot: Include genes expressed in at least this many spots
@@ -49,8 +51,7 @@ async def deconvolve(
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
 
-    ctx = deconv_ctx.ctx
-    cell_type_key = deconv_ctx.cell_type_key
+    ctx = data.ctx
 
     # Validate R package
     validate_r_package(
@@ -64,16 +65,16 @@ async def deconvolve(
         with localconverter(ro.default_converter + pandas2ri.converter):
             ro.r("library(CARD)")
 
-        # Get subset data
-        spatial_data, reference_data = deconv_ctx.get_subset_data()
-        common_genes = deconv_ctx.common_genes
+        # Create working copies
+        spatial_data = data.spatial.copy()
+        reference_data = data.reference.copy()
 
-        # Get spatial coordinates
-        spatial_key = get_spatial_key(deconv_ctx.spatial_adata)
+        # Get spatial coordinates from original data
+        spatial_key = get_spatial_key(original_spatial)
         if spatial_key:
             spatial_location = pd.DataFrame(
-                deconv_ctx.spatial_adata.obsm[spatial_key],
-                index=deconv_ctx.spatial_adata.obs_names,
+                original_spatial.obsm[spatial_key],
+                index=original_spatial.obs_names,
                 columns=["x", "y"],
             )
         else:
@@ -83,7 +84,7 @@ async def deconvolve(
             )
 
         # Prepare metadata
-        sc_meta = reference_data.obs[[cell_type_key]].copy()
+        sc_meta = reference_data.obs[[data.cell_type_key]].copy()
         sc_meta.columns = ["cellType"]
 
         if sample_key and sample_key in reference_data.obs:
@@ -117,7 +118,7 @@ async def deconvolve(
             ro.globalenv["minCountGene"] = minCountGene
             ro.globalenv["minCountSpot"] = minCountSpot
 
-        # Create CARD object and run deconvolution (suppress R output)
+        # Create CARD object and run deconvolution
         ro.r(
             """
             capture.output(
@@ -196,9 +197,9 @@ async def deconvolve(
         # Create statistics
         stats = create_deconvolution_stats(
             proportions,
-            common_genes,
-            "CARD",
-            "CPU",
+            data.common_genes,
+            method="CARD",
+            device="CPU",
             minCountGene=minCountGene,
             minCountSpot=minCountSpot,
         )
@@ -207,12 +208,14 @@ async def deconvolve(
             stats["imputation"] = {
                 "enabled": True,
                 "n_imputed_locations": len(imputed_proportions),
-                "resolution_increase": f"{len(imputed_proportions) / len(row_names):.1f}x",
+                "resolution_increase": (
+                    f"{len(imputed_proportions) / len(row_names):.1f}x"
+                ),
                 "imputed_proportions": imputed_proportions,
                 "imputed_coordinates": imputed_coordinates,
             }
 
-        # Clean up R global environment to free memory
+        # Clean up R global environment
         cleanup_vars = [
             "sc_count",
             "spatial_count",

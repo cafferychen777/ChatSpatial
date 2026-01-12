@@ -11,16 +11,17 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    pass
+    import anndata as ad
 
 from ...utils.adata_utils import get_spatial_key
 from ...utils.dependency_manager import validate_r_package
 from ...utils.exceptions import DataError, ParameterError, ProcessingError
-from .base import DeconvolutionContext, create_deconvolution_stats
+from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
 async def deconvolve(
-    deconv_ctx: DeconvolutionContext,
+    data: PreparedDeconvolutionData,
+    original_spatial: "ad.AnnData",
     mode: str = "full",
     max_cores: int = 4,
     confidence_threshold: float = 10.0,
@@ -30,7 +31,8 @@ async def deconvolve(
     """Deconvolve spatial data using RCTD from spacexr R package.
 
     Args:
-        deconv_ctx: Prepared DeconvolutionContext
+        data: Prepared deconvolution data (immutable)
+        original_spatial: Original spatial AnnData (for spatial coordinates)
         mode: RCTD mode - 'full', 'doublet', or 'multi'
         max_cores: Maximum CPU cores
         confidence_threshold: Confidence threshold
@@ -46,14 +48,13 @@ async def deconvolve(
     from rpy2.robjects import pandas2ri
     from rpy2.robjects.conversion import localconverter
 
-    ctx = deconv_ctx.ctx
-    cell_type_key = deconv_ctx.cell_type_key
+    ctx = data.ctx
 
     # Validate mode-specific parameters
-    if mode == "multi" and max_multi_types >= len(deconv_ctx.cell_types):
+    if mode == "multi" and max_multi_types >= data.n_cell_types:
         raise ParameterError(
             f"MAX_MULTI_TYPES ({max_multi_types}) must be less than "
-            f"total cell types ({len(deconv_ctx.cell_types)})."
+            f"total cell types ({data.n_cell_types})."
         )
 
     # Validate R package
@@ -69,16 +70,16 @@ async def deconvolve(
             rpackages.importr("spacexr")
             rpackages.importr("base")
 
-        # Get subset data
-        spatial_data, reference_data = deconv_ctx.get_subset_data()
-        common_genes = deconv_ctx.common_genes
+        # Create working copies
+        spatial_data = data.spatial.copy()
+        reference_data = data.reference.copy()
 
-        # Get spatial coordinates
-        spatial_key = get_spatial_key(deconv_ctx.spatial_adata)
+        # Get spatial coordinates from original data
+        spatial_key = get_spatial_key(original_spatial)
         if spatial_key:
             coords = pd.DataFrame(
-                deconv_ctx.spatial_adata.obsm[spatial_key],
-                index=deconv_ctx.spatial_adata.obs_names,
+                original_spatial.obsm[spatial_key],
+                index=original_spatial.obs_names,
                 columns=["x", "y"],
             )
         else:
@@ -88,12 +89,11 @@ async def deconvolve(
             )
 
         # Prepare cell type information
-        cell_types = reference_data.obs[cell_type_key].copy()
+        cell_types = reference_data.obs[data.cell_type_key].copy()
         cell_types = cell_types.str.replace("/", "_", regex=False)
         cell_types = cell_types.str.replace(" ", "_", regex=False)
 
         # RCTD requires minimum 25 cells per cell type
-        # Filter out rare cell types to avoid R-side errors
         MIN_CELLS_PER_TYPE = 25
         cell_type_counts = cell_types.value_counts()
         rare_types = cell_type_counts[
@@ -105,12 +105,10 @@ async def deconvolve(
                 f"RCTD requires ≥{MIN_CELLS_PER_TYPE} cells per cell type. "
                 f"Filtering {len(rare_types)} rare types: {rare_types}"
             )
-            # Filter reference data to exclude rare cell types
             keep_mask = ~cell_types.isin(rare_types)
             reference_data = reference_data[keep_mask].copy()
             cell_types = cell_types[keep_mask]
 
-            # Check if enough cell types remain
             remaining_types = cell_types.unique()
             if len(remaining_types) < 2:
                 raise DataError(
@@ -123,7 +121,6 @@ async def deconvolve(
         )
 
         # Calculate nUMI
-        # Memory optimization: ravel() returns view when possible, flatten() always copies
         spatial_numi = pd.Series(
             np.asarray(spatial_data.X.sum(axis=1)).ravel(),
             index=spatial_data.obs_names,
@@ -196,16 +193,16 @@ async def deconvolve(
         # Create statistics
         stats = create_deconvolution_stats(
             proportions,
-            common_genes,
-            f"RCTD-{mode}",
-            "CPU",
+            data.common_genes,
+            method=f"RCTD-{mode}",
+            device="CPU",
             mode=mode,
             max_cores=max_cores,
             confidence_threshold=confidence_threshold,
             doublet_threshold=doublet_threshold,
         )
 
-        # Clean up R global environment to free memory
+        # Clean up R global environment
         ro.r(
             """
             rm(list = c("spatial_counts", "reference_counts", "gene_names_spatial",

@@ -6,20 +6,17 @@ model on reference data, then using it to initialize a DestVI model.
 """
 
 import gc
-from typing import TYPE_CHECKING, Any, Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import pandas as pd
 
-if TYPE_CHECKING:
-    pass
-
 from ...utils.dependency_manager import is_available
 from ...utils.exceptions import DataError, DependencyError, ProcessingError
-from .base import DeconvolutionContext, create_deconvolution_stats
+from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
 async def deconvolve(
-    deconv_ctx: DeconvolutionContext,
+    data: PreparedDeconvolutionData,
     n_epochs: int = 10000,
     n_hidden: int = 128,
     n_latent: int = 10,
@@ -34,7 +31,7 @@ async def deconvolve(
     """Deconvolve spatial data using DestVI from scvi-tools.
 
     Args:
-        deconv_ctx: Prepared DeconvolutionContext
+        data: Prepared deconvolution data (immutable)
         n_epochs: Total epochs (split between CondSCVI and DestVI)
         n_hidden: Hidden units in neural networks
         n_latent: Latent space dimensionality
@@ -57,15 +54,14 @@ async def deconvolve(
     import scvi
 
     try:
-        # Get subset data from context
-        spatial_data, ref_data = deconv_ctx.get_subset_data()
-        cell_type_key = deconv_ctx.cell_type_key
-        common_genes = deconv_ctx.common_genes
+        # Create working copies (scvi-tools may modify in place)
+        spatial_data = data.spatial.copy()
+        ref_data = data.reference.copy()
 
         # Validate cell types
-        if len(deconv_ctx.cell_types) < 2:
+        if data.n_cell_types < 2:
             raise DataError(
-                f"Reference needs at least 2 cell types, found {len(deconv_ctx.cell_types)}"
+                f"Reference needs at least 2 cell types, found {data.n_cell_types}"
             )
 
         # Calculate epoch distribution
@@ -79,7 +75,7 @@ async def deconvolve(
         # ===== Stage 1: Train CondSCVI on reference =====
         scvi.model.CondSCVI.setup_anndata(
             ref_data,
-            labels_key=cell_type_key,
+            labels_key=data.cell_type_key,
             batch_key=None,
         )
 
@@ -125,8 +121,8 @@ async def deconvolve(
         # Create statistics
         stats = create_deconvolution_stats(
             proportions,
-            common_genes,
-            "DestVI",
+            data.common_genes,
+            method="DestVI",
             device="gpu" if use_gpu else "cpu",
             n_epochs=n_epochs,
             condscvi_epochs=condscvi_epochs,
@@ -135,7 +131,7 @@ async def deconvolve(
             n_latent=n_latent,
         )
 
-        # Memory cleanup: release models and intermediate data
+        # Memory cleanup
         del destvi_model, condscvi_model
         del spatial_data, ref_data
         gc.collect()

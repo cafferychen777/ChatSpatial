@@ -5,20 +5,17 @@ FlashDeconv is an ultra-fast spatial transcriptomics deconvolution method
 that uses random sketching for O(N) time complexity.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import pandas as pd
 
-if TYPE_CHECKING:
-    pass
-
 from ...utils.dependency_manager import is_available
 from ...utils.exceptions import DependencyError, ProcessingError
-from .base import DeconvolutionContext, create_deconvolution_stats
+from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
 async def deconvolve(
-    deconv_ctx: DeconvolutionContext,
+    data: PreparedDeconvolutionData,
     sketch_dim: int = 512,
     lambda_spatial: float = 5000.0,
     n_hvg: int = 2000,
@@ -34,7 +31,7 @@ async def deconvolve(
     - Spatial regularization for smooth proportions
 
     Args:
-        deconv_ctx: Prepared DeconvolutionContext with validated data
+        data: Prepared deconvolution data (immutable)
         sketch_dim: Dimension for random sketching (default: 512)
         lambda_spatial: Spatial regularization strength (default: 5000.0)
         n_hvg: Number of highly variable genes to use (default: 2000)
@@ -42,10 +39,6 @@ async def deconvolve(
 
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
-
-    Raises:
-        DependencyError: If flashdeconv is not installed
-        ProcessingError: If deconvolution fails
     """
     if not is_available("flashdeconv"):
         raise DependencyError(
@@ -55,15 +48,15 @@ async def deconvolve(
     try:
         import flashdeconv as fd
 
-        # Create a copy for FlashDeconv (it modifies in place)
-        adata_st = deconv_ctx.spatial_prepared.copy()
-        reference = deconv_ctx.reference_prepared
+        # Create copies (FlashDeconv modifies in place)
+        adata_st = data.spatial.copy()
+        reference = data.reference.copy()
 
         # Run FlashDeconv
         fd.tl.deconvolve(
             adata_st,
             reference,
-            cell_type_key=deconv_ctx.cell_type_key,
+            cell_type_key=data.cell_type_key,
             sketch_dim=sketch_dim,
             lambda_spatial=lambda_spatial,
             n_hvg=n_hvg,
@@ -73,7 +66,7 @@ async def deconvolve(
         # Extract proportions
         if "flashdeconv" not in adata_st.obsm:
             raise ProcessingError(
-                "FlashDeconv did not produce expected output in adata.obsm['flashdeconv']"
+                "FlashDeconv did not produce output in adata.obsm['flashdeconv']"
             )
 
         proportions = adata_st.obsm["flashdeconv"].copy()
@@ -82,16 +75,16 @@ async def deconvolve(
         if not isinstance(proportions, pd.DataFrame):
             proportions = pd.DataFrame(
                 proportions,
-                index=deconv_ctx.spatial_prepared.obs_names,
-                columns=deconv_ctx.cell_types,
+                index=data.spatial.obs_names,
+                columns=data.cell_types,
             )
         else:
-            proportions.index = deconv_ctx.spatial_prepared.obs_names
+            proportions.index = data.spatial.obs_names
 
         # Create statistics
         stats = create_deconvolution_stats(
             proportions,
-            deconv_ctx.common_genes,
+            data.common_genes,
             method="FlashDeconv",
             device="CPU",
             sketch_dim=sketch_dim,

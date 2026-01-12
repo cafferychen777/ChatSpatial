@@ -6,19 +6,16 @@ data using the native tangram-sc library.
 """
 
 import gc
-from typing import TYPE_CHECKING, Any, Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import pandas as pd
 
-if TYPE_CHECKING:
-    pass
-
 from ...utils.exceptions import DependencyError, ProcessingError
-from .base import DeconvolutionContext, create_deconvolution_stats
+from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
 async def deconvolve(
-    deconv_ctx: DeconvolutionContext,
+    data: PreparedDeconvolutionData,
     n_epochs: int = 1000,
     mode: str = "cells",
     learning_rate: float = 0.1,
@@ -28,7 +25,7 @@ async def deconvolve(
     """Deconvolve spatial data using native Tangram library.
 
     Args:
-        deconv_ctx: Prepared DeconvolutionContext
+        data: Prepared deconvolution data (immutable)
         n_epochs: Number of training epochs
         mode: Mapping mode - 'cells' or 'clusters'
         learning_rate: Optimizer learning rate
@@ -46,21 +43,19 @@ async def deconvolve(
             "tangram-sc is required for Tangram. Install with: pip install tangram-sc"
         ) from e
 
-    cell_type_key = deconv_ctx.cell_type_key
-
     try:
-        # Get subset data
-        spatial_data, ref_data = deconv_ctx.get_subset_data()
-        common_genes = deconv_ctx.common_genes
+        # Create working copies (tangram may modify in place)
+        spatial_data = data.spatial.copy()
+        ref_data = data.reference.copy()
 
         # Tangram requires 'cell_type' column for cluster mode
         if "cell_type" not in ref_data.obs.columns:
-            ref_data.obs["cell_type"] = ref_data.obs[cell_type_key]
+            ref_data.obs["cell_type"] = ref_data.obs[data.cell_type_key]
 
         # Select marker genes for training (tangram recommendation: 100-1000 genes)
         # Use up to 500 genes from common genes for efficiency
-        n_training_genes = min(500, len(common_genes))
-        training_genes = common_genes[:n_training_genes]
+        n_training_genes = min(500, len(data.common_genes))
+        training_genes = data.common_genes[:n_training_genes]
 
         # Preprocess with tangram (this sets up required annotations)
         tg.pp_adatas(ref_data, spatial_data, genes=training_genes)
@@ -70,19 +65,17 @@ async def deconvolve(
 
         # Map cells to space
         if mode == "clusters":
-            # Cluster mode: aggregate by cell type before mapping
             ad_map = tg.map_cells_to_space(
                 ref_data,
                 spatial_data,
                 mode="clusters",
-                cluster_label=cell_type_key,
+                cluster_label=data.cell_type_key,
                 density_prior=density_prior,
                 num_epochs=n_epochs,
                 learning_rate=learning_rate,
                 device=device,
             )
         else:
-            # Default cells mode
             ad_map = tg.map_cells_to_space(
                 ref_data,
                 spatial_data,
@@ -97,14 +90,14 @@ async def deconvolve(
         mapping_matrix = ad_map.X
 
         # Calculate cell type proportions from mapping
-        cell_types = ref_data.obs[cell_type_key].unique()
+        cell_types = ref_data.obs[data.cell_type_key].unique()
 
         # Create cell type indicator matrix
-        cell_type_series = ref_data.obs[cell_type_key]
+        cell_type_series = ref_data.obs[data.cell_type_key]
         type_indicators = pd.get_dummies(cell_type_series)
         type_indicators = type_indicators.reindex(columns=cell_types, fill_value=0)
 
-        # Matrix multiply: (n_types x n_cells) @ (n_cells x n_spots) = (n_types x n_spots)
+        # (n_types x n_cells) @ (n_cells x n_spots) = (n_types x n_spots)
         proportions_array = type_indicators.values.T @ mapping_matrix
 
         # Create DataFrame
@@ -120,8 +113,8 @@ async def deconvolve(
         # Create statistics
         stats = create_deconvolution_stats(
             proportions,
-            common_genes,
-            "Tangram",
+            data.common_genes,
+            method="Tangram",
             device=device.upper(),
             n_epochs=n_epochs,
             mode=mode,

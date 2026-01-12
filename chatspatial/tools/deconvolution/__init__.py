@@ -31,10 +31,10 @@ from ...models.analysis import DeconvolutionResult
 from ...models.data import DeconvolutionParameters
 from ...utils.adata_utils import ensure_unique_var_names_async, validate_obs_column
 from ...utils.exceptions import DataError, DependencyError, ParameterError
-from .base import DeconvolutionContext
+from .base import PreparedDeconvolutionData, prepare_deconvolution
 
-# Export main function
-__all__ = ["deconvolve_spatial_data", "DeconvolutionContext"]
+# Export main function and data container
+__all__ = ["deconvolve_spatial_data", "PreparedDeconvolutionData"]
 
 
 async def deconvolve_spatial_data(
@@ -89,29 +89,24 @@ async def deconvolve_spatial_data(
     # Check method availability
     _check_method_availability(params.method)
 
-    # Create deconvolution context
-    deconv_ctx = DeconvolutionContext(
+    # Prepare data using unified function
+    require_int = params.method in _R_BASED_METHODS
+    preprocess_hook = _get_preprocess_hook(params)
+
+    data = await prepare_deconvolution(
         spatial_adata=spatial_adata,
         reference_adata=reference_adata,
         cell_type_key=params.cell_type_key,
         ctx=ctx,
+        require_int_dtype=require_int,
+        preprocess=preprocess_hook,
     )
 
-    # Phase 1: Prepare data (R-based methods need int32)
-    require_int = params.method in _R_BASED_METHODS
-    await deconv_ctx.prepare_data(require_int_dtype=require_int)
-
-    # Phase 2: Find common genes
-    # Cell2location has custom gene filtering, so it calls find_genes() after filtering
-    if params.method != "cell2location":
-        await deconv_ctx.find_genes()
-
     # Dispatch to method-specific implementation
-    proportions, stats = await _dispatch_method(deconv_ctx, params)
+    proportions, stats = await _dispatch_method(data, params, spatial_adata)
 
-    # Memory cleanup: release prepared data from context after dispatch
-    # This frees spatial_prepared and reference_prepared copies
-    del deconv_ctx
+    # Memory cleanup
+    del data
     gc.collect()
 
     # Store results in AnnData
@@ -159,13 +154,11 @@ def _check_method_availability(method: str) -> None:
     missing = []
 
     for dep in deps:
-        # Handle package name variations
         import_name = "scvi" if dep == "scvi-tools" else dep.replace("-", "_")
         if importlib.util.find_spec(import_name) is None:
             missing.append(dep)
 
     if missing:
-        # Suggest alternatives
         available = []
         for m, d in _METHOD_DEPENDENCIES.items():
             check_deps = [
@@ -183,9 +176,38 @@ def _check_method_availability(method: str) -> None:
         )
 
 
+def _get_preprocess_hook(params: DeconvolutionParameters):
+    """Get method-specific preprocessing hook if needed."""
+    if params.method == "cell2location" and params.cell2location_apply_gene_filtering:
+        # Return a closure that captures the filter params
+        async def cell2location_preprocess(spatial, reference, ctx):
+            from .cell2location import apply_gene_filtering
+
+            sp = await apply_gene_filtering(
+                spatial,
+                ctx,
+                cell_count_cutoff=params.cell2location_gene_filter_cell_count_cutoff,
+                cell_percentage_cutoff2=params.cell2location_gene_filter_cell_percentage_cutoff2,
+                nonz_mean_cutoff=params.cell2location_gene_filter_nonz_mean_cutoff,
+            )
+            ref = await apply_gene_filtering(
+                reference,
+                ctx,
+                cell_count_cutoff=params.cell2location_gene_filter_cell_count_cutoff,
+                cell_percentage_cutoff2=params.cell2location_gene_filter_cell_percentage_cutoff2,
+                nonz_mean_cutoff=params.cell2location_gene_filter_nonz_mean_cutoff,
+            )
+            return sp, ref
+
+        return cell2location_preprocess
+
+    return None
+
+
 async def _dispatch_method(
-    deconv_ctx: DeconvolutionContext,
+    data: PreparedDeconvolutionData,
     params: DeconvolutionParameters,
+    original_spatial: "ad.AnnData",
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Dispatch to the appropriate method implementation."""
     method = params.method
@@ -194,7 +216,7 @@ async def _dispatch_method(
         from . import flashdeconv
 
         return await flashdeconv.deconvolve(
-            deconv_ctx,
+            data,
             sketch_dim=params.flashdeconv_sketch_dim,
             lambda_spatial=params.flashdeconv_lambda_spatial,
             n_hvg=params.flashdeconv_n_hvg,
@@ -205,7 +227,7 @@ async def _dispatch_method(
         from . import cell2location
 
         return await cell2location.deconvolve(
-            deconv_ctx,
+            data,
             ref_model_epochs=params.cell2location_ref_model_epochs,
             n_epochs=params.cell2location_n_epochs,
             n_cells_per_spot=params.cell2location_n_cells_per_spot or 30,
@@ -213,10 +235,6 @@ async def _dispatch_method(
             use_gpu=params.use_gpu,
             batch_key=params.cell2location_batch_key,
             categorical_covariate_keys=params.cell2location_categorical_covariate_keys,
-            apply_gene_filtering=params.cell2location_apply_gene_filtering,
-            gene_filter_cell_count_cutoff=params.cell2location_gene_filter_cell_count_cutoff,
-            gene_filter_cell_percentage_cutoff2=params.cell2location_gene_filter_cell_percentage_cutoff2,
-            gene_filter_nonz_mean_cutoff=params.cell2location_gene_filter_nonz_mean_cutoff,
             ref_model_lr=params.cell2location_ref_model_lr,
             cell2location_lr=params.cell2location_lr,
             ref_model_train_size=params.cell2location_ref_model_train_size,
@@ -232,7 +250,7 @@ async def _dispatch_method(
         from . import destvi
 
         return await destvi.deconvolve(
-            deconv_ctx,
+            data,
             n_epochs=params.destvi_n_epochs,
             n_hidden=params.destvi_n_hidden,
             n_latent=params.destvi_n_latent,
@@ -249,7 +267,7 @@ async def _dispatch_method(
         from . import stereoscope
 
         return await stereoscope.deconvolve(
-            deconv_ctx,
+            data,
             n_epochs=params.stereoscope_n_epochs,
             learning_rate=params.stereoscope_learning_rate,
             batch_size=params.stereoscope_batch_size,
@@ -260,7 +278,8 @@ async def _dispatch_method(
         from . import rctd
 
         return await rctd.deconvolve(
-            deconv_ctx,
+            data,
+            original_spatial,
             mode=params.rctd_mode,
             max_cores=params.max_cores,
             confidence_threshold=params.rctd_confidence_threshold,
@@ -272,7 +291,8 @@ async def _dispatch_method(
         from . import spotlight
 
         return await spotlight.deconvolve(
-            deconv_ctx,
+            data,
+            original_spatial,
             n_top_genes=params.spotlight_n_top_genes,
             nmf_model=params.spotlight_nmf_model,
             min_prop=params.spotlight_min_prop,
@@ -284,7 +304,8 @@ async def _dispatch_method(
         from . import card
 
         return await card.deconvolve(
-            deconv_ctx,
+            data,
+            original_spatial,
             sample_key=params.card_sample_key,
             minCountGene=params.card_minCountGene,
             minCountSpot=params.card_minCountSpot,
@@ -297,7 +318,7 @@ async def _dispatch_method(
         from . import tangram
 
         return await tangram.deconvolve(
-            deconv_ctx,
+            data,
             n_epochs=params.tangram_n_epochs,
             mode=params.tangram_mode,
             learning_rate=params.tangram_learning_rate,
@@ -325,9 +346,7 @@ async def _store_results(
     proportions_key = f"deconvolution_{method}"
     cell_types = list(proportions.columns)
 
-    # Align proportions with spatial_adata.obs_names using vectorized reindex
-    # Missing spots (filtered by some methods) will be filled with 0
-    # This is O(n) vs the previous O(n²) approach using get_loc() in a loop
+    # Align proportions with spatial_adata.obs_names
     full_proportions = proportions.reindex(spatial_adata.obs_names).fillna(0).values
 
     # Store in obsm
@@ -340,7 +359,7 @@ async def _store_results(
     for i, ct in enumerate(cell_types):
         spatial_adata.obs[f"{proportions_key}_{ct}"] = full_proportions[:, i]
 
-    # Add dominant cell type annotation using vectorized numpy operations
+    # Add dominant cell type annotation
     dominant_key = f"dominant_celltype_{method}"
     cell_types_array = np.array(cell_types)
     dominant_types = cell_types_array[np.argmax(full_proportions, axis=1)]
@@ -358,5 +377,5 @@ async def _store_results(
         proportions_key=proportions_key,
         n_spots=stats.get("n_spots", 0),
         genes_used=stats.get("genes_used", stats.get("common_genes", 0)),
-        statistics=stats,  # Excluded from MCP response via Field(exclude=True)
+        statistics=stats,
     )

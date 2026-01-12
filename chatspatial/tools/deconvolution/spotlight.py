@@ -11,16 +11,17 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    pass
+    import anndata as ad
 
 from ...utils.adata_utils import require_spatial_coords, to_dense
 from ...utils.dependency_manager import validate_r_package
 from ...utils.exceptions import ProcessingError
-from .base import DeconvolutionContext, create_deconvolution_stats
+from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
 async def deconvolve(
-    deconv_ctx: DeconvolutionContext,
+    data: PreparedDeconvolutionData,
+    original_spatial: "ad.AnnData",
     n_top_genes: int = 2000,
     nmf_model: str = "ns",
     min_prop: float = 0.01,
@@ -30,7 +31,8 @@ async def deconvolve(
     """Deconvolve spatial data using SPOTlight R package.
 
     Args:
-        deconv_ctx: Prepared DeconvolutionContext
+        data: Prepared deconvolution data (immutable)
+        original_spatial: Original spatial AnnData (for spatial coordinates)
         n_top_genes: Number of top HVGs to use
         nmf_model: NMF model type - 'ns' (non-smooth) or 'std' (standard)
         min_prop: Minimum proportion threshold
@@ -45,8 +47,7 @@ async def deconvolve(
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
 
-    ctx = deconv_ctx.ctx
-    cell_type_key = deconv_ctx.cell_type_key
+    ctx = data.ctx
 
     # Validate R package
     validate_r_package(
@@ -56,16 +57,14 @@ async def deconvolve(
     )
 
     try:
-        # Validate spatial coordinates
-        spatial_coords = require_spatial_coords(deconv_ctx.spatial_adata)
+        # Validate spatial coordinates from original data
+        spatial_coords = require_spatial_coords(original_spatial)
 
-        # Get subset data
-        spatial_data, reference_data = deconv_ctx.get_subset_data()
-        common_genes = deconv_ctx.common_genes
+        # Create working copies
+        spatial_data = data.spatial.copy()
+        reference_data = data.reference.copy()
 
         # Ensure integer counts for R interface
-        # Note: prepare_data() already converted to int32 for R-based methods,
-        # but we convert here explicitly to handle any edge cases
         dense = to_dense(spatial_data.X)
         spatial_counts = (
             dense.astype(np.int32, copy=False) if dense.dtype != np.int32 else dense
@@ -77,7 +76,7 @@ async def deconvolve(
         )
 
         # Clean cell type labels
-        cell_types = reference_data.obs[cell_type_key].astype(str)
+        cell_types = reference_data.obs[data.cell_type_key].astype(str)
         cell_types = cell_types.str.replace("/", "_", regex=False)
         cell_types = cell_types.str.replace(" ", "_", regex=False)
 
@@ -97,7 +96,7 @@ async def deconvolve(
             ro.r("library(scuttle)")
 
             ro.globalenv["spatial_coords"] = spatial_coords
-            ro.globalenv["gene_names"] = ro.StrVector(common_genes)
+            ro.globalenv["gene_names"] = ro.StrVector(data.common_genes)
             ro.globalenv["spatial_names"] = ro.StrVector(list(spatial_data.obs_names))
             ro.globalenv["reference_names"] = ro.StrVector(
                 list(reference_data.obs_names)
@@ -185,15 +184,15 @@ async def deconvolve(
         # Create statistics
         stats = create_deconvolution_stats(
             proportions,
-            common_genes,
-            "SPOTlight",
-            "CPU",
+            data.common_genes,
+            method="SPOTlight",
+            device="CPU",
             n_top_genes=n_top_genes,
             nmf_model=nmf_model,
             min_prop=min_prop,
         )
 
-        # Clean up R global environment to free memory
+        # Clean up R global environment
         ro.r(
             """
             rm(list = c("spatial_counts", "reference_counts", "spatial_coords",

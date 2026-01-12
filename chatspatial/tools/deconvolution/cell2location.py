@@ -23,13 +23,13 @@ from ...utils.exceptions import DataError, ProcessingError
 from ...utils.image_utils import non_interactive_backend
 from ...utils.mcp_utils import suppress_output
 from .base import (
-    DeconvolutionContext,
+    PreparedDeconvolutionData,
     check_model_convergence,
     create_deconvolution_stats,
 )
 
 
-async def _apply_gene_filtering(
+async def apply_gene_filtering(
     adata: "ad.AnnData",
     ctx: "ToolContext",
     cell_count_cutoff: int = 5,
@@ -39,6 +39,9 @@ async def _apply_gene_filtering(
     """Apply cell2location's official gene filtering.
 
     Reference: cell2location tutorial - "very permissive gene selection"
+
+    This function is called by the preprocess hook in __init__.py before
+    common gene identification.
 
     Note: The original filter_genes function creates a matplotlib figure.
     We suppress this by using Agg backend and closing the figure immediately.
@@ -50,7 +53,6 @@ async def _apply_gene_filtering(
         )
         return adata.copy()
 
-    # Suppress matplotlib figure from filter_genes using context manager
     import matplotlib.pyplot as plt
 
     with non_interactive_backend():
@@ -62,14 +64,13 @@ async def _apply_gene_filtering(
             cell_percentage_cutoff2=cell_percentage_cutoff2,
             nonz_mean_cutoff=nonz_mean_cutoff,
         )
-        # Close any figures created by filter_genes
         plt.close("all")
 
     return adata[:, selected].copy()
 
 
 async def deconvolve(
-    deconv_ctx: DeconvolutionContext,
+    data: PreparedDeconvolutionData,
     ref_model_epochs: int = 250,
     n_epochs: int = 30000,
     n_cells_per_spot: int = 30,
@@ -77,10 +78,6 @@ async def deconvolve(
     use_gpu: bool = False,
     batch_key: Optional[str] = None,
     categorical_covariate_keys: Optional[List[str]] = None,
-    apply_gene_filtering: bool = True,
-    gene_filter_cell_count_cutoff: int = 5,
-    gene_filter_cell_percentage_cutoff2: float = 0.03,
-    gene_filter_nonz_mean_cutoff: float = 1.12,
     ref_model_lr: float = 0.002,
     cell2location_lr: float = 0.005,
     ref_model_train_size: float = 1.0,
@@ -93,8 +90,11 @@ async def deconvolve(
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Deconvolve spatial data using Cell2location.
 
+    Note: Gene filtering is handled by the preprocess hook in __init__.py.
+    The data parameter contains already filtered and subset data.
+
     Args:
-        deconv_ctx: DeconvolutionContext with prepare_data() already called
+        data: Prepared deconvolution data (immutable, already filtered)
         ref_model_epochs: Epochs for reference model (default: 250)
         n_epochs: Epochs for Cell2location model (default: 30000)
         n_cells_per_spot: Expected cells per location (default: 30)
@@ -102,8 +102,6 @@ async def deconvolve(
         use_gpu: Use GPU acceleration
         batch_key: Column for batch correction
         categorical_covariate_keys: Technical covariates
-        apply_gene_filtering: Apply official gene filtering (default: True)
-        gene_filter_*: Gene filtering parameters
         ref_model_lr: Reference model learning rate (default: 0.002)
         cell2location_lr: Cell2location learning rate (default: 0.005)
         *_train_size: Training data fractions
@@ -117,48 +115,17 @@ async def deconvolve(
     require("cell2location")
     from cell2location.models import Cell2location, RegressionModel
 
-    ctx = deconv_ctx.ctx
-    cell_type_key = deconv_ctx.cell_type_key
+    ctx = data.ctx
+    cell_type_key = data.cell_type_key
 
     try:
-        # Device selection
         device = get_device(prefer_gpu=use_gpu)
 
-        # Use prepared data from context
-        ref = deconv_ctx.reference_prepared
-        sp = deconv_ctx.spatial_prepared
-
-        # Apply Cell2location-specific gene filtering
-        if apply_gene_filtering:
-            ref = await _apply_gene_filtering(
-                ref,
-                ctx,
-                cell_count_cutoff=gene_filter_cell_count_cutoff,
-                cell_percentage_cutoff2=gene_filter_cell_percentage_cutoff2,
-                nonz_mean_cutoff=gene_filter_nonz_mean_cutoff,
-            )
-            sp = await _apply_gene_filtering(
-                sp,
-                ctx,
-                cell_count_cutoff=gene_filter_cell_count_cutoff,
-                cell_percentage_cutoff2=gene_filter_cell_percentage_cutoff2,
-                nonz_mean_cutoff=gene_filter_nonz_mean_cutoff,
-            )
-            # Update context with filtered data
-            deconv_ctx.reference_prepared = ref
-            deconv_ctx.spatial_prepared = sp
-
-        # Find common genes after filtering
-        await deconv_ctx.find_genes(min_common_genes=100)
-        common_genes = deconv_ctx.common_genes
-
-        # Subset to common genes
-        ref = ref[:, common_genes]
-        sp = sp[:, common_genes]
+        # Create working copies (Cell2location modifies in place)
+        ref = data.reference.copy()
+        sp = data.spatial.copy()
 
         # Ensure float32 for scvi-tools compatibility
-        # Note: scipy sparse matrices' astype() preserves sparsity
-        # Dense arrays are converted in-place without extra memory allocation
         if ref.X.dtype != np.float32:
             ref.X = ref.X.astype(np.float32)
         if sp.X.dtype != np.float32:
@@ -252,9 +219,9 @@ async def deconvolve(
         # Create statistics
         stats = create_deconvolution_stats(
             proportions,
-            common_genes,
-            "Cell2location",
-            device,
+            data.common_genes,
+            method="Cell2location",
+            device=device,
             n_epochs=n_epochs,
             n_cells_per_spot=n_cells_per_spot,
             detection_alpha=detection_alpha,
@@ -266,8 +233,7 @@ async def deconvolve(
             if "elbo_train" in history and not history["elbo_train"].empty:
                 stats["final_elbo"] = float(history["elbo_train"].iloc[-1])
 
-        # Memory cleanup: release models and intermediate data
-        # Cell2location is particularly memory-intensive with two-stage training
+        # Memory cleanup
         del cell2loc_model, ref_model
         del ref, sp, ref_signatures
         gc.collect()
@@ -344,8 +310,6 @@ def _extract_cell_abundance(sp: "ad.AnnData"):
     for key in possible_keys:
         if key in sp.obsm:
             result = sp.obsm[key]
-            # Cell2location returns DataFrame with prefixed column names
-            # Extract values as numpy array for consistent processing
             if hasattr(result, "values"):
                 return result.values
             return result

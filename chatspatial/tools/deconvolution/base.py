@@ -1,12 +1,23 @@
 """
-Base classes and utilities for deconvolution methods.
+Base utilities for deconvolution methods.
 
-This module provides the shared infrastructure for all deconvolution methods,
-following the DRY principle by extracting common validation and data preparation logic.
+Design Philosophy:
+- Immutable data container (frozen dataclass) for prepared data
+- Single function API for the common case
+- Hook pattern for method-specific preprocessing (e.g., cell2location)
 """
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+)
 
 import anndata as ad
 import numpy as np
@@ -22,74 +33,208 @@ from ...utils.adata_utils import (
     validate_gene_overlap,
     validate_obs_column,
 )
-from ...utils.exceptions import DataError, ProcessingError
+from ...utils.exceptions import DataError
+
+# Type alias for preprocess hook
+PreprocessHook = Callable[
+    [ad.AnnData, ad.AnnData, "ToolContext"],
+    Awaitable[Tuple[ad.AnnData, ad.AnnData]],
+]
+
 
 # =============================================================================
-# Data Preparation Helpers
+# Immutable Data Container
 # =============================================================================
 
 
-async def prepare_anndata_for_counts(
+@dataclass(frozen=True)
+class PreparedDeconvolutionData:
+    """Immutable container for prepared deconvolution data.
+
+    All fields are populated by prepare_deconvolution() and cannot be modified.
+    This eliminates state machine complexity and makes data flow explicit.
+
+    Attributes:
+        spatial: Spatial AnnData subset to common genes (raw counts)
+        reference: Reference AnnData subset to common genes (raw counts)
+        cell_type_key: Column name for cell types in reference
+        cell_types: List of unique cell types
+        common_genes: List of genes present in both datasets
+        ctx: ToolContext for logging/warnings
+
+    Usage:
+        data = await prepare_deconvolution(spatial, ref, "cell_type", ctx)
+        proportions = run_method(data.spatial, data.reference, data.cell_types)
+    """
+
+    spatial: ad.AnnData
+    reference: ad.AnnData
+    cell_type_key: str
+    cell_types: List[str]
+    common_genes: List[str]
+    ctx: "ToolContext"
+
+    @property
+    def n_spots(self) -> int:
+        """Number of spatial spots."""
+        return self.spatial.n_obs
+
+    @property
+    def n_cell_types(self) -> int:
+        """Number of cell types."""
+        return len(self.cell_types)
+
+    @property
+    def n_genes(self) -> int:
+        """Number of common genes."""
+        return len(self.common_genes)
+
+
+# =============================================================================
+# Single Entry Point
+# =============================================================================
+
+
+async def prepare_deconvolution(
+    spatial_adata: ad.AnnData,
+    reference_adata: ad.AnnData,
+    cell_type_key: str,
+    ctx: "ToolContext",
+    require_int_dtype: bool = False,
+    min_common_genes: int = 100,
+    preprocess: Optional[PreprocessHook] = None,
+) -> PreparedDeconvolutionData:
+    """Prepare data for deconvolution in a single function call.
+
+    This is the primary API for deconvolution data preparation. It handles:
+    1. Validation of cell type key
+    2. Raw count restoration for both datasets
+    3. Optional method-specific preprocessing (via hook)
+    4. Common gene identification and validation
+    5. Subsetting to common genes
+
+    Args:
+        spatial_adata: Spatial transcriptomics AnnData
+        reference_adata: Single-cell reference AnnData
+        cell_type_key: Column in reference.obs containing cell type labels
+        ctx: ToolContext for logging
+        require_int_dtype: Convert to int32 (required for R-based methods)
+        min_common_genes: Minimum required gene overlap
+        preprocess: Optional async hook for method-specific preprocessing.
+                   Signature: async (spatial, reference, ctx) -> (spatial, reference)
+                   Called after raw count restoration, before gene finding.
+
+    Returns:
+        PreparedDeconvolutionData with all fields populated
+
+    Examples:
+        # Standard usage (most methods)
+        data = await prepare_deconvolution(spatial, ref, "cell_type", ctx)
+
+        # With custom preprocessing (e.g., cell2location)
+        async def custom_filter(sp, ref, ctx):
+            sp = await apply_filtering(sp, ctx)
+            ref = await apply_filtering(ref, ctx)
+            return sp, ref
+
+        data = await prepare_deconvolution(
+            spatial, ref, "cell_type", ctx,
+            preprocess=custom_filter
+        )
+    """
+    # 1. Validate cell type key
+    validate_obs_column(reference_adata, cell_type_key, "Cell type key")
+
+    # 2. Extract cell types
+    cell_types = list(reference_adata.obs[cell_type_key].unique())
+    if len(cell_types) < 2:
+        raise DataError(
+            f"Reference data must have at least 2 cell types, found {len(cell_types)}"
+        )
+
+    # 3. Restore raw counts
+    spatial_prep = await _prepare_counts(
+        spatial_adata, "Spatial", ctx, require_int_dtype
+    )
+    reference_prep = await _prepare_counts(
+        reference_adata, "Reference", ctx, require_int_dtype
+    )
+
+    # 4. Optional method-specific preprocessing
+    if preprocess is not None:
+        spatial_prep, reference_prep = await preprocess(
+            spatial_prep, reference_prep, ctx
+        )
+
+    # 5. Find common genes
+    common_genes = find_common_genes(
+        spatial_prep.var_names,
+        reference_prep.var_names,
+    )
+
+    # 6. Validate gene overlap
+    validate_gene_overlap(
+        common_genes,
+        spatial_prep.n_vars,
+        reference_prep.n_vars,
+        min_genes=min_common_genes,
+        source_name="spatial",
+        target_name="reference",
+    )
+
+    # 7. Return immutable result with data subset to common genes
+    return PreparedDeconvolutionData(
+        spatial=spatial_prep[:, common_genes].copy(),
+        reference=reference_prep[:, common_genes].copy(),
+        cell_type_key=cell_type_key,
+        cell_types=cell_types,
+        common_genes=common_genes,
+        ctx=ctx,
+    )
+
+
+async def _prepare_counts(
     adata: ad.AnnData,
     label: str,
     ctx: "ToolContext",
-    require_int_dtype: bool = False,
-    require_integer_counts: bool = True,
+    require_int_dtype: bool,
 ) -> ad.AnnData:
-    """Prepare AnnData for deconvolution by ensuring raw counts are available.
-
-    This function:
-    1. Gets raw count data from adata.raw, layers['counts'], or X
-    2. Optionally converts to integer dtype (required for R-based methods)
-    3. Returns a copy to avoid modifying the original
-
-    Args:
-        adata: Input AnnData object
-        label: Label for logging (e.g., "Spatial", "Reference")
-        ctx: ToolContext for warnings
-        require_int_dtype: If True, convert to int32 (required for RCTD, SPOTlight, CARD)
-        require_integer_counts: If True, raise error on normalized data
-
-    Returns:
-        AnnData with raw counts in X
-    """
-    # Get raw data source - returns RawDataResult object
+    """Prepare AnnData by restoring raw counts."""
     result = get_raw_data_source(
         adata,
         prefer_complete_genes=True,
-        require_integer_counts=require_integer_counts,
+        require_integer_counts=True,
         sample_size=100,
     )
 
-    # Warn if using normalized data (when allowed)
-    if not result.is_integer_counts and not require_integer_counts and ctx:
+    if not result.is_integer_counts:
         await ctx.warning(
             f"{label}: Using normalized data (no raw counts available). "
             f"This may be acceptable for some reference datasets."
         )
 
-    # Construct AnnData based on detected source
+    # Construct copy based on source
     if result.source == "raw":
         adata_copy = adata.raw.to_adata()
     elif result.source == "counts_layer":
-        # adata.copy() is a deep copy, so layers["counts"] is already independent
-        # No need for additional .copy() - this avoids memory overhead
         adata_copy = adata.copy()
         adata_copy.X = adata_copy.layers["counts"]
     else:
-        # source == "X": use current X matrix
         adata_copy = adata.copy()
 
-    # Convert to int32 if required (R-based methods need integer counts)
-    # This also densifies sparse matrices for R compatibility
+    # Convert to int32 if required (R-based methods)
     if require_int_dtype and result.is_integer_counts:
         dense = to_dense(adata_copy.X)
-        if dense.dtype != np.int32:
-            adata_copy.X = dense.astype(np.int32, copy=False)
-        else:
-            adata_copy.X = dense
+        adata_copy.X = (
+            dense.astype(np.int32, copy=False) if dense.dtype != np.int32 else dense
+        )
 
     return adata_copy
+
+
+# =============================================================================
+# Statistics Helper
+# =============================================================================
 
 
 def create_deconvolution_stats(
@@ -99,18 +244,7 @@ def create_deconvolution_stats(
     device: str = "CPU",
     **method_specific_params,
 ) -> Dict[str, Any]:
-    """Create standardized statistics dictionary for deconvolution results.
-
-    Args:
-        proportions: DataFrame with cell type proportions (spots x cell_types)
-        common_genes: List of common genes used for deconvolution
-        method: Deconvolution method name
-        device: Device used for computation (CPU/GPU)
-        **method_specific_params: Additional method-specific parameters
-
-    Returns:
-        Dictionary with standardized statistics
-    """
+    """Create standardized statistics dictionary for deconvolution results."""
     cell_types = list(proportions.columns)
     stats = {
         "method": method,
@@ -123,154 +257,8 @@ def create_deconvolution_stats(
         "mean_proportions": proportions.mean().to_dict(),
         "dominant_types": proportions.idxmax(axis=1).value_counts().to_dict(),
     }
-
-    # Add method-specific parameters
     stats.update(method_specific_params)
-
     return stats
-
-
-# =============================================================================
-# Deconvolution Context - Encapsulates Common Workflow
-# =============================================================================
-
-
-@dataclass
-class DeconvolutionContext:
-    """Encapsulates common data preparation for all deconvolution methods.
-
-    This class uses a two-phase preparation design:
-    1. prepare_data(): Validate and restore raw counts
-    2. find_genes(): Find and validate common genes
-
-    This allows methods to insert custom preprocessing (e.g., gene filtering)
-    between the two phases.
-
-    Usage (standard):
-        ctx = DeconvolutionContext(spatial, reference, cell_type_key, tool_ctx)
-        await ctx.prepare_data()
-        await ctx.find_genes()
-        spatial_data, ref_data = ctx.get_subset_data()
-
-    Usage (with custom preprocessing):
-        ctx = DeconvolutionContext(spatial, reference, cell_type_key, tool_ctx)
-        await ctx.prepare_data()
-        # Apply method-specific preprocessing to ctx.spatial_prepared / reference_prepared
-        await ctx.find_genes()
-        spatial_data, ref_data = ctx.get_subset_data()
-    """
-
-    spatial_adata: ad.AnnData
-    reference_adata: ad.AnnData
-    cell_type_key: str
-    ctx: "ToolContext"
-
-    # Prepared data (populated by prepare_data())
-    spatial_prepared: Optional[ad.AnnData] = field(default=None, init=False)
-    reference_prepared: Optional[ad.AnnData] = field(default=None, init=False)
-    cell_types: Optional[List[str]] = field(default=None, init=False)
-
-    # Gene data (populated by find_genes())
-    common_genes: Optional[List[str]] = field(default=None, init=False)
-
-    # State tracking
-    _data_prepared: bool = field(default=False, init=False)
-    _genes_found: bool = field(default=False, init=False)
-
-    async def prepare_data(
-        self,
-        require_int_dtype: bool = False,
-    ) -> "DeconvolutionContext":
-        """Phase 1: Validate and prepare raw count data.
-
-        After this, method-specific preprocessing can be applied to
-        spatial_prepared and reference_prepared before calling find_genes().
-
-        Args:
-            require_int_dtype: If True, convert counts to int32 (for R methods)
-
-        Returns:
-            self (for method chaining)
-        """
-        if self._data_prepared:
-            return self
-
-        # 1. Validate cell type key exists in reference
-        validate_obs_column(self.reference_adata, self.cell_type_key, "Cell type key")
-
-        # 2. Get cell types
-        self.cell_types = list(self.reference_adata.obs[self.cell_type_key].unique())
-        if len(self.cell_types) < 2:
-            raise DataError(
-                f"Reference data must have at least 2 cell types, "
-                f"found {len(self.cell_types)}"
-            )
-
-        # 3. Prepare spatial data (restore raw counts)
-        self.spatial_prepared = await prepare_anndata_for_counts(
-            self.spatial_adata, "Spatial", self.ctx, require_int_dtype
-        )
-
-        # 4. Prepare reference data (restore raw counts)
-        self.reference_prepared = await prepare_anndata_for_counts(
-            self.reference_adata, "Reference", self.ctx, require_int_dtype
-        )
-
-        self._data_prepared = True
-        return self
-
-    async def find_genes(
-        self,
-        min_common_genes: int = 100,
-    ) -> "DeconvolutionContext":
-        """Phase 2: Find and validate common genes.
-
-        Call this after prepare_data() and any method-specific preprocessing.
-
-        Args:
-            min_common_genes: Minimum required overlapping genes
-
-        Returns:
-            self (for method chaining)
-        """
-        if not self._data_prepared:
-            raise ProcessingError("Must call prepare_data() before find_genes()")
-
-        if self._genes_found:
-            return self
-
-        # Find common genes
-        self.common_genes = find_common_genes(
-            self.spatial_prepared.var_names,
-            self.reference_prepared.var_names,
-        )
-
-        # Validate gene overlap
-        validate_gene_overlap(
-            self.common_genes,
-            self.spatial_prepared.n_vars,
-            self.reference_prepared.n_vars,
-            min_genes=min_common_genes,
-            source_name="spatial",
-            target_name="reference",
-        )
-
-        self._genes_found = True
-        return self
-
-    def get_subset_data(self) -> Tuple[ad.AnnData, ad.AnnData]:
-        """Get spatial and reference data subset to common genes.
-
-        Returns:
-            Tuple of (spatial_subset, reference_subset)
-        """
-        if not self._genes_found:
-            raise ProcessingError("Must call find_genes() before get_subset_data()")
-
-        return (
-            self.spatial_prepared[:, self.common_genes].copy(),
-            self.reference_prepared[:, self.common_genes].copy(),
-        )
 
 
 # =============================================================================
@@ -284,17 +272,7 @@ def check_model_convergence(
     convergence_threshold: float = 0.001,
     convergence_window: int = 50,
 ) -> Tuple[bool, Optional[str]]:
-    """Check if a scvi-tools model has converged based on ELBO history.
-
-    Args:
-        model: Trained model with .history attribute
-        model_name: Name for logging
-        convergence_threshold: Maximum relative change to consider converged
-        convergence_window: Number of epochs to examine
-
-    Returns:
-        Tuple of (is_converged, warning_message)
-    """
+    """Check if a scvi-tools model has converged based on ELBO history."""
     if not hasattr(model, "history") or model.history is None:
         return True, None
 
