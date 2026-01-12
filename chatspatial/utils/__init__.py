@@ -31,9 +31,7 @@ from .adata_utils import (  # Constants; Field discovery; Data access; Validatio
     validate_var_column,
 )
 from .dependency_manager import (
-    DependencyCategory,
     DependencyInfo,
-    DependencyManager,
     get,
     is_available,
     require,
@@ -98,9 +96,7 @@ __all__ = [
     # Standardization
     "standardize_adata",
     # Dependency management
-    "DependencyManager",
     "DependencyInfo",
-    "DependencyCategory",
     "require",
     "get",
     "is_available",
