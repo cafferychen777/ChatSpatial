@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import require_spatial_coords
+from ...utils.adata_utils import get_analysis_parameter, require_spatial_coords
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import (
@@ -30,6 +30,40 @@ from .core import (
     resolve_figure_size,
     setup_multi_panel_figure,
 )
+
+
+def _resolve_cluster_key(
+    adata: "ad.AnnData",
+    analysis_type: str,
+    params_cluster_key: Optional[str],
+) -> str:
+    """Resolve cluster_key from params or stored metadata.
+
+    Priority:
+        1. User-provided cluster_key (params_cluster_key)
+        2. cluster_key from analysis metadata
+
+    Args:
+        adata: AnnData object
+        analysis_type: Analysis type (e.g., "neighborhood", "co_occurrence")
+        params_cluster_key: User-provided cluster_key
+
+    Returns:
+        Resolved cluster_key
+
+    Raises:
+        ParameterError: If no cluster_key can be determined
+    """
+    cluster_key = params_cluster_key or get_analysis_parameter(
+        adata, f"spatial_stats_{analysis_type}", "cluster_key"
+    )
+    if not cluster_key:
+        categorical_cols = get_categorical_columns(adata, limit=10)
+        raise ParameterError(
+            f"cluster_key required for {analysis_type} visualization. "
+            f"Available categorical columns: {', '.join(categorical_cols)}"
+        )
+    return cluster_key
 
 # =============================================================================
 # Main Router
@@ -105,21 +139,7 @@ async def _create_neighborhood_enrichment_visualization(
     require("squidpy", feature="neighborhood enrichment visualization")
     import squidpy as sq
 
-    # Infer cluster_key from params or existing results
-    cluster_key = params.cluster_key
-    if not cluster_key:
-        enrichment_keys = [
-            k for k in adata.uns.keys() if k.endswith("_nhood_enrichment")
-        ]
-        if enrichment_keys:
-            cluster_key = enrichment_keys[0].replace("_nhood_enrichment", "")
-            if context:
-                await context.info(f"Inferred cluster_key: '{cluster_key}'")
-        else:
-            categorical_cols = get_categorical_columns(adata, limit=10)
-            raise ParameterError(
-                f"cluster_key required. Available: {', '.join(categorical_cols)}"
-            )
+    cluster_key = _resolve_cluster_key(adata, "neighborhood", params.cluster_key)
 
     enrichment_key = f"{cluster_key}_nhood_enrichment"
     if enrichment_key not in adata.uns:
@@ -157,21 +177,7 @@ async def _create_co_occurrence_visualization(
     require("squidpy", feature="co-occurrence visualization")
     import squidpy as sq
 
-    # Infer cluster_key from params or existing results
-    cluster_key = params.cluster_key
-    if not cluster_key:
-        co_occurrence_keys = [
-            k for k in adata.uns.keys() if k.endswith("_co_occurrence")
-        ]
-        if co_occurrence_keys:
-            cluster_key = co_occurrence_keys[0].replace("_co_occurrence", "")
-            if context:
-                await context.info(f"Inferred cluster_key: '{cluster_key}'")
-        else:
-            categorical_cols = get_categorical_columns(adata, limit=10)
-            raise ParameterError(
-                f"cluster_key required. Available: {', '.join(categorical_cols)}"
-            )
+    cluster_key = _resolve_cluster_key(adata, "co_occurrence", params.cluster_key)
 
     co_occurrence_key = f"{cluster_key}_co_occurrence"
     if co_occurrence_key not in adata.uns:
@@ -215,19 +221,7 @@ async def _create_ripley_visualization(
     require("squidpy", feature="Ripley visualization")
     import squidpy as sq
 
-    # Infer cluster_key from params or existing results
-    cluster_key = params.cluster_key
-    if not cluster_key:
-        ripley_keys = [k for k in adata.uns.keys() if k.endswith("_ripley_L")]
-        if ripley_keys:
-            cluster_key = ripley_keys[0].replace("_ripley_L", "")
-            if context:
-                await context.info(f"Inferred cluster_key: '{cluster_key}'")
-        else:
-            categorical_cols = get_categorical_columns(adata, limit=10)
-            raise ParameterError(
-                f"cluster_key required. Available: {', '.join(categorical_cols)}"
-            )
+    cluster_key = _resolve_cluster_key(adata, "ripley", params.cluster_key)
 
     ripley_key = f"{cluster_key}_ripley_L"
     if ripley_key not in adata.uns:
@@ -342,21 +336,7 @@ async def _create_centrality_visualization(
     require("squidpy", feature="centrality visualization")
     import squidpy as sq
 
-    # Infer cluster_key from params or existing results
-    cluster_key = params.cluster_key
-    if not cluster_key:
-        centrality_keys = [
-            k for k in adata.uns.keys() if k.endswith("_centrality_scores")
-        ]
-        if centrality_keys:
-            cluster_key = centrality_keys[0].replace("_centrality_scores", "")
-            if context:
-                await context.info(f"Inferred cluster_key: '{cluster_key}'")
-        else:
-            categorical_cols = get_categorical_columns(adata, limit=10)
-            raise ParameterError(
-                f"cluster_key required. Available: {', '.join(categorical_cols)}"
-            )
+    cluster_key = _resolve_cluster_key(adata, "centrality", params.cluster_key)
 
     centrality_key = f"{cluster_key}_centrality_scores"
     if centrality_key not in adata.uns:

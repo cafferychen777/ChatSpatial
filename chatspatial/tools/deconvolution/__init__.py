@@ -29,7 +29,11 @@ if TYPE_CHECKING:
 
 from ...models.analysis import DeconvolutionResult
 from ...models.data import DeconvolutionParameters
-from ...utils.adata_utils import ensure_unique_var_names_async, validate_obs_column
+from ...utils.adata_utils import (
+    ensure_unique_var_names_async,
+    store_analysis_metadata,
+    validate_obs_column,
+)
 from ...utils.exceptions import DataError, DependencyError, ParameterError
 from .base import PreparedDeconvolutionData, prepare_deconvolution
 
@@ -364,6 +368,27 @@ async def _store_results(
     cell_types_array = np.array(cell_types)
     dominant_types = cell_types_array[np.argmax(full_proportions, axis=1)]
     spatial_adata.obs[dominant_key] = pd.Categorical(dominant_types)
+
+    # Store metadata for provenance tracking (enables reading stored values
+    # instead of inferring from key names in visualization)
+    store_analysis_metadata(
+        spatial_adata,
+        analysis_name=f"deconvolution_{method}",
+        method=method,
+        parameters={},  # Method-specific params already in stats
+        results_keys={
+            "obsm": [proportions_key],
+            "obs": [dominant_key],
+            "uns": [f"{proportions_key}_cell_types"],
+        },
+        statistics={
+            "n_cell_types": len(cell_types),
+            "n_spots": len(full_proportions),
+        },
+        cell_types=cell_types,
+        proportions_key=proportions_key,
+        dominant_type_key=dominant_key,
+    )
 
     # Save updated data
     await ctx.set_adata(data_id, spatial_adata)

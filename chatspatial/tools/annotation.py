@@ -268,6 +268,10 @@ async def _annotate_with_singler(
     counts = pd.Series(cell_types).value_counts().to_dict()
 
     # Calculate confidence scores - prefer delta scores if available
+    # IMPORTANT: Different scores have different mathematical semantics
+    # - delta scores: gap between best and second-best match, range [0, +∞)
+    # - correlation scores: Pearson correlation, range [-1, 1]
+    # We apply scientifically appropriate transformations to [0, 1]
     confidence_scores = {}
 
     # First try to use delta scores (more meaningful confidence measure)
@@ -281,14 +285,17 @@ async def _annotate_with_singler(
                         delta_scores[i] for i in type_indices if i < len(delta_scores)
                     ]
                     if type_deltas:
-                        # Higher delta = higher confidence
                         avg_delta = np.mean([d for d in type_deltas if d is not None])
-                        confidence_scores[cell_type] = round(float(avg_delta), 3)
+                        # Transform delta to [0, 1] using saturating function
+                        # delta=0 → 0 (no discrimination = zero confidence)
+                        # delta→∞ → 1 (perfect discrimination = full confidence)
+                        confidence = 1.0 - np.exp(-avg_delta)
+                        confidence_scores[cell_type] = round(float(confidence), 3)
         except Exception:
             # Delta score extraction failed, will fall back to regular scores
             pass
 
-    # Fall back to regular scores if delta not available
+    # Fall back to correlation scores if delta not available
     if not confidence_scores and scores is not None:
         try:
             scores_df = pd.DataFrame(scores.to_dict())
@@ -302,8 +309,12 @@ async def _annotate_with_singler(
             if cell_type in scores_df.columns and any(mask):
                 type_scores = scores_df.loc[mask, cell_type]
                 avg_score = type_scores.mean()
-                confidence = (avg_score + 1) / 2  # Convert correlation to 0-1
-                confidence_scores[cell_type] = float(confidence)
+                # Use max(0, r) instead of (r+1)/2 for correlation
+                # r<0 (negative correlation) → 0 (opposite pattern = not a match)
+                # r=0 → 0 (no correlation = zero confidence)
+                # r=1 → 1 (perfect correlation = full confidence)
+                confidence = max(0.0, float(avg_score))
+                confidence_scores[cell_type] = round(confidence, 3)
             # else: cell type won't have confidence score (no action needed)
 
     # Add to AnnData (keys provided by caller for single-point control)

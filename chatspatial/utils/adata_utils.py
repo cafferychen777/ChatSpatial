@@ -583,6 +583,43 @@ def store_analysis_metadata(
     adata.uns[metadata_key] = metadata
 
 
+def get_analysis_parameter(
+    adata: "ad.AnnData",
+    analysis_name: str,
+    parameter_name: str,
+    default: Any = None,
+) -> Any:
+    """Get a parameter from stored analysis metadata.
+
+    Retrieves parameters stored by store_analysis_metadata(). Use this to
+    access analysis parameters (like cluster_key) without re-inferring them.
+
+    Args:
+        adata: AnnData object
+        analysis_name: Name of the analysis (e.g., "spatial_stats_neighborhood")
+        parameter_name: Name of the parameter (e.g., "cluster_key")
+        default: Default value if parameter not found
+
+    Returns:
+        Parameter value or default
+
+    Example:
+        # Get cluster_key used in neighborhood analysis
+        cluster_key = get_analysis_parameter(
+            adata, "spatial_stats_neighborhood", "cluster_key"
+        )
+    """
+    metadata_key = f"{analysis_name}_metadata"
+    if metadata_key not in adata.uns:
+        return default
+
+    metadata = adata.uns[metadata_key]
+    if "parameters" not in metadata:
+        return default
+
+    return metadata["parameters"].get(parameter_name, default)
+
+
 # =============================================================================
 # Gene Selection Utilities
 # =============================================================================

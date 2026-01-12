@@ -14,6 +14,7 @@ from .adata_utils import (  # Constants; Field discovery; Data access; Validatio
     ensure_categorical,
     ensure_counts_layer,
     find_common_genes,
+    get_analysis_parameter,
     get_batch_key,
     get_cell_type_key,
     get_cluster_key,
@@ -76,6 +77,7 @@ __all__ = [
     "ALTERNATIVE_CLUSTER_KEYS",
     "ALTERNATIVE_BATCH_KEYS",
     # Field discovery
+    "get_analysis_parameter",
     "get_batch_key",
     "get_cell_type_key",
     "get_cluster_key",

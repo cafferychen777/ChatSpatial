@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import validate_obs_column
+from ...utils.adata_utils import get_analysis_parameter, validate_obs_column
 from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
 from .core import (
     create_figure,
@@ -63,8 +63,32 @@ def _ensure_enrichmap_compatibility(adata: "ad.AnnData") -> None:
 
 
 def _get_score_columns(adata: "ad.AnnData") -> List[str]:
-    """Get all enrichment score columns from adata.obs."""
-    return [col for col in adata.obs.columns if col.endswith("_score")]
+    """Get all enrichment score columns from adata.obs.
+
+    Priority:
+        1. Read from stored metadata (most reliable, knows exact columns)
+        2. Fall back to suffix search (for legacy data without metadata)
+
+    Returns columns from:
+        - enrichment_spatial_metadata["results_keys"]["obs"] (e.g., 'Wnt_score')
+        - enrichment_ssgsea_metadata["results_keys"]["obs"] (e.g., 'ssgsea_Wnt')
+    """
+    score_cols = []
+
+    # Try to get from stored metadata (first principles: read what was stored)
+    for analysis_name in ["enrichment_spatial", "enrichment_ssgsea"]:
+        obs_cols = get_analysis_parameter(adata, analysis_name, "results_keys")
+        if obs_cols and isinstance(obs_cols, dict) and "obs" in obs_cols:
+            # Filter to only columns that actually exist
+            for col in obs_cols["obs"]:
+                if col in adata.obs.columns and col not in score_cols:
+                    score_cols.append(col)
+
+    # Fall back to suffix search (for legacy data without metadata)
+    if not score_cols:
+        score_cols = [col for col in adata.obs.columns if col.endswith("_score")]
+
+    return score_cols
 
 
 def _resolve_score_column(

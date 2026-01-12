@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import get_spatial_key, require_spatial_coords
+from ...utils.adata_utils import get_analysis_parameter, get_spatial_key, require_spatial_coords
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import (
     DeconvolutionData,
@@ -39,6 +39,34 @@ from .core import (
 # =============================================================================
 # Data Retrieval
 # =============================================================================
+
+
+def _get_available_methods(adata: "ad.AnnData") -> list[str]:
+    """Get available deconvolution methods from metadata or key names.
+
+    Priority:
+        1. Read from stored metadata (most reliable)
+        2. Fall back to key name search (for legacy data)
+    """
+    methods = []
+
+    # First: try to get from stored metadata
+    for key in adata.uns.keys():
+        if key.startswith("deconvolution_") and key.endswith("_metadata"):
+            # Extract method name: deconvolution_{method}_metadata -> {method}
+            method = key.replace("deconvolution_", "").replace("_metadata", "")
+            if method not in methods:
+                methods.append(method)
+
+    # Fallback: search obsm keys (for legacy data without metadata)
+    if not methods:
+        for key in adata.obsm.keys():
+            if key.startswith("deconvolution_"):
+                method = key.replace("deconvolution_", "")
+                if method not in methods:
+                    methods.append(method)
+
+    return methods
 
 
 async def get_deconvolution_data(
@@ -55,6 +83,10 @@ async def get_deconvolution_data(
     - Explicit method specification
     - Clear error messages with solutions
 
+    Priority for reading data:
+        1. Read from stored metadata (most reliable)
+        2. Fall back to key name inference (for legacy data)
+
     Args:
         adata: AnnData object with deconvolution results
         method: Deconvolution method name (e.g., "cell2location", "rctd").
@@ -69,64 +101,76 @@ async def get_deconvolution_data(
         DataNotFoundError: No deconvolution results found
         ValueError: Multiple results found but method not specified
     """
-    # Find all deconvolution results in obsm
-    deconv_keys = [key for key in adata.obsm.keys() if key.startswith("deconvolution_")]
+    available_methods = _get_available_methods(adata)
 
     # Handle method specification
     if method is not None:
-        target_key = f"deconvolution_{method}"
-        if target_key not in adata.obsm:
-            available = [k.replace("deconvolution_", "") for k in deconv_keys]
+        if method not in available_methods:
             raise DataNotFoundError(
                 f"Deconvolution '{method}' not found. "
-                f"Available: {available if available else 'None'}. "
+                f"Available: {available_methods if available_methods else 'None'}. "
                 f"Run deconvolve_data() first."
             )
-        proportions_key = target_key
     else:
         # Auto-detect
-        if not deconv_keys:
+        if not available_methods:
             raise DataNotFoundError(
                 "No deconvolution results found. Run deconvolve_data() first."
             )
 
-        if len(deconv_keys) > 1:
-            available = [k.replace("deconvolution_", "") for k in deconv_keys]
+        if len(available_methods) > 1:
             raise ParameterError(
-                f"Multiple deconvolution results: {available}. "
+                f"Multiple deconvolution results: {available_methods}. "
                 f"Specify deconv_method parameter."
             )
 
         # Single result - auto-select
-        proportions_key = deconv_keys[0]
-        method = proportions_key.replace("deconvolution_", "")
-
+        method = available_methods[0]
         if context:
             await context.info(f"Auto-selected deconvolution method: {method}")
 
+    # Get data from metadata or fall back to convention
+    analysis_name = f"deconvolution_{method}"
+
+    # Try to get from stored metadata first
+    proportions_key = get_analysis_parameter(adata, analysis_name, "proportions_key")
+    cell_types = get_analysis_parameter(adata, analysis_name, "cell_types")
+    dominant_type_key = get_analysis_parameter(adata, analysis_name, "dominant_type_key")
+
+    # Fall back to convention-based keys
+    if not proportions_key:
+        proportions_key = f"deconvolution_{method}"
+
+    if proportions_key not in adata.obsm:
+        raise DataNotFoundError(
+            f"Proportions data '{proportions_key}' not found in adata.obsm"
+        )
+
     # Get cell type names
-    cell_types_key = f"{proportions_key}_cell_types"
-    if cell_types_key in adata.uns:
-        cell_types = list(adata.uns[cell_types_key])
-    else:
-        # Fallback: generate generic names from shape
-        n_cell_types = adata.obsm[proportions_key].shape[1]
-        cell_types = [f"CellType_{i}" for i in range(n_cell_types)]
-        if context:
-            await context.warning(
-                f"Cell type names not found in adata.uns['{cell_types_key}']. "
-                f"Using generic names."
-            )
+    if not cell_types:
+        cell_types_key = f"{proportions_key}_cell_types"
+        if cell_types_key in adata.uns:
+            cell_types = list(adata.uns[cell_types_key])
+        else:
+            # Fallback: generate generic names from shape
+            n_cell_types = adata.obsm[proportions_key].shape[1]
+            cell_types = [f"CellType_{i}" for i in range(n_cell_types)]
+            if context:
+                await context.warning(
+                    "Cell type names not found. Using generic names."
+                )
+
+    # Check dominant type key
+    if not dominant_type_key:
+        dominant_type_key = f"dominant_celltype_{method}"
+
+    if dominant_type_key not in adata.obs.columns:
+        dominant_type_key = None
 
     # Create DataFrame
     proportions = pd.DataFrame(
         adata.obsm[proportions_key], index=adata.obs_names, columns=cell_types
     )
-
-    # Check if dominant type annotation exists
-    dominant_type_key: Optional[str] = f"dominant_celltype_{method}"
-    if dominant_type_key not in adata.obs.columns:
-        dominant_type_key = None
 
     return DeconvolutionData(
         proportions=proportions,
