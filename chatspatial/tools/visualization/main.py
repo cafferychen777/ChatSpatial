@@ -108,7 +108,7 @@ async def visualize_data(
     if params.plot_type not in PLOT_HANDLERS:
         raise ParameterError(
             f"Invalid plot_type: {params.plot_type}. "
-            f"Must be one of {list(PLOT_HANDLERS.keys())}"
+            f"Must be one of {list(PLOT_HANDLERS)}"
         )
 
     try:

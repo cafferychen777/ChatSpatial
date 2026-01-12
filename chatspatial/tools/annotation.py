@@ -301,13 +301,7 @@ async def _annotate_with_singler(
                 avg_score = type_scores.mean()
                 confidence = (avg_score + 1) / 2  # Convert correlation to 0-1
                 confidence_scores[cell_type] = float(confidence)
-            else:
-                # No confidence data available - don't assign arbitrary value
-                pass  # Cell type won't have confidence score
-    else:
-        # No confidence information available from this method
-        # Don't assign misleading confidence values
-        pass
+            # else: cell type won't have confidence score (no action needed)
 
     # Add to AnnData (keys provided by caller for single-point control)
     adata.obs[output_key] = cell_types
@@ -403,11 +397,8 @@ async def _annotate_with_tangram(
         await ctx.warning(
             "Cluster label not provided for 'clusters' mode. Using default cell type annotation if available."
         )
-        # Try to find a cell type annotation in the reference data
-        for col in ["cell_type", "celltype", "cell_types", "leiden", "louvain"]:
-            if col in adata_sc.obs:
-                cluster_label = col
-                break
+        # Try to find a cell type or cluster annotation in the reference data
+        cluster_label = get_cell_type_key(adata_sc) or get_cluster_key(adata_sc)
 
         if cluster_label is None:
             raise ParameterError(
@@ -525,10 +516,8 @@ async def _annotate_with_tangram(
 
             annotation_col = params.cell_type_key
 
-        if annotation_col:
-            tg.project_cell_annotations(ad_map, adata_sp, annotation=annotation_col)
-        else:
-            await ctx.warning("No suitable annotation column found for projection")
+        # annotation_col is guaranteed to be set (either from cluster_label or cell_type_key)
+        tg.project_cell_annotations(ad_map, adata_sp, annotation=annotation_col)
     except Exception as proj_error:
         await ctx.warning(f"Could not project cell annotations: {proj_error}")
         # Continue without projection
@@ -885,9 +874,7 @@ async def _annotate_with_scanvi(
                 if cell_type in probs.columns:
                     mean_prob = probs.loc[cells_of_type, cell_type].mean()
                     confidence_scores[cell_type] = round(float(mean_prob), 2)
-                else:
-                    # No probability column for this cell type - skip confidence
-                    pass
+                # else: No probability column for this cell type - skip confidence
             elif (
                 np.sum(cells_of_type) > 0
                 and hasattr(probs, "shape")
@@ -1165,7 +1152,7 @@ async def _annotate_with_cellassign(
             f"If data was preprocessed, marker genes may have been filtered out. "
             f"Consider using unpreprocessed data or ensure marker genes are highly variable."
         )
-    valid_cell_types = list(valid_marker_genes.keys())
+    valid_cell_types = list(valid_marker_genes)
 
     # Create marker gene matrix as DataFrame (required by CellAssign API)
     all_marker_genes = []
@@ -1633,16 +1620,16 @@ def _convert_custom_markers_to_gs(
 
         if "positive" in markers and isinstance(markers["positive"], list):
             positive_genes = [
-                gene.upper().strip()
-                for gene in markers["positive"]
-                if gene and str(gene).strip()
+                str(g).strip().upper()
+                for g in markers["positive"]
+                if g and str(g).strip()
             ]
 
         if "negative" in markers and isinstance(markers["negative"], list):
             negative_genes = [
-                gene.upper().strip()
-                for gene in markers["negative"]
-                if gene and str(gene).strip()
+                str(g).strip().upper()
+                for g in markers["negative"]
+                if g and str(g).strip()
             ]
 
         # Only include cell types that have at least some positive markers
@@ -1751,8 +1738,8 @@ def _assign_sctype_celltypes(
     cell_types = []
     confidence_scores = []
 
-    for col_idx in range(len(scores_df.columns)):
-        cell_scores = scores_df.iloc[:, col_idx]
+    for col_name in scores_df.columns:
+        cell_scores = scores_df[col_name]
         max_idx = cell_scores.idxmax()
         max_score = cell_scores.loc[max_idx]
 

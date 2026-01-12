@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
 from ..models.data import RegistrationParameters
-from ..utils.adata_utils import ensure_unique_var_names, get_spatial_key
+from ..utils.adata_utils import ensure_unique_var_names, find_common_genes, get_spatial_key
 from ..utils.dependency_manager import require
 from ..utils.exceptions import ParameterError, ProcessingError
 
@@ -52,12 +52,8 @@ def _get_common_genes(adata_list: List["ad.AnnData"]) -> List[str]:
     for adata in adata_list:
         ensure_unique_var_names(adata)
 
-    # Then compute intersection
-    common = set(adata_list[0].var_names)
-    for adata in adata_list[1:]:
-        common &= set(adata.var_names)
-
-    genes = list(common)
+    # Use unified function for intersection
+    genes = find_common_genes(*[adata.var_names for adata in adata_list])
     logger.info(f"Found {len(genes)} common genes across {len(adata_list)} slices")
     return genes
 
@@ -123,9 +119,9 @@ def _prepare_stalign_image(
 
     # Rasterize with Gaussian smoothing
     image = np.zeros(image_size, dtype=np.float32)
-    for i in range(len(coords)):
-        x_idx = int(np.clip(coords_norm[i, 1], 0, image_size[0] - 1))
-        y_idx = int(np.clip(coords_norm[i, 0], 0, image_size[1] - 1))
+    for norm_coord, intens in zip(coords_norm, intensity):
+        x_idx = int(np.clip(norm_coord[1], 0, image_size[0] - 1))
+        y_idx = int(np.clip(norm_coord[0], 0, image_size[1] - 1))
 
         # Gaussian kernel (radius 2)
         for dx in range(-2, 3):
@@ -133,7 +129,7 @@ def _prepare_stalign_image(
                 xi, yi = x_idx + dx, y_idx + dy
                 if 0 <= xi < image_size[0] and 0 <= yi < image_size[1]:
                     weight = np.exp(-(dx * dx + dy * dy) / 2.0)
-                    image[xi, yi] += intensity[i] * weight
+                    image[xi, yi] += intens * weight
 
     # Normalize
     if image.max() > 0:

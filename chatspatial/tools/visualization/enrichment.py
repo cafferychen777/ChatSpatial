@@ -431,7 +431,7 @@ def _create_gsea_enrichment_plot(
         if pathway and pathway in gsea_results:
             result = gsea_results[pathway]
         else:
-            pathway = list(gsea_results.keys())[0]
+            pathway = next(iter(gsea_results))
             result = gsea_results[pathway]
 
         if not isinstance(result, dict) or "RES" not in result:

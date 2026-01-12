@@ -322,7 +322,7 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
     }
 
     if database_name not in mapping:
-        available_options = list(mapping.keys())
+        available_options = list(mapping)
         raise ParameterError(
             f"Unknown gene set database: {database_name}. "
             f"Available options: {available_options}"
@@ -645,26 +645,20 @@ async def perform_ora(
             # IMPORTANT: names is a numpy recarray with shape (n_genes,)
             # and dtype.names contains group names as fields
             # Access genes by group name: names[group_name][i]
-            degs = []
+            degs_set = set()  # Use set for O(1) duplicate check
 
             # Iterate over all groups
             for group_name in names.dtype.names:
                 for i in range(len(names)):
-                    # If pvals exist, filter by p-value threshold only
-                    # LogFC filtering removed - see docstring Notes
-                    if pvals is not None:
-                        if pvals[group_name][i] < pvalue_threshold:
-                            gene = names[group_name][i]
-                            if gene not in degs:  # Avoid duplicates
-                                degs.append(gene)
-                    else:
-                        # If no pvals, use top N genes per group
-                        if i < 100:
-                            gene = names[group_name][i]
-                            if gene not in degs:
-                                degs.append(gene)
+                    # Skip genes that don't pass filter criteria
+                    if pvals is not None and pvals[group_name][i] >= pvalue_threshold:
+                        continue
+                    if pvals is None and i >= 100:  # Top 100 genes when no pvals
+                        continue
 
-            gene_list = degs
+                    degs_set.add(names[group_name][i])
+
+            gene_list = list(degs_set)
         else:
             # Use highly variable genes
             if "highly_variable" in adata.var:
@@ -760,11 +754,11 @@ async def perform_ora(
     # Create DataFrame for visualization compatibility
     ora_df = pd.DataFrame(
         {
-            "pathway": list(enrichment_scores.keys()),
+            "pathway": list(enrichment_scores),
             "odds_ratio": list(enrichment_scores.values()),
-            "pvalue": [pvalues.get(k, 1.0) for k in enrichment_scores.keys()],
+            "pvalue": [pvalues.get(k, 1.0) for k in enrichment_scores],
             "adjusted_pvalue": [
-                adjusted_pvalues.get(k, 1.0) for k in enrichment_scores.keys()
+                adjusted_pvalues.get(k, 1.0) for k in enrichment_scores
             ],
         }
     )
@@ -1330,11 +1324,11 @@ async def perform_spatial_enrichment(
         )
 
     # Collect results
-    score_columns = [f"{sig}_score" for sig in validated_gene_sets.keys()]
+    score_columns = [f"{sig}_score" for sig in validated_gene_sets]
 
     # Calculate summary statistics
     summary_stats = {}
-    for sig_name in validated_gene_sets.keys():
+    for sig_name in validated_gene_sets:
         score_col = f"{sig_name}_score"
         scores = adata.obs[score_col]
 
@@ -1731,7 +1725,7 @@ def load_gene_sets(
 
     if database not in database_map:
         raise ParameterError(
-            f"Unknown database: {database}. Available: {list(database_map.keys())}"
+            f"Unknown database: {database}. Available: {list(database_map)}"
         )
 
     gene_sets = database_map[database]()

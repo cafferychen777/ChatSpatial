@@ -276,11 +276,8 @@ def check_model_convergence(
     if elbo_history is None or len(elbo_history) < convergence_window:
         return True, None
 
-    elbo_history = np.atleast_1d(np.array(elbo_history).flatten())
-    if len(elbo_history) < convergence_window:
-        return True, None
-
-    recent_elbo = elbo_history[-convergence_window:]
+    elbo_arr = np.asarray(elbo_history).ravel()
+    recent_elbo = elbo_arr[-convergence_window:]
     elbo_changes = np.abs(np.diff(recent_elbo))
 
     mean_value = np.abs(np.mean(recent_elbo))

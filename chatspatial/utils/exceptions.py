@@ -65,8 +65,6 @@ class ChatSpatialError(Exception):
     - Distinguish from Python built-in exceptions
     """
 
-    pass
-
 
 # =============================================================================
 # Data Errors - Issues with data access, availability, or format
@@ -87,8 +85,6 @@ class DataError(ChatSpatialError):
         raise DataError(f"Column '{col}' not found in adata.obs")
     """
 
-    pass
-
 
 class DataNotFoundError(DataError):
     """Required data not found in the expected location.
@@ -104,8 +100,6 @@ class DataNotFoundError(DataError):
         raise DataNotFoundError("Velocity results not found in adata.obsm")
     """
 
-    pass
-
 
 class DataCompatibilityError(DataError):
     """Data format or compatibility issues between datasets.
@@ -119,8 +113,6 @@ class DataCompatibilityError(DataError):
         raise DataCompatibilityError("Gene naming mismatch: symbols vs Ensembl")
         raise DataCompatibilityError("Species mismatch: mouse vs human")
     """
-
-    pass
 
 
 # =============================================================================
@@ -146,8 +138,6 @@ class ParameterError(ChatSpatialError):
         raise ParameterError("species parameter is required")
     """
 
-    pass
-
 
 # =============================================================================
 # Processing Errors - Algorithm or computation failures
@@ -171,8 +161,6 @@ class ProcessingError(ChatSpatialError):
         raise ProcessingError("PCA computation failed: matrix is singular")
     """
 
-    pass
-
 
 # =============================================================================
 # Dependency Errors - Missing packages or environment issues
@@ -195,5 +183,3 @@ class DependencyError(ChatSpatialError):
         raise DependencyError("R environment not configured")
         raise DependencyError("CellChat R package not installed")
     """
-
-    pass

@@ -495,7 +495,7 @@ def _create_cellphonedb_heatmap(
     if not isinstance(means, pd.DataFrame) or len(means) == 0:
         raise DataNotFoundError("CellPhoneDB results empty. Re-run analysis.")
 
-    pvalues = adata.uns.get("cellphonedb_pvalues", None)
+    pvalues = adata.uns.get("cellphonedb_pvalues")
 
     if pvalues is None or not isinstance(pvalues, pd.DataFrame):
         raise DataNotFoundError("CellPhoneDB pvalues not found. Re-run analysis.")
@@ -526,7 +526,7 @@ def _create_cellphonedb_dotplot(
     import ktplotspy as kpy
 
     try:
-        pvalues = adata.uns.get("cellphonedb_pvalues", None)
+        pvalues = adata.uns.get("cellphonedb_pvalues")
 
         if pvalues is None or not isinstance(pvalues, pd.DataFrame):
             raise DataNotFoundError("Missing pvalues DataFrame for ktplotspy dotplot")
@@ -579,8 +579,8 @@ def _create_cellphonedb_chord(
     import matplotlib.colors as mcolors
 
     try:
-        pvalues = adata.uns.get("cellphonedb_pvalues", None)
-        deconvoluted = adata.uns.get("cellphonedb_deconvoluted", None)
+        pvalues = adata.uns.get("cellphonedb_pvalues")
+        deconvoluted = adata.uns.get("cellphonedb_deconvoluted")
 
         if pvalues is None or not isinstance(pvalues, pd.DataFrame):
             raise DataNotFoundError(

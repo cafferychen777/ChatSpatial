@@ -830,22 +830,15 @@ async def integrate_samples(
         params=params,
     )
 
-    # Align spatial coordinates
-    # NOTE: Spatial alignment is OPTIONAL and only needed for spatial data
-    # Methods like BBKNN, Harmony, MNN, Scanorama work on gene expression/PCA space
-    # and do NOT require spatial coordinates for batch correction
-    if params.align_spatial:
-        # Check if data actually has spatial coordinates
-        if "spatial" not in combined_adata.obsm:
-            # Skip alignment for non-spatial data - this is scientifically correct
-            # BBKNN, Harmony, MNN, Scanorama are designed for scRNA-seq data without spatial info
-            pass
-        else:
-            combined_adata = align_spatial_coordinates(
-                combined_adata,
-                batch_key=params.batch_key,
-                reference_batch=params.reference_batch,
-            )
+    # Align spatial coordinates if requested and available
+    # Note: Spatial alignment is optional - BBKNN, Harmony, MNN, Scanorama
+    # work on gene expression/PCA space without spatial coordinates
+    if params.align_spatial and "spatial" in combined_adata.obsm:
+        combined_adata = align_spatial_coordinates(
+            combined_adata,
+            batch_key=params.batch_key,
+            reference_batch=params.reference_batch,
+        )
 
     # Generate new integrated dataset ID
     integrated_id = f"integrated_{'-'.join(data_ids)}"

@@ -193,10 +193,11 @@ def sample_expression_values(
     if sparse.issparse(X):
         # For sparse matrices, sample from .data array (non-zero values only)
         # This is efficient as it doesn't require converting to dense
-        if hasattr(X, "data") and len(X.data) > 0:
+        # Note: All scipy sparse matrices have .data attribute
+        if len(X.data) > 0:
             return X.data[: min(n_samples, len(X.data))]
         else:
-            # Fallback for empty or unusual sparse matrix
+            # Empty sparse matrix - return slice converted to dense
             return X[:n_samples].toarray().flatten()
     else:
         # For dense matrices, flatten and sample
@@ -1019,24 +1020,14 @@ def get_raw_data_source(
             has_decimals=has_dec,
         )
 
-    # If we get here with require_integer_counts=True, no valid source found
-    if require_integer_counts:
-        raise DataError(
-            f"No raw integer counts found. Sources tried: {sources_tried + ['current (normalized)']}. "
-            f"Data appears to be normalized (has_negatives={has_neg}, has_decimals={has_dec}). "
-            "Deconvolution and velocity methods require raw integer counts. "
-            "Solutions: (1) Load unpreprocessed data, (2) Ensure adata.layers['counts'] "
-            "contains raw counts, or (3) Re-run preprocessing with adata.raw preservation."
-        )
-
-    # Fallback: return normalized data with warning flags
-    return RawDataResult(
-        X=adata.X,
-        var_names=adata.var_names,
-        source="current",
-        is_integer_counts=False,
-        has_negatives=has_neg,
-        has_decimals=has_dec,
+    # If we reach here, require_integer_counts=True but no valid source found
+    # (line 1012 would have returned if require_integer_counts=False)
+    raise DataError(
+        f"No raw integer counts found. Sources tried: {sources_tried + ['current (normalized)']}. "
+        f"Data appears to be normalized (has_negatives={has_neg}, has_decimals={has_dec}). "
+        "Deconvolution and velocity methods require raw integer counts. "
+        "Solutions: (1) Load unpreprocessed data, (2) Ensure adata.layers['counts'] "
+        "contains raw counts, or (3) Re-run preprocessing with adata.raw preservation."
     )
 
 
@@ -1317,30 +1308,48 @@ def get_adata_profile(adata: "ad.AnnData") -> Dict[str, Any]:
 # =============================================================================
 # Gene Overlap: Find and validate common genes between datasets
 # =============================================================================
-def find_common_genes(
-    genes_a: List[str],
-    genes_b: List[str],
-) -> List[str]:
+def find_common_genes(*gene_collections: Any) -> List[str]:
     """
-    Find common genes between two gene lists.
+    Find common genes across multiple gene collections.
 
     This is THE single function for computing gene intersections across ChatSpatial.
+    Supports any number of gene collections (2 or more).
 
     Args:
-        genes_a: First gene list (e.g., adata1.var_names)
-        genes_b: Second gene list (e.g., adata2.var_names)
+        *gene_collections: Two or more gene collections. Each can be:
+            - List[str]: Gene name list
+            - pd.Index: AnnData var_names
+            - Any Iterable[str]: Will be converted to set
 
     Returns:
         List of common gene names (order not guaranteed)
 
+    Raises:
+        ValueError: If fewer than 2 collections provided
+
     Examples:
         # Between two AnnData objects
-        common = find_common_genes(adata1.var_names.tolist(), adata2.var_names.tolist())
+        common = find_common_genes(adata1.var_names, adata2.var_names)
 
-        # With Index objects (will be converted)
-        common = find_common_genes(list(adata.var_names), list(ref.var_names))
+        # Multiple datasets (e.g., spatial registration)
+        common = find_common_genes(
+            adata1.var_names, adata2.var_names, adata3.var_names
+        )
+
+        # With explicit lists
+        common = find_common_genes(["GeneA", "GeneB"], ["GeneB", "GeneC"])
     """
-    return list(set(genes_a) & set(genes_b))
+    if len(gene_collections) < 2:
+        raise ValueError("find_common_genes requires at least 2 gene collections")
+
+    # Convert first collection to set
+    result = set(gene_collections[0])
+
+    # Intersect with remaining collections
+    for genes in gene_collections[1:]:
+        result &= set(genes)
+
+    return list(result)
 
 
 def validate_gene_overlap(

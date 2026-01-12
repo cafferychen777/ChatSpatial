@@ -102,7 +102,7 @@ def _get_return_type_category(func) -> str:
         from pydantic import BaseModel
 
         hints = get_type_hints(func)
-        return_type = hints.get("return", None)
+        return_type = hints.get("return")
 
         if return_type is None:
             return "unknown"

@@ -613,7 +613,7 @@ async def _analyze_getis_ord(
     return {
         "method": "Getis-Ord Gi* (star=True)",
         "n_genes_analyzed": len(getis_ord_results),
-        "genes_analyzed": list(getis_ord_results.keys()),
+        "genes_analyzed": list(getis_ord_results),
         "parameters": {
             "n_neighbors": params.n_neighbors,
             "alpha": params.getis_ord_alpha,

@@ -490,9 +490,8 @@ async def _create_scatterpie_plot(
     base_radius = coord_range * 0.02
     pie_radius = base_radius * params.pie_scale
 
-    for idx in range(len(proportions_plot)):
-        x, y = coords_plot[idx]
-        prop_values = proportions_plot.iloc[idx].values
+    for (x, y), (_, prop_row) in zip(coords_plot, proportions_plot.iterrows()):
+        prop_values = prop_row.values
 
         if prop_values.sum() == 0:
             continue
