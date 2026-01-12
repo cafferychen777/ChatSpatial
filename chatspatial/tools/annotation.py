@@ -23,6 +23,8 @@ from ..utils.adata_utils import (
     ensure_counts_layer,
     ensure_unique_var_names_async,
     find_common_genes,
+    get_cell_type_key,
+    get_cluster_key,
     get_spatial_key,
     to_dense,
     validate_obs_column,
@@ -33,6 +35,7 @@ from ..utils.dependency_manager import (
     validate_r_environment,
     validate_scvi_tools,
 )
+from ..utils.device_utils import cuda_available
 from ..utils.exceptions import (
     DataError,
     DataNotFoundError,
@@ -406,10 +409,8 @@ async def _annotate_with_tangram(
             )
 
     # Check GPU availability for device selection
-    import torch
-
     device = params.tangram_device
-    if device != "cpu" and not torch.cuda.is_available():
+    if device != "cpu" and not cuda_available():
         await ctx.warning("GPU requested but not available - falling back to CPU")
         device = "cpu"
 

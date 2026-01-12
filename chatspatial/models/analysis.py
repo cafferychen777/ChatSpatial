@@ -155,28 +155,55 @@ class SpatialDomainResult(BaseAnalysisResult):
 
 
 class SpatialVariableGenesResult(BaseAnalysisResult):
-    """Result of spatial variable genes identification"""
+    """Result of spatial variable genes identification.
+
+    Note on serialization:
+        To minimize MCP response size, detailed statistics are excluded from
+        JSON serialization using Field(exclude=True). These fields are still
+        stored in the Python object and saved to adata.var for downstream
+        visualization and export.
+
+        Access complete statistics via:
+        - adata.var['spatialde_pval'], adata.var['spatialde_qval'] (SpatialDE)
+        - adata.var['sparkx_pval'], adata.var['sparkx_qval'] (SPARK-X)
+    """
 
     data_id: str
     method: str  # Method used for analysis
 
-    # Common results for all methods
-    n_genes_analyzed: int  # Total number of genes analyzed (input)
-    n_significant_genes: int  # Total number of significant genes found (q < 0.05)
-    n_returned_genes: int  # Number of genes actually returned
-    spatial_genes: List[str]  # List of returned gene names (length = n_returned_genes)
+    # Summary statistics - always returned to LLM
+    n_genes_analyzed: int  # Total number of genes analyzed
+    n_significant_genes: int  # Total significant genes found (q < 0.05)
 
-    # Statistical results (available for all methods)
-    gene_statistics: Dict[str, float]  # Gene name -> primary statistic value
-    p_values: Dict[str, float]  # Gene name -> p-value
-    q_values: Dict[str, float]  # Gene name -> FDR-corrected p-value
+    # Top spatial genes - returned to LLM (truncated for token efficiency)
+    spatial_genes: List[str]
 
-    # Storage keys for results in adata
-    results_key: str  # Base key for storing results in adata
+    # Storage key for accessing full results in adata
+    results_key: str
 
-    # Method-specific results (optional, only populated for respective methods)
-    spatialde_results: Optional[Dict[str, Any]] = None  # SpatialDE-specific results
-    sparkx_results: Optional[Dict[str, Any]] = None  # SPARK-X specific results
+    # ============================================================
+    # Fields excluded from MCP response (stored in adata.var)
+    # ============================================================
+    gene_statistics: Dict[str, float] = Field(
+        default_factory=dict,
+        exclude=True,  # Exclude from JSON serialization to LLM
+    )
+    p_values: Dict[str, float] = Field(
+        default_factory=dict,
+        exclude=True,
+    )
+    q_values: Dict[str, float] = Field(
+        default_factory=dict,
+        exclude=True,
+    )
+    spatialde_results: Optional[Dict[str, Any]] = Field(
+        default=None,
+        exclude=True,
+    )
+    sparkx_results: Optional[Dict[str, Any]] = Field(
+        default=None,
+        exclude=True,
+    )
 
 
 class CellCommunicationResult(BaseAnalysisResult):

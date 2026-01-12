@@ -64,7 +64,7 @@ async def deconvolve(
         common_genes = deconv_ctx.common_genes
 
         # Ensure integer counts for R interface
-        # Note: DeconvolutionContext.prepare() already converted to int32 for R-based methods
+        # Note: prepare_data() already converted to int32 for R-based methods,
         # but we convert here explicitly to handle any edge cases
         dense = to_dense(spatial_data.X)
         spatial_counts = (

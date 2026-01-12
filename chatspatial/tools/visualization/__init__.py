@@ -39,14 +39,19 @@ from .cnv import create_cnv_heatmap_visualization, create_spatial_cnv_visualizat
 
 # Core utilities and data classes
 from .core import (
+    FIGURE_DEFAULTS,
     CellCommunicationData,
     DeconvolutionData,
     add_colorbar,
     create_figure,
+    create_figure_from_params,
+    get_categorical_cmap,
+    get_category_colors,
     get_colormap,
     get_diverging_colormap,
     get_validated_features,
     plot_spatial_feature,
+    resolve_figure_size,
     setup_multi_panel_figure,
     validate_and_prepare_feature,
 )
@@ -97,10 +102,15 @@ from .velocity import create_rna_velocity_visualization
 
 __all__ = [
     # Core utilities
+    "FIGURE_DEFAULTS",
     "create_figure",
+    "create_figure_from_params",
+    "resolve_figure_size",
     "setup_multi_panel_figure",
     "add_colorbar",
     "get_colormap",
+    "get_categorical_cmap",
+    "get_category_colors",
     "get_diverging_colormap",
     "plot_spatial_feature",
     "get_validated_features",

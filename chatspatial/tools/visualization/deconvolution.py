@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 from matplotlib.patches import Patch, Wedge
 from scipy.stats import entropy
 
@@ -28,7 +27,14 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import get_spatial_key, require_spatial_coords
 from ...utils.exceptions import DataNotFoundError, ParameterError
-from .core import DeconvolutionData, plot_spatial_feature, setup_multi_panel_figure
+from .core import (
+    DeconvolutionData,
+    create_figure_from_params,
+    get_category_colors,
+    plot_spatial_feature,
+    resolve_figure_size,
+    setup_multi_panel_figure,
+)
 
 # =============================================================================
 # Data Retrieval
@@ -212,29 +218,20 @@ async def _create_dominant_celltype_map(
     spatial_coords = require_spatial_coords(adata)
 
     # Create figure
-    figsize = params.figure_size if params.figure_size else (10, 8)
-    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    fig, axes = create_figure_from_params(params, "deconvolution")
+    ax = axes[0]
 
     # Get unique categories
     unique_categories = np.unique(spot_categories)
     n_categories = len(unique_categories)
 
-    # Create colormap
+    # Create colormap using centralized utility
     if params.show_mixed_spots and "Mixed" in unique_categories:
         cell_type_categories = [c for c in unique_categories if c != "Mixed"]
         n_cell_types = len(cell_type_categories)
 
-        if n_cell_types <= 20:
-            cell_type_cmap = plt.cm.get_cmap("tab20", n_cell_types)
-            cell_type_colors = {
-                ct: cell_type_cmap(i) for i, ct in enumerate(cell_type_categories)
-            }
-        else:
-            cell_type_colors = {
-                ct: plt.cm.get_cmap(params.colormap or "tab20", n_cell_types)(i)
-                for i, ct in enumerate(cell_type_categories)
-            }
-
+        colors = get_category_colors(n_cell_types, params.colormap)
+        cell_type_colors = {ct: colors[i] for i, ct in enumerate(cell_type_categories)}
         cell_type_colors["Mixed"] = (0.7, 0.7, 0.7, 1.0)
 
         for category in unique_categories:
@@ -249,19 +246,15 @@ async def _create_dominant_celltype_map(
                 edgecolors="none",
             )
     else:
-        if n_categories <= 20:
-            cmap = plt.cm.get_cmap("tab20", n_categories)
-        else:
-            cmap = plt.cm.get_cmap(params.colormap or "tab20", n_categories)
-
-        colors = {cat: cmap(i) for i, cat in enumerate(unique_categories)}
+        colors = get_category_colors(n_categories, params.colormap)
+        color_map = {cat: colors[i] for i, cat in enumerate(unique_categories)}
 
         for category in unique_categories:
             mask = spot_categories == category
             ax.scatter(
                 spatial_coords[mask, 0],
                 spatial_coords[mask, 1],
-                c=[colors[category]],
+                c=[color_map[category]],
                 s=params.spot_size or 10,
                 alpha=1.0,
                 label=category,
@@ -316,8 +309,8 @@ async def _create_diversity_map(
     spatial_coords = require_spatial_coords(adata)
 
     # Create figure
-    figsize = params.figure_size if params.figure_size else (10, 8)
-    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    fig, axes = create_figure_from_params(params, "deconvolution")
+    ax = axes[0]
 
     scatter = ax.scatter(
         spatial_coords[:, 0],
@@ -410,17 +403,14 @@ async def _create_stacked_barplot(
     proportions_sorted = proportions_plot.iloc[sort_order]
 
     # Create figure
-    figsize = params.figure_size if params.figure_size else (12, 6)
-    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    fig, axes = create_figure_from_params(params, "violin")  # violin uses (12, 6)
+    ax = axes[0]
 
     cell_types = proportions_sorted.columns.tolist()
     n_cell_types = len(cell_types)
 
-    if n_cell_types <= 20:
-        cmap = plt.cm.get_cmap("tab20", n_cell_types)
-    else:
-        cmap = plt.cm.get_cmap(params.colormap or "tab20", n_cell_types)
-    colors = [cmap(i) for i in range(n_cell_types)]
+    # Use centralized colormap utility
+    colors = get_category_colors(n_cell_types, params.colormap)
 
     x_positions = np.arange(len(proportions_sorted))
     bottom = np.zeros(len(proportions_sorted))
@@ -476,14 +466,13 @@ async def _create_scatterpie_plot(
     cell_types = proportions_plot.columns.tolist()
     n_cell_types = len(cell_types)
 
-    if n_cell_types <= 20:
-        cmap = plt.cm.get_cmap("tab20", n_cell_types)
-    else:
-        cmap = plt.cm.get_cmap(params.colormap or "tab20", n_cell_types)
-    colors = {cell_type: cmap(i) for i, cell_type in enumerate(cell_types)}
+    # Use centralized colormap utility
+    color_list = get_category_colors(n_cell_types, params.colormap)
+    colors = {cell_type: color_list[i] for i, cell_type in enumerate(cell_types)}
 
-    figsize = params.figure_size if params.figure_size else (12, 10)
-    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    # Create figure
+    fig, axes = create_figure_from_params(params, "deconvolution")
+    ax = axes[0]
 
     # Calculate pie radius based on spatial scale
     coord_range = np.ptp(coords_plot, axis=0).max()
@@ -569,9 +558,9 @@ async def _create_umap_proportions(
     ncols = min(3, n_panels)
     nrows = int(np.ceil(n_panels / ncols))
 
-    fig, axes = plt.subplots(
-        nrows, ncols, figsize=(ncols * 4, nrows * 3.5), squeeze=False
-    )
+    # Use centralized figure size resolution
+    figsize = resolve_figure_size(params, n_panels=n_panels, panel_width=4, panel_height=3.5)
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
     axes = axes.flatten()
 
     for idx, cell_type in enumerate(top_cell_types):
@@ -729,15 +718,17 @@ async def create_card_imputation_visualization(
     if not feature:
         feature = "dominant"
 
-    figsize = params.figure_size if params.figure_size else (12, 10)
-    fig, ax = plt.subplots(figsize=figsize)
+    # Create figure using centralized utility
+    fig, axes = create_figure_from_params(params, "deconvolution")
+    ax = axes[0]
 
     if feature == "dominant":
         # Show dominant cell types
         dominant_types = imputed_proportions.idxmax(axis=1)
         unique_types = dominant_types.unique()
 
-        colors = sns.color_palette("tab20", n_colors=len(unique_types))
+        # Use centralized colormap utility
+        colors = get_category_colors(len(unique_types), params.colormap)
         color_map = {ct: colors[i] for i, ct in enumerate(unique_types)}
         point_colors = [color_map[ct] for ct in dominant_types]
 

@@ -9,7 +9,8 @@ import base64
 import io
 import os
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
 
 from mcp.types import ImageContent
 
@@ -19,8 +20,12 @@ if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
 
-# Function to ensure matplotlib uses non-interactive backend
-def _ensure_non_interactive_backend():
+# =============================================================================
+# Matplotlib Backend Management
+# =============================================================================
+
+
+def _ensure_non_interactive_backend() -> None:
     """Ensure matplotlib uses non-interactive backend to prevent GUI popups on macOS."""
     import matplotlib
 
@@ -29,7 +34,43 @@ def _ensure_non_interactive_backend():
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        plt.ioff()  # Turn off interactive mode
+        plt.ioff()
+
+
+@contextmanager
+def non_interactive_backend() -> Generator[None, None, None]:
+    """Context manager for temporary non-interactive matplotlib backend.
+
+    Use this when calling external plotting functions (e.g., cellrank, scvelo)
+    that may trigger interactive backend behavior. The original backend is
+    restored after the context exits.
+
+    For internal plotting code that doesn't need backend restoration,
+    use _ensure_non_interactive_backend() instead.
+
+    Usage:
+        with non_interactive_backend():
+            cr.pl.circular_projection(adata, ...)
+            fig = plt.gcf()
+
+    Yields:
+        None
+    """
+    import matplotlib
+
+    original_backend = matplotlib.get_backend()
+    needs_restore = original_backend != "Agg"
+
+    try:
+        if needs_restore:
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            plt.ioff()
+        yield
+    finally:
+        if needs_restore:
+            matplotlib.use(original_backend)
 
 
 if TYPE_CHECKING:

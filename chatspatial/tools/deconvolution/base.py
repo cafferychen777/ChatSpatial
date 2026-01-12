@@ -139,16 +139,25 @@ def create_deconvolution_stats(
 class DeconvolutionContext:
     """Encapsulates common data preparation for all deconvolution methods.
 
-    This class follows the "prepare once, use many" principle to avoid
-    redundant validation and data preparation across deconvolution methods.
+    This class uses a two-phase preparation design:
+    1. prepare_data(): Validate and restore raw counts
+    2. find_genes(): Find and validate common genes
 
-    Usage:
+    This allows methods to insert custom preprocessing (e.g., gene filtering)
+    between the two phases.
+
+    Usage (standard):
         ctx = DeconvolutionContext(spatial, reference, cell_type_key, tool_ctx)
-        await ctx.prepare()
+        await ctx.prepare_data()
+        await ctx.find_genes()
+        spatial_data, ref_data = ctx.get_subset_data()
 
-        # Now use prepared data in method-specific logic
-        ref = ctx.reference_prepared[:, ctx.common_genes]
-        sp = ctx.spatial_prepared[:, ctx.common_genes]
+    Usage (with custom preprocessing):
+        ctx = DeconvolutionContext(spatial, reference, cell_type_key, tool_ctx)
+        await ctx.prepare_data()
+        # Apply method-specific preprocessing to ctx.spatial_prepared / reference_prepared
+        await ctx.find_genes()
+        spatial_data, ref_data = ctx.get_subset_data()
     """
 
     spatial_adata: ad.AnnData
@@ -156,33 +165,34 @@ class DeconvolutionContext:
     cell_type_key: str
     ctx: "ToolContext"
 
-    # Prepared data (populated by prepare())
+    # Prepared data (populated by prepare_data())
     spatial_prepared: Optional[ad.AnnData] = field(default=None, init=False)
     reference_prepared: Optional[ad.AnnData] = field(default=None, init=False)
-    common_genes: Optional[List[str]] = field(default=None, init=False)
     cell_types: Optional[List[str]] = field(default=None, init=False)
 
-    _prepared: bool = field(default=False, init=False)
+    # Gene data (populated by find_genes())
+    common_genes: Optional[List[str]] = field(default=None, init=False)
 
-    async def prepare(
+    # State tracking
+    _data_prepared: bool = field(default=False, init=False)
+    _genes_found: bool = field(default=False, init=False)
+
+    async def prepare_data(
         self,
         require_int_dtype: bool = False,
-        min_common_genes: int = 100,
     ) -> "DeconvolutionContext":
-        """Execute all common validation and data preparation.
+        """Phase 1: Validate and prepare raw count data.
+
+        After this, method-specific preprocessing can be applied to
+        spatial_prepared and reference_prepared before calling find_genes().
 
         Args:
             require_int_dtype: If True, convert counts to int32 (for R methods)
-            min_common_genes: Minimum required overlapping genes
 
         Returns:
             self (for method chaining)
-
-        Raises:
-            ParameterError: If cell_type_key is invalid
-            DataError: If data preparation fails or insufficient gene overlap
         """
-        if self._prepared:
+        if self._data_prepared:
             return self
 
         # 1. Validate cell type key exists in reference
@@ -206,12 +216,36 @@ class DeconvolutionContext:
             self.reference_adata, "Reference", self.ctx, require_int_dtype
         )
 
-        # 5. Find and validate common genes
+        self._data_prepared = True
+        return self
+
+    async def find_genes(
+        self,
+        min_common_genes: int = 100,
+    ) -> "DeconvolutionContext":
+        """Phase 2: Find and validate common genes.
+
+        Call this after prepare_data() and any method-specific preprocessing.
+
+        Args:
+            min_common_genes: Minimum required overlapping genes
+
+        Returns:
+            self (for method chaining)
+        """
+        if not self._data_prepared:
+            raise ProcessingError("Must call prepare_data() before find_genes()")
+
+        if self._genes_found:
+            return self
+
+        # Find common genes
         self.common_genes = find_common_genes(
             self.spatial_prepared.var_names,
             self.reference_prepared.var_names,
         )
 
+        # Validate gene overlap
         validate_gene_overlap(
             self.common_genes,
             self.spatial_prepared.n_vars,
@@ -221,7 +255,7 @@ class DeconvolutionContext:
             target_name="reference",
         )
 
-        self._prepared = True
+        self._genes_found = True
         return self
 
     def get_subset_data(self) -> Tuple[ad.AnnData, ad.AnnData]:
@@ -230,8 +264,8 @@ class DeconvolutionContext:
         Returns:
             Tuple of (spatial_subset, reference_subset)
         """
-        if not self._prepared:
-            raise ProcessingError("Must call prepare() before get_subset_data()")
+        if not self._genes_found:
+            raise ProcessingError("Must call find_genes() before get_subset_data()")
 
         return (
             self.spatial_prepared[:, self.common_genes].copy(),

@@ -17,7 +17,7 @@ from ...models.data import VisualizationParameters
 from ...utils.adata_utils import require_spatial_coords, validate_obs_column
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError
-from .core import plot_spatial_feature
+from .core import create_figure_from_params, plot_spatial_feature, resolve_figure_size
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -100,8 +100,9 @@ async def create_spatial_cnv_visualization(
             else "tab20"
         )
 
-    figsize = params.figure_size if params.figure_size else (10, 8)
-    fig, ax = plt.subplots(figsize=figsize)
+    # Use centralized figure creation
+    fig, axes = create_figure_from_params(params, "spatial")
+    ax = axes[0]
 
     # Use the enhanced plot_spatial_feature helper
     plot_spatial_feature(adata, ax, feature=feature_to_plot, params=params)
@@ -191,7 +192,8 @@ async def create_cnv_heatmap_visualization(
     if context:
         await context.info("Generating CNV heatmap...")
 
-    figsize = params.figure_size if params.figure_size else (12, 8)
+    # Use centralized figure size resolution
+    figsize = resolve_figure_size(params, "cnv")
 
     # For Numbat data without chromosome info, use aggregated heatmap by group
     if cnv_method == "numbat" and "chromosome" not in adata.var.columns:

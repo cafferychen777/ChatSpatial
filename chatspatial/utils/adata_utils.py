@@ -124,37 +124,6 @@ def get_batch_key(adata: "ad.AnnData") -> Optional[str]:
 # =============================================================================
 # Data Access: Get data from AnnData
 # =============================================================================
-def get_spatial_coordinates(adata: "ad.AnnData") -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Get spatial coordinates (x, y) from AnnData.
-
-    Checks obsm['spatial'], alternative keys, and obs['x'/'y'].
-
-    Returns:
-        Tuple of (x_coords, y_coords)
-
-    Raises:
-        DataError: If no spatial coordinates found
-    """
-    # Check obsm
-    for key in ALTERNATIVE_SPATIAL_KEYS:
-        if key in adata.obsm:
-            coords = adata.obsm[key]
-            return coords[:, 0], coords[:, 1]
-
-    # Check obs x/y
-    if "x" in adata.obs and "y" in adata.obs:
-        x = pd.to_numeric(adata.obs["x"], errors="coerce").values
-        y = pd.to_numeric(adata.obs["y"], errors="coerce").values
-        if not (np.any(np.isnan(x)) or np.any(np.isnan(y))):
-            return x, y
-
-    raise DataError(
-        "No spatial coordinates found. Expected in adata.obsm['spatial'] "
-        "or adata.obs['x'/'y']"
-    )
-
-
 def sample_expression_values(
     adata: "ad.AnnData",
     n_samples: int = 1000,
@@ -212,8 +181,8 @@ def require_spatial_coords(
     """
     Get validated spatial coordinates array from AnnData.
 
-    Unlike get_spatial_coordinates() which returns (x, y) tuple, this
-    returns the full coordinates array and provides optional validation.
+    This is the primary function for accessing spatial coordinates.
+    Returns the full coordinates array with optional validation.
 
     Args:
         adata: AnnData object
@@ -386,36 +355,6 @@ def ensure_categorical(adata: "ad.AnnData", column: str) -> None:
         raise DataError(f"Column '{column}' not found in adata.obs")
     if not pd.api.types.is_categorical_dtype(adata.obs[column]):
         adata.obs[column] = adata.obs[column].astype("category")
-
-
-# =============================================================================
-# Ensure: Make sure something exists
-# =============================================================================
-def ensure_spatial_key(adata: "ad.AnnData") -> str:
-    """
-    Ensure spatial coordinates exist and return the key.
-
-    Creates from obs['x'/'y'] if needed.
-
-    Returns:
-        The spatial key name
-
-    Raises:
-        DataError: If no spatial coordinates found
-    """
-    key = get_spatial_key(adata)
-    if key:
-        return key
-
-    # Try to create from obs x/y
-    if "x" in adata.obs and "y" in adata.obs:
-        x = pd.to_numeric(adata.obs["x"], errors="coerce").values
-        y = pd.to_numeric(adata.obs["y"], errors="coerce").values
-        if not (np.any(np.isnan(x)) or np.any(np.isnan(y))):
-            adata.obsm[SPATIAL_KEY] = np.column_stack([x, y]).astype("float64")
-            return SPATIAL_KEY
-
-    raise DataError("No spatial coordinates found")
 
 
 # =============================================================================

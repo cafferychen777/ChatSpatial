@@ -89,7 +89,7 @@ async def deconvolve_spatial_data(
     # Check method availability
     _check_method_availability(params.method)
 
-    # Create deconvolution context and prepare data
+    # Create deconvolution context
     deconv_ctx = DeconvolutionContext(
         spatial_adata=spatial_adata,
         reference_adata=reference_adata,
@@ -97,9 +97,14 @@ async def deconvolve_spatial_data(
         ctx=ctx,
     )
 
-    # Prepare data (R-based methods need int32)
+    # Phase 1: Prepare data (R-based methods need int32)
     require_int = params.method in _R_BASED_METHODS
-    await deconv_ctx.prepare(require_int_dtype=require_int)
+    await deconv_ctx.prepare_data(require_int_dtype=require_int)
+
+    # Phase 2: Find common genes
+    # Cell2location has custom gene filtering, so it calls find_genes() after filtering
+    if params.method != "cell2location":
+        await deconv_ctx.find_genes()
 
     # Dispatch to method-specific implementation
     proportions, stats = await _dispatch_method(deconv_ctx, params)

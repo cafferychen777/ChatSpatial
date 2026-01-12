@@ -13,14 +13,12 @@ from .adata_utils import (  # Constants; Field discovery; Data access; Validatio
     SPATIAL_KEY,
     ensure_categorical,
     ensure_counts_layer,
-    ensure_spatial_key,
     find_common_genes,
     get_batch_key,
     get_cell_type_key,
     get_cluster_key,
     get_gene_expression,
     get_genes_expression,
-    get_spatial_coordinates,
     get_spatial_key,
     standardize_adata,
     to_dense,
@@ -37,6 +35,13 @@ from .dependency_manager import (
     require,
     validate_r_environment,
     validate_scvi_tools,
+)
+from .device_utils import (
+    cuda_available,
+    get_device,
+    get_ot_backend,
+    mps_available,
+    resolve_device_async,
 )
 from .exceptions import (
     ChatSpatialError,
@@ -75,8 +80,6 @@ __all__ = [
     "get_cell_type_key",
     "get_cluster_key",
     "get_spatial_key",
-    # Data access
-    "get_spatial_coordinates",
     # Expression extraction
     "to_dense",
     "get_gene_expression",
@@ -92,7 +95,6 @@ __all__ = [
     "find_common_genes",
     # Ensure
     "ensure_counts_layer",
-    "ensure_spatial_key",
     # Standardization
     "standardize_adata",
     # Dependency management
@@ -102,4 +104,10 @@ __all__ = [
     "is_available",
     "validate_r_environment",
     "validate_scvi_tools",
+    # Device utilities
+    "cuda_available",
+    "mps_available",
+    "get_device",
+    "resolve_device_async",
+    "get_ot_backend",
 ]

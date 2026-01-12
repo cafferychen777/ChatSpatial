@@ -26,7 +26,12 @@ from ...utils.exceptions import (
     DataNotFoundError,
     ParameterError,
 )
-from .core import get_categorical_columns, infer_basis
+from .core import (
+    create_figure_from_params,
+    get_categorical_columns,
+    infer_basis,
+    resolve_figure_size,
+)
 
 # =============================================================================
 # Main Router
@@ -121,8 +126,8 @@ async def _create_velocity_stream_plot(
         if feature and context:
             await context.info(f"Using '{feature}' for coloring")
 
-    figsize = params.figure_size or (10, 8)
-    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+    fig, axes = create_figure_from_params(params, "velocity")
+    ax = axes[0]
 
     scv.pl.velocity_embedding_stream(
         adata,
@@ -193,7 +198,9 @@ async def _create_velocity_phase_plot(
         await context.info(f"Creating phase plot for genes: {valid_genes}")
 
     basis = infer_basis(adata, preferred=params.basis, priority=["umap", "spatial"])
-    figsize = params.figure_size or (4 * len(valid_genes), 4)
+    figsize = resolve_figure_size(
+        params, n_panels=len(valid_genes), panel_width=4, panel_height=4
+    )
     color = params.cluster_key if params.cluster_key else None
 
     scv.pl.velocity(
@@ -255,7 +262,7 @@ async def _create_velocity_proportions_plot(
     if context:
         await context.info(f"Creating proportions plot grouped by '{cluster_key}'")
 
-    figsize = params.figure_size or (12, 4)
+    figsize = resolve_figure_size(params, "violin")
 
     scv.pl.proportions(
         adata,
@@ -313,7 +320,7 @@ async def _create_velocity_heatmap(
     if context:
         await context.info(f"Creating velocity heatmap with {len(var_names)} genes")
 
-    figsize = params.figure_size or (12, 8)
+    figsize = resolve_figure_size(params, "heatmap")
 
     scv.pl.heatmap(
         adata,
@@ -382,8 +389,8 @@ async def _create_velocity_paga_plot(
         await context.info(f"Creating velocity PAGA plot for '{cluster_key}'")
 
     basis = infer_basis(adata, preferred=params.basis, priority=["umap", "spatial"])
-    figsize = params.figure_size or (10, 8)
-    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+    fig, axes = create_figure_from_params(params, "velocity")
+    ax = axes[0]
 
     scv.pl.paga(
         adata,

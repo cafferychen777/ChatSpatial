@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import get_spatial_coordinates, validate_obs_column
+from ...utils.adata_utils import require_spatial_coords, validate_obs_column
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
 from .core import CellCommunicationData
@@ -267,7 +267,8 @@ def _create_spatial_lr_visualization(
         axes = np.array([axes])
     axes = np.atleast_1d(axes).flatten()
 
-    x_coords, y_coords = get_spatial_coordinates(adata)
+    coords = require_spatial_coords(adata)
+    x_coords, y_coords = coords[:, 0], coords[:, 1]
 
     for i, (pair, pair_idx) in enumerate(zip(valid_pairs, pair_indices, strict=False)):
         ax = axes[i]

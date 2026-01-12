@@ -15,8 +15,13 @@ if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
 from ..models.data import RegistrationParameters
-from ..utils.adata_utils import ensure_unique_var_names, find_common_genes, get_spatial_key
+from ..utils.adata_utils import (
+    ensure_unique_var_names,
+    find_common_genes,
+    get_spatial_key,
+)
 from ..utils.dependency_manager import require
+from ..utils.device_utils import get_device, get_ot_backend
 from ..utils.exceptions import ParameterError, ProcessingError
 
 logger = logging.getLogger(__name__)
@@ -56,21 +61,6 @@ def _get_common_genes(adata_list: List["ad.AnnData"]) -> List[str]:
     genes = find_common_genes(*[adata.var_names for adata in adata_list])
     logger.info(f"Found {len(genes)} common genes across {len(adata_list)} slices")
     return genes
-
-
-def _create_ot_backend(use_gpu: bool):
-    """Create optimal transport backend for PASTE."""
-    import ot
-
-    if use_gpu:
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                return ot.backend.TorchBackend()
-        except ImportError:
-            pass
-    return ot.backend.NumpyBackend()
 
 
 # =============================================================================
@@ -188,7 +178,7 @@ def _register_paste(
         logger.info(f"Performing PASTE center alignment with {len(registered)} slices")
 
         slices = [adata[:, common_genes] for adata in registered]
-        backend = _create_ot_backend(params.use_gpu)
+        backend = get_ot_backend(params.use_gpu)
 
         # Initial pairwise alignments to reference
         pis = []
@@ -290,7 +280,7 @@ def _register_stalign(
     )
 
     # STalign parameters
-    device = "cuda:0" if params.use_gpu and torch.cuda.is_available() else "cpu"
+    device = get_device(prefer_gpu=params.use_gpu)
     stalign_params = {
         "a": params.stalign_a,
         "p": 2.0,

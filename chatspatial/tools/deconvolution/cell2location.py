@@ -17,15 +17,15 @@ if TYPE_CHECKING:
 
     from ...spatial_mcp_adapter import ToolContext
 
-from ...utils.adata_utils import find_common_genes, validate_gene_overlap
 from ...utils.dependency_manager import is_available, require
+from ...utils.device_utils import get_device
 from ...utils.exceptions import DataError, ProcessingError
+from ...utils.image_utils import non_interactive_backend
 from ...utils.mcp_utils import suppress_output
 from .base import (
     DeconvolutionContext,
     check_model_convergence,
     create_deconvolution_stats,
-    prepare_anndata_for_counts,
 )
 
 
@@ -50,15 +50,10 @@ async def _apply_gene_filtering(
         )
         return adata.copy()
 
-    # Suppress matplotlib figure from filter_genes
-    import matplotlib
+    # Suppress matplotlib figure from filter_genes using context manager
     import matplotlib.pyplot as plt
 
-    original_backend = matplotlib.get_backend()
-    matplotlib.use("Agg")
-    plt.ioff()
-
-    try:
+    with non_interactive_backend():
         from cell2location.utils.filtering import filter_genes
 
         selected = filter_genes(
@@ -70,14 +65,7 @@ async def _apply_gene_filtering(
         # Close any figures created by filter_genes
         plt.close("all")
 
-        return adata[:, selected].copy()
-    finally:
-        # Restore original backend if needed
-        if original_backend != "Agg":
-            try:
-                matplotlib.use(original_backend)
-            except Exception:
-                pass  # Backend might not be switchable
+    return adata[:, selected].copy()
 
 
 async def deconvolve(
@@ -106,7 +94,7 @@ async def deconvolve(
     """Deconvolve spatial data using Cell2location.
 
     Args:
-        deconv_ctx: Prepared DeconvolutionContext (note: we re-prepare with gene filtering)
+        deconv_ctx: DeconvolutionContext with prepare_data() already called
         ref_model_epochs: Epochs for reference model (default: 250)
         n_epochs: Epochs for Cell2location model (default: 30000)
         n_cells_per_spot: Expected cells per location (default: 30)
@@ -134,23 +122,13 @@ async def deconvolve(
 
     try:
         # Device selection
-        device = "cpu"
-        if use_gpu and is_available("torch"):
-            import torch
+        device = get_device(prefer_gpu=use_gpu)
 
-            if torch.cuda.is_available():
-                device = "cuda"
+        # Use prepared data from context
+        ref = deconv_ctx.reference_prepared
+        sp = deconv_ctx.spatial_prepared
 
-        # Cell2location needs special preparation with gene filtering
-        # So we re-prepare from original data instead of using deconv_ctx.prepared
-        ref = await prepare_anndata_for_counts(
-            deconv_ctx.reference_adata, "Reference", ctx, require_int_dtype=False
-        )
-        sp = await prepare_anndata_for_counts(
-            deconv_ctx.spatial_adata, "Spatial", ctx, require_int_dtype=False
-        )
-
-        # Apply gene filtering (cell2location-specific preprocessing)
+        # Apply Cell2location-specific gene filtering
         if apply_gene_filtering:
             ref = await _apply_gene_filtering(
                 ref,
@@ -166,17 +144,13 @@ async def deconvolve(
                 cell_percentage_cutoff2=gene_filter_cell_percentage_cutoff2,
                 nonz_mean_cutoff=gene_filter_nonz_mean_cutoff,
             )
+            # Update context with filtered data
+            deconv_ctx.reference_prepared = ref
+            deconv_ctx.spatial_prepared = sp
 
         # Find common genes after filtering
-        common_genes = find_common_genes(ref.var_names, sp.var_names)
-        validate_gene_overlap(
-            common_genes,
-            sp.n_vars,
-            ref.n_vars,
-            min_genes=100,
-            source_name="spatial",
-            target_name="reference",
-        )
+        await deconv_ctx.find_genes(min_common_genes=100)
+        common_genes = deconv_ctx.common_genes
 
         # Subset to common genes
         ref = ref[:, common_genes]

@@ -34,10 +34,118 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
+# Default figure sizes by plot type for consistency
+FIGURE_DEFAULTS = {
+    "spatial": (10, 8),
+    "umap": (10, 8),
+    "heatmap": (12, 10),
+    "violin": (12, 6),
+    "dotplot": (10, 8),
+    "trajectory": (10, 10),
+    "gene_trends": (12, 6),
+    "velocity": (10, 8),
+    "deconvolution": (10, 8),
+    "cell_communication": (10, 10),
+    "enrichment": (6, 8),
+    "cnv": (12, 8),
+    "integration": (16, 12),
+    "default": (10, 8),
+}
+
+
+def resolve_figure_size(
+    params: VisualizationParameters,
+    plot_type: str = "default",
+    n_panels: Optional[int] = None,
+    panel_width: float = 5.0,
+    panel_height: float = 4.0,
+) -> Tuple[int, int]:
+    """Resolve figure size from params with smart defaults.
+
+    This centralizes figure size resolution logic to ensure consistency
+    across all visualization modules.
+
+    Args:
+        params: VisualizationParameters with optional figure_size
+        plot_type: Type of plot for default selection (e.g., "spatial", "heatmap")
+        n_panels: Number of panels for multi-panel figures
+        panel_width: Width per panel for multi-panel figures
+        panel_height: Height per panel for multi-panel figures
+
+    Returns:
+        Tuple of (width, height) in inches
+
+    Examples:
+        >>> resolve_figure_size(params, "spatial")  # User override or (10, 8)
+        >>> resolve_figure_size(params, n_panels=4)  # Compute from panel count
+    """
+    # User-specified size always takes precedence
+    if params.figure_size:
+        return params.figure_size
+
+    # Multi-panel figure: compute from panel dimensions
+    if n_panels is not None and n_panels > 1:
+        n_cols = min(3, n_panels)
+        n_rows = (n_panels + n_cols - 1) // n_cols
+        width = min(panel_width * n_cols, 15)
+        height = min(panel_height * n_rows, 16)
+        return (int(width), int(height))
+
+    # Use plot-type specific default
+    return FIGURE_DEFAULTS.get(plot_type, FIGURE_DEFAULTS["default"])
+
+
 def create_figure(figsize: Tuple[int, int] = (10, 8)) -> Tuple[plt.Figure, plt.Axes]:
     """Create a matplotlib figure with the right size and style."""
     fig, ax = plt.subplots(figsize=figsize)
     return fig, ax
+
+
+def create_figure_from_params(
+    params: VisualizationParameters,
+    plot_type: str = "default",
+    n_panels: Optional[int] = None,
+    n_rows: int = 1,
+    n_cols: int = 1,
+    squeeze: bool = True,
+) -> Tuple[plt.Figure, np.ndarray]:
+    """Create a figure with axes from visualization parameters.
+
+    This is the preferred way to create figures in visualization modules.
+    It centralizes figure size resolution and applies consistent settings.
+
+    Args:
+        params: VisualizationParameters
+        plot_type: Type of plot for default size selection
+        n_panels: Number of panels (for auto-layout calculation)
+        n_rows: Number of subplot rows
+        n_cols: Number of subplot columns
+        squeeze: Whether to squeeze single-element arrays
+
+    Returns:
+        Tuple of (Figure, array of Axes)
+
+    Examples:
+        >>> fig, axes = create_figure_from_params(params, "spatial")
+        >>> fig, axes = create_figure_from_params(params, n_rows=2, n_cols=3)
+    """
+    figsize = resolve_figure_size(params, plot_type, n_panels)
+
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=figsize,
+        dpi=params.dpi,
+        squeeze=squeeze,
+    )
+
+    # Ensure axes is always an array for consistent handling
+    if squeeze and n_rows == 1 and n_cols == 1:
+        axes = np.array([axes])
+    elif squeeze and (n_rows == 1 or n_cols == 1):
+        axes = np.atleast_1d(axes)
+
+    return fig, axes
 
 
 def setup_multi_panel_figure(
@@ -268,9 +376,91 @@ def validate_and_prepare_feature(
 # Colormap Utilities
 # =============================================================================
 
+# Categorical colormaps by size threshold
+_CATEGORICAL_CMAPS = {
+    10: "tab10",   # Best for <= 10 categories
+    20: "tab20",   # Best for 11-20 categories
+    40: "tab20b",  # Extended palette for more categories
+}
+
+
+def get_categorical_cmap(n_categories: int, user_cmap: Optional[str] = None) -> str:
+    """Select the best categorical colormap based on number of categories.
+
+    This centralizes the categorical colormap selection logic that was
+    previously scattered across visualization modules.
+
+    Args:
+        n_categories: Number of distinct categories to color
+        user_cmap: User-specified colormap (takes precedence if provided
+                  and is a known categorical palette)
+
+    Returns:
+        Colormap name suitable for categorical data
+
+    Examples:
+        >>> get_categorical_cmap(5)   # Returns "tab10"
+        >>> get_categorical_cmap(15)  # Returns "tab20"
+        >>> get_categorical_cmap(8, user_cmap="Set2")  # Returns "Set2"
+    """
+    # Known categorical palettes that user might specify
+    categorical_palettes = {
+        "tab10", "tab20", "tab20b", "tab20c",
+        "Set1", "Set2", "Set3", "Paired", "Accent",
+        "Dark2", "Pastel1", "Pastel2",
+    }
+
+    # User preference takes precedence if it's a categorical palette
+    if user_cmap and user_cmap in categorical_palettes:
+        return user_cmap
+
+    # Auto-select based on category count
+    for threshold, cmap in sorted(_CATEGORICAL_CMAPS.items()):
+        if n_categories <= threshold:
+            return cmap
+
+    # Fallback for very large category counts
+    return "tab20"
+
+
+def get_category_colors(
+    n_categories: int,
+    cmap_name: Optional[str] = None,
+) -> List:
+    """Get a list of colors for categorical data.
+
+    This is the primary function for obtaining colors for categorical
+    visualizations. It handles colormap selection and color extraction.
+
+    Args:
+        n_categories: Number of categories to color
+        cmap_name: Colormap name (auto-selected if None)
+
+    Returns:
+        List of colors (can be used with matplotlib scatter, legend, etc.)
+
+    Examples:
+        >>> colors = get_category_colors(5)  # 5 distinct colors
+        >>> colors = get_category_colors(15, "tab20")  # 15 colors from tab20
+    """
+    # Select appropriate colormap
+    if cmap_name is None:
+        cmap_name = get_categorical_cmap(n_categories)
+
+    # Seaborn palettes
+    if cmap_name in ["tab10", "tab20", "Set1", "Set2", "Set3", "Paired", "husl"]:
+        return sns.color_palette(cmap_name, n_colors=n_categories)
+
+    # Matplotlib colormaps
+    cmap = plt.get_cmap(cmap_name)
+    return [cmap(i / max(n_categories - 1, 1)) for i in range(n_categories)]
+
 
 def get_colormap(name: str, n_colors: Optional[int] = None):
     """Get a matplotlib colormap by name.
+
+    For categorical data, prefer using get_category_colors() instead.
+    This function is for backward compatibility and continuous colormaps.
 
     Args:
         name: Colormap name (supports matplotlib and seaborn palettes)
@@ -280,21 +470,16 @@ def get_colormap(name: str, n_colors: Optional[int] = None):
         If n_colors is specified: List of colors (always indexable)
         Otherwise: Colormap object (for continuous data)
     """
-    # Check if it's a seaborn palette
+    # For categorical with n_colors, delegate to specialized function
+    if n_colors:
+        return get_category_colors(n_colors, name)
+
+    # Check if it's a seaborn palette (return as palette for consistency)
     if name in ["tab10", "tab20", "Set1", "Set2", "Set3", "Paired", "husl"]:
-        if n_colors:
-            return sns.color_palette(name, n_colors=n_colors)
         return sns.color_palette(name)
 
-    # For matplotlib colormaps
-    cmap = plt.get_cmap(name)
-
-    # If n_colors is specified, sample discrete colors from the colormap
-    # This ensures the return value is always indexable for categorical data
-    if n_colors:
-        return [cmap(i / max(n_colors - 1, 1)) for i in range(n_colors)]
-
-    return cmap
+    # For matplotlib colormaps, return the colormap object
+    return plt.get_cmap(name)
 
 
 def get_diverging_colormap(center: float = 0.0) -> str:

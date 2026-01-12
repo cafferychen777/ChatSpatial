@@ -23,12 +23,18 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import validate_obs_column
 from ...utils.dependency_manager import require
+from ...utils.image_utils import non_interactive_backend
 from ...utils.exceptions import (
     DataCompatibilityError,
     DataNotFoundError,
     ParameterError,
 )
-from .core import get_categorical_columns, infer_basis, setup_multi_panel_figure
+from .core import (
+    get_categorical_columns,
+    infer_basis,
+    resolve_figure_size,
+    setup_multi_panel_figure,
+)
 
 # =============================================================================
 # Main Router
@@ -252,21 +258,17 @@ async def _create_cellrank_circular_projection(
         categorical_cols = get_categorical_columns(adata, limit=3)
         keys = categorical_cols if categorical_cols else None
 
-    figsize = params.figure_size or (10, 10)
+    # Use centralized figure size resolution
+    figsize = resolve_figure_size(params, "trajectory")
 
-    import matplotlib
-
-    backend = matplotlib.get_backend()
-    matplotlib.use("Agg")
-
-    cr.pl.circular_projection(
-        adata,
-        keys=keys,
-        figsize=figsize,
-        dpi=params.dpi,
-    )
-    fig = plt.gcf()
-    matplotlib.use(backend)
+    with non_interactive_backend():
+        cr.pl.circular_projection(
+            adata,
+            keys=keys,
+            figsize=figsize,
+            dpi=params.dpi,
+        )
+        fig = plt.gcf()
 
     if params.title:
         fig.suptitle(params.title, fontsize=14, y=1.02)
@@ -318,22 +320,18 @@ async def _create_cellrank_fate_map(
     if context:
         await context.info(f"Creating CellRank fate map for '{cluster_key}'")
 
-    figsize = params.figure_size or (12, 6)
+    # Use centralized figure size resolution
+    figsize = resolve_figure_size(params, "violin")  # similar width to violin plots
 
-    import matplotlib
-
-    backend = matplotlib.get_backend()
-    matplotlib.use("Agg")
-
-    cr.pl.aggregate_fate_probabilities(
-        adata,
-        cluster_key=cluster_key,
-        mode="bar",
-        figsize=figsize,
-        dpi=params.dpi,
-    )
-    fig = plt.gcf()
-    matplotlib.use(backend)
+    with non_interactive_backend():
+        cr.pl.aggregate_fate_probabilities(
+            adata,
+            cluster_key=cluster_key,
+            mode="bar",
+            figsize=figsize,
+            dpi=params.dpi,
+        )
+        fig = plt.gcf()
 
     title = params.title or f"CellRank Fate Probabilities by {cluster_key}"
     fig.suptitle(title, fontsize=14, y=1.02)
@@ -406,12 +404,10 @@ async def _create_cellrank_gene_trends(
     if context:
         await context.info(f"Creating gene trends for: {genes}")
 
-    figsize = params.figure_size or (12, 3 * len(genes))
-
-    import matplotlib
-
-    backend = matplotlib.get_backend()
-    matplotlib.use("Agg")
+    # Use centralized figure size resolution with dynamic panel height
+    figsize = resolve_figure_size(
+        params, n_panels=len(genes), panel_width=12, panel_height=3
+    )
 
     model, lineage_names = prepare_gam_model_for_visualization(
         adata, genes, time_key=time_key, fate_key=fate_key
@@ -420,19 +416,18 @@ async def _create_cellrank_gene_trends(
     if context:
         await context.info(f"Lineages: {lineage_names}")
 
-    cr.pl.gene_trends(
-        adata,
-        model=model,
-        genes=genes,
-        time_key=time_key,
-        figsize=figsize,
-        n_jobs=1,
-        show_progress_bar=False,
-    )
-
-    fig = plt.gcf()
-    fig.set_dpi(params.dpi)
-    matplotlib.use(backend)
+    with non_interactive_backend():
+        cr.pl.gene_trends(
+            adata,
+            model=model,
+            genes=genes,
+            time_key=time_key,
+            figsize=figsize,
+            n_jobs=1,
+            show_progress_bar=False,
+        )
+        fig = plt.gcf()
+        fig.set_dpi(params.dpi)
 
     if params.title:
         fig.suptitle(params.title, fontsize=14, y=1.02)
@@ -505,12 +500,8 @@ async def _create_cellrank_fate_heatmap(
     if context:
         await context.info(f"Creating fate heatmap with {len(genes)} genes")
 
-    figsize = params.figure_size or (12, 10)
-
-    import matplotlib
-
-    backend = matplotlib.get_backend()
-    matplotlib.use("Agg")
+    # Use centralized figure size resolution
+    figsize = resolve_figure_size(params, "heatmap")
 
     model, lineage_names = prepare_gam_model_for_visualization(
         adata, genes, time_key=time_key, fate_key=fate_key
@@ -519,19 +510,18 @@ async def _create_cellrank_fate_heatmap(
     if context:
         await context.info(f"Lineages: {lineage_names}")
 
-    cr.pl.heatmap(
-        adata,
-        model=model,
-        genes=genes,
-        time_key=time_key,
-        figsize=figsize,
-        n_jobs=1,
-        show_progress_bar=False,
-    )
-
-    fig = plt.gcf()
-    fig.set_dpi(params.dpi)
-    matplotlib.use(backend)
+    with non_interactive_backend():
+        cr.pl.heatmap(
+            adata,
+            model=model,
+            genes=genes,
+            time_key=time_key,
+            figsize=figsize,
+            n_jobs=1,
+            show_progress_bar=False,
+        )
+        fig = plt.gcf()
+        fig.set_dpi(params.dpi)
 
     if params.title:
         fig.suptitle(params.title, fontsize=14, y=1.02)
@@ -579,8 +569,8 @@ async def _create_palantir_results(
     # Determine number of panels
     n_panels = 1 + int(has_entropy) + (1 if fate_key else 0)
 
-    # Create figure
-    figsize = params.figure_size or (5 * n_panels, 5)
+    # Create figure with centralized utility
+    figsize = resolve_figure_size(params, n_panels=n_panels, panel_width=5, panel_height=5)
     fig, axes = plt.subplots(1, n_panels, figsize=figsize, dpi=params.dpi)
     if n_panels == 1:
         axes = [axes]

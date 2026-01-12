@@ -26,6 +26,7 @@ from .core import (
     create_figure,
     get_categorical_columns,
     plot_spatial_feature,
+    resolve_figure_size,
     setup_multi_panel_figure,
 )
 
@@ -213,7 +214,9 @@ def _create_enrichment_violin(
         scores_to_plot = score_cols[:3]
 
     n_scores = len(scores_to_plot)
-    fig, axes = plt.subplots(1, n_scores, figsize=(5 * n_scores, 6))
+    # Use centralized figure size resolution for multi-panel layout
+    figsize = resolve_figure_size(params, n_panels=n_scores, panel_width=5, panel_height=6)
+    fig, axes = plt.subplots(1, n_scores, figsize=figsize)
     if n_scores == 1:
         axes = [axes]
 
@@ -442,7 +445,8 @@ def _create_gsea_enrichment_plot(
 
         import gseapy as gp
 
-        figsize = params.figure_size or (6, 5.5)
+        # Use centralized figure size with enrichment default
+        figsize = resolve_figure_size(params, "enrichment")
         fig = gp.gseaplot(
             term=pathway,
             hits=result.get("hits", result.get("hit_indices", [])),
@@ -475,7 +479,10 @@ def _create_gsea_barplot(
     pval_col = _find_pvalue_column(df)
     _ensure_term_column(df)
 
-    figsize = params.figure_size or (6, max(4, n_top * 0.4))
+    # Use centralized figure size with dynamic height based on pathway count
+    figsize = resolve_figure_size(
+        params, n_panels=n_top, panel_width=6, panel_height=0.4
+    )
     color = params.colormap if params.colormap != "coolwarm" else "salmon"
 
     try:

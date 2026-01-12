@@ -18,6 +18,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
+from collections import Counter
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+import scipy.sparse as sp
+
 from ..models.analysis import SpatialVariableGenesResult  # noqa: E402
 from ..models.data import SpatialVariableGenesParameters  # noqa: E402
 from ..utils import validate_var_column  # noqa: E402
@@ -25,7 +32,71 @@ from ..utils.adata_utils import require_spatial_coords, to_dense  # noqa: E402
 from ..utils.dependency_manager import require  # noqa: E402
 from ..utils.exceptions import DataNotFoundError  # noqa: E402
 from ..utils.exceptions import DataError, ParameterError, ProcessingError
-from ..utils.mcp_utils import suppress_output, truncate_for_mcp  # noqa: E402
+from ..utils.mcp_utils import suppress_output  # noqa: E402
+
+# =============================================================================
+# Shared Utilities for Spatial Variable Gene Detection
+# =============================================================================
+
+# Default limit for spatial_genes list returned to LLM
+# Full results stored in adata.var for complete access
+DEFAULT_TOP_GENES_LIMIT = 500
+
+
+def _ensure_unique_gene_names(gene_names: List[str]) -> List[str]:
+    """Ensure gene names are unique by adding suffixes to duplicates.
+
+    Required for R-based methods (SPARK-X) that use gene names as rownames.
+
+    Args:
+        gene_names: List of gene names (may contain duplicates)
+
+    Returns:
+        List of unique gene names with suffixes added to duplicates
+    """
+    if len(gene_names) == len(set(gene_names)):
+        return gene_names
+
+    gene_counts = Counter(gene_names)
+    unique_names = []
+    seen_counts: Dict[str, int] = {}
+
+    for gene in gene_names:
+        if gene_counts[gene] > 1:
+            if gene not in seen_counts:
+                seen_counts[gene] = 0
+                unique_names.append(gene)
+            else:
+                seen_counts[gene] += 1
+                unique_names.append(f"{gene}_{seen_counts[gene]}")
+        else:
+            unique_names.append(gene)
+
+    return unique_names
+
+
+def _calculate_sparse_gene_stats(X) -> Tuple[np.ndarray, np.ndarray]:
+    """Calculate gene statistics on sparse or dense matrix.
+
+    Efficiently computes gene totals and expression counts without densifying
+    the entire matrix.
+
+    Args:
+        X: Gene expression matrix (cells × genes), sparse or dense
+
+    Returns:
+        Tuple of (gene_totals, n_expressed_per_gene) as 1D arrays
+    """
+    is_sparse = sp.issparse(X)
+
+    if is_sparse:
+        gene_totals = np.array(X.sum(axis=0)).flatten()
+        n_expressed = np.array((X > 0).sum(axis=0)).flatten()
+    else:
+        gene_totals = np.asarray(X.sum(axis=0)).flatten()
+        n_expressed = np.asarray((X > 0).sum(axis=0)).flatten()
+
+    return gene_totals, n_expressed
 
 
 async def identify_spatial_genes(
@@ -145,17 +216,19 @@ async def _identify_spatial_genes_spatialde(
         Nature Methods, DOI: 10.1038/nmeth.4636
         Official tutorial: https://github.com/Teichlab/SpatialDE
     """
-    # Import dependencies at runtime
-    import numpy as np
-    import pandas as pd
-
     # Use centralized dependency manager for consistent error handling
     require("spatialde")  # Raises ImportError with install instructions if missing
+
+    # Apply scipy compatibility patch for SpatialDE (scipy >= 1.14 removed scipy.misc.derivative)
+    from ..utils.scipy_compat import patch_scipy_misc_derivative
+
+    patch_scipy_misc_derivative()
+
     import NaiveDE
     import SpatialDE
     from SpatialDE.util import qvalue
 
-    # Prepare data
+    # Prepare spatial coordinates
     coords = pd.DataFrame(
         adata.obsm[params.spatial_key][:, :2],  # Ensure 2D coordinates
         columns=["x", "y"],
@@ -164,7 +237,6 @@ async def _identify_spatial_genes_spatialde(
 
     # Get raw count data for SpatialDE preprocessing
     # OPTIMIZATION: Filter genes on SPARSE matrix first, then convert only selected genes to dense
-    # Get raw data source (keep as sparse matrix)
     if adata.raw is not None:
         raw_data = adata.raw.X
         var_names = adata.raw.var_names
@@ -183,15 +255,7 @@ async def _identify_spatial_genes_spatialde(
 
     # Step 1: Filter low-expression genes ON SPARSE MATRIX (Official recommendation)
     # SpatialDE README: "Filter practically unobserved genes" with total_counts >= 3
-    # This is done on sparse matrix to avoid memory overhead
-    import scipy.sparse as sp
-
-    is_sparse = sp.issparse(raw_data)
-
-    if is_sparse:
-        gene_totals = np.array(raw_data.sum(axis=0)).flatten()
-    else:
-        gene_totals = raw_data.sum(axis=0)
+    gene_totals, _ = _calculate_sparse_gene_stats(raw_data)
 
     keep_genes_mask = gene_totals >= 3
     selected_var_names = var_names[keep_genes_mask]
@@ -278,10 +342,9 @@ async def _identify_spatial_genes_spatialde(
     # Filter significant genes
     significant_genes_all = results[results["qval"] < 0.05]["g"].tolist()
 
-    # Truncate for MCP response (full results stored in adata.var)
-    significant_genes = truncate_for_mcp(
-        significant_genes_all, user_limit=params.n_top_genes
-    )
+    # Limit for MCP response (full results stored in adata.var)
+    limit = params.n_top_genes or DEFAULT_TOP_GENES_LIMIT
+    significant_genes = significant_genes_all[:limit]
 
     # Store results in adata
     results_key = f"spatialde_results_{data_id}"
@@ -320,51 +383,17 @@ async def _identify_spatial_genes_spatialde(
         },
     )
 
-    # Create gene statistics dictionaries
-    # IMPORTANT: Only include top genes to avoid exceeding MCP token limits
-    # Return detailed statistics for top 100 genes only (full results in adata.var)
-    MAX_STATS_TO_RETURN = 100
-    top_stats_genes = significant_genes[:MAX_STATS_TO_RETURN]
-    top_stats_results = results[results["g"].isin(top_stats_genes)]
-    gene_statistics = dict(
-        zip(top_stats_results["g"], top_stats_results["LLR"], strict=False)
-    )  # Log-likelihood ratio
-    p_values = dict(
-        zip(top_stats_results["g"], top_stats_results["pval"], strict=False)
-    )
-    q_values = dict(
-        zip(top_stats_results["g"], top_stats_results["qval"], strict=False)
-    )
-
-    # Create SpatialDE-specific results
-    # Only return summary statistics (top 10 genes) to avoid exceeding MCP token limit
-    top_results = results.head(10)
-    spatialde_results = {
-        "top_genes_summary": {
-            "genes": top_results["g"].tolist(),
-            "pvalues": top_results["pval"].tolist(),
-            "qvalues": top_results["qval"].tolist(),
-            "log_likelihood_ratios": top_results["LLR"].tolist(),
-        },
-        "kernel": params.spatialde_kernel,
-        "preprocessing_workflow": "Official: NaiveDE.stabilize + NaiveDE.regress_out",
-        "n_genes_tested": n_genes,
-        "n_spots": n_spots,
-        "note": "Full results stored in adata.var['spatialde_pval', 'spatialde_qval', 'spatialde_l']. Top 500 significant genes returned to avoid MCP token limits.",
-    }
+    # Note: Detailed statistics (gene_statistics, p_values, q_values) are excluded
+    # from MCP response via Field(exclude=True) in SpatialVariableGenesResult.
+    # Full results are accessible via adata.var['spatialde_pval', 'spatialde_qval'].
 
     result = SpatialVariableGenesResult(
         data_id=data_id,
         method="spatialde",
         n_genes_analyzed=len(results),
-        n_significant_genes=len(significant_genes_all),  # Total significant genes found
-        n_returned_genes=len(significant_genes),  # Actually returned (may be truncated)
+        n_significant_genes=len(significant_genes_all),
         spatial_genes=significant_genes,
-        gene_statistics=gene_statistics,
-        p_values=p_values,
-        q_values=q_values,
         results_key=results_key,
-        spatialde_results=spatialde_results,
     )
 
     return result
@@ -442,10 +471,6 @@ async def _identify_spatial_genes_sparkx(
         - SPARK-X paper: Sun et al. (2021) Genome Biology
         - HVG+SVG best practice: PMC11537352 (2024)
     """
-    # Import dependencies at runtime
-    import numpy as np
-    import pandas as pd
-
     # Use centralized dependency manager for consistent error handling
     require("rpy2")  # Raises ImportError with install instructions if missing
     from rpy2 import robjects as ro
@@ -472,24 +497,7 @@ async def _identify_spatial_genes_sparkx(
         n_genes = len(gene_names)
 
     # Ensure gene names are unique (required for SPARK-X R rownames)
-    if len(gene_names) != len(set(gene_names)):
-        from collections import Counter
-
-        gene_counts = Counter(gene_names)
-        unique_names = []
-        seen_counts = {}
-        for gene in gene_names:
-            if gene_counts[gene] > 1:
-                # Add suffix for duplicates
-                if gene not in seen_counts:
-                    seen_counts[gene] = 0
-                    unique_names.append(gene)
-                else:
-                    seen_counts[gene] += 1
-                    unique_names.append(f"{gene}_{seen_counts[gene]}")
-            else:
-                unique_names.append(gene)
-        gene_names = unique_names
+    gene_names = _ensure_unique_gene_names(gene_names)
 
     # ==================== Gene Filtering Pipeline (ON SPARSE MATRIX) ====================
     # Following SPARK-X paper best practices + 2024 literature recommendations
@@ -569,11 +577,8 @@ async def _identify_spatial_genes_sparkx(
     percentage = params.sparkx_percentage
     min_total_counts = params.sparkx_min_total_counts
 
-    # Calculate on sparse matrix (efficient!)
-    # sum(axis=0) on sparse matrix returns matrix, need to convert to 1D array
-    gene_totals = np.array(sparse_counts.sum(axis=0)).flatten()
-    # Count non-zeros per gene (efficient on sparse)
-    n_expressed = np.array((sparse_counts > 0).sum(axis=0)).flatten()
+    # Calculate gene statistics on sparse matrix (efficient!)
+    gene_totals, n_expressed = _calculate_sparse_gene_stats(sparse_counts)
 
     # Filter genes: must be expressed in at least percentage of cells AND have min total counts
     min_cells = int(np.ceil(n_spots * percentage))
@@ -724,10 +729,9 @@ async def _identify_spatial_genes_sparkx(
         "gene"
     ].tolist()
 
-    # Truncate for MCP response (full results stored in adata.var)
-    significant_genes = truncate_for_mcp(
-        significant_genes_all, user_limit=params.n_top_genes
-    )
+    # Limit for MCP response (full results stored in adata.var)
+    limit = params.n_top_genes or DEFAULT_TOP_GENES_LIMIT
+    significant_genes = significant_genes_all[:limit]
 
     # TIER 3: Housekeeping gene warnings (post-processing quality check)
     if params.warn_housekeeping and len(results_df) > 0:
@@ -817,59 +821,17 @@ async def _identify_spatial_genes_sparkx(
         },
     )
 
-    # Create gene statistics dictionaries
-    # IMPORTANT: Only include top genes to avoid exceeding MCP token limits
-    # Return detailed statistics for top 100 genes only (full results in adata.var)
-    MAX_STATS_TO_RETURN = 100
-    top_stats_genes = significant_genes[:MAX_STATS_TO_RETURN]
-    top_stats_results = results_df[results_df["gene"].isin(top_stats_genes)]
-    gene_statistics = dict(
-        zip(top_stats_results["gene"], top_stats_results["pvalue"], strict=False)
-    )
-    p_values = dict(
-        zip(top_stats_results["gene"], top_stats_results["pvalue"], strict=False)
-    )
-    q_values = dict(
-        zip(
-            top_stats_results["gene"],
-            top_stats_results["adjusted_pvalue"],
-            strict=False,
-        )
-    )
-
-    # Create SPARK-X specific results
-    # Only return summary statistics (top 10 genes) to avoid exceeding MCP token limit
-    top_results = results_df.head(10)
-    sparkx_results = {
-        "top_genes_summary": {
-            "genes": top_results["gene"].tolist(),
-            "pvalues": top_results["pvalue"].tolist(),
-            "adjusted_pvalues": top_results["adjusted_pvalue"].tolist(),
-            "combined_pvalues": (
-                top_results["combined_pvalue"].tolist()
-                if "combined_pvalue" in top_results.columns
-                else None
-            ),
-        },
-        "method": "sparkx",
-        "num_core": params.sparkx_num_core,
-        "option": params.sparkx_option,
-        "data_format": "genes_x_spots",
-        "note": "Full results stored in adata.var['sparkx_pval', 'sparkx_qval']. Top 500 significant genes returned to avoid MCP token limits.",
-    }
+    # Note: Detailed statistics (gene_statistics, p_values, q_values) are excluded
+    # from MCP response via Field(exclude=True) in SpatialVariableGenesResult.
+    # Full results are accessible via adata.var['sparkx_pval', 'sparkx_qval'].
 
     result = SpatialVariableGenesResult(
         data_id=data_id,
         method="sparkx",
         n_genes_analyzed=len(results_df),
-        n_significant_genes=len(significant_genes_all),  # Total significant genes found
-        n_returned_genes=len(significant_genes),  # Actually returned (may be truncated)
+        n_significant_genes=len(significant_genes_all),
         spatial_genes=significant_genes,
-        gene_statistics=gene_statistics,
-        p_values=p_values,
-        q_values=q_values,
         results_key=results_key,
-        sparkx_results=sparkx_results,
     )
 
     return result

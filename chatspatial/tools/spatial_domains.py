@@ -27,6 +27,7 @@ from ..utils.adata_utils import (
 )
 from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
+from ..utils.device_utils import get_device, resolve_device_async
 from ..utils.exceptions import (
     DataError,
     DataNotFoundError,
@@ -606,7 +607,7 @@ async def _identify_domains_stagate(
             pass  # Stats display is optional
 
         # Set device
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        device = torch.device(get_device(prefer_gpu=True))
 
         # Train STAGATE with timeout protection
         import asyncio
@@ -654,7 +655,9 @@ async def _identify_domains_stagate(
             robjects.r.assign("stagate_embedding", embedding_data)
 
             # Call Mclust directly via R code
-            robjects.r(f"mclust_result <- Mclust(stagate_embedding, G={n_clusters_target})")
+            robjects.r(
+                f"mclust_result <- Mclust(stagate_embedding, G={n_clusters_target})"
+            )
 
             # Extract classification results
             mclust_labels = np.array(robjects.r("mclust_result$classification"))
@@ -733,16 +736,10 @@ async def _identify_domains_graphst(
         adata_graphst = adata.copy()
 
         # Set device (support CUDA, MPS, and CPU)
-        if params.graphst_use_gpu:
-            if torch.cuda.is_available():
-                device = torch.device("cuda:0")
-            elif torch.backends.mps.is_available():
-                device = torch.device("mps")
-            else:
-                device = torch.device("cpu")
-                await ctx.warning("GPU requested but not available. Using CPU instead.")
-        else:
-            device = torch.device("cpu")
+        device_str = await resolve_device_async(
+            prefer_gpu=params.graphst_use_gpu, ctx=ctx, allow_mps=True
+        )
+        device = torch.device(device_str)
 
         # Determine number of clusters
         n_clusters = params.graphst_n_clusters or params.n_domains

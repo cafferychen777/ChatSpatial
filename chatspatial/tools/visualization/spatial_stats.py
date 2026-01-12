@@ -24,7 +24,12 @@ from ...models.data import VisualizationParameters
 from ...utils.adata_utils import require_spatial_coords
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError
-from .core import get_categorical_columns, setup_multi_panel_figure
+from .core import (
+    create_figure_from_params,
+    get_categorical_columns,
+    resolve_figure_size,
+    setup_multi_panel_figure,
+)
 
 # =============================================================================
 # Main Router
@@ -123,8 +128,8 @@ async def _create_neighborhood_enrichment_visualization(
             f"with cluster_key='{cluster_key}' first."
         )
 
-    figsize = params.figure_size or (10, 8)
-    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+    fig, axes = create_figure_from_params(params, "spatial")
+    ax = axes[0]
 
     sq.pl.nhood_enrichment(
         adata,
@@ -178,7 +183,7 @@ async def _create_co_occurrence_visualization(
     categories = adata.obs[cluster_key].cat.categories.tolist()
     clusters_to_show = categories[: min(4, len(categories))]
 
-    figsize = params.figure_size or (12, 10)
+    figsize = resolve_figure_size(params, "heatmap")
 
     sq.pl.co_occurrence(
         adata,
@@ -231,8 +236,8 @@ async def _create_ripley_visualization(
             f"with cluster_key='{cluster_key}' and analysis_type='ripley' first."
         )
 
-    figsize = params.figure_size or (10, 8)
-    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+    fig, axes = create_figure_from_params(params, "spatial")
+    ax = axes[0]
 
     sq.pl.ripley(adata, cluster_key=cluster_key, mode="L", plot_sims=True, ax=ax)
 
@@ -267,8 +272,8 @@ def _create_moran_visualization(
     pvals_safe = np.clip(pvals, 1e-300, 1.0)
     neg_log_pval = -np.log10(pvals_safe)
 
-    figsize = params.figure_size or (10, 8)
-    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+    fig, axes = create_figure_from_params(params, "spatial")
+    ax = axes[0]
 
     # Color by Moran's I value (meaningful: positive=clustered, negative=dispersed)
     scatter = ax.scatter(
@@ -360,7 +365,7 @@ async def _create_centrality_visualization(
             f"with cluster_key='{cluster_key}' first."
         )
 
-    figsize = params.figure_size or (10, 8)
+    figsize = resolve_figure_size(params, "spatial")
 
     sq.pl.centrality_scores(
         adata,
