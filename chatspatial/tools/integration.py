@@ -2,6 +2,7 @@
 Integration tools for spatial transcriptomics data.
 """
 
+import logging
 from typing import TYPE_CHECKING, List, Optional
 
 import anndata as ad
@@ -71,15 +72,9 @@ def integrate_multiple_samples(
         if not has_batch_labels:
             # Auto-create batch labels for multi-sample integration
             # Each sample becomes its own batch (scientifically correct for independent samples)
-            logging.info(
-                "No batch labels found. Auto-creating batch labels: each sample = 1 batch.\n"
-                "This is scientifically appropriate when integrating independent samples."
-            )
             for i, adata in enumerate(adatas):
                 if batch_key not in adata.obs:
-                    # Use sample index as batch label
                     adata.obs[batch_key] = f"sample_{i}"
-                    logging.info(f"Dataset {i}: assigned batch label 'sample_{i}'")
 
         # Merge datasets
         combined = adatas[0].concatenate(
@@ -104,9 +99,6 @@ def integrate_multiple_samples(
                 else:
                     # For string columns, fill NA with empty string
                     combined.var[col] = combined.var[col].fillna("").astype(str)
-                logging.info(
-                    f"Cleaned var column '{col}' with NA values for H5AD compatibility"
-                )
 
         # FIX: Remove incomplete diffmap artifacts created by concatenation (scanpy issue #1021)
         # Problem: concatenate() copies obsm['X_diffmap'] but NOT uns['diffmap_evals']
@@ -114,14 +106,8 @@ def integrate_multiple_samples(
         # Solution: Delete incomplete artifacts to allow UMAP to use default initialization
         if "X_diffmap" in combined.obsm:
             del combined.obsm["X_diffmap"]
-            logging.info(
-                "Removed incomplete X_diffmap from concatenated data (scanpy issue #1021)"
-            )
         if "diffmap_evals" in combined.uns:
             del combined.uns["diffmap_evals"]
-            logging.info(
-                "Removed incomplete diffmap_evals from concatenated data (scanpy issue #1021)"
-            )
 
     else:
         # If already a merged dataset, ensure it has batch information
@@ -145,7 +131,7 @@ def integrate_multiple_samples(
 
     # Check if data appears to be normalized (reasonable range after preprocessing)
     if max_val > 50:
-        logging.warning(
+        logger.warning(
             f"Data has very high values (max={max_val:.1f}). "
             "Consider log transformation if not already applied."
         )
@@ -155,7 +141,7 @@ def integrate_multiple_samples(
 
     # Check if data has highly variable genes marked (should be done in preprocessing)
     if "highly_variable" not in combined.var.columns:
-        logging.warning(
+        logger.warning(
             "No highly variable genes marked after merge. Recalculating HVGs with batch correction."
         )
         # Recalculate HVGs with batch correction
@@ -171,7 +157,7 @@ def integrate_multiple_samples(
     else:
         n_hvg = combined.var["highly_variable"].sum()
         if n_hvg == 0:
-            logging.warning(
+            logger.warning(
                 "No genes marked as highly variable after merge, recalculating"
             )
             # Recalculate HVGs with batch correction
@@ -185,7 +171,7 @@ def integrate_multiple_samples(
             )
             n_hvg = combined.var["highly_variable"].sum()
         elif n_hvg < 50:
-            logging.warning(
+            logger.warning(
                 f"Very few HVGs ({n_hvg}), recalculating with batch correction"
             )
             sc.pp.highly_variable_genes(
@@ -197,8 +183,6 @@ def integrate_multiple_samples(
                 n_top_genes=2000,
             )
             n_hvg = combined.var["highly_variable"].sum()
-
-    logging.info(f"Using {n_hvg} highly variable genes for integration")
 
     # Save raw data if not already saved
     # IMPORTANT: Create a proper frozen copy for .raw to preserve counts
@@ -218,9 +202,6 @@ def integrate_multiple_samples(
     # NOTE: scVI-tools methods work better with ALL genes, not just HVGs
     # ========================================================================
     if method == "scvi":
-        logging.info("Using scVI method - skipping scale and PCA")
-        logging.info(f"Gene count before scVI processing: {combined.n_vars}")
-
         # Use user-configurable parameters if provided, otherwise use defaults
         # This ensures scientific reproducibility and user control
         scvi_n_hidden = params.scvi_n_hidden if params else 128
@@ -243,7 +224,6 @@ def integrate_multiple_samples(
                 n_epochs=scvi_n_epochs,
                 use_gpu=scvi_use_gpu,
             )
-            logging.info("scVI integration completed successfully")
         except Exception as e:
             raise ProcessingError(
                 f"scVI integration failed: {e}. "
@@ -299,7 +279,6 @@ def integrate_multiple_samples(
         # Memory optimization: Subsetting creates view, reassignment triggers GC
         # No need to materialize with .copy() - view will be materialized on first write
         combined = combined[:, combined.var["highly_variable"]]
-        logging.info(f"Filtered to {n_hvg} highly variable genes")
 
     # Remove genes with zero variance to avoid NaN in scaling
     import numpy as np
@@ -327,7 +306,7 @@ def integrate_multiple_samples(
     nonzero_var_genes = gene_var > 0
     if not np.all(nonzero_var_genes):
         n_removed = np.sum(~nonzero_var_genes)
-        logging.warning(f"Removing {n_removed} genes with zero variance before scaling")
+        logger.warning(f"Removing {n_removed} genes with zero variance before scaling")
         # Memory optimization: Subsetting creates view, no need to copy
         # View will be materialized when scaling modifies the data
         combined = combined[:, nonzero_var_genes]
@@ -335,12 +314,10 @@ def integrate_multiple_samples(
     # Scale data with proper error handling
     try:
         sc.pp.scale(combined, zero_center=True, max_value=10)
-        logging.info("Data scaling successful with zero centering")
     except Exception as e:
-        logging.warning(f"Scaling with zero centering failed: {e}")
+        logger.warning(f"Scaling with zero centering failed: {e}")
         try:
             sc.pp.scale(combined, zero_center=False, max_value=10)
-            logging.info("Data scaling successful without zero centering")
         except Exception as e2:
             raise ProcessingError(
                 f"Data scaling failed completely. Zero-center error: {e}. Non-zero-center error: {e2}. "
@@ -391,11 +368,10 @@ def integrate_multiple_samples(
     ]:
         try:
             sc.tl.pca(combined, n_comps=max_comps, svd_solver=solver, zero_center=False)
-            logging.info(f"PCA successful with {solver} solver, {max_comps} components")
             pca_success = True
             break
         except Exception as e:
-            logging.warning(f"PCA with {solver} solver failed: {e}")
+            logger.warning(f"PCA with {solver} solver failed: {e}")
             continue
 
     if not pca_success:
@@ -414,7 +390,6 @@ def integrate_multiple_samples(
             # Check if harmony_integrate is available in scanpy.external
             if hasattr(sce.pp, "harmony_integrate"):
                 # Use scanpy.external wrapper (preferred method)
-                logging.info("Using scanpy.external.pp.harmony_integrate (recommended)")
                 sce.pp.harmony_integrate(
                     combined,
                     key=batch_key,
@@ -425,9 +400,6 @@ def integrate_multiple_samples(
                 sc.pp.neighbors(combined, use_rep="X_pca_harmony")
             else:
                 # Fallback to raw harmonypy (same algorithm, different interface)
-                logging.info(
-                    "scanpy.external.pp.harmony_integrate not available, using raw harmonypy"
-                )
                 import harmonypy
                 import pandas as pd
 
@@ -477,9 +449,6 @@ def integrate_multiple_samples(
             # Check if scanorama_integrate is available in scanpy.external
             if hasattr(sce.pp, "scanorama_integrate"):
                 # Use scanpy.external wrapper (preferred method)
-                logging.info(
-                    "Using scanpy.external.pp.scanorama_integrate (recommended)"
-                )
                 sce.pp.scanorama_integrate(
                     combined, key=batch_key, basis="X_pca", adjusted_basis="X_scanorama"
                 )
@@ -487,9 +456,6 @@ def integrate_multiple_samples(
                 sc.pp.neighbors(combined, use_rep="X_scanorama")
             else:
                 # Fallback to raw scanorama (same algorithm, different interface)
-                logging.info(
-                    "scanpy.external.pp.scanorama_integrate not available, using raw scanorama"
-                )
                 import numpy as np
                 import scanorama
 
@@ -507,17 +473,13 @@ def integrate_multiple_samples(
                     genes_list.append(batch_data.var_names.tolist())
                     batch_order.append(batch)
 
-                    logging.info(f"Prepared batch '{batch}': {batch_data.X.shape}")
-
                 # Run Scanorama integration
-                logging.info("Running Scanorama integration...")
                 integrated, corrected_genes = scanorama.integrate(
                     datasets, genes_list, dimred=100
                 )
 
                 # Stack integrated results back together
                 integrated_X = np.vstack(integrated)
-                logging.info(f"Scanorama integration completed: {integrated_X.shape}")
 
                 # Store integrated representation in obsm
                 combined.obsm["X_scanorama"] = integrated_X
@@ -533,7 +495,7 @@ def integrate_multiple_samples(
 
     else:
         # Default: use uncorrected PCA result
-        logging.warning(
+        logger.warning(
             f"Integration method '{method}' not recognized. "
             f"Using uncorrected PCA embedding."
         )
@@ -747,8 +709,6 @@ def integrate_with_scvi(
             "Check your batch labels."
         )
 
-    logging.info(f"Setting up scVI model with {n_batches} batches")
-
     # Setup AnnData for scVI
     scvi.model.SCVI.setup_anndata(
         combined, batch_key=batch_key, layer=None  # Use .X (should be preprocessed)
@@ -773,25 +733,17 @@ def integrate_with_scvi(
             n_epochs = 200
         else:
             n_epochs = 100
-        logging.info(f"Auto-determined {n_epochs} epochs for {n_cells} cells")
 
     # Train model
-    logging.info(f"Training scVI model for {n_epochs} epochs...")
     # Note: scvi-tools 1.x uses accelerator instead of use_gpu
     accelerator = "gpu" if use_gpu else "cpu"
     model.train(max_epochs=n_epochs, early_stopping=True, accelerator=accelerator)
 
     # Get latent representation
-    logging.info("Extracting scVI latent representation...")
     combined.obsm["X_scvi"] = model.get_latent_representation()
 
     # Compute neighbors using scVI embedding
     sc.pp.neighbors(combined, use_rep="X_scvi")
-
-    logging.info(
-        f"scVI integration complete: {combined.n_obs} cells, "
-        f"{n_latent}-dimensional latent space"
-    )
 
     return combined
 
