@@ -56,7 +56,6 @@ async def load_spatial_data(
             elif data_path.endswith(".h5"):
                 # It's likely a 10x H5 file
                 data_type = "10x_visium"
-                logger.info("Auto-detected as 10x H5 file, using 10x_visium loader")
             else:
                 # Default to other for unknown file types
                 data_type = "other"
@@ -178,7 +177,6 @@ async def load_spatial_data(
                     )
             elif os.path.isfile(data_path) and data_path.endswith(".h5"):
                 # Single H5 file - new support for 10x H5 format
-                logger.info(f"Loading 10x H5 file: {data_path}")
                 adata = sc.read_10x_h5(data_path)
 
                 # Try to find and add spatial information
@@ -186,19 +184,8 @@ async def load_spatial_data(
                 if spatial_path:
                     try:
                         adata = _add_spatial_info_to_adata(adata, spatial_path)
-                        logger.info(
-                            f"Successfully added spatial information from {spatial_path}"
-                        )
                     except Exception as e:
                         logger.warning(f"Could not add spatial information: {str(e)}")
-                        logger.info("Proceeding with expression data only")
-                else:
-                    logger.info(
-                        "No spatial folder found. Loading expression data only."
-                    )
-                    logger.info(
-                        "Tip: Place spatial files in a 'spatial' folder in the same directory as the H5 file"
-                    )
             elif os.path.isfile(data_path) and data_path.endswith(".h5ad"):
                 # If it's an h5ad file but marked as 10x_visium, read it as h5ad
                 adata = sc.read_h5ad(data_path)
@@ -309,12 +296,10 @@ async def load_spatial_data(
             obs=adata.obs.copy(),
             uns={},
         )
-        logger.info("Preserved loaded data state in adata.raw")
 
     # Also ensure layers["counts"] exists for scVI-tools compatibility
     if "counts" not in adata.layers:
         adata.layers["counts"] = adata.X.copy()
-        logger.info("Created counts layer from current data")
 
     # Get metadata profile for LLM understanding
     profile = get_adata_profile(adata)
@@ -372,7 +357,6 @@ def _find_spatial_folder(h5_path: str) -> Optional[str]:
             # Verify it contains required spatial files
             required_files = ["tissue_positions_list.csv", "scalefactors_json.json"]
             if all(os.path.exists(os.path.join(candidate, f)) for f in required_files):
-                logger.info(f"Found spatial folder at: {candidate}")
                 return candidate
 
     logger.warning(f"No spatial folder found for {h5_path}")
@@ -459,10 +443,6 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
                 "No matching barcodes between expression data and spatial coordinates"
             )
 
-        logger.info(
-            f"Found {len(common_barcodes)} matching barcodes out of {len(adata)} cells"
-        )
-
         # Filter to common barcodes
         adata = adata[common_barcodes, :].copy()
         positions = positions.loc[common_barcodes]
@@ -490,8 +470,6 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
         else:
             library_id = "sample_1"  # Fallback to clear default name
 
-        logger.info(f"Using library_id: {library_id}")
-
         # Create spatial uns structure (scanpy expects nested structure)
         adata.uns["spatial"] = {
             library_id: {"scalefactors": scalefactors, "images": {}}
@@ -509,7 +487,6 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
 
                         img_key = "hires" if "hires" in img_name else "lowres"
                         adata.uns["spatial"][library_id]["images"][img_key] = img
-                        logger.info(f"Loaded {img_key} tissue image")
                     except Exception as e:
                         logger.warning(f"Could not load image {img_name}: {str(e)}")
         else:

@@ -19,7 +19,11 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import require_spatial_coords, validate_obs_column
+from ...utils.adata_utils import (
+    get_cluster_key,
+    require_spatial_coords,
+    validate_obs_column,
+)
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
 from .core import CellCommunicationData
@@ -532,7 +536,12 @@ def _create_cellphonedb_dotplot(
         if pvalues is None or not isinstance(pvalues, pd.DataFrame):
             raise DataNotFoundError("Missing pvalues DataFrame for ktplotspy dotplot")
 
-        cluster_key = params.cluster_key or "leiden"
+        cluster_key = params.cluster_key or get_cluster_key(adata)
+        if not cluster_key:
+            raise ParameterError(
+                "cluster_key required for CellPhoneDB dotplot. "
+                "No default cluster key found in data."
+            )
         validate_obs_column(adata, cluster_key, "cluster_key")
 
         gg = kpy.plot_cpdb(
@@ -594,7 +603,12 @@ def _create_cellphonedb_chord(
                 "Re-run CellPhoneDB analysis."
             )
 
-        cluster_key = params.cluster_key or "leiden"
+        cluster_key = params.cluster_key or get_cluster_key(adata)
+        if not cluster_key:
+            raise ParameterError(
+                "cluster_key required for CellPhoneDB chord plot. "
+                "No default cluster key found in data."
+            )
         validate_obs_column(adata, cluster_key, "cluster_key")
 
         link_colors = None

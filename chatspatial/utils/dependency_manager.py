@@ -264,16 +264,11 @@ def get(
     module = _try_import(info.module_name)
 
     if module is not None:
-        if ctx:
-            version = getattr(module, "__version__", "unknown")
-            ctx.debug(f"Loaded {name} (version {version})")
         return module
 
     if warn_if_missing:
         msg = f"{name} not available. Install: {info.install_cmd}"
         warnings.warn(msg, stacklevel=2)
-        if ctx:
-            ctx.debug(msg)
 
     return None
 
@@ -288,9 +283,6 @@ def require(
     module = _try_import(info.module_name)
 
     if module is not None:
-        if ctx:
-            version = getattr(module, "__version__", "unknown")
-            ctx.debug(f"Using {name} (version {version})")
         return module
 
     feature_msg = f" for {feature}" if feature else ""
@@ -342,9 +334,6 @@ def validate_r_environment(
         with openrlib.rlock:
             with conversion.localconverter(default_converter):
                 robjects.r("R.version")
-                if ctx:
-                    r_version = robjects.r("R.version.string")[0]
-                    ctx.debug(f"Using R: {r_version}")
 
         # Check required R packages
         if required_packages:
@@ -409,8 +398,6 @@ def validate_r_package(
             with conversion.localconverter(default_converter):
                 importr(package_name)
 
-        if ctx:
-            ctx.debug(f"R package '{package_name}' available")
         return True
 
     except Exception as e:
@@ -434,9 +421,6 @@ def check_r_packages(
             validate_r_package(pkg)
         except ImportError:
             missing.append(pkg)
-
-    if missing and ctx:
-        ctx.debug(f"Missing R packages: {', '.join(missing)}")
 
     return missing
 

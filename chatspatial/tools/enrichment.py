@@ -90,10 +90,6 @@ def _filter_significant_statistics(
         else:
             # Default fallback for unknown methods
             fdr_threshold = 0.05
-        logger.info(
-            f"Auto-selected FDR threshold {fdr_threshold} for method '{method}' "
-            f"(method-based default, not database-size-based)"
-        )
 
     # Find significant pathways
     significant = {
@@ -122,11 +118,6 @@ def _filter_significant_statistics(
         for name, adj_pval in adjusted_pvalues.items()
         if name in significant
     }
-
-    logger.info(
-        f"Filtered enrichment results: {len(adjusted_pvalues)} total → "
-        f"{len(filtered_adj_pvals)} significant (FDR < {fdr_threshold})"
-    )
 
     return filtered_stats, filtered_scores, filtered_pvals, filtered_adj_pvals
 
@@ -1258,16 +1249,13 @@ async def perform_spatial_enrichment(
                 # Format conversion helped, use dataset format genes for EnrichMap
                 common_genes = dataset_format_genes
 
-        logger.info(
-            f"Checking signature '{sig_name}': requested {genes[:3]}... found {len(common_genes)}/{len(genes)}"
-        )
         if len(common_genes) < 2:
-            logger.warning(
+            await ctx.warning(
                 f"Signature '{sig_name}' has {len(common_genes)} genes in the dataset. Skipping."
             )
             continue
         validated_gene_sets[sig_name] = common_genes
-        logger.info(
+        await ctx.info(
             f"Signature '{sig_name}': {len(common_genes)}/{len(genes)} genes found"
         )
 
@@ -1297,7 +1285,7 @@ async def perform_spatial_enrichment(
             successful_signatures.append(sig_name)
 
         except Exception as e:
-            logger.error(f"EnrichMap failed for '{sig_name}': {e}")
+            await ctx.warning(f"EnrichMap failed for '{sig_name}': {e}")
             failed_signatures.append((sig_name, str(e)))
 
     # Check if any signatures were processed successfully
@@ -1496,8 +1484,6 @@ def load_msigdb_gene_sets(
 
         # Filter by size
         filtered_sets = _filter_gene_sets_by_size(gene_sets_dict, min_size, max_size)
-
-        logger.info(f"Loaded {len(filtered_sets)} gene sets from MSigDB {collection}")
         return filtered_sets
 
     except Exception as e:
@@ -1547,8 +1533,6 @@ def load_go_gene_sets(
 
         # Filter by size
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
-
-        logger.info(f"Loaded {len(filtered_sets)} GO {aspect} gene sets")
         return filtered_sets
 
     except Exception as e:
@@ -1587,8 +1571,6 @@ def load_kegg_gene_sets(
 
         # Filter by size
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
-
-        logger.info(f"Loaded {len(filtered_sets)} KEGG pathways")
         return filtered_sets
 
     except Exception as e:
@@ -1623,8 +1605,6 @@ def load_reactome_gene_sets(
 
         # Filter by size (use shared utility for consistency)
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
-
-        logger.info(f"Loaded {len(filtered_sets)} Reactome pathways")
         return filtered_sets
 
     except Exception as e:
@@ -1659,8 +1639,6 @@ def load_cell_marker_gene_sets(
 
         # Filter by size
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
-
-        logger.info(f"Loaded {len(filtered_sets)} cell type marker sets")
         return filtered_sets
 
     except Exception as e:

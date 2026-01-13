@@ -498,11 +498,11 @@ class ToolContext:
             config: Dictionary of configuration key-value pairs
         """
         if self._logger:
-            self._logger.info("=" * 50)
-            self._logger.info(f"{title}:")
+            self._logger.debug("=" * 50)
+            self._logger.debug(f"{title}:")
             for key, value in config.items():
-                self._logger.info(f"  {key}: {value}")
-            self._logger.info("=" * 50)
+                self._logger.debug(f"  {key}: {value}")
+            self._logger.debug("=" * 50)
 
     async def get_adata(self, data_id: str) -> Any:
         """Get AnnData object directly by ID.

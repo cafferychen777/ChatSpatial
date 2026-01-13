@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import (
     ensure_categorical,
+    get_cluster_key,
     get_gene_expression,
     validate_obs_column,
 )
@@ -65,9 +66,10 @@ async def create_spatial_visualization(
         features = [params.feature]
 
     if not features:
-        # Default to leiden clustering if available
-        if "leiden" in adata.obs.columns:
-            features = ["leiden"]
+        # Default to first available cluster key
+        default_cluster = get_cluster_key(adata)
+        if default_cluster:
+            features = [default_cluster]
         else:
             raise ParameterError(
                 "No features specified and no default clustering found"
@@ -135,11 +137,8 @@ async def create_umap_visualization(
     # Determine what to color by
     color_by = params.feature
     if color_by is None:
-        # Default to leiden if available
-        if "leiden" in adata.obs.columns:
-            color_by = "leiden"
-        elif "louvain" in adata.obs.columns:
-            color_by = "louvain"
+        # Default to first available cluster key
+        color_by = get_cluster_key(adata)
 
     # Create figure
     fig, ax = create_figure(params.figure_size or (10, 8))

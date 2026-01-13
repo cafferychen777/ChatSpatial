@@ -2,7 +2,6 @@
 Main server implementation for ChatSpatial using the Spatial MCP Adapter.
 """
 
-import logging
 import os
 import sys
 import warnings
@@ -63,8 +62,6 @@ from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .spatial_mcp_adapter import get_tool_annotations  # noqa: E402
 from .utils.exceptions import DataNotFoundError  # noqa: E402
 from .utils.mcp_utils import mcp_tool_error_handler  # noqa: E402
-
-logger = logging.getLogger(__name__)
 
 # Create MCP server and adapter
 mcp, adapter = create_spatial_mcp_server("ChatSpatial")

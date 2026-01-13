@@ -2,7 +2,6 @@
 Integration tools for spatial transcriptomics data.
 """
 
-import logging
 from typing import TYPE_CHECKING, List, Optional
 
 import anndata as ad

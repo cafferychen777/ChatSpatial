@@ -25,7 +25,12 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import get_analysis_parameter, get_spatial_key, require_spatial_coords
+from ...utils.adata_utils import (
+    get_analysis_parameter,
+    get_cluster_key,
+    get_spatial_key,
+    require_spatial_coords,
+)
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import (
     DeconvolutionData,
@@ -135,7 +140,9 @@ async def get_deconvolution_data(
     # Try to get from stored metadata first
     proportions_key = get_analysis_parameter(adata, analysis_name, "proportions_key")
     cell_types = get_analysis_parameter(adata, analysis_name, "cell_types")
-    dominant_type_key = get_analysis_parameter(adata, analysis_name, "dominant_type_key")
+    dominant_type_key = get_analysis_parameter(
+        adata, analysis_name, "dominant_type_key"
+    )
 
     # Fall back to convention-based keys
     if not proportions_key:
@@ -156,9 +163,7 @@ async def get_deconvolution_data(
             n_cell_types = adata.obsm[proportions_key].shape[1]
             cell_types = [f"CellType_{i}" for i in range(n_cell_types)]
             if context:
-                await context.warning(
-                    "Cell type names not found. Using generic names."
-                )
+                await context.warning("Cell type names not found. Using generic names.")
 
     # Check dominant type key
     if not dominant_type_key:
@@ -435,8 +440,8 @@ async def _create_stacked_barplot(
         else:
             sort_order = np.arange(len(proportions_plot))
     elif params.sort_by == "cluster":
-        cluster_key = params.cluster_key or "leiden"
-        if cluster_key in adata.obs.columns:
+        cluster_key = params.cluster_key or get_cluster_key(adata)
+        if cluster_key and cluster_key in adata.obs.columns:
             cluster_values = adata.obs.loc[proportions_plot.index, cluster_key]
             sort_order = np.argsort(cluster_values.astype(str))
         else:
@@ -603,7 +608,9 @@ async def _create_umap_proportions(
     nrows = int(np.ceil(n_panels / ncols))
 
     # Use centralized figure size resolution
-    figsize = resolve_figure_size(params, n_panels=n_panels, panel_width=4, panel_height=3.5)
+    figsize = resolve_figure_size(
+        params, n_panels=n_panels, panel_width=4, panel_height=3.5
+    )
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
     axes = axes.flatten()
 

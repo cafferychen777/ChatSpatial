@@ -59,7 +59,6 @@ def _get_common_genes(adata_list: List["ad.AnnData"]) -> List[str]:
 
     # Use unified function for intersection
     genes = find_common_genes(*[adata.var_names for adata in adata_list])
-    logger.info(f"Found {len(genes)} common genes across {len(adata_list)} slices")
     return genes
 
 
@@ -148,7 +147,6 @@ def _register_paste(
 
     if len(registered) == 2:
         # Pairwise alignment
-        logger.info("Performing PASTE pairwise alignment")
 
         slice1 = registered[0][:, common_genes].copy()
         slice2 = registered[1][:, common_genes].copy()
@@ -175,7 +173,6 @@ def _register_paste(
 
     else:
         # Multi-slice center alignment
-        logger.info(f"Performing PASTE center alignment with {len(registered)} slices")
 
         slices = [adata[:, common_genes] for adata in registered]
         backend = get_ot_backend(params.use_gpu)
@@ -219,7 +216,6 @@ def _register_paste(
                     pi, slices[reference_idx].obsm[spatial_key]
                 )
 
-    logger.info("PASTE registration completed")
     return registered
 
 
@@ -237,8 +233,6 @@ def _register_stalign(
             f"STalign only supports pairwise registration, got {len(adata_list)} slices. "
             f"Use PASTE for multi-slice alignment."
         )
-
-    logger.info("Performing STalign LDDMM registration")
 
     registered = [adata.copy() for adata in adata_list]
     source, target = registered[0], registered[1]
@@ -267,8 +261,6 @@ def _register_stalign(
     else:
         source_intensity = np.ones(len(source_coords), dtype=np.float32)
         target_intensity = np.ones(len(target_coords), dtype=np.float32)
-
-    logger.info(f"Registering {len(source_coords)} -> {len(target_coords)} spots")
 
     # Prepare images
     image_size = params.stalign_image_size
@@ -300,8 +292,6 @@ def _register_stalign(
         "dtype": torch.float32,
     }
 
-    logger.info(f"Running STalign LDDMM on {image_size} images")
-
     try:
         result = ST.LDDMM(
             xI=source_grid,
@@ -327,8 +317,6 @@ def _register_stalign(
 
         source.obsm["spatial_registered"] = transformed
         target.obsm["spatial_registered"] = target_coords.copy()
-
-        logger.info("STalign registration completed")
 
     except Exception as e:
         raise ProcessingError(
@@ -379,8 +367,6 @@ def register_slices(
 
     # Validate spatial coordinates and get the spatial key
     spatial_key = _validate_spatial_coords(adata_list)
-
-    logger.info(f"Registering {len(adata_list)} slices using {params.method}")
 
     if params.method == "paste":
         return _register_paste(adata_list, params, spatial_key)
