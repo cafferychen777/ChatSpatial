@@ -1888,11 +1888,12 @@ class CellCommunicationParameters(BaseModel):
     """Cell-cell communication analysis parameters model with explicit user control"""
 
     # ========== Basic Method Selection ==========
-    method: Literal["liana", "cellphonedb", "cellchat_r"] = "liana"
+    method: Literal["liana", "cellphonedb", "cellchat_r", "fastccc"] = "liana"
     # Methods:
     # - "liana": LIANA+ framework (Python, supports multiple resources)
     # - "cellphonedb": CellPhoneDB v5 (Python)
     # - "cellchat_r": Native R CellChat (full features with mediator proteins & pathways)
+    # - "fastccc": FastCCC permutation-free framework (Nature Comm 2025, ultra-fast)
 
     # ========== Species and Resource Control ==========
     species: Literal["human", "mouse", "zebrafish"]
@@ -2070,6 +2071,77 @@ class CellCommunicationParameters(BaseModel):
             "  - Slide-seq: 5 um (10 um bead diameter / 2)\n"
             "  - CosMx: 5-10 um (single cell resolution)\n"
             "Used in CellChat's spatial.factors.tol for defining spatial proximity."
+        ),
+    )
+
+    # ========== FastCCC Specific Parameters ==========
+    # FastCCC is a permutation-free framework using FFT-based convolution
+    # Reference: Nature Communications 2025 (https://github.com/Svvord/FastCCC)
+    # Key advantage: Ultra-fast (16M cells in minutes vs hours for permutation methods)
+
+    fastccc_single_unit_summary: Literal["Mean", "Median", "Q3", "Quantile_0.9"] = (
+        Field(
+            default="Mean",
+            description=(
+                "Aggregation method for single-unit gene expression within cell types.\n"
+                "Options:\n"
+                "  - 'Mean': Mean expression (default, most commonly used)\n"
+                "  - 'Median': Median expression (robust to outliers)\n"
+                "  - 'Q3': Third quartile (75th percentile)\n"
+                "  - 'Quantile_0.9': 90th percentile (captures high expressors)"
+            ),
+        )
+    )
+
+    fastccc_complex_aggregation: Literal["Minimum", "Average"] = Field(
+        default="Minimum",
+        description=(
+            "Aggregation method for multi-subunit protein complexes.\n"
+            "Options:\n"
+            "  - 'Minimum': Use minimum expression (default, ensures all subunits present)\n"
+            "  - 'Average': Use average expression across subunits"
+        ),
+    )
+
+    fastccc_lr_combination: Literal["Arithmetic", "Geometric"] = Field(
+        default="Arithmetic",
+        description=(
+            "Method for combining ligand and receptor scores.\n"
+            "Options:\n"
+            "  - 'Arithmetic': Arithmetic mean of L and R (default)\n"
+            "  - 'Geometric': Geometric mean (more conservative)"
+        ),
+    )
+
+    fastccc_min_percentile: Annotated[float, Field(ge=0.0, le=1.0)] = Field(
+        default=0.1,
+        description=(
+            "Minimum expression percentile threshold for filtering lowly expressed genes.\n"
+            "Default: 0.1 (10% of cells must express the gene)"
+        ),
+    )
+
+    fastccc_use_cauchy: bool = Field(
+        default=True,
+        description=(
+            "Whether to use Cauchy combination for multi-method aggregation.\n"
+            "When True: Runs multiple parameter combinations and aggregates p-values\n"
+            "           using Cauchy distribution (more robust, slower)\n"
+            "When False: Uses single parameter set (faster)"
+        ),
+    )
+
+    fastccc_pvalue_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = Field(
+        default=0.05,
+        description="P-value threshold for identifying significant interactions.",
+    )
+
+    fastccc_use_deg: bool = Field(
+        default=False,
+        description=(
+            "Apply differential expression gene filtering before analysis.\n"
+            "When True: Only analyze differentially expressed genes (more specific)\n"
+            "When False: Analyze all expressed genes (default, more comprehensive)"
         ),
     )
 

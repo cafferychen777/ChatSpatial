@@ -112,10 +112,14 @@ async def analyze_cell_communication(
             )
             result_data = _analyze_communication_cellchat_r(adata, params, ctx)
 
+        elif params.method == "fastccc":
+            require("fastccc", ctx, feature="FastCCC cell communication analysis")
+            result_data = await _analyze_communication_fastccc(adata, params, ctx)
+
         else:
             raise ParameterError(
                 f"Unsupported method: {params.method}. "
-                f"Supported methods: 'liana', 'cellphonedb', 'cellchat_r'"
+                f"Supported methods: 'liana', 'cellphonedb', 'cellchat_r', 'fastccc'"
             )
 
         # Note: Results are already stored in adata.uns by the analysis methods
@@ -136,6 +140,8 @@ async def analyze_cell_communication(
             )
         elif params.method == "cellchat_r":
             database = f"CellChatDB.{params.species}"  # Native R CellChat database
+        elif params.method == "fastccc":
+            database = "fastccc_builtin"  # FastCCC built-in LR database
         else:
             database = "unknown"
 
@@ -152,6 +158,8 @@ async def analyze_cell_communication(
             results_keys_dict["uns"].append(result_data["cellphonedb_results_key"])
         if result_data.get("cellchat_r_results_key"):
             results_keys_dict["uns"].append(result_data["cellchat_r_results_key"])
+        if result_data.get("fastccc_results_key"):
+            results_keys_dict["uns"].append(result_data["fastccc_results_key"])
 
         # Store metadata
         store_analysis_metadata(
@@ -1324,3 +1332,284 @@ def _analyze_communication_cellchat_r(
 
     except Exception as e:
         raise ProcessingError(f"CellChat R analysis failed: {e}") from e
+
+
+async def _analyze_communication_fastccc(
+    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
+) -> dict[str, Any]:
+    """Analyze cell communication using FastCCC permutation-free framework.
+
+    FastCCC uses FFT-based convolution to compute p-values analytically,
+    making it extremely fast for large datasets (16M cells in minutes).
+
+    Reference: Nature Communications 2025 (https://github.com/Svvord/FastCCC)
+
+    Args:
+        adata: AnnData object with expression data
+        params: Cell communication analysis parameters
+        ctx: ToolContext for logging and data access
+
+    Returns:
+        Dictionary with analysis results
+    """
+    import glob
+    import os
+    import tempfile
+    import time
+
+    import pandas as pd
+
+    from ..utils.adata_utils import to_dense
+
+    try:
+        start_time = time.time()
+
+        # Import FastCCC
+        if params.fastccc_use_cauchy:
+            from fastccc import Cauchy_combination_of_statistical_analysis_methods
+        else:
+            from fastccc import statistical_analysis_method
+
+        # Validate cell type column
+        validate_obs_column(adata, params.cell_type_key, "Cell type")
+
+        # Use adata.raw if available for comprehensive gene coverage
+        if adata.raw is not None:
+            data_source = adata.raw
+            await ctx.info("Using adata.raw for comprehensive gene coverage")
+        else:
+            data_source = adata
+
+        # Create temporary directory for FastCCC I/O
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Save expression data as h5ad for FastCCC
+            counts_file = os.path.join(temp_dir, "counts.h5ad")
+
+            # Create a minimal AnnData for saving (FastCCC reads h5ad directly)
+            # IMPORTANT: FastCCC requires normalized log1p-transformed data
+            # with max value < 14 (default threshold)
+            import anndata as ad
+            import scanpy as sc
+
+            # Prepare expression matrix (cells × genes)
+            expr_matrix = to_dense(data_source.X)
+            gene_names = list(data_source.var_names)
+            cell_names = list(adata.obs_names)
+
+            # Create temporary AnnData
+            temp_adata = ad.AnnData(
+                X=expr_matrix.copy(),
+                obs=pd.DataFrame(index=cell_names),
+                var=pd.DataFrame(index=gene_names),
+            )
+
+            # Check if data needs normalization (FastCCC max threshold is 14)
+            max_val = np.max(temp_adata.X)
+            if max_val > 14:
+                await ctx.info(
+                    f"Data max value ({max_val:.1f}) exceeds FastCCC threshold (14). "
+                    f"Applying normalize_total + log1p transformation..."
+                )
+                # Apply standard scanpy normalization pipeline
+                sc.pp.normalize_total(temp_adata, target_sum=1e4)
+                sc.pp.log1p(temp_adata)
+                new_max = np.max(temp_adata.X)
+                await ctx.info(f"After normalization: max value = {new_max:.2f}")
+
+            # Make var names unique (FastCCC requirement)
+            temp_adata.var_names_make_unique()
+
+            # Add cell type labels to obs
+            temp_adata.obs[params.cell_type_key] = adata.obs[
+                params.cell_type_key
+            ].values
+
+            # Save to h5ad
+            temp_adata.write_h5ad(counts_file)
+
+            # Prepare cell type labels file
+            celltype_file = os.path.join(temp_dir, "celltypes.csv")
+            labels_df = pd.DataFrame(
+                {
+                    "index": cell_names,
+                    "cell_type": adata.obs[params.cell_type_key].astype(str).values,
+                }
+            )
+            labels_df.to_csv(celltype_file, index=False)
+
+            # Get database directory path (FastCCC uses CellPhoneDB database format)
+            # FastCCC expects a directory containing interaction_table.csv and other files
+            # Check for bundled database in chatspatial package
+            chatspatial_pkg_dir = os.path.dirname(os.path.dirname(__file__))
+            database_dir = os.path.join(
+                chatspatial_pkg_dir,
+                "data",
+                "cellphonedb_v5",
+                "cellphonedb-data-5.0.0",
+            )
+
+            # Verify required files exist
+            required_file = os.path.join(database_dir, "interaction_table.csv")
+            if not os.path.exists(required_file):
+                raise ProcessingError(
+                    f"FastCCC requires CellPhoneDB database files. "
+                    f"Expected directory: {database_dir} with interaction_table.csv. "
+                    f"Please download from: https://github.com/ventolab/cellphonedb-data"
+                )
+
+            # Output directory for results
+            output_dir = os.path.join(temp_dir, "results")
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Run FastCCC analysis
+            if params.fastccc_use_cauchy:
+                # Cauchy combination method (more robust, multiple parameter combinations)
+                # Note: This function saves results to files and returns None
+                Cauchy_combination_of_statistical_analysis_methods(
+                    database_file_path=database_dir,
+                    celltype_file_path=celltype_file,
+                    counts_file_path=counts_file,
+                    convert_type="hgnc_symbol",
+                    single_unit_summary_list=[
+                        "Mean",
+                        "Median",
+                        "Q3",
+                        "Quantile_0.9",
+                    ],
+                    complex_aggregation_list=["Minimum", "Average"],
+                    LR_combination_list=["Arithmetic", "Geometric"],
+                    min_percentile=params.fastccc_min_percentile,
+                    save_path=output_dir,
+                    meta_key=params.cell_type_key,
+                    use_DEG=params.fastccc_use_deg,
+                )
+
+                # Read results from saved files (Cauchy method saves to files)
+                import glob
+
+                # Find the task ID from output files
+                pval_files = glob.glob(os.path.join(output_dir, "*_Cauchy_pvals.tsv"))
+                if not pval_files:
+                    raise ProcessingError(
+                        "FastCCC Cauchy combination did not produce output files"
+                    )
+
+                # Extract task_id from filename
+                pval_file = pval_files[0]
+                task_id = os.path.basename(pval_file).replace("_Cauchy_pvals.tsv", "")
+
+                # Read combined results
+                pvalues = pd.read_csv(pval_file, index_col=0, sep="\t")
+                strength_file = os.path.join(
+                    output_dir, f"{task_id}_average_interactions_strength.tsv"
+                )
+                interactions_strength = pd.read_csv(
+                    strength_file, index_col=0, sep="\t"
+                )
+
+                # Percentages are in individual method files, use first one
+                pct_files = glob.glob(
+                    os.path.join(output_dir, f"{task_id}*percents_analysis.tsv")
+                )
+                if pct_files:
+                    percentages = pd.read_csv(pct_files[0], index_col=0, sep="\t")
+                else:
+                    percentages = None
+
+            else:
+                # Single method (faster)
+                interactions_strength, pvalues, percentages = (
+                    statistical_analysis_method(
+                        database_file_path=database_dir,
+                        celltype_file_path=celltype_file,
+                        counts_file_path=counts_file,
+                        convert_type="hgnc_symbol",
+                        single_unit_summary=params.fastccc_single_unit_summary,
+                        complex_aggregation=params.fastccc_complex_aggregation,
+                        LR_combination=params.fastccc_lr_combination,
+                        min_percentile=params.fastccc_min_percentile,
+                        save_path=output_dir,
+                        meta_key=params.cell_type_key,
+                        use_DEG=params.fastccc_use_deg,
+                    )
+                )
+
+        # Process results
+        n_lr_pairs = len(pvalues) if pvalues is not None else 0
+
+        # Count significant pairs
+        threshold = params.fastccc_pvalue_threshold
+        if pvalues is not None and hasattr(pvalues, "values"):
+            # Get minimum p-value across all cell type pairs for each LR pair
+            pval_array = pvalues.select_dtypes(include=[np.number]).values
+            min_pvals = np.nanmin(pval_array, axis=1)
+            n_significant_pairs = int(np.sum(min_pvals < threshold))
+        else:
+            n_significant_pairs = 0
+
+        # Get top LR pairs based on interaction strength
+        top_lr_pairs = []
+        detected_lr_pairs = []
+        if interactions_strength is not None and hasattr(
+            interactions_strength, "index"
+        ):
+            # Sort by mean interaction strength across cell type pairs
+            if hasattr(interactions_strength, "select_dtypes"):
+                strength_array = interactions_strength.select_dtypes(
+                    include=[np.number]
+                ).values
+                mean_strength = np.nanmean(strength_array, axis=1)
+                top_indices = np.argsort(mean_strength)[::-1][: params.plot_top_pairs]
+                top_lr_pairs = [interactions_strength.index[i] for i in top_indices]
+
+                # Parse LR pair names
+                for pair_str in top_lr_pairs:
+                    if "_" in pair_str:
+                        parts = pair_str.split("_", 1)
+                        if len(parts) == 2:
+                            detected_lr_pairs.append((parts[0], parts[1]))
+
+        # Store results in adata
+        adata.uns["fastccc_interactions_strength"] = interactions_strength
+        adata.uns["fastccc_pvalues"] = pvalues
+        adata.uns["fastccc_percentages"] = percentages
+
+        # Store standardized format for visualization
+        adata.uns["detected_lr_pairs"] = detected_lr_pairs
+        adata.uns["cell_communication_results"] = {
+            "top_lr_pairs": top_lr_pairs,
+            "method": "fastccc",
+            "n_pairs": len(top_lr_pairs),
+            "species": params.species,
+        }
+
+        end_time = time.time()
+        analysis_time = end_time - start_time
+
+        statistics = {
+            "method": "fastccc",
+            "species": params.species,
+            "use_cauchy": params.fastccc_use_cauchy,
+            "single_unit_summary": params.fastccc_single_unit_summary,
+            "complex_aggregation": params.fastccc_complex_aggregation,
+            "lr_combination": params.fastccc_lr_combination,
+            "min_percentile": params.fastccc_min_percentile,
+            "pvalue_threshold": threshold,
+            "use_deg": params.fastccc_use_deg,
+            "n_lr_pairs_tested": n_lr_pairs,
+            "analysis_time_seconds": analysis_time,
+            "permutation_free": True,  # Key FastCCC feature
+        }
+
+        return {
+            "n_lr_pairs": n_lr_pairs,
+            "n_significant_pairs": n_significant_pairs,
+            "top_lr_pairs": top_lr_pairs,
+            "fastccc_results_key": "fastccc_interactions_strength",
+            "fastccc_pvalues_key": "fastccc_pvalues",
+            "analysis_type": "fastccc_permutation_free",
+            "statistics": statistics,
+        }
+
+    except Exception as e:
+        raise ProcessingError(f"FastCCC analysis failed: {e}") from e
