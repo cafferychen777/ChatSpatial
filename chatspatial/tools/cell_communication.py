@@ -556,6 +556,19 @@ async def _analyze_communication_cellphonedb(
 
         start_time = time.time()
 
+        # Species check: CellPhoneDB is human-only
+        # Reference: https://github.com/ventolab/cellphonedb
+        # "CellphoneDB is a publicly available repository of HUMAN curated
+        # receptors, ligands and their interactions"
+        if params.species != "human":
+            raise ParameterError(
+                f"CellPhoneDB only supports human data. "
+                f"Your data species: '{params.species}'. "
+                f"For {params.species} data, please use:\n"
+                f"  - method='liana' with liana_resource='mouseconsensus' (for mouse)\n"
+                f"  - method='cellchat_r' (has built-in mouse/human databases)"
+            )
+
         # Use cell_type_key from params (required field, no auto-detect)
         cell_type_col = params.cell_type_key
 
