@@ -1427,16 +1427,6 @@ async def _analyze_communication_fastccc(
             # Save to h5ad
             temp_adata.write_h5ad(counts_file)
 
-            # Prepare cell type labels file
-            celltype_file = os.path.join(temp_dir, "celltypes.csv")
-            labels_df = pd.DataFrame(
-                {
-                    "index": cell_names,
-                    "cell_type": adata.obs[params.cell_type_key].astype(str).values,
-                }
-            )
-            labels_df.to_csv(celltype_file, index=False)
-
             # Get database directory path (FastCCC uses CellPhoneDB database format)
             # FastCCC expects a directory containing interaction_table.csv and other files
             # Check for bundled database in chatspatial package
@@ -1467,7 +1457,7 @@ async def _analyze_communication_fastccc(
                 # Note: This function saves results to files and returns None
                 Cauchy_combination_of_statistical_analysis_methods(
                     database_file_path=database_dir,
-                    celltype_file_path=celltype_file,
+                    celltype_file_path=None,  # Using meta_key instead
                     counts_file_path=counts_file,
                     convert_type="hgnc_symbol",
                     single_unit_summary_list=[
@@ -1485,8 +1475,6 @@ async def _analyze_communication_fastccc(
                 )
 
                 # Read results from saved files (Cauchy method saves to files)
-                import glob
-
                 # Find the task ID from output files
                 pval_files = glob.glob(os.path.join(output_dir, "*_Cauchy_pvals.tsv"))
                 if not pval_files:
@@ -1521,7 +1509,7 @@ async def _analyze_communication_fastccc(
                 interactions_strength, pvalues, percentages = (
                     statistical_analysis_method(
                         database_file_path=database_dir,
-                        celltype_file_path=celltype_file,
+                        celltype_file_path=None,  # Using meta_key instead
                         counts_file_path=counts_file,
                         convert_type="hgnc_symbol",
                         single_unit_summary=params.fastccc_single_unit_summary,
