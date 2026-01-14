@@ -249,7 +249,7 @@ async def create_heatmap_visualization(
     if not params.cluster_key:
         raise ParameterError("Heatmap requires cluster_key parameter")
 
-    validate_obs_column(adata, params.cluster_key, "cluster_key")
+    validate_obs_column(adata, params.cluster_key, "Cluster")
 
     features = await get_validated_features(adata, params, context, genes_only=True)
     if not features:
@@ -300,7 +300,7 @@ async def create_violin_visualization(
     if not params.cluster_key:
         raise ParameterError("Violin plot requires cluster_key parameter")
 
-    validate_obs_column(adata, params.cluster_key, "cluster_key")
+    validate_obs_column(adata, params.cluster_key, "Cluster")
 
     features = await get_validated_features(adata, params, context, genes_only=True)
     if not features:
@@ -348,7 +348,7 @@ async def create_dotplot_visualization(
     if not params.cluster_key:
         raise ParameterError("Dot plot requires cluster_key parameter")
 
-    validate_obs_column(adata, params.cluster_key, "cluster_key")
+    validate_obs_column(adata, params.cluster_key, "Cluster")
 
     features = await get_validated_features(adata, params, context, genes_only=True)
     if not features:

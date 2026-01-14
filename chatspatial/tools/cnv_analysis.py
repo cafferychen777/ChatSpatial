@@ -53,7 +53,7 @@ async def infer_cnv(
     adata = await ctx.get_adata(data_id)
 
     # Validate common parameters
-    validate_obs_column(adata, params.reference_key, "Reference cell type key")
+    validate_obs_column(adata, params.reference_key, "Reference cell type")
 
     available_categories = set(adata.obs[params.reference_key].unique())
     missing_categories = set(params.reference_categories) - available_categories
@@ -68,7 +68,7 @@ async def infer_cnv(
     if params.method == "infercnvpy":
         return await _infer_cnv_infercnvpy(data_id, adata, params, ctx)
     elif params.method == "numbat":
-        return await _infer_cnv_numbat(data_id, adata, params, ctx)
+        return _infer_cnv_numbat(data_id, adata, params, ctx)
     else:
         raise ParameterError(
             f"Unknown CNV method: {params.method}. "
@@ -273,7 +273,7 @@ async def _infer_cnv_infercnvpy(
     )
 
 
-async def _infer_cnv_numbat(
+def _infer_cnv_numbat(
     data_id: str,
     adata,
     params: CNVParameters,

@@ -7,6 +7,7 @@ Cell2location uses a two-stage training process:
 """
 
 import gc
+import warnings
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -69,7 +70,7 @@ async def apply_gene_filtering(
     return adata[:, selected].copy()
 
 
-async def deconvolve(
+def deconvolve(
     data: PreparedDeconvolutionData,
     ref_model_epochs: int = 250,
     n_epochs: int = 30000,
@@ -115,15 +116,14 @@ async def deconvolve(
     require("cell2location")
     from cell2location.models import Cell2location, RegressionModel
 
-    ctx = data.ctx
     cell_type_key = data.cell_type_key
 
     try:
         device = get_device(prefer_gpu=use_gpu)
 
-        # Create working copies (Cell2location modifies in place)
-        ref = data.reference.copy()
-        sp = data.spatial.copy()
+        # Data already copied in prepare_deconvolution
+        ref = data.reference
+        sp = data.spatial
 
         # Ensure float32 for scvi-tools compatibility
         if ref.X.dtype != np.float32:
@@ -133,7 +133,11 @@ async def deconvolve(
 
         # Handle NaN in cell types
         if ref.obs[cell_type_key].isna().any():
-            await ctx.warning(f"Reference has NaN in {cell_type_key}. Excluding.")
+            warnings.warn(
+                f"Reference has NaN in {cell_type_key}. Excluding.",
+                UserWarning,
+                stacklevel=2,
+            )
             ref = ref[~ref.obs[cell_type_key].isna()].copy()
 
         # ===== Stage 1: Train Reference Model =====
@@ -159,9 +163,9 @@ async def deconvolve(
             ref_model.train(**train_kwargs)
 
         # Check convergence
-        converged, warning = check_model_convergence(ref_model, "ReferenceModel")
-        if not converged and warning:
-            await ctx.warning(warning)
+        converged, warning_msg = check_model_convergence(ref_model, "ReferenceModel")
+        if not converged and warning_msg:
+            warnings.warn(warning_msg, UserWarning, stacklevel=2)
 
         # Export reference signatures
         ref = ref_model.export_posterior(
@@ -197,9 +201,11 @@ async def deconvolve(
             cell2loc_model.train(**train_kwargs)
 
         # Check convergence
-        converged, warning = check_model_convergence(cell2loc_model, "Cell2location")
-        if not converged and warning:
-            await ctx.warning(warning)
+        converged, warning_msg = check_model_convergence(
+            cell2loc_model, "Cell2location"
+        )
+        if not converged and warning_msg:
+            warnings.warn(warning_msg, UserWarning, stacklevel=2)
 
         # Export results
         sp = cell2loc_model.export_posterior(

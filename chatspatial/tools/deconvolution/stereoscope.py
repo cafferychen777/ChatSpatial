@@ -16,7 +16,7 @@ from ...utils.exceptions import ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
-async def deconvolve(
+def deconvolve(
     data: PreparedDeconvolutionData,
     n_epochs: int = 150000,
     learning_rate: float = 0.01,
@@ -38,9 +38,9 @@ async def deconvolve(
     from scvi.external import RNAStereoscope, SpatialStereoscope
 
     try:
-        # Create working copies (scvi-tools may modify in place)
-        spatial_data = data.spatial.copy()
-        ref_data = data.reference.copy()
+        # Data already copied in prepare_deconvolution
+        spatial_data = data.spatial
+        ref_data = data.reference
 
         # Ensure categorical cell type
         ensure_categorical(ref_data, data.cell_type_key)

@@ -162,9 +162,9 @@ async def analyze_spatial_statistics(
 
         # Route to appropriate analysis function
         if params.analysis_type == "moran":
-            result = await _analyze_morans_i(adata, params, ctx)
+            result = _analyze_morans_i(adata, params, ctx)
         elif params.analysis_type == "local_moran":
-            result = await _analyze_local_moran(adata, params, ctx)
+            result = _analyze_local_moran(adata, params, ctx)
         elif params.analysis_type == "geary":
             result = _analyze_gearys_c(adata, params, ctx)
         elif params.analysis_type == "neighborhood":
@@ -174,19 +174,19 @@ async def analyze_spatial_statistics(
         elif params.analysis_type == "ripley":
             result = _analyze_ripleys_k(adata, cluster_key, ctx)
         elif params.analysis_type == "getis_ord":
-            result = await _analyze_getis_ord(adata, params, ctx)
+            result = _analyze_getis_ord(adata, params, ctx)
         elif params.analysis_type == "centrality":
-            result = await _analyze_centrality(adata, cluster_key, ctx)
+            result = _analyze_centrality(adata, cluster_key, ctx)
         elif params.analysis_type == "bivariate_moran":
-            result = await _analyze_bivariate_moran(adata, params, ctx)
+            result = _analyze_bivariate_moran(adata, params, ctx)
         elif params.analysis_type == "join_count":
             result = _analyze_join_count(adata, cluster_key, params, ctx)
         elif params.analysis_type == "local_join_count":
-            result = await _analyze_local_join_count(adata, cluster_key, params, ctx)
+            result = _analyze_local_join_count(adata, cluster_key, params, ctx)
         elif params.analysis_type == "network_properties":
-            result = await _analyze_network_properties(adata, cluster_key, params, ctx)
+            result = _analyze_network_properties(adata, cluster_key, params, ctx)
         elif params.analysis_type == "spatial_centrality":
-            result = await _analyze_spatial_centrality(adata, cluster_key, params, ctx)
+            result = _analyze_spatial_centrality(adata, cluster_key, params, ctx)
         else:
             raise ParameterError(
                 f"Analysis type {params.analysis_type} not implemented"
@@ -423,7 +423,7 @@ def _get_optimal_n_jobs(n_obs: int, requested_n_jobs: Optional[int] = None) -> i
 # ============================================================================
 
 
-async def _analyze_morans_i(
+def _analyze_morans_i(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
@@ -600,7 +600,7 @@ def _analyze_ripleys_k(
         raise ProcessingError(f"Ripley's K analysis failed: {e}") from e
 
 
-async def _analyze_getis_ord(
+def _analyze_getis_ord(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
@@ -740,7 +740,7 @@ async def _analyze_getis_ord(
     }
 
 
-async def _analyze_centrality(
+def _analyze_centrality(
     adata: ad.AnnData,
     cluster_key: str,
     ctx: "ToolContext",
@@ -766,7 +766,7 @@ async def _analyze_centrality(
 # ============================================================================
 
 
-async def _analyze_bivariate_moran(
+def _analyze_bivariate_moran(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
@@ -936,7 +936,7 @@ def _analyze_join_count(
         raise ProcessingError(f"Join Count analysis failed: {e}") from e
 
 
-async def _analyze_local_join_count(
+def _analyze_local_join_count(
     adata: ad.AnnData,
     cluster_key: str,
     params: SpatialStatisticsParameters,
@@ -1087,7 +1087,7 @@ async def _analyze_local_join_count(
         raise ProcessingError(f"Local Join Count analysis failed: {e}") from e
 
 
-async def _analyze_network_properties(
+def _analyze_network_properties(
     adata: ad.AnnData,
     cluster_key: str,
     params: SpatialStatisticsParameters,
@@ -1163,7 +1163,7 @@ async def _analyze_network_properties(
         raise ProcessingError(f"Network properties analysis failed: {e}") from e
 
 
-async def _analyze_spatial_centrality(
+def _analyze_spatial_centrality(
     adata: ad.AnnData,
     cluster_key: str,
     params: SpatialStatisticsParameters,
@@ -1267,7 +1267,7 @@ async def _analyze_spatial_centrality(
         raise ProcessingError(f"Spatial centrality analysis failed: {e}") from e
 
 
-async def _analyze_local_moran(
+def _analyze_local_moran(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",

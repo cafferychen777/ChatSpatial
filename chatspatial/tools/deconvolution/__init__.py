@@ -88,7 +88,7 @@ async def deconvolve_spatial_data(
             )
 
         await ensure_unique_var_names_async(reference_adata, ctx, "reference data")
-        validate_obs_column(reference_adata, params.cell_type_key, "Cell type key")
+        validate_obs_column(reference_adata, params.cell_type_key, "Cell type")
 
     # Check method availability
     _check_method_availability(params.method)
@@ -107,7 +107,7 @@ async def deconvolve_spatial_data(
     )
 
     # Dispatch to method-specific implementation
-    proportions, stats = await _dispatch_method(data, params, spatial_adata)
+    proportions, stats = _dispatch_method(data, params)
 
     # Memory cleanup
     del data
@@ -208,10 +208,9 @@ def _get_preprocess_hook(params: DeconvolutionParameters):
     return None
 
 
-async def _dispatch_method(
+def _dispatch_method(
     data: PreparedDeconvolutionData,
     params: DeconvolutionParameters,
-    original_spatial: "ad.AnnData",
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Dispatch to the appropriate method implementation."""
     method = params.method
@@ -219,7 +218,7 @@ async def _dispatch_method(
     if method == "flashdeconv":
         from . import flashdeconv
 
-        return await flashdeconv.deconvolve(
+        return flashdeconv.deconvolve(
             data,
             sketch_dim=params.flashdeconv_sketch_dim,
             lambda_spatial=params.flashdeconv_lambda_spatial,
@@ -230,7 +229,7 @@ async def _dispatch_method(
     elif method == "cell2location":
         from . import cell2location
 
-        return await cell2location.deconvolve(
+        return cell2location.deconvolve(
             data,
             ref_model_epochs=params.cell2location_ref_model_epochs,
             n_epochs=params.cell2location_n_epochs,
@@ -253,7 +252,7 @@ async def _dispatch_method(
     elif method == "destvi":
         from . import destvi
 
-        return await destvi.deconvolve(
+        return destvi.deconvolve(
             data,
             n_epochs=params.destvi_n_epochs,
             n_hidden=params.destvi_n_hidden,
@@ -270,7 +269,7 @@ async def _dispatch_method(
     elif method == "stereoscope":
         from . import stereoscope
 
-        return await stereoscope.deconvolve(
+        return stereoscope.deconvolve(
             data,
             n_epochs=params.stereoscope_n_epochs,
             learning_rate=params.stereoscope_learning_rate,
@@ -281,9 +280,8 @@ async def _dispatch_method(
     elif method == "rctd":
         from . import rctd
 
-        return await rctd.deconvolve(
+        return rctd.deconvolve(
             data,
-            original_spatial,
             mode=params.rctd_mode,
             max_cores=params.max_cores,
             confidence_threshold=params.rctd_confidence_threshold,
@@ -294,9 +292,8 @@ async def _dispatch_method(
     elif method == "spotlight":
         from . import spotlight
 
-        return await spotlight.deconvolve(
+        return spotlight.deconvolve(
             data,
-            original_spatial,
             n_top_genes=params.spotlight_n_top_genes,
             nmf_model=params.spotlight_nmf_model,
             min_prop=params.spotlight_min_prop,
@@ -307,9 +304,8 @@ async def _dispatch_method(
     elif method == "card":
         from . import card
 
-        return await card.deconvolve(
+        return card.deconvolve(
             data,
-            original_spatial,
             sample_key=params.card_sample_key,
             minCountGene=params.card_minCountGene,
             minCountSpot=params.card_minCountSpot,
@@ -321,7 +317,7 @@ async def _dispatch_method(
     elif method == "tangram":
         from . import tangram
 
-        return await tangram.deconvolve(
+        return tangram.deconvolve(
             data,
             n_epochs=params.tangram_n_epochs,
             mode=params.tangram_mode,

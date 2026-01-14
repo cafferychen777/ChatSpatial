@@ -7,17 +7,18 @@ Design Philosophy:
 - Hook pattern for method-specific preprocessing (e.g., cell2location)
 """
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
     Optional,
 )
-from collections.abc import Awaitable, Callable
 
 import anndata as ad
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 from ...utils.adata_utils import (
     find_common_genes,
     get_raw_data_source,
+    get_spatial_key,
     to_dense,
     validate_gene_overlap,
     validate_obs_column,
@@ -56,6 +58,7 @@ class PreparedDeconvolutionData:
         cell_type_key: Column name for cell types in reference
         cell_types: List of unique cell types
         common_genes: List of genes present in both datasets
+        spatial_coords: Spatial coordinates array (n_spots, 2) or None
         ctx: ToolContext for logging/warnings
 
     Usage:
@@ -68,6 +71,7 @@ class PreparedDeconvolutionData:
     cell_type_key: str
     cell_types: list[str]
     common_genes: list[str]
+    spatial_coords: Optional[NDArray[np.floating]]
     ctx: "ToolContext"
 
     @property
@@ -138,17 +142,23 @@ async def prepare_deconvolution(
             preprocess=custom_filter
         )
     """
-    # 1. Validate cell type key
-    validate_obs_column(reference_adata, cell_type_key, "Cell type key")
+    # 1. Extract spatial coordinates from original data (before any processing)
+    spatial_coords: Optional[NDArray[np.floating]] = None
+    spatial_key = get_spatial_key(spatial_adata)
+    if spatial_key:
+        spatial_coords = np.asarray(spatial_adata.obsm[spatial_key], dtype=np.float64)
 
-    # 2. Extract cell types
+    # 2. Validate cell type key
+    validate_obs_column(reference_adata, cell_type_key, "Cell type")
+
+    # 3. Extract cell types
     cell_types = list(reference_adata.obs[cell_type_key].unique())
     if len(cell_types) < 2:
         raise DataError(
             f"Reference data must have at least 2 cell types, found {len(cell_types)}"
         )
 
-    # 3. Restore raw counts
+    # 4. Restore raw counts
     spatial_prep = await _prepare_counts(
         spatial_adata, "Spatial", ctx, require_int_dtype
     )
@@ -156,19 +166,19 @@ async def prepare_deconvolution(
         reference_adata, "Reference", ctx, require_int_dtype
     )
 
-    # 4. Optional method-specific preprocessing
+    # 5. Optional method-specific preprocessing
     if preprocess is not None:
         spatial_prep, reference_prep = await preprocess(
             spatial_prep, reference_prep, ctx
         )
 
-    # 5. Find common genes
+    # 6. Find common genes
     common_genes = find_common_genes(
         spatial_prep.var_names,
         reference_prep.var_names,
     )
 
-    # 6. Validate gene overlap
+    # 7. Validate gene overlap
     validate_gene_overlap(
         common_genes,
         spatial_prep.n_vars,
@@ -178,13 +188,14 @@ async def prepare_deconvolution(
         target_name="reference",
     )
 
-    # 7. Return immutable result with data subset to common genes
+    # 8. Return immutable result with data subset to common genes
     return PreparedDeconvolutionData(
         spatial=spatial_prep[:, common_genes].copy(),
         reference=reference_prep[:, common_genes].copy(),
         cell_type_key=cell_type_key,
         cell_types=cell_types,
         common_genes=common_genes,
+        spatial_coords=spatial_coords,
         ctx=ctx,
     )
 
@@ -212,6 +223,9 @@ async def _prepare_counts(
     # Construct copy based on source
     if result.source == "raw":
         adata_copy = adata.raw.to_adata()
+        # Preserve obsm from original (raw.to_adata() doesn't include it)
+        for key in adata.obsm:
+            adata_copy.obsm[key] = adata.obsm[key].copy()
     elif result.source == "counts_layer":
         adata_copy = adata.copy()
         adata_copy.X = adata_copy.layers["counts"]

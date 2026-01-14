@@ -14,7 +14,7 @@ from ...utils.exceptions import DependencyError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
-async def deconvolve(
+def deconvolve(
     data: PreparedDeconvolutionData,
     n_epochs: int = 1000,
     mode: str = "cells",
@@ -44,9 +44,9 @@ async def deconvolve(
         ) from e
 
     try:
-        # Create working copies (tangram may modify in place)
-        spatial_data = data.spatial.copy()
-        ref_data = data.reference.copy()
+        # Data already copied in prepare_deconvolution
+        spatial_data = data.spatial
+        ref_data = data.reference
 
         # Tangram requires 'cell_type' column for cluster mode
         if "cell_type" not in ref_data.obs.columns:

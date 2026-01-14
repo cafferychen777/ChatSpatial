@@ -228,7 +228,7 @@ def _create_enrichment_violin(
             f"Available categorical columns: {', '.join(categorical_cols)}"
         )
 
-    validate_obs_column(adata, params.cluster_key, "Grouping variable")
+    validate_obs_column(adata, params.cluster_key, "Cluster")
 
     # Determine scores to plot
     scores_to_plot = _resolve_feature_list(
@@ -403,7 +403,7 @@ def _create_enrichmap_single_score(
         )
 
     score_col = f"{params.feature}_score"
-    validate_obs_column(adata, score_col, "Score column")
+    validate_obs_column(adata, score_col, "Score")
 
     if params.subtype == "spatial_correlogram":
         em.pl.morans_correlogram(adata, score_key=score_col, library_id=library_id)

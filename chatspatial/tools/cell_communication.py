@@ -40,7 +40,7 @@ async def _validate_liana_requirements(
         )
 
     # Cell type validation
-    validate_obs_column(adata, params.cell_type_key, "Cell type column")
+    validate_obs_column(adata, params.cell_type_key, "Cell type")
 
     # Warning for resource matching
     if params.species == "mouse" and params.liana_resource == "consensus":
@@ -74,7 +74,7 @@ async def analyze_cell_communication(
             await _validate_liana_requirements(adata, params, ctx)
         elif params.method == "cellphonedb":
             # Check if cell type column exists
-            validate_obs_column(adata, params.cell_type_key, "Cell type column")
+            validate_obs_column(adata, params.cell_type_key, "Cell type")
 
             # Check for low counts
             n_genes = adata.raw.n_vars if adata.raw is not None else adata.n_vars
@@ -110,7 +110,7 @@ async def analyze_cell_communication(
                 ctx,
                 install_cmd="devtools::install_github('jinworks/CellChat')",
             )
-            result_data = await _analyze_communication_cellchat_r(adata, params, ctx)
+            result_data = _analyze_communication_cellchat_r(adata, params, ctx)
 
         else:
             raise ParameterError(
@@ -276,7 +276,7 @@ async def _analyze_communication_liana(
             return _run_liana_cluster_analysis(adata, params, ctx)
         else:
             # Spatial bivariate analysis
-            return await _run_liana_spatial_analysis(adata, params, ctx)
+            return _run_liana_spatial_analysis(adata, params, ctx)
 
     except Exception as e:
         raise ProcessingError(f"LIANA+ analysis failed: {e}") from e
@@ -311,7 +311,7 @@ def _run_liana_cluster_analysis(
     # Use cell_type_key from params (required field, no auto-detect)
     groupby_col = params.cell_type_key
 
-    validate_obs_column(adata, groupby_col, "Cell type column")
+    validate_obs_column(adata, groupby_col, "Cell type")
 
     # Get appropriate resource name based on species
     resource_name = _get_liana_resource_name(params.species, params.liana_resource)
@@ -382,7 +382,7 @@ def _run_liana_cluster_analysis(
     }
 
 
-async def _run_liana_spatial_analysis(
+def _run_liana_spatial_analysis(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> dict[str, Any]:
     """Run LIANA+ spatial bivariate analysis"""
@@ -499,7 +499,7 @@ async def _run_liana_spatial_analysis(
     }
 
 
-async def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
+def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
     """Ensure CellPhoneDB database is available, download if not exists"""
     # Use centralized dependency manager for consistent error handling
     require("cellphonedb")  # Raises ImportError with install instructions if missing
@@ -551,7 +551,7 @@ async def _analyze_communication_cellphonedb(
         # Use cell_type_key from params (required field, no auto-detect)
         cell_type_col = params.cell_type_key
 
-        validate_obs_column(adata, cell_type_col, "Cell type column")
+        validate_obs_column(adata, cell_type_col, "Cell type")
 
         # Use original adata directly (no gene filtering needed)
         adata_for_analysis = adata
@@ -620,7 +620,7 @@ async def _analyze_communication_cellphonedb(
             meta_df.to_csv(meta_file, sep="\t", index=False)
 
             try:
-                db_path = await _ensure_cellphonedb_database(temp_dir, ctx)
+                db_path = _ensure_cellphonedb_database(temp_dir, ctx)
             except Exception as db_error:
                 raise DependencyError(
                     f"CellPhoneDB database setup failed: {db_error}"
@@ -890,7 +890,7 @@ async def _create_microenvironments_file(
         neighbor_matrix = nn.radius_neighbors_graph(spatial_coords)
 
         # Create microenvironments using cell types
-        validate_obs_column(adata, params.cell_type_key, "Cell type column")
+        validate_obs_column(adata, params.cell_type_key, "Cell type")
 
         cell_types = adata.obs[params.cell_type_key].values
 
@@ -947,7 +947,7 @@ async def _create_microenvironments_file(
         return None
 
 
-async def _analyze_communication_cellchat_r(
+def _analyze_communication_cellchat_r(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> dict[str, Any]:
     """Analyze cell communication using native R CellChat package
@@ -975,7 +975,7 @@ async def _analyze_communication_cellchat_r(
         start_time = time.time()
 
         # Validate cell type column
-        validate_obs_column(adata, params.cell_type_key, "Cell type column")
+        validate_obs_column(adata, params.cell_type_key, "Cell type")
 
         # Check for spatial data
         spatial_key = get_spatial_key(adata)

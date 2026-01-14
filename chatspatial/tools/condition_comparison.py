@@ -72,10 +72,10 @@ async def compare_conditions(
     adata = await ctx.get_adata(data_id)
 
     # Validate required columns
-    validate_obs_column(adata, params.condition_key, "Condition key")
-    validate_obs_column(adata, params.sample_key, "Sample key")
+    validate_obs_column(adata, params.condition_key, "Condition")
+    validate_obs_column(adata, params.sample_key, "Sample")
     if params.cell_type_key is not None:
-        validate_obs_column(adata, params.cell_type_key, "Cell type key")
+        validate_obs_column(adata, params.cell_type_key, "Cell type")
 
     # Validate conditions exist
     unique_conditions = adata.obs[params.condition_key].unique()

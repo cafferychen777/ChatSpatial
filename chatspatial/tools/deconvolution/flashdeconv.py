@@ -14,7 +14,7 @@ from ...utils.exceptions import DependencyError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
-async def deconvolve(
+def deconvolve(
     data: PreparedDeconvolutionData,
     sketch_dim: int = 512,
     lambda_spatial: float = 5000.0,
@@ -48,9 +48,9 @@ async def deconvolve(
     try:
         import flashdeconv as fd
 
-        # Create copies (FlashDeconv modifies in place)
-        adata_st = data.spatial.copy()
-        reference = data.reference.copy()
+        # Data already copied in prepare_deconvolution
+        adata_st = data.spatial
+        reference = data.reference
 
         # Run FlashDeconv
         fd.tl.deconvolve(

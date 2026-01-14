@@ -5,23 +5,22 @@ RCTD is an R-based deconvolution method that performs robust
 decomposition of cell type mixtures via the spacexr package.
 """
 
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    import anndata as ad
+    pass
 
-from ...utils.adata_utils import get_spatial_key
 from ...utils.dependency_manager import validate_r_package
 from ...utils.exceptions import DataError, ParameterError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
-async def deconvolve(
+def deconvolve(
     data: PreparedDeconvolutionData,
-    original_spatial: "ad.AnnData",
     mode: str = "full",
     max_cores: int = 4,
     confidence_threshold: float = 10.0,
@@ -31,8 +30,7 @@ async def deconvolve(
     """Deconvolve spatial data using RCTD from spacexr R package.
 
     Args:
-        data: Prepared deconvolution data (immutable)
-        original_spatial: Original spatial AnnData (for spatial coordinates)
+        data: Prepared deconvolution data (immutable, includes spatial coordinates)
         mode: RCTD mode - 'full', 'doublet', or 'multi'
         max_cores: Maximum CPU cores
         confidence_threshold: Confidence threshold
@@ -70,16 +68,15 @@ async def deconvolve(
             rpackages.importr("spacexr")
             rpackages.importr("base")
 
-        # Create working copies
-        spatial_data = data.spatial.copy()
-        reference_data = data.reference.copy()
+        # Data already copied in prepare_deconvolution
+        spatial_data = data.spatial
+        reference_data = data.reference
 
-        # Get spatial coordinates from original data
-        spatial_key = get_spatial_key(original_spatial)
-        if spatial_key:
+        # Get spatial coordinates from prepared data
+        if data.spatial_coords is not None:
             coords = pd.DataFrame(
-                original_spatial.obsm[spatial_key],
-                index=original_spatial.obs_names,
+                data.spatial_coords[:, :2],
+                index=spatial_data.obs_names,
                 columns=["x", "y"],
             )
         else:
@@ -101,9 +98,11 @@ async def deconvolve(
         ].index.tolist()
 
         if rare_types:
-            await ctx.warning(
+            warnings.warn(
                 f"RCTD requires ≥{MIN_CELLS_PER_TYPE} cells per cell type. "
-                f"Filtering {len(rare_types)} rare types: {rare_types}"
+                f"Filtering {len(rare_types)} rare types: {rare_types}",
+                UserWarning,
+                stacklevel=2,
             )
             keep_mask = ~cell_types.isin(rare_types)
             reference_data = reference_data[keep_mask].copy()
@@ -184,7 +183,9 @@ async def deconvolve(
         # Validate results
         if proportions.isna().any().any():
             nan_count = proportions.isna().sum().sum()
-            await ctx.warning(f"RCTD produced {nan_count} NaN values")
+            warnings.warn(
+                f"RCTD produced {nan_count} NaN values", UserWarning, stacklevel=2
+            )
 
         if (proportions < 0).any().any():
             neg_count = (proportions < 0).sum().sum()

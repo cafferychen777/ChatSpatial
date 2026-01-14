@@ -67,7 +67,7 @@ def prepare_gam_model_for_visualization(
     from cellrank.models import GAM
 
     # Validate required data
-    validate_obs_column(adata, time_key, "Time key")
+    validate_obs_column(adata, time_key, "Time")
 
     if fate_key not in adata.obsm:
         raise DataNotFoundError(

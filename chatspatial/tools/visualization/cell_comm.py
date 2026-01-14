@@ -542,7 +542,7 @@ def _create_cellphonedb_dotplot(
                 "cluster_key required for CellPhoneDB dotplot. "
                 "No default cluster key found in data."
             )
-        validate_obs_column(adata, cluster_key, "cluster_key")
+        validate_obs_column(adata, cluster_key, "Cluster")
 
         gg = kpy.plot_cpdb(
             adata=adata,
@@ -609,7 +609,7 @@ def _create_cellphonedb_chord(
                 "cluster_key required for CellPhoneDB chord plot. "
                 "No default cluster key found in data."
             )
-        validate_obs_column(adata, cluster_key, "cluster_key")
+        validate_obs_column(adata, cluster_key, "Cluster")
 
         link_colors = None
         legend_items = []

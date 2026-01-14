@@ -257,7 +257,7 @@ async def _create_velocity_proportions_plot(
                 f"Available columns: {list(adata.obs.columns)[:10]}"
             )
 
-    validate_obs_column(adata, cluster_key, f"Cluster key '{cluster_key}'")
+    validate_obs_column(adata, cluster_key, "Cluster")
 
     if context:
         await context.info(f"Creating proportions plot grouped by '{cluster_key}'")

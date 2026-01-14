@@ -125,7 +125,7 @@ async def _create_trajectory_pseudotime_plot(
                 "No pseudotime found. Run trajectory analysis first."
             )
 
-    validate_obs_column(adata, pseudotime_key, "Pseudotime column")
+    validate_obs_column(adata, pseudotime_key, "Pseudotime")
 
     # Check if RNA velocity is available
     has_velocity = "velocity_graph" in adata.uns

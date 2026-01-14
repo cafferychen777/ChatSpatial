@@ -197,7 +197,7 @@ async def _annotate_with_singler(
         # cell_type_key is now required (no default value)
         cell_type_key = params.cell_type_key
 
-        validate_obs_column(reference_adata, cell_type_key, "Cell type column")
+        validate_obs_column(reference_adata, cell_type_key, "Cell type")
 
         ref_labels = list(reference_adata.obs[cell_type_key])
 
@@ -979,7 +979,7 @@ async def _annotate_with_mllmcelltype(
         )
 
     cluster_key = params.cluster_label
-    validate_obs_column(adata, cluster_key, "cluster_key")
+    validate_obs_column(adata, cluster_key, "Cluster")
 
     # Find differentially expressed genes for each cluster
 

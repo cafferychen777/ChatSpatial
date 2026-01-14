@@ -571,7 +571,7 @@ def perform_gsea(
         raise
 
 
-async def perform_ora(
+def perform_ora(
     adata,
     gene_sets: dict[str, list[str]],
     gene_list: Optional[list[str]] = None,
@@ -1157,7 +1157,7 @@ def perform_enrichr(
 # ============================================================================
 
 
-async def perform_spatial_enrichment(
+def perform_spatial_enrichment(
     data_id: str,
     ctx: "ToolContext",
     gene_sets: Union[list[str], dict[str, list[str]]],
@@ -1790,7 +1790,7 @@ async def analyze_enrichment(
 
     # Dispatch to appropriate method
     if params.method == "spatial_enrichmap":
-        result = await perform_spatial_enrichment(
+        result = perform_spatial_enrichment(
             data_id=data_id,
             ctx=ctx,
             gene_sets=gene_sets,
@@ -1823,7 +1823,7 @@ async def analyze_enrichment(
         await ctx.info("GSEA complete. Use visualize_data to see results.")
 
     elif params.method == "pathway_ora":
-        result = await perform_ora(
+        result = perform_ora(
             adata=adata,
             gene_sets=gene_sets,
             pvalue_threshold=params.pvalue_cutoff,

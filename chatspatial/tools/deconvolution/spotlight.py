@@ -11,17 +11,16 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    import anndata as ad
+    pass
 
-from ...utils.adata_utils import require_spatial_coords, to_dense
+from ...utils.adata_utils import to_dense
 from ...utils.dependency_manager import validate_r_package
-from ...utils.exceptions import ProcessingError
+from ...utils.exceptions import DataError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
-async def deconvolve(
+def deconvolve(
     data: PreparedDeconvolutionData,
-    original_spatial: "ad.AnnData",
     n_top_genes: int = 2000,
     nmf_model: str = "ns",
     min_prop: float = 0.01,
@@ -31,8 +30,7 @@ async def deconvolve(
     """Deconvolve spatial data using SPOTlight R package.
 
     Args:
-        data: Prepared deconvolution data (immutable)
-        original_spatial: Original spatial AnnData (for spatial coordinates)
+        data: Prepared deconvolution data (immutable, includes spatial coordinates)
         n_top_genes: Number of top HVGs to use
         nmf_model: NMF model type - 'ns' (non-smooth) or 'std' (standard)
         min_prop: Minimum proportion threshold
@@ -57,12 +55,17 @@ async def deconvolve(
     )
 
     try:
-        # Validate spatial coordinates from original data
-        spatial_coords = require_spatial_coords(original_spatial)
+        # Validate spatial coordinates from prepared data
+        if data.spatial_coords is None:
+            raise DataError(
+                "SPOTlight requires spatial coordinates. "
+                "Ensure spatial data has 'spatial' key in obsm."
+            )
+        spatial_coords = data.spatial_coords
 
-        # Create working copies
-        spatial_data = data.spatial.copy()
-        reference_data = data.reference.copy()
+        # Data already copied in prepare_deconvolution
+        spatial_data = data.spatial
+        reference_data = data.reference
 
         # Ensure integer counts for R interface
         dense = to_dense(spatial_data.X)

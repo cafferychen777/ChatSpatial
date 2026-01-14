@@ -15,7 +15,7 @@ from ...utils.exceptions import DataError, DependencyError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
-async def deconvolve(
+def deconvolve(
     data: PreparedDeconvolutionData,
     n_epochs: int = 10000,
     n_hidden: int = 128,
@@ -54,9 +54,9 @@ async def deconvolve(
     import scvi
 
     try:
-        # Create working copies (scvi-tools may modify in place)
-        spatial_data = data.spatial.copy()
-        ref_data = data.reference.copy()
+        # Data already copied in prepare_deconvolution
+        spatial_data = data.spatial
+        ref_data = data.reference
 
         # Validate cell types
         if data.n_cell_types < 2:

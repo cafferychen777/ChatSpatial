@@ -53,7 +53,7 @@ async def differential_expression(
     adata = await ctx.get_adata(data_id)
 
     # Check if the group_key exists in adata.obs
-    validate_obs_column(adata, group_key, "Group key")
+    validate_obs_column(adata, group_key, "Group")
 
     # Check if dtype conversion is needed (numba doesn't support float16)
     # Defer conversion to after subsetting for memory efficiency
@@ -412,8 +412,8 @@ async def _run_pydeseq2(
     adata = await ctx.get_adata(data_id)
 
     # Validate columns
-    validate_obs_column(adata, params.group_key, "Group key")
-    validate_obs_column(adata, params.sample_key, "Sample key")
+    validate_obs_column(adata, params.group_key, "Group")
+    validate_obs_column(adata, params.sample_key, "Sample")
 
     # Get raw counts (required for DESeq2)
     if adata.raw is not None:

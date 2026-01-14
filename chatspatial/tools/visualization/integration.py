@@ -51,7 +51,7 @@ async def create_batch_integration_visualization(
 
     # Validate batch key exists
     batch_key = params.batch_key
-    validate_obs_column(adata, batch_key, "Batch key")
+    validate_obs_column(adata, batch_key, "Batch")
 
     # Create multi-panel figure (2x2 layout)
     figsize = params.figure_size if params.figure_size else (16, 12)

@@ -13,17 +13,15 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    import anndata as ad
+    pass
 
-from ...utils.adata_utils import get_spatial_key
 from ...utils.dependency_manager import validate_r_package
 from ...utils.exceptions import ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
-async def deconvolve(
+def deconvolve(
     data: PreparedDeconvolutionData,
-    original_spatial: "ad.AnnData",
     sample_key: Optional[str] = None,
     minCountGene: int = 100,
     minCountSpot: int = 5,
@@ -34,8 +32,7 @@ async def deconvolve(
     """Deconvolve spatial data using CARD R package.
 
     Args:
-        data: Prepared deconvolution data (immutable)
-        original_spatial: Original spatial AnnData (for spatial coordinates)
+        data: Prepared deconvolution data (immutable, includes spatial coordinates)
         sample_key: Optional sample/batch key in reference data
         minCountGene: Include genes with at least this many counts
         minCountSpot: Include genes expressed in at least this many spots
@@ -65,16 +62,15 @@ async def deconvolve(
         with localconverter(ro.default_converter + pandas2ri.converter):
             ro.r("library(CARD)")
 
-        # Create working copies
-        spatial_data = data.spatial.copy()
-        reference_data = data.reference.copy()
+        # Data already copied in prepare_deconvolution
+        spatial_data = data.spatial
+        reference_data = data.reference
 
-        # Get spatial coordinates from original data
-        spatial_key = get_spatial_key(original_spatial)
-        if spatial_key:
+        # Get spatial coordinates from prepared data
+        if data.spatial_coords is not None:
             spatial_location = pd.DataFrame(
-                original_spatial.obsm[spatial_key],
-                index=original_spatial.obs_names,
+                data.spatial_coords[:, :2],
+                index=spatial_data.obs_names,
                 columns=["x", "y"],
             )
         else:
