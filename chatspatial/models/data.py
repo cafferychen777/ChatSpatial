@@ -1888,7 +1888,7 @@ class CellCommunicationParameters(BaseModel):
     """Cell-cell communication analysis parameters model with explicit user control"""
 
     # ========== Basic Method Selection ==========
-    method: Literal["liana", "cellphonedb", "cellchat_r", "fastccc"] = "liana"
+    method: Literal["liana", "cellphonedb", "cellchat_r", "fastccc"] = "fastccc"
     # Methods:
     # - "liana": LIANA+ framework (Python, supports multiple resources)
     # - "cellphonedb": CellPhoneDB v5 (Python)
