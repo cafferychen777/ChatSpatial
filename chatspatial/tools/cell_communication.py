@@ -556,6 +556,9 @@ async def _analyze_communication_cellphonedb(
 
         start_time = time.time()
 
+        # Initialize for finally block cleanup
+        microenvs_file = None
+
         # Species check: CellPhoneDB is human-only
         # Reference: https://github.com/ventolab/cellphonedb
         # "CellphoneDB is a publicly available repository of HUMAN curated
@@ -595,7 +598,6 @@ async def _analyze_communication_cellphonedb(
         )
 
         # Create microenvironments file if spatial data is available and requested
-        microenvs_file = None
         if (
             params.cellphonedb_use_microenvironments
             and "spatial" in adata_for_analysis.obsm
@@ -1377,15 +1379,6 @@ async def _analyze_communication_fastccc(
     try:
         start_time = time.time()
 
-        # Import FastCCC
-        if params.fastccc_use_cauchy:
-            from fastccc import Cauchy_combination_of_statistical_analysis_methods
-        else:
-            from fastccc import statistical_analysis_method
-
-        # Validate cell type column
-        validate_obs_column(adata, params.cell_type_key, "Cell type")
-
         # Species check: FastCCC uses CellPhoneDB v5 which is human-only
         # Reference: https://github.com/ventolab/cellphonedb
         # "CellphoneDB is a publicly available repository of HUMAN curated
@@ -1398,6 +1391,15 @@ async def _analyze_communication_fastccc(
                 f"  - method='liana' with liana_resource='mouseconsensus' (for mouse)\n"
                 f"  - method='cellchat_r' (has built-in mouse/human databases)"
             )
+
+        # Import FastCCC
+        if params.fastccc_use_cauchy:
+            from fastccc import Cauchy_combination_of_statistical_analysis_methods
+        else:
+            from fastccc import statistical_analysis_method
+
+        # Validate cell type column
+        validate_obs_column(adata, params.cell_type_key, "Cell type")
 
         # Use adata.raw if available for comprehensive gene coverage
         if adata.raw is not None:

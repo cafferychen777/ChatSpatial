@@ -1888,19 +1888,31 @@ class CellCommunicationParameters(BaseModel):
     """Cell-cell communication analysis parameters model with explicit user control"""
 
     # ========== Basic Method Selection ==========
-    method: Literal["liana", "cellphonedb", "cellchat_r", "fastccc"] = "fastccc"
-    # Methods:
-    # - "liana": LIANA+ framework (Python, supports multiple resources)
-    # - "cellphonedb": CellPhoneDB v5 (Python)
-    # - "cellchat_r": Native R CellChat (full features with mediator proteins & pathways)
-    # - "fastccc": FastCCC permutation-free framework (Nature Comm 2025, ultra-fast)
+    method: Literal["liana", "cellphonedb", "cellchat_r", "fastccc"] = Field(
+        default="fastccc",
+        description=(
+            "Cell communication analysis method.\n\n"
+            "SPECIES COMPATIBILITY (IMPORTANT):\n"
+            "- 'fastccc': HUMAN ONLY (uses CellPhoneDB v5 database, ultra-fast FFT-based)\n"
+            "- 'cellphonedb': HUMAN ONLY (CellPhoneDB v5 statistical analysis)\n"
+            "- 'liana': Human, mouse, zebrafish (use liana_resource='mouseconsensus' for mouse)\n"
+            "- 'cellchat_r': Human, mouse, zebrafish (R CellChat with full features)\n\n"
+            "For mouse data: Use method='liana' with liana_resource='mouseconsensus'\n"
+            "For human data: Any method works, 'fastccc' recommended for speed"
+        ),
+    )
 
     # ========== Species and Resource Control ==========
-    species: Literal["human", "mouse", "zebrafish"]
-    # REQUIRED: Must explicitly specify species for ligand-receptor database
-    # - "human": For human data (genes like ACTB, GAPDH - all uppercase)
-    # - "mouse": For mouse data (genes like Actb, Gapdh - capitalized)
-    # - "zebrafish": For zebrafish data
+    species: Literal["human", "mouse", "zebrafish"] = Field(
+        description=(
+            "Species of the data (REQUIRED for database selection).\n\n"
+            "- 'human': For human data (genes like ACTB, GAPDH). All methods supported.\n"
+            "- 'mouse': For mouse data (genes like Actb, Gapdh). "
+            "Use method='liana' with liana_resource='mouseconsensus' or method='cellchat_r'. "
+            "FastCCC and CellPhoneDB do NOT support mouse data.\n"
+            "- 'zebrafish': For zebrafish data. Use method='liana' or method='cellchat_r'."
+        ),
+    )
 
     # LIANA resource selection (matches actual LIANA+ supported resources)
     liana_resource: Literal[
