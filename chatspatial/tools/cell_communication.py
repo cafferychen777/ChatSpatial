@@ -1373,6 +1373,18 @@ async def _analyze_communication_fastccc(
         # Validate cell type column
         validate_obs_column(adata, params.cell_type_key, "Cell type")
 
+        # Species check: FastCCC uses CellPhoneDB v5 which is human-specific
+        # Mouse genes need to be converted to uppercase (human orthologs approximation)
+        gene_name_conversion_needed = False
+        if params.species == "mouse":
+            await ctx.warning(
+                "FastCCC uses CellPhoneDB database (human genes). "
+                "Mouse gene names will be converted to uppercase for ortholog matching. "
+                "For best results with mouse data, consider using 'liana' method with "
+                "liana_resource='mouseconsensus'."
+            )
+            gene_name_conversion_needed = True
+
         # Use adata.raw if available for comprehensive gene coverage
         if adata.raw is not None:
             data_source = adata.raw
@@ -1395,6 +1407,13 @@ async def _analyze_communication_fastccc(
             expr_matrix = to_dense(data_source.X)
             gene_names = list(data_source.var_names)
             cell_names = list(adata.obs_names)
+
+            # Convert mouse gene names to uppercase for human ortholog matching
+            if gene_name_conversion_needed:
+                gene_names = [g.upper() for g in gene_names]
+                await ctx.info(
+                    f"Converted {len(gene_names)} gene names to uppercase for ortholog matching"
+                )
 
             # Create temporary AnnData
             temp_adata = ad.AnnData(
