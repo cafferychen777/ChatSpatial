@@ -130,9 +130,8 @@ async def create_umap_visualization(
         await context.info(f"Creating UMAP plot for {feature_desc}")
 
     # Ensure UMAP is computed (lazy computation)
-    if ensure_umap(adata):
-        if context:
-            await context.info("Computed UMAP embedding")
+    if ensure_umap(adata) and context:
+        await context.info("Computed UMAP embedding")
 
     # Determine what to color by
     color_by = params.feature

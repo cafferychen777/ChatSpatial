@@ -791,15 +791,16 @@ async def _analyze_communication_cellphonedb(
             )
 
         # Get top LR pairs
+        # CellPhoneDB returns interactions in 'interacting_pair' column
         top_lr_pairs = []
-        if significant_means is not None and hasattr(significant_means, "head"):
-            # CellPhoneDB returns interactions in 'interacting_pair' column
-            if (
-                hasattr(significant_means, "columns")
-                and "interacting_pair" in significant_means.columns
-            ):
-                top_pairs_df = significant_means.head(params.plot_top_pairs)
-                top_lr_pairs = top_pairs_df["interacting_pair"].tolist()
+        if (
+            significant_means is not None
+            and hasattr(significant_means, "head")
+            and hasattr(significant_means, "columns")
+            and "interacting_pair" in significant_means.columns
+        ):
+            top_pairs_df = significant_means.head(params.plot_top_pairs)
+            top_lr_pairs = top_pairs_df["interacting_pair"].tolist()
 
         end_time = time.time()
         analysis_time = end_time - start_time

@@ -70,20 +70,16 @@ def _derivative_compat(func, x0, dx=1.0, n=1, args=(), order=3):
     # Reference: https://en.wikipedia.org/wiki/Finite_difference_coefficient
 
     # For simplicity, we implement the most common cases used by SpatialDE
-    if n == 1:
-        # First derivative using central difference
-        if order >= 3:
-            # 3-point formula: f'(x) ≈ (f(x+h) - f(x-h)) / (2h)
-            return (
-                func(x0 + dx, *args) - func(x0 - dx, *args)
-            ) / (2 * dx)
-    elif n == 2:
-        # Second derivative using central difference
-        if order >= 3:
-            # 3-point formula: f''(x) ≈ (f(x+h) - 2f(x) + f(x-h)) / h²
-            return (
-                func(x0 + dx, *args) - 2 * func(x0, *args) + func(x0 - dx, *args)
-            ) / (dx ** 2)
+    # First derivative using central difference (3-point formula)
+    if n == 1 and order >= 3:
+        # f'(x) ≈ (f(x+h) - f(x-h)) / (2h)
+        return (func(x0 + dx, *args) - func(x0 - dx, *args)) / (2 * dx)
+    # Second derivative using central difference (3-point formula)
+    elif n == 2 and order >= 3:
+        # f''(x) ≈ (f(x+h) - 2f(x) + f(x-h)) / h²
+        return (
+            func(x0 + dx, *args) - 2 * func(x0, *args) + func(x0 - dx, *args)
+        ) / (dx**2)
 
     # For higher derivatives or orders, use Richardson extrapolation
     # This is a more general but slower approach

@@ -803,31 +803,28 @@ class VisualizationParameters(BaseModel):
         """Validate parameter dependencies and provide helpful error messages."""
 
         # Spatial statistics validation
-        if self.plot_type == "spatial_statistics":
-            if not self.subtype or (
-                isinstance(self.subtype, str) and not self.subtype.strip()
-            ):
-                available_types = [
-                    "neighborhood",
-                    "co_occurrence",
-                    "ripley",
-                    "moran",
-                    "centrality",
-                    "getis_ord",
-                ]
-                raise ValueError(
-                    f"Parameter dependency error: subtype is required when plot_type='spatial_statistics'.\n"
-                    f"Available subtypes: {', '.join(available_types)}\n"
-                    f"Example usage: VisualizationParameters(plot_type='spatial_statistics', subtype='neighborhood')\n"
-                    f"For more details, see spatial statistics documentation."
-                )
+        if self.plot_type == "spatial_statistics" and (
+            not self.subtype
+            or (isinstance(self.subtype, str) and not self.subtype.strip())
+        ):
+            available_types = [
+                "neighborhood",
+                "co_occurrence",
+                "ripley",
+                "moran",
+                "centrality",
+                "getis_ord",
+            ]
+            raise ValueError(
+                f"Parameter dependency error: subtype is required when plot_type='spatial_statistics'.\n"
+                f"Available subtypes: {', '.join(available_types)}\n"
+                f"Example usage: VisualizationParameters(plot_type='spatial_statistics', subtype='neighborhood')\n"
+                f"For more details, see spatial statistics documentation."
+            )
 
         # Deconvolution validation - set default subtype if not provided
-        if self.plot_type == "deconvolution":
-            if not self.subtype:
-                self.subtype = (
-                    "spatial_multi"  # Default deconvolution visualization type
-                )
+        if self.plot_type == "deconvolution" and not self.subtype:
+            self.subtype = "spatial_multi"  # Default deconvolution visualization type
 
         return self
 

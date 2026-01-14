@@ -206,15 +206,18 @@ async def differential_expression(
 
     # Get the top genes
     top_genes = []
-    if hasattr(temp_adata, "uns") and "rank_genes_groups" in temp_adata.uns:
-        if "names" in temp_adata.uns["rank_genes_groups"]:
-            # Get the top genes for the first group (should be group1)
-            gene_names = temp_adata.uns["rank_genes_groups"]["names"]
-            if group1 in gene_names.dtype.names:
-                top_genes = list(gene_names[group1][:n_top_genes])
-            else:
-                # If group1 is not in the names, use the first column
-                top_genes = list(gene_names[gene_names.dtype.names[0]][:n_top_genes])
+    if (
+        hasattr(temp_adata, "uns")
+        and "rank_genes_groups" in temp_adata.uns
+        and "names" in temp_adata.uns["rank_genes_groups"]
+    ):
+        # Get the top genes for the first group (should be group1)
+        gene_names = temp_adata.uns["rank_genes_groups"]["names"]
+        if group1 in gene_names.dtype.names:
+            top_genes = list(gene_names[group1][:n_top_genes])
+        else:
+            # If group1 is not in the names, use the first column
+            top_genes = list(gene_names[gene_names.dtype.names[0]][:n_top_genes])
 
     # If no genes were found, fail honestly
     if not top_genes:
@@ -232,14 +235,15 @@ async def differential_expression(
 
     # Get p-values from scanpy results
     pvals = []
-    if hasattr(temp_adata, "uns") and "rank_genes_groups" in temp_adata.uns:
-        if (
-            "pvals_adj" in temp_adata.uns["rank_genes_groups"]
-            and group1 in temp_adata.uns["rank_genes_groups"]["pvals_adj"].dtype.names
-        ):
-            pvals = list(
-                temp_adata.uns["rank_genes_groups"]["pvals_adj"][group1][:n_top_genes]
-            )
+    if (
+        hasattr(temp_adata, "uns")
+        and "rank_genes_groups" in temp_adata.uns
+        and "pvals_adj" in temp_adata.uns["rank_genes_groups"]
+        and group1 in temp_adata.uns["rank_genes_groups"]["pvals_adj"].dtype.names
+    ):
+        pvals = list(
+            temp_adata.uns["rank_genes_groups"]["pvals_adj"][group1][:n_top_genes]
+        )
 
     # Calculate TRUE fold change from raw counts (Bug #3 Fix)
     # Issue: scanpy's logfoldchanges uses mean(log(counts)) which is mathematically incorrect

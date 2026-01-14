@@ -225,9 +225,11 @@ def infer_spatial_trajectory_cellrank(
         adata.obsm["fate_probabilities"] = adata_for_cellrank.obsm["fate_probabilities"]
 
     # Update velovi_adata if used
-    if "velocity_method" in adata.uns and adata.uns["velocity_method"] == "velovi":
-        if "velovi_adata" in adata.uns:
-            adata.uns["velovi_adata"] = adata_for_cellrank
+    if (
+        adata.uns.get("velocity_method") == "velovi"
+        and "velovi_adata" in adata.uns
+    ):
+        adata.uns["velovi_adata"] = adata_for_cellrank
 
     return adata
 

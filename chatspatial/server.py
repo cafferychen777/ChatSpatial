@@ -413,11 +413,10 @@ async def visualize_data(
         # Handle two return types: str (large images) or ImageContent (small images)
         # Extract file_path if image is saved to disk
         file_path = None
-        if isinstance(image, str):
-            # Large image: file path returned as text (MCP 2025 best practice)
-            # Extract path from message (format: "Visualization saved: <path>\n...")
-            if "Visualization saved:" in image:
-                file_path = image.split("\n")[0].replace("Visualization saved: ", "")
+        # Large image: file path returned as text (MCP 2025 best practice)
+        # Extract path from message (format: "Visualization saved: <path>\n...")
+        if isinstance(image, str) and "Visualization saved:" in image:
+            file_path = image.split("\n")[0].replace("Visualization saved: ", "")
 
         # Store visualization params in registry (for regeneration on demand)
         ctx.store_visualization(cache_key, params, file_path)
@@ -658,11 +657,14 @@ async def annotate_cell_types(
     validate_dataset(data_id)
 
     # Validate reference data for methods that require it
-    if params.method in ["tangram", "scanvi", "singler"] and params.reference_data_id:
-        if not data_manager.dataset_exists(params.reference_data_id):
-            raise DataNotFoundError(
-                f"Reference dataset {params.reference_data_id} not found"
-            )
+    if (
+        params.method in ["tangram", "scanvi", "singler"]
+        and params.reference_data_id
+        and not data_manager.dataset_exists(params.reference_data_id)
+    ):
+        raise DataNotFoundError(
+            f"Reference dataset {params.reference_data_id} not found"
+        )
 
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
@@ -1259,11 +1261,12 @@ async def deconvolve_data(
     validate_dataset(data_id)
 
     # Validate reference data if provided
-    if params.reference_data_id:
-        if not data_manager.dataset_exists(params.reference_data_id):
-            raise DataNotFoundError(
-                f"Reference dataset {params.reference_data_id} not found"
-            )
+    if params.reference_data_id and not data_manager.dataset_exists(
+        params.reference_data_id
+    ):
+        raise DataNotFoundError(
+            f"Reference dataset {params.reference_data_id} not found"
+        )
 
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
