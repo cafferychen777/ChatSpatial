@@ -1196,10 +1196,16 @@ class RNAVelocityParameters(BaseModel):
     )  # Strict validation - no extra parameters allowed
 
     # Velocity computation method selection
-    method: Literal["scvelo", "velovi"] = "scvelo"
+    method: Literal["scvelo", "velovi"] = Field(
+        default="scvelo",
+        description="REQUIRES 'spliced' and 'unspliced' layers (from velocyto/kallisto/STARsolo).",
+    )
 
     # scVelo specific parameters
-    scvelo_mode: Literal["deterministic", "stochastic", "dynamical"] = "stochastic"
+    scvelo_mode: Literal["deterministic", "stochastic", "dynamical"] = Field(
+        default="stochastic",
+        description="'dynamical' mode REQUIRED for CellRank gene_trends visualization.",
+    )
     n_pcs: Annotated[int, Field(gt=0, le=100)] = 30
     basis: str = "spatial"
 
@@ -1225,11 +1231,15 @@ class RNAVelocityParameters(BaseModel):
 class TrajectoryParameters(BaseModel):
     """Trajectory analysis parameters model"""
 
-    method: Literal["cellrank", "palantir", "dpt"] = "cellrank"
-    spatial_weight: Annotated[float, Field(ge=0.0, le=1.0)] = (
-        0.5  # Spatial information weight
+    method: Literal["cellrank", "palantir", "dpt"] = Field(
+        default="cellrank",
+        description=(
+            "'cellrank' REQUIRES velocity data (run analyze_velocity_data first). "
+            "'palantir'/'dpt' work without velocity."
+        ),
     )
-    root_cells: Optional[list[str]] = None  # For Palantir method
+    spatial_weight: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5
+    root_cells: Optional[list[str]] = None  # Starting cells (for palantir/dpt)
 
     # CellRank specific parameters
     cellrank_kernel_weights: tuple[float, float] = (
@@ -1288,11 +1298,19 @@ class DeconvolutionParameters(BaseModel):
         "spotlight",
         "tangram",
         "card",
-    ] = "flashdeconv"
-    reference_data_id: Optional[str] = (
-        None  # Reference single-cell data for deconvolution
+    ] = Field(
+        default="flashdeconv",
+        description="All methods require reference_data_id and cell_type_key.",
     )
-    cell_type_key: str  # REQUIRED: Key in reference data for cell type information. LLM will infer from metadata. Common values: 'cell_type', 'celltype', 'annotation', 'label'
+
+    reference_data_id: Optional[str] = Field(
+        default=None,
+        description="REQUIRED: ID of loaded single-cell reference dataset.",
+    )
+
+    cell_type_key: str = Field(
+        description="REQUIRED: Column in reference data with cell type labels.",
+    )
 
     # Universal GPU parameter
     use_gpu: bool = Field(
@@ -1891,26 +1909,17 @@ class CellCommunicationParameters(BaseModel):
     method: Literal["liana", "cellphonedb", "cellchat_r", "fastccc"] = Field(
         default="fastccc",
         description=(
-            "Cell communication analysis method.\n\n"
-            "SPECIES COMPATIBILITY (IMPORTANT):\n"
-            "- 'fastccc': HUMAN ONLY (uses CellPhoneDB v5 database, ultra-fast FFT-based)\n"
-            "- 'cellphonedb': HUMAN ONLY (CellPhoneDB v5 statistical analysis)\n"
-            "- 'liana': Human, mouse, zebrafish (use liana_resource='mouseconsensus' for mouse)\n"
-            "- 'cellchat_r': Human, mouse, zebrafish (R CellChat with full features)\n\n"
-            "For mouse data: Use method='liana' with liana_resource='mouseconsensus'\n"
-            "For human data: Any method works, 'fastccc' recommended for speed"
+            "fastccc/cellphonedb: HUMAN ONLY. "
+            "liana/cellchat_r: human, mouse, zebrafish. "
+            "For mouse: use liana with liana_resource='mouseconsensus'."
         ),
     )
 
     # ========== Species and Resource Control ==========
     species: Literal["human", "mouse", "zebrafish"] = Field(
         description=(
-            "Species of the data (REQUIRED for database selection).\n\n"
-            "- 'human': For human data (genes like ACTB, GAPDH). All methods supported.\n"
-            "- 'mouse': For mouse data (genes like Actb, Gapdh). "
-            "Use method='liana' with liana_resource='mouseconsensus' or method='cellchat_r'. "
-            "FastCCC and CellPhoneDB do NOT support mouse data.\n"
-            "- 'zebrafish': For zebrafish data. Use method='liana' or method='cellchat_r'."
+            "REQUIRED. fastccc/cellphonedb only support human. "
+            "For mouse/zebrafish: use liana or cellchat_r."
         ),
     )
 
