@@ -380,10 +380,10 @@ async def _store_results(
         statistics={
             "n_cell_types": len(cell_types),
             "n_spots": len(full_proportions),
+            "cell_types": cell_types,
+            "proportions_key": proportions_key,
+            "dominant_type_key": dominant_key,
         },
-        cell_types=cell_types,
-        proportions_key=proportions_key,
-        dominant_type_key=dominant_key,
     )
 
     # Save updated data
