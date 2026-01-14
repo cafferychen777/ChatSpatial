@@ -12,7 +12,7 @@ For data persistence, see persistence.py.
 
 import logging
 import os
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal, Optional
 
 from .adata_utils import ensure_unique_var_names, get_adata_profile
 from .dependency_manager import is_available
@@ -32,7 +32,7 @@ async def load_spatial_data(
         "10x_visium", "slide_seq", "merfish", "seqfish", "other", "auto", "h5ad"
     ] = "auto",
     name: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Load spatial transcriptomics data
 
     Args:
@@ -169,7 +169,7 @@ async def load_spatial_data(
                                         }
                             except Exception as e:
                                 logger.warning(
-                                    f"Could not load spatial information: {str(e)}"
+                                    f"Could not load spatial information: {e}"
                                 )
                 else:
                     raise DataCompatibilityError(
@@ -185,7 +185,7 @@ async def load_spatial_data(
                     try:
                         adata = _add_spatial_info_to_adata(adata, spatial_path)
                     except Exception as e:
-                        logger.warning(f"Could not add spatial information: {str(e)}")
+                        logger.warning(f"Could not add spatial information: {e}")
             elif os.path.isfile(data_path) and data_path.endswith(".h5ad"):
                 # If it's an h5ad file but marked as 10x_visium, read it as h5ad
                 adata = sc.read_h5ad(data_path)
@@ -206,12 +206,12 @@ async def load_spatial_data(
                 try:
                     sq.gr.spatial_neighbors(adata)
                 except Exception as e:
-                    logger.warning(f"Could not compute spatial neighbors: {str(e)}")
+                    logger.warning(f"Could not compute spatial neighbors: {e}")
         except FileNotFoundError as e:
-            raise DataNotFoundError(f"File not found: {str(e)}") from e
+            raise DataNotFoundError(f"File not found: {e}") from e
         except Exception as e:
             # Provide more detailed error information
-            error_msg = f"Error loading 10x Visium data from {data_path}: {str(e)}"
+            error_msg = f"Error loading 10x Visium data from {data_path}: {e}"
 
             # Add helpful suggestions based on error type
             if "No matching barcodes" in str(e):
@@ -243,7 +243,7 @@ async def load_spatial_data(
         try:
             adata = sc.read_h5ad(data_path)
         except Exception as e:
-            raise ProcessingError(f"Error loading {data_type} data: {str(e)}") from e
+            raise ProcessingError(f"Error loading {data_type} data: {e}") from e
     else:
         raise ParameterError(f"Unsupported data type: {data_type}")
 
@@ -488,12 +488,12 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
                         img_key = "hires" if "hires" in img_name else "lowres"
                         adata.uns["spatial"][library_id]["images"][img_key] = img
                     except Exception as e:
-                        logger.warning(f"Could not load image {img_name}: {str(e)}")
+                        logger.warning(f"Could not load image {img_name}: {e}")
         else:
             logger.warning("Pillow not available, skipping tissue image loading")
 
         return adata
 
     except Exception as e:
-        logger.error(f"Failed to add spatial information: {str(e)}")
+        logger.error(f"Failed to add spatial information: {e}")
         raise

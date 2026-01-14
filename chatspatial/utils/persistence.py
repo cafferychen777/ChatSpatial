@@ -75,4 +75,4 @@ def save_adata(data_id: str, adata: "AnnData", original_path: str) -> Path:
         adata.write_h5ad(save_path, compression="gzip", compression_opts=4)
         return save_path
     except Exception as e:
-        raise IOError(f"Failed to save data to {save_path}: {str(e)}") from e
+        raise IOError(f"Failed to save data to {save_path}: {e}") from e

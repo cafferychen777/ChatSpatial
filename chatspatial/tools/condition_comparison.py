@@ -5,7 +5,7 @@ This module implements pseudobulk differential expression analysis for comparing
 experimental conditions (e.g., Treatment vs Control) across biological samples.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -178,7 +178,7 @@ async def compare_conditions(
     return result
 
 
-def _get_raw_counts(adata) -> Tuple[np.ndarray, pd.Index]:
+def _get_raw_counts(adata) -> tuple[np.ndarray, pd.Index]:
     """Extract raw count matrix from AnnData.
 
     Args:
@@ -210,7 +210,7 @@ def _create_pseudobulk(
     cell_type: Optional[str] = None,
     cell_type_key: Optional[str] = None,
     min_cells_per_sample: int = 10,
-) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, int]]:
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int]]:
     """Create pseudobulk count matrix by aggregating cells per sample.
 
     Args:
@@ -288,7 +288,7 @@ def _run_deseq2(
     n_top_genes: int = 50,
     padj_threshold: float = 0.05,
     log2fc_threshold: float = 0.0,
-) -> Tuple[List[DEGene], List[DEGene], int, pd.DataFrame]:
+) -> tuple[list[DEGene], list[DEGene], int, pd.DataFrame]:
     """Run DESeq2 analysis on pseudobulk data.
 
     Args:
@@ -340,7 +340,7 @@ def _run_deseq2(
     ].sort_values("padj")
 
     # Convert to DEGene objects
-    def df_to_degenes(df: pd.DataFrame, n: int) -> List[DEGene]:
+    def df_to_degenes(df: pd.DataFrame, n: int) -> list[DEGene]:
         genes = []
         for gene_name, row in df.head(n).iterrows():
             genes.append(
@@ -418,7 +418,7 @@ async def _run_global_comparison(
             log2fc_threshold=params.log2fc_threshold,
         )
     except Exception as e:
-        raise ProcessingError(f"DESeq2 analysis failed: {str(e)}") from e
+        raise ProcessingError(f"DESeq2 analysis failed: {e}") from e
 
     await ctx.info(f"Found {n_significant} significant DE genes")
 
@@ -477,7 +477,7 @@ async def _run_stratified_comparison(
     cell_types = adata.obs[params.cell_type_key].unique()
     await ctx.info(f"Found {len(cell_types)} cell types")
 
-    cell_type_results: List[CellTypeComparisonResult] = []
+    cell_type_results: list[CellTypeComparisonResult] = []
     total_significant = 0
 
     for ct in cell_types:
@@ -557,7 +557,7 @@ async def _run_stratified_comparison(
             )
 
         except Exception as e:
-            await ctx.warning(f"Analysis failed for {ct}: {str(e)}")
+            await ctx.warning(f"Analysis failed for {ct}: {e}")
             continue
 
     if not cell_type_results:

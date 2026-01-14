@@ -169,7 +169,7 @@ async def _create_trajectory_pseudotime_plot(
         ax1.text(
             0.5,
             0.5,
-            f"Error plotting pseudotime:\n{str(e)}",
+            f"Error plotting pseudotime:\n{e}",
             ha="center",
             va="center",
             transform=ax1.transAxes,

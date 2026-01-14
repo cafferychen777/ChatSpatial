@@ -127,7 +127,7 @@ def server(port: int, transport: str, host: str, log_level: str):
         mcp.run(transport=transport)
 
     except Exception as e:
-        print(f"Error starting MCP server: {str(e)}", file=sys.stderr)
+        print(f"Error starting MCP server: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 

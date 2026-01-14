@@ -552,7 +552,7 @@ async def _run_pydeseq2(
 
     except Exception as e:
         raise ProcessingError(
-            f"PyDESeq2 analysis failed: {str(e)}\n"
+            f"PyDESeq2 analysis failed: {e}\n"
             "This may be due to low sample counts or data issues."
         ) from e
 

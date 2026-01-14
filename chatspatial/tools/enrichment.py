@@ -7,7 +7,7 @@ This module provides both standard and spatially-aware enrichment analysis metho
 """
 
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -128,8 +128,8 @@ def _filter_significant_statistics(
 
 
 def _filter_gene_sets_by_size(
-    gene_sets: Dict[str, List[str]], min_size: int, max_size: int
-) -> Dict[str, List[str]]:
+    gene_sets: dict[str, list[str]], min_size: int, max_size: int
+) -> dict[str, list[str]]:
     """
     Filter gene sets by size constraints.
 
@@ -200,8 +200,8 @@ def _compute_std_sparse_compatible(X, axis=0, ddof=1):
 
 
 def _convert_gene_format_for_matching(
-    pathway_genes: List[str], dataset_genes: set, species: str
-) -> Tuple[List[str], Dict[str, str]]:
+    pathway_genes: list[str], dataset_genes: set, species: str
+) -> tuple[list[str], dict[str, str]]:
     """
     Rule-based gene format conversion to match dataset format.
 
@@ -329,7 +329,7 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
 
 def perform_gsea(
     adata,
-    gene_sets: Dict[str, List[str]],
+    gene_sets: dict[str, list[str]],
     ranking_key: Optional[str] = None,
     method: str = "signal_to_noise",
     permutation_num: int = 1000,
@@ -573,8 +573,8 @@ def perform_gsea(
 
 async def perform_ora(
     adata,
-    gene_sets: Dict[str, List[str]],
-    gene_list: Optional[List[str]] = None,
+    gene_sets: dict[str, list[str]],
+    gene_list: Optional[list[str]] = None,
     pvalue_threshold: float = 0.05,
     min_size: int = 10,
     max_size: int = 500,
@@ -819,7 +819,7 @@ async def perform_ora(
 
 def perform_ssgsea(
     adata,
-    gene_sets: Dict[str, List[str]],
+    gene_sets: dict[str, list[str]],
     min_size: int = 10,
     max_size: int = 500,
     species: Optional[str] = None,
@@ -1034,7 +1034,7 @@ def perform_ssgsea(
 
 
 def perform_enrichr(
-    gene_list: List[str],
+    gene_list: list[str],
     gene_sets: Optional[str] = None,
     organism: str = "human",
     ctx: "ToolContext" = None,
@@ -1160,8 +1160,8 @@ def perform_enrichr(
 async def perform_spatial_enrichment(
     data_id: str,
     ctx: "ToolContext",
-    gene_sets: Union[List[str], Dict[str, List[str]]],
-    score_keys: Optional[Union[str, List[str]]] = None,
+    gene_sets: Union[list[str], dict[str, list[str]]],
+    score_keys: Optional[Union[str, list[str]]] = None,
     spatial_key: str = "spatial",
     n_neighbors: int = 6,
     smoothing: bool = True,
@@ -1405,7 +1405,7 @@ def load_msigdb_gene_sets(
     subcollection: Optional[str] = None,
     min_size: int = 10,
     max_size: int = 500,
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """
     Load gene sets from MSigDB using gseapy.
 
@@ -1495,7 +1495,7 @@ def load_go_gene_sets(
     aspect: str = "BP",
     min_size: int = 10,
     max_size: int = 500,
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """
     Load GO terms using gseapy.
 
@@ -1541,7 +1541,7 @@ def load_go_gene_sets(
 
 def load_kegg_gene_sets(
     species: str, min_size: int = 10, max_size: int = 500
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """
     Load KEGG pathways using gseapy.
 
@@ -1579,7 +1579,7 @@ def load_kegg_gene_sets(
 
 def load_reactome_gene_sets(
     species: str, min_size: int = 10, max_size: int = 500
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """
     Load Reactome pathways using gseapy.
 
@@ -1613,7 +1613,7 @@ def load_reactome_gene_sets(
 
 def load_cell_marker_gene_sets(
     species: str, min_size: int = 5, max_size: int = 200
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """
     Load cell type marker gene sets using gseapy.
 
@@ -1651,7 +1651,7 @@ def load_gene_sets(
     min_genes: int = 10,
     max_genes: int = 500,
     ctx: "ToolContext" = None,
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """
     Load gene sets from specified database.
 

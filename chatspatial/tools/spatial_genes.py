@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
 from collections import Counter
-from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -43,7 +42,7 @@ from ..utils.mcp_utils import suppress_output  # noqa: E402
 DEFAULT_TOP_GENES_LIMIT = 500
 
 
-def _ensure_unique_gene_names(gene_names: List[str]) -> List[str]:
+def _ensure_unique_gene_names(gene_names: list[str]) -> list[str]:
     """Ensure gene names are unique by adding suffixes to duplicates.
 
     Required for R-based methods (SPARK-X) that use gene names as rownames.
@@ -59,7 +58,7 @@ def _ensure_unique_gene_names(gene_names: List[str]) -> List[str]:
 
     gene_counts = Counter(gene_names)
     unique_names = []
-    seen_counts: Dict[str, int] = {}
+    seen_counts: dict[str, int] = {}
 
     for gene in gene_names:
         if gene_counts[gene] > 1:
@@ -75,7 +74,7 @@ def _ensure_unique_gene_names(gene_names: List[str]) -> List[str]:
     return unique_names
 
 
-def _calculate_sparse_gene_stats(X) -> Tuple[np.ndarray, np.ndarray]:
+def _calculate_sparse_gene_stats(X) -> tuple[np.ndarray, np.ndarray]:
     """Calculate gene statistics on sparse or dense matrix.
 
     Efficiently computes gene totals and expression counts without densifying

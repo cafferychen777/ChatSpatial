@@ -9,7 +9,7 @@ Key functionality:
 - Supports CellRank (velocity-based), Palantir (expression-based), and DPT (diffusion-based)
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import pandas as pd
 
@@ -441,7 +441,7 @@ async def analyze_trajectory(
     # Store scientific metadata
     from ..utils.adata_utils import store_analysis_metadata
 
-    results_keys_dict: Dict[str, Any] = {"obs": [pseudotime_key], "obsm": [], "uns": []}
+    results_keys_dict: dict[str, Any] = {"obs": [pseudotime_key], "obsm": [], "uns": []}
 
     if method_used == "cellrank":
         results_keys_dict["obs"].extend(["terminal_states", "macrostates"])
@@ -452,7 +452,7 @@ async def analyze_trajectory(
     elif method_used == "dpt":
         results_keys_dict["uns"].append("iroot")
 
-    parameters_dict: Dict[str, Any] = {"spatial_weight": params.spatial_weight}
+    parameters_dict: dict[str, Any] = {"spatial_weight": params.spatial_weight}
     if method_used == "cellrank":
         parameters_dict.update(
             {

@@ -11,13 +11,9 @@ from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
-    Awaitable,
-    Callable,
-    Dict,
-    List,
     Optional,
-    Tuple,
 )
+from collections.abc import Awaitable, Callable
 
 import anndata as ad
 import numpy as np
@@ -38,7 +34,7 @@ from ...utils.exceptions import DataError
 # Type alias for preprocess hook
 PreprocessHook = Callable[
     [ad.AnnData, ad.AnnData, "ToolContext"],
-    Awaitable[Tuple[ad.AnnData, ad.AnnData]],
+    Awaitable[tuple[ad.AnnData, ad.AnnData]],
 ]
 
 
@@ -70,8 +66,8 @@ class PreparedDeconvolutionData:
     spatial: ad.AnnData
     reference: ad.AnnData
     cell_type_key: str
-    cell_types: List[str]
-    common_genes: List[str]
+    cell_types: list[str]
+    common_genes: list[str]
     ctx: "ToolContext"
 
     @property
@@ -239,11 +235,11 @@ async def _prepare_counts(
 
 def create_deconvolution_stats(
     proportions: pd.DataFrame,
-    common_genes: List[str],
+    common_genes: list[str],
     method: str,
     device: str = "CPU",
     **method_specific_params,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create standardized statistics dictionary for deconvolution results."""
     cell_types = list(proportions.columns)
     stats = {
@@ -271,7 +267,7 @@ def check_model_convergence(
     model_name: str,
     convergence_threshold: float = 0.001,
     convergence_window: int = 50,
-) -> Tuple[bool, Optional[str]]:
+) -> tuple[bool, Optional[str]]:
     """Check if a scvi-tools model has converged based on ELBO history."""
     if not hasattr(model, "history") or model.history is None:
         return True, None

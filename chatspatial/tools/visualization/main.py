@@ -6,7 +6,7 @@ to appropriate visualization handlers based on plot_type.
 """
 
 import traceback
-from typing import TYPE_CHECKING, Tuple, Union
+from typing import TYPE_CHECKING, Union
 
 import matplotlib.pyplot as plt
 import scanpy as sc
@@ -85,7 +85,7 @@ async def visualize_data(
     data_id: str,
     ctx: "ToolContext",
     params: VisualizationParameters = VisualizationParameters(),  # type: ignore[call-arg]
-) -> Union[ImageContent, Tuple[ImageContent, EmbeddedResource]]:
+) -> Union[ImageContent, tuple[ImageContent, EmbeddedResource]]:
     """Visualize spatial transcriptomics data.
 
     Args:
@@ -151,7 +151,7 @@ async def visualize_data(
             error_details = traceback.format_exc()
             return (
                 f"Error in {params.plot_type} visualization:\n\n"
-                f"{str(e)}\n\n"
+                f"{e}\n\n"
                 f"Technical details:\n{error_details}"
             )
 
@@ -160,5 +160,5 @@ async def visualize_data(
             raise
         else:
             raise ProcessingError(
-                f"Failed to create {params.plot_type} visualization: {str(e)}"
+                f"Failed to create {params.plot_type} visualization: {e}"
             ) from e

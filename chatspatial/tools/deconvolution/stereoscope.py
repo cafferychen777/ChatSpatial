@@ -7,7 +7,7 @@ Stereoscope uses a two-stage training workflow:
 """
 
 import gc
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import pandas as pd
 
@@ -22,7 +22,7 @@ async def deconvolve(
     learning_rate: float = 0.01,
     batch_size: int = 128,
     use_gpu: bool = False,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Deconvolve spatial data using Stereoscope from scvi-tools.
 
     Args:
@@ -106,4 +106,4 @@ async def deconvolve(
     except Exception as e:
         if isinstance(e, ProcessingError):
             raise
-        raise ProcessingError(f"Stereoscope deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"Stereoscope deconvolution failed: {e}") from e

@@ -15,7 +15,7 @@ import os
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # - openWorldHint: Tool may interact with external entities (network, files)
 # =============================================================================
 
-TOOL_ANNOTATIONS: Dict[str, ToolAnnotations] = {
+TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     # Data I/O tools
     "load_data": ToolAnnotations(
         readOnlyHint=True,  # Reads from filesystem, doesn't modify data
@@ -247,7 +247,7 @@ class VisualizationRegistry:
         """Check if a visualization exists in registry."""
         return key in self._entries
 
-    def list_for_dataset(self, data_id: str) -> List[str]:
+    def list_for_dataset(self, data_id: str) -> list[str]:
         """List all visualization keys for a dataset.
 
         Args:
@@ -291,7 +291,7 @@ class VisualizationRegistry:
                     pass
         return len(keys_to_remove)
 
-    def keys(self) -> List[str]:
+    def keys(self) -> list[str]:
         """Return all keys in the registry."""
         return list(self._entries.keys())
 
@@ -313,7 +313,7 @@ class DefaultSpatialDataManager:
     """Default implementation of spatial data management"""
 
     def __init__(self):
-        self.data_store: Dict[str, Any] = {}
+        self.data_store: dict[str, Any] = {}
         self._next_id = 1
 
     async def load_dataset(
@@ -340,7 +340,7 @@ class DefaultSpatialDataManager:
             raise DataNotFoundError(f"Dataset {data_id} not found")
         return self.data_store[data_id]
 
-    async def list_datasets(self) -> List[Dict[str, Any]]:
+    async def list_datasets(self) -> list[dict[str, Any]]:
         """List all loaded datasets"""
         return [
             {
@@ -409,7 +409,7 @@ class DefaultSpatialDataManager:
         data_id: str,
         adata: Any,
         name: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Create a new dataset with specified ID.
 
@@ -429,7 +429,7 @@ class DefaultSpatialDataManager:
             raise ParameterError(
                 f"Dataset {data_id} already exists. Use update_adata() to update."
             )
-        dataset_info: Dict[str, Any] = {"adata": adata}
+        dataset_info: dict[str, Any] = {"adata": adata}
         if name:
             dataset_info["name"] = name
         if metadata:
@@ -487,7 +487,7 @@ class ToolContext:
         if self._logger:
             self._logger.debug(msg)
 
-    def log_config(self, title: str, config: Dict[str, Any]) -> None:
+    def log_config(self, title: str, config: dict[str, Any]) -> None:
         """Log configuration details for developers.
 
         Convenience method for logging parameter configurations in a
@@ -522,7 +522,7 @@ class ToolContext:
         dataset_info = await self._data_manager.get_dataset(data_id)
         return dataset_info["adata"]
 
-    async def get_dataset_info(self, data_id: str) -> Dict[str, Any]:
+    async def get_dataset_info(self, data_id: str) -> dict[str, Any]:
         """Get full dataset info dict when metadata is needed.
 
         Use this only when you need access to metadata beyond adata,
@@ -551,7 +551,7 @@ class ToolContext:
         data_id: str,
         adata: Any,
         name: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Add a new dataset to the data store.
 
@@ -634,7 +634,7 @@ class ToolContext:
             return False
         return self._visualization_registry.exists(key)
 
-    def list_visualizations(self, data_id: str) -> List[str]:
+    def list_visualizations(self, data_id: str) -> list[str]:
         """List all visualization keys for a dataset.
 
         Args:

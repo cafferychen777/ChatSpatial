@@ -5,7 +5,7 @@ SPOTlight is an R-based deconvolution method that uses NMF
 (Non-negative Matrix Factorization) for cell type decomposition.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Tuple
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -27,7 +27,7 @@ async def deconvolve(
     min_prop: float = 0.01,
     scale: bool = True,
     weight_id: str = "mean.AUC",
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Deconvolve spatial data using SPOTlight R package.
 
     Args:
@@ -209,4 +209,4 @@ async def deconvolve(
     except Exception as e:
         if isinstance(e, ProcessingError):
             raise
-        raise ProcessingError(f"SPOTlight deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"SPOTlight deconvolution failed: {e}") from e

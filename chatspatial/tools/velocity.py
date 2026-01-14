@@ -9,7 +9,7 @@ Key functionality:
 - Supports scVelo (standard) and VELOVI (deep learning) methods
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -194,7 +194,7 @@ async def analyze_velocity_with_velovi(
     n_latent: int = 10,
     use_gpu: bool = False,
     ctx: Optional["ToolContext"] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyzes RNA velocity using the deep learning model VELOVI.
 
@@ -314,7 +314,7 @@ async def analyze_velocity_with_velovi(
         }
 
     except Exception as e:
-        raise ProcessingError(f"VELOVI velocity analysis failed: {str(e)}") from e
+        raise ProcessingError(f"VELOVI velocity analysis failed: {e}") from e
 
 
 async def analyze_rna_velocity(
@@ -367,7 +367,7 @@ async def analyze_rna_velocity(
                 velocity_computed = True
             except Exception as e:
                 raise ProcessingError(
-                    f"scVelo RNA velocity analysis failed: {str(e)}"
+                    f"scVelo RNA velocity analysis failed: {e}"
                 ) from e
 
     elif params.method == "velovi":
@@ -392,7 +392,7 @@ async def analyze_rna_velocity(
                 raise ProcessingError("VELOVI failed to compute velocity")
 
         except Exception as e:
-            raise ProcessingError(f"VELOVI velocity analysis failed: {str(e)}") from e
+            raise ProcessingError(f"VELOVI velocity analysis failed: {e}") from e
 
     else:
         raise ParameterError(f"Unknown velocity method: {params.method}")

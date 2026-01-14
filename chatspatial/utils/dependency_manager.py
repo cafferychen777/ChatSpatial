@@ -21,7 +21,7 @@ import importlib.util
 import warnings
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -300,8 +300,8 @@ def require(
 
 def validate_r_environment(
     ctx: Optional["ToolContext"] = None,
-    required_packages: Optional[List[str]] = None,
-) -> Tuple[Any, ...]:
+    required_packages: Optional[list[str]] = None,
+) -> tuple[Any, ...]:
     """Validate R environment and return required modules.
 
     Returns:
@@ -408,9 +408,9 @@ def validate_r_package(
 
 
 def check_r_packages(
-    packages: List[str],
+    packages: list[str],
     ctx: Optional["ToolContext"] = None,
-) -> List[str]:
+) -> list[str]:
     """Check availability of multiple R packages. Returns missing ones."""
     if not is_available("rpy2"):
         return packages
@@ -427,7 +427,7 @@ def check_r_packages(
 
 def validate_scvi_tools(
     ctx: Optional["ToolContext"] = None,
-    components: Optional[List[str]] = None,
+    components: Optional[list[str]] = None,
 ) -> Any:
     """Validate scvi-tools availability and return the module."""
     scvi = require("scvi-tools", ctx, "scvi-tools methods")

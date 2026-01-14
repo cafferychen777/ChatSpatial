@@ -5,7 +5,7 @@ RCTD is an R-based deconvolution method that performs robust
 decomposition of cell type mixtures via the spacexr package.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Tuple
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -27,7 +27,7 @@ async def deconvolve(
     confidence_threshold: float = 10.0,
     doublet_threshold: float = 25.0,
     max_multi_types: int = 4,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Deconvolve spatial data using RCTD from spacexr R package.
 
     Args:
@@ -221,7 +221,7 @@ async def deconvolve(
     except Exception as e:
         if isinstance(e, (ParameterError, ProcessingError)):
             raise
-        raise ProcessingError(f"RCTD deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"RCTD deconvolution failed: {e}") from e
 
 
 def _extract_rctd_results(mode: str) -> pd.DataFrame:

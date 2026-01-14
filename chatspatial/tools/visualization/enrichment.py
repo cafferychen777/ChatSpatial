@@ -8,7 +8,7 @@ This module contains:
 - EnrichMap spatial autocorrelation plots
 """
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -62,7 +62,7 @@ def _ensure_enrichmap_compatibility(adata: "ad.AnnData") -> None:
             }
 
 
-def _get_score_columns(adata: "ad.AnnData") -> List[str]:
+def _get_score_columns(adata: "ad.AnnData") -> list[str]:
     """Get all enrichment score columns from adata.obs.
 
     Priority:
@@ -94,7 +94,7 @@ def _get_score_columns(adata: "ad.AnnData") -> List[str]:
 def _resolve_score_column(
     adata: "ad.AnnData",
     feature: Optional[str],
-    score_cols: List[str],
+    score_cols: list[str],
 ) -> str:
     """Resolve feature name to actual score column name."""
     if feature:
@@ -217,7 +217,7 @@ async def create_pathway_enrichment_visualization(
 def _create_enrichment_violin(
     adata: "ad.AnnData",
     params: VisualizationParameters,
-    score_cols: List[str],
+    score_cols: list[str],
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
     """Create violin plot of enrichment scores grouped by cluster."""
@@ -269,7 +269,7 @@ def _create_enrichment_violin(
 async def _create_enrichment_spatial(
     adata: "ad.AnnData",
     params: VisualizationParameters,
-    score_cols: List[str],
+    score_cols: list[str],
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
     """Create spatial scatter plot of enrichment scores."""
@@ -324,7 +324,7 @@ async def _create_enrichment_spatial(
 def _create_enrichmap_spatial(
     adata: "ad.AnnData",
     params: VisualizationParameters,
-    score_cols: List[str],
+    score_cols: list[str],
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
     """Create EnrichMap spatial autocorrelation visualizations."""
@@ -587,8 +587,8 @@ def _create_gsea_dotplot(
 def _resolve_feature_list(
     feature,
     obs_columns: pd.Index,
-    score_cols: List[str],
-) -> List[str]:
+    score_cols: list[str],
+) -> list[str]:
     """Resolve feature parameter to list of valid score columns."""
     if feature is None:
         return []

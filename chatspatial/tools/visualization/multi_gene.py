@@ -9,7 +9,7 @@ This module contains:
 - Spatial interaction visualization
 """
 
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -146,7 +146,7 @@ async def create_multi_gene_visualization(
                 ax.text(
                     0.5,
                     0.5,
-                    f"Error plotting {gene}:\n{str(e)}",
+                    f"Error plotting {gene}:\n{e}",
                     ha="center",
                     va="center",
                     transform=ax.transAxes,
@@ -239,7 +239,7 @@ async def create_multi_gene_umap_visualization(
                 ax.text(
                     0.5,
                     0.5,
-                    f"Error plotting {gene}:\n{str(e)}",
+                    f"Error plotting {gene}:\n{e}",
                     ha="center",
                     va="center",
                     transform=ax.transAxes,
@@ -261,7 +261,7 @@ async def create_multi_gene_umap_visualization(
 def _parse_lr_pairs(
     adata: "ad.AnnData",
     params: VisualizationParameters,
-) -> List[Tuple[str, str]]:
+) -> list[tuple[str, str]]:
     """Parse ligand-receptor pairs from various sources.
 
     Args:
@@ -501,7 +501,7 @@ async def create_lr_pairs_visualization(
                 ax.text(
                     0.5,
                     0.5,
-                    f"Error plotting {ligand}-{receptor}:\n{str(e)}",
+                    f"Error plotting {ligand}-{receptor}:\n{e}",
                     ha="center",
                     va="center",
                     transform=ax.transAxes,
@@ -734,6 +734,6 @@ async def create_spatial_interaction_visualization(
         raise
     except Exception as e:
         raise ProcessingError(
-            f"Spatial ligand-receptor interaction visualization failed: {str(e)}\n\n"
+            f"Spatial ligand-receptor interaction visualization failed: {e}\n\n"
             f"Check gene names exist and spatial coordinates are available."
         ) from e

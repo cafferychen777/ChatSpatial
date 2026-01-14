@@ -6,7 +6,7 @@ computations. While analysis tools compute these lazily using ensure_* functions
 users can use this tool to control computation parameters directly.
 """
 
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -139,8 +139,8 @@ class EmbeddingResult(BaseModel):
     """Result of embedding computation."""
 
     data_id: str
-    computed: List[str]
-    skipped: List[str]
+    computed: list[str]
+    skipped: list[str]
     n_clusters: Optional[int] = None
     pca_variance_ratio: Optional[float] = None
 

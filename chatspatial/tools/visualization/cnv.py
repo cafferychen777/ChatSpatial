@@ -6,7 +6,7 @@ This module contains:
 - Spatial CNV projection visualization
 """
 
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -212,9 +212,9 @@ async def create_cnv_heatmap_visualization(
             unique_groups = sorted(feature_values.unique())
 
             # Compute mean CNV for each group
-            aggregated_cnv_list: List[Any] = []
-            group_labels: List[str] = []
-            group_sizes: List[Any] = []
+            aggregated_cnv_list: list[Any] = []
+            group_labels: list[str] = []
+            group_sizes: list[Any] = []
 
             for group in unique_groups:
                 group_mask = feature_values == group

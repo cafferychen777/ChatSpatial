@@ -710,7 +710,7 @@ async def _create_spatial_multi_deconvolution(
                 ax.text(
                     0.5,
                     0.5,
-                    f"Error plotting {cell_type}:\n{str(e)}",
+                    f"Error plotting {cell_type}:\n{e}",
                     ha="center",
                     va="center",
                     transform=ax.transAxes,

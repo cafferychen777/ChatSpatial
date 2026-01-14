@@ -29,7 +29,7 @@ Naming Conventions (MUST follow across codebase):
 Async variants: Add '_async' suffix (e.g., ensure_unique_var_names_async).
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -50,7 +50,7 @@ CLUSTER_KEY = "leiden"
 BATCH_KEY = "batch"
 
 # Alternative names for compatibility
-ALTERNATIVE_SPATIAL_KEYS: Set[str] = {
+ALTERNATIVE_SPATIAL_KEYS: set[str] = {
     "spatial",
     "X_spatial",
     "coordinates",
@@ -58,7 +58,7 @@ ALTERNATIVE_SPATIAL_KEYS: Set[str] = {
     "spatial_coords",
     "positions",
 }
-ALTERNATIVE_CELL_TYPE_KEYS: Set[str] = {
+ALTERNATIVE_CELL_TYPE_KEYS: set[str] = {
     "cell_type",
     "celltype",
     "cell_types",
@@ -66,7 +66,7 @@ ALTERNATIVE_CELL_TYPE_KEYS: Set[str] = {
     "cell_annotation",
     "predicted_celltype",
 }
-ALTERNATIVE_CLUSTER_KEYS: Set[str] = {
+ALTERNATIVE_CLUSTER_KEYS: set[str] = {
     "leiden",
     "louvain",
     "clusters",
@@ -75,7 +75,7 @@ ALTERNATIVE_CLUSTER_KEYS: Set[str] = {
     "cluster_labels",
     "spatial_domains",
 }
-ALTERNATIVE_BATCH_KEYS: Set[str] = {
+ALTERNATIVE_BATCH_KEYS: set[str] = {
     "batch",
     "sample",
     "dataset",
@@ -474,7 +474,7 @@ def validate_adata(
 
 
 def _validate_spatial_data(
-    adata: "ad.AnnData", spatial_key: str, issues: List[str]
+    adata: "ad.AnnData", spatial_key: str, issues: list[str]
 ) -> None:
     """Internal helper for spatial data validation."""
     if spatial_key not in adata.obsm:
@@ -496,7 +496,7 @@ def _validate_spatial_data(
         issues.append("All spatial coordinates are identical")
 
 
-def _validate_velocity_data(adata: "ad.AnnData", issues: List[str]) -> None:
+def _validate_velocity_data(adata: "ad.AnnData", issues: list[str]) -> None:
     """Internal helper for velocity data validation."""
     if "spliced" not in adata.layers:
         issues.append("Missing 'spliced' layer required for RNA velocity")
@@ -529,12 +529,12 @@ def store_analysis_metadata(
     adata: "ad.AnnData",
     analysis_name: str,
     method: str,
-    parameters: Dict[str, Any],
-    results_keys: Dict[str, List[str]],
-    statistics: Optional[Dict[str, Any]] = None,
+    parameters: dict[str, Any],
+    results_keys: dict[str, list[str]],
+    statistics: Optional[dict[str, Any]] = None,
     species: Optional[str] = None,
     database: Optional[str] = None,
-    reference_info: Optional[Dict[str, Any]] = None,
+    reference_info: Optional[dict[str, Any]] = None,
 ) -> None:
     """Store analysis metadata in adata.uns for scientific provenance tracking.
 
@@ -627,7 +627,7 @@ def get_highly_variable_genes(
     adata: "ad.AnnData",
     max_genes: int = 500,
     fallback_to_variance: bool = True,
-) -> List[str]:
+) -> list[str]:
     """
     Get highly variable genes from AnnData.
 
@@ -669,11 +669,11 @@ def get_highly_variable_genes(
 
 def select_genes_for_analysis(
     adata: "ad.AnnData",
-    genes: Optional[List[str]] = None,
+    genes: Optional[list[str]] = None,
     n_genes: int = 20,
     require_hvg: bool = True,
     analysis_name: str = "analysis",
-) -> List[str]:
+) -> list[str]:
     """
     Select genes for spatial/statistical analysis.
 
@@ -803,7 +803,7 @@ async def ensure_unique_var_names_async(
 # =============================================================================
 
 
-def check_is_integer_counts(X: Any, sample_size: int = 100) -> Tuple[bool, bool, bool]:
+def check_is_integer_counts(X: Any, sample_size: int = 100) -> tuple[bool, bool, bool]:
     """Check if a matrix contains integer counts.
 
     This is a lightweight utility for checking data format without
@@ -1098,7 +1098,7 @@ def get_gene_expression(
 
 def get_genes_expression(
     adata: "ad.AnnData",
-    genes: List[str],
+    genes: list[str],
     layer: Optional[str] = None,
 ) -> np.ndarray:
     """
@@ -1148,7 +1148,7 @@ def get_genes_expression(
 # =============================================================================
 def get_column_profile(
     adata: "ad.AnnData", layer: Literal["obs", "var"] = "obs"
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get metadata column profile for obs or var.
 
@@ -1212,7 +1212,7 @@ def get_column_profile(
 
 def get_gene_profile(
     adata: "ad.AnnData",
-) -> Tuple[Optional[List[str]], List[str]]:
+) -> tuple[Optional[list[str]], list[str]]:
     """
     Get gene expression profile including HVGs and top expressed genes.
 
@@ -1241,7 +1241,7 @@ def get_gene_profile(
     return top_hvg, top_expr
 
 
-def get_adata_profile(adata: "ad.AnnData") -> Dict[str, Any]:
+def get_adata_profile(adata: "ad.AnnData") -> dict[str, Any]:
     """
     Get comprehensive metadata profile for LLM understanding.
 
@@ -1284,7 +1284,7 @@ def get_adata_profile(adata: "ad.AnnData") -> Dict[str, Any]:
 # =============================================================================
 # Gene Overlap: Find and validate common genes between datasets
 # =============================================================================
-def find_common_genes(*gene_collections: Any) -> List[str]:
+def find_common_genes(*gene_collections: Any) -> list[str]:
     """
     Find common genes across multiple gene collections.
 
@@ -1329,7 +1329,7 @@ def find_common_genes(*gene_collections: Any) -> List[str]:
 
 
 def validate_gene_overlap(
-    common_genes: List[str],
+    common_genes: list[str],
     source_n_genes: int,
     target_n_genes: int,
     min_genes: int = 100,

@@ -7,7 +7,7 @@ CAR (Conditional AutoRegressive) model. Unique features:
 - Optional high-resolution imputation
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -30,7 +30,7 @@ async def deconvolve(
     imputation: bool = False,
     NumGrids: int = 2000,
     ineibor: int = 10,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Deconvolve spatial data using CARD R package.
 
     Args:
@@ -245,4 +245,4 @@ async def deconvolve(
     except Exception as e:
         if isinstance(e, ProcessingError):
             raise
-        raise ProcessingError(f"CARD deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"CARD deconvolution failed: {e}") from e

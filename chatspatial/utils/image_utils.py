@@ -9,7 +9,8 @@ import base64
 import io
 import uuid
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
+from typing import TYPE_CHECKING, Any, Optional
+from collections.abc import Generator
 
 from mcp.types import ImageContent
 
@@ -78,7 +79,7 @@ if TYPE_CHECKING:
 
 
 # Standard savefig parameters for consistent figure output
-SAVEFIG_PARAMS: Dict[str, Any] = {
+SAVEFIG_PARAMS: dict[str, Any] = {
     "bbox_inches": "tight",
     "transparent": False,
     "facecolor": "white",
@@ -195,7 +196,7 @@ def fig_to_image(
     except Exception as e:
         if close_fig:
             plt.close(fig)
-        raise ProcessingError(f"Failed to convert figure to image: {str(e)}") from e
+        raise ProcessingError(f"Failed to convert figure to image: {e}") from e
 
 
 # ============ Token Optimization and Publication Export Support ============

@@ -565,7 +565,7 @@ def _create_cellphonedb_dotplot(
 
     except Exception as e:
         raise ProcessingError(
-            f"Failed to create CellPhoneDB dotplot: {str(e)}\n\n"
+            f"Failed to create CellPhoneDB dotplot: {e}\n\n"
             "Try using subtype='heatmap' instead."
         ) from e
 
@@ -669,7 +669,7 @@ def _create_cellphonedb_chord(
 
     except Exception as e:
         raise ProcessingError(
-            f"Failed to create CellPhoneDB chord diagram: {str(e)}\n\n"
+            f"Failed to create CellPhoneDB chord diagram: {e}\n\n"
             "Try using subtype='heatmap' instead."
         ) from e
 

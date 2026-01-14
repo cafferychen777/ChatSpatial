@@ -5,7 +5,7 @@ Main server implementation for ChatSpatial using the Spatial MCP Adapter.
 import os
 import sys
 import warnings
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 # Suppress warnings to speed up startup
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -241,7 +241,7 @@ async def compute_embeddings(
     clustering_method: str = "leiden",
     force: bool = False,
     context: Optional[Context] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute dimensionality reduction, clustering, and neighbor graphs.
 
     This tool provides explicit control over embedding computations.
@@ -503,7 +503,7 @@ async def export_all_visualizations(
     format: str = "png",
     dpi: Optional[int] = None,
     context: Optional[Context] = None,
-) -> List[str]:
+) -> list[str]:
     """Export all cached visualizations for a dataset to disk
 
     This function regenerates each visualization from stored metadata and the original
@@ -927,11 +927,11 @@ async def compare_conditions(
 async def analyze_cnv(
     data_id: str,
     reference_key: str,
-    reference_categories: List[str],
+    reference_categories: list[str],
     method: str = "infercnvpy",
     window_size: int = 100,
     step: int = 10,
-    exclude_chromosomes: Optional[List[str]] = None,
+    exclude_chromosomes: Optional[list[str]] = None,
     dynamic_threshold: Optional[float] = 1.5,
     cluster_cells: bool = False,
     dendrogram: bool = False,
@@ -1125,7 +1125,7 @@ async def analyze_trajectory_data(
 @mcp.tool(annotations=get_tool_annotations("integrate_samples"))
 @mcp_tool_error_handler()
 async def integrate_samples(
-    data_ids: List[str],
+    data_ids: list[str],
     params: IntegrationParameters = IntegrationParameters(),
     context: Optional[Context] = None,
 ) -> IntegrationResult:
@@ -1628,9 +1628,9 @@ async def register_spatial_data(
     source_id: str,
     target_id: str,
     method: str = "paste",
-    landmarks: Optional[List[Dict[str, Any]]] = None,
+    landmarks: Optional[list[dict[str, Any]]] = None,
     context: Optional[Context] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Register/align spatial transcriptomics data across sections
 
     Args:
@@ -1732,7 +1732,7 @@ async def save_data(
         return f"Dataset '{data_id}' saved to: {absolute_path}"
 
     except Exception as e:
-        error_msg = f"Failed to save dataset: {str(e)}"
+        error_msg = f"Failed to save dataset: {e}"
         if context:
             await context.error(error_msg)
         raise

@@ -8,7 +8,7 @@ This module contains:
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -186,12 +186,12 @@ async def save_visualization(
 
         except Exception as e:
             raise ProcessingError(
-                f"Failed to regenerate '{cache_key}': {str(e)}"
+                f"Failed to regenerate '{cache_key}': {e}"
             ) from e
 
         try:
             # Prepare save parameters
-            save_params: Dict[str, Any] = {
+            save_params: dict[str, Any] = {
                 "bbox_inches": "tight",
                 "facecolor": "white",
                 "edgecolor": "none",
@@ -227,12 +227,12 @@ async def save_visualization(
             return str(file_path)
 
         except Exception as e:
-            raise ProcessingError(f"Failed to export visualization: {str(e)}") from e
+            raise ProcessingError(f"Failed to export visualization: {e}") from e
 
     except (DataNotFoundError, ParameterError):
         raise
     except Exception as e:
-        raise ProcessingError(f"Failed to save visualization: {str(e)}") from e
+        raise ProcessingError(f"Failed to save visualization: {e}") from e
 
 
 async def export_all_visualizations(
@@ -241,7 +241,7 @@ async def export_all_visualizations(
     output_dir: str = "./exports",
     format: str = "png",
     dpi: Optional[int] = None,
-) -> List[str]:
+) -> list[str]:
     """Export all cached visualizations for a dataset to disk.
 
     Args:
@@ -298,14 +298,14 @@ async def export_all_visualizations(
                 )
                 saved_files.append(saved_path)
             except Exception as e:
-                await ctx.warning(f"Failed to export {cache_key}: {str(e)}")
+                await ctx.warning(f"Failed to export {cache_key}: {e}")
 
         return saved_files
 
     except ProcessingError:
         raise
     except Exception as e:
-        raise ProcessingError(f"Failed to export visualizations: {str(e)}") from e
+        raise ProcessingError(f"Failed to export visualizations: {e}") from e
 
 
 async def clear_visualization_cache(
@@ -332,4 +332,4 @@ async def clear_visualization_cache(
         return cleared_count
 
     except Exception as e:
-        raise ProcessingError(f"Failed to clear cache: {str(e)}") from e
+        raise ProcessingError(f"Failed to clear cache: {e}") from e

@@ -4,7 +4,7 @@ Data models for spatial transcriptomics analysis.
 
 from __future__ import annotations
 
-from typing import Annotated, Dict, List, Literal, Optional, Tuple, Union
+from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing_extensions import Self
@@ -16,8 +16,8 @@ class ColumnInfo(BaseModel):
     name: str
     dtype: Literal["categorical", "numerical"]
     n_unique: int
-    sample_values: Optional[List[str]] = None  # Sample values for categorical
-    range: Optional[Tuple[float, float]] = None  # Value range for numerical
+    sample_values: Optional[list[str]] = None  # Sample values for categorical
+    range: Optional[tuple[float, float]] = None  # Value range for numerical
 
 
 class SpatialDataset(BaseModel):
@@ -37,14 +37,14 @@ class SpatialDataset(BaseModel):
     tissue_image_available: bool = False
 
     # Metadata profiles - let LLM interpret the structure
-    obs_columns: Optional[List[ColumnInfo]] = None  # Cell-level metadata
-    var_columns: Optional[List[ColumnInfo]] = None  # Gene-level metadata
-    obsm_keys: Optional[List[str]] = None  # Multi-dimensional data keys
-    uns_keys: Optional[List[str]] = None  # Unstructured data keys
+    obs_columns: Optional[list[ColumnInfo]] = None  # Cell-level metadata
+    var_columns: Optional[list[ColumnInfo]] = None  # Gene-level metadata
+    obsm_keys: Optional[list[str]] = None  # Multi-dimensional data keys
+    uns_keys: Optional[list[str]] = None  # Unstructured data keys
 
     # Gene expression profiles
-    top_highly_variable_genes: Optional[List[str]] = None
-    top_expressed_genes: Optional[List[str]] = None
+    top_highly_variable_genes: Optional[list[str]] = None
+    top_expressed_genes: Optional[list[str]] = None
 
 
 class PreprocessingParameters(BaseModel):
@@ -433,7 +433,7 @@ class VisualizationParameters(BaseModel):
 
     model_config = ConfigDict(extra="forbid")  # Strict validation after preprocessing
 
-    feature: Optional[Union[str, List[str]]] = Field(
+    feature: Optional[Union[str, list[str]]] = Field(
         None,
         description="Single feature or list of features (accepts both 'feature' and 'features')",
     )  # Single feature or list of features
@@ -528,7 +528,7 @@ class VisualizationParameters(BaseModel):
 
     # Multi-gene visualization parameters
     multi_panel: bool = False  # Whether to create multi-panel plots
-    panel_layout: Optional[Tuple[int, int]] = (
+    panel_layout: Optional[tuple[int, int]] = (
         None  # (rows, cols) - auto-determined if None
     )
 
@@ -578,7 +578,7 @@ class VisualizationParameters(BaseModel):
     )
 
     # Ligand-receptor pair parameters
-    lr_pairs: Optional[List[Tuple[str, str]]] = None  # List of (ligand, receptor) pairs
+    lr_pairs: Optional[list[tuple[str, str]]] = None  # List of (ligand, receptor) pairs
     lr_database: str = "cellchat"  # Database for LR pairs
     plot_top_pairs: int = Field(
         6,
@@ -592,7 +592,7 @@ class VisualizationParameters(BaseModel):
     show_correlation_stats: bool = True
 
     # Figure parameters
-    figure_size: Optional[Tuple[int, int]] = (
+    figure_size: Optional[tuple[int, int]] = (
         None  # (width, height) - auto-determined if None
     )
     dpi: int = 300  # Publication quality (Nature/Cell standard)
@@ -673,13 +673,13 @@ class VisualizationParameters(BaseModel):
     velocity_scale: float = Field(1.0, description="Scaling factor for velocity arrows")
 
     # NEW: Heatmap enhancement parameters
-    obs_annotation: Optional[List[str]] = Field(
+    obs_annotation: Optional[list[str]] = Field(
         None, description="List of obs keys to show as column annotations"
     )
-    var_annotation: Optional[List[str]] = Field(
+    var_annotation: Optional[list[str]] = Field(
         None, description="List of var keys to show as row annotations"
     )
-    annotation_colors: Optional[Dict[str, str]] = Field(
+    annotation_colors: Optional[dict[str, str]] = Field(
         None, description="Custom colors for annotations"
     )
 
@@ -735,14 +735,14 @@ class VisualizationParameters(BaseModel):
             "Default 0 hides genes with no expression in a group"
         ),
     )
-    dotplot_var_groups: Optional[Dict[str, List[str]]] = Field(
+    dotplot_var_groups: Optional[dict[str, list[str]]] = Field(
         None,
         description=(
             "Group genes by category for organized display. "
             "Example: {'T cell markers': ['CD3D', 'CD4'], 'B cell markers': ['CD19', 'MS4A1']}"
         ),
     )
-    dotplot_categories_order: Optional[List[str]] = Field(
+    dotplot_categories_order: Optional[list[str]] = Field(
         None,
         description="Custom order for groups (clusters/cell types) on the axis",
     )
@@ -840,12 +840,12 @@ class AnnotationParameters(BaseModel):
         "sctype",
         "singler",
     ] = "tangram"
-    marker_genes: Optional[Dict[str, List[str]]] = None
+    marker_genes: Optional[dict[str, list[str]]] = None
     reference_data: Optional[str] = None
     reference_data_id: Optional[str] = (
         None  # For Tangram method - ID of reference single-cell dataset
     )
-    training_genes: Optional[List[str]] = (
+    training_genes: Optional[list[str]] = (
         None  # For Tangram method - genes to use for mapping
     )
     num_epochs: int = (
@@ -999,23 +999,23 @@ class AnnotationParameters(BaseModel):
     mllm_api_key: Optional[str] = None  # API key for the LLM provider
     mllm_additional_context: Optional[str] = None  # Additional context for annotation
     mllm_use_cache: bool = True  # Whether to use caching for API calls
-    mllm_base_urls: Optional[Union[str, Dict[str, str]]] = None  # Custom API endpoints
+    mllm_base_urls: Optional[Union[str, dict[str, str]]] = None  # Custom API endpoints
     mllm_verbose: bool = False  # Whether to print detailed logs
     mllm_force_rerun: bool = False  # Force reanalysis bypassing cache
 
     # Multi-model consensus parameters (interactive_consensus_annotation)
     mllm_use_consensus: bool = False  # Whether to use multi-model consensus
-    mllm_models: Optional[List[Union[str, Dict[str, str]]]] = (
+    mllm_models: Optional[list[Union[str, dict[str, str]]]] = (
         None  # List of models for consensus
     )
-    mllm_api_keys: Optional[Dict[str, str]] = None  # Dict mapping provider to API key
+    mllm_api_keys: Optional[dict[str, str]] = None  # Dict mapping provider to API key
     mllm_consensus_threshold: float = 0.7  # Agreement threshold for consensus
     mllm_entropy_threshold: float = 1.0  # Entropy threshold for controversy detection
     mllm_max_discussion_rounds: int = 3  # Maximum discussion rounds
-    mllm_consensus_model: Optional[Union[str, Dict[str, str]]] = (
+    mllm_consensus_model: Optional[Union[str, dict[str, str]]] = (
         None  # Model for consensus checking
     )
-    mllm_clusters_to_analyze: Optional[List[str]] = None  # Specific clusters to analyze
+    mllm_clusters_to_analyze: Optional[list[str]] = None  # Specific clusters to analyze
 
     # ScType parameters
     sctype_tissue: Optional[str] = (
@@ -1025,7 +1025,7 @@ class AnnotationParameters(BaseModel):
         None  # Custom database path (if None, uses default ScTypeDB)
     )
     sctype_scaled: bool = True  # Whether input data is scaled
-    sctype_custom_markers: Optional[Dict[str, Dict[str, List[str]]]] = (
+    sctype_custom_markers: Optional[dict[str, dict[str, list[str]]]] = (
         None  # Custom markers: {"CellType": {"positive": [...], "negative": [...]}}
     )
     sctype_use_cache: bool = True  # Whether to cache results to avoid repeated R calls
@@ -1111,7 +1111,7 @@ class SpatialStatisticsParameters(BaseModel):
     )
 
     # Unified gene selection parameter (NEW)
-    genes: Optional[List[str]] = Field(
+    genes: Optional[list[str]] = Field(
         None,
         description="Specific genes to analyze. If None, uses HVG or defaults based on analysis type",
     )
@@ -1183,7 +1183,7 @@ class SpatialStatisticsParameters(BaseModel):
     )
 
     # Bivariate Moran's I specific parameters
-    gene_pairs: Optional[List[Tuple[str, str]]] = Field(
+    gene_pairs: Optional[list[tuple[str, str]]] = Field(
         None, description="Gene pairs for bivariate analysis"
     )
 
@@ -1229,10 +1229,10 @@ class TrajectoryParameters(BaseModel):
     spatial_weight: Annotated[float, Field(ge=0.0, le=1.0)] = (
         0.5  # Spatial information weight
     )
-    root_cells: Optional[List[str]] = None  # For Palantir method
+    root_cells: Optional[list[str]] = None  # For Palantir method
 
     # CellRank specific parameters
-    cellrank_kernel_weights: Tuple[float, float] = (
+    cellrank_kernel_weights: tuple[float, float] = (
         0.8,
         0.2,
     )  # (velocity_weight, connectivity_weight)
@@ -1351,7 +1351,7 @@ class DeconvolutionParameters(BaseModel):
             "ONLY USED BY CELL2LOCATION METHOD."
         ),
     )
-    cell2location_categorical_covariate_keys: Optional[List[str]] = Field(
+    cell2location_categorical_covariate_keys: Optional[list[str]] = Field(
         None,
         description=(
             "List of column names in adata.obs for categorical technical covariates "
@@ -2096,10 +2096,10 @@ class EnrichmentParameters(BaseModel):
     ] = "spatial_enrichmap"  # Enrichment method
 
     # Gene sets
-    gene_sets: Optional[Union[List[str], Dict[str, List[str]]]] = (
+    gene_sets: Optional[Union[list[str], dict[str, list[str]]]] = (
         None  # Gene sets to analyze
     )
-    score_keys: Optional[Union[str, List[str]]] = None  # Names for gene signatures
+    score_keys: Optional[Union[str, list[str]]] = None  # Names for gene signatures
 
     # Gene set database - choose species-appropriate option
     gene_set_database: Optional[
@@ -2156,7 +2156,7 @@ class CNVParameters(BaseModel):
             "'cell_type', 'leiden', 'louvain', 'seurat_clusters'"
         ),
     )
-    reference_categories: List[str] = Field(
+    reference_categories: list[str] = Field(
         ...,
         description=(
             "List of cell types/clusters to use as reference (normal) cells. "
@@ -2174,7 +2174,7 @@ class CNVParameters(BaseModel):
     )
 
     # Analysis options
-    exclude_chromosomes: Optional[List[str]] = Field(
+    exclude_chromosomes: Optional[list[str]] = Field(
         None,
         description=(
             "Chromosomes to exclude from analysis (e.g., ['chrX', 'chrY', 'chrM'])"
@@ -2259,7 +2259,7 @@ class RegistrationParameters(BaseModel):
     )
 
     # STalign-specific parameters
-    stalign_image_size: Tuple[int, int] = Field(
+    stalign_image_size: tuple[int, int] = Field(
         (128, 128),
         description="Image size for STalign rasterization (height, width).",
     )

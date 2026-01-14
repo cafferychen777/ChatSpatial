@@ -230,7 +230,7 @@ async def identify_spatial_domains(
 
     except Exception as e:
         raise ProcessingError(
-            f"Error in spatial domain identification: {str(e)}"
+            f"Error in spatial domain identification: {e}"
         ) from e
 
 
@@ -399,7 +399,7 @@ async def _identify_domains_spagcn(
         return domain_labels, None, statistics
 
     except Exception as e:
-        raise ProcessingError(f"SpaGCN execution failed: {str(e)}") from e
+        raise ProcessingError(f"SpaGCN execution failed: {e}") from e
 
 
 async def _identify_domains_clustering(
@@ -485,7 +485,7 @@ async def _identify_domains_clustering(
         return domain_labels, "X_pca", statistics
 
     except Exception as e:
-        raise ProcessingError(f"{params.method} clustering failed: {str(e)}") from e
+        raise ProcessingError(f"{params.method} clustering failed: {e}") from e
 
 
 def _refine_spatial_domains(
@@ -568,7 +568,7 @@ def _refine_spatial_domains(
 
     except Exception as e:
         # Raise error instead of silently failing
-        raise ProcessingError(f"Failed to refine spatial domains: {str(e)}") from e
+        raise ProcessingError(f"Failed to refine spatial domains: {e}") from e
 
 
 async def _identify_domains_stagate(
@@ -705,7 +705,7 @@ async def _identify_domains_stagate(
             f"STAGATE training timeout after {params.timeout or 600} seconds"
         ) from e
     except Exception as e:
-        raise ProcessingError(f"STAGATE execution failed: {str(e)}") from e
+        raise ProcessingError(f"STAGATE execution failed: {e}") from e
 
 
 async def _identify_domains_graphst(
@@ -805,4 +805,4 @@ async def _identify_domains_graphst(
             f"GraphST training timeout after {params.timeout or 600} seconds"
         ) from e
     except Exception as e:
-        raise ProcessingError(f"GraphST execution failed: {str(e)}") from e
+        raise ProcessingError(f"GraphST execution failed: {e}") from e

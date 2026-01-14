@@ -9,7 +9,7 @@ This module contains:
 - Dot plots
 """
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -59,7 +59,7 @@ async def create_spatial_visualization(
         matplotlib Figure object
     """
     if params.feature is None:
-        features: List[str] = []
+        features: list[str] = []
     elif isinstance(params.feature, list):
         features = params.feature
     else:

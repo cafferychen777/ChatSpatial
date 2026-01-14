@@ -6,7 +6,7 @@ optimal transport (PASTE) or diffeomorphic mapping (STalign).
 """
 
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-def _validate_spatial_coords(adata_list: List["ad.AnnData"]) -> str:
+def _validate_spatial_coords(adata_list: list["ad.AnnData"]) -> str:
     """
     Validate all slices have spatial coordinates.
 
@@ -51,7 +51,7 @@ def _validate_spatial_coords(adata_list: List["ad.AnnData"]) -> str:
     return spatial_key or "spatial"
 
 
-def _get_common_genes(adata_list: List["ad.AnnData"]) -> List[str]:
+def _get_common_genes(adata_list: list["ad.AnnData"]) -> list[str]:
     """Get common genes across all slices after making names unique."""
     # Make names unique first
     for adata in adata_list:
@@ -133,10 +133,10 @@ def _prepare_stalign_image(
 
 
 def _register_paste(
-    adata_list: List["ad.AnnData"],
+    adata_list: list["ad.AnnData"],
     params: RegistrationParameters,
     spatial_key: str = "spatial",
-) -> List["ad.AnnData"]:
+) -> list["ad.AnnData"]:
     """Register slices using PASTE optimal transport."""
     import paste as pst
     import scanpy as sc
@@ -220,10 +220,10 @@ def _register_paste(
 
 
 def _register_stalign(
-    adata_list: List["ad.AnnData"],
+    adata_list: list["ad.AnnData"],
     params: RegistrationParameters,
     spatial_key: str = "spatial",
-) -> List["ad.AnnData"]:
+) -> list["ad.AnnData"]:
     """Register slices using STalign diffeomorphic mapping."""
     import STalign.STalign as ST
     import torch
@@ -346,9 +346,9 @@ def _transform_coordinates(
 
 
 def register_slices(
-    adata_list: List["ad.AnnData"],
+    adata_list: list["ad.AnnData"],
     params: Optional[RegistrationParameters] = None,
-) -> List["ad.AnnData"]:
+) -> list["ad.AnnData"]:
     """
     Register multiple spatial transcriptomics slices.
 

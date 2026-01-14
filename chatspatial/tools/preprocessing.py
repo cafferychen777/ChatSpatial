@@ -272,7 +272,7 @@ async def preprocess_data(
             except ImportError as e:
                 full_error = (
                     f"SCTransform requires R and the sctransform package.\n\n"
-                    f"ERROR: {str(e)}\n\n"
+                    f"ERROR: {e}\n\n"
                     "INSTALLATION:\n"
                     "  1. Install R (https://cran.r-project.org/)\n"
                     "  2. In R: install.packages('sctransform')\n"
@@ -417,7 +417,7 @@ async def preprocess_data(
                     f"Use normalization='log' or subsample data."
                 ) from e
             except Exception as e:
-                raise ProcessingError(f"SCTransform failed: {str(e)}") from e
+                raise ProcessingError(f"SCTransform failed: {e}") from e
         elif params.normalization == "pearson_residuals":
             # Modern Pearson residuals normalization (recommended for UMI data)
 
@@ -560,7 +560,7 @@ async def preprocess_data(
                 }
 
             except Exception as e:
-                raise ProcessingError(f"scVI normalization failed: {str(e)}") from e
+                raise ProcessingError(f"scVI normalization failed: {e}") from e
         else:
             # Catch unknown normalization methods
             valid_methods = ["log", "sct", "pearson_residuals", "none", "scvi"]
@@ -718,6 +718,6 @@ async def preprocess_data(
         )
 
     except Exception as e:
-        error_msg = f"Error in preprocessing: {str(e)}"
+        error_msg = f"Error in preprocessing: {e}"
         tb = traceback.format_exc()
         raise ProcessingError(f"{error_msg}\n{tb}") from e

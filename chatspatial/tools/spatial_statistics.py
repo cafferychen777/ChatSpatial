@@ -24,7 +24,7 @@ new unified 'genes' parameter for consistent gene selection across methods.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import anndata as ad
 import numpy as np
@@ -283,7 +283,7 @@ async def analyze_spatial_statistics(
         raise
     except Exception as e:
         raise ProcessingError(
-            f"Error in {params.analysis_type} analysis: {str(e)}"
+            f"Error in {params.analysis_type} analysis: {e}"
         ) from e
 
 
@@ -293,8 +293,8 @@ async def analyze_spatial_statistics(
 
 
 def _extract_result_summary(
-    result: Dict[str, Any], analysis_type: str
-) -> Dict[str, Any]:
+    result: dict[str, Any], analysis_type: str
+) -> dict[str, Any]:
     """Extract compact summary from analysis result for MCP response.
 
     This function extracts the most informative fields from detailed analysis results,
@@ -312,7 +312,7 @@ def _extract_result_summary(
         - summary_metrics: Key numeric metrics
         - results_key: Key in adata.uns for full results (if applicable)
     """
-    summary: Dict[str, Any] = {
+    summary: dict[str, Any] = {
         "n_features_analyzed": 0,
         "n_significant": 0,
         "top_features": [],
@@ -427,7 +427,7 @@ async def _analyze_morans_i(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calculates Moran's I to measure global spatial autocorrelation for genes.
 
@@ -501,7 +501,7 @@ def _analyze_gearys_c(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute Geary's C spatial autocorrelation."""
     # Unified gene selection
     genes = select_genes_for_analysis(
@@ -540,7 +540,7 @@ def _analyze_neighborhood_enrichment(
     adata: ad.AnnData,
     cluster_key: str,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute neighborhood enrichment analysis."""
     sq.gr.nhood_enrichment(adata, cluster_key=cluster_key)
 
@@ -564,7 +564,7 @@ def _analyze_co_occurrence(
     adata: ad.AnnData,
     cluster_key: str,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute co-occurrence analysis."""
     sq.gr.co_occurrence(adata, cluster_key=cluster_key)
 
@@ -581,7 +581,7 @@ def _analyze_ripleys_k(
     adata: ad.AnnData,
     cluster_key: str,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute Ripley's K function."""
     try:
         sq.gr.ripley(
@@ -604,7 +604,7 @@ async def _analyze_getis_ord(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Performs Getis-Ord Gi* analysis to identify local spatial clusters.
 
@@ -744,7 +744,7 @@ async def _analyze_centrality(
     adata: ad.AnnData,
     cluster_key: str,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute centrality scores."""
     sq.gr.centrality_scores(adata, cluster_key=cluster_key)
 
@@ -770,7 +770,7 @@ async def _analyze_bivariate_moran(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calculates Bivariate Moran's I to assess spatial correlation between two genes.
 
@@ -860,7 +860,7 @@ def _analyze_join_count(
     cluster_key: str,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute traditional Join Count statistics for BINARY categorical spatial data.
 
@@ -941,7 +941,7 @@ async def _analyze_local_join_count(
     cluster_key: str,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute Local Join Count statistics for MULTI-CATEGORY categorical spatial data.
 
@@ -1092,7 +1092,7 @@ async def _analyze_network_properties(
     cluster_key: str,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze network properties of spatial graph.
 
@@ -1168,7 +1168,7 @@ async def _analyze_spatial_centrality(
     cluster_key: str,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute various centrality measures for spatial network.
 
@@ -1271,7 +1271,7 @@ async def _analyze_local_moran(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calculate Local Moran's I (LISA) for spatial clustering detection.
 

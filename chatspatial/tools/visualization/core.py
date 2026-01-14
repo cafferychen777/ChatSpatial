@@ -7,7 +7,7 @@ This module contains:
 - Common visualization helpers
 """
 
-from typing import TYPE_CHECKING, List, NamedTuple, Optional, Tuple
+from typing import TYPE_CHECKING, NamedTuple, Optional
 
 import anndata as ad
 import matplotlib
@@ -59,7 +59,7 @@ def resolve_figure_size(
     n_panels: Optional[int] = None,
     panel_width: float = 5.0,
     panel_height: float = 4.0,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Resolve figure size from params with smart defaults.
 
     This centralizes figure size resolution logic to ensure consistency
@@ -95,7 +95,7 @@ def resolve_figure_size(
     return FIGURE_DEFAULTS.get(plot_type, FIGURE_DEFAULTS["default"])
 
 
-def create_figure(figsize: Tuple[int, int] = (10, 8)) -> Tuple[plt.Figure, plt.Axes]:
+def create_figure(figsize: tuple[int, int] = (10, 8)) -> tuple[plt.Figure, plt.Axes]:
     """Create a matplotlib figure with the right size and style."""
     fig, ax = plt.subplots(figsize=figsize)
     return fig, ax
@@ -108,7 +108,7 @@ def create_figure_from_params(
     n_rows: int = 1,
     n_cols: int = 1,
     squeeze: bool = True,
-) -> Tuple[plt.Figure, np.ndarray]:
+) -> tuple[plt.Figure, np.ndarray]:
     """Create a figure with axes from visualization parameters.
 
     This is the preferred way to create figures in visualization modules.
@@ -153,7 +153,7 @@ def setup_multi_panel_figure(
     params: VisualizationParameters,
     default_title: str,
     use_tight_layout: bool = False,
-) -> Tuple[plt.Figure, np.ndarray]:
+) -> tuple[plt.Figure, np.ndarray]:
     """Sets up a multi-panel matplotlib figure.
 
     Args:
@@ -249,7 +249,7 @@ class DeconvolutionData(NamedTuple):
 
     proportions: pd.DataFrame
     method: str
-    cell_types: List[str]
+    cell_types: list[str]
     proportions_key: str
     dominant_type_key: Optional[str] = None
 
@@ -272,11 +272,11 @@ class CellCommunicationData(NamedTuple):
     results: pd.DataFrame
     method: str
     analysis_type: str  # "cluster" or "spatial"
-    lr_pairs: List[str]
+    lr_pairs: list[str]
     spatial_scores: Optional[np.ndarray] = None
     spatial_pvals: Optional[np.ndarray] = None
-    source_labels: Optional[List[str]] = None
-    target_labels: Optional[List[str]] = None
+    source_labels: Optional[list[str]] = None
+    target_labels: Optional[list[str]] = None
     results_key: str = ""
 
 
@@ -291,7 +291,7 @@ async def get_validated_features(
     context: Optional["ToolContext"] = None,
     max_features: Optional[int] = None,
     genes_only: bool = False,
-) -> List[str]:
+) -> list[str]:
     """Validate and return features for visualization.
 
     Args:
@@ -306,12 +306,12 @@ async def get_validated_features(
         List of validated feature names
     """
     if params.feature is None:
-        features: List[str] = []
+        features: list[str] = []
     elif isinstance(params.feature, list):
         features = params.feature
     else:
         features = [params.feature]
-    validated: List[str] = []
+    validated: list[str] = []
 
     for feat in features:
         # Check if feature is in var_names (genes)
@@ -347,7 +347,7 @@ def validate_and_prepare_feature(
     adata: ad.AnnData,
     feature: str,
     context: Optional["ToolContext"] = None,
-) -> Tuple[np.ndarray, str, bool]:
+) -> tuple[np.ndarray, str, bool]:
     """Validate a single feature and prepare its data for visualization.
 
     Args:
@@ -426,7 +426,7 @@ def get_categorical_cmap(n_categories: int, user_cmap: Optional[str] = None) -> 
 def get_category_colors(
     n_categories: int,
     cmap_name: Optional[str] = None,
-) -> List:
+) -> list:
     """Get a list of colors for categorical data.
 
     This is the primary function for obtaining colors for categorical
@@ -617,7 +617,7 @@ def plot_spatial_feature(
 def get_categorical_columns(
     adata: ad.AnnData,
     limit: Optional[int] = None,
-) -> List[str]:
+) -> list[str]:
     """Get categorical column names from adata.obs.
 
     Args:
@@ -640,7 +640,7 @@ def get_categorical_columns(
 def infer_basis(
     adata: ad.AnnData,
     preferred: Optional[str] = None,
-    priority: Optional[List[str]] = None,
+    priority: Optional[list[str]] = None,
 ) -> Optional[str]:
     """Infer the best embedding basis from available options.
 

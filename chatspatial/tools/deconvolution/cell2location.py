@@ -7,7 +7,7 @@ Cell2location uses a two-stage training process:
 """
 
 import gc
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -77,7 +77,7 @@ async def deconvolve(
     detection_alpha: float = 20.0,
     use_gpu: bool = False,
     batch_key: Optional[str] = None,
-    categorical_covariate_keys: Optional[List[str]] = None,
+    categorical_covariate_keys: Optional[list[str]] = None,
     ref_model_lr: float = 0.002,
     cell2location_lr: float = 0.005,
     ref_model_train_size: float = 1.0,
@@ -87,7 +87,7 @@ async def deconvolve(
     early_stopping_threshold: float = 0.0,
     use_aggressive_training: bool = False,
     validation_size: float = 0.1,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Deconvolve spatial data using Cell2location.
 
     Note: Gene filtering is handled by the preprocess hook in __init__.py.
@@ -243,7 +243,7 @@ async def deconvolve(
     except Exception as e:
         if isinstance(e, (ProcessingError, DataError)):
             raise
-        raise ProcessingError(f"Cell2location deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"Cell2location deconvolution failed: {e}") from e
 
 
 def _build_train_kwargs(
@@ -255,7 +255,7 @@ def _build_train_kwargs(
     early_stopping_patience: int,
     validation_size: float,
     use_aggressive: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build training kwargs for scvi-tools models."""
     if use_aggressive:
         kwargs = {"max_epochs": epochs, "lr": lr}

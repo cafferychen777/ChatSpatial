@@ -150,14 +150,14 @@ async def _infer_cnv_infercnvpy(
             sc.pp.neighbors(adata_cnv, use_rep="X_cnv", n_neighbors=15)
             sc.tl.leiden(adata_cnv, key_added="cnv_clusters")
         except Exception as e:
-            await ctx.warning(f"Failed to cluster cells by CNV: {str(e)}")
+            await ctx.warning(f"Failed to cluster cells by CNV: {e}")
 
     # Optional: Compute dendrogram
     if params.dendrogram and params.cluster_cells:
         try:
             sc.tl.dendrogram(adata_cnv, groupby="cnv_clusters")
         except Exception as e:
-            await ctx.warning(f"Failed to compute dendrogram: {str(e)}")
+            await ctx.warning(f"Failed to compute dendrogram: {e}")
 
     # Extract CNV statistics
 
@@ -573,7 +573,7 @@ async def _infer_cnv_numbat(
 
     except Exception as e:
         raise ProcessingError(
-            f"Numbat analysis failed: {str(e)}\n"
+            f"Numbat analysis failed: {e}\n"
             "Common issues:\n"
             "  - Allele data format incompatible\n"
             "  - Missing genomic position information\n"

@@ -3,7 +3,7 @@ Integration tools for spatial transcriptomics data.
 """
 
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 import anndata as ad
 import numpy as np
@@ -749,7 +749,7 @@ def integrate_with_scvi(
 
 
 async def integrate_samples(
-    data_ids: List[str],
+    data_ids: list[str],
     ctx: "ToolContext",
     params: IntegrationParameters = IntegrationParameters(),
 ) -> IntegrationResult:

@@ -7,7 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, NamedTuple, Optional
+from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -58,9 +58,9 @@ class AnnotationMethodOutput(NamedTuple):
         mapping_score: Optional method-specific quality score (e.g., Tangram mapping score)
     """
 
-    cell_types: List[str]
-    counts: Dict[str, int]
-    confidence: Dict[str, float]
+    cell_types: list[str]
+    counts: dict[str, int]
+    confidence: dict[str, float]
     mapping_score: Optional[float] = None
 
 
@@ -1064,7 +1064,7 @@ async def _annotate_with_mllmcelltype(
                 base_urls=base_urls,
             )
     except Exception as e:
-        raise ProcessingError(f"mLLMCellType annotation failed: {str(e)}") from e
+        raise ProcessingError(f"mLLMCellType annotation failed: {e}") from e
 
     # Map cluster annotations back to cells
     cluster_to_celltype = {}
@@ -1369,7 +1369,7 @@ async def annotate_cell_types(
             )
 
     except Exception as e:
-        raise ProcessingError(f"Annotation failed: {str(e)}") from e
+        raise ProcessingError(f"Annotation failed: {e}") from e
 
     # Extract values from unified result type
     cell_types = result.cell_types
@@ -1466,7 +1466,7 @@ async def annotate_cell_types(
 # ============================================================================
 
 # Cache for sc-type results (memory only, no pickle)
-_SCTYPE_CACHE: Dict[str, Any] = {}
+_SCTYPE_CACHE: dict[str, Any] = {}
 _SCTYPE_CACHE_DIR = Path.home() / ".chatspatial" / "sctype_cache"
 
 # R code constants for sc-type (extracted for clarity)
@@ -1612,7 +1612,7 @@ def _prepare_sctype_genesets(params: AnnotationParameters, ctx: "ToolContext"):
 
 
 def _convert_custom_markers_to_gs(
-    custom_markers: Dict[str, Dict[str, List[str]]], ctx: "ToolContext"
+    custom_markers: dict[str, dict[str, list[str]]], ctx: "ToolContext"
 ):
     """Convert custom markers to sc-type gene set format"""
     if not custom_markers:
@@ -1742,7 +1742,7 @@ def _softmax(scores_array: np.ndarray) -> np.ndarray:
 
 def _assign_sctype_celltypes(
     scores_df: pd.DataFrame, ctx: "ToolContext"
-) -> tuple[List[str], List[float]]:
+) -> tuple[list[str], list[float]]:
     """Assign cell types based on sc-type scores using softmax confidence."""
     if scores_df is None or scores_df.empty:
         raise DataError("Scores DataFrame is empty or None")
@@ -1769,7 +1769,7 @@ def _assign_sctype_celltypes(
     return cell_types, confidence_scores
 
 
-def _calculate_sctype_stats(cell_types: List[str]) -> Dict[str, int]:
+def _calculate_sctype_stats(cell_types: list[str]) -> dict[str, int]:
     """Calculate cell type counts."""
     from collections import Counter
 

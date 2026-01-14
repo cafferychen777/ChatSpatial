@@ -6,7 +6,7 @@ data using the native tangram-sc library.
 """
 
 import gc
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import pandas as pd
 
@@ -21,7 +21,7 @@ async def deconvolve(
     learning_rate: float = 0.1,
     density_prior: str = "rna_count_based",
     use_gpu: bool = False,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Deconvolve spatial data using native Tangram library.
 
     Args:
@@ -132,4 +132,4 @@ async def deconvolve(
     except Exception as e:
         if isinstance(e, (DependencyError, ProcessingError)):
             raise
-        raise ProcessingError(f"Tangram deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"Tangram deconvolution failed: {e}") from e

@@ -6,7 +6,7 @@ model on reference data, then using it to initialize a DestVI model.
 """
 
 import gc
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import pandas as pd
 
@@ -27,7 +27,7 @@ async def deconvolve(
     vamp_prior_p: int = 15,
     l1_reg: float = 10.0,
     use_gpu: bool = False,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Deconvolve spatial data using DestVI from scvi-tools.
 
     Args:
@@ -141,4 +141,4 @@ async def deconvolve(
     except Exception as e:
         if isinstance(e, (DependencyError, DataError, ProcessingError)):
             raise
-        raise ProcessingError(f"DestVI deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"DestVI deconvolution failed: {e}") from e

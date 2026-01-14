@@ -2,7 +2,7 @@
 Cell-cell communication analysis tools for spatial transcriptomics data.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -212,12 +212,12 @@ async def analyze_cell_communication(
         return result
 
     except Exception as e:
-        raise ProcessingError(f"Error in cell communication analysis: {str(e)}") from e
+        raise ProcessingError(f"Error in cell communication analysis: {e}") from e
 
 
 async def _analyze_communication_liana(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze cell communication using LIANA+"""
     # Use centralized dependency manager for consistent error handling
     require("liana")  # Raises ImportError with install instructions if missing
@@ -279,7 +279,7 @@ async def _analyze_communication_liana(
             return await _run_liana_spatial_analysis(adata, params, ctx)
 
     except Exception as e:
-        raise ProcessingError(f"LIANA+ analysis failed: {str(e)}") from e
+        raise ProcessingError(f"LIANA+ analysis failed: {e}") from e
 
 
 def _get_liana_resource_name(species: str, resource_preference: str) -> str:
@@ -304,7 +304,7 @@ def _get_liana_resource_name(species: str, resource_preference: str) -> str:
 
 def _run_liana_cluster_analysis(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run LIANA+ cluster-based analysis"""
     import liana as li
 
@@ -384,7 +384,7 @@ def _run_liana_cluster_analysis(
 
 async def _run_liana_spatial_analysis(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run LIANA+ spatial bivariate analysis"""
     import liana as li
 
@@ -521,7 +521,7 @@ async def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> s
 
     except Exception as e:
         error_msg = (
-            f"Failed to download CellPhoneDB database: {str(e)}\n\n"
+            f"Failed to download CellPhoneDB database: {e}\n\n"
             "Troubleshooting:\n"
             "1. Check internet connection\n"
             "2. Verify CellPhoneDB version compatibility\n"
@@ -534,7 +534,7 @@ async def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> s
 
 async def _analyze_communication_cellphonedb(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze cell communication using CellPhoneDB"""
     # Use centralized dependency manager for consistent error handling
     require("cellphonedb")  # Raises ImportError with install instructions if missing
@@ -848,7 +848,7 @@ async def _analyze_communication_cellphonedb(
         }
 
     except Exception as e:
-        raise ProcessingError(f"CellPhoneDB analysis failed: {str(e)}") from e
+        raise ProcessingError(f"CellPhoneDB analysis failed: {e}") from e
     finally:
         # Cleanup: Remove temporary microenvironments file if created
         if microenvs_file is not None:
@@ -943,13 +943,13 @@ async def _create_microenvironments_file(
         return temp_file.name
 
     except Exception as e:
-        await ctx.warning(f"Failed to create microenvironments file: {str(e)}")
+        await ctx.warning(f"Failed to create microenvironments file: {e}")
         return None
 
 
 async def _analyze_communication_cellchat_r(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze cell communication using native R CellChat package
 
     This implementation uses rpy2 to call the original R CellChat package,
@@ -1323,4 +1323,4 @@ async def _analyze_communication_cellchat_r(
         }
 
     except Exception as e:
-        raise ProcessingError(f"CellChat R analysis failed: {str(e)}") from e
+        raise ProcessingError(f"CellChat R analysis failed: {e}") from e

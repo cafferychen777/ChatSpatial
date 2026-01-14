@@ -5,7 +5,7 @@ FlashDeconv is an ultra-fast spatial transcriptomics deconvolution method
 that uses random sketching for O(N) time complexity.
 """
 
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import pandas as pd
 
@@ -20,7 +20,7 @@ async def deconvolve(
     lambda_spatial: float = 5000.0,
     n_hvg: int = 2000,
     n_markers_per_type: int = 50,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Deconvolve spatial data using FlashDeconv.
 
     FlashDeconv is an ultra-fast deconvolution method with:
@@ -98,4 +98,4 @@ async def deconvolve(
     except Exception as e:
         if isinstance(e, (DependencyError, ProcessingError)):
             raise
-        raise ProcessingError(f"FlashDeconv deconvolution failed: {str(e)}") from e
+        raise ProcessingError(f"FlashDeconv deconvolution failed: {e}") from e

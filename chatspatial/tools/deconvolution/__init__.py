@@ -17,7 +17,7 @@ Usage:
 """
 
 import gc
-from typing import TYPE_CHECKING, Any, Dict, Tuple
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -212,7 +212,7 @@ async def _dispatch_method(
     data: PreparedDeconvolutionData,
     params: DeconvolutionParameters,
     original_spatial: "ad.AnnData",
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Dispatch to the appropriate method implementation."""
     method = params.method
 
@@ -341,7 +341,7 @@ async def _dispatch_method(
 async def _store_results(
     spatial_adata: "ad.AnnData",
     proportions: pd.DataFrame,
-    stats: Dict[str, Any],
+    stats: dict[str, Any],
     method: str,
     data_id: str,
     ctx: "ToolContext",
