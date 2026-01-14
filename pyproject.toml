@@ -18,13 +18,12 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     # ========== Core Foundation (Essential) ==========
     # MCP and data processing
@@ -72,6 +71,7 @@ dependencies = [
     "liana",  # No version constraint - let pip choose compatible version
     "cellphonedb>=5.0.0,<6.0",
     "ktplotspy>=0.3.0",  # Official CellPhoneDB visualization (heatmap, dotplot, chord)
+    "fastccc>=0.1.0",  # FFT-based ultra-fast cell-cell communication (Nature Communications 2025)
     
     # Batch integration (frequently needed)
     "harmonypy>=0.0.9",
@@ -208,7 +208,7 @@ filterwarnings = [
 
 [tool.black]
 line-length = 88
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.isort]
 profile = "black"
