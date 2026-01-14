@@ -42,8 +42,7 @@ def deconvolve(
     """
     import anndata2ri
     import rpy2.robjects as ro
-    import rpy2.robjects.packages as rpackages
-    from rpy2.robjects import pandas2ri
+    from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
 
     ctx = data.ctx
@@ -63,10 +62,10 @@ def deconvolve(
     )
 
     try:
-        # Load R packages
+        # Load R packages using ro.r() instead of importr() to avoid
+        # conversion context issues in async environments
         with localconverter(ro.default_converter + pandas2ri.converter):
-            rpackages.importr("spacexr")
-            rpackages.importr("base")
+            ro.r("library(spacexr)")
 
         # Data already copied in prepare_deconvolution
         spatial_data = data.spatial

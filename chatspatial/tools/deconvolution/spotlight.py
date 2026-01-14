@@ -40,7 +40,6 @@ def deconvolve(
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
-    import anndata2ri
     import rpy2.robjects as ro
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
@@ -83,8 +82,16 @@ def deconvolve(
         cell_types = cell_types.str.replace("/", "_", regex=False)
         cell_types = cell_types.str.replace(" ", "_", regex=False)
 
-        # Transfer matrices to R using anndata2ri
-        with localconverter(ro.default_converter + anndata2ri.converter):
+        # Load R libraries first (using ro.r() to avoid importr conversion issues)
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            ro.r("library(SPOTlight)")
+            ro.r("library(SingleCellExperiment)")
+            ro.r("library(SpatialExperiment)")
+            ro.r("library(scran)")
+            ro.r("library(scuttle)")
+
+        # Transfer matrices to R using numpy2ri
+        with localconverter(ro.default_converter + numpy2ri.converter):
             ro.globalenv["spatial_counts"] = spatial_counts.T
             ro.globalenv["reference_counts"] = reference_counts.T
 
@@ -92,12 +99,6 @@ def deconvolve(
         with localconverter(
             ro.default_converter + pandas2ri.converter + numpy2ri.converter
         ):
-            ro.r("library(SPOTlight)")
-            ro.r("library(SingleCellExperiment)")
-            ro.r("library(SpatialExperiment)")
-            ro.r("library(scran)")
-            ro.r("library(scuttle)")
-
             ro.globalenv["spatial_coords"] = spatial_coords
             ro.globalenv["gene_names"] = ro.StrVector(data.common_genes)
             ro.globalenv["spatial_names"] = ro.StrVector(list(spatial_data.obs_names))
