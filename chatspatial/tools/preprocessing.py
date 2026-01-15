@@ -27,6 +27,33 @@ from ..utils.exceptions import (
 from ..utils.mcp_utils import mcp_tool_error_handler
 
 
+def _compute_safe_percent_top(n_genes: int) -> list[int] | None:
+    """Compute valid percent_top values for scanpy QC metrics.
+
+    scanpy's calculate_qc_metrics requires all percent_top values < n_genes,
+    otherwise raises IndexError. This function adapts the standard defaults
+    [50, 100, 200, 500] to work with any dataset size.
+    """
+    if n_genes <= 1:
+        return None
+
+    # Standard scanpy defaults, filtered to valid range
+    result = [p for p in [50, 100, 200, 500] if p < n_genes]
+
+    # For small datasets (< 50 genes), use proportional values instead
+    if not result:
+        result = [
+            max(1, int(n_genes * f))
+            for f in [0.1, 0.25, 0.5]
+            if int(n_genes * f) < n_genes
+        ]
+
+    # Include n_genes - 1 as maximum coverage point
+    result.append(n_genes - 1)
+
+    return sorted(set(result)) or None
+
+
 @mcp_tool_error_handler()
 async def preprocess_data(
     data_id: str,
@@ -77,41 +104,11 @@ async def preprocess_data(
                 ("RPS", "RPL", "Rps", "Rpl")
             )
 
-            # FIX: Adjust percent_top for small datasets
-            #
-            # Problem: sc.pp.calculate_qc_metrics() uses default percent_top=[50, 100, 200, 500]
-            # to calculate "percentage of counts in top N genes". When n_genes < 500,
-            # scanpy raises IndexError: "Positions outside range of features"
-            # (see scanpy/preprocessing/_qc.py line 392: check_ns decorator)
-            #
-            # Solution: Dynamically adjust percent_top to only include values < n_genes
-            n_genes = adata.n_vars
-            default_percent_top = [50, 100, 200, 500]
-
-            # Filter to only include values that are valid for this dataset
-            safe_percent_top = [p for p in default_percent_top if p < n_genes]
-
-            # For very small datasets (n_genes < 50), create proportional values
-            if not safe_percent_top:
-                safe_percent_top = []
-                for fraction in [0.1, 0.25, 0.5]:
-                    val = max(1, int(n_genes * fraction))
-                    if val < n_genes and val not in safe_percent_top:
-                        safe_percent_top.append(val)
-
-            # Add the largest possible value (n_genes - 1) if reasonable
-            if n_genes > 1 and (n_genes - 1) not in safe_percent_top:
-                safe_percent_top.append(n_genes - 1)
-
-            safe_percent_top = (
-                sorted(set(safe_percent_top)) if safe_percent_top else None
-            )
-
             # Calculate QC metrics including mitochondrial and ribosomal percentages
             sc.pp.calculate_qc_metrics(
                 adata,
                 qc_vars=["mt", "ribo"],
-                percent_top=safe_percent_top,
+                percent_top=_compute_safe_percent_top(adata.n_vars),
                 inplace=True,
             )
         except Exception as e:
