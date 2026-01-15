@@ -46,6 +46,7 @@ from ..utils.adata_utils import (
     store_analysis_metadata,
     to_dense,
     validate_adata_basics,
+    validate_obs_column,
 )
 from ..utils.compute import ensure_spatial_neighbors_async
 from ..utils.exceptions import (
@@ -250,17 +251,7 @@ async def analyze_spatial_statistics(
         # Validate cluster_key for analyses that require it (derived from registry)
         cluster_key = None
         if params.analysis_type in _CLUSTER_REQUIRED_ANALYSES:
-            if params.cluster_key not in adata.obs.columns:
-                available = [
-                    c
-                    for c in adata.obs.columns
-                    if "cluster" in c.lower() or c in ["leiden", "louvain"]
-                ]
-                raise DataNotFoundError(
-                    f"Cluster key '{params.cluster_key}' not found. "
-                    f"Available: {available if available else 'None'}. "
-                    f"Run preprocess_data() first to generate clusters."
-                )
+            validate_obs_column(adata, params.cluster_key, "Cluster key")
             ensure_categorical(adata, params.cluster_key)
             cluster_key = params.cluster_key
 
