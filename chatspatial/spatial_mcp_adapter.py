@@ -310,7 +310,14 @@ class SpatialMCPAdapter:
 
 
 class DefaultSpatialDataManager:
-    """Default implementation of spatial data management"""
+    """In-memory spatial data management with async interface.
+
+    Design Note:
+        Methods are async for interface consistency and future extensibility
+        (e.g., remote storage, database backends), even though current
+        implementation is synchronous. This is intentional - async overhead
+        is negligible and changing the interface later would break 20+ call sites.
+    """
 
     def __init__(self):
         self.data_store: dict[str, Any] = {}
