@@ -21,7 +21,11 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import get_analysis_parameter, require_spatial_coords
+from ...utils.adata_utils import (
+    get_analysis_parameter,
+    require_spatial_coords,
+    validate_obs_column,
+)
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import (
@@ -63,6 +67,7 @@ def _resolve_cluster_key(
             f"cluster_key required for {analysis_type} visualization. "
             f"Available categorical columns: {', '.join(categorical_cols)}"
         )
+    validate_obs_column(adata, cluster_key, "Cluster key")
     return cluster_key
 
 # =============================================================================
