@@ -13,17 +13,18 @@ Key functionalities include:
 - Cluster-based analysis (Neighborhood Enrichment, Co-occurrence, Ripley's K).
 - Spatial network analysis (Centrality Scores, Network Properties).
 - Bivariate spatial correlation analysis (Bivariate Moran's I).
-- Categorical spatial analysis (Join Count statistics).
+- Categorical spatial analysis (Join Count, Local Join Count statistics).
 - Spatial centrality measures for tissue architecture.
 
 The primary entry point is the `analyze_spatial_statistics` function, which
 dispatches tasks to the appropriate analysis function based on user parameters.
-All 12 analysis types are accessible through this unified interface with a
-new unified 'genes' parameter for consistent gene selection across methods.
+All 13 analysis types are accessible through this unified interface with a
+unified 'genes' parameter for consistent gene selection across methods.
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any, Optional
 
 import anndata as ad
@@ -31,7 +32,7 @@ import numpy as np
 import pandas as pd
 import squidpy as sq
 
-from ..utils.dependency_manager import is_available, require
+from ..utils.dependency_manager import require
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -42,6 +43,7 @@ from ..utils.adata_utils import (
     ensure_categorical,
     require_spatial_coords,
     select_genes_for_analysis,
+    store_analysis_metadata,
     to_dense,
     validate_adata_basics,
 )
@@ -49,10 +51,144 @@ from ..utils.compute import ensure_spatial_neighbors_async
 from ..utils.exceptions import (
     DataCompatibilityError,
     DataNotFoundError,
-    DependencyError,
     ParameterError,
     ProcessingError,
 )
+
+# ============================================================================
+# ANALYSIS REGISTRY - Single Source of Truth
+# ============================================================================
+#
+# Each analysis type is registered with:
+#   - handler: Function name to call (looked up via globals())
+#   - signature: Parameter pattern for the handler function
+#       * "gene": (adata, params, ctx) - gene-based analyses
+#       * "cluster": (adata, cluster_key, ctx) - cluster-based analyses
+#       * "hybrid": (adata, cluster_key, params, ctx) - both needed
+#   - metadata_keys: Keys stored in adata after analysis (for reproducibility)
+
+_ANALYSIS_REGISTRY: dict[str, dict[str, Any]] = {
+    # Gene-based analyses (no cluster_key required)
+    "moran": {
+        "handler": "_analyze_morans_i",
+        "signature": "gene",
+        "metadata_keys": {"uns": ["morans_i"]},
+    },
+    "local_moran": {
+        "handler": "_analyze_local_moran",
+        "signature": "gene",
+        "metadata_keys": {"obs": []},  # Dynamic: {gene}_local_moran
+    },
+    "geary": {
+        "handler": "_analyze_gearys_c",
+        "signature": "gene",
+        "metadata_keys": {"uns": ["gearys_c"]},
+    },
+    "getis_ord": {
+        "handler": "_analyze_getis_ord",
+        "signature": "gene",
+        "metadata_keys": {"obs": []},  # Dynamic: {gene}_getis_ord_z/p
+    },
+    "bivariate_moran": {
+        "handler": "_analyze_bivariate_moran",
+        "signature": "gene",
+        "metadata_keys": {"uns": ["bivariate_moran"]},
+    },
+    # Cluster-based analyses (cluster_key only, no params needed)
+    "neighborhood": {
+        "handler": "_analyze_neighborhood_enrichment",
+        "signature": "cluster",
+        "metadata_keys": {"uns": ["neighborhood"]},
+    },
+    "co_occurrence": {
+        "handler": "_analyze_co_occurrence",
+        "signature": "cluster",
+        "metadata_keys": {"uns": ["co_occurrence"]},
+    },
+    "ripley": {
+        "handler": "_analyze_ripleys_k",
+        "signature": "cluster",
+        "metadata_keys": {"uns": ["ripley"]},
+    },
+    "centrality": {
+        "handler": "_analyze_centrality",
+        "signature": "cluster",
+        "metadata_keys": {"uns": ["centrality_scores"]},
+    },
+    # Hybrid analyses (both cluster_key and params needed)
+    "join_count": {
+        "handler": "_analyze_join_count",
+        "signature": "hybrid",
+        "metadata_keys": {"uns": ["join_count"]},
+    },
+    "local_join_count": {
+        "handler": "_analyze_local_join_count",
+        "signature": "hybrid",
+        "metadata_keys": {"obs": []},  # Dynamic
+    },
+    "network_properties": {
+        "handler": "_analyze_network_properties",
+        "signature": "hybrid",
+        "metadata_keys": {"uns": ["network_properties"]},
+    },
+    "spatial_centrality": {
+        "handler": "_analyze_spatial_centrality",
+        "signature": "hybrid",
+        "metadata_keys": {"uns": ["spatial_centrality"]},
+    },
+}
+
+# Derived constants (computed once at module load)
+_CLUSTER_REQUIRED_ANALYSES = frozenset(
+    name for name, cfg in _ANALYSIS_REGISTRY.items() if cfg["signature"] != "gene"
+)
+
+
+def _dispatch_analysis(
+    analysis_type: str,
+    adata: "ad.AnnData",
+    params: SpatialStatisticsParameters,
+    cluster_key: Optional[str],
+    ctx: "ToolContext",
+) -> dict[str, Any]:
+    """Dispatch to appropriate analysis function based on registry configuration."""
+    config = _ANALYSIS_REGISTRY[analysis_type]
+    handler = globals()[config["handler"]]
+    signature = config["signature"]
+
+    if signature == "gene":
+        return handler(adata, params, ctx)
+    elif signature == "cluster":
+        return handler(adata, cluster_key, ctx)
+    else:  # hybrid
+        return handler(adata, cluster_key, params, ctx)
+
+
+def _build_results_keys(
+    analysis_type: str, genes: Optional[list[str]]
+) -> dict[str, list[str]]:
+    """Build results_keys dict for metadata storage from registry."""
+    base: dict[str, list[str]] = {"obs": [], "var": [], "obsm": [], "uns": []}
+
+    if analysis_type not in _ANALYSIS_REGISTRY:
+        return base
+
+    template = _ANALYSIS_REGISTRY[analysis_type]["metadata_keys"]
+
+    # Static keys from registry
+    for key_type, keys in template.items():
+        base[key_type].extend(keys)
+
+    # Dynamic keys based on genes (for analyses that store per-gene results)
+    if genes:
+        if analysis_type == "local_moran":
+            base["obs"].extend(f"{gene}_local_moran" for gene in genes)
+        elif analysis_type == "getis_ord":
+            for gene in genes:
+                base["obs"].extend([f"{gene}_getis_ord_z", f"{gene}_getis_ord_p"])
+
+    return base
+
 
 # ============================================================================
 # MAIN ENTRY POINT
@@ -97,26 +233,9 @@ async def analyze_spatial_statistics(
     ProcessingError
         If an error occurs during the execution of the analysis.
     """
-    # Validate parameters
-    supported_types = [
-        "neighborhood",
-        "co_occurrence",
-        "ripley",
-        "moran",
-        "local_moran",  # Added Local Moran's I
-        "geary",
-        "centrality",
-        "getis_ord",
-        "bivariate_moran",
-        "join_count",  # Traditional Join Count for binary data (2 categories)
-        "local_join_count",  # Local Join Count for multi-category data (>2 categories)
-        "network_properties",
-        "spatial_centrality",
-    ]
-
-    if params.analysis_type not in supported_types:
+    # Validate parameters (use registry as single source of truth)
+    if params.analysis_type not in _ANALYSIS_REGISTRY:
         raise ParameterError(f"Unsupported analysis type: {params.analysis_type}")
-
     if params.n_neighbors <= 0:
         raise ParameterError(f"n_neighbors must be positive, got {params.n_neighbors}")
 
@@ -126,23 +245,11 @@ async def analyze_spatial_statistics(
 
         # Basic validation: min 10 cells, spatial coordinates exist
         validate_adata_basics(adata, min_obs=10)
-        require_spatial_coords(adata)  # Validates spatial coords exist
+        require_spatial_coords(adata)
 
-        # Determine if cluster_key is required for this analysis type
-        analyses_requiring_cluster_key = {
-            "neighborhood",
-            "co_occurrence",
-            "ripley",
-            "join_count",
-            "local_join_count",
-            "centrality",
-            "network_properties",
-            "spatial_centrality",
-        }
-
-        # Ensure cluster key only for analyses that require it
+        # Validate cluster_key for analyses that require it (derived from registry)
         cluster_key = None
-        if params.analysis_type in analyses_requiring_cluster_key:
+        if params.analysis_type in _CLUSTER_REQUIRED_ANALYSES:
             if params.cluster_key not in adata.obs.columns:
                 available = [
                     c
@@ -157,40 +264,11 @@ async def analyze_spatial_statistics(
             ensure_categorical(adata, params.cluster_key)
             cluster_key = params.cluster_key
 
-        # Ensure spatial neighbors
+        # Ensure spatial neighbors and dispatch to analysis
         await ensure_spatial_neighbors_async(adata, ctx, n_neighs=params.n_neighbors)
-
-        # Route to appropriate analysis function
-        if params.analysis_type == "moran":
-            result = _analyze_morans_i(adata, params, ctx)
-        elif params.analysis_type == "local_moran":
-            result = _analyze_local_moran(adata, params, ctx)
-        elif params.analysis_type == "geary":
-            result = _analyze_gearys_c(adata, params, ctx)
-        elif params.analysis_type == "neighborhood":
-            result = _analyze_neighborhood_enrichment(adata, cluster_key, ctx)
-        elif params.analysis_type == "co_occurrence":
-            result = _analyze_co_occurrence(adata, cluster_key, ctx)
-        elif params.analysis_type == "ripley":
-            result = _analyze_ripleys_k(adata, cluster_key, ctx)
-        elif params.analysis_type == "getis_ord":
-            result = _analyze_getis_ord(adata, params, ctx)
-        elif params.analysis_type == "centrality":
-            result = _analyze_centrality(adata, cluster_key, ctx)
-        elif params.analysis_type == "bivariate_moran":
-            result = _analyze_bivariate_moran(adata, params, ctx)
-        elif params.analysis_type == "join_count":
-            result = _analyze_join_count(adata, cluster_key, params, ctx)
-        elif params.analysis_type == "local_join_count":
-            result = _analyze_local_join_count(adata, cluster_key, params, ctx)
-        elif params.analysis_type == "network_properties":
-            result = _analyze_network_properties(adata, cluster_key, params, ctx)
-        elif params.analysis_type == "spatial_centrality":
-            result = _analyze_spatial_centrality(adata, cluster_key, params, ctx)
-        else:
-            raise ParameterError(
-                f"Analysis type {params.analysis_type} not implemented"
-            )
+        result = _dispatch_analysis(
+            params.analysis_type, adata, params, cluster_key, ctx
+        )
 
         # COW FIX: No need to update data_store - changes already reflected via direct reference
         # All modifications to adata.obs/uns/obsp are in-place and preserved
@@ -211,28 +289,8 @@ async def analyze_spatial_statistics(
         )
 
         # Store scientific metadata for reproducibility
-        from ..utils.adata_utils import store_analysis_metadata
-
-        # Determine results keys based on analysis type
-        results_keys_dict = {"obs": [], "var": [], "obsm": [], "uns": []}
-        if params.analysis_type in ["moran", "geary"]:
-            results_keys_dict["uns"].append(f"{params.analysis_type}s_i")
-        elif params.analysis_type == "local_moran":
-            results_keys_dict["obs"].extend(
-                [f"{gene}_local_moran" for gene in (params.genes or [])]
-            )
-        elif params.analysis_type == "getis_ord":
-            if params.genes:
-                for gene in params.genes:
-                    results_keys_dict["obs"].extend(
-                        [f"{gene}_getis_ord_z", f"{gene}_getis_ord_p"]
-                    )
-        elif params.analysis_type in ["neighborhood", "co_occurrence"]:
-            results_keys_dict["uns"].append(params.analysis_type)
-        elif params.analysis_type == "ripley":
-            results_keys_dict["uns"].append("ripley")
-        elif params.analysis_type == "centrality":
-            results_keys_dict["uns"].append("centrality_scores")
+        # Build results keys from registry (single source of truth)
+        results_keys_dict = _build_results_keys(params.analysis_type, params.genes)
 
         # Prepare parameters dict
         parameters_dict = {
@@ -282,9 +340,7 @@ async def analyze_spatial_statistics(
     except (DataNotFoundError, ParameterError, DataCompatibilityError):
         raise
     except Exception as e:
-        raise ProcessingError(
-            f"Error in {params.analysis_type} analysis: {e}"
-        ) from e
+        raise ProcessingError(f"Error in {params.analysis_type} analysis: {e}") from e
 
 
 # ============================================================================
@@ -523,8 +579,6 @@ def _analyze_gearys_c(
     # Extract results (squidpy returns DataFrame, not dict)
     geary_key = "gearyC"
     if geary_key in adata.uns:
-        import pandas as pd
-
         results_df = adata.uns[geary_key]
         if isinstance(results_df, pd.DataFrame):
             return {
@@ -751,11 +805,13 @@ def _analyze_centrality(
     analysis_key = f"{cluster_key}_centrality_scores"
     if analysis_key in adata.uns:
         scores = adata.uns[analysis_key]
+        # Handle both dict (legacy) and DataFrame (current squidpy) formats
+        n_clusters = len(scores) if hasattr(scores, "__len__") else 0
 
         return {
             "analysis_completed": True,
             "analysis_key": analysis_key,
-            "n_clusters": len(scores) if isinstance(scores, dict) else "computed",
+            "n_clusters": n_clusters,
         }
 
     raise ProcessingError("Centrality analysis did not produce results")
@@ -906,10 +962,8 @@ def _analyze_join_count(
     _analyze_local_join_count : For multi-category data (>2 categories)
     """
     # Check for required dependencies
-    if not is_available("esda") or not is_available("libpysal"):
-        raise DependencyError(
-            "esda or libpysal package not installed. Install with: pip install esda libpysal"
-        )
+    require("esda")
+    require("libpysal")
 
     try:
         from esda.join_counts import Join_Counts
@@ -918,7 +972,16 @@ def _analyze_join_count(
         coords = require_spatial_coords(adata)
         w = KNN.from_array(coords, k=params.n_neighbors)
 
-        # Get categorical data
+        # Validate binary data (Join_Counts requires exactly 2 categories)
+        n_categories = len(adata.obs[cluster_key].cat.categories)
+        if n_categories != 2:
+            raise ParameterError(
+                f"Join Count requires binary data (exactly 2 categories). "
+                f"'{cluster_key}' has {n_categories} categories. "
+                f"Use 'local_join_count' for multi-category data."
+            )
+
+        # Get categorical data (now guaranteed to be 0/1)
         y = adata.obs[cluster_key].cat.codes.values
 
         # Compute join counts
@@ -1016,12 +1079,9 @@ def _analyze_local_join_count(
     >>> for cat, stats in result['per_category_stats'].items():
     ...     print(f"{cat}: {stats['n_hotspots']} significant hotspots")
     """
-    # Check for required dependencies
-    if not is_available("esda") or not is_available("libpysal"):
-        raise DependencyError(
-            "esda or libpysal package not installed (requires esda >= 2.4.0). "
-            "Install with: pip install esda libpysal"
-        )
+    # Check for required dependencies (esda >= 2.4.0 required for Join_Counts_Local)
+    require("esda")
+    require("libpysal")
 
     try:
         from esda.join_counts_local import Join_Counts_Local
@@ -1099,14 +1159,10 @@ def _analyze_network_properties(
     Migrated from spatial_statistics.py
     """
     # Check for required dependencies
-    if not is_available("networkx"):
-        raise DependencyError(
-            "networkx package required. Install with: pip install networkx"
-        )
+    require("networkx")
 
     try:
         import networkx as nx
-        from scipy.sparse import csr_matrix  # noqa: F401
 
         # Get or create spatial connectivity
         if "spatial_connectivities" in adata.obsp:
@@ -1139,7 +1195,6 @@ def _analyze_network_properties(
         else:
             # Analyze largest component
             largest_cc = max(nx.connected_components(G), key=len)
-            G.subgraph(largest_cc)
             properties["largest_component_size"] = len(largest_cc)
             properties["largest_component_fraction"] = (
                 len(largest_cc) / G.number_of_nodes()
@@ -1175,10 +1230,7 @@ def _analyze_spatial_centrality(
     Migrated from spatial_statistics.py
     """
     # Check for required dependencies
-    if not is_available("networkx"):
-        raise DependencyError(
-            "NetworkX required for centrality analysis. Install with: pip install networkx"
-        )
+    require("networkx")
 
     try:
         import networkx as nx
@@ -1215,12 +1267,13 @@ def _analyze_spatial_centrality(
         missing_betweenness = expected_keys - set(betweenness_centrality.keys())
 
         if missing_degree or missing_closeness or missing_betweenness:
-            await ctx.warning(
+            warnings.warn(
                 f"Centrality computation incomplete: "
                 f"missing degree={len(missing_degree)}, "
                 f"closeness={len(missing_closeness)}, "
                 f"betweenness={len(missing_betweenness)} nodes. "
-                f"Graph may have disconnected components."
+                f"Graph may have disconnected components.",
+                stacklevel=2,
             )
 
         # Use .get() with default 0.0 for missing nodes (isolated/disconnected)
@@ -1317,9 +1370,7 @@ def _analyze_local_moran(
     from libpysal.weights import W as PySALWeights
 
     try:
-        # Ensure spatial neighbors exist
-        await ensure_spatial_neighbors_async(adata, ctx, n_neighs=params.n_neighbors)
-
+        # Note: spatial neighbors already ensured by analyze_spatial_statistics()
         # Unified gene selection (default 5 genes for computational efficiency)
         n_genes = (
             min(5, params.n_top_genes) if params.genes is None else params.n_top_genes

@@ -55,13 +55,14 @@ class AnnotationMethodOutput(NamedTuple):
         counts: Mapping of cell type names to number of cells assigned
         confidence: Mapping of cell type names to confidence scores.
                    Empty dict indicates no confidence data available.
-        mapping_score: Optional method-specific quality score (e.g., Tangram mapping score)
+        tangram_mapping_score: Tangram-specific mapping quality score (only populated
+                              by Tangram method, None for all other methods)
     """
 
     cell_types: list[str]
     counts: dict[str, int]
     confidence: dict[str, float]
-    mapping_score: Optional[float] = None
+    tangram_mapping_score: Optional[float] = None
 
 
 # Supported annotation methods
@@ -602,7 +603,7 @@ async def _annotate_with_tangram(
         cell_types=cell_types,
         counts=counts,
         confidence=confidence_scores,
-        mapping_score=tangram_mapping_score,
+        tangram_mapping_score=tangram_mapping_score,
     )
 
 
@@ -1360,7 +1361,7 @@ async def annotate_cell_types(
     cell_types = result.cell_types
     counts = result.counts
     confidence_scores = result.confidence
-    tangram_mapping_score = result.mapping_score
+    tangram_mapping_score = result.tangram_mapping_score
 
     # Determine if confidence_key should be reported (only if we have confidence data)
     confidence_key_for_result = confidence_key if confidence_scores else None
