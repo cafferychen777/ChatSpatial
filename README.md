@@ -52,6 +52,10 @@ sc.pp.neighbors(adata)
 
 ---
 
+> **Note**: This is a **demo version**. If you encounter any issues or have feedback, please [open an issue](https://github.com/cafferychen777/ChatSpatial/issues) or contact us anytime. Your feedback helps us improve!
+
+---
+
 ## Install
 
 ```bash
@@ -105,15 +109,18 @@ Find spatially variable genes and create a heatmap
 
 | Category | Methods |
 |----------|---------|
-| **Spatial Domains** | SpaGCN, STAGATE, Leiden |
-| **Deconvolution** | Cell2location, RCTD, Tangram, SPOTlight |
-| **Cell Communication** | LIANA+, CellPhoneDB |
-| **Cell Type Annotation** | Tangram, scANVI, CellAssign, mLLMCelltype |
-| **Trajectory** | CellRank, Palantir, scVelo |
-| **Spatial Statistics** | Moran's I, Getis-Ord Gi*, Ripley's K |
-| **Gene Set Enrichment** | GSEA, ORA, Enrichr |
+| **Spatial Domains** | SpaGCN, STAGATE, GraphST, Leiden, Louvain |
+| **Deconvolution** | FlashDeconv, Cell2location, RCTD, DestVI, Stereoscope, SPOTlight, Tangram, CARD |
+| **Cell Communication** | LIANA+, CellPhoneDB, CellChat, FastCCC |
+| **Cell Type Annotation** | Tangram, scANVI, CellAssign, mLLMCelltype, scType, SingleR |
+| **Trajectory & Velocity** | CellRank, Palantir, DPT, scVelo, VeloVI |
+| **Spatial Statistics** | Moran's I, Local Moran, Geary's C, Getis-Ord Gi*, Ripley's K, Neighborhood Enrichment |
+| **Enrichment** | GSEA, ORA, Enrichr, ssGSEA, Spatial EnrichMap |
+| **Spatial Genes** | SpatialDE, SPARK-X |
+| **Integration** | Harmony, BBKNN, Scanorama, scVI |
+| **Other** | CNV Analysis (inferCNVpy, Numbat), Spatial Registration (PASTE, STalign) |
 
-**60+ methods** across 12 categories. **Supports** 10x Visium, Xenium, Slide-seq v2, MERFISH, seqFISH.
+**60+ methods** across 15 categories. **Supports** 10x Visium, Xenium, Slide-seq v2, MERFISH, seqFISH.
 
 ---
 
