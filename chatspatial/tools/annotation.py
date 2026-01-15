@@ -87,7 +87,15 @@ async def _annotate_with_singler(
     confidence_key: str,
     reference_adata: Optional[Any] = None,
 ) -> AnnotationMethodOutput:
-    """Annotate cell types using SingleR reference-based method"""
+    """Annotate cell types using SingleR reference-based method.
+
+    Memory: SingleR (singler-py) natively supports sparse matrices - no toarray() needed.
+    This saves ~1.3 GB for typical 10K cells × 20K genes datasets.
+
+    Confidence scores are transformed to [0, 1] range:
+    - Delta scores: 1 - exp(-delta), where delta is best-vs-second-best gap
+    - Correlation scores: max(0, r), where negative correlations map to 0
+    """
     # Validate and import dependencies
     require("singler", ctx, feature="SingleR annotation")
     require("singlecellexperiment", ctx, feature="SingleR annotation")
@@ -111,11 +119,6 @@ async def _annotate_with_singler(
             test_mat = adata.raw[:, adata.var_names].X
         else:
             test_mat = adata.X
-
-    # MEMORY OPTIMIZATION: SingleR (singler-py) natively supports sparse matrices
-    # No toarray() needed - both np.log1p() and .T() work with sparse matrices
-    # Verified: sparse and dense inputs produce identical results
-    # Memory savings: ~1.3 GB for typical 10K cells × 20K genes dataset
 
     # Ensure log-normalization (SingleR expects log-normalized data)
     if "log1p" not in adata.uns:
@@ -167,11 +170,6 @@ async def _annotate_with_singler(
             ref_mat = reference_adata.layers["X_normalized"]
         else:
             ref_mat = reference_adata.X
-
-        # MEMORY OPTIMIZATION: SingleR (singler-py) natively supports sparse matrices
-        # No toarray() needed - both np.log1p() and .T() work with sparse matrices
-        # Verified: sparse and dense inputs produce identical results
-        # Memory savings: ~1.3 GB for typical 10K cells × 20K genes reference dataset
 
         # Ensure log-normalization for reference
         if "log1p" not in reference_adata.uns:
@@ -267,15 +265,10 @@ async def _annotate_with_singler(
     unique_types = list(set(cell_types))
     counts = pd.Series(cell_types).value_counts().to_dict()
 
-    # Calculate confidence scores - prefer delta scores if available
-    # IMPORTANT: Different scores have different mathematical semantics
-    # - delta scores: gap between best and second-best match, range [0, +∞)
-    # - correlation scores: Pearson correlation, range [-1, 1]
-    # We apply scientifically appropriate transformations to [0, 1]
+    # Calculate confidence scores (see docstring for transformation formulas)
     confidence_scores = {}
 
-    # First try to use delta scores (more meaningful confidence measure)
-    # delta_scores is always defined by the try-except block above (line 429 or 437)
+    # Prefer delta scores (more meaningful confidence measure)
     if delta_scores is not None:
         try:
             for cell_type in unique_types:
@@ -286,10 +279,7 @@ async def _annotate_with_singler(
                     ]
                     if type_deltas:
                         avg_delta = np.mean([d for d in type_deltas if d is not None])
-                        # Transform delta to [0, 1] using saturating function
-                        # delta=0 → 0 (no discrimination = zero confidence)
-                        # delta→∞ → 1 (perfect discrimination = full confidence)
-                        confidence = 1.0 - np.exp(-avg_delta)
+                        confidence = 1.0 - np.exp(-avg_delta)  # Transform to [0, 1]
                         confidence_scores[cell_type] = round(float(confidence), 3)
         except Exception:
             # Delta score extraction failed, will fall back to regular scores
@@ -309,21 +299,16 @@ async def _annotate_with_singler(
             if cell_type in scores_df.columns and any(mask):
                 type_scores = scores_df.loc[mask, cell_type]
                 avg_score = type_scores.mean()
-                # Use max(0, r) instead of (r+1)/2 for correlation
-                # r<0 (negative correlation) → 0 (opposite pattern = not a match)
-                # r=0 → 0 (no correlation = zero confidence)
-                # r=1 → 1 (perfect correlation = full confidence)
-                confidence = max(0.0, float(avg_score))
+                confidence = max(
+                    0.0, float(avg_score)
+                )  # Clamp negative correlations to 0
                 confidence_scores[cell_type] = round(confidence, 3)
-            # else: cell type won't have confidence score (no action needed)
 
     # Add to AnnData (keys provided by caller for single-point control)
     adata.obs[output_key] = cell_types
     ensure_categorical(adata, output_key)
 
-    # Only add confidence column if we have real confidence values
     if confidence_scores:
-        # Use 0.0 for cells without confidence (more honest than arbitrary 0.5)
         confidence_array = [confidence_scores.get(ct, 0.0) for ct in cell_types]
         adata.obs[confidence_key] = confidence_array
 
