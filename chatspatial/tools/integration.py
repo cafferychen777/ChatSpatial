@@ -379,49 +379,35 @@ def integrate_multiple_samples(
     # Apply batch correction based on selected method
     if method == "harmony":
         # Use Harmony for batch correction
-        # BEST PRACTICE: Use scanpy.external wrapper for better integration with scanpy workflow
+        # Direct harmonypy call for version compatibility (scanpy.external has issues
+        # with harmonypy >= 0.1.0, see: https://github.com/scverse/scanpy/issues/3940)
         require("harmonypy", feature="Harmony integration")
         try:
-            import scanpy.external as sce
+            import harmonypy
+            import pandas as pd
 
-            # Check if harmony_integrate is available in scanpy.external
-            if hasattr(sce.pp, "harmony_integrate"):
-                # Use scanpy.external wrapper (preferred method)
-                sce.pp.harmony_integrate(
-                    combined,
-                    key=batch_key,
-                    basis="X_pca",  # Use PCA representation
-                    adjusted_basis="X_pca_harmony",  # Store corrected embedding
-                )
-                # Use corrected embedding for downstream analysis
-                sc.pp.neighbors(combined, use_rep="X_pca_harmony")
+            X_pca = combined.obsm["X_pca"]
+            n_cells = combined.n_obs
+            meta_data = pd.DataFrame({batch_key: combined.obs[batch_key].values})
+
+            harmony_out = harmonypy.run_harmony(
+                data_mat=X_pca,
+                meta_data=meta_data,
+                vars_use=[batch_key],
+                max_iter_harmony=10,
+                verbose=True,
+            )
+
+            # Smart shape detection for version compatibility:
+            # - harmonypy < 0.1.0: Z_corr is (n_pcs, n_cells), needs .T
+            # - harmonypy >= 0.1.0: Z_corr is (n_cells, n_pcs), already correct
+            Z_corr = harmony_out.Z_corr
+            if Z_corr.shape[0] == n_cells:
+                combined.obsm["X_pca_harmony"] = Z_corr
             else:
-                # Fallback to raw harmonypy (same algorithm, different interface)
-                import harmonypy
-                import pandas as pd
+                combined.obsm["X_pca_harmony"] = Z_corr.T
 
-                # Get PCA result
-                X_pca = combined.obsm["X_pca"]
-
-                # Create DataFrame with batch information
-                meta_data = pd.DataFrame({batch_key: combined.obs[batch_key]})
-
-                # Run Harmony
-                harmony_out = harmonypy.run_harmony(
-                    data_mat=X_pca,
-                    meta_data=meta_data,
-                    vars_use=[batch_key],
-                    sigma=0.1,
-                    nclust=None,
-                    max_iter_harmony=10,
-                    verbose=True,
-                )
-
-                # Save Harmony corrected result
-                combined.obsm["X_harmony"] = harmony_out.Z_corr.T
-
-                # Use corrected result to calculate neighbor graph
-                sc.pp.neighbors(combined, use_rep="X_harmony")
+            sc.pp.neighbors(combined, use_rep="X_pca_harmony")
 
         except Exception as e:
             raise ProcessingError(
