@@ -294,16 +294,15 @@ async def load_spatial_data(
     if adata.raw is None:
         # Save current data state to .raw
         # This ensures downstream tools always have access to original loaded data
-        adata.raw = ad.AnnData(
-            X=adata.X.copy(),
-            var=adata.var,
-            obs=adata.obs.copy(),
-            uns={},
-        )
+        # Note: Raw only stores X, var, varm - obs is NOT stored in raw
+        adata.raw = ad.AnnData(X=adata.X.copy(), var=adata.var)
 
     # Also ensure layers["counts"] exists for scVI-tools compatibility
+    # Reference raw.X instead of creating another copy - safe because:
+    # 1. adata.copy() creates deep copies of layers (won't affect original raw.X)
+    # 2. Preprocessing modifies adata.X, not layers["counts"]
     if "counts" not in adata.layers:
-        adata.layers["counts"] = adata.X.copy()
+        adata.layers["counts"] = adata.raw.X
 
     # Get metadata profile for LLM understanding
     profile = get_adata_profile(adata)
