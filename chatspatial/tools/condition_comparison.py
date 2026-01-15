@@ -5,7 +5,7 @@ This module implements pseudobulk differential expression analysis for comparing
 experimental conditions (e.g., Treatment vs Control) across biological samples.
 """
 
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -178,32 +178,28 @@ async def compare_conditions(
     return result
 
 
-def _get_raw_counts(adata) -> tuple[np.ndarray, pd.Index]:
+def _get_raw_counts(
+    adata,
+) -> tuple[Union[np.ndarray, sparse.spmatrix], pd.Index]:
     """Extract raw count matrix from AnnData.
+
+    Returns sparse matrix directly to avoid memory explosion.
+    Downstream code handles both sparse and dense via np.asarray().
 
     Args:
         adata: AnnData object
 
     Returns:
-        Tuple of (count_matrix, var_names)
+        Tuple of (count_matrix, var_names) - matrix may be sparse or dense
     """
     if adata.raw is not None:
-        raw_X = adata.raw.X
-        var_names = adata.raw.var_names
-    else:
-        raw_X = adata.X
-        var_names = adata.var_names
-
-    # Convert to dense if sparse
-    if sparse.issparse(raw_X):
-        raw_X = raw_X.toarray()
-
-    return raw_X, var_names
+        return adata.raw.X, adata.raw.var_names
+    return adata.X, adata.var_names
 
 
 def _create_pseudobulk(
     adata,
-    raw_X: np.ndarray,
+    raw_X: Union[np.ndarray, sparse.spmatrix],
     var_names: pd.Index,
     sample_key: str,
     condition_key: str,
@@ -247,8 +243,10 @@ def _create_pseudobulk(
         # Get integer indices for this sample
         int_idx = adata.obs.index.get_indexer(group.index)
 
-        # Sum counts
-        sample_counts = raw_X[int_idx].sum(axis=0).astype(np.int64)
+        # Sum counts (handles both sparse and dense matrices)
+        sample_counts = (
+            np.asarray(raw_X[int_idx].sum(axis=0)).flatten().astype(np.int64)
+        )
 
         # Get condition for this sample
         condition = group[condition_key].iloc[0]
@@ -361,7 +359,7 @@ def _run_deseq2(
 
 async def _run_global_comparison(
     adata,
-    raw_X: np.ndarray,
+    raw_X: Union[np.ndarray, sparse.spmatrix],
     var_names: pd.Index,
     ctx: ToolContext,
     params: ConditionComparisonParameters,
@@ -455,7 +453,7 @@ async def _run_global_comparison(
 
 async def _run_stratified_comparison(
     adata,
-    raw_X: np.ndarray,
+    raw_X: Union[np.ndarray, sparse.spmatrix],
     var_names: pd.Index,
     ctx: ToolContext,
     params: ConditionComparisonParameters,
