@@ -22,33 +22,6 @@ from ..utils.exceptions import (
 )
 
 
-async def _validate_liana_requirements(
-    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> None:
-    """Validate LIANA+ requirements"""
-    # Spatial connectivity validation
-    if params.perform_spatial_analysis and "spatial_connectivities" not in adata.obsp:
-        raise DataNotFoundError(
-            "Spatial connectivity required for LIANA+ bivariate analysis.\n\n"
-            "Run spatial neighbor computation first:\n"
-            "  import squidpy as sq\n"
-            "  sq.gr.spatial_neighbors(adata, coord_type='grid', n_rings=1)\n\n"
-            "Platform-specific recommendations:\n"
-            "  Visium: coord_type='grid', n_rings=1-2\n"
-            "  MERFISH: coord_type='generic', radius=20-50\n"
-            "  Slide-seq: coord_type='generic', n_neighs=10-30"
-        )
-
-    # Cell type validation
-    validate_obs_column(adata, params.cell_type_key, "Cell type")
-
-    # Warning for resource matching
-    if params.species == "mouse" and params.liana_resource == "consensus":
-        await ctx.warning(
-            "Using 'consensus' for mouse data. Consider liana_resource='mouseconsensus'."
-        )
-
-
 async def analyze_cell_communication(
     data_id: str,
     ctx: "ToolContext",
@@ -70,8 +43,22 @@ async def analyze_cell_communication(
     try:
         # Apply method-specific validation
         if params.method == "liana":
-            # LIANA-based methods need spatial connectivity validation
-            await _validate_liana_requirements(adata, params, ctx)
+            # Spatial connectivity validation for LIANA+ bivariate analysis
+            if (
+                params.perform_spatial_analysis
+                and "spatial_connectivities" not in adata.obsp
+            ):
+                raise DataNotFoundError(
+                    "Spatial connectivity required. "
+                    "Run sq.gr.spatial_neighbors() first."
+                )
+            validate_obs_column(adata, params.cell_type_key, "Cell type")
+            if params.species == "mouse" and params.liana_resource == "consensus":
+                await ctx.warning(
+                    "Using 'consensus' for mouse data. "
+                    "Consider liana_resource='mouseconsensus'."
+                )
+
         elif params.method == "cellphonedb":
             # Check if cell type column exists
             validate_obs_column(adata, params.cell_type_key, "Cell type")
