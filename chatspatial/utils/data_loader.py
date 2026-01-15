@@ -33,15 +33,19 @@ async def load_spatial_data(
     ] = "auto",
     name: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Load spatial transcriptomics data
+    """Load spatial transcriptomics data.
 
     Args:
         data_path: Path to the data file or directory
-        data_type: Type of spatial data. If 'auto', will try to determine the type from the file extension or directory structure.
+        data_type: Type of spatial data. 'auto' detects from file extension/structure.
         name: Optional name for the dataset
 
     Returns:
         Dictionary with dataset information and AnnData object
+
+    Note:
+        Async interface for consistency with data management layer, enabling
+        future async I/O (aiofiles, remote storage) without API changes.
     """
     # Validate path
     if not os.path.exists(data_path):
