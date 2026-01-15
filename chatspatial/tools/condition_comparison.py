@@ -19,7 +19,7 @@ from ..models.analysis import (
 from ..models.data import ConditionComparisonParameters
 from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
-from ..utils.adata_utils import store_analysis_metadata
+from ..utils.adata_utils import check_is_integer_counts, store_analysis_metadata
 from ..utils.dependency_manager import require
 from ..utils.exceptions import DataError, ParameterError, ProcessingError
 
@@ -102,8 +102,9 @@ async def compare_conditions(
     # Get raw counts (required for DESeq2)
     raw_X, var_names = _get_raw_counts(adata_filtered)
 
-    # Validate counts are integers
-    if not np.allclose(raw_X, raw_X.astype(int)):
+    # Validate counts are integers (handles sparse matrices)
+    is_int, _, _ = check_is_integer_counts(raw_X)
+    if not is_int:
         await ctx.warning(
             "Data appears to be normalized. DESeq2 requires raw integer counts. "
             "Results may be inaccurate. Consider using adata.raw."

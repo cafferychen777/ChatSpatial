@@ -5,13 +5,16 @@ Differential expression analysis tools for spatial transcriptomics data.
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from scipy import sparse
 
 from ..models.analysis import DifferentialExpressionResult
 from ..models.data import DifferentialExpressionParameters
 from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
-from ..utils.adata_utils import store_analysis_metadata, to_dense
+from ..utils.adata_utils import (
+    check_is_integer_counts,
+    store_analysis_metadata,
+    to_dense,
+)
 from ..utils.dependency_manager import require
 from ..utils.exceptions import (
     DataError,
@@ -416,6 +419,7 @@ async def _run_pydeseq2(
     validate_obs_column(adata, params.sample_key, "Sample")
 
     # Get raw counts (required for DESeq2)
+    # Keep sparse to avoid memory explosion - downstream handles both formats
     if adata.raw is not None:
         raw_X = adata.raw.X
         var_names = adata.raw.var_names
@@ -423,12 +427,9 @@ async def _run_pydeseq2(
         raw_X = adata.X
         var_names = adata.var_names
 
-    # Convert to dense if sparse
-    if sparse.issparse(raw_X):
-        raw_X = raw_X.toarray()
-
     # Validate counts are integers (DESeq2 requirement)
-    if not np.allclose(raw_X, raw_X.astype(int)):
+    is_int, _, _ = check_is_integer_counts(raw_X)
+    if not is_int:
         await ctx.warning(
             "Data appears to be normalized. DESeq2 requires raw integer counts. "
             "Results may be inaccurate."
@@ -501,7 +502,10 @@ async def _run_pydeseq2(
         group_labels = pseudobulk_groups.groups[pb_id]
         # Convert pandas Index to integer positional indices for numpy array indexing
         int_idx = adata.obs.index.get_indexer(group_labels)
-        pseudobulk_counts[i] = raw_X[int_idx].sum(axis=0).astype(np.int64)
+        # Sum counts (handles both sparse and dense matrices)
+        pseudobulk_counts[i] = (
+            np.asarray(raw_X[int_idx].sum(axis=0)).flatten().astype(np.int64)
+        )
         # Get condition from first cell in this group
         first_int_idx = int_idx[0]
         pseudobulk_metadata.append(
