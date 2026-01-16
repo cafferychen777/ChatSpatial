@@ -57,8 +57,12 @@ async def create_spatial_cnv_visualization(
     # Validate spatial coordinates
     require_spatial_coords(adata)
 
-    # Determine feature to visualize
-    feature_to_plot = params.feature
+    # Determine feature to visualize (normalize list to single feature)
+    feature_to_plot: str | None = None
+    if params.feature is not None:
+        feature_to_plot = (
+            params.feature[0] if isinstance(params.feature, list) else params.feature
+        )
 
     # Auto-detect CNV-related features if none specified
     if not feature_to_plot:

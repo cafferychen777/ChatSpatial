@@ -143,7 +143,7 @@ def compute_rna_velocity(adata, mode="stochastic", params=None):
     return adata
 
 
-async def _prepare_velovi_data(adata, ctx: "ToolContext"):
+async def _prepare_velovi_data(adata, ctx: Optional["ToolContext"]):
     """Prepare data for VELOVI according to official standards."""
     import scvelo as scv
 
@@ -163,13 +163,15 @@ async def _prepare_velovi_data(adata, ctx: "ToolContext"):
             adata_velovi, min_shared_counts=30, n_top_genes=2000, enforce=True
         )
     except Exception as e:
-        await ctx.warning(f"scvelo preprocessing warning: {e}")
+        if ctx:
+            await ctx.warning(f"scvelo preprocessing warning: {e}")
 
     # Compute moments
     try:
         scv.pp.moments(adata_velovi, n_pcs=30, n_neighbors=30)
     except Exception as e:
-        await ctx.warning(f"moments computation warning: {e}")
+        if ctx:
+            await ctx.warning(f"moments computation warning: {e}")
 
     return adata_velovi
 

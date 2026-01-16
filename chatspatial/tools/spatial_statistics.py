@@ -249,8 +249,12 @@ async def analyze_spatial_statistics(
         require_spatial_coords(adata)
 
         # Validate cluster_key for analyses that require it (derived from registry)
-        cluster_key = None
+        cluster_key: str | None = None
         if params.analysis_type in _CLUSTER_REQUIRED_ANALYSES:
+            if params.cluster_key is None:
+                raise ParameterError(
+                    f"cluster_key is required for {params.analysis_type} analysis"
+                )
             validate_obs_column(adata, params.cluster_key, "Cluster key")
             ensure_categorical(adata, params.cluster_key)
             cluster_key = params.cluster_key
@@ -283,8 +287,8 @@ async def analyze_spatial_statistics(
         # Build results keys from registry (single source of truth)
         results_keys_dict = _build_results_keys(params.analysis_type, params.genes)
 
-        # Prepare parameters dict
-        parameters_dict = {
+        # Prepare parameters dict (heterogeneous value types)
+        parameters_dict: dict[str, int | str | list[str]] = {
             "n_neighbors": params.n_neighbors,
         }
         if cluster_key:

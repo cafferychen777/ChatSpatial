@@ -80,26 +80,16 @@ async def create_spatial_visualization(
 
     for i, feature in enumerate(features):
         ax = axes[i]
-        try:
-            mappable = plot_spatial_feature(
-                adata,
-                ax,
-                feature=feature,
-                params=params,
-                title=feature,
-            )
-            if mappable is not None and params.show_colorbar:
-                add_colorbar(fig, ax, mappable, params)
-        except Exception as e:
-            ax.text(
-                0.5,
-                0.5,
-                f"Error: {str(e)[:50]}",
-                ha="center",
-                va="center",
-                transform=ax.transAxes,
-            )
-            ax.axis("off")
+        # Let errors propagate - don't silently create placeholder images
+        mappable = plot_spatial_feature(
+            adata,
+            ax,
+            feature=feature,
+            params=params,
+            title=feature,
+        )
+        if mappable is not None and params.show_colorbar:
+            add_colorbar(fig, ax, mappable, params)
 
     plt.tight_layout()
     return fig
@@ -133,8 +123,12 @@ async def create_umap_visualization(
     if ensure_umap(adata) and context:
         await context.info("Computed UMAP embedding")
 
-    # Determine what to color by
-    color_by = params.feature
+    # Determine what to color by (normalize list to single feature)
+    color_by: str | None = None
+    if params.feature is not None:
+        color_by = (
+            params.feature[0] if isinstance(params.feature, list) else params.feature
+        )
     if color_by is None:
         # Default to first available cluster key
         color_by = get_cluster_key(adata)

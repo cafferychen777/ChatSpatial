@@ -178,10 +178,10 @@ async def save_visualization(
             viz_params_dict["dpi"] = dpi
             viz_params = VisualizationParameters(**viz_params_dict)
 
-            # Regenerate the figure
+            # Regenerate the figure (pass ToolContext, not raw MCP Context)
             adata = await ctx.get_adata(data_id)
             cached_fig = await _regenerate_figure_for_export(
-                adata, viz_params, ctx._mcp_context
+                adata, viz_params, ctx
             )
 
         except Exception as e:

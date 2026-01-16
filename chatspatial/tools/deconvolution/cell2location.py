@@ -263,6 +263,7 @@ def _build_train_kwargs(
     use_aggressive: bool,
 ) -> dict[str, Any]:
     """Build training kwargs for scvi-tools models."""
+    kwargs: dict[str, Any]  # Heterogeneous value types
     if use_aggressive:
         kwargs = {"max_epochs": epochs, "lr": lr}
         if device == "cuda":

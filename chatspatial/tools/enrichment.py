@@ -1829,6 +1829,22 @@ async def analyze_enrichment(
             "specify a valid 'gene_set_database'."
         )
 
+    # Normalize gene_sets to dict format (convert list to single gene set dict)
+    gene_sets_dict: dict[str, list[str]]
+    if isinstance(gene_sets, list):
+        gene_sets_dict = {"user_genes": gene_sets}
+    else:
+        gene_sets_dict = gene_sets
+
+    # Normalize score_keys to single string for methods that require it
+    ranking_key: str | None = None
+    if params.score_keys is not None:
+        ranking_key = (
+            params.score_keys[0]
+            if isinstance(params.score_keys, list)
+            else params.score_keys
+        )
+
     # Dispatch to appropriate method
     if params.method == "spatial_enrichmap":
         result = await perform_spatial_enrichment(
@@ -1852,8 +1868,8 @@ async def analyze_enrichment(
     elif params.method == "pathway_gsea":
         result = perform_gsea(
             adata=adata,
-            gene_sets=gene_sets,
-            ranking_key=params.score_keys,
+            gene_sets=gene_sets_dict,
+            ranking_key=ranking_key,
             permutation_num=params.n_permutations,
             min_size=params.min_genes,
             max_size=params.max_genes,
@@ -1866,7 +1882,7 @@ async def analyze_enrichment(
     elif params.method == "pathway_ora":
         result = perform_ora(
             adata=adata,
-            gene_sets=gene_sets,
+            gene_sets=gene_sets_dict,
             pvalue_threshold=params.pvalue_cutoff,
             min_size=params.min_genes,
             max_size=params.max_genes,
@@ -1879,7 +1895,7 @@ async def analyze_enrichment(
     elif params.method == "pathway_ssgsea":
         result = perform_ssgsea(
             adata=adata,
-            gene_sets=gene_sets,
+            gene_sets=gene_sets_dict,
             min_size=params.min_genes,
             max_size=params.max_genes,
             species=params.species,

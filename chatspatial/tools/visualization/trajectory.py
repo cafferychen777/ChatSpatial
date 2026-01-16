@@ -110,8 +110,12 @@ async def _create_trajectory_pseudotime_plot(
         - adata.obsm['X_umap'] or 'spatial': Embedding for visualization
         - adata.uns['velocity_graph']: Optional, for velocity stream panel
     """
-    # Find pseudotime key
-    pseudotime_key = params.feature
+    # Find pseudotime key (normalize list to single feature)
+    pseudotime_key: str | None = None
+    if params.feature is not None:
+        pseudotime_key = (
+            params.feature[0] if isinstance(params.feature, list) else params.feature
+        )
     if not pseudotime_key:
         pseudotime_candidates = [
             k for k in adata.obs.columns if "pseudotime" in k.lower()

@@ -85,7 +85,7 @@ async def visualize_data(
     data_id: str,
     ctx: "ToolContext",
     params: VisualizationParameters = VisualizationParameters(),
-) -> Union[ImageContent, tuple[ImageContent, EmbeddedResource]]:
+) -> Union[ImageContent, tuple[ImageContent, EmbeddedResource], str]:
     """Visualize spatial transcriptomics data.
 
     Args:
@@ -124,9 +124,9 @@ async def visualize_data(
         # Set matplotlib style for better visualizations
         sc.settings.set_figure_params(dpi=params.dpi or 100, facecolor="white")
 
-        # Dispatch to appropriate handler
+        # Dispatch to appropriate handler (pass ToolContext, not raw MCP Context)
         handler = PLOT_HANDLERS[params.plot_type]
-        fig = await handler(adata, params, ctx._mcp_context)
+        fig = await handler(adata, params, ctx)
 
         # Generate plot_type_key with subtype if applicable (for cache consistency)
         subtype = params.subtype
@@ -136,7 +136,7 @@ async def visualize_data(
         return await optimize_fig_to_image_with_cache(
             fig,
             params,
-            ctx._mcp_context,
+            ctx,
             data_id=data_id,
             plot_type=plot_type_key,
             mode="auto",

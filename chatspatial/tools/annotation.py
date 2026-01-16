@@ -103,10 +103,12 @@ async def _annotate_with_singler(
     require("singlecellexperiment", ctx, feature="SingleR annotation")
     import singler
 
-    # Optional: check for celldex
-    celldex = None
+    # Optional: check for celldex (import to module-level alias to avoid redef)
+    celldex_module: Any = None
     if is_available("celldex"):
-        import celldex
+        import celldex as _celldex_mod
+
+        celldex_module = _celldex_mod
 
     # Get expression matrix - prefer normalized data
     # IMPORTANT: Ensure test_mat dimensions match adata.var_names (used in test_features)
@@ -144,8 +146,10 @@ async def _annotate_with_singler(
     ref_features_to_use = None  # Only set when using custom reference (not celldex)
 
     # Priority: reference_name > reference_data_id > default
-    if reference_name and celldex:
-        ref = celldex.fetch_reference(reference_name, "2024-02-26", realize_assays=True)
+    if reference_name and celldex_module:
+        ref = celldex_module.fetch_reference(
+            reference_name, "2024-02-26", realize_assays=True
+        )
         # Get labels
         for label_col in ["label.main", "label.fine", "cell_type"]:
             try:
@@ -196,6 +200,10 @@ async def _annotate_with_singler(
         # Get labels from reference - check various common column names
         # cell_type_key is now required (no default value)
         cell_type_key = params.cell_type_key
+        if cell_type_key is None:
+            raise ParameterError(
+                "cell_type_key is required for SingleR annotation with custom reference"
+            )
 
         validate_obs_column(reference_adata, cell_type_key, "Cell type")
 
@@ -206,9 +214,9 @@ async def _annotate_with_singler(
         ref_data = ref_mat
         ref_features_to_use = ref_features  # Keep reference features for gene matching
 
-    elif celldex:
+    elif celldex_module:
         # Use default reference
-        ref = celldex.fetch_reference(
+        ref = celldex_module.fetch_reference(
             "blueprint_encode", "2024-02-26", realize_assays=True
         )
         ref_labels = ref.get_column_data().column("label.main")
@@ -413,7 +421,7 @@ async def _annotate_with_tangram(
         device = "cpu"
 
     # Run Tangram mapping with enhanced parameters
-    mapping_args = {
+    mapping_args: dict[str, str | int | float | None] = {
         "mode": mode,
         "num_epochs": params.num_epochs,
         "device": device,
@@ -522,9 +530,9 @@ async def _annotate_with_tangram(
         # Continue without projection
 
     # Get cell type predictions (keys provided by caller for single-point control)
-    cell_types = []
-    counts = {}
-    confidence_scores = {}
+    cell_types: list[str] = []
+    counts: dict[str, int] = {}
+    confidence_scores: dict[str, float] = {}
 
     if "tangram_ct_pred" in adata_sp.obsm:
         cell_type_df = adata_sp.obsm["tangram_ct_pred"]
@@ -1415,8 +1423,8 @@ async def annotate_cell_types(
             "fine_tune": params.singler_fine_tune,
         }
 
-    # Prepare statistics dict
-    statistics_dict = {"n_cell_types": len(cell_types)}
+    # Prepare statistics dict (heterogeneous value types)
+    statistics_dict: dict[str, int | float] = {"n_cell_types": len(cell_types)}
     if tangram_mapping_score is not None:
         statistics_dict["mapping_score"] = tangram_mapping_score
 

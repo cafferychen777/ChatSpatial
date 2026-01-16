@@ -304,8 +304,15 @@ async def _create_enrichment_spatial(
                 sig_name = score.replace("_score", "")
                 ax.set_title(f"{sig_name} Enrichment")
     else:
-        # Single score visualization
-        score_col = _resolve_score_column(adata, params.feature, score_cols)
+        # Single score visualization (normalize list to single feature)
+        feature_single: str | None = None
+        if params.feature is not None:
+            feature_single = (
+                params.feature[0]
+                if isinstance(params.feature, list)
+                else params.feature
+            )
+        score_col = _resolve_score_column(adata, feature_single, score_cols)
         if context:
             await context.info(f"Using score column: {score_col}")
 
