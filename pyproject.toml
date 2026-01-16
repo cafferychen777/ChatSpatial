@@ -214,6 +214,18 @@ target-version = ["py311"]
 profile = "black"
 line_length = 88
 
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_ignores = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["chatspatial", "chatspatial.*"]

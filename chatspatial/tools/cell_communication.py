@@ -118,6 +118,7 @@ async def analyze_cell_communication(
         from ..utils.adata_utils import store_analysis_metadata
 
         # Determine database used
+        database: str  # Explicit type to allow dynamic strings
         if params.method == "liana":
             database = params.liana_resource
         elif params.method == "cellphonedb":
@@ -134,7 +135,7 @@ async def analyze_cell_communication(
             database = "unknown"
 
         # Extract results keys
-        results_keys_dict = {"obs": [], "obsm": [], "uns": []}
+        results_keys_dict: dict[str, list[str]] = {"obs": [], "obsm": [], "uns": []}
 
         if result_data.get("liana_results_key"):
             results_keys_dict["uns"].append(result_data["liana_results_key"])
@@ -200,8 +201,6 @@ async def analyze_cell_communication(
             patterns_identified=result_data.get("patterns_identified", False),
             n_patterns=result_data.get("n_patterns"),
             patterns_key=result_data.get("patterns_key"),
-            visualization=None,  # Use visualize_data tool instead
-            network_visualization=None,  # Use visualize_data tool instead
             statistics=result_data.get("statistics", {}),
         )
 
@@ -514,7 +513,8 @@ def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
     # Fix macOS SSL certificate issue: patch urllib to use certifi certificates
     # CellPhoneDB uses urllib.request.urlopen which fails on macOS without this fix
     original_https_context = ssl._create_default_https_context
-    ssl._create_default_https_context = lambda: ssl.create_default_context(
+    # Monkeypatch to use certifi certificates - type mismatch is expected
+    ssl._create_default_https_context = lambda: ssl.create_default_context(  # type: ignore[misc,assignment]
         cafile=certifi.where()
     )
 
@@ -835,7 +835,7 @@ async def _analyze_communication_cellphonedb(
         # Add correction statistics (useful for understanding results)
         # When correction_method != "none", n_uncorrected_sig and n_corrected_sig
         # are always defined in the else branch above (lines 1008-1009)
-        correction_stats = {}
+        correction_stats: dict[str, int | float] = {}
         if correction_method != "none":
             correction_stats["n_uncorrected_significant"] = int(n_uncorrected_sig)
             correction_stats["n_corrected_significant"] = int(n_corrected_sig)

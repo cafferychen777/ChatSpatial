@@ -10,6 +10,7 @@ import sys
 import traceback
 import warnings
 from pathlib import Path
+from typing import Literal, cast
 
 import click
 
@@ -120,11 +121,13 @@ def server(port: int, transport: str, host: str, log_level: str):
         # Set server settings
         mcp.settings.host = host
         mcp.settings.port = port
-        mcp.settings.log_level = log_level
+        mcp.settings.log_level = cast(
+            Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], log_level
+        )
 
         # Run the server with the specified transport
         # This is the recommended way to run a FastMCP server
-        mcp.run(transport=transport)
+        mcp.run(transport=cast(Literal["stdio", "sse", "streamable-http"], transport))
 
     except Exception as e:
         print(f"Error starting MCP server: {e}", file=sys.stderr)
