@@ -698,7 +698,8 @@ def _analyze_getis_ord(
         # This provides 50-150x speedup by avoiding repeated AnnData slicing overhead
         y_all_genes = to_dense(adata[:, genes].X)
 
-        # Collect all p-values for multiple testing correction
+        # Collect all results for batch assignment (avoids DataFrame fragmentation)
+        all_z_scores = {}
         all_pvalues = {}
 
         for i, gene in enumerate(genes):
@@ -707,11 +708,8 @@ def _analyze_getis_ord(
 
             local_g = G_Local(y, w, transform="R", star=True)
 
-            # Store raw results in adata.obs
-            adata.obs[f"{gene}_getis_ord_z"] = local_g.Zs
-            adata.obs[f"{gene}_getis_ord_p"] = local_g.p_sim
-
-            # Store p-values for correction
+            # Collect results (don't assign to obs yet - causes fragmentation)
+            all_z_scores[gene] = local_g.Zs
             all_pvalues[gene] = local_g.p_sim
 
             # Count hotspots/coldspots using Z-threshold
@@ -725,6 +723,12 @@ def _analyze_getis_ord(
                 ),
             }
 
+        # Batch assign z-scores and p-values to adata.obs (avoids fragmentation)
+        obs_updates = {}
+        for gene in genes:
+            obs_updates[f"{gene}_getis_ord_z"] = all_z_scores[gene]
+            obs_updates[f"{gene}_getis_ord_p"] = all_pvalues[gene]
+
         # Apply multiple testing correction if requested
         if params.getis_ord_correction != "none" and len(genes) > 1:
             if params.getis_ord_correction == "bonferroni":
@@ -733,11 +737,11 @@ def _analyze_getis_ord(
 
                 for gene in genes:
                     p_values = all_pvalues[gene]
-                    adata.obs[f"{gene}_getis_ord_p_corrected"] = np.minimum(
+                    obs_updates[f"{gene}_getis_ord_p_corrected"] = np.minimum(
                         p_values * len(genes), 1.0
                     )
 
-                    z_scores = adata.obs[f"{gene}_getis_ord_z"].values
+                    z_scores = all_z_scores[gene]
                     getis_ord_results[gene]["n_hot_spots_corrected"] = int(
                         np.sum(z_scores > corrected_z_threshold)
                     )
@@ -753,13 +757,13 @@ def _analyze_getis_ord(
                     _, p_corrected, _, _ = multipletests(
                         p_values, alpha=params.getis_ord_alpha, method="fdr_bh"
                     )
-                    adata.obs[f"{gene}_getis_ord_p_corrected"] = p_corrected
+                    obs_updates[f"{gene}_getis_ord_p_corrected"] = p_corrected
 
                     getis_ord_results[gene]["n_significant_corrected"] = int(
                         np.sum(p_corrected < params.getis_ord_alpha)
                     )
 
-                    z_scores = adata.obs[f"{gene}_getis_ord_z"].values
+                    z_scores = all_z_scores[gene]
                     significant_mask = p_corrected < params.getis_ord_alpha
                     getis_ord_results[gene]["n_hot_spots_corrected"] = int(
                         np.sum((z_scores > z_threshold) & significant_mask)
@@ -767,6 +771,13 @@ def _analyze_getis_ord(
                     getis_ord_results[gene]["n_cold_spots_corrected"] = int(
                         np.sum((z_scores < -z_threshold) & significant_mask)
                     )
+
+        # Single batch update to adata.obs (avoids DataFrame fragmentation warning)
+        import pandas as pd
+
+        new_cols_df = pd.DataFrame(obs_updates, index=adata.obs.index)
+        for col in new_cols_df.columns:
+            adata.obs[col] = new_cols_df[col]
 
     except Exception as e:
         raise ProcessingError(f"Getis-Ord analysis failed: {e}") from e
@@ -1089,6 +1100,7 @@ def _analyze_local_join_count(
         n_categories = len(categories)
 
         results = {}
+        obs_updates = {}  # Collect all obs updates for batch assignment
 
         # Analyze each category separately
         for category in categories:
@@ -1098,9 +1110,9 @@ def _analyze_local_join_count(
             # Compute Local Join Count statistics
             ljc = Join_Counts_Local(connectivity=w).fit(y)
 
-            # Store local statistics in adata.obs
-            adata.obs[f"ljc_{category}"] = ljc.LJC
-            adata.obs[f"ljc_{category}_pvalue"] = ljc.p_sim
+            # Collect results (don't assign to obs yet - avoids fragmentation)
+            obs_updates[f"ljc_{category}"] = ljc.LJC
+            obs_updates[f"ljc_{category}_pvalue"] = ljc.p_sim
 
             # Compute summary statistics
             results[str(category)] = {
@@ -1110,6 +1122,13 @@ def _analyze_local_join_count(
                 "n_significant": int((ljc.p_sim < 0.05).sum()),
                 "n_hotspots": int(((ljc.LJC > 0) & (ljc.p_sim < 0.05)).sum()),
             }
+
+        # Batch update adata.obs (avoids DataFrame fragmentation)
+        import pandas as pd
+
+        new_cols_df = pd.DataFrame(obs_updates, index=adata.obs.index)
+        for col in new_cols_df.columns:
+            adata.obs[col] = new_cols_df[col]
 
         # Store summary in adata.uns
         adata.uns["local_join_count"] = {

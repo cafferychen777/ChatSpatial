@@ -273,41 +273,47 @@ async def differential_expression(
 
     # CRITICAL: Normalize by library size to avoid composition bias
     # Library size = total UMI counts per spot
-    if hasattr(raw_adata.X, "toarray"):
-        lib_sizes = np.array(raw_adata.X.sum(axis=1)).flatten()
-    else:
-        lib_sizes = raw_adata.X.sum(axis=1).flatten()
+    # Use np.asarray + ravel for efficient conversion (avoids extra copy)
+    lib_sizes = np.asarray(raw_adata.X.sum(axis=1)).ravel()
 
     median_lib_size = float(np.median(lib_sizes))
 
-    # Calculate fold change for each top gene
-    for gene in top_genes:
-        if gene in raw_adata.var_names:
-            gene_idx = raw_adata.var_names.get_loc(gene)
+    # Calculate fold change for all top genes (batch + vectorized)
+    # Pre-filter genes that exist in raw data using set for O(1) lookup
+    var_names_set = set(raw_adata.var_names)
+    genes_in_raw = [g for g in top_genes if g in var_names_set]
+    genes_missing = [g for g in top_genes if g not in var_names_set]
 
-            # Get raw counts for this gene
-            gene_raw_counts = to_dense(raw_adata.X[:, gene_idx]).flatten()
+    # Warn about missing genes once (not per-gene in loop)
+    if genes_missing:
+        await ctx.warning(
+            f"{len(genes_missing)} genes not found in raw data, "
+            "skipping fold change calculation for them"
+        )
 
-            # Normalize by library size (CPM-like normalization)
-            # normalized_counts = raw_counts * (median_lib_size / spot_lib_size)
-            gene_norm_counts = gene_raw_counts * (median_lib_size / lib_sizes)
+    if genes_in_raw:
+        # Batch extract expression matrix for all genes at once
+        gene_expr_matrix = to_dense(raw_adata[:, genes_in_raw].X)  # cells × genes
 
-            # Calculate mean normalized counts for each group
-            mean_group1 = float(gene_norm_counts[group1_mask].mean())
-            mean_group2 = float(gene_norm_counts[group2_mask].mean())
+        # Vectorized normalization by library size
+        lib_size_factors = median_lib_size / lib_sizes
+        gene_norm_matrix = gene_expr_matrix * lib_size_factors[:, np.newaxis]
 
-            # Calculate true log2 fold change from normalized counts
-            # Add user-configurable pseudocount to avoid log(0)
-            true_log2fc = np.log2(
-                (mean_group1 + pseudocount) / (mean_group2 + pseudocount)
-            )
-            log2fc_values.append(float(true_log2fc))
-        else:
-            # Gene not in raw data (should not happen, but handle gracefully)
-            await ctx.warning(
-                f"Gene {gene} not found in raw data, skipping fold change calculation"
-            )
-            log2fc_values.append(None)
+        # Vectorized mean calculation for each group
+        mean_group1 = gene_norm_matrix[group1_mask].mean(axis=0)
+        mean_group2 = gene_norm_matrix[group2_mask].mean(axis=0)
+
+        # Vectorized log2 fold change calculation
+        log2fc_array = np.log2(
+            (mean_group1 + pseudocount) / (mean_group2 + pseudocount)
+        )
+
+        # Build result dict mapping gene -> log2fc
+        gene_to_log2fc = dict(zip(genes_in_raw, log2fc_array.astype(float)))
+        # Preserve order of top_genes, None for missing genes
+        log2fc_values = [gene_to_log2fc.get(g) for g in top_genes]
+    else:
+        log2fc_values = [None] * len(top_genes)
 
     # Calculate mean log2fc (filtering out None values)
     valid_log2fc = [fc for fc in log2fc_values if fc is not None]
