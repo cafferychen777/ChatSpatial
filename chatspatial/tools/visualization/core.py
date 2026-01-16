@@ -527,7 +527,7 @@ def plot_spatial_feature(
         ScalarMappable for colorbar creation, or None for categorical data
     """
     if params is None:
-        params = VisualizationParameters()  # type: ignore[call-arg]
+        params = VisualizationParameters()
 
     # Get spatial coordinates
     coords = require_spatial_coords(adata, spatial_key=spatial_key)

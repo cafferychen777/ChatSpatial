@@ -554,8 +554,7 @@ def _infer_cnv_numbat(
 
         # Get clone distribution
         clone_counts = clone_post["clone_opt"].value_counts()
-        # Type: ignore needed because mypy doesn't infer Dict[str, Any] correctly
-        statistics["clone_distribution"] = {  # type: ignore[assignment]
+        statistics["clone_distribution"] = {
             str(clone): int(count) for clone, count in clone_counts.items()
         }
 

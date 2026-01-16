@@ -76,9 +76,7 @@ async def preprocess_data(
 
         # Standardize data format at the entry point
         try:
-            adata = standardize_adata(
-                adata, copy=False, strict=False, preserve_original=True
-            )
+            adata = standardize_adata(adata, copy=False)
         except Exception as e:
             await ctx.warning(
                 f"Data standardization failed: {e}. Proceeding with original data."

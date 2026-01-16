@@ -337,7 +337,7 @@ def perform_gsea(
     max_size: int = 500,
     species: Optional[str] = None,
     database: Optional[str] = None,
-    ctx: "ToolContext" = None,
+    ctx: Optional["ToolContext"] = None,
 ) -> "EnrichmentResult":
     """
     Perform Gene Set Enrichment Analysis (GSEA).
@@ -588,7 +588,7 @@ def perform_ora(
     max_size: int = 500,
     species: Optional[str] = None,
     database: Optional[str] = None,
-    ctx: "ToolContext" = None,
+    ctx: Optional["ToolContext"] = None,
 ) -> "EnrichmentResult":
     """
     Perform Over-Representation Analysis (ORA).
@@ -832,7 +832,7 @@ def perform_ssgsea(
     max_size: int = 500,
     species: Optional[str] = None,
     database: Optional[str] = None,
-    ctx: "ToolContext" = None,
+    ctx: Optional["ToolContext"] = None,
 ) -> "EnrichmentResult":
     """
     Perform single-sample Gene Set Enrichment Analysis (ssGSEA).
@@ -942,11 +942,11 @@ def perform_ssgsea(
                 if isinstance(sample_df, pd.DataFrame) and "Term" in sample_df.columns:
                     all_gene_sets.update(sample_df["Term"].values)
 
-            all_gene_sets = list(all_gene_sets)
+            all_gene_sets_list = list(all_gene_sets)
 
             # Create scores matrix
             scores_matrix = pd.DataFrame(
-                index=all_gene_sets, columns=all_samples, dtype=float
+                index=all_gene_sets_list, columns=all_samples, dtype=float
             )
 
             # Fill in scores - vectorized (30x faster than iterrows)
@@ -957,7 +957,7 @@ def perform_ssgsea(
                     and "ES" in df.columns
                 ):
                     sample_scores = df.set_index("Term")["ES"]
-                    scores_matrix[sample] = sample_scores.reindex(all_gene_sets)
+                    scores_matrix[sample] = sample_scores.reindex(all_gene_sets_list)
 
             scores_df = scores_matrix.fillna(0)  # Fill missing values with 0
         else:
@@ -1050,7 +1050,7 @@ def perform_enrichr(
     gene_list: list[str],
     gene_sets: Optional[str] = None,
     organism: str = "human",
-    ctx: "ToolContext" = None,
+    ctx: Optional["ToolContext"] = None,
 ) -> "EnrichmentResult":
     """
     Perform enrichment analysis using Enrichr web service.
@@ -1073,9 +1073,10 @@ def perform_enrichr(
     require("gseapy", ctx, feature="Enrichr analysis")
     import gseapy as gp
 
-    # Default gene set libraries
+    # Default gene set libraries - use separate variable for list
+    gene_sets_list: list[str]
     if gene_sets is None:
-        gene_sets = [
+        gene_sets_list = [
             "GO_Biological_Process_2023",
             "GO_Molecular_Function_2023",
             "GO_Cellular_Component_2023",
@@ -1083,16 +1084,16 @@ def perform_enrichr(
             "Reactome_2022",
             "MSigDB_Hallmark_2020",
         ]
-    elif isinstance(gene_sets, str):
+    else:
         # Map user-friendly database name to actual Enrichr library name
         enrichr_library = map_gene_set_database_to_enrichr_library(gene_sets, organism)
-        gene_sets = [enrichr_library]
+        gene_sets_list = [enrichr_library]
 
     # Run Enrichr
     try:
         enr = gp.enrichr(
             gene_list=gene_list,
-            gene_sets=gene_sets,
+            gene_sets=gene_sets_list,
             organism=organism.capitalize(),
             outdir=None,
             cutoff=0.05,
@@ -1257,16 +1258,25 @@ async def perform_spatial_enrichment(
         )
 
     # Convert single gene list to dictionary format
+    gene_sets_dict: dict[str, list[str]]
     if isinstance(gene_sets, list):
+        # For a single gene list, score_keys should be a string name
         if score_keys is None:
-            score_keys = "enrichmap_signature"
-        gene_sets = {score_keys: gene_sets}
+            sig_name = "enrichmap_signature"
+        elif isinstance(score_keys, str):
+            sig_name = score_keys
+        else:
+            # If score_keys is a list, use the first element
+            sig_name = score_keys[0] if score_keys else "enrichmap_signature"
+        gene_sets_dict = {sig_name: gene_sets}
+    else:
+        gene_sets_dict = gene_sets
 
     # Validate gene sets with format conversion
     available_genes = set(adata.var_names)
     validated_gene_sets = {}
 
-    for sig_name, genes in gene_sets.items():
+    for sig_name, genes in gene_sets_dict.items():
         # Try direct matching first
         common_genes = [gene for gene in genes if gene in available_genes]
 
@@ -1293,7 +1303,7 @@ async def perform_spatial_enrichment(
     if not validated_gene_sets:
         raise ProcessingError(
             f"No valid gene signatures found (≥2 genes). "
-            f"Dataset: {len(available_genes)} genes, requested: {len(gene_sets)} signatures. "
+            f"Dataset: {len(available_genes)} genes, requested: {len(gene_sets_dict)} signatures. "
             f"Check species (human/mouse) and gene name format."
         )
 
@@ -1681,7 +1691,7 @@ def load_gene_sets(
     species: str = "human",
     min_genes: int = 10,
     max_genes: int = 500,
-    ctx: "ToolContext" = None,
+    ctx: Optional["ToolContext"] = None,
 ) -> dict[str, list[str]]:
     """
     Load gene sets from specified database.

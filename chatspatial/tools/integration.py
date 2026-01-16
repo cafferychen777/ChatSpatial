@@ -785,6 +785,4 @@ async def integrate_samples(
         data_id=integrated_id,
         n_samples=len(data_ids),
         integration_method=params.method,
-        umap_visualization=None,  # Use visualize_data tool instead
-        spatial_visualization=None,  # Use visualize_data tool instead
     )

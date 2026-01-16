@@ -409,8 +409,11 @@ async def register_spatial_slices_mcp(
     source_adata = await ctx.get_adata(source_id)
     target_adata = await ctx.get_adata(target_id)
 
-    # Create parameters
-    params = RegistrationParameters(method=method)
+    # Create parameters - cast method to Literal type
+    from typing import Literal, cast
+
+    method_literal = cast(Literal["paste", "stalign"], method)
+    params = RegistrationParameters(method=method_literal)
 
     try:
         registered = register_slices([source_adata, target_adata], params)

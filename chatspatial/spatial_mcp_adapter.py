@@ -327,10 +327,18 @@ class DefaultSpatialDataManager:
         self, path: str, data_type: str, name: Optional[str] = None
     ) -> str:
         """Load a spatial dataset and return its ID"""
+        from typing import Literal, cast
+
         from .utils.data_loader import load_spatial_data
 
-        # Load data
-        dataset_info = await load_spatial_data(path, data_type, name)
+        # Load data - cast data_type to expected Literal type
+        data_type_literal = cast(
+            Literal[
+                "10x_visium", "slide_seq", "merfish", "seqfish", "other", "auto", "h5ad"
+            ],
+            data_type,
+        )
+        dataset_info = await load_spatial_data(path, data_type_literal, name)
 
         # Generate ID
         data_id = f"data_{self._next_id}"

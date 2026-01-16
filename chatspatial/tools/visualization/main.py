@@ -84,7 +84,7 @@ PLOT_HANDLERS = {
 async def visualize_data(
     data_id: str,
     ctx: "ToolContext",
-    params: VisualizationParameters = VisualizationParameters(),  # type: ignore[call-arg]
+    params: VisualizationParameters = VisualizationParameters(),
 ) -> Union[ImageContent, tuple[ImageContent, EmbeddedResource]]:
     """Visualize spatial transcriptomics data.
 

@@ -5,7 +5,7 @@ Main server implementation for ChatSpatial using the Spatial MCP Adapter.
 import os
 import sys
 import warnings
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union, cast
 
 # Suppress warnings to speed up startup
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -24,7 +24,7 @@ except ImportError:
     pass
 
 from mcp.server.fastmcp import Context  # noqa: E402
-from mcp.types import ImageContent  # noqa: E402
+from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
 
 from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
@@ -274,7 +274,8 @@ async def compute_embeddings(
     from .tools.embeddings import EmbeddingParameters
     from .tools.embeddings import compute_embeddings as compute_embeddings_func
 
-    # Create parameters
+    # Create parameters - cast clustering_method to Literal type
+    clustering_method_literal = cast(Literal["leiden", "louvain"], clustering_method)
     params = EmbeddingParameters(
         compute_pca=compute_pca,
         compute_neighbors=compute_neighbors,
@@ -285,7 +286,7 @@ async def compute_embeddings(
         n_pcs=n_pcs,
         n_neighbors=n_neighbors,
         clustering_resolution=clustering_resolution,
-        clustering_method=clustering_method,
+        clustering_method=clustering_method_literal,
         force=force,
     )
 
@@ -305,8 +306,8 @@ async def visualize_data(
     params: VisualizationParameters = VisualizationParameters(),
     context: Optional[Context] = None,
 ) -> Union[
-    ImageContent, str
-]:  # Simplified: ImageContent or str (MCP 2025 best practice)
+    ImageContent, str, tuple[ImageContent, EmbeddedResource]
+]:  # ImageContent, str for errors, or tuple with embedded resource
     """Visualize spatial transcriptomics data
 
     Args:
@@ -1562,6 +1563,12 @@ async def analyze_enrichment(
 
     # Create ToolContext
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
+    # Use default parameters if not provided (species is required by analyze_enrichment_func)
+    if params is None:
+        raise ValueError(
+            "EnrichmentParameters is required. Please specify at least 'species' parameter."
+        )
 
     # Call enrichment analysis (all business logic is in tools/enrichment.py)
     result = await analyze_enrichment_func(data_id, ctx, params)
