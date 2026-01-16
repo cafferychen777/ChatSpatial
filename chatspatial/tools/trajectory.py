@@ -20,6 +20,8 @@ from ..models.analysis import TrajectoryResult
 from ..models.data import TrajectoryParameters
 from ..utils.adata_utils import (
     get_spatial_key,
+    has_velovi_essential_data,
+    reconstruct_velovi_adata,
     require_spatial_coords,
     validate_obs_column,
 )
@@ -126,20 +128,14 @@ def infer_spatial_trajectory_cellrank(
 
     # Handle different velocity methods
     if "velocity_method" in adata.uns and adata.uns["velocity_method"] == "velovi":
-        if "velovi_adata" in adata.uns:
-            adata_for_cellrank = adata.uns["velovi_adata"]
-            if has_spatial:
-                adata_for_cellrank.obsm["spatial"] = adata.obsm[spatial_key]
-
-            if "velocity_velovi" in adata_for_cellrank.layers:
-                adata_for_cellrank.layers["velocity"] = adata_for_cellrank.layers[
-                    "velocity_velovi"
-                ]
-
-            vk = cr.kernels.VelocityKernel(adata_for_cellrank)
-            vk.compute_transition_matrix()
-        else:
-            raise ProcessingError("VELOVI velocity data not found")
+        # Reconstruct velovi adata from essential data stored in uns
+        if not has_velovi_essential_data(adata):
+            raise ProcessingError(
+                "VELOVI velocity data not found. Run analyze_velocity_data first."
+            )
+        adata_for_cellrank = reconstruct_velovi_adata(adata)
+        vk = cr.kernels.VelocityKernel(adata_for_cellrank)
+        vk.compute_transition_matrix()
     else:
         adata_for_cellrank = adata
         vk = cr.kernels.VelocityKernel(adata_for_cellrank)
@@ -224,12 +220,9 @@ def infer_spatial_trajectory_cellrank(
     if "fate_probabilities" in adata_for_cellrank.obsm:
         adata.obsm["fate_probabilities"] = adata_for_cellrank.obsm["fate_probabilities"]
 
-    # Update velovi_adata if used
-    if (
-        adata.uns.get("velocity_method") == "velovi"
-        and "velovi_adata" in adata.uns
-    ):
-        adata.uns["velovi_adata"] = adata_for_cellrank
+    # Note: With optimized storage, velovi data is stored as individual arrays
+    # in uns (velovi_velocity, velovi_Ms, etc.) rather than a full adata copy.
+    # Results are already transferred to original adata above.
 
     return adata
 
@@ -339,8 +332,8 @@ def has_velocity_data(adata) -> bool:
     """Check if RNA velocity has been computed (by any method)."""
     return (
         "velocity_graph" in adata.uns
-        or "velovi_adata" in adata.uns
         or "velocity_method" in adata.uns
+        or has_velovi_essential_data(adata)
     )
 
 
