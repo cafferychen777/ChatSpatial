@@ -514,6 +514,13 @@ def reconstruct_velovi_adata(adata: "ad.AnnData") -> "ad.AnnData":
     if "velovi_distances" in adata.uns:
         adata_velovi.obsp["distances"] = adata.uns["velovi_distances"]
 
+    # Add neighbors metadata (required by CellRank)
+    adata_velovi.uns["neighbors"] = {
+        "connectivities_key": "connectivities",
+        "distances_key": "distances",
+        "params": {"method": "umap"},
+    }
+
     # Add spatial coordinates if available
     spatial_key = get_spatial_key(adata)
     if spatial_key and spatial_key in adata.obsm:

@@ -76,8 +76,10 @@ def preprocess_for_velocity(
         raise DataError(f"Invalid velocity data: {e}") from e
 
     # Standard preprocessing with configurable parameters
+    # enforce=True ensures scvelo recomputes everything even if data was pre-normalized
+    # This is important when running after MCP's general preprocessing step
     scv.pp.filter_and_normalize(
-        adata, min_shared_counts=min_shared_counts, n_top_genes=n_top_genes
+        adata, min_shared_counts=min_shared_counts, n_top_genes=n_top_genes, enforce=True
     )
     scv.pp.moments(adata, n_pcs=n_pcs, n_neighbors=n_neighbors)
 
@@ -152,9 +154,10 @@ async def _prepare_velovi_data(adata, ctx: "ToolContext"):
         raise DataNotFoundError("Missing required 'spliced' and 'unspliced' layers")
 
     # scvelo preprocessing
+    # enforce=True ensures scvelo recomputes everything even if data was pre-normalized
     try:
         scv.pp.filter_and_normalize(
-            adata_velovi, min_shared_counts=30, n_top_genes=2000, enforce=False
+            adata_velovi, min_shared_counts=30, n_top_genes=2000, enforce=True
         )
     except Exception as e:
         await ctx.warning(f"scvelo preprocessing warning: {e}")
