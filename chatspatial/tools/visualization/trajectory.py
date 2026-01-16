@@ -153,72 +153,42 @@ async def _create_trajectory_pseudotime_plot(
 
     # Panel 1: Pseudotime plot
     ax1 = axes[0]
-    try:
-        sc.pl.embedding(
-            adata,
-            basis=basis,
-            color=pseudotime_key,
-            cmap=params.colormap,
-            ax=ax1,
-            show=False,
-            frameon=params.show_axes,
-            alpha=params.alpha,
-            colorbar_loc="right" if params.show_colorbar else None,
-        )
+    # Let errors propagate - don't silently create placeholder images
+    sc.pl.embedding(
+        adata,
+        basis=basis,
+        color=pseudotime_key,
+        cmap=params.colormap,
+        ax=ax1,
+        show=False,
+        frameon=params.show_axes,
+        alpha=params.alpha,
+        colorbar_loc="right" if params.show_colorbar else None,
+    )
 
-        if basis == "spatial":
-            ax1.invert_yaxis()
-
-    except Exception as e:
-        ax1.text(
-            0.5,
-            0.5,
-            f"Error plotting pseudotime:\n{e}",
-            ha="center",
-            va="center",
-            transform=ax1.transAxes,
-        )
-        ax1.set_title("Pseudotime (Error)", fontsize=12)
+    if basis == "spatial":
+        ax1.invert_yaxis()
 
     # Panel 2: Velocity stream plot (if available)
     if has_velocity and n_panels > 1:
         ax2 = axes[1]
-        try:
-            import scvelo as scv
+        # Let errors propagate - don't silently create placeholder images
+        import scvelo as scv
 
-            scv.pl.velocity_embedding_stream(
-                adata,
-                basis=basis,
-                color=pseudotime_key,
-                cmap=params.colormap,
-                ax=ax2,
-                show=False,
-                alpha=params.alpha,
-                frameon=params.show_axes,
-            )
-            ax2.set_title("RNA Velocity Stream", fontsize=12)
+        scv.pl.velocity_embedding_stream(
+            adata,
+            basis=basis,
+            color=pseudotime_key,
+            cmap=params.colormap,
+            ax=ax2,
+            show=False,
+            alpha=params.alpha,
+            frameon=params.show_axes,
+        )
+        ax2.set_title("RNA Velocity Stream", fontsize=12)
 
-            if basis == "spatial":
-                ax2.invert_yaxis()
-
-        except ImportError:
-            ax2.text(
-                0.5,
-                0.5,
-                "scvelo not installed",
-                ha="center",
-                va="center",
-                transform=ax2.transAxes,
-            )
-        except Exception as e:
-            ax2.text(
-                0.5,
-                0.5,
-                f"Error: {str(e)[:50]}",
-                ha="center",
-                va="center",
-                transform=ax2.transAxes,
-            )
+        if basis == "spatial":
+            ax2.invert_yaxis()
 
     plt.tight_layout(rect=(0, 0, 1, 0.95))
     return fig

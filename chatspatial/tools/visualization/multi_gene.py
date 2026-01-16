@@ -81,78 +81,66 @@ async def create_multi_gene_visualization(
     for i, gene in enumerate(available_genes):
         if i < len(axes):
             ax = axes[i]
-            try:
-                # Get gene expression using unified utility
-                gene_expr = get_gene_expression(adata, gene)
+            # Let errors propagate - don't silently create placeholder images
+            # Get gene expression using unified utility
+            gene_expr = get_gene_expression(adata, gene)
 
-                # Apply color scaling
-                if params.color_scale == "log":
-                    gene_expr = np.log1p(gene_expr)
-                elif params.color_scale == "sqrt":
-                    gene_expr = np.sqrt(gene_expr)
+            # Apply color scaling
+            if params.color_scale == "log":
+                gene_expr = np.log1p(gene_expr)
+            elif params.color_scale == "sqrt":
+                gene_expr = np.sqrt(gene_expr)
 
-                # Add temporary column
-                adata.obs[temp_feature_key] = gene_expr
+            # Add temporary column
+            adata.obs[temp_feature_key] = gene_expr
 
-                # Create spatial plot
-                if "spatial" in adata.obsm:
-                    plot_spatial_feature(
-                        adata,
-                        ax=ax,
-                        feature=temp_feature_key,
-                        params=params,
-                        show_colorbar=False,
-                    )
-
-                    # Set color limits
-                    vmin = (
-                        params.vmin
-                        if params.vmin is not None
-                        else np.percentile(gene_expr, 1)
-                    )
-                    vmax = (
-                        params.vmax
-                        if params.vmax is not None
-                        else np.percentile(gene_expr, 99)
-                    )
-
-                    # Update colorbar limits
-                    scatter = ax.collections[0] if ax.collections else None
-                    if scatter:
-                        scatter.set_clim(vmin, vmax)
-
-                        # Add colorbar
-                        if params.show_colorbar:
-                            divider = make_axes_locatable(ax)
-                            cax = divider.append_axes(
-                                "right",
-                                size=params.colorbar_size,
-                                pad=params.colorbar_pad,
-                            )
-                            plt.colorbar(scatter, cax=cax)
-
-                    ax.invert_yaxis()
-                    if params.add_gene_labels:
-                        ax.set_title(gene, fontsize=12)
-                else:
-                    # Fallback: histogram
-                    ax.hist(gene_expr, bins=30, alpha=params.alpha, color="steelblue")
-                    ax.set_xlabel("Expression")
-                    ax.set_ylabel("Frequency")
-                    if params.add_gene_labels:
-                        ax.set_title(gene, fontsize=12)
-
-            except Exception as e:
-                ax.text(
-                    0.5,
-                    0.5,
-                    f"Error plotting {gene}:\n{e}",
-                    ha="center",
-                    va="center",
-                    transform=ax.transAxes,
+            # Create spatial plot
+            if "spatial" in adata.obsm:
+                plot_spatial_feature(
+                    adata,
+                    ax=ax,
+                    feature=temp_feature_key,
+                    params=params,
+                    show_colorbar=False,
                 )
+
+                # Set color limits
+                vmin = (
+                    params.vmin
+                    if params.vmin is not None
+                    else np.percentile(gene_expr, 1)
+                )
+                vmax = (
+                    params.vmax
+                    if params.vmax is not None
+                    else np.percentile(gene_expr, 99)
+                )
+
+                # Update colorbar limits
+                scatter = ax.collections[0] if ax.collections else None
+                if scatter:
+                    scatter.set_clim(vmin, vmax)
+
+                    # Add colorbar
+                    if params.show_colorbar:
+                        divider = make_axes_locatable(ax)
+                        cax = divider.append_axes(
+                            "right",
+                            size=params.colorbar_size,
+                            pad=params.colorbar_pad,
+                        )
+                        plt.colorbar(scatter, cax=cax)
+
+                ax.invert_yaxis()
                 if params.add_gene_labels:
-                    ax.set_title(f"{gene} (Error)", fontsize=12)
+                    ax.set_title(gene, fontsize=12)
+            else:
+                # Fallback: histogram
+                ax.hist(gene_expr, bins=30, alpha=params.alpha, color="steelblue")
+                ax.set_xlabel("Expression")
+                ax.set_ylabel("Frequency")
+                if params.add_gene_labels:
+                    ax.set_title(gene, fontsize=12)
 
     # Clean up temporary column
     if temp_feature_key in adata.obs:
@@ -201,50 +189,39 @@ async def create_multi_gene_umap_visualization(
     for i, gene in enumerate(available_genes):
         if i < len(axes):
             ax = axes[i]
-            try:
-                # Get gene expression using unified utility
-                gene_expr = get_gene_expression(adata, gene)
+            # Let errors propagate - don't silently create placeholder images
+            # Get gene expression using unified utility
+            gene_expr = get_gene_expression(adata, gene)
 
-                # Apply color scaling
-                if params.color_scale == "log":
-                    gene_expr = np.log1p(gene_expr)
-                elif params.color_scale == "sqrt":
-                    gene_expr = np.sqrt(gene_expr)
+            # Apply color scaling
+            if params.color_scale == "log":
+                gene_expr = np.log1p(gene_expr)
+            elif params.color_scale == "sqrt":
+                gene_expr = np.sqrt(gene_expr)
 
-                # Add temporary column
-                adata.obs[temp_feature_key] = gene_expr
+            # Add temporary column
+            adata.obs[temp_feature_key] = gene_expr
 
-                # Set color scale
-                vmin = 0
-                vmax = max(gene_expr.max(), 0.1)
+            # Set color scale
+            vmin = 0
+            vmax = max(gene_expr.max(), 0.1)
 
-                # Use percentile-based scaling for sparse data
-                if np.sum(gene_expr > 0) > 10:
-                    vmax = np.percentile(gene_expr[gene_expr > 0], 95)
+            # Use percentile-based scaling for sparse data
+            if np.sum(gene_expr > 0) > 10:
+                vmax = np.percentile(gene_expr[gene_expr > 0], 95)
 
-                sc.pl.umap(
-                    adata,
-                    color=temp_feature_key,
-                    cmap=params.colormap,
-                    ax=ax,
-                    show=False,
-                    frameon=False,
-                    vmin=vmin,
-                    vmax=vmax,
-                    colorbar_loc="right",
-                )
-                ax.set_title(gene)
-
-            except Exception as e:
-                ax.text(
-                    0.5,
-                    0.5,
-                    f"Error plotting {gene}:\n{e}",
-                    ha="center",
-                    va="center",
-                    transform=ax.transAxes,
-                )
-                ax.set_title(f"{gene} (Error)")
+            sc.pl.umap(
+                adata,
+                color=temp_feature_key,
+                cmap=params.colormap,
+                ax=ax,
+                show=False,
+                frameon=False,
+                vmin=vmin,
+                vmax=vmax,
+                colorbar_loc="right",
+            )
+            ax.set_title(gene)
 
     # Clean up temporary column
     if temp_feature_key in adata.obs:
@@ -398,116 +375,102 @@ async def create_lr_pairs_visualization(
     ax_idx = 0
 
     for _pair_idx, (ligand, receptor) in enumerate(available_pairs):
-        try:
-            # Get expression data using unified utility
-            ligand_expr = get_gene_expression(adata, ligand)
-            receptor_expr = get_gene_expression(adata, receptor)
+        # Let errors propagate - don't silently create placeholder images
+        # Get expression data using unified utility
+        ligand_expr = get_gene_expression(adata, ligand)
+        receptor_expr = get_gene_expression(adata, receptor)
 
-            # Apply color scaling
-            if params.color_scale == "log":
-                ligand_expr = np.log1p(ligand_expr)
-                receptor_expr = np.log1p(receptor_expr)
-            elif params.color_scale == "sqrt":
-                ligand_expr = np.sqrt(ligand_expr)
-                receptor_expr = np.sqrt(receptor_expr)
+        # Apply color scaling
+        if params.color_scale == "log":
+            ligand_expr = np.log1p(ligand_expr)
+            receptor_expr = np.log1p(receptor_expr)
+        elif params.color_scale == "sqrt":
+            ligand_expr = np.sqrt(ligand_expr)
+            receptor_expr = np.sqrt(receptor_expr)
 
-            # Plot ligand
-            if ax_idx < len(axes) and "spatial" in adata.obsm:
-                ax = axes[ax_idx]
-                adata.obs[temp_feature_key] = ligand_expr
-                plot_spatial_feature(
-                    adata,
-                    ax=ax,
-                    feature=temp_feature_key,
-                    params=params,
-                    show_colorbar=False,
+        # Plot ligand
+        if ax_idx < len(axes) and "spatial" in adata.obsm:
+            ax = axes[ax_idx]
+            adata.obs[temp_feature_key] = ligand_expr
+            plot_spatial_feature(
+                adata,
+                ax=ax,
+                feature=temp_feature_key,
+                params=params,
+                show_colorbar=False,
+            )
+
+            if params.show_colorbar and ax.collections:
+                divider = make_axes_locatable(ax)
+                cax = divider.append_axes(
+                    "right",
+                    size=params.colorbar_size,
+                    pad=params.colorbar_pad,
                 )
+                plt.colorbar(ax.collections[-1], cax=cax)
 
-                if params.show_colorbar and ax.collections:
-                    divider = make_axes_locatable(ax)
-                    cax = divider.append_axes(
-                        "right",
-                        size=params.colorbar_size,
-                        pad=params.colorbar_pad,
-                    )
-                    plt.colorbar(ax.collections[-1], cax=cax)
+            ax.invert_yaxis()
+            if params.add_gene_labels:
+                ax.set_title(f"{ligand} (Ligand)", fontsize=10)
+            ax_idx += 1
 
-                ax.invert_yaxis()
-                if params.add_gene_labels:
-                    ax.set_title(f"{ligand} (Ligand)", fontsize=10)
-                ax_idx += 1
+        # Plot receptor
+        if ax_idx < len(axes) and "spatial" in adata.obsm:
+            ax = axes[ax_idx]
+            adata.obs[temp_feature_key] = receptor_expr
+            plot_spatial_feature(
+                adata,
+                ax=ax,
+                feature=temp_feature_key,
+                params=params,
+                show_colorbar=False,
+            )
 
-            # Plot receptor
-            if ax_idx < len(axes) and "spatial" in adata.obsm:
-                ax = axes[ax_idx]
-                adata.obs[temp_feature_key] = receptor_expr
-                plot_spatial_feature(
-                    adata,
-                    ax=ax,
-                    feature=temp_feature_key,
-                    params=params,
-                    show_colorbar=False,
+            if params.show_colorbar and ax.collections:
+                divider = make_axes_locatable(ax)
+                cax = divider.append_axes(
+                    "right",
+                    size=params.colorbar_size,
+                    pad=params.colorbar_pad,
                 )
+                plt.colorbar(ax.collections[-1], cax=cax)
 
-                if params.show_colorbar and ax.collections:
-                    divider = make_axes_locatable(ax)
-                    cax = divider.append_axes(
-                        "right",
-                        size=params.colorbar_size,
-                        pad=params.colorbar_pad,
-                    )
-                    plt.colorbar(ax.collections[-1], cax=cax)
+            ax.invert_yaxis()
+            if params.add_gene_labels:
+                ax.set_title(f"{receptor} (Receptor)", fontsize=10)
+            ax_idx += 1
 
-                ax.invert_yaxis()
-                if params.add_gene_labels:
-                    ax.set_title(f"{receptor} (Receptor)", fontsize=10)
-                ax_idx += 1
+        # Plot correlation
+        if ax_idx < len(axes):
+            ax = axes[ax_idx]
 
-            # Plot correlation
-            if ax_idx < len(axes):
-                ax = axes[ax_idx]
+            # Calculate correlation
+            if params.correlation_method == "pearson":
+                corr, p_value = pearsonr(ligand_expr, receptor_expr)
+            elif params.correlation_method == "spearman":
+                corr, p_value = spearmanr(ligand_expr, receptor_expr)
+            else:  # kendall
+                corr, p_value = kendalltau(ligand_expr, receptor_expr)
 
-                # Calculate correlation
-                if params.correlation_method == "pearson":
-                    corr, p_value = pearsonr(ligand_expr, receptor_expr)
-                elif params.correlation_method == "spearman":
-                    corr, p_value = spearmanr(ligand_expr, receptor_expr)
-                else:  # kendall
-                    corr, p_value = kendalltau(ligand_expr, receptor_expr)
+            # Create scatter plot
+            ax.scatter(ligand_expr, receptor_expr, alpha=params.alpha, s=20)
+            ax.set_xlabel(f"{ligand} Expression")
+            ax.set_ylabel(f"{receptor} Expression")
 
-                # Create scatter plot
-                ax.scatter(ligand_expr, receptor_expr, alpha=params.alpha, s=20)
-                ax.set_xlabel(f"{ligand} Expression")
-                ax.set_ylabel(f"{receptor} Expression")
-
-                if params.show_correlation_stats:
-                    ax.set_title(
-                        f"Correlation: {corr:.3f}\np-value: {p_value:.2e}",
-                        fontsize=10,
-                    )
-                else:
-                    ax.set_title(f"{ligand} vs {receptor}", fontsize=10)
-
-                # Add trend line
-                z = np.polyfit(ligand_expr, receptor_expr, 1)
-                p = np.poly1d(z)
-                ax.plot(ligand_expr, p(ligand_expr), "r--", alpha=0.8)
-
-                ax_idx += 1
-
-        except Exception as e:
-            if ax_idx < len(axes):
-                ax = axes[ax_idx]
-                ax.text(
-                    0.5,
-                    0.5,
-                    f"Error plotting {ligand}-{receptor}:\n{e}",
-                    ha="center",
-                    va="center",
-                    transform=ax.transAxes,
+            if params.show_correlation_stats:
+                ax.set_title(
+                    f"Correlation: {corr:.3f}\np-value: {p_value:.2e}",
+                    fontsize=10,
                 )
-                ax.set_title(f"{ligand}-{receptor} (Error)", fontsize=10)
-                ax_idx += 1
+            else:
+                ax.set_title(f"{ligand} vs {receptor}", fontsize=10)
+
+            # Add trend line
+            z = np.polyfit(ligand_expr, receptor_expr, 1)
+            p = np.poly1d(z)
+            ax.plot(ligand_expr, p(ligand_expr), "r--", alpha=0.8)
+
+            ax_idx += 1
 
     # Clean up temporary column
     if temp_feature_key in adata.obs:

@@ -195,7 +195,14 @@ async def _create_co_occurrence_visualization(
     categories = adata.obs[cluster_key].cat.categories.tolist()
     clusters_to_show = categories[: min(4, len(categories))]
 
-    figsize = resolve_figure_size(params, "heatmap")
+    # Calculate appropriate figsize based on number of clusters
+    # squidpy default: (5 * n_clusters, 5) with constrained_layout=True
+    # Only override if user explicitly provides figure_size
+    if params.figure_size:
+        figsize = params.figure_size
+    else:
+        # Let squidpy use its default sizing (5 inches per cluster, 5 height)
+        figsize = None
 
     sq.pl.co_occurrence(
         adata,
@@ -207,9 +214,9 @@ async def _create_co_occurrence_visualization(
 
     fig = plt.gcf()
     if params.title:
-        fig.suptitle(params.title)
+        fig.suptitle(params.title, y=1.02)
 
-    plt.tight_layout()
+    # Don't call tight_layout - squidpy uses constrained_layout=True internally
     return fig
 
 

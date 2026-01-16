@@ -1182,6 +1182,18 @@ class SpatialStatisticsParameters(BaseModel):
         ),
     )
 
+    # Co-occurrence specific parameters
+    co_occurrence_interval: Optional[int] = Field(
+        50,
+        description=(
+            "Number of distance intervals for co-occurrence analysis. "
+            "Squidpy will compute co-occurrence probability at this many uniformly "
+            "spaced distance thresholds from 0 to max distance. "
+            "Default: 50 (appropriate for most datasets). "
+            "Lower values (20-30) for faster computation, higher (100+) for finer resolution."
+        ),
+    )
+
     # Bivariate Moran's I specific parameters
     gene_pairs: Optional[list[tuple[str, str]]] = Field(
         None, description="Gene pairs for bivariate analysis"

@@ -103,7 +103,7 @@ _ANALYSIS_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "co_occurrence": {
         "handler": "_analyze_co_occurrence",
-        "signature": "cluster",
+        "signature": "hybrid",  # Changed to hybrid to support interval parameter
         "metadata_keys": {"uns": ["co_occurrence"]},
     },
     "ripley": {
@@ -612,16 +612,46 @@ def _analyze_neighborhood_enrichment(
 def _analyze_co_occurrence(
     adata: ad.AnnData,
     cluster_key: str,
+    params: "SpatialStatisticsParameters",
     ctx: "ToolContext",
 ) -> dict[str, Any]:
-    """Compute co-occurrence analysis."""
-    sq.gr.co_occurrence(adata, cluster_key=cluster_key)
+    """Compute co-occurrence analysis.
+
+    Args:
+        adata: AnnData object with spatial coordinates
+        cluster_key: Key in adata.obs for cluster labels
+        params: Parameters including co_occurrence_interval
+        ctx: Tool context for logging
+
+    Returns:
+        Analysis results with n_clusters and analysis_key
+    """
+    # Get interval from params (default: 50)
+    interval = params.co_occurrence_interval or 50
+
+    sq.gr.co_occurrence(adata, cluster_key=cluster_key, interval=interval)
 
     analysis_key = f"{cluster_key}_co_occurrence"
     if analysis_key in adata.uns:
         co_occurrence = adata.uns[analysis_key]["occ"]
+        interval_data = adata.uns[analysis_key].get("interval", None)
 
-        return {"n_clusters": len(co_occurrence), "analysis_key": analysis_key}
+        result = {
+            "n_clusters": len(co_occurrence),
+            "analysis_key": analysis_key,
+            "n_intervals": (
+                len(interval_data) if interval_data is not None else interval
+            ),
+        }
+
+        # Store interval info for visualization
+        if interval_data is not None:
+            result["distance_range"] = (
+                float(interval_data[0]),
+                float(interval_data[-1]),
+            )
+
+        return result
 
     raise ProcessingError("Co-occurrence analysis did not produce results")
 

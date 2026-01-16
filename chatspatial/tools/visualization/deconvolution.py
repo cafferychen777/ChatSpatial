@@ -679,43 +679,30 @@ async def _create_spatial_multi_deconvolution(
     for i, cell_type in enumerate(top_cell_types):
         if i < len(axes):
             ax = axes[i]
-            try:
-                proportions_values = data.proportions[cell_type].values
+            # Let errors propagate - don't silently create placeholder images
+            proportions_values = data.proportions[cell_type].values
 
-                if pd.isna(proportions_values).any():
-                    proportions_values = pd.Series(proportions_values).fillna(0).values
+            if pd.isna(proportions_values).any():
+                proportions_values = pd.Series(proportions_values).fillna(0).values
 
-                adata.obs[temp_feature_key] = proportions_values
+            adata.obs[temp_feature_key] = proportions_values
 
-                if "spatial" in adata.obsm:
-                    plot_spatial_feature(
-                        adata, feature=temp_feature_key, ax=ax, params=params
-                    )
-                    ax.set_title(cell_type)
-                    ax.invert_yaxis()
-                else:
-                    sorted_props = data.proportions[cell_type].sort_values(
-                        ascending=False
-                    )
-                    ax.bar(
-                        range(len(sorted_props)),
-                        sorted_props.values,
-                        alpha=params.alpha,
-                    )
-                    ax.set_title(cell_type)
-                    ax.set_xlabel("Spots (sorted)")
-                    ax.set_ylabel("Proportion")
-
-            except Exception as e:
-                ax.text(
-                    0.5,
-                    0.5,
-                    f"Error plotting {cell_type}:\n{e}",
-                    ha="center",
-                    va="center",
-                    transform=ax.transAxes,
+            if "spatial" in adata.obsm:
+                plot_spatial_feature(
+                    adata, feature=temp_feature_key, ax=ax, params=params
                 )
-                ax.set_title(f"{cell_type} (Error)")
+                ax.set_title(cell_type)
+                ax.invert_yaxis()
+            else:
+                sorted_props = data.proportions[cell_type].sort_values(ascending=False)
+                ax.bar(
+                    range(len(sorted_props)),
+                    sorted_props.values,
+                    alpha=params.alpha,
+                )
+                ax.set_title(cell_type)
+                ax.set_xlabel("Spots (sorted)")
+                ax.set_ylabel("Proportion")
 
     if temp_feature_key in adata.obs.columns:
         del adata.obs[temp_feature_key]
