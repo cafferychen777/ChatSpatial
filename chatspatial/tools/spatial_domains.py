@@ -229,9 +229,7 @@ async def identify_spatial_domains(
         return result
 
     except Exception as e:
-        raise ProcessingError(
-            f"Error in spatial domain identification: {e}"
-        ) from e
+        raise ProcessingError(f"Error in spatial domain identification: {e}") from e
 
 
 async def _identify_domains_spagcn(
@@ -299,15 +297,11 @@ async def _identify_domains_spagcn(
                     scalefactors = spatial_data.get("scalefactors", {})
 
                     # Prefer high-res image, fall back to low-res
-                    if (
-                        "hires" in img_dict
-                        and "tissue_hires_scalef" in scalefactors
-                    ):
+                    if "hires" in img_dict and "tissue_hires_scalef" in scalefactors:
                         img = img_dict["hires"]
                         scale_factor = scalefactors["tissue_hires_scalef"]
                     elif (
-                        "lowres" in img_dict
-                        and "tissue_lowres_scalef" in scalefactors
+                        "lowres" in img_dict and "tissue_lowres_scalef" in scalefactors
                     ):
                         img = img_dict["lowres"]
                         scale_factor = scalefactors["tissue_lowres_scalef"]

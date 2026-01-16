@@ -469,9 +469,8 @@ async def _run_pydeseq2(
     # Build aggregation key
     if group2 == "rest":
         # Binary comparison: group1 vs rest
-        condition = adata.obs[group_key].apply(
-            lambda x: group1 if x == group1 else "rest"
-        )
+        # Use vectorized where() instead of apply(lambda) for efficiency
+        condition = adata.obs[group_key].where(adata.obs[group_key] == group1, "rest")
     else:
         # Pairwise comparison: filter to only group1 and group2
         mask = adata.obs[group_key].isin([group1, group2])

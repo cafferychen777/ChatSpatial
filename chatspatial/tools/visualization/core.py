@@ -378,8 +378,8 @@ def validate_and_prepare_feature(
 
 # Categorical colormaps by size threshold
 _CATEGORICAL_CMAPS = {
-    10: "tab10",   # Best for <= 10 categories
-    20: "tab20",   # Best for 11-20 categories
+    10: "tab10",  # Best for <= 10 categories
+    20: "tab20",  # Best for 11-20 categories
     40: "tab20b",  # Extended palette for more categories
 }
 
@@ -405,9 +405,18 @@ def get_categorical_cmap(n_categories: int, user_cmap: Optional[str] = None) -> 
     """
     # Known categorical palettes that user might specify
     categorical_palettes = {
-        "tab10", "tab20", "tab20b", "tab20c",
-        "Set1", "Set2", "Set3", "Paired", "Accent",
-        "Dark2", "Pastel1", "Pastel2",
+        "tab10",
+        "tab20",
+        "tab20b",
+        "tab20c",
+        "Set1",
+        "Set2",
+        "Set3",
+        "Paired",
+        "Accent",
+        "Dark2",
+        "Pastel1",
+        "Pastel2",
     }
 
     # User preference takes precedence if it's a categorical palette

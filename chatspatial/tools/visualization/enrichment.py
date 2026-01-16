@@ -239,7 +239,9 @@ def _create_enrichment_violin(
 
     n_scores = len(scores_to_plot)
     # Use centralized figure size resolution for multi-panel layout
-    figsize = resolve_figure_size(params, n_panels=n_scores, panel_width=5, panel_height=6)
+    figsize = resolve_figure_size(
+        params, n_panels=n_scores, panel_width=5, panel_height=6
+    )
     fig, axes = plt.subplots(1, n_scores, figsize=figsize)
     if n_scores == 1:
         axes = [axes]

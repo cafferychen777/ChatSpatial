@@ -70,6 +70,7 @@ def _resolve_cluster_key(
     validate_obs_column(adata, cluster_key, "Cluster key")
     return cluster_key
 
+
 # =============================================================================
 # Main Router
 # =============================================================================

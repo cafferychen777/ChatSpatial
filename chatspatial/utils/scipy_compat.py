@@ -77,9 +77,9 @@ def _derivative_compat(func, x0, dx=1.0, n=1, args=(), order=3):
     # Second derivative using central difference (3-point formula)
     elif n == 2 and order >= 3:
         # f''(x) ≈ (f(x+h) - 2f(x) + f(x-h)) / h²
-        return (
-            func(x0 + dx, *args) - 2 * func(x0, *args) + func(x0 - dx, *args)
-        ) / (dx**2)
+        return (func(x0 + dx, *args) - 2 * func(x0, *args) + func(x0 - dx, *args)) / (
+            dx**2
+        )
 
     # For higher derivatives or orders, use Richardson extrapolation
     # This is a more general but slower approach
@@ -127,7 +127,7 @@ def patch_scipy_misc_derivative():
     >>> patch_scipy_misc_derivative()
     >>> import SpatialDE  # Now works!
     """
-    if not hasattr(scipy_misc, 'derivative'):
+    if not hasattr(scipy_misc, "derivative"):
         scipy_misc.derivative = _derivative_compat
 
 
@@ -135,9 +135,10 @@ def patch_scipy_misc_derivative():
 def check_scipy_derivative_status():
     """Check the status of scipy.misc.derivative and return diagnostic info."""
     import scipy
-    has_derivative = hasattr(scipy_misc, 'derivative')
+
+    has_derivative = hasattr(scipy_misc, "derivative")
     return {
-        'scipy_version': scipy.__version__,
-        'has_derivative': has_derivative,
-        'needs_patch': not has_derivative,
+        "scipy_version": scipy.__version__,
+        "has_derivative": has_derivative,
+        "needs_patch": not has_derivative,
     }

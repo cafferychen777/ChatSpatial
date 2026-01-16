@@ -503,7 +503,6 @@ def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
     import ssl
 
     import certifi
-
     from cellphonedb.utils import db_utils
 
     # Check if database file already exists
@@ -1422,13 +1421,14 @@ async def _analyze_communication_fastccc(
             import scanpy as sc
 
             # Prepare expression matrix (cells × genes)
-            expr_matrix = to_dense(data_source.X)
+            # Use copy=True to ensure safe modification for normalize_total/log1p
+            expr_matrix = to_dense(data_source.X, copy=True)
             gene_names = list(data_source.var_names)
             cell_names = list(adata.obs_names)
 
             # Create temporary AnnData
             temp_adata = ad.AnnData(
-                X=expr_matrix.copy(),
+                X=expr_matrix,
                 obs=pd.DataFrame(index=cell_names),
                 var=pd.DataFrame(index=gene_names),
             )

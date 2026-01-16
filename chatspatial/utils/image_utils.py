@@ -8,9 +8,9 @@ All functions return Image objects that can be directly used in MCP tools.
 import base64
 import io
 import uuid
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Optional
-from collections.abc import Generator
 
 from mcp.types import ImageContent
 

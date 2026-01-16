@@ -418,7 +418,9 @@ def shallow_copy_adata(adata: "ad.AnnData") -> "ad.AnnData":
     return adata_new
 
 
-def store_velovi_essential_data(adata: "ad.AnnData", adata_velovi: "ad.AnnData") -> None:
+def store_velovi_essential_data(
+    adata: "ad.AnnData", adata_velovi: "ad.AnnData"
+) -> None:
     """Store only essential velovi data for CellRank, avoiding full adata copy.
 
     This stores ~35 MB instead of ~160 MB for typical Visium data (78% savings).

@@ -185,9 +185,7 @@ async def save_visualization(
             )
 
         except Exception as e:
-            raise ProcessingError(
-                f"Failed to regenerate '{cache_key}': {e}"
-            ) from e
+            raise ProcessingError(f"Failed to regenerate '{cache_key}': {e}") from e
 
         try:
             # Prepare save parameters

@@ -79,7 +79,10 @@ def preprocess_for_velocity(
     # enforce=True ensures scvelo recomputes everything even if data was pre-normalized
     # This is important when running after MCP's general preprocessing step
     scv.pp.filter_and_normalize(
-        adata, min_shared_counts=min_shared_counts, n_top_genes=n_top_genes, enforce=True
+        adata,
+        min_shared_counts=min_shared_counts,
+        n_top_genes=n_top_genes,
+        enforce=True,
     )
     scv.pp.moments(adata, n_pcs=n_pcs, n_neighbors=n_neighbors)
 

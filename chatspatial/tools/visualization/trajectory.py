@@ -23,12 +23,12 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import validate_obs_column
 from ...utils.dependency_manager import require
-from ...utils.image_utils import non_interactive_backend
 from ...utils.exceptions import (
     DataCompatibilityError,
     DataNotFoundError,
     ParameterError,
 )
+from ...utils.image_utils import non_interactive_backend
 from .core import (
     get_categorical_columns,
     infer_basis,
@@ -570,7 +570,9 @@ async def _create_palantir_results(
     n_panels = 1 + int(has_entropy) + (1 if fate_key else 0)
 
     # Create figure with centralized utility
-    figsize = resolve_figure_size(params, n_panels=n_panels, panel_width=5, panel_height=5)
+    figsize = resolve_figure_size(
+        params, n_panels=n_panels, panel_width=5, panel_height=5
+    )
     fig, axes = plt.subplots(1, n_panels, figsize=figsize, dpi=params.dpi)
     if n_panels == 1:
         axes = [axes]

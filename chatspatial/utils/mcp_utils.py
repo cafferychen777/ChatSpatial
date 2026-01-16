@@ -12,6 +12,7 @@ from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from functools import wraps
 from typing import get_type_hints
 
+
 # =============================================================================
 # Output Suppression
 # =============================================================================
