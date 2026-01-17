@@ -307,8 +307,9 @@ async def _create_cellrank_fate_map(
         )
         fig = plt.gcf()
 
-    title = params.title or f"CellRank Fate Probabilities by {cluster_key}"
-    fig.suptitle(title, fontsize=14, y=1.02)
+    # Only add suptitle if explicitly provided to avoid overlap with CellRank's title
+    if params.title:
+        fig.suptitle(params.title, fontsize=14, y=1.02)
 
     plt.tight_layout()
     return fig

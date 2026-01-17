@@ -219,9 +219,9 @@ async def _identify_spatial_genes_spatialde(
     require("spatialde")  # Raises ImportError with install instructions if missing
 
     # Apply scipy compatibility patch for SpatialDE (scipy >= 1.14 removed scipy.misc.derivative)
-    from ..utils.scipy_compat import patch_scipy_misc_derivative
+    from ..utils.compat import ensure_spatialde_compat
 
-    patch_scipy_misc_derivative()
+    ensure_spatialde_compat()
 
     import NaiveDE
     import SpatialDE

@@ -25,6 +25,7 @@ from ..utils.adata_utils import (
     require_spatial_coords,
     validate_obs_column,
 )
+from ..utils.compat import ensure_cellrank_compat
 from ..utils.compute import ensure_diffmap, ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 from ..utils.exceptions import (
@@ -114,117 +115,129 @@ def infer_spatial_trajectory_cellrank(
 
     Raises ProcessingError if CellRank computation fails.
     """
-    import cellrank as cr
-    import numpy as np
-    from scipy.sparse import csr_matrix
-    from scipy.spatial.distance import pdist, squareform
-
-    # Check if spatial data is available
-    spatial_key = get_spatial_key(adata)
-    has_spatial = spatial_key is not None
-
-    if not has_spatial and spatial_weight > 0:
-        spatial_weight = 0
-
-    # Handle different velocity methods
-    if "velocity_method" in adata.uns and adata.uns["velocity_method"] == "velovi":
-        # Reconstruct velovi adata from essential data stored in uns
-        if not has_velovi_essential_data(adata):
-            raise ProcessingError(
-                "VELOVI velocity data not found. Run analyze_velocity_data first."
-            )
-        adata_for_cellrank = reconstruct_velovi_adata(adata)
-        vk = cr.kernels.VelocityKernel(adata_for_cellrank)
-        vk.compute_transition_matrix()
-    else:
-        adata_for_cellrank = adata
-        vk = cr.kernels.VelocityKernel(adata_for_cellrank)
-        vk.compute_transition_matrix()
-
-    # Create connectivity kernel
-    ck = cr.kernels.ConnectivityKernel(adata_for_cellrank)
-    ck.compute_transition_matrix()
-
-    # Combine kernels
-    vk_weight, ck_weight = kernel_weights
-
-    if has_spatial and spatial_weight > 0:
-        spatial_coords = adata.obsm[spatial_key]
-        spatial_dist = squareform(pdist(spatial_coords))
-        spatial_sim = np.exp(-spatial_dist / spatial_dist.mean())
-        spatial_kernel = csr_matrix(spatial_sim)
-
-        sk = cr.kernels.PrecomputedKernel(spatial_kernel, adata_for_cellrank)
-        sk.compute_transition_matrix()
-
-        combined_kernel = (1 - spatial_weight) * (
-            vk_weight * vk + ck_weight * ck
-        ) + spatial_weight * sk
-    else:
-        combined_kernel = vk_weight * vk + ck_weight * ck
-
-    # GPCCA analysis
-    g = cr.estimators.GPCCA(combined_kernel)
-    g.compute_eigendecomposition()
+    # Apply NumPy 2.x compatibility patch for CellRank
+    # CellRank 2.0.7 uses np.testing.assert_array_equal(x=, y=) which fails with NumPy 2.x
+    # This is fixed in CellRank main branch but not yet released to PyPI
+    cleanup_compat = ensure_cellrank_compat()
 
     try:
-        g.compute_macrostates(n_states=n_states)
-    except Exception as e:
-        raise ProcessingError(
-            f"CellRank failed with n_states={n_states}: {e}. "
-            f"Try reducing n_states or use method='palantir'/'dpt'."
-        ) from e
+        import cellrank as cr
+        import numpy as np
+        from scipy.sparse import csr_matrix
+        from scipy.spatial.distance import pdist, squareform
 
-    # Predict terminal states
-    try:
-        g.predict_terminal_states(method="stability")
-    except ValueError as e:
-        if "No macrostates have been selected" not in str(e):
-            raise
+        # Check if spatial data is available
+        spatial_key = get_spatial_key(adata)
+        has_spatial = spatial_key is not None
 
-    # Check terminal states and compute fate probabilities
-    has_terminal_states = (
-        hasattr(g, "terminal_states") and g.terminal_states is not None
-    )
+        if not has_spatial and spatial_weight > 0:
+            spatial_weight = 0
 
-    if has_terminal_states and len(g.terminal_states.cat.categories) > 0:
-        g.compute_fate_probabilities()
-        absorption_probs = g.fate_probabilities
-        terminal_states = list(g.terminal_states.cat.categories)
-        root_state = terminal_states[0]
-        pseudotime = 1 - absorption_probs[root_state].X.flatten()
-
-        adata_for_cellrank.obs["pseudotime"] = pseudotime
-        adata_for_cellrank.obsm["fate_probabilities"] = absorption_probs
-        adata_for_cellrank.obs["terminal_states"] = g.terminal_states
-    else:
-        if hasattr(g, "macrostates") and g.macrostates is not None:
-            macrostate_probs = g.macrostates_memberships
-            pseudotime = 1 - macrostate_probs[:, 0].X.flatten()
-            adata_for_cellrank.obs["pseudotime"] = pseudotime
+        # Handle different velocity methods
+        if "velocity_method" in adata.uns and adata.uns["velocity_method"] == "velovi":
+            # Reconstruct velovi adata from essential data stored in uns
+            if not has_velovi_essential_data(adata):
+                raise ProcessingError(
+                    "VELOVI velocity data not found. Run analyze_velocity_data first."
+                )
+            adata_for_cellrank = reconstruct_velovi_adata(adata)
+            vk = cr.kernels.VelocityKernel(adata_for_cellrank)
+            vk.compute_transition_matrix()
         else:
+            adata_for_cellrank = adata
+            vk = cr.kernels.VelocityKernel(adata_for_cellrank)
+            vk.compute_transition_matrix()
+
+        # Create connectivity kernel
+        ck = cr.kernels.ConnectivityKernel(adata_for_cellrank)
+        ck.compute_transition_matrix()
+
+        # Combine kernels
+        vk_weight, ck_weight = kernel_weights
+
+        if has_spatial and spatial_weight > 0:
+            spatial_coords = adata.obsm[spatial_key]
+            spatial_dist = squareform(pdist(spatial_coords))
+            spatial_sim = np.exp(-spatial_dist / spatial_dist.mean())
+            spatial_kernel = csr_matrix(spatial_sim)
+
+            sk = cr.kernels.PrecomputedKernel(spatial_kernel, adata_for_cellrank)
+            sk.compute_transition_matrix()
+
+            combined_kernel = (1 - spatial_weight) * (
+                vk_weight * vk + ck_weight * ck
+            ) + spatial_weight * sk
+        else:
+            combined_kernel = vk_weight * vk + ck_weight * ck
+
+        # GPCCA analysis
+        g = cr.estimators.GPCCA(combined_kernel)
+        g.compute_eigendecomposition()
+
+        try:
+            g.compute_macrostates(n_states=n_states)
+        except Exception as e:
             raise ProcessingError(
-                "CellRank could not compute either terminal states or macrostates"
-            )
+                f"CellRank failed with n_states={n_states}: {e}. "
+                f"Try reducing n_states or use method='palantir'/'dpt'."
+            ) from e
 
-    if hasattr(g, "macrostates") and g.macrostates is not None:
-        adata_for_cellrank.obs["macrostates"] = g.macrostates
+        # Predict terminal states
+        try:
+            g.predict_terminal_states(method="stability")
+        except ValueError as e:
+            if "No macrostates have been selected" not in str(e):
+                raise
 
-    # Transfer results back to original adata
-    if "pseudotime" in adata_for_cellrank.obs:
-        adata.obs["pseudotime"] = adata_for_cellrank.obs["pseudotime"]
-    if "terminal_states" in adata_for_cellrank.obs:
-        adata.obs["terminal_states"] = adata_for_cellrank.obs["terminal_states"]
-    if "macrostates" in adata_for_cellrank.obs:
-        adata.obs["macrostates"] = adata_for_cellrank.obs["macrostates"]
-    if "fate_probabilities" in adata_for_cellrank.obsm:
-        adata.obsm["fate_probabilities"] = adata_for_cellrank.obsm["fate_probabilities"]
+        # Check terminal states and compute fate probabilities
+        has_terminal_states = (
+            hasattr(g, "terminal_states") and g.terminal_states is not None
+        )
 
-    # Note: With optimized storage, velovi data is stored as individual arrays
-    # in uns (velovi_velocity, velovi_Ms, etc.) rather than a full adata copy.
-    # Results are already transferred to original adata above.
+        if has_terminal_states and len(g.terminal_states.cat.categories) > 0:
+            g.compute_fate_probabilities()
+            absorption_probs = g.fate_probabilities
+            terminal_states = list(g.terminal_states.cat.categories)
+            root_state = terminal_states[0]
+            pseudotime = 1 - absorption_probs[root_state].X.flatten()
 
-    return adata
+            adata_for_cellrank.obs["pseudotime"] = pseudotime
+            adata_for_cellrank.obsm["fate_probabilities"] = absorption_probs
+            adata_for_cellrank.obs["terminal_states"] = g.terminal_states
+        else:
+            if hasattr(g, "macrostates") and g.macrostates is not None:
+                macrostate_probs = g.macrostates_memberships
+                pseudotime = 1 - macrostate_probs[:, 0].X.flatten()
+                adata_for_cellrank.obs["pseudotime"] = pseudotime
+            else:
+                raise ProcessingError(
+                    "CellRank could not compute either terminal states or macrostates"
+                )
+
+        if hasattr(g, "macrostates") and g.macrostates is not None:
+            adata_for_cellrank.obs["macrostates"] = g.macrostates
+
+        # Transfer results back to original adata
+        if "pseudotime" in adata_for_cellrank.obs:
+            adata.obs["pseudotime"] = adata_for_cellrank.obs["pseudotime"]
+        if "terminal_states" in adata_for_cellrank.obs:
+            adata.obs["terminal_states"] = adata_for_cellrank.obs["terminal_states"]
+        if "macrostates" in adata_for_cellrank.obs:
+            adata.obs["macrostates"] = adata_for_cellrank.obs["macrostates"]
+        if "fate_probabilities" in adata_for_cellrank.obsm:
+            adata.obsm["fate_probabilities"] = adata_for_cellrank.obsm[
+                "fate_probabilities"
+            ]
+
+        # Note: With optimized storage, velovi data is stored as individual arrays
+        # in uns (velovi_velocity, velovi_Ms, etc.) rather than a full adata copy.
+        # Results are already transferred to original adata above.
+
+        return adata
+
+    finally:
+        # Always clean up the compatibility patch
+        cleanup_compat()
 
 
 def spatial_aware_embedding(adata, spatial_weight=0.3):

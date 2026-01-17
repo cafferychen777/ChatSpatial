@@ -29,6 +29,15 @@ from .adata_utils import (  # Constants; Field discovery; Data access; Validatio
     validate_obs_column,
     validate_var_column,
 )
+from .compat import (
+    cellrank_compat,
+    check_scipy_derivative_status,
+    ensure_cellrank_compat,
+    ensure_spatialde_compat,
+    get_compatibility_info,
+    numpy2_compat,
+    patch_scipy_misc_derivative,
+)
 from .dependency_manager import (
     DependencyInfo,
     get,
@@ -112,4 +121,12 @@ __all__ = [
     "get_device",
     "resolve_device_async",
     "get_ot_backend",
+    # Compatibility utilities
+    "numpy2_compat",
+    "ensure_cellrank_compat",
+    "cellrank_compat",
+    "ensure_spatialde_compat",
+    "patch_scipy_misc_derivative",
+    "check_scipy_derivative_status",
+    "get_compatibility_info",
 ]

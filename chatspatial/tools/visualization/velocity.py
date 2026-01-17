@@ -215,8 +215,9 @@ async def _create_velocity_phase_plot(
     )
 
     fig = plt.gcf()
-    title = params.title or "RNA Velocity Phase Plot"
-    fig.suptitle(title, fontsize=14, y=1.02)
+    # Only add suptitle if explicitly provided to avoid overlap with scvelo's subplot titles
+    if params.title:
+        fig.suptitle(params.title, fontsize=14, y=1.02)
     plt.tight_layout()
     return fig
 
@@ -273,8 +274,9 @@ async def _create_velocity_proportions_plot(
     )
 
     fig = plt.gcf()
-    title = params.title or f"Spliced/Unspliced Proportions by {cluster_key}"
-    fig.suptitle(title, fontsize=14, y=1.02)
+    # Only add suptitle if explicitly provided to avoid overlap with scvelo's title
+    if params.title:
+        fig.suptitle(params.title, fontsize=14, y=1.02)
     plt.tight_layout()
     return fig
 
