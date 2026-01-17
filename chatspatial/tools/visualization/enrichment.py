@@ -512,10 +512,14 @@ def _create_gsea_barplot(
     pval_col = _find_pvalue_column(df)
     _ensure_term_column(df)
 
-    # Use centralized figure size with dynamic height based on pathway count
-    figsize = resolve_figure_size(
-        params, n_panels=n_top, panel_width=6, panel_height=0.4
-    )
+    # Barplot-specific figure size: width for long pathway names, height for pathway count
+    # (do NOT use resolve_figure_size with n_panels - barplot is not a grid layout)
+    if params.figure_size:
+        figsize = params.figure_size
+    else:
+        # Width: 10 inches for long pathway names (e.g., GO terms)
+        # Height: 0.5 inches per pathway, minimum 4 inches
+        figsize = (10, max(n_top * 0.5, 4))
     color = params.colormap if params.colormap != "coolwarm" else "salmon"
 
     try:
