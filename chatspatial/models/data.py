@@ -598,14 +598,13 @@ class VisualizationParameters(BaseModel):
     dpi: int = 300  # Publication quality (Nature/Cell standard)
     alpha: float = 0.9  # Spot transparency (higher = more opaque)
     spot_size: Optional[float] = Field(
-        150.0,
+        None,
         description=(
             "Size of spots in spatial plots (in pixels). "
-            "Default 150 provides good balance for most 10x Visium data. "
-            "Adjust based on data density: "
-            "dense (>3000 spots): 100-150, "
-            "sparse (<2000 spots): 150-200. "
-            "Set to None for scanpy auto-sizing (not recommended - usually too small)."
+            "Default None enables auto-calculation following scanpy/squidpy conventions: "
+            "(1) For Visium data with metadata: spot_diameter * scale_factor, "
+            "(2) Fallback: adaptive formula 120000/n_cells (clamped to 5-200). "
+            "Manually set to override: e.g., 50 for dense data, 150 for sparse data."
         ),
     )
     alpha_img: float = Field(

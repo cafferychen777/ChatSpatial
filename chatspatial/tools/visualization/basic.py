@@ -31,6 +31,7 @@ from ...utils.compute import ensure_umap
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import (
     add_colorbar,
+    auto_spot_size,
     create_figure,
     get_colormap,
     get_validated_features,
@@ -139,8 +140,9 @@ async def create_umap_visualization(
     # Get UMAP coordinates
     umap_coords = adata.obsm["X_umap"]
 
-    # Get color values
-    spot_size = params.spot_size if params.spot_size is not None else 150.0
+    # Calculate spot size (auto or user-specified, for UMAP basis)
+    spot_size = auto_spot_size(adata, params.spot_size, basis="umap")
+
     if color_by is None:
         # No color - just plot points
         ax.scatter(

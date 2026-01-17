@@ -34,6 +34,7 @@ from ...utils.adata_utils import (
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import (
     DeconvolutionData,
+    auto_spot_size,
     create_figure_from_params,
     get_category_colors,
     plot_spatial_feature,
@@ -266,6 +267,9 @@ async def _create_dominant_celltype_map(
     # Get spatial coordinates
     spatial_coords = require_spatial_coords(adata)
 
+    # Calculate spot size (auto or user-specified)
+    spot_size = auto_spot_size(adata, params.spot_size, basis="spatial")
+
     # Create figure
     fig, axes = create_figure_from_params(params, "deconvolution")
     ax = axes[0]
@@ -289,7 +293,7 @@ async def _create_dominant_celltype_map(
                 spatial_coords[mask, 0],
                 spatial_coords[mask, 1],
                 c=[cell_type_colors[category]],
-                s=params.spot_size or 10,
+                s=spot_size,
                 alpha=0.8 if category == "Mixed" else 1.0,
                 label=category,
                 edgecolors="none",
@@ -304,7 +308,7 @@ async def _create_dominant_celltype_map(
                 spatial_coords[mask, 0],
                 spatial_coords[mask, 1],
                 c=[color_map[category]],
-                s=params.spot_size or 10,
+                s=spot_size,
                 alpha=1.0,
                 label=category,
                 edgecolors="none",
@@ -357,6 +361,9 @@ async def _create_diversity_map(
     # Get spatial coordinates
     spatial_coords = require_spatial_coords(adata)
 
+    # Calculate spot size (auto or user-specified)
+    spot_size = auto_spot_size(adata, params.spot_size, basis="spatial")
+
     # Create figure
     fig, axes = create_figure_from_params(params, "deconvolution")
     ax = axes[0]
@@ -366,7 +373,7 @@ async def _create_diversity_map(
         spatial_coords[:, 1],
         c=normalized_entropy,
         cmap=params.colormap or "viridis",
-        s=params.spot_size or 10,
+        s=spot_size,
         alpha=1.0,
         edgecolors="none",
     )
@@ -599,6 +606,9 @@ async def _create_umap_proportions(
         )
     umap_coords = adata.obsm["X_umap"]
 
+    # Calculate spot size (auto or user-specified, for UMAP basis)
+    spot_size = auto_spot_size(adata, params.spot_size, basis="umap")
+
     # Select top cell types by mean proportion
     mean_proportions = data.proportions.mean(axis=0).sort_values(ascending=False)
     top_cell_types = mean_proportions.head(params.n_cell_types).index.tolist()
@@ -623,7 +633,7 @@ async def _create_umap_proportions(
             umap_coords[:, 1],
             c=prop_values,
             cmap=params.colormap or "viridis",
-            s=params.spot_size or 5,
+            s=spot_size // 3,  # Smaller for UMAP (similar to basic.py convention)
             alpha=0.8,
             vmin=0,
             vmax=1,

@@ -501,6 +501,72 @@ def get_diverging_colormap(center: float = 0.0) -> str:
 # =============================================================================
 
 
+def auto_spot_size(
+    adata: ad.AnnData,
+    user_spot_size: Optional[float] = None,
+    basis: str = "spatial",
+) -> float:
+    """Calculate optimal spot size for visualization.
+
+    Follows scanpy/squidpy conventions with a priority-based approach:
+    1. User-specified value takes highest priority
+    2. For spatial data with metadata: use spot_diameter_fullres * scale_factor
+    3. Fallback: adaptive formula 120000 / n_cells (clamped to 5-200)
+
+    Args:
+        adata: AnnData object
+        user_spot_size: User-specified spot size (takes priority if provided)
+        basis: Embedding basis ("spatial", "umap", etc.)
+
+    Returns:
+        Calculated spot size for matplotlib scatter's s parameter
+
+    Examples:
+        >>> auto_spot_size(adata)  # Auto-calculate
+        44.3
+        >>> auto_spot_size(adata, user_spot_size=100)  # User override
+        100.0
+        >>> auto_spot_size(adata, basis="umap")  # UMAP uses formula only
+        41.0
+    """
+    # Priority 1: User-specified value
+    if user_spot_size is not None:
+        return user_spot_size
+
+    # Priority 2: For spatial basis, try to get from metadata
+    if basis == "spatial" and "spatial" in adata.uns:
+        spatial_data = adata.uns["spatial"]
+        if spatial_data and isinstance(spatial_data, dict):
+            # Get first library_id
+            library_ids = list(spatial_data.keys())
+            if library_ids:
+                lib_data = spatial_data[library_ids[0]]
+
+                if isinstance(lib_data, dict) and "scalefactors" in lib_data:
+                    scalefactors = lib_data["scalefactors"]
+
+                    # Get spot diameter
+                    spot_diameter = scalefactors.get("spot_diameter_fullres")
+                    if spot_diameter and spot_diameter > 0:
+                        # Get scale factor (prefer hires, fallback to lowres)
+                        scale_factor = scalefactors.get(
+                            "tissue_hires_scalef",
+                            scalefactors.get("tissue_lowres_scalef", 1.0),
+                        )
+
+                        # Calculate: scatter s parameter is area (diameter^2 based)
+                        # Apply 0.5 adjustment factor to match typical visual expectations
+                        calculated_size = (spot_diameter * scale_factor * 0.5) ** 2
+                        return max(calculated_size, 5.0)  # minimum size of 5
+
+    # Priority 3: Adaptive formula based on cell count
+    n_cells = adata.n_obs
+    adaptive_size = 120000 / n_cells
+
+    # Clamp to reasonable range [5, 200]
+    return max(min(adaptive_size, 200.0), 5.0)
+
+
 def plot_spatial_feature(
     adata: ad.AnnData,
     ax: plt.Axes,
@@ -528,6 +594,9 @@ def plot_spatial_feature(
     """
     if params is None:
         params = VisualizationParameters()
+
+    # Calculate spot size (auto or user-specified)
+    spot_size = auto_spot_size(adata, params.spot_size, basis=spatial_key)
 
     # Get spatial coordinates
     coords = require_spatial_coords(adata, spatial_key=spatial_key)
@@ -565,7 +634,7 @@ def plot_spatial_feature(
             coords[:, 0],
             coords[:, 1],
             c=[colors[i] for i in color_indices],
-            s=params.spot_size,
+            s=spot_size,
             alpha=params.alpha,
         )
 
@@ -598,7 +667,7 @@ def plot_spatial_feature(
             coords[:, 1],
             c=plot_values,
             cmap=cmap,
-            s=params.spot_size,
+            s=spot_size,
             alpha=params.alpha,
             vmin=params.vmin,
             vmax=params.vmax,

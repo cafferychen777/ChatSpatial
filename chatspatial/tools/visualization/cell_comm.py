@@ -26,7 +26,7 @@ from ...utils.adata_utils import (
 )
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
-from .core import CellCommunicationData
+from .core import CellCommunicationData, auto_spot_size
 
 # =============================================================================
 # Data Retrieval
@@ -274,6 +274,9 @@ def _create_spatial_lr_visualization(
     coords = require_spatial_coords(adata)
     x_coords, y_coords = coords[:, 0], coords[:, 1]
 
+    # Calculate spot size (auto or user-specified)
+    spot_size = auto_spot_size(adata, params.spot_size, basis="spatial")
+
     for i, (pair, pair_idx) in enumerate(zip(valid_pairs, pair_indices, strict=False)):
         ax = axes[i]
 
@@ -287,7 +290,7 @@ def _create_spatial_lr_visualization(
             y_coords,
             c=scores,
             cmap=params.colormap or "viridis",
-            s=params.spot_size or 15,
+            s=spot_size,
             alpha=params.alpha or 0.8,
             edgecolors="none",
         )

@@ -29,6 +29,7 @@ from ...utils.adata_utils import (
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import (
+    auto_spot_size,
     create_figure_from_params,
     get_categorical_columns,
     resolve_figure_size,
@@ -427,6 +428,9 @@ async def _create_getis_ord_visualization(
 
     coords = require_spatial_coords(adata)
 
+    # Calculate spot size (auto or user-specified)
+    spot_size = auto_spot_size(adata, params.spot_size, basis="spatial")
+
     for i, gene in enumerate(genes_to_plot):
         if i < len(axes):
             ax = axes[i]
@@ -453,7 +457,7 @@ async def _create_getis_ord_visualization(
                 coords[:, 1],
                 c=z_scores,
                 cmap="RdBu_r",
-                s=params.spot_size or 20,
+                s=spot_size,
                 alpha=params.alpha,
                 vmin=-3,
                 vmax=3,
