@@ -33,7 +33,6 @@ from .core import (
     get_categorical_columns,
     infer_basis,
     resolve_figure_size,
-    setup_multi_panel_figure,
 )
 
 # =============================================================================
@@ -145,15 +144,24 @@ async def _create_trajectory_pseudotime_plot(
     # Setup figure: 1 panel if no velocity, 2 panels if velocity exists
     n_panels = 2 if has_velocity else 1
 
-    fig, axes = setup_multi_panel_figure(
-        n_panels=n_panels,
-        params=params,
-        default_title=f"Trajectory Analysis - Pseudotime ({pseudotime_key})",
+    # Use explicit figure setup to avoid suptitle overlap with subplot titles
+    figsize = resolve_figure_size(
+        params, n_panels=n_panels, panel_width=6, panel_height=5
     )
+    fig, axes = plt.subplots(1, n_panels, figsize=figsize, dpi=params.dpi)
+    if n_panels == 1:
+        axes = [axes]
+    else:
+        axes = list(axes)
 
-    # Panel 1: Pseudotime plot
+    # Get colormap for consistent colorbars
+    from matplotlib import colormaps
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    cmap = colormaps.get_cmap(params.colormap)
+
+    # Panel 1: Pseudotime plot (disable auto colorbar for manual control)
     ax1 = axes[0]
-    # Let errors propagate - don't silently create placeholder images
     sc.pl.embedding(
         adata,
         basis=basis,
@@ -163,34 +171,56 @@ async def _create_trajectory_pseudotime_plot(
         show=False,
         frameon=params.show_axes,
         alpha=params.alpha,
-        colorbar_loc="right" if params.show_colorbar else None,
+        colorbar_loc=None,  # Disable auto colorbar
+        title=f"Pseudotime ({pseudotime_key})",
     )
 
     if basis == "spatial":
         ax1.invert_yaxis()
 
+    # Add consistent colorbar for panel 1
+    if params.show_colorbar:
+        divider1 = make_axes_locatable(ax1)
+        cax1 = divider1.append_axes("right", size="4%", pad=0.05)
+        sm1 = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(0, 1))
+        sm1.set_array([])
+        fig.colorbar(sm1, cax=cax1)
+
     # Panel 2: Velocity stream plot (if available)
     if has_velocity and n_panels > 1:
         ax2 = axes[1]
-        # Let errors propagate - don't silently create placeholder images
         import scvelo as scv
 
+        # Note: scvelo uses 'color_map' not 'cmap', disable auto colorbar
         scv.pl.velocity_embedding_stream(
             adata,
             basis=basis,
             color=pseudotime_key,
-            cmap=params.colormap,
+            color_map=params.colormap,
             ax=ax2,
             show=False,
             alpha=params.alpha,
             frameon=params.show_axes,
+            title="RNA Velocity Stream",
+            colorbar=False,  # Disable scvelo's inset colorbar
         )
-        ax2.set_title("RNA Velocity Stream", fontsize=12)
 
         if basis == "spatial":
             ax2.invert_yaxis()
 
-    plt.tight_layout(rect=(0, 0, 1, 0.95))
+        # Add consistent colorbar for panel 2
+        if params.show_colorbar:
+            divider2 = make_axes_locatable(ax2)
+            cax2 = divider2.append_axes("right", size="4%", pad=0.05)
+            sm2 = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(0, 1))
+            sm2.set_array([])
+            fig.colorbar(sm2, cax=cax2)
+
+    # Only add suptitle if explicitly provided by user
+    if params.title:
+        fig.suptitle(params.title, fontsize=14, y=1.02)
+
+    plt.tight_layout()
     return fig
 
 
