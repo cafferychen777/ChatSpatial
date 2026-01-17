@@ -378,6 +378,13 @@ async def visualize_data(
         # Ligand-receptor pairs
         {"plot_type": "lr_pairs", "lr_pairs": [("Fn1", "Cd79a"), ("Vegfa", "Nrp2")]}
 
+        # Multi-gene spatial visualization (4-12 genes recommended)
+        {"plot_type": "multi_gene", "feature": ["Cd3d", "Cd4", "Cd8a", "Cd19", "Cd14", "Nkg7"]}
+
+        # Gene correlation matrix with hierarchical clustering (4-10 genes recommended)
+        {"plot_type": "gene_correlation", "feature": ["Cd3d", "Cd4", "Cd8a", "Cd19", "Cd14", "Nkg7"],
+         "correlation_method": "pearson", "colormap": "coolwarm"}
+
         # Batch integration QC
         {"plot_type": "batch_integration", "batch_key": "sample_id"}
     """

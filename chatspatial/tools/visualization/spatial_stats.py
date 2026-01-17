@@ -322,12 +322,12 @@ def _create_moran_visualization(
 
     title = params.title or "Moran's I Spatial Autocorrelation"
     ax.set_title(title, fontsize=14)
-    ax.set_xlabel("-log₁₀(p-value)", fontsize=12)
+    ax.set_xlabel(r"$-\log_{10}$(p-value)", fontsize=12)
     ax.set_ylabel("Moran's I", fontsize=12)
 
     if params.show_colorbar:
         cbar = plt.colorbar(scatter, ax=ax)
-        cbar.set_label("Moran's I (+ clustered, − dispersed)", fontsize=10)
+        cbar.set_label("Moran's I (+ clustered, - dispersed)", fontsize=10)
 
     # Add legend for reference lines
     ax.legend(loc="upper left", fontsize=9)
