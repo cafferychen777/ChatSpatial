@@ -277,7 +277,10 @@ def _create_moran_visualization(
     pvals = moran_data["pval_norm"].values
 
     # Handle zero/negative p-values for log transform
-    pvals_safe = np.clip(pvals, 1e-300, 1.0)
+    # Use a reasonable minimum (1e-50) to avoid extreme values like -log10(1e-300)=300
+    # This caps -log10(p) at 50, which is still highly significant
+    min_pval = max(1e-50, np.min(pvals[pvals > 0]) if np.any(pvals > 0) else 1e-50)
+    pvals_safe = np.clip(pvals, min_pval, 1.0)
     neg_log_pval = -np.log10(pvals_safe)
 
     fig, axes = create_figure_from_params(params, "spatial")
