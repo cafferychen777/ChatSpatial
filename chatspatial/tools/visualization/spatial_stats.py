@@ -5,7 +5,7 @@ This module contains:
 - Neighborhood enrichment heatmaps
 - Co-occurrence plots
 - Ripley's function visualizations
-- Moran's I scatter plots
+- Moran's I barplots (standard spatial transcriptomics format)
 - Centrality scores
 - Getis-Ord Gi* hotspot maps
 """
@@ -96,7 +96,7 @@ async def create_spatial_statistics_visualization(
         - neighborhood: Neighborhood enrichment heatmap
         - co_occurrence: Co-occurrence analysis plot
         - ripley: Ripley's K/L function curves
-        - moran: Moran's I scatter plot
+        - moran: Moran's I barplot (top spatially variable genes)
         - centrality: Graph centrality scores
         - getis_ord: Getis-Ord Gi* hotspot/coldspot maps
     """
@@ -261,79 +261,115 @@ def _create_moran_visualization(
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
-    """Create Moran's I volcano-style visualization.
+    """Create Moran's I barplot visualization (standard format).
 
-    Shows -log10(p-value) vs Moran's I for spatially variable genes.
-    Color indicates Moran's I value (positive = clustered, negative = dispersed).
+    Shows top spatially variable genes ranked by Moran's I value.
+    Color indicates statistical significance (-log10 p-value).
+    This is the standard visualization format in spatial transcriptomics.
 
     Data requirements:
         - adata.uns['moranI']: DataFrame with I, pval_norm columns
     """
+
     if "moranI" not in adata.uns:
         raise DataNotFoundError("Moran's I results not found. Expected key: moranI")
 
-    moran_data = adata.uns["moranI"]
-    moran_i = moran_data["I"].values
+    moran_data = adata.uns["moranI"].copy()
+
+    # Prepare data for visualization
+    moran_data["gene"] = moran_data.index
     pvals = moran_data["pval_norm"].values
 
     # Handle zero/negative p-values for log transform
-    # Use a reasonable minimum (1e-50) to avoid extreme values like -log10(1e-300)=300
-    # This caps -log10(p) at 50, which is still highly significant
+    # Use data-driven minimum to avoid extreme values
     min_pval = max(1e-50, np.min(pvals[pvals > 0]) if np.any(pvals > 0) else 1e-50)
     pvals_safe = np.clip(pvals, min_pval, 1.0)
-    neg_log_pval = -np.log10(pvals_safe)
+    moran_data["neg_log_pval"] = -np.log10(pvals_safe)
 
-    fig, axes = create_figure_from_params(params, "spatial")
-    ax = axes[0]
+    # Mark significance
+    moran_data["significant"] = pvals < 0.05
 
-    # Color by Moran's I value (meaningful: positive=clustered, negative=dispersed)
-    scatter = ax.scatter(
-        neg_log_pval,
-        moran_i,
-        s=50,
+    # Sort by Moran's I (descending) and take top genes
+    n_top = 20  # Standard number for spatial transcriptomics barplots
+    top_genes = moran_data.nlargest(n_top, "I")
+
+    # Create figure with appropriate size
+    # Width: 8 inches for gene names, Height: 0.4 per gene + margins
+    if params.figure_size:
+        figsize = params.figure_size
+    else:
+        figsize = (8, max(int(n_top * 0.4), 6))
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Create horizontal barplot (easier to read gene names)
+    # Color by -log10(p-value) to show significance
+    norm = plt.Normalize(
+        vmin=top_genes["neg_log_pval"].min(), vmax=top_genes["neg_log_pval"].max()
+    )
+    cmap = plt.colormaps.get_cmap(params.colormap or "viridis")
+    colors = [cmap(norm(v)) for v in top_genes["neg_log_pval"].values]
+
+    # Plot bars
+    y_pos = np.arange(len(top_genes))
+    ax.barh(
+        y_pos,
+        top_genes["I"].values,
+        color=colors,
         alpha=params.alpha,
-        c=moran_i,
-        cmap="RdBu_r",  # Diverging colormap centered at 0
-        vmin=-max(abs(moran_i.min()), abs(moran_i.max())),
-        vmax=max(abs(moran_i.min()), abs(moran_i.max())),
+        edgecolor="black",
+        linewidth=0.5,
     )
 
-    # Label top significant genes (high I and low p-value)
-    gene_names = moran_data.index.tolist()
-    sig_threshold = -np.log10(0.05)
-    significant_mask = (neg_log_pval > sig_threshold) & (moran_i > 0)
+    # Set y-axis labels (gene names)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(top_genes["gene"].values)
 
-    if np.any(significant_mask):
-        # Sort by combined score (high I * high significance)
-        scores = moran_i * neg_log_pval
-        top_indices = np.argsort(scores)[::-1][:10]  # Top 10
+    # Invert y-axis so highest Moran's I is at top
+    ax.invert_yaxis()
 
-        for idx in top_indices:
-            if significant_mask[idx]:
-                ax.annotate(
-                    gene_names[idx],
-                    (neg_log_pval[idx], moran_i[idx]),
-                    xytext=(5, 5),
-                    textcoords="offset points",
-                    fontsize=8,
-                    alpha=0.8,
-                )
+    # Add significance markers
+    for i, (idx, row) in enumerate(top_genes.iterrows()):
+        if row["significant"]:
+            ax.text(
+                row["I"] + 0.01,
+                i,
+                "*",
+                va="center",
+                ha="left",
+                fontsize=12,
+                fontweight="bold",
+            )
 
-    # Reference lines
-    ax.axhline(y=0, color="gray", linestyle="--", alpha=0.5, label="I=0")
-    ax.axvline(x=sig_threshold, color="red", linestyle="--", alpha=0.5, label="p=0.05")
+    # Labels and title
+    title = params.title or "Top Spatially Variable Genes (Moran's I)"
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xlabel("Moran's I (spatial autocorrelation)", fontsize=12)
+    ax.set_ylabel("Gene", fontsize=12)
 
-    title = params.title or "Moran's I Spatial Autocorrelation"
-    ax.set_title(title, fontsize=14)
-    ax.set_xlabel(r"$-\log_{10}$(p-value)", fontsize=12)
-    ax.set_ylabel("Moran's I", fontsize=12)
-
+    # Add colorbar for significance
     if params.show_colorbar:
-        cbar = plt.colorbar(scatter, ax=ax)
-        cbar.set_label("Moran's I (+ clustered, - dispersed)", fontsize=10)
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, pad=0.02)
+        cbar.set_label("-log10(p-value)", fontsize=10)
 
-    # Add legend for reference lines
-    ax.legend(loc="upper left", fontsize=9)
+    # Add vertical line at I=0 for reference
+    ax.axvline(x=0, color="gray", linestyle="--", alpha=0.5, linewidth=1)
+
+    # Add annotation for significance
+    n_significant = top_genes["significant"].sum()
+    ax.text(
+        0.98,
+        0.02,
+        f"* p < 0.05 ({n_significant}/{n_top} significant)",
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=9,
+        style="italic",
+        color="gray",
+    )
 
     plt.tight_layout()
     return fig
