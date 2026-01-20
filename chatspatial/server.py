@@ -15,11 +15,12 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # This protects against accidental stdout usage if server is imported directly
 os.environ["TQDM_DISABLE"] = "1"
 
-# Suppress scanpy/squidpy verbosity
+# Suppress scanpy/squidpy verbosity and enable multi-threading
 try:
     import scanpy as sc
 
     sc.settings.verbosity = 0
+    sc.settings.n_jobs = -1  # Use all CPU cores for parallel computation
 except ImportError:
     pass
 

@@ -22,11 +22,12 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # MCP uses JSON-RPC over stdio, any non-JSON output breaks communication
 os.environ["TQDM_DISABLE"] = "1"  # Disable tqdm globally
 
-# Configure scientific libraries to suppress output
+# Configure scientific libraries to suppress output and enable multi-threading
 try:
     import scanpy as sc
 
     sc.settings.verbosity = 0  # Suppress scanpy output
+    sc.settings.n_jobs = -1  # Use all CPU cores for parallel computation
 except ImportError:
     pass  # scanpy may not be installed yet
 
