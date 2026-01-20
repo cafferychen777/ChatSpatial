@@ -205,12 +205,6 @@ async def load_spatial_data(
                     f"Unsupported file format for 10x_visium: {data_path}. Supported formats: directory with Visium structure, .h5 file, or .h5ad file"
                 )
 
-            # Add spatial neighborhood graph if not already present
-            if "spatial_connectivities" not in adata.obsp and "spatial" in adata.obsm:
-                try:
-                    sq.gr.spatial_neighbors(adata)
-                except Exception as e:
-                    logger.warning(f"Could not compute spatial neighbors: {e}")
         except FileNotFoundError as e:
             raise DataNotFoundError(f"File not found: {e}") from e
         except Exception as e:
