@@ -14,7 +14,6 @@ from ..models.analysis import CNVResult
 from ..models.data import CNVParameters
 from ..utils import validate_obs_column
 from ..utils.adata_utils import store_analysis_metadata
-from ..utils.results_export import export_analysis_result
 from ..utils.dependency_manager import require
 from ..utils.exceptions import (
     DataCompatibilityError,
@@ -23,6 +22,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.results_export import export_analysis_result
 
 # Numbat availability is checked lazily in _infer_cnv_numbat to avoid
 # import-time failures when rpy2/R is not installed

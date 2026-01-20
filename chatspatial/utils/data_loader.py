@@ -13,9 +13,13 @@ For data persistence, see persistence.py.
 
 import logging
 import os
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from ..models.data import SpatialPlatform
+
+if TYPE_CHECKING:
+    from zarr.core.array import Array
+    from zarr.core.group import Group
 from .adata_utils import ensure_unique_var_names, get_adata_profile
 from .dependency_manager import is_available
 from .exceptions import (
@@ -48,33 +52,42 @@ def _load_xenium_zarr(data_path: str) -> Any:
     cells_zarr = os.path.join(data_path, "cells.zarr.zip")
 
     # Load cell_feature_matrix.zarr
+    # Note: zarr.open() returns AnyArray | Group, we cast to Group for type safety
     matrix_store = ZipStore(matrix_zarr, mode="r")
-    matrix_root = zarr.open(matrix_store, mode="r")
-    cf = matrix_root["cell_features"]
+    matrix_root = cast("Group", zarr.open(matrix_store, mode="r"))
+    cf = cast("Group", matrix_root["cell_features"])
 
     # Get sparse matrix components (CSC format)
-    data = np.asarray(cf["data"][:])
-    indices = np.asarray(cf["indices"][:])
-    indptr = np.asarray(cf["indptr"][:])
+    # cf["data"], cf["indices"], cf["indptr"] are zarr Arrays
+    data = np.asarray(cast("Array", cf["data"])[:])
+    indices = np.asarray(cast("Array", cf["indices"])[:])
+    indptr = np.asarray(cast("Array", cf["indptr"])[:])
 
-    n_cells = cf.attrs["number_cells"]
-    n_features = cf.attrs["number_features"]
+    # attrs values are JSON type; Xenium format guarantees these are integers
+    n_cells = cast(int, cf.attrs["number_cells"])
+    n_features = cast(int, cf.attrs["number_features"])
 
     # Create CSC matrix then convert to CSR (cells x genes)
     X_csc = sp.csc_matrix((data, indices, indptr), shape=(n_cells, n_features))
     X = X_csc.tocsr()
 
-    # Get feature names
-    feature_names = list(cf.attrs["feature_keys"])
-    feature_ids = list(cf.attrs["feature_ids"])
+    # Get feature names from zarr attrs (JSON type -> list[str])
+    # Xenium format guarantees these are string lists
+    feature_keys = cast(list[str], cf.attrs.get("feature_keys", []))
+    feature_ids_raw = cast(list[str], cf.attrs.get("feature_ids", []))
+    feature_names: list[str] = list(feature_keys)
+    feature_ids: list[str] = list(feature_ids_raw)
 
     # Load cells.zarr for spatial coordinates
     cells_store = ZipStore(cells_zarr, mode="r")
-    cells_root = zarr.open(cells_store, mode="r")
+    cells_root = cast("Group", zarr.open(cells_store, mode="r"))
 
-    cell_summary = np.asarray(cells_root["cell_summary"][:])
-    cell_id = np.asarray(cells_root["cell_id"][:])
-    column_names = list(cells_root["cell_summary"].attrs["column_names"])
+    # cells_root["cell_summary"] and cells_root["cell_id"] are zarr Arrays
+    cell_summary = np.asarray(cast("Array", cells_root["cell_summary"])[:])
+    cell_id = np.asarray(cast("Array", cells_root["cell_id"])[:])
+    cell_summary_arr = cast("Array", cells_root["cell_summary"])
+    column_names_raw = cast(list[str], cell_summary_arr.attrs.get("column_names", []))
+    column_names: list[str] = list(column_names_raw)
 
     # Create AnnData
     obs_names = [str(cid[0]) for cid in cell_id]
@@ -254,7 +267,9 @@ async def load_spatial_data(
                 error_msg += "\n3. Ensure the spatial folder contains the correct tissue_positions_list.csv file"
             elif ".h5" in data_path and "read_10x_h5" in str(e):
                 error_msg += "\n\nThis might not be a valid 10x H5 file. Try:"
-                error_msg += "\n1. Set data_type='generic' if this is an AnnData H5AD file"
+                error_msg += (
+                    "\n1. Set data_type='generic' if this is an AnnData H5AD file"
+                )
                 error_msg += (
                     "\n2. Verify the file is from 10x Genomics Cell Ranger output"
                 )
@@ -363,7 +378,9 @@ async def load_spatial_data(
         except (DataNotFoundError, DataCompatibilityError):
             raise
         except Exception as e:
-            raise ProcessingError(f"Error loading Xenium data from {data_path}: {e}") from e
+            raise ProcessingError(
+                f"Error loading Xenium data from {data_path}: {e}"
+            ) from e
 
     elif platform in ("slide_seq", "merfish", "seqfish", "generic"):
         # For h5ad files or other spatial platforms

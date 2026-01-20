@@ -24,7 +24,6 @@ from ..utils.adata_utils import (
     validate_adata,
 )
 from ..utils.dependency_manager import require
-from ..utils.results_export import export_analysis_result
 from ..utils.exceptions import (
     DataError,
     DataNotFoundError,
@@ -32,6 +31,7 @@ from ..utils.exceptions import (
     ProcessingError,
 )
 from ..utils.mcp_utils import suppress_output
+from ..utils.results_export import export_analysis_result
 
 
 def preprocess_for_velocity(

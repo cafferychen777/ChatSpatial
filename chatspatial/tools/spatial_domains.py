@@ -26,7 +26,6 @@ from ..utils.adata_utils import (
     require_spatial_coords,
     store_analysis_metadata,
 )
-from ..utils.results_export import export_analysis_result
 from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 from ..utils.device_utils import get_device, resolve_device_async
@@ -36,6 +35,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.results_export import export_analysis_result
 
 
 async def identify_spatial_domains(

@@ -303,7 +303,6 @@ def _extract_co_occurrence(
     import numpy as np
 
     occ = data["occ"]  # Shape: (n_clusters, n_clusters, n_intervals)
-    intervals = data.get("interval", None)
 
     n_clusters_row, n_clusters_col, n_intervals = occ.shape
 

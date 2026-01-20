@@ -785,7 +785,9 @@ async def integrate_samples(
     if params.method == "scvi":
         export_analysis_result(combined_adata, integrated_id, "integration_scvi")
     else:
-        export_analysis_result(combined_adata, integrated_id, f"integration_{params.method}")
+        export_analysis_result(
+            combined_adata, integrated_id, f"integration_{params.method}"
+        )
 
     if params.align_spatial and "spatial_aligned" in combined_adata.obsm:
         export_analysis_result(combined_adata, integrated_id, "spatial_alignment")

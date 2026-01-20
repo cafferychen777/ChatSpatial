@@ -83,7 +83,6 @@ from .multi_gene import (
     create_spatial_interaction_visualization,
 )
 
-
 # Spatial statistics visualizations
 from .spatial_stats import create_spatial_statistics_visualization
 

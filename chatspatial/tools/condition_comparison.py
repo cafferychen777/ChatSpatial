@@ -21,8 +21,8 @@ from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
 from ..utils.adata_utils import check_is_integer_counts, store_analysis_metadata
 from ..utils.dependency_manager import require
-from ..utils.results_export import export_analysis_result
 from ..utils.exceptions import DataError, ParameterError, ProcessingError
+from ..utils.results_export import export_analysis_result
 
 
 async def compare_conditions(

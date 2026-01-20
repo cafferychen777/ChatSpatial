@@ -6,12 +6,10 @@ to appropriate visualization handlers based on plot_type.
 """
 
 import traceback
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import scanpy as sc
-from mcp.server.fastmcp.utilities.types import ImageContent
-from mcp.types import EmbeddedResource
 
 from ...models.data import VisualizationParameters
 from ...utils.exceptions import (
@@ -85,7 +83,7 @@ async def visualize_data(
     data_id: str,
     ctx: "ToolContext",
     params: VisualizationParameters = VisualizationParameters(),
-) -> Union[ImageContent, tuple[ImageContent, EmbeddedResource], str]:
+) -> str:
     """Visualize spatial transcriptomics data.
 
     Args:
@@ -94,9 +92,7 @@ async def visualize_data(
         params: Visualization parameters
 
     Returns:
-        Union[ImageContent, Tuple[ImageContent, EmbeddedResource]]:
-            - Small images (<100KB): ImageContent object
-            - Large images (>=100KB): Tuple[Preview ImageContent, High-quality Resource]
+        str: Path to saved visualization file with metadata
 
     Raises:
         DataNotFoundError: If the dataset is not found

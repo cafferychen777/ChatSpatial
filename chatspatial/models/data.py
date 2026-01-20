@@ -71,10 +71,16 @@ class PreprocessingParameters(BaseModel):
         default=30, gt=0, description="Filter cells expressing fewer than N genes."
     )
     subsample_spots: Optional[int] = Field(
-        default=None, gt=0, le=50000, description="Subsample to N spots. None = no subsampling."
+        default=None,
+        gt=0,
+        le=50000,
+        description="Subsample to N spots. None = no subsampling.",
     )
     subsample_genes: Optional[int] = Field(
-        default=None, gt=0, le=50000, description="Keep top N variable genes. None = keep all."
+        default=None,
+        gt=0,
+        le=50000,
+        description="Keep top N variable genes. None = keep all.",
     )
     subsample_random_seed: int = 42
 
@@ -103,8 +109,15 @@ class PreprocessingParameters(BaseModel):
         default=False,
         description="Scale to unit variance before PCA. Usually not needed for spatial data.",
     )
-    n_hvgs: int = Field(default=2000, gt=0, le=5000, description="Number of highly variable genes to select.")
-    n_pcs: int = Field(default=30, gt=0, le=100, description="Number of principal components for PCA.")
+    n_hvgs: int = Field(
+        default=2000,
+        gt=0,
+        le=5000,
+        description="Number of highly variable genes to select.",
+    )
+    n_pcs: int = Field(
+        default=30, gt=0, le=100, description="Number of principal components for PCA."
+    )
 
     # ========== Normalization Control Parameters ==========
     normalize_target_sum: Optional[float] = Field(
@@ -171,12 +184,17 @@ class PreprocessingParameters(BaseModel):
 
     # Key naming parameters (configurable hard-coded keys)
     cluster_key: str = Field(
-        default="leiden", alias="clustering_key", description="Key name for clustering results in obs."
+        default="leiden",
+        alias="clustering_key",
+        description="Key name for clustering results in obs.",
     )
     spatial_key: Optional[str] = Field(
-        default=None, description="Spatial coordinate key in obsm (auto-detected if None)"
+        default=None,
+        description="Spatial coordinate key in obsm (auto-detected if None)",
     )
-    batch_key: str = Field(default="batch", description="Key name for batch information in obs.")
+    batch_key: str = Field(
+        default="batch", description="Key name for batch information in obs."
+    )
 
     # User-controllable parameters (scientifically-informed defaults)
     n_neighbors: Annotated[int, Field(gt=2, le=100)] = Field(
@@ -651,9 +669,7 @@ class AnnotationParameters(BaseModel):
         default=True,
         description="SCVI pretraining. Set False if NaN errors on small datasets.",
     )
-    scanvi_scvi_epochs: int = Field(
-        default=200, description="SCVI pretraining epochs."
-    )
+    scanvi_scvi_epochs: int = Field(default=200, description="SCVI pretraining epochs.")
     scanvi_scanvi_epochs: int = Field(
         default=20,
         description="SCANVI training epochs after pretraining. Increase to 50-100 for complex datasets.",
@@ -679,13 +695,24 @@ class AnnotationParameters(BaseModel):
 
     # mLLMCellType parameters
     mllm_n_marker_genes: int = Field(
-        default=20, gt=0, le=50, description="Number of marker genes per cluster for LLM annotation."
+        default=20,
+        gt=0,
+        le=50,
+        description="Number of marker genes per cluster for LLM annotation.",
     )
     mllm_species: Literal["human", "mouse"] = "human"
     mllm_tissue: Optional[str] = None
     mllm_provider: Literal[
-        "openai", "anthropic", "gemini", "deepseek", "qwen",
-        "zhipu", "stepfun", "minimax", "grok", "openrouter",
+        "openai",
+        "anthropic",
+        "gemini",
+        "deepseek",
+        "qwen",
+        "zhipu",
+        "stepfun",
+        "minimax",
+        "grok",
+        "openrouter",
     ] = "openai"
     mllm_model: Optional[str] = None
     mllm_api_key: Optional[str] = None
@@ -846,13 +873,24 @@ class RNAVelocityParameters(BaseModel):
         default="stochastic",
         description="'dynamical' mode REQUIRED for CellRank gene_trends visualization.",
     )
-    n_pcs: int = Field(default=30, gt=0, le=100, description="Principal components for velocity computation.")
+    n_pcs: int = Field(
+        default=30,
+        gt=0,
+        le=100,
+        description="Principal components for velocity computation.",
+    )
     basis: str = "spatial"
 
     # Preprocessing parameters for velocity computation
-    min_shared_counts: int = Field(default=30, gt=0, description="Minimum shared counts for gene filtering.")
-    n_top_genes: int = Field(default=2000, gt=0, description="Number of top variable genes to retain.")
-    n_neighbors: int = Field(default=30, gt=0, description="Neighbors for moments computation.")
+    min_shared_counts: int = Field(
+        default=30, gt=0, description="Minimum shared counts for gene filtering."
+    )
+    n_top_genes: int = Field(
+        default=2000, gt=0, description="Number of top variable genes to retain."
+    )
+    n_neighbors: int = Field(
+        default=30, gt=0, description="Neighbors for moments computation."
+    )
 
     # VELOVI specific parameters
     velovi_n_hidden: int = 128
@@ -871,16 +909,30 @@ class TrajectoryParameters(BaseModel):
         default="cellrank",
         description="'cellrank' requires velocity data. 'palantir'/'dpt' work without velocity.",
     )
-    spatial_weight: float = Field(default=0.5, ge=0.0, le=1.0, description="Weight for spatial vs expression distance (0=expression only, 1=spatial only).")
-    root_cells: Optional[list[str]] = Field(default=None, description="Starting cells for trajectory inference (palantir/dpt).")
+    spatial_weight: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Weight for spatial vs expression distance (0=expression only, 1=spatial only).",
+    )
+    root_cells: Optional[list[str]] = Field(
+        default=None,
+        description="Starting cells for trajectory inference (palantir/dpt).",
+    )
 
     # CellRank specific parameters
     cellrank_kernel_weights: tuple[float, float] = (0.8, 0.2)
-    cellrank_n_states: int = Field(default=5, gt=0, le=20, description="Number of macrostates for CellRank.")
+    cellrank_n_states: int = Field(
+        default=5, gt=0, le=20, description="Number of macrostates for CellRank."
+    )
 
     # Palantir specific parameters
-    palantir_n_diffusion_components: int = Field(default=10, gt=0, le=50, description="Diffusion components for Palantir.")
-    palantir_num_waypoints: int = Field(default=500, gt=0, description="Number of waypoints for Palantir.")
+    palantir_n_diffusion_components: int = Field(
+        default=10, gt=0, le=50, description="Diffusion components for Palantir."
+    )
+    palantir_num_waypoints: int = Field(
+        default=500, gt=0, description="Number of waypoints for Palantir."
+    )
 
     # Fallback control
     # Removed: allow_fallback_to_dpt - No longer doing automatic fallbacks
@@ -891,10 +943,13 @@ class IntegrationParameters(BaseModel):
     """Sample integration parameters model"""
 
     method: Literal["harmony", "bbknn", "scanorama", "scvi"] = Field(
-        default="harmony", description="Integration method. 'scvi' requires scvi-tools and supports GPU."
+        default="harmony",
+        description="Integration method. 'scvi' requires scvi-tools and supports GPU.",
     )
     batch_key: str = "batch"
-    n_pcs: int = Field(default=30, gt=0, le=100, description="Principal components for integration.")
+    n_pcs: int = Field(
+        default=30, gt=0, le=100, description="Principal components for integration."
+    )
     align_spatial: bool = True
     reference_batch: Optional[str] = None
 
@@ -914,7 +969,14 @@ class DeconvolutionParameters(BaseModel):
     """Spatial deconvolution parameters model"""
 
     method: Literal[
-        "flashdeconv", "cell2location", "rctd", "destvi", "stereoscope", "spotlight", "tangram", "card"
+        "flashdeconv",
+        "cell2location",
+        "rctd",
+        "destvi",
+        "stereoscope",
+        "spotlight",
+        "tangram",
+        "card",
     ] = Field(
         default="flashdeconv",
         description="All methods require reference_data_id and cell_type_key.",
@@ -1086,9 +1148,19 @@ class DeconvolutionParameters(BaseModel):
         "full",
         description="'doublet' for high-res (Slide-seq, MERFISH), 'full' for low-res (Visium), 'multi' for constrained mixing.",
     )
-    max_cores: int = Field(default=4, gt=0, le=16, description="Maximum CPU cores for R-based methods.")
-    rctd_confidence_threshold: float = Field(default=10.0, gt=0, description="Cell type assignment confidence (higher = more stringent).")
-    rctd_doublet_threshold: float = Field(default=25.0, gt=0, description="Doublet detection threshold (doublet/multi modes).")
+    max_cores: int = Field(
+        default=4, gt=0, le=16, description="Maximum CPU cores for R-based methods."
+    )
+    rctd_confidence_threshold: float = Field(
+        default=10.0,
+        gt=0,
+        description="Cell type assignment confidence (higher = more stringent).",
+    )
+    rctd_doublet_threshold: float = Field(
+        default=25.0,
+        gt=0,
+        description="Doublet detection threshold (doublet/multi modes).",
+    )
     rctd_max_multi_types: Annotated[int, Field(ge=2, le=10)] = Field(
         4,
         description="Max cell types per spot in multi mode. 4-6 for Visium, 2-3 for higher resolution.",
@@ -1161,14 +1233,26 @@ class SpatialDomainParameters(BaseModel):
     """Spatial domain identification parameters model"""
 
     method: Literal["spagcn", "leiden", "louvain", "stagate", "graphst"] = Field(
-        default="spagcn", description="'spagcn' uses histology image. 'stagate'/'graphst' for data without images."
+        default="spagcn",
+        description="'spagcn' uses histology image. 'stagate'/'graphst' for data without images.",
     )
-    n_domains: int = Field(default=7, gt=0, le=50, description="Number of spatial domains to identify.")
+    n_domains: int = Field(
+        default=7, gt=0, le=50, description="Number of spatial domains to identify."
+    )
 
     # SpaGCN specific parameters
-    spagcn_s: float = Field(default=1.0, gt=0.0, description="Histology weight in SpaGCN.")
-    spagcn_b: int = Field(default=49, gt=0, description="Spot area for color intensity extraction.")
-    spagcn_p: float = Field(default=0.5, ge=0.0, le=1.0, description="Neighborhood expression contribution fraction.")
+    spagcn_s: float = Field(
+        default=1.0, gt=0.0, description="Histology weight in SpaGCN."
+    )
+    spagcn_b: int = Field(
+        default=49, gt=0, description="Spot area for color intensity extraction."
+    )
+    spagcn_p: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Neighborhood expression contribution fraction.",
+    )
     spagcn_use_histology: bool = True
     spagcn_random_seed: int = 100
 
@@ -1176,11 +1260,23 @@ class SpatialDomainParameters(BaseModel):
     resolution: float = 0.5
     use_highly_variable: bool = True
     refine_domains: bool = True
-    refinement_threshold: float = Field(default=0.5, ge=0.0, le=1.0, description="Neighbor agreement threshold for domain refinement.")
+    refinement_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Neighbor agreement threshold for domain refinement.",
+    )
 
     # Clustering-specific parameters for leiden/louvain methods
-    cluster_n_neighbors: Optional[int] = Field(default=None, gt=0, description="Neighbors for clustering (leiden/louvain).")
-    cluster_spatial_weight: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Spatial information weight (leiden/louvain).")
+    cluster_n_neighbors: Optional[int] = Field(
+        default=None, gt=0, description="Neighbors for clustering (leiden/louvain)."
+    )
+    cluster_spatial_weight: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Spatial information weight (leiden/louvain).",
+    )
     cluster_resolution: Optional[float] = None  # Resolution parameter for clustering
 
     # STAGATE specific parameters
@@ -1216,12 +1312,16 @@ class SpatialVariableGenesParameters(BaseModel):
 
     # Method selection
     method: Literal["spatialde", "sparkx"] = Field(
-        default="sparkx", description="'sparkx' is faster and recommended. 'spatialde' uses Gaussian process."
+        default="sparkx",
+        description="'sparkx' is faster and recommended. 'spatialde' uses Gaussian process.",
     )
 
     # Common parameters for all methods
     n_top_genes: Optional[int] = Field(
-        default=None, gt=0, le=5000, description="Top spatial variable genes to return. None = all significant."
+        default=None,
+        gt=0,
+        le=5000,
+        description="Top spatial variable genes to return. None = all significant.",
     )
     spatial_key: str = "spatial"
 
@@ -1229,14 +1329,22 @@ class SpatialVariableGenesParameters(BaseModel):
     spatialde_normalized: bool = True
     spatialde_kernel: str = "SE"
     spatialde_pi0: Optional[float] = Field(
-        default=None, gt=0.0, le=1.0,
+        default=None,
+        gt=0.0,
+        le=1.0,
         description="Null hypothesis prior for FDR. None = adaptive (recommended). Higher = more conservative. SpatialDE only.",
     )
 
     # SPARK-X specific parameters
-    sparkx_percentage: float = Field(default=0.1, gt=0.0, le=1.0, description="Expression filtering percentage.")
-    sparkx_min_total_counts: int = Field(default=10, gt=0, description="Minimum total counts per gene.")
-    sparkx_num_core: int = Field(default=1, gt=0, le=16, description="CPU cores for parallel processing.")
+    sparkx_percentage: float = Field(
+        default=0.1, gt=0.0, le=1.0, description="Expression filtering percentage."
+    )
+    sparkx_min_total_counts: int = Field(
+        default=10, gt=0, description="Minimum total counts per gene."
+    )
+    sparkx_num_core: int = Field(
+        default=1, gt=0, le=16, description="CPU cores for parallel processing."
+    )
     sparkx_option: Literal["single", "mixture"] = "mixture"
     sparkx_verbose: bool = False
 
@@ -1301,30 +1409,53 @@ class CellCommunicationParameters(BaseModel):
     # ========== LIANA Specific Parameters ==========
     liana_local_metric: Literal["cosine", "pearson", "spearman", "jaccard"] = "cosine"
     liana_global_metric: Literal["morans", "lee"] = "morans"
-    liana_n_perms: int = Field(default=1000, gt=0, description="Permutations for p-value calculation.")
-    liana_nz_prop: float = Field(default=0.2, gt=0.0, le=1.0, description="Minimum expression proportion.")
+    liana_n_perms: int = Field(
+        default=1000, gt=0, description="Permutations for p-value calculation."
+    )
+    liana_nz_prop: float = Field(
+        default=0.2, gt=0.0, le=1.0, description="Minimum expression proportion."
+    )
     liana_bandwidth: Optional[int] = None
-    liana_cutoff: float = Field(default=0.1, gt=0.0, le=1.0, description="Spatial connectivity cutoff.")
+    liana_cutoff: float = Field(
+        default=0.1, gt=0.0, le=1.0, description="Spatial connectivity cutoff."
+    )
     liana_significance_alpha: float = Field(
-        default=0.05, gt=0.0, lt=1.0,
+        default=0.05,
+        gt=0.0,
+        lt=1.0,
         description="FDR significance threshold. 0.01 for stringent, 0.10 for exploratory. LIANA only.",
     )
 
     # ========== Expression Filtering Parameters ==========
-    min_cells: int = Field(default=3, ge=0, description="Minimum cells expressing ligand or receptor.")
+    min_cells: int = Field(
+        default=3, ge=0, description="Minimum cells expressing ligand or receptor."
+    )
 
     # ========== Result Control ==========
     plot_top_pairs: int = Field(
-        default=6, gt=0, le=100, description="Top LR pairs to display. Use higher values (e.g., 50) for chord diagrams."
+        default=6,
+        gt=0,
+        le=100,
+        description="Top LR pairs to display. Use higher values (e.g., 50) for chord diagrams.",
     )
 
     # ========== CellPhoneDB Specific Parameters ==========
-    cellphonedb_threshold: float = Field(default=0.1, gt=0.0, le=1.0, description="Expression threshold.")
-    cellphonedb_iterations: int = Field(default=1000, gt=0, le=10000, description="Statistical permutations.")
-    cellphonedb_result_precision: int = Field(default=3, gt=0, le=5, description="Result decimal precision.")
-    cellphonedb_pvalue: float = Field(default=0.05, gt=0.0, le=1.0, description="P-value significance threshold.")
+    cellphonedb_threshold: float = Field(
+        default=0.1, gt=0.0, le=1.0, description="Expression threshold."
+    )
+    cellphonedb_iterations: int = Field(
+        default=1000, gt=0, le=10000, description="Statistical permutations."
+    )
+    cellphonedb_result_precision: int = Field(
+        default=3, gt=0, le=5, description="Result decimal precision."
+    )
+    cellphonedb_pvalue: float = Field(
+        default=0.05, gt=0.0, le=1.0, description="P-value significance threshold."
+    )
     cellphonedb_use_microenvironments: bool = True
-    cellphonedb_spatial_radius: Optional[float] = Field(default=None, gt=0.0, description="Spatial radius for microenvironments.")
+    cellphonedb_spatial_radius: Optional[float] = Field(
+        default=None, gt=0.0, description="Spatial radius for microenvironments."
+    )
     cellphonedb_debug_seed: Optional[int] = None
 
     # Multiple testing correction for CellPhoneDB
@@ -1360,21 +1491,40 @@ class CellCommunicationParameters(BaseModel):
     # - "trimean": Tukey's trimean (robust, default, produces fewer interactions)
     # - "truncatedMean": Truncated mean (more interactions, use with trim parameter)
 
-    cellchat_trim: float = Field(default=0.1, ge=0.0, le=0.5, description="Trim proportion for truncatedMean method.")
+    cellchat_trim: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=0.5,
+        description="Trim proportion for truncatedMean method.",
+    )
 
     cellchat_population_size: bool = True
 
-    cellchat_min_cells: int = Field(default=10, ge=1, description="Minimum cells per group for filterCommunication.")
+    cellchat_min_cells: int = Field(
+        default=10, ge=1, description="Minimum cells per group for filterCommunication."
+    )
 
     cellchat_distance_use: bool = True
 
-    cellchat_interaction_range: float = Field(default=250.0, gt=0.0, description="Max ligand diffusion range in microns.")
+    cellchat_interaction_range: float = Field(
+        default=250.0, gt=0.0, description="Max ligand diffusion range in microns."
+    )
 
-    cellchat_scale_distance: float = Field(default=0.01, gt=0.0, description="Scale factor for distance calculation.")
+    cellchat_scale_distance: float = Field(
+        default=0.01, gt=0.0, description="Scale factor for distance calculation."
+    )
 
-    cellchat_contact_knn_k: int = Field(default=6, ge=1, description="Nearest neighbors for contact-dependent signaling.")
+    cellchat_contact_knn_k: int = Field(
+        default=6,
+        ge=1,
+        description="Nearest neighbors for contact-dependent signaling.",
+    )
 
-    cellchat_contact_range: Optional[float] = Field(default=None, gt=0.0, description="Distance threshold for contact signaling. None = use contact_knn_k.")
+    cellchat_contact_range: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description="Distance threshold for contact signaling. None = use contact_knn_k.",
+    )
 
     # CellChat spatial conversion factors (platform-specific)
     cellchat_pixel_ratio: Annotated[float, Field(gt=0.0)] = Field(
@@ -1392,9 +1542,11 @@ class CellCommunicationParameters(BaseModel):
     # Reference: Nature Communications 2025 (https://github.com/Svvord/FastCCC)
     # Key advantage: Ultra-fast (16M cells in minutes vs hours for permutation methods)
 
-    fastccc_single_unit_summary: Literal["Mean", "Median", "Q3", "Quantile_0.9"] = Field(
-        default="Mean",
-        description="Gene expression aggregation. 'Median' for outlier robustness. FastCCC only.",
+    fastccc_single_unit_summary: Literal["Mean", "Median", "Q3", "Quantile_0.9"] = (
+        Field(
+            default="Mean",
+            description="Gene expression aggregation. 'Median' for outlier robustness. FastCCC only.",
+        )
     )
 
     fastccc_complex_aggregation: Literal["Minimum", "Average"] = Field(
@@ -1442,7 +1594,11 @@ class EnrichmentParameters(BaseModel):
 
     # Method selection
     method: Literal[
-        "spatial_enrichmap", "pathway_gsea", "pathway_ora", "pathway_enrichr", "pathway_ssgsea"
+        "spatial_enrichmap",
+        "pathway_gsea",
+        "pathway_ora",
+        "pathway_enrichr",
+        "pathway_ssgsea",
     ] = Field(
         default="spatial_enrichmap",
         description="'spatial_enrichmap' for spatial patterns. 'pathway_gsea'/'pathway_ora' for standard enrichment.",
@@ -1469,7 +1625,9 @@ class EnrichmentParameters(BaseModel):
 
     # Spatial parameters (for spatial_enrichmap)
     spatial_key: str = "spatial"
-    n_neighbors: int = Field(default=6, gt=0, description="Spatial neighbors for enrichment mapping.")
+    n_neighbors: int = Field(
+        default=6, gt=0, description="Spatial neighbors for enrichment mapping."
+    )
     smoothing: bool = True
     correct_spatial_covariates: bool = True
 
@@ -1479,9 +1637,13 @@ class EnrichmentParameters(BaseModel):
     max_genes: int = Field(default=500, gt=0, description="Maximum genes in gene set.")
 
     # Statistical parameters
-    pvalue_cutoff: float = Field(default=0.05, gt=0.0, lt=1.0, description="P-value significance cutoff.")
+    pvalue_cutoff: float = Field(
+        default=0.05, gt=0.0, lt=1.0, description="P-value significance cutoff."
+    )
     adjust_method: Literal["bonferroni", "fdr", "none"] = "fdr"
-    n_permutations: int = Field(default=1000, gt=0, description="Permutations for GSEA.")
+    n_permutations: int = Field(
+        default=1000, gt=0, description="Permutations for GSEA."
+    )
 
 
 class CNVParameters(BaseModel):

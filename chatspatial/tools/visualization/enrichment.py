@@ -514,12 +514,13 @@ def _create_gsea_barplot(
 
     # Barplot-specific figure size: width for long pathway names, height for pathway count
     # (do NOT use resolve_figure_size with n_panels - barplot is not a grid layout)
+    figsize: tuple[float, float]
     if params.figure_size:
-        figsize = params.figure_size
+        figsize = (float(params.figure_size[0]), float(params.figure_size[1]))
     else:
         # Width: 10 inches for long pathway names (e.g., GO terms)
         # Height: 0.5 inches per pathway, minimum 4 inches
-        figsize = (10, max(n_top * 0.5, 4))
+        figsize = (10.0, max(n_top * 0.5, 4.0))
     color = params.colormap if params.colormap != "coolwarm" else "salmon"
 
     try:
