@@ -9,7 +9,7 @@ Key functionality:
 - Supports CellRank (velocity-based), Palantir (expression-based), and DPT (diffusion-based)
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -287,7 +287,7 @@ def infer_pseudotime_palantir(
     return adata
 
 
-def compute_dpt_trajectory(adata, root_cells=None, ctx: Optional["ToolContext"] = None):
+def compute_dpt_trajectory(adata, root_cells=None):
     """Compute Diffusion Pseudotime trajectory analysis."""
     import numpy as np
     import scanpy as sc
@@ -400,7 +400,7 @@ async def analyze_trajectory(
         try:
             with suppress_output():
                 adata = compute_dpt_trajectory(
-                    adata, root_cells=params.root_cells, ctx=ctx
+                    adata, root_cells=params.root_cells
                 )
             pseudotime_key = "dpt_pseudotime"
             method_used = "dpt"
