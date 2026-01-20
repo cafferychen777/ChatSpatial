@@ -1817,7 +1817,6 @@ async def analyze_enrichment(
     # Load gene sets
     gene_sets = params.gene_sets
     if gene_sets is None and params.gene_set_database:
-        await ctx.info(f"Loading gene sets from {params.gene_set_database}")
         try:
             gene_sets = load_gene_sets(
                 database=params.gene_set_database,
@@ -1825,9 +1824,6 @@ async def analyze_enrichment(
                 min_genes=params.min_genes,
                 max_genes=params.max_genes,
                 ctx=ctx,
-            )
-            await ctx.info(
-                f"Loaded {len(gene_sets)} gene sets from {params.gene_set_database}"
             )
         except Exception as e:
             await ctx.error(f"Gene set database loading failed: {e}")
@@ -1879,10 +1875,6 @@ async def analyze_enrichment(
             species=params.species,
             database=params.gene_set_database,
         )
-        await ctx.info(
-            "Spatial enrichment complete. Use visualize_data with "
-            "plot_type='pathway_enrichment' to visualize."
-        )
 
     elif params.method == "pathway_gsea":
         result = perform_gsea(
@@ -1897,7 +1889,6 @@ async def analyze_enrichment(
             ctx=ctx,
             data_id=data_id,
         )
-        await ctx.info("GSEA complete. Use visualize_data to see results.")
 
     elif params.method == "pathway_ora":
         result = perform_ora(
@@ -1911,7 +1902,6 @@ async def analyze_enrichment(
             ctx=ctx,
             data_id=data_id,
         )
-        await ctx.info("ORA complete. Use visualize_data to see results.")
 
     elif params.method == "pathway_ssgsea":
         result = perform_ssgsea(
@@ -1924,7 +1914,6 @@ async def analyze_enrichment(
             ctx=ctx,
             data_id=data_id,
         )
-        await ctx.info("ssGSEA complete. Use visualize_data to see results.")
 
     elif params.method == "pathway_enrichr":
         gene_list = get_highly_variable_genes(adata, max_genes=500)
@@ -1934,7 +1923,6 @@ async def analyze_enrichment(
             organism=params.species,
             ctx=ctx,
         )
-        await ctx.info("Enrichr complete. Use visualize_data to see results.")
 
     else:
         raise ParameterError(f"Unknown enrichment method: {params.method}")

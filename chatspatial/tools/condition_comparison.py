@@ -380,7 +380,6 @@ async def _run_global_comparison(
     Returns:
         ConditionComparisonResult
     """
-    await ctx.info("Running global pseudobulk analysis (all cells)...")
 
     # Create pseudobulk
     counts_df, metadata_df, cell_counts = _create_pseudobulk(
@@ -474,7 +473,6 @@ async def _run_stratified_comparison(
     Returns:
         ConditionComparisonResult with cell type stratified results
     """
-    await ctx.info(f"Running stratified analysis by {params.cell_type_key}...")
 
     cell_types = adata.obs[params.cell_type_key].unique()
     await ctx.info(f"Found {len(cell_types)} cell types")

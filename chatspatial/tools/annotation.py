@@ -1221,7 +1221,6 @@ async def _annotate_with_cellassign(
 
     # Replace any NaN or Inf values with zeros
     if np.any(np.isnan(X_array)) or np.any(np.isinf(X_array)):
-        await ctx.warning("Found NaN or Inf values in data, replacing with zeros")
         X_array = np.nan_to_num(X_array, nan=0.0, posinf=0.0, neginf=0.0)
         adata_subset.X = X_array
 
@@ -1239,7 +1238,6 @@ async def _annotate_with_cellassign(
 
     # Ensure data is non-negative (CellAssign expects count-like data)
     if np.any(X_array < 0):
-        await ctx.warning("Found negative values in data, clipping to zero")
         X_array = np.maximum(X_array, 0)
         adata_subset.X = X_array
 
@@ -1797,8 +1795,8 @@ async def _cache_sctype_results(
             json.dump(cache_data, f)
 
         _SCTYPE_CACHE[cache_key] = results
-    except Exception as e:
-        await ctx.warning(f"Failed to cache results: {e}")
+    except Exception:
+        pass  # Cache failure is non-critical
 
 
 def _load_cached_sctype_results(cache_key: str, ctx: "ToolContext") -> Optional[tuple]:

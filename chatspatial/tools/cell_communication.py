@@ -1426,7 +1426,6 @@ async def _analyze_communication_fastccc(
         # Use adata.raw if available for comprehensive gene coverage
         if adata.raw is not None:
             data_source = adata.raw
-            await ctx.info("Using adata.raw for comprehensive gene coverage")
         else:
             data_source = adata
 
@@ -1457,15 +1456,9 @@ async def _analyze_communication_fastccc(
             # Check if data needs normalization (FastCCC max threshold is 14)
             max_val = np.max(temp_adata.X)
             if max_val > 14:
-                await ctx.info(
-                    f"Data max value ({max_val:.1f}) exceeds FastCCC threshold (14). "
-                    f"Applying normalize_total + log1p transformation..."
-                )
                 # Apply standard scanpy normalization pipeline
                 sc.pp.normalize_total(temp_adata, target_sum=1e4)
                 sc.pp.log1p(temp_adata)
-                new_max = np.max(temp_adata.X)
-                await ctx.info(f"After normalization: max value = {new_max:.2f}")
 
             # Make var names unique (FastCCC requirement)
             temp_adata.var_names_make_unique()

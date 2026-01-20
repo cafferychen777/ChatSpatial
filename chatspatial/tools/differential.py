@@ -471,7 +471,6 @@ async def _run_pydeseq2(
         group2 = "rest"
 
     # Create pseudobulk aggregation
-    await ctx.info(f"Creating pseudobulk samples by {sample_key} and {group_key}...")
 
     # Build aggregation key
     if group2 == "rest":
@@ -495,8 +494,6 @@ async def _run_pydeseq2(
     pseudobulk_groups = adata.obs.groupby("_pseudobulk_id")
     pseudobulk_ids = list(pseudobulk_groups.groups.keys())
     n_samples = len(pseudobulk_ids)
-
-    await ctx.info(f"Aggregated into {n_samples} pseudobulk samples")
 
     if n_samples < 4:
         raise DataError(
@@ -537,7 +534,6 @@ async def _run_pydeseq2(
 
     # Check sample counts per condition
     condition_counts = metadata_df["condition"].value_counts()
-    await ctx.info(f"Samples per condition: {condition_counts.to_dict()}")
 
     if any(condition_counts < 2):
         raise DataError(
@@ -546,8 +542,6 @@ async def _run_pydeseq2(
         )
 
     # Run PyDESeq2
-    await ctx.info("Running PyDESeq2 differential expression analysis...")
-
     try:
         # Create DESeq2 dataset
         dds = DeseqDataSet(

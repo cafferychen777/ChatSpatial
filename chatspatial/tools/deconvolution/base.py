@@ -290,11 +290,7 @@ async def _prepare_counts(
         sample_size=100,
     )
 
-    if not result.is_integer_counts:
-        await ctx.warning(
-            f"{label}: Using normalized data (no raw counts available). "
-            f"This may be acceptable for some reference datasets."
-        )
+    # Normalized data is acceptable for some reference datasets
 
     # Construct copy based on source
     if result.source == "raw":
