@@ -9,6 +9,21 @@ from typing import Annotated, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing_extensions import Self
 
+# =============================================================================
+# Spatial Data Type Definitions (Single Source of Truth)
+# =============================================================================
+
+# Actual platform types for storage - these are the only valid final states
+# - visium: 10x Visium spatial transcriptomics (spot-based, ~55μm resolution)
+# - xenium: 10x Xenium in situ (single-cell resolution, imaging-based)
+# - slide_seq: Slide-seq/Slide-seqV2 (bead-based, ~10μm resolution)
+# - merfish: MERFISH imaging-based (single-cell resolution)
+# - seqfish: seqFISH/seqFISH+ (single-cell resolution)
+# - generic: General spatial data (h5ad files, unknown platforms)
+SpatialPlatform = Literal[
+    "visium", "xenium", "slide_seq", "merfish", "seqfish", "generic"
+]
+
 
 class ColumnInfo(BaseModel):
     """Metadata column information for dataset profiling"""
@@ -25,9 +40,7 @@ class SpatialDataset(BaseModel):
 
     id: str
     name: str
-    data_type: Literal[
-        "10x_visium", "slide_seq", "merfish", "seqfish", "other", "h5ad", "auto"
-    ]
+    data_type: SpatialPlatform  # Only valid platform types, never "auto" or "h5ad"
     description: Optional[str] = None
 
     # Basic statistics

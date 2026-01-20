@@ -6,14 +6,16 @@ Handles loading various spatial data formats:
 - H5 files (10x Genomics format)
 - MTX directories (10x Visium structure)
 - Visium directories with spatial information
+- Xenium directories with cell-level spatial data
 
 For data persistence, see persistence.py.
 """
 
 import logging
 import os
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
+from ..models.data import SpatialPlatform
 from .adata_utils import ensure_unique_var_names, get_adata_profile
 from .dependency_manager import is_available
 from .exceptions import (
@@ -26,18 +28,81 @@ from .exceptions import (
 logger = logging.getLogger(__name__)
 
 
+def _load_xenium_zarr(data_path: str) -> Any:
+    """Load Xenium data from zarr format.
+
+    Args:
+        data_path: Path to Xenium output directory containing zarr files
+
+    Returns:
+        AnnData object with expression data and spatial coordinates
+    """
+    import anndata as ad
+    import numpy as np
+    import pandas as pd
+    import scipy.sparse as sp
+    import zarr
+    from zarr.storage import ZipStore
+
+    matrix_zarr = os.path.join(data_path, "cell_feature_matrix.zarr.zip")
+    cells_zarr = os.path.join(data_path, "cells.zarr.zip")
+
+    # Load cell_feature_matrix.zarr
+    matrix_store = ZipStore(matrix_zarr, mode="r")
+    matrix_root = zarr.open(matrix_store, mode="r")
+    cf = matrix_root["cell_features"]
+
+    # Get sparse matrix components (CSC format)
+    data = np.asarray(cf["data"][:])
+    indices = np.asarray(cf["indices"][:])
+    indptr = np.asarray(cf["indptr"][:])
+
+    n_cells = cf.attrs["number_cells"]
+    n_features = cf.attrs["number_features"]
+
+    # Create CSC matrix then convert to CSR (cells x genes)
+    X_csc = sp.csc_matrix((data, indices, indptr), shape=(n_cells, n_features))
+    X = X_csc.tocsr()
+
+    # Get feature names
+    feature_names = list(cf.attrs["feature_keys"])
+    feature_ids = list(cf.attrs["feature_ids"])
+
+    # Load cells.zarr for spatial coordinates
+    cells_store = ZipStore(cells_zarr, mode="r")
+    cells_root = zarr.open(cells_store, mode="r")
+
+    cell_summary = np.asarray(cells_root["cell_summary"][:])
+    cell_id = np.asarray(cells_root["cell_id"][:])
+    column_names = list(cells_root["cell_summary"].attrs["column_names"])
+
+    # Create AnnData
+    obs_names = [str(cid[0]) for cid in cell_id]
+
+    var = pd.DataFrame({"gene_ids": feature_ids}, index=feature_names)
+
+    obs = pd.DataFrame(index=obs_names)
+    for i, col in enumerate(column_names):
+        obs[col] = cell_summary[:, i]
+
+    adata = ad.AnnData(X=X, obs=obs, var=var)
+
+    # Set spatial coordinates (cell_centroid_x, cell_centroid_y)
+    adata.obsm["spatial"] = cell_summary[:, :2]
+
+    return adata
+
+
 async def load_spatial_data(
     data_path: str,
-    data_type: Literal[
-        "10x_visium", "slide_seq", "merfish", "seqfish", "other", "auto", "h5ad"
-    ] = "auto",
+    data_type: SpatialPlatform,
     name: Optional[str] = None,
 ) -> dict[str, Any]:
     """Load spatial transcriptomics data.
 
     Args:
         data_path: Path to the data file or directory
-        data_type: Type of spatial data. 'auto' detects from file extension/structure.
+        data_type: Type of spatial data (visium, xenium, slide_seq, merfish, seqfish, generic)
         name: Optional name for the dataset
 
     Returns:
@@ -51,43 +116,13 @@ async def load_spatial_data(
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"Data path not found: {data_path}")
 
-    # Auto-detect data type if set to 'auto'
-    if data_type == "auto":
-        if os.path.isfile(data_path):
-            if data_path.endswith(".h5ad"):
-                # It's an h5ad file
-                data_type = "h5ad"
-            elif data_path.endswith(".h5"):
-                # It's likely a 10x H5 file
-                data_type = "10x_visium"
-            else:
-                # Default to other for unknown file types
-                data_type = "other"
-        elif os.path.isdir(data_path):
-            # Check if it has the structure of a 10x Visium dataset
-            if os.path.exists(
-                os.path.join(data_path, "filtered_feature_bc_matrix")
-            ) or os.path.exists(
-                os.path.join(data_path, "filtered_feature_bc_matrix.h5")
-            ):
-                data_type = "10x_visium"
-            else:
-                # Default to other if we can't determine
-                data_type = "other"
-        else:
-            # Default to other for unknown file types
-            data_type = "other"
-
-    # Convert h5ad to other for backward compatibility
-    if data_type == "h5ad":
-        data_type = "other"
+    platform = data_type
 
     # Import dependencies
     import scanpy as sc
-    import squidpy as sq
 
-    # Load data based on data_type
-    if data_type == "10x_visium":
+    # Load data based on platform type
+    if platform == "visium":
         # For 10x Visium, we need to provide the path to the directory containing the data
         try:
             # Check if it's a directory or an h5ad file
@@ -191,25 +226,25 @@ async def load_spatial_data(
                     except Exception as e:
                         logger.warning(f"Could not add spatial information: {e}")
             elif os.path.isfile(data_path) and data_path.endswith(".h5ad"):
-                # If it's an h5ad file but marked as 10x_visium, read it as h5ad
+                # If it's an h5ad file but marked as visium, read it as h5ad
                 adata = sc.read_h5ad(data_path)
                 # Check if it has the necessary spatial information
                 if "spatial" not in adata.uns and not any(
                     "spatial" in key for key in adata.obsm.keys()
                 ):
                     logger.warning(
-                        "The h5ad file does not contain spatial information typically required for 10x Visium data"
+                        "The h5ad file does not contain spatial information typically required for Visium data"
                     )
             else:
                 raise ParameterError(
-                    f"Unsupported file format for 10x_visium: {data_path}. Supported formats: directory with Visium structure, .h5 file, or .h5ad file"
+                    f"Unsupported file format for visium: {data_path}. Supported formats: directory with Visium structure, .h5 file, or .h5ad file"
                 )
 
         except FileNotFoundError as e:
             raise DataNotFoundError(f"File not found: {e}") from e
         except Exception as e:
             # Provide more detailed error information
-            error_msg = f"Error loading 10x Visium data from {data_path}: {e}"
+            error_msg = f"Error loading Visium data from {data_path}: {e}"
 
             # Add helpful suggestions based on error type
             if "No matching barcodes" in str(e):
@@ -219,31 +254,125 @@ async def load_spatial_data(
                 error_msg += "\n3. Ensure the spatial folder contains the correct tissue_positions_list.csv file"
             elif ".h5" in data_path and "read_10x_h5" in str(e):
                 error_msg += "\n\nThis might not be a valid 10x H5 file. Try:"
-                error_msg += "\n1. Set data_type='h5ad' if this is an AnnData H5AD file"
+                error_msg += "\n1. Set data_type='generic' if this is an AnnData H5AD file"
                 error_msg += (
                     "\n2. Verify the file is from 10x Genomics Cell Ranger output"
                 )
             elif "spatial" in str(e).lower():
                 error_msg += "\n\nSpatial data issue detected. Try:"
                 error_msg += (
-                    "\n1. Loading without spatial data by using data_type='other'"
+                    "\n1. Loading without spatial data by using data_type='generic'"
                 )
                 error_msg += "\n2. Ensuring spatial folder contains: tissue_positions_list.csv and scalefactors_json.json"
 
             raise ProcessingError(error_msg) from e
-    elif data_type == "h5ad" or data_type in [
-        "slide_seq",
-        "merfish",
-        "seqfish",
-        "other",
-    ]:
-        # For h5ad files or other data types
+    elif platform == "xenium":
+        # For 10x Xenium data - supports two formats:
+        # 1. Zarr format: cell_feature_matrix.zarr.zip + cells.zarr.zip
+        # 2. Standard format: cell_feature_matrix.h5 + cells.parquet/csv.gz
+        try:
+            import pandas as pd
+
+            # Check for zarr format
+            matrix_zarr = os.path.join(data_path, "cell_feature_matrix.zarr.zip")
+            cells_zarr = os.path.join(data_path, "cells.zarr.zip")
+            has_zarr = os.path.exists(matrix_zarr) and os.path.exists(cells_zarr)
+
+            # Check for standard format
+            cell_matrix_h5 = os.path.join(data_path, "cell_feature_matrix.h5")
+            cell_matrix_dir = os.path.join(data_path, "cell_feature_matrix")
+            cells_parquet = os.path.join(data_path, "cells.parquet")
+            cells_csv = os.path.join(data_path, "cells.csv.gz")
+            has_standard = (
+                os.path.exists(cell_matrix_h5) or os.path.exists(cell_matrix_dir)
+            ) and (os.path.exists(cells_parquet) or os.path.exists(cells_csv))
+
+            if has_zarr:
+                # Load zarr format
+                logger.info("Loading Xenium data from zarr format")
+                adata = _load_xenium_zarr(data_path)
+
+            elif has_standard:
+                # Load standard format
+                logger.info("Loading Xenium data from standard format")
+                if os.path.exists(cell_matrix_h5):
+                    adata = sc.read_10x_h5(cell_matrix_h5)
+                else:
+                    adata = sc.read_10x_mtx(cell_matrix_dir, var_names="gene_symbols")
+
+                # Load cell metadata
+                if os.path.exists(cells_parquet):
+                    cells = pd.read_parquet(cells_parquet)
+                else:
+                    cells = pd.read_csv(cells_csv, compression="gzip")
+
+                # Set cell_id as index for alignment
+                if "cell_id" in cells.columns:
+                    cells = cells.set_index("cell_id")
+
+                # Align cells metadata with adata
+                common_cells = adata.obs_names.intersection(cells.index)
+                if len(common_cells) == 0:
+                    cells.index = cells.index.astype(str)
+                    common_cells = adata.obs_names.intersection(cells.index)
+
+                if len(common_cells) == 0:
+                    raise DataCompatibilityError(
+                        "No matching cell IDs between count matrix and cells metadata. "
+                        f"Count matrix has {adata.n_obs} cells, "
+                        f"cells metadata has {len(cells)} cells."
+                    )
+
+                # Filter to common cells
+                if len(common_cells) < adata.n_obs:
+                    logger.info(
+                        f"Filtering to {len(common_cells)} cells with spatial coordinates "
+                        f"(from {adata.n_obs} total)"
+                    )
+                    adata = adata[common_cells, :].copy()
+                    cells = cells.loc[common_cells]
+
+                # Add spatial coordinates
+                if "x_centroid" in cells.columns and "y_centroid" in cells.columns:
+                    adata.obsm["spatial"] = cells[["x_centroid", "y_centroid"]].values
+                else:
+                    raise DataCompatibilityError(
+                        "Xenium cells metadata missing x_centroid/y_centroid columns. "
+                        f"Available columns: {list(cells.columns)}"
+                    )
+
+                # Add other useful cell metadata
+                metadata_cols = [
+                    "transcript_counts",
+                    "control_probe_counts",
+                    "control_codeword_counts",
+                    "cell_area",
+                    "nucleus_area",
+                ]
+                for col in metadata_cols:
+                    if col in cells.columns:
+                        adata.obs[col] = cells[col].values
+
+            else:
+                raise DataNotFoundError(
+                    f"No valid Xenium data found in {data_path}. "
+                    "Expected either zarr format (cell_feature_matrix.zarr.zip + cells.zarr.zip) "
+                    "or standard format (cell_feature_matrix.h5 + cells.parquet/csv.gz)"
+                )
+
+        except (DataNotFoundError, DataCompatibilityError):
+            raise
+        except Exception as e:
+            raise ProcessingError(f"Error loading Xenium data from {data_path}: {e}") from e
+
+    elif platform in ("slide_seq", "merfish", "seqfish", "generic"):
+        # For h5ad files or other spatial platforms
         try:
             adata = sc.read_h5ad(data_path)
         except Exception as e:
-            raise ProcessingError(f"Error loading {data_type} data: {e}") from e
+            raise ProcessingError(f"Error loading {platform} data: {e}") from e
     else:
-        raise ParameterError(f"Unsupported data type: {data_type}")
+        raise ParameterError(f"Unsupported platform type: {platform}")
 
     # Set dataset name
     dataset_name = name or os.path.basename(data_path).split(".")[0]
@@ -304,7 +433,7 @@ async def load_spatial_data(
     # Return dataset info and AnnData object with comprehensive metadata
     return {
         "name": dataset_name,
-        "type": data_type,
+        "type": platform,  # Always a valid SpatialPlatform value
         "path": data_path,
         "adata": adata,
         "n_cells": n_cells,

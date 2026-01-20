@@ -89,7 +89,7 @@ def validate_dataset(data_id: str) -> None:
 @mcp_tool_error_handler()
 async def load_data(
     data_path: str,
-    data_type: str = "auto",
+    data_type: str,
     name: Optional[str] = None,
     context: Optional[Context] = None,
 ) -> SpatialDataset:
@@ -103,8 +103,13 @@ async def load_data(
 
     Args:
         data_path: Path to the data file or directory
-        data_type: Type of spatial data (auto, 10x_visium, slide_seq, merfish, seqfish, other, h5ad).
-                  If 'auto', will try to determine the type from the file extension or directory structure.
+        data_type: Type of spatial data. Must be explicitly specified:
+                  - 'visium': 10x Genomics Visium spatial transcriptomics
+                  - 'xenium': 10x Genomics Xenium single-cell spatial data
+                  - 'slide_seq': Slide-seq data
+                  - 'merfish': MERFISH imaging-based spatial data
+                  - 'seqfish': seqFISH imaging-based spatial data
+                  - 'generic': General spatial data (H5AD format)
         name: Optional name for the dataset
 
     Returns:
@@ -1676,77 +1681,147 @@ async def register_spatial_data(
     return result
 
 
-# ============== Publication Export Tools ==============
+# ============== Data Export/Reload Tools ==============
 
 
-@mcp.tool(annotations=get_tool_annotations("save_data"))
+@mcp.tool(annotations=get_tool_annotations("export_data"))
 @mcp_tool_error_handler()
-async def save_data(
+async def export_data(
     data_id: str,
-    output_path: Optional[str] = None,
+    path: Optional[str] = None,
     context: Optional[Context] = None,
 ) -> str:
-    """Manually save dataset to disk
+    """Export dataset from MCP memory to disk for external script access.
 
-    Saves the current state of the dataset including all analysis results
-    and metadata to a compressed H5AD file.
+    Exports the current state of the dataset (including all analysis results)
+    to the active directory for sharing between MCP tools and Python scripts.
+
+    Default path: ~/.chatspatial/active/{data_id}.h5ad
 
     Args:
-        data_id: Dataset ID to save
-        output_path: Optional custom save path. If not provided, saves to:
-                    - CHATSPATIAL_DATA_DIR environment variable location, or
-                    - .chatspatial_saved/ directory next to original data
+        data_id: Dataset ID to export
+        path: Optional custom export path. If not provided, exports to
+              the fixed active directory (~/.chatspatial/active/).
 
     Returns:
-        Path where data was saved
+        Absolute path where data was exported
 
     Examples:
-        # Save to default location
-        save_data("data1")
+        # Export to active directory (recommended for MCP-script sharing)
+        export_data("data1")
+        # Data saved to: ~/.chatspatial/active/data1.h5ad
 
-        # Save to custom location
-        save_data("data1", output_path="/path/to/save/my_analysis.h5ad")
+        # Export to custom location
+        export_data("data1", path="/path/to/my_analysis.h5ad")
 
-    Note:
-        Saved files include all preprocessing, analysis results, and metadata.
-        Use CHATSPATIAL_DATA_DIR environment variable for centralized storage.
+    Workflow:
+        1. Use MCP tools to analyze data
+        2. export_data("data1") -> saves to ~/.chatspatial/active/data1.h5ad
+        3. Run external Python script that modifies the data
+        4. reload_data("data1") -> loads modified data back to MCP
+        5. Continue analysis with MCP tools
     """
-    from .utils.persistence import save_adata
+    from pathlib import Path as PathLib
+
+    from .utils.persistence import export_adata
 
     # Validate dataset exists
     validate_dataset(data_id)
 
     if context:
-        await context.info(f"Saving dataset '{data_id}'...")
+        await context.info(f"Exporting dataset '{data_id}'...")
 
     # Get dataset info
     dataset_info = await data_manager.get_dataset(data_id)
     adata = dataset_info["adata"]
-    original_path = dataset_info.get("path", "")
 
     try:
-        if output_path:
-            # User specified custom path
-            from pathlib import Path
-
-            # Resolve to absolute path to avoid confusion about save location
-            save_path = Path(output_path).resolve()
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            adata.write_h5ad(save_path, compression="gzip", compression_opts=4)
-        else:
-            # Use default location
-            save_path = save_adata(data_id, adata, original_path)
-
-        # Always return absolute path so user knows exact location
-        absolute_path = save_path.resolve()
+        export_path = export_adata(data_id, adata, PathLib(path) if path else None)
+        absolute_path = export_path.resolve()
 
         if context:
-            await context.info(f"Dataset saved to: {absolute_path}")
+            await context.info(f"Dataset exported to: {absolute_path}")
 
-        return f"Dataset '{data_id}' saved to: {absolute_path}"
+        return f"Dataset '{data_id}' exported to: {absolute_path}"
 
     except Exception as e:
-        error_msg = f"Failed to save dataset: {e}"
+        error_msg = f"Failed to export dataset: {e}"
+        if context:
+            await context.error(error_msg)
+        raise
+
+
+@mcp.tool(annotations=get_tool_annotations("reload_data"))
+@mcp_tool_error_handler()
+async def reload_data(
+    data_id: str,
+    path: Optional[str] = None,
+    context: Optional[Context] = None,
+) -> str:
+    """Reload dataset from disk after external script modifications.
+
+    Loads the dataset from the active directory (or custom path) back into
+    MCP memory, replacing the current in-memory version. Use this after
+    external scripts have modified the exported data.
+
+    Default path: ~/.chatspatial/active/{data_id}.h5ad
+
+    Args:
+        data_id: Dataset ID to reload (must already exist in MCP memory)
+        path: Optional custom path to load from. If not provided, loads from
+              the fixed active directory (~/.chatspatial/active/).
+
+    Returns:
+        Summary of reloaded dataset
+
+    Examples:
+        # Reload from active directory (after external script modified it)
+        reload_data("data1")
+        # Loads from: ~/.chatspatial/active/data1.h5ad
+
+        # Reload from custom location
+        reload_data("data1", path="/path/to/modified_data.h5ad")
+
+    Workflow:
+        1. export_data("data1") -> saves to ~/.chatspatial/active/data1.h5ad
+        2. Run external Python script:
+           >>> import anndata
+           >>> adata = anndata.read_h5ad("~/.chatspatial/active/data1.h5ad")
+           >>> # ... modify adata ...
+           >>> adata.write_h5ad("~/.chatspatial/active/data1.h5ad")
+        3. reload_data("data1") -> loads modified data back to MCP
+    """
+    from pathlib import Path as PathLib
+
+    from .utils.persistence import load_adata_from_active
+
+    # Validate dataset exists in memory
+    validate_dataset(data_id)
+
+    if context:
+        await context.info(f"Reloading dataset '{data_id}'...")
+
+    try:
+        adata = load_adata_from_active(data_id, PathLib(path) if path else None)
+
+        # Update the in-memory dataset
+        await data_manager.update_adata(data_id, adata)
+
+        if context:
+            await context.info(f"Dataset '{data_id}' reloaded successfully")
+
+        return (
+            f"Dataset '{data_id}' reloaded: "
+            f"{adata.n_obs} cells × {adata.n_vars} genes"
+        )
+
+    except FileNotFoundError as e:
+        error_msg = str(e)
+        if context:
+            await context.error(error_msg)
+        raise
+    except Exception as e:
+        error_msg = f"Failed to reload dataset: {e}"
         if context:
             await context.error(error_msg)
         raise

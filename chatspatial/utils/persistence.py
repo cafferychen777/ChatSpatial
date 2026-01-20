@@ -1,10 +1,15 @@
 """
 Data persistence utilities for spatial transcriptomics data.
 
-Handles saving AnnData objects to disk with proper path management.
+Provides a fixed active directory for MCP-script data sharing:
+~/.chatspatial/active/{data_id}.h5ad
+
+Design Principles:
+- Convention over configuration: Fixed path, no environment variables
+- Predictable: Users always know where data is
+- Symmetric: export_data and reload_data use same paths
 """
 
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -12,67 +17,85 @@ if TYPE_CHECKING:
     from anndata import AnnData
 
 
-def get_save_path(data_id: str, original_path: str) -> Path:
+def get_active_dir() -> Path:
     """
-    Get save path for adata, supports environment variable configuration.
+    Get the fixed active directory for MCP-script data sharing.
 
-    Priority:
-    1. CHATSPATIAL_DATA_DIR environment variable
-    2. .chatspatial_saved/ directory next to original data (default)
+    Returns:
+        Path to ~/.chatspatial/active/
+    """
+    active_dir = Path.home() / ".chatspatial" / "active"
+    active_dir.mkdir(parents=True, exist_ok=True)
+    return active_dir
+
+
+def get_active_path(data_id: str) -> Path:
+    """
+    Get the active file path for a dataset.
 
     Args:
         data_id: Dataset identifier
-        original_path: Original data file path
 
     Returns:
-        Directory path for saving
+        Path to ~/.chatspatial/active/{data_id}.h5ad
     """
-    env_dir = os.getenv("CHATSPATIAL_DATA_DIR")
-    if env_dir:
-        save_dir = Path(env_dir)
-        save_dir.mkdir(parents=True, exist_ok=True)
-        return save_dir
-
-    # Default: use directory next to original data
-    path_obj = Path(original_path)
-
-    # Determine parent directory based on whether path looks like a file
-    # Check if path has a file extension or ends with a known data format
-    if path_obj.suffix in [".h5ad", ".h5", ".csv", ".txt", ".mtx", ".gz"]:
-        # It's a file path, use parent directory
-        parent_dir = path_obj.parent
-    elif path_obj.is_dir():
-        # It's an existing directory
-        parent_dir = path_obj
-    else:
-        # Assume it's a file path (even if doesn't exist yet)
-        parent_dir = path_obj.parent
-
-    save_dir = parent_dir / ".chatspatial_saved"
-    save_dir.mkdir(parents=True, exist_ok=True)
-    return save_dir
+    return get_active_dir() / f"{data_id}.h5ad"
 
 
-def save_adata(data_id: str, adata: "AnnData", original_path: str) -> Path:
+def export_adata(data_id: str, adata: "AnnData", path: Path | None = None) -> Path:
     """
-    Save AnnData object to disk.
+    Export AnnData object to disk.
 
     Args:
         data_id: Dataset identifier
-        adata: AnnData object to save
-        original_path: Original data file path
+        adata: AnnData object to export
+        path: Optional custom path. If None, uses active directory.
 
     Returns:
-        Path where data was saved
+        Path where data was exported
 
     Raises:
-        IOError: If save fails
+        IOError: If export fails
     """
-    save_dir = get_save_path(data_id, original_path)
-    save_path = save_dir / f"{data_id}.h5ad"
+    if path is None:
+        export_path = get_active_path(data_id)
+    else:
+        export_path = Path(path)
+        export_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        adata.write_h5ad(save_path, compression="gzip", compression_opts=4)
-        return save_path
+        adata.write_h5ad(export_path, compression="gzip", compression_opts=4)
+        return export_path
     except Exception as e:
-        raise IOError(f"Failed to save data to {save_path}: {e}") from e
+        raise IOError(f"Failed to export data to {export_path}: {e}") from e
+
+
+def load_adata_from_active(data_id: str, path: Path | None = None) -> "AnnData":
+    """
+    Load AnnData object from active directory or custom path.
+
+    Args:
+        data_id: Dataset identifier
+        path: Optional custom path. If None, uses active directory.
+
+    Returns:
+        Loaded AnnData object
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        IOError: If load fails
+    """
+    import anndata
+
+    if path is None:
+        load_path = get_active_path(data_id)
+    else:
+        load_path = Path(path)
+
+    if not load_path.exists():
+        raise FileNotFoundError(f"Data file not found: {load_path}")
+
+    try:
+        return anndata.read_h5ad(load_path)
+    except Exception as e:
+        raise IOError(f"Failed to load data from {load_path}: {e}") from e

@@ -46,9 +46,14 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
         idempotentHint=True,  # Loading same file yields same result
         openWorldHint=True,  # Accesses filesystem
     ),
-    "save_data": ToolAnnotations(
+    "export_data": ToolAnnotations(
         readOnlyHint=False,  # Writes to filesystem
-        idempotentHint=True,  # Saving same data to same path is idempotent
+        idempotentHint=True,  # Exporting same data to same path is idempotent
+        openWorldHint=True,  # Accesses filesystem
+    ),
+    "reload_data": ToolAnnotations(
+        readOnlyHint=False,  # Replaces in-memory data
+        idempotentHint=True,  # Reloading same file yields same result
         openWorldHint=True,  # Accesses filesystem
     ),
     # Preprocessing - modifies data in-place
@@ -327,18 +332,15 @@ class DefaultSpatialDataManager:
         self, path: str, data_type: str, name: Optional[str] = None
     ) -> str:
         """Load a spatial dataset and return its ID"""
-        from typing import Literal, cast
+        from typing import cast
 
+        from .models.data import SpatialPlatform
         from .utils.data_loader import load_spatial_data
 
-        # Load data - cast data_type to expected Literal type
-        data_type_literal = cast(
-            Literal[
-                "10x_visium", "slide_seq", "merfish", "seqfish", "other", "auto", "h5ad"
-            ],
-            data_type,
+        # Load data - cast to SpatialPlatform (validated at load_spatial_data)
+        dataset_info = await load_spatial_data(
+            path, cast(SpatialPlatform, data_type), name
         )
-        dataset_info = await load_spatial_data(path, data_type_literal, name)
 
         # Generate ID
         data_id = f"data_{self._next_id}"
