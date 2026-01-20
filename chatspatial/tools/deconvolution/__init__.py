@@ -35,6 +35,7 @@ from ...utils.adata_utils import (
     validate_obs_column,
 )
 from ...utils.exceptions import DataError, DependencyError, ParameterError
+from ...utils.results_export import export_analysis_result
 from .base import PreparedDeconvolutionData, prepare_deconvolution
 
 # Export main function and data container
@@ -385,6 +386,9 @@ async def _store_results(
             "dominant_type_key": dominant_key,
         },
     )
+
+    # Export results to CSV for reproducibility
+    export_analysis_result(spatial_adata, data_id, f"deconvolution_{method}")
 
     # Save updated data
     await ctx.set_adata(data_id, spatial_adata)

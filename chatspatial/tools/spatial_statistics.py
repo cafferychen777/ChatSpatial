@@ -55,6 +55,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.results_export import export_analysis_result
 
 # ============================================================================
 # ANALYSIS REGISTRY - Single Source of Truth
@@ -73,7 +74,7 @@ _ANALYSIS_REGISTRY: dict[str, dict[str, Any]] = {
     "moran": {
         "handler": "_analyze_morans_i",
         "signature": "gene",
-        "metadata_keys": {"uns": ["morans_i"]},
+        "metadata_keys": {"uns": ["moranI"]},  # squidpy stores as moranI
     },
     "local_moran": {
         "handler": "_analyze_local_moran",
@@ -83,7 +84,7 @@ _ANALYSIS_REGISTRY: dict[str, dict[str, Any]] = {
     "geary": {
         "handler": "_analyze_gearys_c",
         "signature": "gene",
-        "metadata_keys": {"uns": ["gearys_c"]},
+        "metadata_keys": {"uns": ["gearyC"]},  # squidpy stores as gearyC
     },
     "getis_ord": {
         "handler": "_analyze_getis_ord",
@@ -166,7 +167,9 @@ def _dispatch_analysis(
 
 
 def _build_results_keys(
-    analysis_type: str, genes: Optional[list[str]]
+    analysis_type: str,
+    genes: Optional[list[str]],
+    cluster_key: Optional[str] = None,
 ) -> dict[str, list[str]]:
     """Build results_keys dict for metadata storage from registry."""
     base: dict[str, list[str]] = {"obs": [], "var": [], "obsm": [], "uns": []}
@@ -179,6 +182,21 @@ def _build_results_keys(
     # Static keys from registry
     for key_type, keys in template.items():
         base[key_type].extend(keys)
+
+    # Dynamic keys based on cluster_key (for cluster-based analyses)
+    if cluster_key:
+        if analysis_type == "neighborhood":
+            # squidpy stores as {cluster_key}_nhood_enrichment
+            base["uns"] = [f"{cluster_key}_nhood_enrichment"]
+        elif analysis_type == "co_occurrence":
+            # squidpy stores as {cluster_key}_co_occurrence
+            base["uns"] = [f"{cluster_key}_co_occurrence"]
+        elif analysis_type == "centrality":
+            # squidpy stores as {cluster_key}_centrality_scores
+            base["uns"] = [f"{cluster_key}_centrality_scores"]
+        elif analysis_type == "ripley":
+            # squidpy stores as {cluster_key}_ripley_{mode}, default mode is L
+            base["uns"] = [f"{cluster_key}_ripley_L"]
 
     # Dynamic keys based on genes (for analyses that store per-gene results)
     if genes:
@@ -285,7 +303,9 @@ async def analyze_spatial_statistics(
 
         # Store scientific metadata for reproducibility
         # Build results keys from registry (single source of truth)
-        results_keys_dict = _build_results_keys(params.analysis_type, params.genes)
+        results_keys_dict = _build_results_keys(
+            params.analysis_type, params.genes, cluster_key
+        )
 
         # Prepare parameters dict (heterogeneous value types)
         parameters_dict: dict[str, int | str | list[str]] = {
@@ -317,6 +337,9 @@ async def analyze_spatial_statistics(
             results_keys=results_keys_dict,
             statistics=statistics_dict,
         )
+
+        # Export results to CSV for reproducibility
+        export_analysis_result(adata, data_id, f"spatial_stats_{params.analysis_type}")
 
         # Extract summary fields for MCP response (detailed statistics excluded)
         summary = _extract_result_summary(result, params.analysis_type)

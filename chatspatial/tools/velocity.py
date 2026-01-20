@@ -18,8 +18,13 @@ if TYPE_CHECKING:
 
 from ..models.analysis import RNAVelocityResult
 from ..models.data import RNAVelocityParameters
-from ..utils.adata_utils import store_velovi_essential_data, validate_adata
+from ..utils.adata_utils import (
+    store_analysis_metadata,
+    store_velovi_essential_data,
+    validate_adata,
+)
 from ..utils.dependency_manager import require
+from ..utils.results_export import export_analysis_result
 from ..utils.exceptions import (
     DataError,
     DataNotFoundError,
@@ -403,6 +408,35 @@ async def analyze_rna_velocity(
 
     else:
         raise ParameterError(f"Unknown velocity method: {params.method}")
+
+    # Build results keys based on what was computed
+    # Note: velocity layers NOT exported (too large for CSV)
+    method_used = velocity_method_used if params.method == "scvelo" else params.method
+    results_keys: dict[str, list[str]] = {
+        "uns": ["velocity_method"],
+    }
+    if "velocity_velovi_norm" in adata.obs:
+        results_keys["obs"] = ["velocity_velovi_norm"]
+
+    # Store metadata for scientific provenance tracking
+    store_analysis_metadata(
+        adata,
+        analysis_name=f"velocity_{method_used}",
+        method=method_used,
+        parameters={
+            "n_top_genes": params.n_top_genes,
+            "n_pcs": params.n_pcs,
+            "n_neighbors": params.n_neighbors,
+            "min_shared_counts": params.min_shared_counts,
+        },
+        results_keys=results_keys,
+        statistics={
+            "velocity_computed": velocity_computed,
+        },
+    )
+
+    # Export results for reproducibility
+    export_analysis_result(adata, data_id, f"velocity_{method_used}")
 
     return RNAVelocityResult(
         data_id=data_id,

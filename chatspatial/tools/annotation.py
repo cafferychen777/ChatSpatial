@@ -1378,6 +1378,7 @@ async def annotate_cell_types(
 
     # Store scientific metadata for reproducibility
     from ..utils.adata_utils import store_analysis_metadata
+    from ..utils.results_export import export_analysis_result
 
     # Extract results keys
     results_keys_dict = {"obs": [output_key], "obsm": [], "uns": []}
@@ -1385,10 +1386,10 @@ async def annotate_cell_types(
         results_keys_dict["obs"].append(confidence_key)
 
     # Add method-specific result keys
+    # Note: tangram_gene_predictions (n_cells × n_genes) is too large for CSV export
+    # Only export tangram_ct_pred (n_cells × n_cell_types) which is reasonably sized
     if params.method == "tangram":
-        results_keys_dict["obsm"].extend(
-            ["tangram_ct_pred", "tangram_gene_predictions"]
-        )
+        results_keys_dict["obsm"].append("tangram_ct_pred")
 
     # Prepare parameters dict (only scientifically important ones)
     parameters_dict = {}
@@ -1443,6 +1444,9 @@ async def annotate_cell_types(
         statistics=statistics_dict,
         reference_info=reference_info_dict,
     )
+
+    # Export results for reproducibility
+    export_analysis_result(adata, data_id, f"annotation_{params.method}")
 
     # Return result
     return AnnotationResult(

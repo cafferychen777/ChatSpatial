@@ -116,6 +116,7 @@ async def analyze_cell_communication(
 
         # Store scientific metadata for reproducibility
         from ..utils.adata_utils import store_analysis_metadata
+        from ..utils.results_export import export_analysis_result
 
         # Determine database used
         database: str  # Explicit type to allow dynamic strings
@@ -137,18 +138,35 @@ async def analyze_cell_communication(
         # Extract results keys
         results_keys_dict: dict[str, list[str]] = {"obs": [], "obsm": [], "uns": []}
 
+        # LIANA keys
         if result_data.get("liana_results_key"):
             results_keys_dict["uns"].append(result_data["liana_results_key"])
         if result_data.get("liana_spatial_results_key"):
             results_keys_dict["uns"].append(result_data["liana_spatial_results_key"])
         if result_data.get("liana_spatial_scores_key"):
             results_keys_dict["obsm"].append(result_data["liana_spatial_scores_key"])
+
+        # CellPhoneDB keys
         if result_data.get("cellphonedb_results_key"):
             results_keys_dict["uns"].append(result_data["cellphonedb_results_key"])
+        if result_data.get("cellphonedb_pvalues_key"):
+            results_keys_dict["uns"].append(result_data["cellphonedb_pvalues_key"])
+        if result_data.get("cellphonedb_significant_key"):
+            results_keys_dict["uns"].append(result_data["cellphonedb_significant_key"])
+
+        # CellChat R keys
         if result_data.get("cellchat_r_results_key"):
             results_keys_dict["uns"].append(result_data["cellchat_r_results_key"])
+        if result_data.get("cellchat_r_prob_key"):
+            results_keys_dict["uns"].append(result_data["cellchat_r_prob_key"])
+        if result_data.get("cellchat_r_pval_key"):
+            results_keys_dict["uns"].append(result_data["cellchat_r_pval_key"])
+
+        # FastCCC keys
         if result_data.get("fastccc_results_key"):
             results_keys_dict["uns"].append(result_data["fastccc_results_key"])
+        if result_data.get("fastccc_pvalues_key"):
+            results_keys_dict["uns"].append(result_data["fastccc_pvalues_key"])
 
         # Store metadata
         store_analysis_metadata(
@@ -180,6 +198,9 @@ async def analyze_cell_communication(
             species=params.species,
             database=database,
         )
+
+        # Export results to CSV for reproducibility
+        export_analysis_result(adata, data_id, f"cell_communication_{params.method}")
 
         # Create result
         result = CellCommunicationResult(
@@ -371,7 +392,7 @@ def _run_liana_cluster_analysis(
         "n_lr_pairs": n_lr_pairs,
         "n_significant_pairs": n_significant_pairs,
         "top_lr_pairs": top_lr_pairs,
-        # "liana_results_key": "liana_res",  # Removed to prevent potential DataFrame serialization overflow
+        "liana_results_key": "liana_res",  # Key name for CSV export (DataFrame not serialized in MCP response)
         "analysis_type": "cluster",
         "statistics": statistics,
     }

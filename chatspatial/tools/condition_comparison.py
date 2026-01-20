@@ -21,6 +21,7 @@ from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
 from ..utils.adata_utils import check_is_integer_counts, store_analysis_metadata
 from ..utils.dependency_manager import require
+from ..utils.results_export import export_analysis_result
 from ..utils.exceptions import DataError, ParameterError, ProcessingError
 
 
@@ -174,6 +175,9 @@ async def compare_conditions(
         results_keys={"uns": [results_key]},
         statistics=result.statistics,
     )
+
+    # Export results for reproducibility
+    export_analysis_result(adata, data_id, "condition_comparison")
 
     result.results_key = results_key
     return result

@@ -353,6 +353,7 @@ async def _identify_spatial_genes_spatialde(
 
     # Store scientific metadata for reproducibility
     from ..utils.adata_utils import store_analysis_metadata
+    from ..utils.results_export import export_analysis_result
 
     store_analysis_metadata(
         adata,
@@ -381,6 +382,9 @@ async def _identify_spatial_genes_spatialde(
             ),
         },
     )
+
+    # Export results to CSV for reproducibility
+    export_analysis_result(adata, data_id, "spatial_genes_spatialde")
 
     # Note: Detailed statistics (gene_statistics, p_values, q_values) are excluded
     # from MCP response via Field(exclude=True) in SpatialVariableGenesResult.
@@ -793,6 +797,7 @@ async def _identify_spatial_genes_sparkx(
 
     # Store scientific metadata for reproducibility
     from ..utils.adata_utils import store_analysis_metadata
+    from ..utils.results_export import export_analysis_result
 
     store_analysis_metadata(
         adata,
@@ -819,6 +824,9 @@ async def _identify_spatial_genes_sparkx(
             "n_significant_genes": len(significant_genes_all),
         },
     )
+
+    # Export results to CSV for reproducibility
+    export_analysis_result(adata, data_id, "spatial_genes_sparkx")
 
     # Note: Detailed statistics (gene_statistics, p_values, q_values) are excluded
     # from MCP response via Field(exclude=True) in SpatialVariableGenesResult.

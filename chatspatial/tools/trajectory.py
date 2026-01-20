@@ -446,6 +446,7 @@ async def analyze_trajectory(
 
     # Store scientific metadata
     from ..utils.adata_utils import store_analysis_metadata
+    from ..utils.results_export import export_analysis_result
 
     results_keys_dict: dict[str, Any] = {"obs": [pseudotime_key], "obsm": [], "uns": []}
 
@@ -490,6 +491,9 @@ async def analyze_trajectory(
         results_keys=results_keys_dict,
         statistics=statistics_dict,
     )
+
+    # Export results for reproducibility
+    export_analysis_result(adata, data_id, f"trajectory_{method_used}")
 
     return TrajectoryResult(
         data_id=data_id,

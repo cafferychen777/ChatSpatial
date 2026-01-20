@@ -22,6 +22,7 @@ from ..models.analysis import EnrichmentResult
 from ..utils.adata_utils import store_analysis_metadata, to_dense
 from ..utils.dependency_manager import require
 from ..utils.exceptions import ParameterError, ProcessingError
+from ..utils.results_export import export_analysis_result
 
 logger = logging.getLogger(__name__)
 
@@ -338,6 +339,7 @@ def perform_gsea(
     species: Optional[str] = None,
     database: Optional[str] = None,
     ctx: Optional["ToolContext"] = None,
+    data_id: Optional[str] = None,
 ) -> "EnrichmentResult":
     """
     Perform Gene Set Enrichment Analysis (GSEA).
@@ -547,6 +549,10 @@ def perform_gsea(
             database=database,
         )
 
+        # Export results to CSV for reproducibility
+        if data_id is not None:
+            export_analysis_result(adata, data_id, "enrichment_gsea")
+
         # Filter all result dictionaries to only significant pathways (reduces MCP response size)
         # Uses method-based FDR threshold: GSEA = 0.25 (Subramanian et al. 2005)
         (
@@ -589,6 +595,7 @@ def perform_ora(
     species: Optional[str] = None,
     database: Optional[str] = None,
     ctx: Optional["ToolContext"] = None,
+    data_id: Optional[str] = None,
 ) -> "EnrichmentResult":
     """
     Perform Over-Representation Analysis (ORA).
@@ -783,7 +790,7 @@ def perform_ora(
             "max_size": max_size,
             "n_query_genes": len(query_genes),
         },
-        results_keys={"uns": ["ora_results", "enrichment_gene_sets"]},
+        results_keys={"uns": ["ora_results", "gsea_results", "enrichment_gene_sets"]},
         statistics={
             "n_gene_sets": len(gene_sets),
             "n_significant": sum(
@@ -794,6 +801,10 @@ def perform_ora(
         species=species,
         database=database,
     )
+
+    # Export results to CSV for reproducibility
+    if data_id is not None:
+        export_analysis_result(adata, data_id, "enrichment_ora")
 
     # Filter all result dictionaries to only significant pathways (reduces MCP response size)
     # Uses method-based FDR threshold: ORA = 0.05 (standard statistical threshold)
@@ -833,6 +844,7 @@ def perform_ssgsea(
     species: Optional[str] = None,
     database: Optional[str] = None,
     ctx: Optional["ToolContext"] = None,
+    data_id: Optional[str] = None,
 ) -> "EnrichmentResult":
     """
     Perform single-sample Gene Set Enrichment Analysis (ssGSEA).
@@ -1013,6 +1025,10 @@ def perform_ssgsea(
                 species=species,
                 database=database,
             )
+
+            # Export results for reproducibility
+            if data_id is not None:
+                export_analysis_result(adata, data_id, "enrichment_ssgsea")
 
         # Get top gene sets by mean enrichment
         sorted_by_mean = sorted(
@@ -1389,7 +1405,7 @@ async def perform_spatial_enrichment(
         },
         results_keys={
             "obs": score_columns,
-            "uns": ["gene_contributions", "enrichment_gene_sets"],
+            "uns": ["enrichment_gene_sets"],  # gene_contributions not stored
         },
         statistics={
             "n_gene_sets": len(validated_gene_sets),
@@ -1399,6 +1415,9 @@ async def perform_spatial_enrichment(
         species=species,
         database=database,
     )
+
+    # Export results for reproducibility
+    export_analysis_result(adata, data_id, "enrichment_spatial")
 
     # Create enrichment scores (use max score per gene set)
     enrichment_scores = {
@@ -1876,6 +1895,7 @@ async def analyze_enrichment(
             species=params.species,
             database=params.gene_set_database,
             ctx=ctx,
+            data_id=data_id,
         )
         await ctx.info("GSEA complete. Use visualize_data to see results.")
 
@@ -1889,6 +1909,7 @@ async def analyze_enrichment(
             species=params.species,
             database=params.gene_set_database,
             ctx=ctx,
+            data_id=data_id,
         )
         await ctx.info("ORA complete. Use visualize_data to see results.")
 
@@ -1901,6 +1922,7 @@ async def analyze_enrichment(
             species=params.species,
             database=params.gene_set_database,
             ctx=ctx,
+            data_id=data_id,
         )
         await ctx.info("ssGSEA complete. Use visualize_data to see results.")
 

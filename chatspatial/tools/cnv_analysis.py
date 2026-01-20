@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 from ..models.analysis import CNVResult
 from ..models.data import CNVParameters
 from ..utils import validate_obs_column
+from ..utils.adata_utils import store_analysis_metadata
+from ..utils.results_export import export_analysis_result
 from ..utils.dependency_manager import require
 from ..utils.exceptions import (
     DataCompatibilityError,
@@ -259,6 +261,33 @@ async def _infer_cnv_infercnvpy(
         "step": params.step,
         "cnv_score_key": cnv_score_key,
     }
+
+    # Build results keys for metadata
+    results_keys: dict = {"uns": ["cnv", "cnv_analysis"]}
+    if cnv_score_key:
+        results_keys["obsm"] = [cnv_score_key]
+    if params.cluster_cells and "cnv_clusters" in adata.obs:
+        results_keys.setdefault("obs", []).append("cnv_clusters")
+    if params.dendrogram and "dendrogram_cnv_clusters" in adata.uns:
+        results_keys["uns"].append("dendrogram_cnv_clusters")
+
+    # Store metadata for scientific provenance tracking
+    store_analysis_metadata(
+        adata,
+        analysis_name="cnv_infercnvpy",
+        method="infercnvpy",
+        parameters={
+            "reference_key": params.reference_key,
+            "reference_categories": list(params.reference_categories),
+            "window_size": params.window_size,
+            "step": params.step,
+        },
+        results_keys=results_keys,
+        statistics=statistics,
+    )
+
+    # Export results for reproducibility
+    export_analysis_result(adata, data_id, "cnv_infercnvpy")
 
     return CNVResult(
         data_id=data_id,
@@ -569,6 +598,37 @@ def _infer_cnv_numbat(
             "min_cells": params.numbat_min_cells,
             "cnv_score_key": "X_cnv_numbat",
         }
+
+        # Build results keys for metadata
+        results_keys: dict[str, list[str]] = {
+            "uns": ["cnv_analysis"],
+            "obsm": ["X_cnv_numbat"],
+            "obs": ["numbat_clone", "numbat_p_cnv", "numbat_compartment"],
+        }
+        if segs is not None:
+            results_keys["uns"].append("numbat_segments")
+        if has_phylo:
+            results_keys["uns"].append("numbat_phylogeny")
+
+        # Store metadata for scientific provenance tracking
+        store_analysis_metadata(
+            adata,
+            analysis_name="cnv_numbat",
+            method="numbat",
+            parameters={
+                "reference_key": params.reference_key,
+                "reference_categories": list(params.reference_categories),
+                "genome": params.numbat_genome,
+                "t": params.numbat_t,
+                "max_entropy": params.numbat_max_entropy,
+                "min_cells": params.numbat_min_cells,
+            },
+            results_keys=results_keys,
+            statistics=statistics,
+        )
+
+        # Export results for reproducibility
+        export_analysis_result(adata, data_id, "cnv_numbat")
 
     except Exception as e:
         raise ProcessingError(

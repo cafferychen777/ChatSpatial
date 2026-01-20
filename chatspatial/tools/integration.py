@@ -27,6 +27,7 @@ from ..utils.adata_utils import (
     store_analysis_metadata,
     validate_adata_basics,
 )
+from ..utils.results_export import export_analysis_result
 
 logger = logging.getLogger(__name__)
 
@@ -254,7 +255,7 @@ def integrate_multiple_samples(
                 "n_epochs": scvi_n_epochs,
                 "use_gpu": scvi_use_gpu,
             },
-            results_keys={"obsm": ["X_scVI"], "uns": ["neighbors"]},
+            results_keys={"obsm": ["X_scVI"]},
             statistics={
                 "n_batches": int(n_batches),
                 "batch_sizes": batch_sizes,
@@ -489,17 +490,19 @@ def integrate_multiple_samples(
 
     # Store metadata for scientific provenance tracking
     # Determine which representation was used
+    # Note: neighbors (connectivities/distances sparse matrices) not exported to CSV
     if method == "harmony":
         if "X_pca_harmony" in combined.obsm:
-            results_keys = {"obsm": ["X_pca_harmony"], "uns": ["neighbors"]}
+            results_keys = {"obsm": ["X_pca_harmony"]}
         else:
-            results_keys = {"obsm": ["X_harmony"], "uns": ["neighbors"]}
+            results_keys = {"obsm": ["X_harmony"]}
     elif method == "bbknn":
-        results_keys = {"uns": ["neighbors"]}
+        # BBKNN primarily modifies neighbors graph, no obsm output to export
+        results_keys = {}
     elif method == "scanorama":
-        results_keys = {"obsm": ["X_scanorama"], "uns": ["neighbors"]}
+        results_keys = {"obsm": ["X_scanorama"]}
     else:
-        results_keys = {"obsm": ["X_pca"], "uns": ["neighbors"]}
+        results_keys = {"obsm": ["X_pca"]}
 
     # Get batch statistics
     n_batches = combined.obs[batch_key].nunique()
@@ -776,6 +779,16 @@ async def integrate_samples(
 
     # Generate new integrated dataset ID
     integrated_id = f"integrated_{'-'.join(data_ids)}"
+
+    # Export results for reproducibility
+    # Note: Metadata was stored in helper functions; export uses the appropriate analysis names
+    if params.method == "scvi":
+        export_analysis_result(combined_adata, integrated_id, "integration_scvi")
+    else:
+        export_analysis_result(combined_adata, integrated_id, f"integration_{params.method}")
+
+    if params.align_spatial and "spatial_aligned" in combined_adata.obsm:
+        export_analysis_result(combined_adata, integrated_id, "spatial_alignment")
 
     # Store integrated data using ToolContext
     await ctx.add_dataset(integrated_id, combined_adata)

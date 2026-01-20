@@ -22,6 +22,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.results_export import export_analysis_result
 
 
 async def differential_expression(
@@ -155,6 +156,9 @@ async def differential_expression(
                 "n_genes_analyzed": adata_filtered.n_vars,
             },
         )
+
+        # Export results to CSV for reproducibility
+        export_analysis_result(adata, data_id, "differential_expression")
 
         return DifferentialExpressionResult(
             data_id=data_id,
@@ -370,6 +374,9 @@ async def differential_expression(
             "pseudocount_used": pseudocount,  # Document in statistics
         },
     )
+
+    # Export results to CSV for reproducibility
+    export_analysis_result(adata, data_id, "differential_expression")
 
     return DifferentialExpressionResult(
         data_id=data_id,
@@ -616,6 +623,9 @@ async def _run_pydeseq2(
             ),
         },
     )
+
+    # Export results to CSV for reproducibility
+    export_analysis_result(adata, data_id, "differential_expression")
 
     return DifferentialExpressionResult(
         data_id=data_id,

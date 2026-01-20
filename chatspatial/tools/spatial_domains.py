@@ -24,7 +24,9 @@ from ..utils.adata_utils import (
     ensure_categorical,
     get_spatial_key,
     require_spatial_coords,
+    store_analysis_metadata,
 )
+from ..utils.results_export import export_analysis_result
 from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 from ..utils.device_utils import get_device, resolve_device_async
@@ -210,6 +212,30 @@ async def identify_spatial_domains(
         # Get domain counts
         domain_counts = adata.obs[domain_key].value_counts().to_dict()
         domain_counts = {str(k): int(v) for k, v in domain_counts.items()}
+
+        # Build results keys for metadata
+        results_keys: dict[str, list[str]] = {"obs": [domain_key]}
+        if embeddings_key and embeddings_key in adata.obsm:
+            results_keys["obsm"] = [embeddings_key]
+        if refined_domain_key and refined_domain_key in adata.obs:
+            results_keys["obs"].append(refined_domain_key)
+
+        # Store metadata for scientific provenance tracking
+        store_analysis_metadata(
+            adata,
+            analysis_name=f"spatial_domains_{params.method}",
+            method=params.method,
+            parameters={
+                "n_domains": params.n_domains,
+                "resolution": params.resolution,
+                "refine_domains": params.refine_domains,
+            },
+            results_keys=results_keys,
+            statistics=statistics,
+        )
+
+        # Export results for reproducibility
+        export_analysis_result(adata, data_id, f"spatial_domains_{params.method}")
 
         # COW FIX: No need to update data_store - changes already reflected via direct reference
         # All modifications to adata.obs/obsm/obsp are in-place and preserved
