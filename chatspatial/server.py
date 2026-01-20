@@ -922,7 +922,6 @@ async def register_spatial_data(
     source_id: str,
     target_id: str,
     method: str = "paste",
-    landmarks: Optional[list[dict[str, Any]]] = None,
     context: Optional[Context] = None,
 ) -> dict[str, Any]:
     """Register/align spatial transcriptomics data across sections
@@ -931,7 +930,6 @@ async def register_spatial_data(
         source_id: Source dataset ID
         target_id: Target dataset ID to align to
         method: Registration method (paste, stalign)
-        landmarks: Additional parameters for registration methods
 
     Returns:
         Registration result with transformation matrix

@@ -2,18 +2,9 @@
 Analysis result models for spatial transcriptomics data.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
-
-if TYPE_CHECKING:
-    from mcp.types import ImageContent
-else:
-    try:
-        from mcp.types import ImageContent
-    except ImportError:
-        # Fallback for when MCP is not available
-        ImageContent = Any  # type: ignore[misc,assignment]
 
 
 class BaseAnalysisResult(BaseModel):

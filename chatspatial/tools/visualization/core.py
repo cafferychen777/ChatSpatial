@@ -491,8 +491,8 @@ def get_colormap(name: str, n_colors: Optional[int] = None):
     return plt.get_cmap(name)
 
 
-def get_diverging_colormap(center: float = 0.0) -> str:
-    """Get an appropriate diverging colormap centered at a value."""
+def get_diverging_colormap() -> str:
+    """Get an appropriate diverging colormap for symmetric data."""
     return "RdBu_r"
 
 

@@ -85,7 +85,6 @@ def deconvolve(
     cell2location_train_size: float = 1.0,
     early_stopping: bool = False,
     early_stopping_patience: int = 45,
-    early_stopping_threshold: float = 0.0,
     use_aggressive_training: bool = False,
     validation_size: float = 0.1,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:

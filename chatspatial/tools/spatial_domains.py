@@ -196,7 +196,6 @@ async def identify_spatial_domains(
                 refined_labels = _refine_spatial_domains(
                     adata,
                     domain_key,
-                    refined_domain_key,
                     threshold=params.refinement_threshold,
                 )
                 adata.obs[refined_domain_key] = refined_labels
@@ -509,7 +508,7 @@ async def _identify_domains_clustering(
 
 
 def _refine_spatial_domains(
-    adata: Any, domain_key: str, refined_key: str, threshold: float = 0.5
+    adata: Any, domain_key: str, threshold: float = 0.5
 ) -> pd.Series:
     """
     Refines spatial domain assignments using a spatial smoothing algorithm.
@@ -526,7 +525,6 @@ def _refine_spatial_domains(
     Args:
         adata: AnnData object containing spatial data
         domain_key: Column in adata.obs containing domain labels to refine
-        refined_key: Name for the refined domain key
         threshold: Minimum proportion of neighbors that must differ to trigger
                   relabeling (default: 0.5, i.e., 50%, following SpaGCN)
 
