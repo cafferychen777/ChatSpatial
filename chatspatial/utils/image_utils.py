@@ -199,7 +199,7 @@ def fig_to_image(
         raise ProcessingError(f"Failed to convert figure to image: {e}") from e
 
 
-# ============ Token Optimization and Publication Export Support ============
+# ============ Figure Export (Unified in visualize_data) ============
 
 
 async def optimize_fig_to_image_with_cache(
@@ -210,58 +210,84 @@ async def optimize_fig_to_image_with_cache(
     plot_type: Optional[str] = None,
     mode: str = "auto",  # Kept for API compatibility, ignored
 ) -> str:
-    """Save figure to file and return path for MCP protocol efficiency.
+    """Save figure to file and return path.
 
-    MCP protocol has ~3.3x overhead for embedded ImageContent, so we always
-    save to file and return path as text (following MCP best practice:
-    "Prefer using URIs over embedded content for large files").
+    Supports user-specified output_path and output_format from VisualizationParameters.
+    No separate save_visualization tool needed - all export options unified here.
 
     Args:
         fig: Matplotlib figure
-        params: Visualization parameters (used for DPI extraction)
+        params: VisualizationParameters with dpi, output_path, output_format
         ctx: ToolContext (unused, kept for API compatibility)
         data_id: Dataset ID (unused, kept for API compatibility)
         plot_type: Plot type (used for filename generation)
         mode: Ignored (always saves to file)
 
     Returns:
-        str with file path (FastMCP auto-converts to TextContent)
+        str with file path
     """
     _ensure_non_interactive_backend()
     import matplotlib.pyplot as plt
 
-    target_dpi = params.dpi if hasattr(params, "dpi") and params.dpi else 100
+    # Extract parameters
+    target_dpi = getattr(params, "dpi", None) or 100
+    output_format = getattr(params, "output_format", None) or "png"
+    output_path = getattr(params, "output_path", None)
     extra_artists = getattr(fig, "_chatspatial_extra_artists", None)
 
-    # Generate image
-    buf = io.BytesIO()
-    fig.savefig(
-        buf,
-        format="png",
-        dpi=target_dpi,
-        bbox_extra_artists=extra_artists,
+    # Determine output file path
+    if output_path:
+        # User specified path
+        from pathlib import Path
+
+        filepath = Path(output_path)
+        # Ensure parent directory exists
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure correct extension
+        if not filepath.suffix:
+            filepath = filepath.with_suffix(f".{output_format}")
+    else:
+        # Default path
+        output_dir = get_safe_output_path("./visualizations")
+        filename = (
+            f"{plot_type}_{uuid.uuid4().hex[:8]}.{output_format}"
+            if plot_type
+            else f"viz_{uuid.uuid4().hex[:8]}.{output_format}"
+        )
+        filepath = output_dir / filename
+
+    # Prepare save parameters
+    save_params = {
         **SAVEFIG_PARAMS,
-    )
-    actual_size = buf.tell()
+        "dpi": target_dpi,
+        "format": output_format,
+        "bbox_extra_artists": extra_artists,
+    }
 
-    # Save to file (use centralized path utility for consistent output handling)
-    output_dir = get_safe_output_path("./visualizations")
-    filename = (
-        f"{plot_type}_{uuid.uuid4().hex[:8]}.png"
-        if plot_type
-        else f"viz_{uuid.uuid4().hex[:8]}.png"
-    )
-    filepath = output_dir / filename
+    # Format-specific settings
+    if output_format == "pdf":
+        import matplotlib
 
-    buf.seek(0)
-    with open(filepath, "wb") as f:
-        f.write(buf.read())
-    buf.close()
+        save_params["metadata"] = {
+            "Title": f"{plot_type or 'visualization'}",
+            "Creator": "ChatSpatial",
+            "Producer": f"matplotlib {matplotlib.__version__}",
+        }
+    elif output_format in ["jpg", "jpeg"]:
+        save_params["pil_kwargs"] = {"quality": 95}
+    elif output_format in ["svg", "eps"]:
+        # SVG and EPS writers don't support "Software" metadata key, remove it
+        save_params.pop("metadata", None)
+
+    # Save figure
+    fig.savefig(str(filepath), **save_params)
+    actual_size = filepath.stat().st_size
     plt.close(fig)
 
     return (
         f"Visualization saved: {filepath}\n"
         f"Type: {plot_type or 'visualization'}\n"
+        f"Format: {output_format.upper()}\n"
         f"Size: {actual_size // 1024}KB\n"
         f"Resolution: {target_dpi} DPI"
     )

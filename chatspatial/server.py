@@ -5,7 +5,7 @@ Main server implementation for ChatSpatial using the Spatial MCP Adapter.
 import os
 import sys
 import warnings
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, cast
 
 # Suppress warnings to speed up startup
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -25,7 +25,6 @@ except ImportError:
     pass
 
 from mcp.server.fastmcp import Context  # noqa: E402
-from mcp.types import EmbeddedResource, ImageContent  # noqa: E402
 
 from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
@@ -67,10 +66,8 @@ from .utils.mcp_utils import mcp_tool_error_handler  # noqa: E402
 # Create MCP server and adapter
 mcp, adapter = create_spatial_mcp_server("ChatSpatial")
 
-# Get data manager and visualization registry from adapter
-# These module-level aliases provide consistent access patterns
+# Get data manager from adapter
 data_manager = adapter.data_manager
-visualization_registry = adapter.visualization_registry
 
 
 def validate_dataset(data_id: str) -> None:
@@ -94,27 +91,15 @@ async def load_data(
     name: Optional[str] = None,
     context: Optional[Context] = None,
 ) -> SpatialDataset:
-    """Load spatial transcriptomics data with comprehensive metadata profile
-
-    Returns detailed information about the dataset structure to help with analysis:
-    - Cell and gene counts
-    - Available metadata columns with types and sample values
-    - Multi-dimensional data (spatial coordinates, dimensionality reduction, etc.)
-    - Gene expression profiles
+    """Load spatial transcriptomics data with comprehensive metadata profile.
 
     Args:
-        data_path: Path to the data file or directory
-        data_type: Type of spatial data. Must be explicitly specified:
-                  - 'visium': 10x Genomics Visium spatial transcriptomics
-                  - 'xenium': 10x Genomics Xenium single-cell spatial data
-                  - 'slide_seq': Slide-seq data
-                  - 'merfish': MERFISH imaging-based spatial data
-                  - 'seqfish': seqFISH imaging-based spatial data
-                  - 'generic': General spatial data (H5AD format)
-        name: Optional name for the dataset
+        data_path: Path to data file or directory
+        data_type: 'visium', 'xenium', 'slide_seq', 'merfish', 'seqfish', or 'generic'
+        name: Optional dataset name
 
     Returns:
-        Comprehensive dataset information including metadata profiles
+        SpatialDataset with cell/gene counts and metadata profiles
     """
     # Create ToolContext for consistent logging
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
@@ -168,48 +153,14 @@ async def preprocess_data(
     params: PreprocessingParameters = PreprocessingParameters(),
     context: Optional[Context] = None,
 ) -> PreprocessingResult:
-    """Preprocess spatial transcriptomics data
+    """Preprocess spatial transcriptomics data.
 
     Args:
         data_id: Dataset ID
         params: Preprocessing parameters
 
     Returns:
-        Preprocessing result
-
-    Notes:
-        Available normalization methods:
-        - log: Standard log normalization (default)
-        - sct: SCTransform v2 variance-stabilizing normalization (requires pysctransform)
-              Install: pip install 'chatspatial[sct]'
-              Best for raw UMI counts from 10x platforms (Visium, etc.)
-              Based on regularized negative binomial regression (Hafemeister & Satija 2019)
-        - pearson_residuals: Analytic Pearson residuals (built-in, similar to SCTransform)
-              Faster than SCTransform with comparable results for most analyses
-        - none: No normalization
-        - scvi: Use scVI for normalization and dimensionality reduction
-
-        SCTransform-specific parameters (only used when normalization='sct'):
-        - sct_method: 'fix-slope' (v2, default) or 'offset' (v1)
-        - sct_var_features_n: Number of variable features (default: 3000)
-        - sct_exclude_poisson: Exclude Poisson genes from regularization (default: True)
-        - sct_n_cells: Number of cells for parameter estimation (default: 5000)
-
-        When use_scvi_preprocessing=True, scVI will be used for advanced preprocessing
-        including denoising and batch effect correction.
-
-        Advanced configuration options:
-        - n_neighbors: Number of neighbors for graph construction (default: 15)
-        - clustering_resolution: Leiden clustering resolution (default: 1.0)
-        - clustering_key: Key name for storing clustering results (default: "leiden")
-        - spatial_key: Key name for spatial coordinates in obsm (default: None, auto-detected)
-        - batch_key: Key name for batch information in obs (default: "batch")
-
-        IMPORTANT: This preprocessing creates a filtered gene set for analysis efficiency.
-        Raw data is automatically preserved in adata.raw for downstream analyses requiring
-        comprehensive gene coverage (e.g., cell communication analysis with LIANA+).
-
-        Cell communication analysis automatically uses adata.raw when available.
+        PreprocessingResult with HVGs, PCA, clustering, and spatial neighbors
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -250,25 +201,10 @@ async def compute_embeddings(
 ) -> dict[str, Any]:
     """Compute dimensionality reduction, clustering, and neighbor graphs.
 
-    This tool provides explicit control over embedding computations.
-    Analysis tools compute these lazily on-demand, but you can use this tool to:
-    - Control computation parameters (n_pcs, n_neighbors, resolution)
-    - Force recomputation with different parameters
-    - Compute specific embeddings independently
-
     Args:
         data_id: Dataset ID
-        compute_pca: Compute PCA dimensionality reduction
-        compute_neighbors: Compute k-NN neighbor graph
-        compute_umap: Compute UMAP embedding
-        compute_clustering: Compute Leiden/Louvain clustering
-        compute_diffmap: Compute diffusion map for trajectory analysis
-        compute_spatial_neighbors: Compute spatial neighborhood graph
-        n_pcs: Number of principal components (default: 30)
-        n_neighbors: Number of neighbors for k-NN graph (default: 15)
-        clustering_resolution: Clustering resolution (default: 1.0)
-        clustering_method: Clustering algorithm ('leiden' or 'louvain')
-        force: Force recomputation even if results already exist
+        compute_*: Boolean flags for each computation type
+        force: Force recomputation even if results exist
 
     Returns:
         Summary of computed embeddings
@@ -306,293 +242,44 @@ async def compute_embeddings(
 
 
 @mcp.tool(annotations=get_tool_annotations("visualize_data"))
-@mcp_tool_error_handler()  # Handles type-aware error formatting for Image/str returns
+@mcp_tool_error_handler()
 async def visualize_data(
     data_id: str,
     params: VisualizationParameters = VisualizationParameters(),
     context: Optional[Context] = None,
-) -> Union[
-    ImageContent, str, tuple[ImageContent, EmbeddedResource]
-]:  # ImageContent, str for errors, or tuple with embedded resource
-    """Visualize spatial transcriptomics data
+) -> str:
+    """Visualize spatial transcriptomics data.
 
     Args:
         data_id: Dataset ID
-        params: Visualization parameters including:
-            - plot_type: Type of visualization. Available types:
-                        * Basic plots: spatial, heatmap, violin, umap, dotplot
-                        * Analysis results: cell_communication, deconvolution,
-                          trajectory, rna_velocity, spatial_statistics
-                        * Multi-gene/correlation: multi_gene, lr_pairs, gene_correlation
-                        * Enrichment: pathway_enrichment (use subtype for spatial EnrichMap)
-                        * Integration/QC: spatial_interaction, batch_integration
-                        * CNV analysis: cnv_heatmap, spatial_cnv
-                        * High-resolution: card_imputation
-            - feature: Gene or feature to visualize (single/multiple genes). For cell types,
-                      use method-specific columns: 'cell_type_tangram', 'cell_type_scanvi',
-                      'cell_type_cellassign', or clustering: 'leiden', 'louvain'.
-                      For spatial domains: use the domain_key returned by identify_spatial_domains
-                      (e.g., 'spatial_domains_spagcn', 'spatial_domains_leiden')
-            - cluster_key: Column in adata.obs for grouping (e.g., 'leiden', 'cell_type').
-                          REQUIRED for heatmap, violin, and dotplot
-            - subtype: Visualization variant. Required for certain plot_types:
-                      * deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'
-                      * spatial_statistics: 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality', 'getis_ord'
-                      * pathway_enrichment: 'barplot', 'dotplot', 'spatial_score', 'spatial_correlogram'
-            - deconv_method: Deconvolution method ('cell2location', 'rctd', etc.).
-                            Auto-selected if only one result exists
-            - batch_key: Column for batch/sample identifier (default: 'batch'). Required for batch_integration
-            - colormap: Color scheme (default: 'coolwarm')
-            - figure_size: Tuple (width, height) in inches. Auto-determined if None
-            - dpi: Image resolution (default: 300, publication quality)
-            - spot_size: Spot size for spatial plots (default: 150). Adjust for density: dense data 100-150, sparse 150-200
-            - alpha_img: Background tissue image opacity (default: 0.3). Lower = dimmer background
-            - n_cell_types: Number of top cell types in deconvolution (default: 4, max: 10)
-            - lr_pairs: List of (ligand, receptor) tuples for lr_pairs plot_type
+        params: Visualization parameters
+
+    Plot types:
+        - Basic: spatial, heatmap, violin, umap, dotplot
+        - Analysis: deconvolution, cell_communication, trajectory, spatial_statistics
+        - Multi-gene: multi_gene, lr_pairs, gene_correlation
+        - Other: pathway_enrichment, batch_integration, cnv_heatmap
+
+    Export options (in params):
+        - output_path: Custom save path (default: ./visualizations/)
+        - output_format: png, pdf, svg, eps, tiff (default: png)
+        - dpi: Resolution (default: 300)
 
     Returns:
-        Visualization image
-
-    Examples:
-        # Basic spatial plot
-        {"plot_type": "spatial", "feature": "Cd7", "colormap": "viridis"}
-
-        # Cell type visualization
-        {"plot_type": "spatial", "feature": "cell_type_tangram", "colormap": "tab20",
-         "spot_size": 150, "alpha_img": 0.3}
-
-        # Violin plot (cluster_key required)
-        {"plot_type": "violin", "feature": ["Cd7", "Cd3d"], "cluster_key": "leiden"}
-
-        # Heatmap (cluster_key required)
-        {"plot_type": "heatmap", "feature": ["Cd7", "Cd3d"], "cluster_key": "cell_type"}
-
-        # Dotplot - marker gene expression (cluster_key required)
-        {"plot_type": "dotplot", "feature": ["Cd3d", "Cd4", "Cd8a", "Cd19"],
-         "cluster_key": "cell_type", "colormap": "Reds"}
-
-        # Spatial domains (use domain_key from identify_spatial_domains result)
-        {"plot_type": "spatial", "feature": "spatial_domains_spagcn", "colormap": "tab20"}
-
-        # Deconvolution results
-        {"plot_type": "deconvolution", "subtype": "dominant_type", "deconv_method": "cell2location",
-         "n_cell_types": 6}
-
-        # Spatial statistics
-        {"plot_type": "spatial_statistics", "subtype": "neighborhood", "cluster_key": "leiden"}
-
-        # Ligand-receptor pairs
-        {"plot_type": "lr_pairs", "lr_pairs": [("Fn1", "Cd79a"), ("Vegfa", "Nrp2")]}
-
-        # Multi-gene spatial visualization (4-12 genes recommended)
-        {"plot_type": "multi_gene", "feature": ["Cd3d", "Cd4", "Cd8a", "Cd19", "Cd14", "Nkg7"]}
-
-        # Gene correlation matrix with hierarchical clustering (4-10 genes recommended)
-        {"plot_type": "gene_correlation", "feature": ["Cd3d", "Cd4", "Cd8a", "Cd19", "Cd14", "Nkg7"],
-         "correlation_method": "pearson", "colormap": "coolwarm"}
-
-        # Batch integration QC
-        {"plot_type": "batch_integration", "batch_key": "sample_id"}
+        Path to saved visualization file
     """
-    # Import to avoid name conflict
     from .tools.visualization import visualize_data as visualize_func
 
-    # Validate dataset
     validate_dataset(data_id)
 
-    # Create ToolContext for clean data access
-    ctx = ToolContext(
-        _data_manager=data_manager,
-        _mcp_context=context,
-        _visualization_registry=visualization_registry,
-    )
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    # Parameter validation is handled by Pydantic model
-    # params is already a validated VisualizationParameters instance
+    result = await visualize_func(data_id, ctx, params)
 
-    # Call visualization function with ToolContext
-    image = await visualize_func(data_id, ctx, params)
-
-    # Store visualization params and return the image
-    if image is not None:
-        # Generate cache key with subtype if applicable
-        # This handles plot types with subtypes (e.g., deconvolution, spatial_statistics)
-        subtype = params.subtype  # Optional field with default None
-
-        if subtype:
-            cache_key = f"{data_id}_{params.plot_type}_{subtype}"
-        else:
-            cache_key = f"{data_id}_{params.plot_type}"
-
-        # Handle two return types: str (large images) or ImageContent (small images)
-        # Extract file_path if image is saved to disk
-        file_path = None
-        # Large image: file path returned as text (MCP 2025 best practice)
-        # Extract path from message (format: "Visualization saved: <path>\n...")
-        if isinstance(image, str) and "Visualization saved:" in image:
-            file_path = image.split("\n")[0].replace("Visualization saved: ", "")
-
-        # Store visualization params in registry (for regeneration on demand)
-        ctx.store_visualization(cache_key, params, file_path)
-
-        await ctx.info(
-            f"Visualization type: {params.plot_type}, feature: {params.feature or 'N/A'}"
-        )
-
-        return image
-
+    if result:
+        return result
     else:
-        # Return error message if no image was generated
         return "Visualization generation failed, please check the data and parameter settings."
-
-
-@mcp.tool(annotations=get_tool_annotations("save_visualization"))
-@mcp_tool_error_handler()
-async def save_visualization(
-    data_id: str,
-    plot_type: str,
-    subtype: Optional[str] = None,
-    output_dir: str = "./outputs",
-    filename: Optional[str] = None,
-    format: str = "png",
-    dpi: Optional[int] = None,
-    context: Optional[Context] = None,
-) -> str:
-    """Save a visualization to disk at publication quality
-
-    This function regenerates visualizations from stored metadata and the original
-    data, then exports at the requested quality. This secure approach avoids
-    unsafe pickle deserialization.
-
-    Args:
-        data_id: Dataset ID
-        plot_type: Type of plot to save (e.g., 'spatial', 'umap', 'deconvolution', 'spatial_statistics')
-        subtype: Optional subtype for plot types with variants (e.g., 'neighborhood', 'scatterpie')
-                 - For pathway_enrichment: 'enrichment_plot', 'barplot', 'dotplot', 'spatial'
-                 - For deconvolution: 'spatial_multi', 'dominant_type', 'diversity', 'stacked_bar', 'scatterpie', 'umap'
-                 - For spatial_statistics: 'neighborhood', 'co_occurrence', 'ripley', 'moran', 'centrality', 'getis_ord'
-        output_dir: Directory to save the file (default: ./outputs)
-        filename: Custom filename (optional, auto-generated if not provided)
-        format: Image format (png, jpg, pdf, svg)
-        dpi: DPI for saved image (default: 300 for publication quality)
-             For publication quality, use 300+ DPI
-
-    Returns:
-        Path to the saved file
-
-    Examples:
-        Save a spatial plot: save_visualization("data1", "spatial")
-        Save with subtype: save_visualization("data1", "spatial_statistics", subtype="neighborhood")
-        Save deconvolution: save_visualization("data1", "deconvolution", subtype="scatterpie", format="pdf")
-        Save for publication: save_visualization("data1", "spatial", dpi=300, format="png")
-    """
-    from .tools.visualization import save_visualization as save_func
-
-    # Create ToolContext for unified data access
-    ctx = ToolContext(
-        _data_manager=data_manager,
-        _mcp_context=context,
-        _visualization_registry=visualization_registry,
-    )
-
-    result = await save_func(
-        data_id=data_id,
-        ctx=ctx,
-        plot_type=plot_type,
-        subtype=subtype,
-        output_dir=output_dir,
-        filename=filename,
-        format=format,
-        dpi=dpi,
-    )
-
-    return result
-
-
-@mcp.tool(annotations=get_tool_annotations("export_all_visualizations"))
-@mcp_tool_error_handler()
-async def export_all_visualizations(
-    data_id: str,
-    output_dir: str = "./exports",
-    format: str = "png",
-    dpi: Optional[int] = None,
-    context: Optional[Context] = None,
-) -> list[str]:
-    """Export all cached visualizations for a dataset to disk
-
-    This function regenerates each visualization from stored metadata and the original
-    data, then exports at the requested quality. This secure approach avoids
-    unsafe pickle deserialization.
-
-    Args:
-        data_id: Dataset ID to export visualizations for
-        output_dir: Directory to save files (default: ./exports)
-        format: Image format (png, jpg, jpeg, pdf, svg, eps, ps, tiff) (default: png)
-        dpi: DPI for raster formats (default: 300 for publication quality)
-
-    Returns:
-        List of paths to saved files
-
-    Examples:
-        # Export all visualizations as PNG
-        export_all_visualizations("data1")
-
-        # Export all as PDF for publication
-        export_all_visualizations("data1", format="pdf", dpi=300)
-
-        # Export to custom directory as SVG
-        export_all_visualizations("data1", "./my_exports", format="svg")
-    """
-    from .tools.visualization import export_all_visualizations as export_func
-
-    # Create ToolContext for unified data access
-    ctx = ToolContext(
-        _data_manager=data_manager,
-        _mcp_context=context,
-        _visualization_registry=visualization_registry,
-    )
-
-    result = await export_func(
-        data_id=data_id,
-        ctx=ctx,
-        output_dir=output_dir,
-        format=format,
-        dpi=dpi,
-    )
-
-    return result
-
-
-@mcp.tool(annotations=get_tool_annotations("clear_visualization_cache"))
-@mcp_tool_error_handler()
-async def clear_visualization_cache(
-    data_id: Optional[str] = None,
-    context: Optional[Context] = None,
-) -> int:
-    """Clear visualization cache to free memory
-
-    Args:
-        data_id: Optional dataset ID to clear specific visualizations (if None, clears all)
-
-    Returns:
-        Number of visualizations cleared
-
-    Examples:
-        Clear all visualizations: clear_visualization_cache()
-        Clear for specific dataset: clear_visualization_cache("data1")
-    """
-    from .tools.visualization import clear_visualization_cache as clear_func
-
-    # Create ToolContext for unified data access
-    ctx = ToolContext(
-        _data_manager=data_manager,
-        _mcp_context=context,
-        _visualization_registry=visualization_registry,
-    )
-
-    result = await clear_func(ctx=ctx, data_id=data_id)
-
-    return result
 
 
 @mcp.tool(annotations=get_tool_annotations("annotate_cell_types"))
@@ -602,70 +289,18 @@ async def annotate_cell_types(
     params: AnnotationParameters = AnnotationParameters(),
     context: Optional[Context] = None,
 ) -> AnnotationResult:
-    """Annotate cell types in spatial transcriptomics data
+    """Annotate cell types in spatial transcriptomics data.
 
     Args:
         data_id: Dataset ID
         params: Annotation parameters
 
+    Key requirements:
+        - Reference methods (tangram, scanvi): reference_data_id must be preprocessed first
+        - cell_type_key: Auto-detected if None
+
     Returns:
-        Annotation result with cell type information and optional visualization
-
-    Notes:
-        Annotation methods (status):
-        - tangram: Implemented (requires reference_data_id and PREPROCESSED reference data with HVGs)
-        - scanvi: Implemented (deep learning label transfer via scvi-tools, requires reference_data_id)
-        - cellassign: Implemented (via scvi-tools, requires marker_genes parameter)
-        - mllmcelltype: Implemented (multimodal LLM classifier)
-        - sctype: Implemented (requires R and rpy2)
-        - singler: Implemented (Python-based via singler/celldex packages, requires singler_reference parameter)
-
-        For methods requiring reference data (tangram, scanvi, singler):
-        - tangram/scanvi: reference_data_id must point to a loaded AND PREPROCESSED single-cell dataset
-        - IMPORTANT: Reference data MUST be preprocessed with preprocess_data() before use!
-        - cell_type_key: Leave as None for auto-detection. Only set if you know the exact column name in reference data
-        - Common cell type column names: 'cell_type', 'cell_types', 'celltype'
-        - singler: Can use either reference_data_id OR singler_reference (celldex built-in references)
-
-        Tangram-specific notes:
-        - Method: Deep learning-based spatial mapping of single-cell to spatial transcriptomics
-        - Requires: reference_data_id with PREPROCESSED single-cell data
-        - Mapping modes (mode parameter):
-          * mode="cells" (default): Maps individual cells to spatial locations
-            - Preserves single-cell heterogeneity and fine-grained resolution
-            - More computationally intensive (GPU recommended for large datasets)
-            - Best for: Same specimen data, when cell-level detail is critical
-          * mode="clusters" (recommended for cross-specimen): Aggregates cells by type before mapping
-            - Dramatically improves performance, runs on standard laptop
-            - Official recommendation: "Our choice when scRNAseq and spatial data come from different specimens"
-            - Requires: cluster_label parameter (e.g., "cell_type")
-            - Best for: Different specimens, limited resources, cell type distributions
-            - Trades single-cell resolution for stability and speed
-        - Confidence scores: Automatically normalized to [0, 1] probability range
-        - GPU acceleration: Set tangram_device='cuda:0' if GPU available
-        - Other parameters: tangram_density_prior, tangram_learning_rate, tangram_lambda_r
-
-        scANVI-specific notes:
-        - Method: Semi-supervised variational inference for label transfer
-        - Requires: Both datasets must have 'counts' layer (raw counts)
-        - Architecture: Configurable via scanvi_n_latent, scanvi_n_hidden, scanvi_dropout_rate
-        - Small datasets (<1000 genes/cells): Use scanvi_n_latent=3-5, scanvi_dropout_rate=0.2,
-          scanvi_use_scvi_pretrain=False, num_epochs=50 to prevent NaN errors
-        - Returns probabilistic cell type predictions with confidence scores
-        - GPU acceleration available (set tangram_device='cuda:0' if available)
-
-        SingleR-specific notes:
-        - Method: Reference-based correlation matching for cell type annotation
-        - Reference options:
-          * Built-in celldex references (via singler_reference parameter):
-            - Human: 'hpca' (recommended), 'blueprint_encode', 'dice', 'monaco_immune', 'novershtern_hematopoietic'
-            - Mouse: 'immgen' (recommended), 'mouse_rnaseq'
-          * Custom reference (via reference_data_id parameter)
-        - Common mistakes:
-          * 'HumanPrimaryCellAtlasData' - WRONG, use 'hpca'
-          * 'ImmGenData' - WRONG, use 'immgen'
-        - Returns correlation-based confidence scores for cell type assignments
-        - No GPU required (Python-based implementation via singler/celldex packages)
+        AnnotationResult with cell type assignments and confidence scores
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -706,44 +341,20 @@ async def analyze_spatial_statistics(
     params: SpatialStatisticsParameters = SpatialStatisticsParameters(),
     context: Optional[Context] = None,
 ) -> SpatialStatisticsResult:
-    """Analyze spatial statistics and autocorrelation patterns
+    """Analyze spatial statistics and autocorrelation patterns.
 
     Args:
         data_id: Dataset ID
-        params: Analysis parameters
+        params: Analysis parameters (analysis_type, cluster_key, genes)
+
+    Analysis types:
+        - Gene-based: moran, local_moran, geary, getis_ord, bivariate_moran
+        - Group-based (requires cluster_key): neighborhood, co_occurrence, ripley
+        - Categorical: join_count (binary), local_join_count (multi-category)
+        - Network: centrality, network_properties
 
     Returns:
-        Spatial statistics analysis result with statistics and optional visualization
-
-    Notes:
-        Available analysis types (implemented):
-        - moran: Global Moran's I spatial autocorrelation (squidpy)
-        - local_moran: Local Moran's I (LISA) for spatial clustering detection
-        - geary: Geary's C spatial autocorrelation (squidpy)
-        - getis_ord: Getis-Ord Gi* hot/cold spot detection (esda/PySAL)
-          * Detects statistically significant spatial clusters of high/low values
-          * Parameters: getis_ord_alpha (significance level), getis_ord_correction (FDR/Bonferroni)
-          * Returns raw and corrected hotspot/coldspot counts
-        - neighborhood: Neighborhood enrichment (squidpy)
-        - co_occurrence: Co-occurrence analysis (squidpy)
-        - centrality: Graph centrality scores (squidpy)
-        - ripley: Ripley's K/L spatial point patterns
-        - bivariate_moran: Bivariate Moran's I for gene pair correlation
-
-        **Categorical Data Analysis (Choose based on number of categories):**
-        - join_count: Traditional Join Count for BINARY data (exactly 2 categories)
-          * Use for: Binary presence/absence, case/control, treated/untreated
-          * Returns: Global statistics (BB/WW/BW joins, p-value)
-          * Reference: Cliff & Ord (1981)
-
-        - local_join_count: Local Join Count for MULTI-CATEGORY data (>2 categories)
-          * Use for: Cell types, tissue domains, multi-class categorical variables
-          * Returns: Per-category local clustering statistics with p-values
-          * Identifies WHERE each category spatially clusters
-          * Reference: Anselin & Li (2019)
-
-        - network_properties: Spatial network analysis
-        - spatial_centrality: Spatial-specific centrality measures
+        SpatialStatisticsResult with statistics and p-values
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -784,29 +395,18 @@ async def find_markers(
     sample_key: Optional[str] = None,  # Sample key for pseudobulk (pydeseq2)
     context: Optional[Context] = None,
 ) -> DifferentialExpressionResult:
-    """Find differentially expressed genes between groups
+    """Find differentially expressed genes between groups.
 
     Args:
         data_id: Dataset ID
         group_key: Column name defining groups
-        group1: First group (if None, compare against all others)
-        group2: Second group (if None, compare group1 against all others)
-        method: Statistical test method
-        n_top_genes: Number of top differentially expressed genes to return
-        pseudocount: Pseudocount added to expression values before log2 fold change
-                    calculation to avoid log(0). Default: 1.0 (standard practice).
-                    Lower values (0.1-0.5) increase sensitivity to low-expression genes.
-                    Higher values (1-10) stabilize fold changes for sparse data.
-        min_cells: Minimum number of cells per group for statistical testing.
-                  Default: 3 (minimum required for Wilcoxon test).
-                  Increase to 10-30 for more robust statistical results.
-                  Groups with fewer cells are automatically skipped with a warning.
-        sample_key: Column name in adata.obs for sample/replicate identifier.
-                   REQUIRED for 'pydeseq2' method to perform pseudobulk aggregation.
-                   Common values: 'sample', 'patient_id', 'batch', 'replicate'.
+        group1: First group (if None, compare each group vs rest)
+        group2: Second group (if None, compare group1 vs all others)
+        method: Statistical test ('wilcoxon', 't-test', 'pydeseq2')
+        sample_key: Required for 'pydeseq2' pseudobulk method
 
     Returns:
-        Differential expression result with top marker genes
+        DifferentialExpressionResult with top marker genes
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -857,51 +457,18 @@ async def compare_conditions(
     log2fc_threshold: float = 0.0,
     context: Optional[Context] = None,
 ) -> ConditionComparisonResult:
-    """Compare experimental conditions across multiple biological samples.
-
-    This tool performs pseudobulk differential expression analysis to compare
-    conditions (e.g., Treatment vs Control) across biological replicates.
-    It properly accounts for sample-level variation using DESeq2.
+    """Compare experimental conditions using pseudobulk differential expression (DESeq2).
 
     Args:
         data_id: Dataset ID
-        condition_key: Column name in adata.obs containing experimental conditions
-                      (e.g., 'treatment', 'disease_status', 'timepoint')
-        condition1: First condition for comparison (typically experimental group)
-        condition2: Second condition for comparison (typically control group)
-        sample_key: Column name in adata.obs identifying biological replicates
-                   (e.g., 'patient_id', 'sample', 'replicate')
-        cell_type_key: Optional column for cell type stratification. If provided,
-                      analysis is performed separately for each cell type.
-        method: Analysis method (currently only 'pseudobulk' is supported)
-        n_top_genes: Number of top genes to return per comparison
-        min_cells_per_sample: Minimum cells required per sample to be included
-        min_samples_per_condition: Minimum samples required per condition
-        padj_threshold: Adjusted p-value threshold for significance
-        log2fc_threshold: Log2 fold change threshold for significance
+        condition_key: Column with experimental conditions (e.g., 'treatment')
+        condition1: Experimental group
+        condition2: Control group
+        sample_key: Column identifying biological replicates (e.g., 'patient_id')
+        cell_type_key: Optional - if provided, analysis is stratified by cell type
 
     Returns:
         ConditionComparisonResult with differential expression results
-
-    Example:
-        # Global comparison
-        compare_conditions(
-            data_id="data1",
-            condition_key="treatment",
-            condition1="Drug",
-            condition2="Control",
-            sample_key="patient_id"
-        )
-
-        # Cell type stratified
-        compare_conditions(
-            data_id="data1",
-            condition_key="treatment",
-            condition1="Drug",
-            condition2="Control",
-            sample_key="patient_id",
-            cell_type_key="cell_type"
-        )
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -958,51 +525,16 @@ async def analyze_cnv(
     numbat_skip_nj: bool = False,
     context: Optional[Context] = None,
 ) -> CNVResult:
-    """Analyze copy number variations (CNVs) in spatial transcriptomics data
-
-    Supports two CNV analysis methods:
-    - infercnvpy: Expression-based CNV inference (default, fast)
-    - Numbat: Haplotype-aware CNV analysis (requires allele data, more accurate)
+    """Analyze copy number variations (CNVs) in spatial transcriptomics data.
 
     Args:
         data_id: Dataset identifier
-        reference_key: Column name in adata.obs for cell type labels
-        reference_categories: List of cell types to use as reference (normal cells)
-        method: CNV analysis method ("infercnvpy" or "numbat", default: "infercnvpy")
-        window_size: Number of genes for CNV averaging window (default: 100)
-        step: Step size for sliding window (default: 10)
-        exclude_chromosomes: Chromosomes to exclude (e.g., ['chrX', 'chrY'])
-        dynamic_threshold: Threshold for dynamic CNV calling (default: 1.5)
-        cluster_cells: Whether to cluster cells by CNV pattern
-        dendrogram: Whether to compute hierarchical clustering dendrogram
-        context: MCP context
+        reference_key: Column with cell type labels
+        reference_categories: Cell types to use as normal reference (e.g., ['T cells', 'B cells'])
+        method: 'infercnvpy' (default, expression-based) or 'numbat' (allele-based, requires R)
 
     Returns:
-        CNV analysis result with statistics and visualization availability
-
-    Notes:
-        CNV analysis methods:
-        - infercnvpy: Expression-based (implemented, no allele data required)
-        - numbat: Haplotype-aware (implemented when rpy2 installed, requires allele data)
-
-        Numbat-specific notes:
-        - Method: Haplotype-aware CNV analysis with phylogeny reconstruction
-        - Requires: Allele-specific counts in adata.layers or adata.obsm
-        - Allele data preparation: Use cellSNP-lite, pileup_and_phase, or similar tools
-        - Genome options: hg38, hg19, mm10, mm39
-        - Returns: CNV matrix, clone assignments, phylogeny tree
-        - GPU acceleration: Not applicable (R-based method)
-
-    Examples:
-        # Basic infercnvpy analysis
-        analyze_cnv("data1", "cell_type", ["T cells", "B cells"])
-
-        # Numbat analysis (requires allele data)
-        analyze_cnv("data1", "cell_type", ["T cells", "B cells"],
-                   method="numbat", numbat_genome="hg38")
-
-        # With clustering
-        analyze_cnv("data1", "leiden", ["0", "1"], cluster_cells=True)
+        CNVResult with CNV scores and optional clone assignments
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -1052,22 +584,14 @@ async def analyze_velocity_data(
     params: RNAVelocityParameters = RNAVelocityParameters(),
     context: Optional[Context] = None,
 ) -> RNAVelocityResult:
-    """Analyze RNA velocity to understand cellular dynamics
+    """Analyze RNA velocity to understand cellular dynamics.
 
     Args:
-        data_id: Dataset ID
-        params: RNA velocity parameters
+        data_id: Dataset ID (must have 'spliced' and 'unspliced' layers)
+        params: method='scvelo' (modes: deterministic/stochastic/dynamical) or 'velovi'
 
     Returns:
-        RNA velocity analysis result
-
-    Notes:
-        Velocity methods (status):
-        - scvelo: scVelo with three modes (implemented, tested)
-          - deterministic: Deterministic rate model
-          - stochastic: Stochastic rate model (default)
-          - dynamical: Dynamical model with ODE fitting
-        - velovi: VeloVI deep learning method (implemented, requires scvi-tools, tested)
+        RNAVelocityResult with velocity vectors and latent time
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -1098,21 +622,14 @@ async def analyze_trajectory_data(
     params: TrajectoryParameters = TrajectoryParameters(),
     context: Optional[Context] = None,
 ) -> TrajectoryResult:
-    """Infer cellular trajectories and pseudotime
+    """Infer cellular trajectories and pseudotime.
 
     Args:
         data_id: Dataset ID
-        params: Trajectory analysis parameters
+        params: method='cellrank' (requires velocity), 'palantir', or 'dpt'
 
     Returns:
-        Trajectory analysis result
-
-    Notes:
-        Trajectory methods (status):
-        - dpt: Diffusion pseudotime (implemented)
-        - palantir: Probabilistic trajectory inference (implemented when palantir installed)
-        - cellrank: RNA velocity-based trajectory inference (implemented when cellrank installed)
-        - velovi: scvi-tools VeloVI (implemented when scvi-tools available)
+        TrajectoryResult with pseudotime and fate probabilities
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -1143,23 +660,14 @@ async def integrate_samples(
     params: IntegrationParameters = IntegrationParameters(),
     context: Optional[Context] = None,
 ) -> IntegrationResult:
-    """Integrate multiple spatial transcriptomics samples
+    """Integrate multiple spatial transcriptomics samples.
 
     Args:
         data_ids: List of dataset IDs to integrate
-        params: Integration parameters
+        params: method='harmony' (default), 'bbknn', 'scanorama', or 'scvi'
 
     Returns:
-        Integration result with integrated dataset ID
-
-    Notes:
-        Integration methods (status):
-        - harmony, bbknn, scanorama: Classical methods (implemented)
-        - scvi: Deep learning method (implemented, requires scvi-tools)
-
-        Removed methods:
-        - multivi: Requires MuData format (not compatible with current workflow)
-        - contrastivevi: Not integrated (designed for Perturb-seq use cases)
+        IntegrationResult with integrated dataset ID
     """
     # Validate all datasets first
     for data_id in data_ids:
@@ -1189,87 +697,21 @@ async def deconvolve_data(
     params: DeconvolutionParameters,  # No default - LLM must provide parameters
     context: Optional[Context] = None,
 ) -> DeconvolutionResult:
-    """Deconvolve spatial spots to estimate cell type proportions
+    """Deconvolve spatial spots to estimate cell type proportions.
 
     Args:
         data_id: Dataset ID
-        params: Deconvolution parameters including:
-                - method: Deconvolution method to use
-                - cell_type_key: Key in reference data for cell types (REQUIRED)
-                - reference_data_id: Reference single-cell dataset ID (required for most methods)
+        params: Required - method, cell_type_key, reference_data_id
 
-                Cell2location-specific parameters (official scvi-tools recommendations):
-                Phase 1 (Critical fixes):
-                - ref_model_epochs: Reference model training epochs (default: 250)
-                - n_epochs: Cell2location model training epochs (default: 30000)
-                - n_cells_per_spot: Expected cells per location (default: 30, tissue-dependent)
-                - detection_alpha: RNA detection sensitivity (NEW DEFAULT 2024: 20, old: 200)
-                - batch_key: Batch column for batch effect correction (default: None)
-                - categorical_covariate_keys: Technical covariates list (default: None)
-                - apply_gene_filtering: Apply official gene filtering (default: True)
-                - gene_filter_*: Gene filtering thresholds (cell_count_cutoff=5, etc.)
-
-                Phase 2 (Training enhancements):
-                - ref_model_lr: Reference model learning rate (default: 0.002)
-                - cell2location_lr: Cell2location learning rate (default: 0.005)
-                - ref_model_train_size: Training data fraction for ref model (default: 1.0)
-                - cell2location_train_size: Training data fraction for cell2location (default: 1.0)
-                - enable_qc_plots: Generate QC diagnostic plots (default: False)
-                - qc_output_dir: Output directory for QC plots (default: None)
-
-                Phase 3 (Runtime optimization):
-                - early_stopping: Enable early stopping to reduce training time (default: True)
-                - early_stopping_patience: Epochs to wait before stopping (default: 45)
-                - early_stopping_threshold: Minimum relative change threshold (default: 0.0)
-                - use_aggressive_training: Use train_aggressive() for better convergence (default: True)
-                - validation_size: Validation set fraction for early stopping (default: 0.1)
+    Methods:
+        - flashdeconv: Fast sketch-based method (default, recommended)
+        - cell2location: Deep learning, accurate but slow (requires scvi-tools)
+        - rctd: R-based, modes: doublet (high-res), full (Visium), multi
+        - destvi, stereoscope, tangram: Alternative deep learning methods
+        - spotlight, card: R-based methods (card supports spatial imputation)
 
     Returns:
-        Deconvolution result with cell type proportions
-
-    Notes:
-        Deconvolution methods (status):
-        - cell2location, destvi, stereoscope, tangram: Implemented when scvi-tools available
-        - rctd: Implemented via rpy2/R when R packages are installed (spacexr)
-          * Supports 3 modes: 'doublet' (high-res), 'full' (low-res, default), 'multi' (greedy)
-          * Mode selection via rctd_mode parameter
-          * Reference: Cable et al. (2022) Nat. Biotechnol.
-        - spotlight: Implemented via rpy2/R when R packages are installed
-        - card: Implemented via rpy2/R when CARD package is installed
-          * Unique feature: Models spatial correlation of cell type compositions via CAR model
-          * Optional imputation: Create enhanced high-resolution spatial maps
-          * Parameters: card_imputation, card_NumGrids, card_ineibor, card_minCountGene, card_minCountSpot
-          * Reference: Ma & Zhou (2022) Nat. Biotechnol.
-
-        RCTD-specific notes:
-        - Method: Robust decomposition of cell type mixtures using platform-free approach
-        - Mode selection guide:
-          * 'doublet': For high-resolution data (Slide-seq ~10μm, MERFISH, Visium HD)
-            - Assigns 1-2 cell types per spot, identifies singlets vs doublets
-          * 'full' (default): For low-resolution data (standard Visium 55μm spots)
-            - Can assign any number of cell types, best for multi-cellular spots
-          * 'multi': Greedy algorithm alternative to 'full'
-            - More constrained than 'full', useful for intermediate resolutions
-        - Additional parameters: rctd_confidence_threshold, rctd_doublet_threshold, max_cores
-
-        CARD-specific notes:
-        - Method: Spatially informed cell type deconvolution with CAR (Conditional AutoRegressive) model
-        - Unique capability: Models spatial correlation of cell type compositions across tissue locations
-        - Imputation feature (optional via card_imputation=True):
-          * Creates enhanced spatial maps with arbitrarily higher resolution than original measurement
-          * Imputes cell type compositions and gene expression at unmeasured locations
-          * Extremely fast: 0.4s for all genes (5816x faster than BayesSpace)
-          * Use cases: Enhance Visium to near-cellular resolution, fill tissue gaps, smooth artifacts
-        - Imputation parameters:
-          * card_NumGrids: Number of grid points (2000=standard, 5000=high-res, 10000=ultra)
-          * card_ineibor: Neighbors for smoothing (10=default, higher=smoother)
-        - Quality control: card_minCountGene, card_minCountSpot
-        - Multi-sample support: card_sample_key for batch effects
-        - Visualization: Use plot_type='card_imputation' to visualize imputed results
-
-        Cell2location uses two-stage training:
-        1. Reference model (NB regression): Learns cell type signatures (250 epochs)
-        2. Cell2location model: Maps cell types to spatial locations (30000 epochs)
+        DeconvolutionResult with cell type proportions per spot
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -1308,22 +750,14 @@ async def identify_spatial_domains(
     params: SpatialDomainParameters = SpatialDomainParameters(),
     context: Optional[Context] = None,
 ) -> SpatialDomainResult:
-    """Identify spatial domains and tissue architecture
+    """Identify spatial domains and tissue architecture.
 
     Args:
         data_id: Dataset ID
-        params: Spatial domain parameters
+        params: method='spagcn' (default, uses histology), 'leiden', 'louvain', 'stagate', 'graphst'
 
     Returns:
-        Spatial domain result with identified domains
-
-    Notes:
-        Spatial domain methods (status):
-        - spagcn: SpaGCN graph convolutional network (implemented; optional dependency SpaGCN)
-        - leiden / louvain: clustering-based (implemented; no extra deps)
-        - stagate: STAGATE (implemented; optional dependency STAGATE)
-        - graphst: GraphST graph self-supervised contrastive learning (implemented; optional dependency GraphST)
-        - stlearn / sedr / bayesspace: not implemented in this server; planned/experimental
+        SpatialDomainResult with domain_key for visualization
     """
     # Validate dataset first
     validate_dataset(data_id)
@@ -1352,142 +786,24 @@ async def analyze_cell_communication(
     params: CellCommunicationParameters,  # No default - LLM must provide parameters
     context: Optional[Context] = None,
 ) -> CellCommunicationResult:
-    """Analyze cell-cell communication patterns
+    """Analyze cell-cell communication patterns.
 
     Args:
         data_id: Dataset ID
-        params: Cell communication parameters
+        params: Required - species, cell_type_key, and method
+
+    Methods:
+        - liana: Multi-method consensus (default). Use liana_resource for database selection
+        - cellphonedb: Statistical permutation-based analysis
+        - cellchat_r: R-based CellChat (requires rpy2)
+        - fastccc: Fast C++ implementation (human only)
+
+    Species configuration:
+        - human: liana_resource="consensus" (default)
+        - mouse: liana_resource="mouseconsensus"
 
     Returns:
-        Cell communication analysis result
-
-    Notes:
-        Cell communication methods (status):
-        - liana: Implemented (global/cluster and spatial bivariate modes; requires liana)
-        - cellphonedb: Implemented (statistical analysis with spatial microenvironments; requires cellphonedb)
-        - cellchat_r: Implemented (native R CellChat with full features; requires rpy2 and CellChat R package)
-        - nichenet / connectome / cytotalk / squidpy: Not implemented in this server
-
-        IMPORTANT: For comprehensive cell communication analysis:
-
-        **Species-specific configuration:**
-        - species="mouse" + liana_resource="mouseconsensus" for mouse data
-        - species="human" + liana_resource="consensus" for human data
-        - species="zebrafish" for zebrafish data
-
-        **Available LIANA resources (liana_resource parameter):**
-        - "consensus" (default, recommended): Consensus of multiple databases
-        - "mouseconsensus": Mouse-specific consensus database
-        - "cellphonedb": CellPhoneDB database (curated, stringent)
-        - "celltalkdb": CellTalkDB database (large, comprehensive)
-        - "icellnet": iCellNet database (immune cell focus)
-        - "cellchatdb": CellChat database
-        - "connectomedb2020": Connectome database 2020
-        - "baccin2019", "cellcall", "cellinker", "embrace", "guide2pharma",
-          "hpmr", "italk", "kirouac2010", "lrdb", "ramilowski2015": Additional resources
-
-        **Common failure scenarios and solutions:**
-        1. "Too few features from resource found in data":
-           - adata.raw is automatically used when available for comprehensive gene coverage
-           - Ensure species matches data (mouse vs human)
-           - Use species-appropriate resource (mouseconsensus for mouse)
-
-        2. Missing spatial connectivity:
-           - Run spatial neighbor computation in preprocessing step (see below)
-
-        3. Missing cell type annotations:
-           - Ensure cell_type_key column exists or run annotation first
-
-        **Spatial connectivity computation (preprocessing step):**
-
-        The spatial neighborhood definition profoundly impacts cell communication analysis results.
-        Choose parameters based on your spatial transcriptomics platform and biological question:
-
-        **Platform-specific recommendations:**
-
-        10x Visium (hexagonal grid, 55µm spots, 100µm center-to-center spacing):
-          • coord_type: "grid" (for hexagonal layout) or "generic" (for custom)
-          • n_neighs: 6 (direct neighbors in hexagonal grid)
-          • n_rings: 1-2 (for grid mode: 1=first ring only, 2=first+second ring)
-          • radius: 150-200 pixels (for distance-based, ~captures first neighbor ring)
-          ├─ Local interactions (paracrine signaling): n_neighs=6 or n_rings=1
-          ├─ Microenvironment analysis: n_neighs=12-18 or n_rings=2
-          └─ Broader spatial context: radius=300-500 pixels
-
-        Slide-seq/Slide-seqV2 (10µm beads, high density):
-          • coord_type: "generic"
-          • n_neighs: 10-30 (higher density requires more neighbors)
-          • radius: 50-100 µm (typical cell-cell signaling range)
-          ├─ Dense regions: n_neighs=20-30
-          ├─ Sparse regions: n_neighs=10-15
-          └─ Distance-based: radius=50-100 µm (matches biological signaling range)
-
-        MERFISH/seqFISH+ (single-cell resolution, <1µm precision):
-          • coord_type: "generic"
-          • n_neighs: 3-10 (nearest cell neighbors)
-          • radius: 20-50 µm (direct cell-cell contact to short-range paracrine)
-          ├─ Direct contact: n_neighs=3-5 or radius=10-20 µm
-          ├─ Paracrine signaling: n_neighs=5-10 or radius=30-50 µm
-          └─ Microenvironment: radius=50-100 µm
-
-        **Biological considerations:**
-
-        Cell communication distance ranges (from literature):
-          • Juxtacrine signaling: 0-10 µm (direct contact)
-          • Paracrine signaling: 10-100 µm (e.g., Wnt/Wg: ~50-100 µm)
-          • Broader microenvironment: 100-500 µm
-
-        Analysis goal-based selection:
-          • Identify direct cell-cell interactions → Use smaller neighborhoods (n_neighs=6-10, radius=50-100 µm)
-          • Study tissue microenvironments → Use larger neighborhoods (n_neighs=15-30, radius=200-500 µm)
-          • Rare cell type interactions → Use adaptive/larger k to avoid missing signals
-          • Abundant cell types → Use smaller k to avoid spurious connections
-
-        **Parameter tradeoffs:**
-          • Larger neighborhoods: Capture long-range signals but lose spatial specificity
-          • Smaller neighborhoods: High spatial precision but may miss important interactions
-          • Fixed k (n_neighs): Same number for all spots, may overcluster dense regions
-          • Distance-based (radius): More biologically meaningful but varying neighbor counts
-
-        **Examples:**
-
-        Visium - local paracrine signaling:
-          # Step 1: Compute spatial neighbors (preprocessing)
-          import squidpy as sq
-          sq.gr.spatial_neighbors(adata, coord_type='grid', n_rings=1)
-
-          # Step 2: Analyze communication
-          params = {
-              "species": "human",
-              "liana_resource": "consensus"
-          }
-
-        Visium - microenvironment analysis:
-          # Step 1: Compute spatial neighbors (preprocessing)
-          import squidpy as sq
-          sq.gr.spatial_neighbors(adata, coord_type='generic', n_neighs=18)
-
-          # Step 2: Analyze communication
-          params = {
-              "species": "human"
-          }
-
-        MERFISH - direct cell-cell contact:
-          # Step 1: Compute spatial neighbors (preprocessing)
-          import squidpy as sq
-          sq.gr.spatial_neighbors(adata, coord_type='generic', radius=20)
-
-          # Step 2: Analyze communication
-          params = {
-              "species": "mouse",
-              "liana_resource": "mouseconsensus"
-          }
-
-        **References:**
-          • Squidpy framework: Palla et al., Nat Methods 2022
-          • LIANA+: Dimitrov et al., Nat Cell Biol 2024
-          • Visium resolution: 10x Genomics Technical Note
-          • Signaling ranges: Literature-based (Wnt/Wg: ~50-100 µm)
+        CellCommunicationResult with significant ligand-receptor interactions
     """
     # Validate dataset first
     validate_dataset(data_id)
@@ -1520,54 +836,24 @@ async def analyze_enrichment(
     params: Optional[EnrichmentParameters] = None,
     context: Optional[Context] = None,
 ) -> EnrichmentResult:
-    """Perform gene set enrichment analysis
+    """Perform gene set enrichment analysis.
 
     Args:
         data_id: Dataset ID
-        params: Enrichment analysis parameters (REQUIRED: species must be specified)
+        params: Required - species must be specified ('human' or 'mouse')
+
+    Methods:
+        - pathway_ora: Over-representation analysis (default)
+        - pathway_gsea: Gene Set Enrichment Analysis
+        - spatial_enrichmap: Spatial enrichment mapping
+        - pathway_enrichr, pathway_ssgsea: Alternative methods
+
+    Databases (gene_set_database):
+        - KEGG_Pathways (recommended), Reactome_Pathways, MSigDB_Hallmark
+        - GO_Biological_Process (default), GO_Molecular_Function, GO_Cellular_Component
 
     Returns:
-        Enrichment analysis result
-
-    IMPORTANT - Species and Database Selection:
-    You MUST specify 'species' parameter explicitly. No default species is assumed.
-
-    Recommended database combinations by species:
-
-    FOR MOUSE DATA (species="mouse"):
-    - "KEGG_Pathways" (recommended, uses KEGG_2019_Mouse internally)
-    - "Reactome_Pathways" (comprehensive pathway database)
-    - "MSigDB_Hallmark" (curated hallmark gene sets)
-    - "GO_Biological_Process" (works but may have fewer matches)
-
-    FOR HUMAN DATA (species="human"):
-    - "KEGG_Pathways" (recommended, uses KEGG_2021_Human internally)
-    - "Reactome_Pathways" (comprehensive pathway database)
-    - "MSigDB_Hallmark" (curated hallmark gene sets)
-    - "GO_Biological_Process" (standard GO terms)
-
-    Available gene_set_database options:
-    - "GO_Biological_Process" (default, auto-adapts to species)
-    - "GO_Molecular_Function" (GO molecular function terms)
-    - "GO_Cellular_Component" (GO cellular component terms)
-    - "KEGG_Pathways" (species-specific: KEGG_2021_Human or KEGG_2019_Mouse)
-    - "Reactome_Pathways" (Reactome_2022 pathway database)
-    - "MSigDB_Hallmark" (MSigDB_Hallmark_2020 curated gene sets)
-    - "Cell_Type_Markers" (cell type marker genes)
-    - Custom gene sets via gene_sets parameter
-
-    Methods available:
-    - "pathway_ora": Over-representation analysis (recommended)
-    - "pathway_enrichr": Enrichr web service
-    - "pathway_gsea": Gene Set Enrichment Analysis
-    - "pathway_ssgsea": Single-sample GSEA
-    - "spatial_enrichmap": Spatial enrichment mapping
-
-    Complete results are preserved in adata.uns for downstream visualization and analysis.
-
-    Example usage:
-    For mouse data:  params={"species": "mouse", "gene_set_database": "KEGG_Pathways"}
-    For human data:  params={"species": "human", "gene_set_database": "KEGG_Pathways"}
+        EnrichmentResult with enriched pathways and statistics
     """
     from .tools.enrichment import analyze_enrichment as analyze_enrichment_func
 
@@ -1599,26 +885,14 @@ async def find_spatial_genes(
     params: SpatialVariableGenesParameters = SpatialVariableGenesParameters(),
     context: Optional[Context] = None,
 ) -> SpatialVariableGenesResult:
-    """Identify spatially variable genes using various methods
+    """Identify spatially variable genes.
 
     Args:
         data_id: Dataset ID
-        params: Spatial variable gene parameters
+        params: method='sparkx' (default, fast) or 'spatialde' (Gaussian process)
 
     Returns:
-        Spatial variable genes result
-
-    Notes:
-        Available methods:
-        - sparkx: SPARK-X non-parametric method (default, best accuracy)
-        - spatialde: SpatialDE Gaussian process-based method (statistically rigorous)
-
-        Method selection via params.method parameter.
-        Each method has specific parameters - see SpatialVariableGenesParameters model.
-
-        Performance comparison (3000 spots × 20000 genes):
-        - SPARK-X: ~2-5 min (best accuracy)
-        - SpatialDE: ~15-30 min (best statistical rigor)
+        SpatialVariableGenesResult with ranked genes and statistics
     """
     # Validate dataset
     validate_dataset(data_id)
@@ -1692,35 +966,14 @@ async def export_data(
     path: Optional[str] = None,
     context: Optional[Context] = None,
 ) -> str:
-    """Export dataset from MCP memory to disk for external script access.
-
-    Exports the current state of the dataset (including all analysis results)
-    to the active directory for sharing between MCP tools and Python scripts.
-
-    Default path: ~/.chatspatial/active/{data_id}.h5ad
+    """Export dataset to disk for external script access.
 
     Args:
         data_id: Dataset ID to export
-        path: Optional custom export path. If not provided, exports to
-              the fixed active directory (~/.chatspatial/active/).
+        path: Custom path (default: ~/.chatspatial/active/{data_id}.h5ad)
 
     Returns:
         Absolute path where data was exported
-
-    Examples:
-        # Export to active directory (recommended for MCP-script sharing)
-        export_data("data1")
-        # Data saved to: ~/.chatspatial/active/data1.h5ad
-
-        # Export to custom location
-        export_data("data1", path="/path/to/my_analysis.h5ad")
-
-    Workflow:
-        1. Use MCP tools to analyze data
-        2. export_data("data1") -> saves to ~/.chatspatial/active/data1.h5ad
-        3. Run external Python script that modifies the data
-        4. reload_data("data1") -> loads modified data back to MCP
-        5. Continue analysis with MCP tools
     """
     from pathlib import Path as PathLib
 
@@ -1761,36 +1014,12 @@ async def reload_data(
 ) -> str:
     """Reload dataset from disk after external script modifications.
 
-    Loads the dataset from the active directory (or custom path) back into
-    MCP memory, replacing the current in-memory version. Use this after
-    external scripts have modified the exported data.
-
-    Default path: ~/.chatspatial/active/{data_id}.h5ad
-
     Args:
-        data_id: Dataset ID to reload (must already exist in MCP memory)
-        path: Optional custom path to load from. If not provided, loads from
-              the fixed active directory (~/.chatspatial/active/).
+        data_id: Dataset ID to reload (must exist in MCP memory)
+        path: Custom path (default: ~/.chatspatial/active/{data_id}.h5ad)
 
     Returns:
         Summary of reloaded dataset
-
-    Examples:
-        # Reload from active directory (after external script modified it)
-        reload_data("data1")
-        # Loads from: ~/.chatspatial/active/data1.h5ad
-
-        # Reload from custom location
-        reload_data("data1", path="/path/to/modified_data.h5ad")
-
-    Workflow:
-        1. export_data("data1") -> saves to ~/.chatspatial/active/data1.h5ad
-        2. Run external Python script:
-           >>> import anndata
-           >>> adata = anndata.read_h5ad("~/.chatspatial/active/data1.h5ad")
-           >>> # ... modify adata ...
-           >>> adata.write_h5ad("~/.chatspatial/active/data1.h5ad")
-        3. reload_data("data1") -> loads modified data back to MCP
     """
     from pathlib import Path as PathLib
 

@@ -11,7 +11,6 @@ This module provides visualization functions organized by analysis type:
 - enrichment: Pathway enrichment visualizations
 - cnv: Copy number variation visualizations
 - integration: Batch integration quality visualizations
-- persistence: Visualization saving and export
 
 Usage:
     from chatspatial.tools.visualization import (
@@ -84,12 +83,6 @@ from .multi_gene import (
     create_spatial_interaction_visualization,
 )
 
-# Persistence functions
-from .persistence import (
-    clear_visualization_cache,
-    export_all_visualizations,
-    save_visualization,
-)
 
 # Spatial statistics visualizations
 from .spatial_stats import create_spatial_statistics_visualization
@@ -144,10 +137,6 @@ __all__ = [
     "create_lr_pairs_visualization",
     "create_gene_correlation_visualization",
     "create_spatial_interaction_visualization",
-    # Persistence functions
-    "save_visualization",
-    "export_all_visualizations",
-    "clear_visualization_cache",
     # Main entry point
     "visualize_data",
     # Handler registry

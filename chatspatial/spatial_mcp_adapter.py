@@ -3,25 +3,15 @@ Spatial MCP Adapter for ChatSpatial
 
 This module provides a clean abstraction layer between MCP protocol requirements
 and ChatSpatial's spatial analysis functionality.
-
-Design Principles:
-- Single source of truth: One registry for visualization state
-- Store params, not bytes: Images can be regenerated on demand
-- LRU eviction: Automatic memory management
 """
 
 import logging
-import os
-import time
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 
-# Import MCP improvements
-from .models.data import VisualizationParameters
 from .utils.exceptions import DataNotFoundError, ParameterError
 
 logger = logging.getLogger(__name__)
@@ -61,24 +51,11 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
         readOnlyHint=False,  # Modifies adata in-place
         idempotentHint=False,  # Re-running changes state
     ),
-    # Visualization - read-only analysis
+    # Visualization - saves to filesystem
     "visualize_data": ToolAnnotations(
-        readOnlyHint=True,  # Only reads data to generate plots
+        readOnlyHint=False,  # Saves image to filesystem
         idempotentHint=True,  # Same params yield same plot
-    ),
-    "save_visualization": ToolAnnotations(
-        readOnlyHint=False,  # Writes to filesystem
-        idempotentHint=True,  # Saving same viz is idempotent
-        openWorldHint=True,  # Accesses filesystem
-    ),
-    "export_all_visualizations": ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
-    ),
-    "clear_visualization_cache": ToolAnnotations(
-        readOnlyHint=False,  # Clears cache
-        idempotentHint=True,  # Clearing empty cache is idempotent
+        openWorldHint=True,  # Writes to filesystem
     ),
     # Analysis tools - modify adata by adding results
     "annotate_cell_types": ToolAnnotations(
@@ -160,158 +137,12 @@ def get_tool_annotations(tool_name: str) -> ToolAnnotations:
     )
 
 
-# =============================================================================
-# VISUALIZATION REGISTRY - Single Source of Truth
-# =============================================================================
-# First Principles Design:
-# - Store params, not bytes: Images can be regenerated on demand from params
-# - LRU eviction: Automatic memory management prevents unbounded growth
-# - Unified cache key: {data_id}_{plot_type}[_{subtype}]
-# =============================================================================
-
-
-@dataclass
-class VisualizationEntry:
-    """A single visualization entry in the registry.
-
-    Stores the parameters needed to regenerate a visualization, not the image bytes.
-    This follows the first principle: data + params = reproducible output.
-    """
-
-    params: VisualizationParameters
-    file_path: Optional[str] = None  # Path to saved PNG (if large image)
-    timestamp: float = field(default_factory=time.time)
-
-
-class VisualizationRegistry:
-    """Single source of truth for visualization state.
-
-    Design Principles:
-    - Store params, not bytes: Images regenerated on demand
-    - LRU eviction: Oldest entries removed when max_entries exceeded
-    - Unified interface: One place for all visualization state
-    """
-
-    def __init__(self, max_entries: int = 100):
-        """Initialize the registry with LRU capacity.
-
-        Args:
-            max_entries: Maximum number of entries before LRU eviction
-        """
-        self._entries: OrderedDict[str, VisualizationEntry] = OrderedDict()
-        self._max_entries = max_entries
-
-    def store(
-        self,
-        key: str,
-        params: VisualizationParameters,
-        file_path: Optional[str] = None,
-    ) -> None:
-        """Store a visualization entry.
-
-        Args:
-            key: Cache key format: {data_id}_{plot_type}[_{subtype}]
-            params: Visualization parameters for regeneration
-            file_path: Optional path to saved image file
-        """
-        # Move to end if exists (LRU behavior)
-        if key in self._entries:
-            self._entries.move_to_end(key)
-
-        self._entries[key] = VisualizationEntry(
-            params=params,
-            file_path=file_path,
-            timestamp=time.time(),
-        )
-
-        # LRU eviction
-        while len(self._entries) > self._max_entries:
-            oldest_key, oldest_entry = self._entries.popitem(last=False)
-            # Clean up file if exists
-            if oldest_entry.file_path and os.path.exists(oldest_entry.file_path):
-                try:
-                    os.remove(oldest_entry.file_path)
-                except OSError:
-                    pass
-
-    def get(self, key: str) -> Optional[VisualizationEntry]:
-        """Get a visualization entry.
-
-        Args:
-            key: Cache key to look up
-
-        Returns:
-            VisualizationEntry if found, None otherwise
-        """
-        if key in self._entries:
-            self._entries.move_to_end(key)  # LRU touch
-            return self._entries[key]
-        return None
-
-    def exists(self, key: str) -> bool:
-        """Check if a visualization exists in registry."""
-        return key in self._entries
-
-    def list_for_dataset(self, data_id: str) -> list[str]:
-        """List all visualization keys for a dataset.
-
-        Args:
-            data_id: Dataset identifier
-
-        Returns:
-            List of cache keys matching the dataset
-        """
-        prefix = f"{data_id}_"
-        return [k for k in self._entries.keys() if k.startswith(prefix)]
-
-    def clear(self, prefix: Optional[str] = None) -> int:
-        """Clear visualizations from registry.
-
-        Args:
-            prefix: Optional prefix to filter which keys to clear.
-                   If None, clears all visualizations.
-
-        Returns:
-            Number of entries cleared
-        """
-        if prefix is None:
-            count = len(self._entries)
-            # Clean up all files
-            for entry in self._entries.values():
-                if entry.file_path and os.path.exists(entry.file_path):
-                    try:
-                        os.remove(entry.file_path)
-                    except OSError:
-                        pass
-            self._entries.clear()
-            return count
-
-        keys_to_remove = [k for k in self._entries if k.startswith(prefix)]
-        for key in keys_to_remove:
-            entry = self._entries.pop(key)
-            if entry.file_path and os.path.exists(entry.file_path):
-                try:
-                    os.remove(entry.file_path)
-                except OSError:
-                    pass
-        return len(keys_to_remove)
-
-    def keys(self) -> list[str]:
-        """Return all keys in the registry."""
-        return list(self._entries.keys())
-
-
 class SpatialMCPAdapter:
-    """Main adapter class that bridges MCP and spatial analysis functionality.
-
-    Simplified design: Only manages data and visualization registry.
-    Removed dead code (ResourceManager was never registered to MCP server).
-    """
+    """Main adapter class that bridges MCP and spatial analysis functionality."""
 
     def __init__(self, mcp_server: FastMCP, data_manager: "DefaultSpatialDataManager"):
         self.mcp = mcp_server
         self.data_manager = data_manager
-        self.visualization_registry = VisualizationRegistry(max_entries=100)
 
 
 class DefaultSpatialDataManager:
@@ -484,7 +315,6 @@ class ToolContext:
 
     _data_manager: "DefaultSpatialDataManager"
     _mcp_context: Optional[Context] = None
-    _visualization_registry: Optional["VisualizationRegistry"] = None
     _logger: Optional[logging.Logger] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -600,83 +430,6 @@ class ToolContext:
         """Log error message to MCP context if available."""
         if self._mcp_context:
             await self._mcp_context.error(msg)
-
-    def get_visualization_registry(self) -> Optional["VisualizationRegistry"]:
-        """Get the visualization registry.
-
-        Returns:
-            VisualizationRegistry instance if set, None otherwise
-        """
-        return self._visualization_registry
-
-    def store_visualization(
-        self,
-        key: str,
-        params: VisualizationParameters,
-        file_path: Optional[str] = None,
-    ) -> None:
-        """Store a visualization in the registry.
-
-        Args:
-            key: Cache key format: {data_id}_{plot_type}[_{subtype}]
-            params: Visualization parameters for regeneration
-            file_path: Optional path to saved image file
-        """
-        if self._visualization_registry is not None:
-            self._visualization_registry.store(key, params, file_path)
-
-    def get_visualization(self, key: str) -> Optional[VisualizationEntry]:
-        """Get a visualization entry from the registry.
-
-        Args:
-            key: Cache key for the visualization
-
-        Returns:
-            VisualizationEntry if found, None otherwise
-        """
-        if self._visualization_registry is None:
-            return None
-        return self._visualization_registry.get(key)
-
-    def visualization_exists(self, key: str) -> bool:
-        """Check if a visualization exists in registry.
-
-        Args:
-            key: Cache key to check
-
-        Returns:
-            True if exists, False otherwise
-        """
-        if self._visualization_registry is None:
-            return False
-        return self._visualization_registry.exists(key)
-
-    def list_visualizations(self, data_id: str) -> list[str]:
-        """List all visualization keys for a dataset.
-
-        Args:
-            data_id: Dataset identifier
-
-        Returns:
-            List of cache keys matching the dataset
-        """
-        if self._visualization_registry is None:
-            return []
-        return self._visualization_registry.list_for_dataset(data_id)
-
-    def clear_visualizations(self, prefix: Optional[str] = None) -> int:
-        """Clear visualizations from the registry.
-
-        Args:
-            prefix: Optional prefix to filter which keys to clear.
-                   If None, clears all visualizations.
-
-        Returns:
-            Number of visualizations cleared
-        """
-        if self._visualization_registry is None:
-            return 0
-        return self._visualization_registry.clear(prefix)
 
 
 def create_spatial_mcp_server(
