@@ -22,7 +22,6 @@ from ..utils.adata_utils import (
     get_spatial_key,
     has_velovi_essential_data,
     reconstruct_velovi_adata,
-    require_spatial_coords,
     validate_obs_column,
 )
 from ..utils.compat import ensure_cellrank_compat
@@ -240,25 +239,6 @@ def infer_spatial_trajectory_cellrank(
         cleanup_compat()
 
 
-def spatial_aware_embedding(adata, spatial_weight=0.3):
-    """Generate spatially-aware low-dimensional embedding."""
-    from sklearn.metrics.pairwise import euclidean_distances
-    from umap import UMAP
-
-    spatial_coords = require_spatial_coords(adata)
-    ensure_pca(adata)
-
-    expr_dist = euclidean_distances(adata.obsm["X_pca"])
-    spatial_dist = euclidean_distances(spatial_coords)
-    combined_dist = (1 - spatial_weight) * expr_dist + spatial_weight * spatial_dist
-
-    umap_op = UMAP(metric="precomputed")
-    embedding = umap_op.fit_transform(combined_dist)
-    adata.obsm["X_spatial_umap"] = embedding
-
-    return adata
-
-
 def infer_pseudotime_palantir(
     adata, root_cells=None, n_diffusion_components=10, num_waypoints=500
 ):
@@ -403,17 +383,6 @@ async def analyze_trajectory(
     elif params.method == "palantir":
         try:
             with suppress_output():
-                has_spatial = get_spatial_key(adata) is not None
-                if has_spatial and params.spatial_weight > 0:
-                    adata = spatial_aware_embedding(
-                        adata, spatial_weight=params.spatial_weight
-                    )
-                elif not has_spatial and params.spatial_weight > 0:
-                    await ctx.warning(
-                        f"Spatial weight {params.spatial_weight} specified but no spatial "
-                        "coordinates found. Using expression-only Palantir."
-                    )
-
                 adata = infer_pseudotime_palantir(
                     adata,
                     root_cells=params.root_cells,
