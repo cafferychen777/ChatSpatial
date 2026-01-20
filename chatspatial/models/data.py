@@ -913,7 +913,7 @@ class TrajectoryParameters(BaseModel):
         default=0.5,
         ge=0.0,
         le=1.0,
-        description="Weight for spatial vs expression distance (0=expression only, 1=spatial only).",
+        description="Weight for spatial kernel in CellRank (0=no spatial, 1=spatial only). Only used with method='cellrank'.",
     )
     root_cells: Optional[list[str]] = Field(
         default=None,

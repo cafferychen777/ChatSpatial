@@ -148,7 +148,7 @@ class TrajectoryResult(BaseAnalysisResult):
     velocity_computed: bool
     pseudotime_key: str
     method: str  # Trajectory analysis method used
-    spatial_weight: float  # Spatial information weight
+    spatial_weight: float  # Spatial kernel weight (CellRank only)
 
 
 class IntegrationResult(BaseAnalysisResult):
