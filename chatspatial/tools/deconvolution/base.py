@@ -3,12 +3,13 @@ Base utilities for deconvolution methods.
 
 Design Philosophy:
 - Immutable data container (frozen dataclass) for prepared data
+- Method registry with declarative configuration (MethodConfig)
 - Single function API for the common case
 - Hook pattern for method-specific preprocessing (e.g., cell2location)
 """
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -21,6 +22,7 @@ import pandas as pd
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
+    from ...models.data import DeconvolutionParameters
     from ...spatial_mcp_adapter import ToolContext
 
 from ...utils.adata_utils import (
@@ -33,11 +35,85 @@ from ...utils.adata_utils import (
 )
 from ...utils.exceptions import DataError
 
-# Type alias for preprocess hook
+# Type aliases
 PreprocessHook = Callable[
     [ad.AnnData, ad.AnnData, "ToolContext"],
     Awaitable[tuple[ad.AnnData, ad.AnnData]],
 ]
+
+DeconvolveFunc = Callable[..., tuple[pd.DataFrame, dict[str, Any]]]
+
+
+# =============================================================================
+# Method Configuration
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class MethodConfig:
+    """Immutable configuration for a deconvolution method.
+
+    This dataclass follows the same frozen pattern as PreparedDeconvolutionData,
+    ensuring configuration cannot be modified after creation.
+
+    The registry pattern replaces the 124-line if-elif chain with declarative
+    configuration, adhering to the Open-Closed Principle: new methods can be
+    added without modifying the dispatch logic.
+
+    Attributes:
+        module_name: Name of the module containing the deconvolve function
+        dependencies: Required packages for this method
+        is_r_based: Whether method requires R (affects data type conversion)
+        supports_gpu: Whether method supports GPU acceleration
+        param_mapping: Mapping from DeconvolutionParameters field -> function arg name
+                      This is the single source of truth for parameter extraction.
+
+    Example:
+        MethodConfig(
+            module_name="flashdeconv",
+            dependencies=("flashdeconv",),
+            param_mapping={
+                "flashdeconv_sketch_dim": "sketch_dim",
+                "flashdeconv_lambda_spatial": "lambda_spatial",
+            },
+        )
+    """
+
+    module_name: str
+    dependencies: tuple[str, ...]
+    is_r_based: bool = False
+    supports_gpu: bool = False
+    param_mapping: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+
+    def extract_kwargs(self, params: "DeconvolutionParameters") -> dict[str, Any]:
+        """Extract method-specific kwargs from DeconvolutionParameters.
+
+        Uses param_mapping to transform parameter names from DeconvolutionParameters
+        to the function argument names expected by each method's deconvolve function.
+
+        Args:
+            params: The full DeconvolutionParameters object
+
+        Returns:
+            Dictionary of kwargs to pass to the deconvolve function
+        """
+        kwargs: dict[str, Any] = {}
+
+        for params_field, func_arg in self.param_mapping:
+            value = getattr(params, params_field, None)
+            if value is not None:
+                kwargs[func_arg] = value
+
+        # Add use_gpu if method supports it
+        if self.supports_gpu:
+            kwargs["use_gpu"] = params.use_gpu
+
+        return kwargs
+
+    @property
+    def requires_reference(self) -> bool:
+        """All current deconvolution methods require reference data."""
+        return True
 
 
 # =============================================================================
