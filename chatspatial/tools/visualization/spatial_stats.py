@@ -32,7 +32,6 @@ from .core import (
     auto_spot_size,
     create_figure_from_params,
     get_categorical_columns,
-    resolve_figure_size,
     setup_multi_panel_figure,
 )
 
@@ -473,9 +472,9 @@ async def _create_getis_ord_visualization(
     fig, axes = setup_multi_panel_figure(
         n_panels=len(genes_to_plot),
         params=params,
-        default_title="Getis-Ord Gi* Hotspots/Coldspots"
-        if len(genes_to_plot) > 1
-        else "",
+        default_title=(
+            "Getis-Ord Gi* Hotspots/Coldspots" if len(genes_to_plot) > 1 else ""
+        ),
     )
 
     coords = require_spatial_coords(adata)

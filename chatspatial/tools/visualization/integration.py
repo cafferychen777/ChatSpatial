@@ -14,7 +14,7 @@ import numpy as np
 
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import validate_obs_column
-from ...utils.exceptions import DataNotFoundError
+from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import get_categorical_cmap
 
 if TYPE_CHECKING:
@@ -57,9 +57,9 @@ async def create_batch_integration_visualization(
     elif subtype == "highlight":
         return await _create_batch_highlight(adata, params, context)
     else:
-        raise ValueError(
+        raise ParameterError(
             f"Unknown integration subtype: {subtype}. "
-            "Available: batch, cluster, highlight"
+            f"Available: batch, cluster, highlight"
         )
 
 

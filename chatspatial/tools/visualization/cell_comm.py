@@ -1,10 +1,16 @@
 """
 Cell communication visualization functions for spatial transcriptomics.
 
-This module contains:
-- LIANA+ cluster-based visualizations (dotplot, tileplot, circle_plot)
-- LIANA+ spatial bivariate visualizations
-- CellPhoneDB visualizations (heatmap, dotplot, chord)
+Supported methods:
+- LIANA+: cluster-based (dotplot, tileplot, circle_plot) and spatial bivariate
+- CellPhoneDB: heatmap, dotplot, chord (using ktplotspy)
+- FastCCC: heatmap, dotplot (using seaborn - matrix format)
+- CellChat R: heatmap, dotplot (using seaborn - matrix format)
+
+Architecture notes:
+- CellPhoneDB has rich metadata format with 'interacting_pair' column → ktplotspy
+- FastCCC/CellChat R have simple matrix format (index=LR, columns=cell pairs) → seaborn
+- Each method uses visualization tools that match its native data format
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -46,6 +52,8 @@ async def get_cell_communication_data(
     - LIANA+ spatial bivariate analysis results
     - LIANA+ cluster-based analysis results
     - CellPhoneDB analysis results
+    - FastCCC analysis results
+    - CellChat R analysis results
 
     Args:
         adata: AnnData object with cell communication results
@@ -144,10 +152,63 @@ async def get_cell_communication_data(
                 results_key="cellphonedb_means",
             )
 
+    # Check for FastCCC results
+    if "fastccc_interactions_strength" in adata.uns:
+        strength = adata.uns["fastccc_interactions_strength"]
+        if isinstance(strength, pd.DataFrame):
+            # Extract LR pairs from index (format: "LIGAND_RECEPTOR")
+            lr_pairs = []
+            for pair_str in strength.index:
+                parts = str(pair_str).split("_", 1)
+                if len(parts) == 2:
+                    lr_pairs.append(f"{parts[0]}^{parts[1]}")
+                else:
+                    lr_pairs.append(str(pair_str))
+
+            if context:
+                await context.info(f"Found FastCCC results: {len(lr_pairs)} LR pairs")
+
+            return CellCommunicationData(
+                results=strength,
+                method="fastccc",
+                analysis_type="cluster",
+                lr_pairs=lr_pairs,
+                results_key="fastccc_interactions_strength",
+            )
+
+    # Check for CellChat R results
+    if "cellchat_r_lr_pairs" in adata.uns:
+        lr_pairs_df = adata.uns["cellchat_r_lr_pairs"]
+        if isinstance(lr_pairs_df, pd.DataFrame):
+            # Extract LR pairs from DataFrame
+            if "interaction_name" in lr_pairs_df.columns:
+                lr_pairs = lr_pairs_df["interaction_name"].tolist()
+            elif "ligand" in lr_pairs_df.columns and "receptor" in lr_pairs_df.columns:
+                lr_pairs = [
+                    f"{row['ligand']}^{row['receptor']}"
+                    for _, row in lr_pairs_df.iterrows()
+                ]
+            else:
+                lr_pairs = lr_pairs_df.index.tolist()
+
+            if context:
+                await context.info(
+                    f"Found CellChat R results: {len(lr_pairs)} LR pairs"
+                )
+
+            return CellCommunicationData(
+                results=lr_pairs_df,
+                method="cellchat_r",
+                analysis_type="cluster",
+                lr_pairs=lr_pairs,
+                results_key="cellchat_r_lr_pairs",
+            )
+
     # No results found
     raise DataNotFoundError(
         "No cell communication results found. "
-        "Run analyze_cell_communication() first."
+        "Run analyze_cell_communication() first with method='liana', "
+        "'cellphonedb', 'fastccc', or 'cellchat_r'."
     )
 
 
@@ -163,9 +224,10 @@ async def create_cell_communication_visualization(
 ) -> plt.Figure:
     """Create cell communication visualization using unified data retrieval.
 
-    Routes to appropriate visualization based on analysis type and subtype:
-    - Spatial analysis: Multi-panel spatial plot
-    - Cluster analysis: LIANA+ visualizations or CellPhoneDB
+    Routes to appropriate visualization based on analysis method and subtype:
+    - Spatial LIANA: Multi-panel spatial LR plot (ignores subtype)
+    - CellPhoneDB/FastCCC/CellChat R: heatmap (default), chord, dotplot
+    - LIANA cluster: dotplot (default), tileplot, circle_plot
 
     Args:
         adata: AnnData object with cell communication results
@@ -189,6 +251,7 @@ async def create_cell_communication_visualization(
     if data.analysis_type == "spatial":
         return _create_spatial_lr_visualization(adata, data, params, context)
     else:
+        # CellPhoneDB uses ktplotspy (rich metadata format with 'interacting_pair' column)
         if data.method == "cellphonedb":
             subtype = params.subtype or "heatmap"
             if subtype == "dotplot":
@@ -202,6 +265,26 @@ async def create_cell_communication_visualization(
                     f"Unknown CellPhoneDB visualization type: {subtype}. "
                     f"Available: heatmap, chord, dotplot"
                 )
+
+        # FastCCC and CellChat R use seaborn (simple matrix format)
+        if data.method in ("fastccc", "cellchat_r"):
+            subtype = params.subtype or "heatmap"
+            if subtype == "heatmap":
+                return _create_matrix_heatmap(adata, data, params, context)
+            elif subtype == "dotplot":
+                return _create_matrix_dotplot(adata, data, params, context)
+            elif subtype == "chord":
+                raise ParameterError(
+                    f"Chord diagram not supported for {data.method}. "
+                    f"Chord requires CellPhoneDB deconvoluted format. "
+                    f"Available for {data.method}: heatmap, dotplot"
+                )
+            else:
+                raise ParameterError(
+                    f"Unknown {data.method} visualization type: {subtype}. "
+                    f"Available: heatmap, dotplot"
+                )
+        # LIANA cluster-based results use LIANA+ visualizations
         else:
             subtype = params.subtype or "dotplot"
             if subtype == "tileplot":
@@ -495,7 +578,301 @@ async def _create_liana_circle_plot(
 
 
 # =============================================================================
-# CellPhoneDB Visualizations
+# Matrix-based Visualizations (FastCCC, CellChat R)
+# =============================================================================
+
+
+def _create_matrix_heatmap(
+    adata: "ad.AnnData",
+    data: CellCommunicationData,
+    params: VisualizationParameters,
+    context: Optional["ToolContext"] = None,
+) -> plt.Figure:
+    """Create heatmap for matrix-format cell communication results.
+
+    Used for FastCCC and CellChat R which store results as simple matrices
+    (index=LR pairs, columns=cell type pairs).
+
+    Args:
+        adata: AnnData object
+        data: CellCommunicationData with method and results
+        params: Visualization parameters
+        context: Optional logging context
+
+    Returns:
+        matplotlib Figure
+    """
+    import seaborn as sns
+
+    # Get p-values matrix based on method
+    pvalues_key = {
+        "fastccc": "fastccc_pvalues",
+        "cellchat_r": "cellchat_r_pval",
+    }.get(data.method)
+
+    if pvalues_key is None:
+        raise ParameterError(f"Unsupported method for matrix heatmap: {data.method}")
+
+    pvalues = adata.uns.get(pvalues_key)
+
+    if pvalues is None:
+        raise DataNotFoundError(
+            f"{data.method} pvalues not found in adata.uns['{pvalues_key}']. "
+            f"Re-run {data.method} analysis."
+        )
+
+    # Convert to DataFrame if numpy array (CellChat R case)
+    if isinstance(pvalues, np.ndarray):
+        # Try to get labels from related data
+        strength_key = {
+            "fastccc": "fastccc_interactions_strength",
+            "cellchat_r": "cellchat_r_prob",
+        }.get(data.method)
+        strength = adata.uns.get(strength_key)
+
+        if isinstance(strength, pd.DataFrame):
+            pvalues = pd.DataFrame(
+                pvalues, index=strength.index, columns=strength.columns
+            )
+        else:
+            # Use generic labels
+            pvalues = pd.DataFrame(pvalues)
+
+    if not isinstance(pvalues, pd.DataFrame) or pvalues.empty:
+        raise DataNotFoundError(f"{data.method} pvalues DataFrame is empty or invalid.")
+
+    # Select top LR pairs for visualization
+    n_top_rows = min(params.plot_top_pairs or 30, len(pvalues))
+
+    # Sort by minimum p-value (most significant)
+    numeric_cols = pvalues.select_dtypes(include=[np.number]).columns
+
+    # Also limit the number of columns (cell type pairs) to prevent huge figures
+    max_cols = 50  # Reasonable maximum for visualization
+    if len(numeric_cols) > max_cols:
+        # Select columns with most significant interactions
+        col_min_pvals = pvalues[numeric_cols].min(axis=0)
+        numeric_cols = col_min_pvals.nsmallest(max_cols).index
+
+    if len(numeric_cols) > 0:
+        min_pvals = pvalues[numeric_cols].min(axis=1)
+        top_idx = min_pvals.nsmallest(n_top_rows).index
+        pvalues_top = pvalues.loc[top_idx, numeric_cols]
+    else:
+        pvalues_top = pvalues.iloc[:n_top_rows]
+
+    # Transform to -log10(pvalue) for better visualization
+    neg_log_pval = -np.log10(pvalues_top.astype(float) + 1e-10)
+
+    # Create figure with reasonable size limits
+    n_rows, n_cols = neg_log_pval.shape
+    # Calculate ideal size but cap at reasonable limits
+    fig_width = min(20, max(8, n_cols * 0.6 + 3))  # Max 20 inches wide
+    fig_height = min(16, max(6, n_rows * 0.3 + 2))  # Max 16 inches tall
+    figsize = params.figure_size or (fig_width, fig_height)
+
+    # Ensure DPI is reasonable (cap at 300 for figures)
+    effective_dpi = min(params.dpi or 300, 300)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=effective_dpi)
+
+    # Create heatmap
+    cmap = params.colormap if params.colormap != "coolwarm" else "Reds"
+    sns.heatmap(
+        neg_log_pval,
+        ax=ax,
+        cmap=cmap,
+        annot=n_rows <= 20 and n_cols <= 10,  # Show values if small enough
+        fmt=".1f",
+        linewidths=0.5,
+        cbar_kws={"label": "-log10(p-value)"},
+        vmin=params.vmin,
+        vmax=params.vmax,
+    )
+
+    # Method-specific title
+    method_name = {"fastccc": "FastCCC", "cellchat_r": "CellChat"}.get(
+        data.method, data.method
+    )
+    ax.set_title(
+        params.title
+        or f"{method_name}: Interaction Significance\n(top {n_top_rows} pairs)",
+        fontsize=12,
+        fontweight="bold",
+    )
+    ax.set_xlabel("Cell Type Pairs", fontsize=10)
+    ax.set_ylabel("Ligand-Receptor Pairs", fontsize=10)
+
+    # Rotate x-axis labels
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=8)
+    plt.setp(ax.get_yticklabels(), fontsize=8)
+
+    plt.tight_layout()
+    return fig
+
+
+def _create_matrix_dotplot(
+    adata: "ad.AnnData",
+    data: CellCommunicationData,
+    params: VisualizationParameters,
+    context: Optional["ToolContext"] = None,
+) -> plt.Figure:
+    """Create dotplot for matrix-format cell communication results.
+
+    Following best practices from sc-best-practices.org:
+    - Dot SIZE represents SIGNIFICANCE (-log10 p-value, larger = more significant)
+    - Dot COLOR represents STRENGTH/MAGNITUDE (interaction intensity)
+
+    This matches the standard visualization approach used by LIANA, CellPhoneDB,
+    and other cell communication tools.
+
+    Args:
+        adata: AnnData object
+        data: CellCommunicationData with method and results
+        params: Visualization parameters
+        context: Optional logging context
+
+    Returns:
+        matplotlib Figure
+    """
+    # Get data based on method
+    data_keys = {
+        "fastccc": {
+            "strength": "fastccc_interactions_strength",
+            "pvalues": "fastccc_pvalues",
+        },
+        "cellchat_r": {
+            "strength": "cellchat_r_prob",
+            "pvalues": "cellchat_r_pval",
+        },
+    }.get(data.method)
+
+    if data_keys is None:
+        raise ParameterError(f"Unsupported method for matrix dotplot: {data.method}")
+
+    strength = adata.uns.get(data_keys["strength"])
+    pvalues = adata.uns.get(data_keys["pvalues"])
+
+    if strength is None or pvalues is None:
+        raise DataNotFoundError(
+            f"{data.method} results not found. Re-run {data.method} analysis."
+        )
+
+    # Convert to DataFrame if numpy array
+    if isinstance(strength, np.ndarray):
+        strength = pd.DataFrame(strength)
+    if isinstance(pvalues, np.ndarray):
+        if isinstance(strength, pd.DataFrame):
+            pvalues = pd.DataFrame(
+                pvalues, index=strength.index, columns=strength.columns
+            )
+        else:
+            pvalues = pd.DataFrame(pvalues)
+
+    if not isinstance(strength, pd.DataFrame) or strength.empty:
+        raise DataNotFoundError(f"{data.method} results are empty or invalid.")
+
+    # Select top LR pairs (rows)
+    n_top_rows = min(params.plot_top_pairs or 20, len(strength))
+    numeric_cols = strength.select_dtypes(include=[np.number]).columns
+
+    if len(numeric_cols) == 0:
+        raise DataNotFoundError(f"{data.method} results have no numeric columns.")
+
+    # Also limit the number of columns (cell type pairs) to prevent huge figures
+    max_cols = 50  # Reasonable maximum for visualization
+    if len(numeric_cols) > max_cols:
+        # Select columns with highest mean interaction strength
+        col_mean_strength = strength[numeric_cols].mean(axis=0)
+        numeric_cols = col_mean_strength.nlargest(max_cols).index
+
+    # Sort by mean strength
+    mean_strength = strength[numeric_cols].mean(axis=1)
+    top_idx = mean_strength.nlargest(n_top_rows).index
+
+    strength_top = strength.loc[top_idx, numeric_cols]
+    pvalues_top = pvalues.loc[top_idx, numeric_cols]
+
+    # Prepare data for dotplot (long format)
+    plot_data = []
+    for lr_pair in strength_top.index:
+        for cell_pair in numeric_cols:
+            s = strength_top.loc[lr_pair, cell_pair]
+            p = pvalues_top.loc[lr_pair, cell_pair]
+            plot_data.append(
+                {
+                    "LR_pair": str(lr_pair),
+                    "Cell_pair": str(cell_pair),
+                    "strength": float(s) if pd.notna(s) else 0,
+                    "neg_log_pval": -np.log10(float(p) + 1e-10) if pd.notna(p) else 0,
+                }
+            )
+
+    plot_df = pd.DataFrame(plot_data)
+
+    # Create figure with reasonable size limits
+    n_rows = len(top_idx)
+    n_cols_plot = len(numeric_cols)
+    # Calculate ideal size but cap at reasonable limits
+    fig_width = min(20, max(8, n_cols_plot * 0.8 + 3))  # Max 20 inches wide
+    fig_height = min(16, max(6, n_rows * 0.4 + 2))  # Max 16 inches tall
+    figsize = params.figure_size or (fig_width, fig_height)
+
+    # Ensure DPI is reasonable (cap at 300 for figures)
+    effective_dpi = min(params.dpi or 300, 300)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=effective_dpi)
+
+    # Best practice: SIZE = significance (-log10 p-value), COLOR = strength
+    # Larger dots = more significant (smaller p-value)
+    size_norm = plot_df["neg_log_pval"].max()
+    if size_norm > 0:
+        sizes = (plot_df["neg_log_pval"] / size_norm * 200) + 10
+    else:
+        sizes = 50
+
+    scatter = ax.scatter(
+        x=pd.Categorical(plot_df["Cell_pair"]).codes,
+        y=pd.Categorical(plot_df["LR_pair"]).codes,
+        s=sizes,
+        c=plot_df["strength"],
+        cmap="viridis",  # viridis for continuous strength values
+        alpha=params.alpha,
+        edgecolors="black",
+        linewidths=0.5,
+    )
+
+    # Colorbar for strength
+    plt.colorbar(scatter, ax=ax, label="Interaction Strength")
+
+    # Labels
+    unique_cell_pairs = plot_df["Cell_pair"].unique()
+    unique_lr_pairs = plot_df["LR_pair"].unique()
+
+    ax.set_xticks(range(len(unique_cell_pairs)))
+    ax.set_xticklabels(unique_cell_pairs, rotation=45, ha="right", fontsize=8)
+    ax.set_yticks(range(len(unique_lr_pairs)))
+    ax.set_yticklabels(unique_lr_pairs, fontsize=8)
+
+    # Method-specific title
+    method_name = {"fastccc": "FastCCC", "cellchat_r": "CellChat"}.get(
+        data.method, data.method
+    )
+    ax.set_title(
+        params.title
+        or f"{method_name}: L-R Interactions\n(size=significance, color=strength)",
+        fontsize=12,
+        fontweight="bold",
+    )
+    ax.set_xlabel("Cell Type Pairs", fontsize=10)
+    ax.set_ylabel("Ligand-Receptor Pairs", fontsize=10)
+
+    plt.tight_layout()
+    return fig
+
+
+# =============================================================================
+# CellPhoneDB Visualizations (ktplotspy)
 # =============================================================================
 
 
@@ -505,7 +882,11 @@ def _create_cellphonedb_heatmap(
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
-    """Create CellPhoneDB heatmap visualization using ktplotspy."""
+    """Create CellPhoneDB heatmap visualization using ktplotspy.
+
+    Uses ktplotspy which requires CellPhoneDB-specific format with
+    'interacting_pair' column and metadata.
+    """
     import ktplotspy as kpy
 
     means = data.results
@@ -534,7 +915,11 @@ def _create_cellphonedb_dotplot(
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
-    """Create CellPhoneDB dotplot visualization using ktplotspy."""
+    """Create CellPhoneDB dotplot visualization using ktplotspy.
+
+    Uses ktplotspy which requires CellPhoneDB-specific format with
+    'interacting_pair' column and metadata.
+    """
     means = data.results
 
     if not isinstance(means, pd.DataFrame) or len(means) == 0:
@@ -547,7 +932,7 @@ def _create_cellphonedb_dotplot(
         pvalues = adata.uns.get("cellphonedb_pvalues")
 
         if pvalues is None or not isinstance(pvalues, pd.DataFrame):
-            raise DataNotFoundError("Missing pvalues DataFrame for ktplotspy dotplot")
+            raise DataNotFoundError("Missing pvalues DataFrame for CellPhoneDB dotplot")
 
         cluster_key = params.cluster_key or get_cluster_key(adata)
         if not cluster_key:

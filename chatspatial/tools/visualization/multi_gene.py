@@ -111,8 +111,12 @@ async def create_multi_gene_visualization(
             adata.obs[temp_feature_key] = gene_expr
 
             # Set color limits (percentile-based for sparse data)
-            vmin = params.vmin if params.vmin is not None else np.percentile(gene_expr, 1)
-            vmax = params.vmax if params.vmax is not None else np.percentile(gene_expr, 99)
+            vmin = (
+                params.vmin if params.vmin is not None else np.percentile(gene_expr, 1)
+            )
+            vmax = (
+                params.vmax if params.vmax is not None else np.percentile(gene_expr, 99)
+            )
 
             # Use percentile-based scaling for sparse data in UMAP
             if basis == "umap" and np.sum(gene_expr > 0) > 10:
