@@ -340,7 +340,8 @@ class VisualizationParameters(BaseModel):
             "- velocity: 'stream'|'grid'|'arrow'\n"
             "- statistics: 'neighborhood'|'co_occurrence'|'ripley'|'moran'|'centrality'|'getis_ord' (required)\n"
             "- enrichment: 'barplot'|'dotplot'|'heatmap'|'network'\n"
-            "- cnv: 'heatmap'|'spatial'"
+            "- cnv: 'heatmap'|'spatial'\n"
+            "- integration: 'batch'|'cluster'|'highlight'"
         ),
     )
     cluster_key: Optional[str] = Field(
@@ -629,6 +630,10 @@ class VisualizationParameters(BaseModel):
         # Trajectory - set default subtype if not provided
         if self.plot_type == "trajectory" and not self.subtype:
             self.subtype = "pseudotime"
+
+        # Integration - set default subtype if not provided
+        if self.plot_type == "integration" and not self.subtype:
+            self.subtype = "batch"
 
         return self
 

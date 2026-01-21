@@ -265,7 +265,7 @@ async def visualize_data(
         - statistics: Spatial statistics (subtype='neighborhood'|'co_occurrence'|'ripley'|'moran')
         - enrichment: Pathway enrichment (subtype='barplot'|'dotplot'|'heatmap')
         - cnv: Copy number variation (subtype='heatmap'|'spatial')
-        - integration: Batch integration quality
+        - integration: Batch integration quality (subtype='batch'|'cluster'|'highlight')
 
     Export options (in params):
         - output_path: Custom save path (default: ./visualizations/)

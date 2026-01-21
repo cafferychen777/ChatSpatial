@@ -1,18 +1,21 @@
 """
 Batch integration visualization functions.
 
-This module contains:
-- Batch integration quality assessment visualization
+Subtypes:
+- batch: UMAP colored by batch (default, assess mixing)
+- cluster: UMAP colored by cluster (assess biological conservation)
+- highlight: Per-batch highlighted UMAP panels
 """
 
 from typing import TYPE_CHECKING, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import entropy
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import get_spatial_key, validate_obs_column
+from ...utils.adata_utils import validate_obs_column
+from ...utils.exceptions import DataNotFoundError
+from .core import get_categorical_cmap
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -21,7 +24,7 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
-# Batch Integration Visualization
+# Main Entry Point
 # =============================================================================
 
 
@@ -30,10 +33,12 @@ async def create_batch_integration_visualization(
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
-    """Create multi-panel visualization to assess batch integration quality.
+    """Create batch integration quality visualization.
 
-    This visualization is specifically for evaluating the quality of batch correction
-    after integrating multiple samples. It requires proper batch information.
+    Subtypes:
+        - batch: UMAP colored by batch (default) - assess mixing quality
+        - cluster: UMAP colored by cluster - assess biological conservation
+        - highlight: Per-batch highlighted panels - detailed batch distribution
 
     Args:
         adata: AnnData object with integrated samples
@@ -42,164 +47,287 @@ async def create_batch_integration_visualization(
 
     Returns:
         matplotlib Figure object
+    """
+    subtype = params.subtype or "batch"
 
-    Raises:
-        DataNotFoundError: If batch information not found
+    if subtype == "batch":
+        return await _create_umap_by_batch(adata, params, context)
+    elif subtype == "cluster":
+        return await _create_umap_by_cluster(adata, params, context)
+    elif subtype == "highlight":
+        return await _create_batch_highlight(adata, params, context)
+    else:
+        raise ValueError(
+            f"Unknown integration subtype: {subtype}. "
+            "Available: batch, cluster, highlight"
+        )
+
+
+# =============================================================================
+# Subtype: batch - UMAP colored by batch
+# =============================================================================
+
+
+async def _create_umap_by_batch(
+    adata: "ad.AnnData",
+    params: VisualizationParameters,
+    context: Optional["ToolContext"] = None,
+) -> plt.Figure:
+    """Create UMAP colored by batch to assess mixing quality.
+
+    Good integration shows mixed colors (batches intermingled).
+    Poor integration shows separated clusters by batch.
     """
     if context:
-        await context.info("Creating batch integration quality visualization")
+        await context.info("Creating UMAP colored by batch")
 
-    # Validate batch key exists
+    # Validate requirements
     batch_key = params.batch_key
     validate_obs_column(adata, batch_key, "Batch")
 
-    # Create multi-panel figure (2x2 layout)
-    figsize = params.figure_size if params.figure_size else (16, 12)
-    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    if "X_umap" not in adata.obsm:
+        raise DataNotFoundError(
+            "UMAP coordinates not found. Run compute_embeddings first."
+        )
 
+    # Setup figure
+    figsize = params.figure_size or (8, 6)
+    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+
+    umap_coords = adata.obsm["X_umap"]
     batch_values = adata.obs[batch_key]
-    unique_batches = batch_values.unique()
-    colors = plt.get_cmap("Set3")(np.linspace(0, 1, len(unique_batches)))
-
-    # Panel 1: UMAP colored by batch (shows mixing)
-    if "X_umap" in adata.obsm:
-        umap_coords = adata.obsm["X_umap"]
-
-        for i, batch in enumerate(unique_batches):
-            mask = batch_values == batch
-            axes[0, 0].scatter(
-                umap_coords[mask, 0],
-                umap_coords[mask, 1],
-                c=[colors[i]],
-                label=f"{batch}",
-                s=5,
-                alpha=0.7,
-            )
-
-        axes[0, 0].set_title(
-            "UMAP colored by batch\n(Good integration = mixed colors)", fontsize=12
-        )
-        axes[0, 0].set_xlabel("UMAP 1")
-        axes[0, 0].set_ylabel("UMAP 2")
-        axes[0, 0].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-    else:
-        if context:
-            await context.warning(
-                "UMAP coordinates not available. "
-                "Run preprocessing with UMAP computation for complete visualization."
-            )
-        axes[0, 0].text(
-            0.5, 0.5, "UMAP coordinates not available", ha="center", va="center"
-        )
-        axes[0, 0].set_title("UMAP (Not Available)", fontsize=12)
-
-    # Panel 2: Spatial plot colored by batch (if spatial data available)
-    spatial_key = get_spatial_key(adata)
-    if spatial_key:
-        spatial_coords = adata.obsm[spatial_key]
-
-        for i, batch in enumerate(unique_batches):
-            mask = batch_values == batch
-            axes[0, 1].scatter(
-                spatial_coords[mask, 0],
-                spatial_coords[mask, 1],
-                c=[colors[i]],
-                label=f"{batch}",
-                s=10,
-                alpha=0.7,
-            )
-
-        axes[0, 1].set_title("Spatial coordinates colored by batch", fontsize=12)
-        axes[0, 1].set_xlabel("Spatial X")
-        axes[0, 1].set_ylabel("Spatial Y")
-        axes[0, 1].set_aspect("equal")
-        axes[0, 1].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-    else:
-        if context:
-            await context.info(
-                "Spatial coordinates not available. "
-                "This is expected for non-spatial datasets."
-            )
-        axes[0, 1].text(
-            0.5, 0.5, "Spatial coordinates not available", ha="center", va="center"
-        )
-        axes[0, 1].set_title("Spatial (Not Available)", fontsize=12)
-
-    # Panel 3: Batch composition bar plot
-    batch_counts = adata.obs[batch_key].value_counts()
-    axes[1, 0].bar(
-        range(len(batch_counts)),
-        batch_counts.values,
-        color=colors[: len(batch_counts)],
+    unique_batches = (
+        batch_values.cat.categories
+        if hasattr(batch_values, "cat")
+        else batch_values.unique()
     )
-    axes[1, 0].set_xticks(range(len(batch_counts)))
-    axes[1, 0].set_xticklabels(batch_counts.index, rotation=45, ha="right")
-    axes[1, 0].set_title("Cell counts per batch", fontsize=12)
-    axes[1, 0].set_ylabel("Number of cells")
 
-    # Panel 4: Integration quality metrics (if available)
-    axes[1, 1].text(
-        0.1,
-        0.9,
-        "Integration Quality Assessment:",
+    # Get colors
+    cmap_name = get_categorical_cmap(len(unique_batches))
+    cmap = plt.cm.get_cmap(cmap_name)
+    colors = [
+        cmap(i / max(1, len(unique_batches) - 1)) for i in range(len(unique_batches))
+    ]
+
+    # Plot each batch
+    for i, batch in enumerate(unique_batches):
+        mask = batch_values == batch
+        ax.scatter(
+            umap_coords[mask, 0],
+            umap_coords[mask, 1],
+            c=[colors[i]],
+            label=str(batch),
+            s=params.spot_size or 10,
+            alpha=params.alpha,
+            rasterized=True,
+        )
+
+    ax.set_xlabel("UMAP 1", fontsize=12)
+    ax.set_ylabel("UMAP 2", fontsize=12)
+    ax.set_title(
+        params.title or "UMAP by Batch\n(Good integration = mixed colors)",
+        fontsize=14,
+    )
+
+    # Legend
+    if params.show_legend:
+        ax.legend(
+            title="Batch",
+            bbox_to_anchor=(1.02, 1),
+            loc="upper left",
+            frameon=False,
+        )
+
+    ax.set_aspect("equal", adjustable="datalim")
+    plt.tight_layout()
+    return fig
+
+
+# =============================================================================
+# Subtype: cluster - UMAP colored by cluster
+# =============================================================================
+
+
+async def _create_umap_by_cluster(
+    adata: "ad.AnnData",
+    params: VisualizationParameters,
+    context: Optional["ToolContext"] = None,
+) -> plt.Figure:
+    """Create UMAP colored by cluster to assess biological conservation.
+
+    Good integration preserves biological structure (clear cell type clusters).
+    """
+    if context:
+        await context.info("Creating UMAP colored by cluster")
+
+    if "X_umap" not in adata.obsm:
+        raise DataNotFoundError(
+            "UMAP coordinates not found. Run compute_embeddings first."
+        )
+
+    # Find cluster key
+    cluster_key = params.cluster_key
+    if not cluster_key:
+        # Auto-detect cluster column
+        for key in ["leiden", "louvain", "cluster", "cell_type", "celltype"]:
+            if key in adata.obs.columns:
+                cluster_key = key
+                break
+
+    if not cluster_key or cluster_key not in adata.obs.columns:
+        raise DataNotFoundError(
+            f"Cluster column not found. Available: {list(adata.obs.columns)[:10]}..."
+        )
+
+    # Setup figure
+    figsize = params.figure_size or (8, 6)
+    fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
+
+    umap_coords = adata.obsm["X_umap"]
+    cluster_values = adata.obs[cluster_key]
+    unique_clusters = (
+        cluster_values.cat.categories
+        if hasattr(cluster_values, "cat")
+        else cluster_values.unique()
+    )
+
+    # Get colors
+    cmap_name = get_categorical_cmap(len(unique_clusters))
+    cmap = plt.cm.get_cmap(cmap_name)
+    colors = [
+        cmap(i / max(1, len(unique_clusters) - 1)) for i in range(len(unique_clusters))
+    ]
+
+    # Plot each cluster
+    for i, cluster in enumerate(unique_clusters):
+        mask = cluster_values == cluster
+        ax.scatter(
+            umap_coords[mask, 0],
+            umap_coords[mask, 1],
+            c=[colors[i]],
+            label=str(cluster),
+            s=params.spot_size or 10,
+            alpha=params.alpha,
+            rasterized=True,
+        )
+
+    ax.set_xlabel("UMAP 1", fontsize=12)
+    ax.set_ylabel("UMAP 2", fontsize=12)
+    ax.set_title(
+        params.title
+        or f"UMAP by {cluster_key}\n(Good integration = preserved clusters)",
+        fontsize=14,
+    )
+
+    # Legend
+    if params.show_legend:
+        ncol = 1 if len(unique_clusters) <= 10 else 2
+        ax.legend(
+            title=cluster_key,
+            bbox_to_anchor=(1.02, 1),
+            loc="upper left",
+            frameon=False,
+            ncol=ncol,
+        )
+
+    ax.set_aspect("equal", adjustable="datalim")
+    plt.tight_layout()
+    return fig
+
+
+# =============================================================================
+# Subtype: highlight - Per-batch highlighted panels
+# =============================================================================
+
+
+async def _create_batch_highlight(
+    adata: "ad.AnnData",
+    params: VisualizationParameters,
+    context: Optional["ToolContext"] = None,
+) -> plt.Figure:
+    """Create multi-panel UMAP with each batch highlighted separately.
+
+    Shows detailed distribution of each batch across the embedding.
+    """
+    if context:
+        await context.info("Creating per-batch highlight visualization")
+
+    # Validate requirements
+    batch_key = params.batch_key
+    validate_obs_column(adata, batch_key, "Batch")
+
+    if "X_umap" not in adata.obsm:
+        raise DataNotFoundError(
+            "UMAP coordinates not found. Run compute_embeddings first."
+        )
+
+    umap_coords = adata.obsm["X_umap"]
+    batch_values = adata.obs[batch_key]
+    unique_batches = (
+        batch_values.cat.categories
+        if hasattr(batch_values, "cat")
+        else batch_values.unique()
+    )
+    n_batches = len(unique_batches)
+
+    # Calculate grid layout
+    n_cols = min(4, n_batches)
+    n_rows = (n_batches + n_cols - 1) // n_cols
+
+    # Setup figure
+    if params.figure_size:
+        figsize = params.figure_size
+    else:
+        figsize = (4 * n_cols, 3.5 * n_rows)
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize, dpi=params.dpi)
+    axes = np.atleast_2d(axes).flatten()
+
+    # Get colors
+    cmap_name = get_categorical_cmap(n_batches)
+    cmap = plt.cm.get_cmap(cmap_name)
+    colors = [cmap(i / max(1, n_batches - 1)) for i in range(n_batches)]
+
+    # Plot each batch
+    for i, batch in enumerate(unique_batches):
+        ax = axes[i]
+        mask = batch_values == batch
+
+        # Background: all other cells in gray
+        ax.scatter(
+            umap_coords[~mask, 0],
+            umap_coords[~mask, 1],
+            c="lightgray",
+            s=3,
+            alpha=0.3,
+            rasterized=True,
+        )
+
+        # Foreground: highlighted batch
+        ax.scatter(
+            umap_coords[mask, 0],
+            umap_coords[mask, 1],
+            c=[colors[i]],
+            s=params.spot_size or 8,
+            alpha=params.alpha,
+            rasterized=True,
+        )
+
+        n_cells = mask.sum()
+        ax.set_title(f"{batch}\n(n={n_cells:,})", fontsize=11)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_aspect("equal", adjustable="datalim")
+
+    # Hide unused axes
+    for i in range(n_batches, len(axes)):
+        axes[i].axis("off")
+
+    fig.suptitle(
+        params.title or "Per-Batch Distribution",
         fontsize=14,
         fontweight="bold",
-        transform=axes[1, 1].transAxes,
+        y=1.02,
     )
-
-    metrics_text = f"Total cells: {adata.n_obs:,}\n"
-    metrics_text += f"Total genes: {adata.n_vars:,}\n"
-    metrics_text += (
-        f"Batches: {len(unique_batches)} ({', '.join(map(str, unique_batches))})\n\n"
-    )
-
-    if params.integration_method:
-        metrics_text += f"Integration method: {params.integration_method}\n"
-
-    # Add basic mixing metrics
-    if "X_umap" in adata.obsm:
-        # Calculate simple mixing metric (entropy)
-        umap_coords = adata.obsm["X_umap"]
-        x_bins = np.linspace(umap_coords[:, 0].min(), umap_coords[:, 0].max(), 10)
-        y_bins = np.linspace(umap_coords[:, 1].min(), umap_coords[:, 1].max(), 10)
-
-        entropies = []
-        for i in range(len(x_bins) - 1):
-            for j in range(len(y_bins) - 1):
-                mask = (
-                    (umap_coords[:, 0] >= x_bins[i])
-                    & (umap_coords[:, 0] < x_bins[i + 1])
-                    & (umap_coords[:, 1] >= y_bins[j])
-                    & (umap_coords[:, 1] < y_bins[j + 1])
-                )
-                if mask.sum() > 10:  # Only consider regions with enough cells
-                    batch_props = adata.obs[batch_key][mask].value_counts(
-                        normalize=True
-                    )
-                    entropies.append(entropy(batch_props))
-
-        if entropies:
-            avg_entropy = np.mean(entropies)
-            max_entropy = np.log(len(unique_batches))  # Perfect mixing entropy
-            mixing_score = avg_entropy / max_entropy if max_entropy > 0 else 0
-            metrics_text += (
-                f"Mixing score: {mixing_score:.3f} (0=segregated, 1=perfectly mixed)\n"
-            )
-
-    axes[1, 1].text(
-        0.1,
-        0.7,
-        metrics_text,
-        fontsize=10,
-        transform=axes[1, 1].transAxes,
-        verticalalignment="top",
-        fontfamily="monospace",
-    )
-    axes[1, 1].set_xlim(0, 1)
-    axes[1, 1].set_ylim(0, 1)
-    axes[1, 1].set_xticks([])
-    axes[1, 1].set_yticks([])
-    axes[1, 1].set_title("Integration Metrics", fontsize=12)
-
     plt.tight_layout()
     return fig
