@@ -209,8 +209,13 @@ async def create_pathway_enrichment_visualization(
         return _create_gsea_enrichment_plot(gsea_results, params)
     elif plot_type == "dotplot":
         return _create_gsea_dotplot(gsea_results, params)
-    else:  # Default to barplot
+    elif plot_type == "barplot":
         return _create_gsea_barplot(gsea_results, params)
+    else:
+        raise ParameterError(
+            f"Unknown enrichment visualization type: {plot_type}. "
+            f"Available: barplot, dotplot"
+        )
 
 
 # =============================================================================

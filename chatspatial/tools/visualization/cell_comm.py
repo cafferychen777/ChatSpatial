@@ -195,17 +195,27 @@ async def create_cell_communication_visualization(
                 return _create_cellphonedb_dotplot(adata, data, params, context)
             elif subtype == "chord":
                 return _create_cellphonedb_chord(adata, data, params, context)
-            else:
+            elif subtype == "heatmap":
                 return _create_cellphonedb_heatmap(adata, data, params, context)
+            else:
+                raise ParameterError(
+                    f"Unknown CellPhoneDB visualization type: {subtype}. "
+                    f"Available: heatmap, chord, dotplot"
+                )
         else:
             subtype = params.subtype or "dotplot"
             if subtype == "tileplot":
                 return await _create_liana_tileplot(adata, data, params, context)
             elif subtype == "circle_plot":
                 return await _create_liana_circle_plot(adata, data, params, context)
-            else:
+            elif subtype == "dotplot":
                 return await _create_cluster_lr_visualization(
                     adata, data, params, context
+                )
+            else:
+                raise ParameterError(
+                    f"Unknown LIANA visualization type: {subtype}. "
+                    f"Available: dotplot, tileplot, circle_plot"
                 )
 
 

@@ -257,13 +257,13 @@ async def visualize_data(
     Plot types (11 unified types):
         - feature: Spatial/UMAP feature visualization (use basis='spatial'|'umap')
         - expression: Aggregated expression (subtype='heatmap'|'violin'|'dotplot'|'correlation')
-        - deconvolution: Cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'imputation')
-        - communication: Cell-cell communication patterns
+        - deconvolution: Cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'diversity'|'umap'|'imputation')
+        - communication: Cell-cell communication (subtype='heatmap'|'chord'|'dotplot'|'tileplot'|'circle_plot')
         - interaction: Spatial ligand-receptor pairs
         - trajectory: Pseudotime and fate analysis (subtype='pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir')
         - velocity: RNA velocity visualization (subtype='stream'|'phase'|'proportions'|'heatmap'|'paga')
-        - statistics: Spatial statistics (subtype='neighborhood'|'co_occurrence'|'ripley'|'moran')
-        - enrichment: Pathway enrichment (subtype='barplot'|'dotplot'|'heatmap')
+        - statistics: Spatial statistics (subtype='neighborhood'|'co_occurrence'|'ripley'|'moran'|'centrality'|'getis_ord')
+        - enrichment: Pathway enrichment (subtype='barplot'|'dotplot')
         - cnv: Copy number variation (subtype='heatmap'|'spatial')
         - integration: Batch integration quality (subtype='batch'|'cluster'|'highlight')
 

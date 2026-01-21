@@ -27,8 +27,6 @@ if TYPE_CHECKING:
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import (
     get_analysis_parameter,
-    get_cluster_key,
-    get_spatial_key,
     require_spatial_coords,
 )
 from ...utils.exceptions import DataNotFoundError, ParameterError
@@ -233,8 +231,7 @@ async def create_deconvolution_visualization(
     else:
         raise ParameterError(
             f"Unknown deconvolution visualization type: {viz_type}. "
-            f"Available: spatial_multi, dominant_type, diversity, "
-            f"scatterpie, pie, umap, imputation"
+            f"Available: spatial_multi, pie, dominant, diversity, umap, imputation"
         )
 
 

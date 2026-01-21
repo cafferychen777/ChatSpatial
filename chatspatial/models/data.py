@@ -334,12 +334,12 @@ class VisualizationParameters(BaseModel):
         description=(
             "Visualization subtype. Options by plot_type:\n"
             "- expression: 'heatmap'|'violin'|'dotplot'|'correlation'\n"
-            "- deconvolution: 'spatial_multi'|'pie'|'dominant'|'imputation'\n"
-            "- communication: 'heatmap'|'chord'|'network'|'dotplot'\n"
+            "- deconvolution: 'spatial_multi'|'pie'|'dominant'|'diversity'|'umap'|'imputation'\n"
+            "- communication: 'heatmap'|'chord'|'dotplot'|'tileplot'|'circle_plot'\n"
             "- trajectory: 'pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir'\n"
             "- velocity: 'stream'|'phase'|'proportions'|'heatmap'|'paga'\n"
             "- statistics: 'neighborhood'|'co_occurrence'|'ripley'|'moran'|'centrality'|'getis_ord' (required)\n"
-            "- enrichment: 'barplot'|'dotplot'|'heatmap'|'network'\n"
+            "- enrichment: 'barplot'|'dotplot'\n"
             "- cnv: 'heatmap'|'spatial'\n"
             "- integration: 'batch'|'cluster'|'highlight'"
         ),
