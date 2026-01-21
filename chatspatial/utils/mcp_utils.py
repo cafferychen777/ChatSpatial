@@ -47,12 +47,11 @@ def _get_return_type_category(func) -> str:
     """
     Determine return type category using proper type inspection.
 
-    Returns one of: "image", "basemodel", "str", "simple", "unknown"
+    Returns one of: "basemodel", "str", "simple", "unknown"
     """
     try:
         from typing import Union, get_args, get_origin
 
-        from mcp.types import ImageContent
         from pydantic import BaseModel
 
         hints = get_type_hints(func)
@@ -67,11 +66,6 @@ def _get_return_type_category(func) -> str:
             types = [t for t in get_args(return_type) if t is not type(None)]
         else:
             types = [return_type]
-
-        # Check ImageContent first (it's a BaseModel subclass, so order matters)
-        for t in types:
-            if isinstance(t, type) and issubclass(t, ImageContent):
-                return "image"
 
         # Check for BaseModel subclasses
         for t in types:
@@ -107,14 +101,7 @@ def mcp_tool_error_handler(include_traceback: bool = True):
             except Exception as e:
                 error_msg = str(e)
 
-                if return_type_category == "image":
-                    # Return error as text (Union[ImageContent, str] allows this)
-                    msg = f"Visualization Error: {error_msg}"
-                    if include_traceback and not isinstance(e, (ValueError, KeyError)):
-                        msg += f"\n\nDetails:\n{traceback.format_exc()}"
-                    return msg
-
-                elif return_type_category == "basemodel":
+                if return_type_category == "basemodel":
                     # Re-raise for FastMCP to handle
                     raise
 

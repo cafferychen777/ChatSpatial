@@ -290,15 +290,17 @@ def _create_moran_visualization(
     moran_data["significant"] = pvals < 0.05
 
     # Sort by Moran's I (descending) and take top genes
-    n_top = 20  # Standard number for spatial transcriptomics barplots
+    n_top = min(20, len(moran_data))  # Use actual data size if less than 20
     top_genes = moran_data.nlargest(n_top, "I")
+    n_actual = len(top_genes)  # Actual number of genes to display
 
-    # Create figure with appropriate size
+    # Create figure with appropriate size based on actual gene count
     # Width: 8 inches for gene names, Height: 0.4 per gene + margins
     if params.figure_size:
         figsize = params.figure_size
     else:
-        figsize = (8, max(int(n_top * 0.4), 6))
+        # Minimum height of 3 for small gene counts, scale with actual genes
+        figsize = (8, max(n_actual * 0.4 + 1.5, 3))
 
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -362,7 +364,7 @@ def _create_moran_visualization(
     ax.text(
         0.98,
         0.02,
-        f"* p < 0.05 ({n_significant}/{n_top} significant)",
+        f"* p < 0.05 ({n_significant}/{n_actual} significant)",
         transform=ax.transAxes,
         ha="right",
         va="bottom",

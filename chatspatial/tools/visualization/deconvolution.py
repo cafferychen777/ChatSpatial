@@ -205,7 +205,9 @@ async def create_deconvolution_visualization(
     - diversity: Shannon entropy diversity map
     - stacked_bar: Stacked barplot
     - scatterpie: Spatial scatterpie (SPOTlight-style)
+    - pie: Alias for scatterpie
     - umap: UMAP colored by proportions
+    - imputation: CARD high-resolution imputation results
 
     Args:
         adata: AnnData object with deconvolution results
@@ -217,23 +219,25 @@ async def create_deconvolution_visualization(
     """
     viz_type = params.subtype or "spatial_multi"
 
-    if viz_type == "dominant_type":
+    if viz_type == "dominant_type" or viz_type == "dominant":
         return await _create_dominant_celltype_map(adata, params, context)
     elif viz_type == "diversity":
         return await _create_diversity_map(adata, params, context)
     elif viz_type == "stacked_bar":
         return await _create_stacked_barplot(adata, params, context)
-    elif viz_type == "scatterpie":
+    elif viz_type in ("scatterpie", "pie"):
         return await _create_scatterpie_plot(adata, params, context)
     elif viz_type == "umap":
         return await _create_umap_proportions(adata, params, context)
     elif viz_type == "spatial_multi":
         return await _create_spatial_multi_deconvolution(adata, params, context)
+    elif viz_type == "imputation":
+        return await _create_card_imputation(adata, params, context)
     else:
         raise ParameterError(
             f"Unknown deconvolution visualization type: {viz_type}. "
             f"Available: spatial_multi, dominant_type, diversity, stacked_bar, "
-            f"scatterpie, umap"
+            f"scatterpie, pie, umap, imputation"
         )
 
 
@@ -722,11 +726,11 @@ async def _create_spatial_multi_deconvolution(
 
 
 # =============================================================================
-# CARD Imputation Visualization
+# CARD Imputation Visualization (subtype="imputation")
 # =============================================================================
 
 
-async def create_card_imputation_visualization(
+async def _create_card_imputation(
     adata: "ad.AnnData",
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
@@ -735,6 +739,8 @@ async def create_card_imputation_visualization(
 
     CARD's unique CAR model allows imputation at unmeasured locations,
     creating enhanced high-resolution spatial maps.
+
+    Note: This is now called via deconvolution with subtype="imputation".
 
     Args:
         adata: AnnData object with CARD imputation results

@@ -47,16 +47,33 @@ async def create_multi_gene_visualization(
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
-    """Create multi-gene spatial visualization.
+    """Create multi-gene visualization on spatial or UMAP coordinates.
+
+    Uses params.basis to select coordinate system:
+    - "spatial" (default): Plot on spatial coordinates
+    - "umap": Plot on UMAP embedding
 
     Args:
         adata: AnnData object
-        params: Visualization parameters
+        params: Visualization parameters (use params.basis for coordinate selection)
         context: MCP context for logging
 
     Returns:
-        matplotlib Figure with multi-gene spatial visualization
+        matplotlib Figure with multi-gene visualization
     """
+    # Determine coordinate basis (default: spatial)
+    basis = getattr(params, "basis", None) or "spatial"
+
+    # Validate basis
+    if basis == "umap" and "X_umap" not in adata.obsm:
+        raise DataNotFoundError(
+            "UMAP embedding not found. Run preprocessing with compute_umap=True first."
+        )
+    if basis == "spatial" and "spatial" not in adata.obsm:
+        raise DataNotFoundError(
+            "Spatial coordinates not found in adata.obsm['spatial']."
+        )
+
     # Get validated features
     available_genes = await get_validated_features(
         adata, params, max_features=12, context=context
@@ -64,7 +81,7 @@ async def create_multi_gene_visualization(
 
     if context:
         await context.info(
-            f"Visualizing {len(available_genes)} genes: {available_genes}"
+            f"Visualizing {len(available_genes)} genes on {basis}: {available_genes}"
         )
 
     # Setup multi-panel figure
@@ -81,7 +98,6 @@ async def create_multi_gene_visualization(
     for i, gene in enumerate(available_genes):
         if i < len(axes):
             ax = axes[i]
-            # Let errors propagate - don't silently create placeholder images
             # Get gene expression using unified utility
             gene_expr = get_gene_expression(adata, gene)
 
@@ -94,26 +110,22 @@ async def create_multi_gene_visualization(
             # Add temporary column
             adata.obs[temp_feature_key] = gene_expr
 
-            # Create spatial plot
-            if "spatial" in adata.obsm:
+            # Set color limits (percentile-based for sparse data)
+            vmin = params.vmin if params.vmin is not None else np.percentile(gene_expr, 1)
+            vmax = params.vmax if params.vmax is not None else np.percentile(gene_expr, 99)
+
+            # Use percentile-based scaling for sparse data in UMAP
+            if basis == "umap" and np.sum(gene_expr > 0) > 10:
+                vmax = np.percentile(gene_expr[gene_expr > 0], 95)
+
+            if basis == "spatial":
+                # Spatial visualization
                 plot_spatial_feature(
                     adata,
                     ax=ax,
                     feature=temp_feature_key,
                     params=params,
                     show_colorbar=False,
-                )
-
-                # Set color limits
-                vmin = (
-                    params.vmin
-                    if params.vmin is not None
-                    else np.percentile(gene_expr, 1)
-                )
-                vmax = (
-                    params.vmax
-                    if params.vmax is not None
-                    else np.percentile(gene_expr, 99)
                 )
 
                 # Update colorbar limits
@@ -132,15 +144,23 @@ async def create_multi_gene_visualization(
                         plt.colorbar(scatter, cax=cax)
 
                 ax.invert_yaxis()
-                if params.add_gene_labels:
-                    ax.set_title(gene, fontsize=12)
-            else:
-                # Fallback: histogram
-                ax.hist(gene_expr, bins=30, alpha=params.alpha, color="steelblue")
-                ax.set_xlabel("Expression")
-                ax.set_ylabel("Frequency")
-                if params.add_gene_labels:
-                    ax.set_title(gene, fontsize=12)
+
+            else:  # umap
+                # UMAP visualization
+                sc.pl.umap(
+                    adata,
+                    color=temp_feature_key,
+                    cmap=params.colormap,
+                    ax=ax,
+                    show=False,
+                    frameon=False,
+                    vmin=vmin,
+                    vmax=vmax,
+                    colorbar_loc="right" if params.show_colorbar else None,
+                )
+
+            if params.add_gene_labels:
+                ax.set_title(gene, fontsize=12)
 
     # Clean up temporary column
     if temp_feature_key in adata.obs:
@@ -148,85 +168,6 @@ async def create_multi_gene_visualization(
 
     # Adjust spacing
     fig.subplots_adjust(top=0.92, wspace=0.1, hspace=0.3, right=0.98)
-    return fig
-
-
-async def create_multi_gene_umap_visualization(
-    adata: "ad.AnnData",
-    params: VisualizationParameters,
-    context: Optional["ToolContext"] = None,
-) -> plt.Figure:
-    """Create multi-gene UMAP visualization.
-
-    Args:
-        adata: AnnData object
-        params: Visualization parameters
-        context: MCP context for logging
-
-    Returns:
-        matplotlib Figure with multi-gene UMAP visualization
-    """
-    # Get validated features
-    available_genes = await get_validated_features(
-        adata, params, max_features=12, context=context
-    )
-
-    if context:
-        await context.info(
-            f"Creating multi-panel UMAP plot for features: {available_genes}"
-        )
-
-    # Setup multi-panel figure
-    fig, axes = setup_multi_panel_figure(
-        n_panels=len(available_genes),
-        params=params,
-        default_title="",
-    )
-
-    # Use unique temporary column name
-    temp_feature_key = "umap_gene_temp_viz_99_unique"
-
-    for i, gene in enumerate(available_genes):
-        if i < len(axes):
-            ax = axes[i]
-            # Let errors propagate - don't silently create placeholder images
-            # Get gene expression using unified utility
-            gene_expr = get_gene_expression(adata, gene)
-
-            # Apply color scaling
-            if params.color_scale == "log":
-                gene_expr = np.log1p(gene_expr)
-            elif params.color_scale == "sqrt":
-                gene_expr = np.sqrt(gene_expr)
-
-            # Add temporary column
-            adata.obs[temp_feature_key] = gene_expr
-
-            # Set color scale
-            vmin = 0
-            vmax = max(gene_expr.max(), 0.1)
-
-            # Use percentile-based scaling for sparse data
-            if np.sum(gene_expr > 0) > 10:
-                vmax = np.percentile(gene_expr[gene_expr > 0], 95)
-
-            sc.pl.umap(
-                adata,
-                color=temp_feature_key,
-                cmap=params.colormap,
-                ax=ax,
-                show=False,
-                frameon=False,
-                vmin=vmin,
-                vmax=vmax,
-                colorbar_loc="right",
-            )
-            ax.set_title(gene)
-
-    # Clean up temporary column
-    if temp_feature_key in adata.obs:
-        del adata.obs[temp_feature_key]
-
     return fig
 
 

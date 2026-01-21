@@ -286,9 +286,9 @@ class VisualizationParameters(BaseModel):
         if isinstance(data, str):
             if data.startswith("gene:"):
                 feature = data.split(":", 1)[1]
-                return {"feature": feature, "plot_type": "spatial"}
+                return {"feature": feature, "plot_type": "feature"}
             else:
-                return {"feature": data, "plot_type": "spatial"}
+                return {"feature": data, "plot_type": "feature"}
 
         # Handle dict format - normalize features/feature naming
         if isinstance(data, dict):
@@ -301,33 +301,47 @@ class VisualizationParameters(BaseModel):
         # For other types (e.g., VisualizationParameters instances), return as-is
         return data
 
+    # Refactored plot_type: 10 unified types (from original 19)
+    # - feature: spatial/UMAP feature visualization (basis='spatial'|'umap')
+    # - expression: heatmap/violin/dotplot/correlation (subtype='heatmap'|'violin'|'dotplot'|'correlation')
+    # - deconvolution: cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'stacked_bar'|'imputation')
+    # - communication: cell-cell communication (subtype='heatmap'|'chord'|'network'|'dotplot')
+    # - interaction: spatial ligand-receptor pairs
+    # - trajectory: pseudotime/fate analysis (subtype='pseudotime'|'fate'|'gene_trends')
+    # - velocity: RNA velocity (subtype='stream'|'grid'|'arrow')
+    # - statistics: spatial statistics (subtype='neighborhood'|'co_occurrence'|'ripley'|'moran'|'centrality'|'getis_ord')
+    # - enrichment: pathway enrichment (subtype='barplot'|'dotplot'|'heatmap'|'network')
+    # - cnv: copy number variation (subtype='heatmap'|'spatial')
+    # - integration: batch integration quality
     plot_type: Literal[
-        "spatial",
-        "heatmap",
-        "violin",
-        "umap",
-        "dotplot",  # Marker gene expression dotplot
-        "cell_communication",
-        "deconvolution",
-        "trajectory",
-        "rna_velocity",
-        "spatial_statistics",
-        "multi_gene",
-        "lr_pairs",
-        "gene_correlation",
-        "pathway_enrichment",
-        "spatial_interaction",
-        "batch_integration",  # Batch integration quality assessment
-        "cnv_heatmap",  # CNV analysis heatmap
-        "spatial_cnv",  # CNV spatial projection
-        "card_imputation",  # CARD imputation high-resolution results
-    ] = "spatial"
+        "feature",  # Unified spatial/UMAP feature visualization
+        "expression",  # Heatmap, violin, dotplot, gene correlation
+        "deconvolution",  # Cell type proportions with subtypes
+        "communication",  # Cell-cell communication patterns
+        "interaction",  # Spatial ligand-receptor pairs
+        "trajectory",  # Pseudotime and fate analysis
+        "velocity",  # RNA velocity visualization
+        "statistics",  # Spatial statistics (Moran's I, etc.)
+        "enrichment",  # Pathway/gene set enrichment
+        "cnv",  # Copy number variation
+        "integration",  # Batch integration quality
+    ] = "feature"
     colormap: str = "coolwarm"
 
-    # Unified subtype parameter for all visualization types with subtypes
+    # Unified subtype parameter for plot_types with multiple visualization modes
     subtype: Optional[str] = Field(
         None,
-        description="Visualization variant. Required for deconvolution, spatial_statistics, pathway_enrichment, trajectory, rna_velocity.",
+        description=(
+            "Visualization subtype. Options by plot_type:\n"
+            "- expression: 'heatmap'|'violin'|'dotplot'|'correlation'\n"
+            "- deconvolution: 'spatial_multi'|'pie'|'dominant'|'stacked_bar'|'imputation'\n"
+            "- communication: 'heatmap'|'chord'|'network'|'dotplot'\n"
+            "- trajectory: 'pseudotime'|'fate'|'gene_trends'\n"
+            "- velocity: 'stream'|'grid'|'arrow'\n"
+            "- statistics: 'neighborhood'|'co_occurrence'|'ripley'|'moran'|'centrality'|'getis_ord' (required)\n"
+            "- enrichment: 'barplot'|'dotplot'|'heatmap'|'network'\n"
+            "- cnv: 'heatmap'|'spatial'"
+        ),
     )
     cluster_key: Optional[str] = Field(
         None,
@@ -413,9 +427,15 @@ class VisualizationParameters(BaseModel):
     show_axes: bool = True
     add_gene_labels: bool = True  # Whether to add gene names as labels
 
-    # Trajectory visualization parameters
-    basis: Optional[str] = (
-        None  # Basis for trajectory visualization (e.g., 'spatial', 'umap', 'pca')
+    # Coordinate basis for feature visualization
+    basis: Optional[str] = Field(
+        "spatial",
+        description=(
+            "Coordinate basis for feature/interaction visualization:\n"
+            "- 'spatial': Spatial coordinates (default)\n"
+            "- 'umap': UMAP coordinates\n"
+            "- 'pca': PCA coordinates (trajectory only)"
+        ),
     )
 
     # GSEA visualization parameters
@@ -563,8 +583,8 @@ class VisualizationParameters(BaseModel):
     def validate_conditional_parameters(self) -> Self:
         """Validate parameter dependencies and provide helpful error messages."""
 
-        # Spatial statistics validation
-        if self.plot_type == "spatial_statistics" and (
+        # Statistics validation - subtype is required
+        if self.plot_type == "statistics" and (
             not self.subtype
             or (isinstance(self.subtype, str) and not self.subtype.strip())
         ):
@@ -577,15 +597,38 @@ class VisualizationParameters(BaseModel):
                 "getis_ord",
             ]
             raise ValueError(
-                f"Parameter dependency error: subtype is required when plot_type='spatial_statistics'.\n"
+                f"Parameter dependency error: subtype is required when plot_type='statistics'.\n"
                 f"Available subtypes: {', '.join(available_types)}\n"
-                f"Example usage: VisualizationParameters(plot_type='spatial_statistics', subtype='neighborhood')\n"
-                f"For more details, see spatial statistics documentation."
+                f"Example usage: VisualizationParameters(plot_type='statistics', subtype='neighborhood')"
             )
 
-        # Deconvolution validation - set default subtype if not provided
+        # Deconvolution - set default subtype if not provided
         if self.plot_type == "deconvolution" and not self.subtype:
-            self.subtype = "spatial_multi"  # Default deconvolution visualization type
+            self.subtype = "spatial_multi"
+
+        # Expression - set default subtype if not provided
+        if self.plot_type == "expression" and not self.subtype:
+            self.subtype = "heatmap"
+
+        # CNV - set default subtype if not provided
+        if self.plot_type == "cnv" and not self.subtype:
+            self.subtype = "heatmap"
+
+        # Velocity - set default subtype if not provided
+        if self.plot_type == "velocity" and not self.subtype:
+            self.subtype = "stream"
+
+        # Enrichment - set default subtype if not provided
+        if self.plot_type == "enrichment" and not self.subtype:
+            self.subtype = "barplot"
+
+        # Communication - set default subtype if not provided
+        if self.plot_type == "communication" and not self.subtype:
+            self.subtype = "heatmap"
+
+        # Trajectory - set default subtype if not provided
+        if self.plot_type == "trajectory" and not self.subtype:
+            self.subtype = "pseudotime"
 
         return self
 

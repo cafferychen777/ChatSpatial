@@ -1,9 +1,9 @@
 """
 CNV (Copy Number Variation) visualization functions.
 
-This module contains:
-- CNV heatmap visualization
-- Spatial CNV projection visualization
+This module provides unified CNV visualization with subtypes:
+- heatmap: CNV heatmap by chromosome/genomic position
+- spatial: Spatial CNV projection
 """
 
 from typing import TYPE_CHECKING, Any, Optional
@@ -16,7 +16,7 @@ import seaborn as sns
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import require_spatial_coords, validate_obs_column
 from ...utils.dependency_manager import require
-from ...utils.exceptions import DataNotFoundError
+from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import create_figure_from_params, plot_spatial_feature, resolve_figure_size
 
 if TYPE_CHECKING:
@@ -26,11 +26,48 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
-# Spatial CNV Visualization
+# Unified CNV Visualization
 # =============================================================================
 
 
-async def create_spatial_cnv_visualization(
+async def create_cnv_visualization(
+    adata: "ad.AnnData",
+    params: VisualizationParameters,
+    context: Optional["ToolContext"] = None,
+) -> plt.Figure:
+    """Create CNV visualization.
+
+    Routes to appropriate visualization based on params.subtype:
+    - heatmap (default): CNV heatmap by chromosome/genomic position
+    - spatial: Spatial CNV projection
+
+    Args:
+        adata: AnnData object with CNV analysis results
+        params: Visualization parameters
+        context: MCP context for logging
+
+    Returns:
+        matplotlib Figure object
+    """
+    subtype = params.subtype or "heatmap"
+
+    if subtype == "heatmap":
+        return await _create_cnv_heatmap(adata, params, context)
+    elif subtype == "spatial":
+        return await _create_spatial_cnv(adata, params, context)
+    else:
+        raise ParameterError(
+            f"Unknown CNV visualization subtype: {subtype}. "
+            "Available: 'heatmap', 'spatial'"
+        )
+
+
+# =============================================================================
+# Spatial CNV Visualization (subtype="spatial")
+# =============================================================================
+
+
+async def _create_spatial_cnv(
     adata: "ad.AnnData",
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
@@ -118,16 +155,18 @@ async def create_spatial_cnv_visualization(
 
 
 # =============================================================================
-# CNV Heatmap Visualization
+# CNV Heatmap Visualization (subtype="heatmap")
 # =============================================================================
 
 
-async def create_cnv_heatmap_visualization(
+async def _create_cnv_heatmap(
     adata: "ad.AnnData",
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
     """Create CNV heatmap visualization.
+
+    Note: This is now called via cnv with subtype="heatmap".
 
     Args:
         adata: AnnData object

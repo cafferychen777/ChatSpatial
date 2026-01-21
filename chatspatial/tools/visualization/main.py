@@ -3,9 +3,21 @@ Main visualization entry point.
 
 This module contains the main visualize_data function that dispatches
 to appropriate visualization handlers based on plot_type.
+
+Refactored architecture (11 unified plot_types):
+- feature: Spatial/UMAP feature visualization (basis='spatial'|'umap')
+- expression: Aggregated expression (subtype='heatmap'|'violin'|'dotplot'|'correlation')
+- deconvolution: Cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'imputation')
+- communication: Cell-cell communication patterns
+- interaction: Spatial ligand-receptor pairs
+- trajectory: Pseudotime and fate analysis
+- velocity: RNA velocity visualization
+- statistics: Spatial statistics (Moran's I, etc.)
+- enrichment: Pathway/gene set enrichment
+- cnv: Copy number variation (subtype='heatmap'|'spatial')
+- integration: Batch integration quality
 """
 
-import traceback
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
@@ -20,62 +32,57 @@ from ...utils.exceptions import (
 )
 from ...utils.image_utils import optimize_fig_to_image_with_cache
 
-# Import all visualization handlers
-from .basic import (
-    create_dotplot_visualization,
-    create_heatmap_visualization,
-    create_spatial_visualization,
-    create_umap_visualization,
-    create_violin_visualization,
+# Import unified visualization handlers
+from .cell_comm import (
+    create_cell_communication_visualization as create_communication_visualization,
 )
-from .cell_comm import create_cell_communication_visualization
-from .cnv import create_cnv_heatmap_visualization, create_spatial_cnv_visualization
-from .deconvolution import (
-    create_card_imputation_visualization,
-    create_deconvolution_visualization,
+from .cnv import create_cnv_visualization
+from .deconvolution import create_deconvolution_visualization
+from .enrichment import (
+    create_pathway_enrichment_visualization as create_enrichment_visualization,
 )
-from .enrichment import create_pathway_enrichment_visualization
-from .integration import create_batch_integration_visualization
+from .expression import create_expression_visualization
+from .feature import create_feature_visualization
+from .integration import (
+    create_batch_integration_visualization as create_integration_visualization,
+)
 from .multi_gene import (
-    create_gene_correlation_visualization,
-    create_lr_pairs_visualization,
-    create_multi_gene_visualization,
-    create_spatial_interaction_visualization,
+    create_spatial_interaction_visualization as create_interaction_visualization,
 )
-from .spatial_stats import create_spatial_statistics_visualization
+from .spatial_stats import (
+    create_spatial_statistics_visualization as create_statistics_visualization,
+)
 from .trajectory import create_trajectory_visualization
-from .velocity import create_rna_velocity_visualization
+from .velocity import create_rna_velocity_visualization as create_velocity_visualization
 
 if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 
-# Handler registry for dispatch - defined here to avoid circular imports
+# Handler registry for dispatch - 11 unified plot_types
 PLOT_HANDLERS = {
-    # Basic plots
-    "spatial": create_spatial_visualization,
-    "umap": create_umap_visualization,
-    "heatmap": create_heatmap_visualization,
-    "violin": create_violin_visualization,
-    "dotplot": create_dotplot_visualization,
-    # Analysis-specific plots
+    # Core feature visualization (replaces spatial, umap, multi_gene, lr_pairs)
+    "feature": create_feature_visualization,
+    # Aggregated expression (replaces heatmap, violin, dotplot, gene_correlation)
+    "expression": create_expression_visualization,
+    # Deconvolution (includes card_imputation as subtype)
     "deconvolution": create_deconvolution_visualization,
-    "cell_communication": create_cell_communication_visualization,
-    "rna_velocity": create_rna_velocity_visualization,
+    # Cell-cell communication
+    "communication": create_communication_visualization,
+    # Spatial ligand-receptor interaction
+    "interaction": create_interaction_visualization,
+    # Trajectory/pseudotime
     "trajectory": create_trajectory_visualization,
-    "spatial_statistics": create_spatial_statistics_visualization,
-    "pathway_enrichment": create_pathway_enrichment_visualization,
-    # CNV plots
-    "card_imputation": create_card_imputation_visualization,
-    "spatial_cnv": create_spatial_cnv_visualization,
-    "cnv_heatmap": create_cnv_heatmap_visualization,
-    # Integration plots
-    "batch_integration": create_batch_integration_visualization,
-    # Multi-gene plots
-    "multi_gene": create_multi_gene_visualization,
-    "lr_pairs": create_lr_pairs_visualization,
-    "gene_correlation": create_gene_correlation_visualization,
-    "spatial_interaction": create_spatial_interaction_visualization,
+    # RNA velocity
+    "velocity": create_velocity_visualization,
+    # Spatial statistics
+    "statistics": create_statistics_visualization,
+    # Pathway enrichment
+    "enrichment": create_enrichment_visualization,
+    # CNV (replaces cnv_heatmap, spatial_cnv)
+    "cnv": create_cnv_visualization,
+    # Batch integration quality
+    "integration": create_integration_visualization,
 }
 
 
@@ -135,26 +142,17 @@ async def visualize_data(
             ctx,
             data_id=data_id,
             plot_type=plot_type_key,
-            mode="auto",
         )
 
     except Exception as e:
         # Make sure to close any open figures in case of error
         plt.close("all")
 
-        # For image conversion errors, return error message as string
-        if "fig_to_image" in str(e) or "convert" in str(e).lower():
-            error_details = traceback.format_exc()
-            return (
-                f"Error in {params.plot_type} visualization:\n\n"
-                f"{e}\n\n"
-                f"Technical details:\n{error_details}"
-            )
-
-        # Wrap the error in a more informative exception
+        # Re-raise known error types directly
         if isinstance(e, (DataNotFoundError, ParameterError, DataCompatibilityError)):
             raise
-        else:
-            raise ProcessingError(
-                f"Failed to create {params.plot_type} visualization: {e}"
-            ) from e
+
+        # Wrap unknown errors in ProcessingError
+        raise ProcessingError(
+            f"Failed to create {params.plot_type} visualization: {e}"
+        ) from e

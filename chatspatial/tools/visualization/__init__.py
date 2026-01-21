@@ -1,40 +1,25 @@
 """
 Visualization module for spatial transcriptomics.
 
-This module provides visualization functions organized by analysis type:
-- basic: Spatial plots, UMAP, heatmaps, violin plots, dotplots
-- deconvolution: Cell type proportion visualizations
-- cell_comm: Cell-cell communication visualizations
-- velocity: RNA velocity visualizations
-- trajectory: Trajectory and pseudotime visualizations
-- spatial_stats: Spatial statistics visualizations
-- enrichment: Pathway enrichment visualizations
-- cnv: Copy number variation visualizations
-- integration: Batch integration quality visualizations
+Refactored architecture with 11 unified plot_types:
+- feature: Spatial/UMAP feature visualization (basis='spatial'|'umap')
+- expression: Aggregated expression (subtype='heatmap'|'violin'|'dotplot'|'correlation')
+- deconvolution: Cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'imputation')
+- communication: Cell-cell communication patterns
+- interaction: Spatial ligand-receptor pairs
+- trajectory: Pseudotime and fate analysis
+- velocity: RNA velocity visualization
+- statistics: Spatial statistics (Moran's I, etc.)
+- enrichment: Pathway/gene set enrichment
+- cnv: Copy number variation (subtype='heatmap'|'spatial')
+- integration: Batch integration quality
 
 Usage:
-    from chatspatial.tools.visualization import (
-        create_spatial_visualization,
-        create_umap_visualization,
-        create_deconvolution_visualization,
-        # ... etc
-    )
+    from chatspatial.tools.visualization import visualize_data, PLOT_HANDLERS
 """
 
-# Basic visualizations
-from .basic import (
-    create_dotplot_visualization,
-    create_heatmap_visualization,
-    create_spatial_visualization,
-    create_umap_visualization,
-    create_violin_visualization,
-)
-
-# Cell communication visualizations
 from .cell_comm import create_cell_communication_visualization
-
-# CNV visualizations
-from .cnv import create_cnv_heatmap_visualization, create_spatial_cnv_visualization
+from .cnv import create_cnv_visualization
 
 # Core utilities and data classes
 from .core import (
@@ -54,42 +39,19 @@ from .core import (
     setup_multi_panel_figure,
     validate_and_prepare_feature,
 )
+from .deconvolution import create_deconvolution_visualization
+from .enrichment import create_pathway_enrichment_visualization
+from .expression import create_expression_visualization
 
-# CARD imputation (from deconvolution module)
-# Deconvolution visualizations
-from .deconvolution import (
-    create_card_imputation_visualization,
-    create_deconvolution_visualization,
-)
-
-# Enrichment visualizations
-from .enrichment import (
-    create_enrichment_visualization,
-    create_pathway_enrichment_visualization,
-)
-
-# Batch integration visualizations
+# Unified visualization handlers
+from .feature import create_feature_visualization
 from .integration import create_batch_integration_visualization
 
-# Main entry point and handler registry (from main.py to avoid circular imports)
+# Main entry point and handler registry
 from .main import PLOT_HANDLERS, visualize_data
-
-# Multi-gene visualizations
-from .multi_gene import (
-    create_gene_correlation_visualization,
-    create_lr_pairs_visualization,
-    create_multi_gene_umap_visualization,
-    create_multi_gene_visualization,
-    create_spatial_interaction_visualization,
-)
-
-# Spatial statistics visualizations
+from .multi_gene import create_spatial_interaction_visualization
 from .spatial_stats import create_spatial_statistics_visualization
-
-# Trajectory visualizations
 from .trajectory import create_trajectory_visualization
-
-# RNA velocity visualizations
 from .velocity import create_rna_velocity_visualization
 
 __all__ = [
@@ -110,34 +72,20 @@ __all__ = [
     # Data classes
     "DeconvolutionData",
     "CellCommunicationData",
-    # Basic visualizations
-    "create_spatial_visualization",
-    "create_umap_visualization",
-    "create_heatmap_visualization",
-    "create_violin_visualization",
-    "create_dotplot_visualization",
-    # Specialized visualizations
-    "create_deconvolution_visualization",
-    "create_cell_communication_visualization",
-    "create_rna_velocity_visualization",
-    "create_trajectory_visualization",
-    "create_spatial_statistics_visualization",
-    "create_enrichment_visualization",
-    "create_pathway_enrichment_visualization",
-    # CNV visualizations
-    "create_card_imputation_visualization",
-    "create_spatial_cnv_visualization",
-    "create_cnv_heatmap_visualization",
-    # Integration visualizations
-    "create_batch_integration_visualization",
-    # Multi-gene visualizations
-    "create_multi_gene_visualization",
-    "create_multi_gene_umap_visualization",
-    "create_lr_pairs_visualization",
-    "create_gene_correlation_visualization",
-    "create_spatial_interaction_visualization",
     # Main entry point
     "visualize_data",
     # Handler registry
     "PLOT_HANDLERS",
+    # Unified visualization handlers
+    "create_feature_visualization",
+    "create_expression_visualization",
+    "create_deconvolution_visualization",
+    "create_cell_communication_visualization",
+    "create_spatial_interaction_visualization",
+    "create_trajectory_visualization",
+    "create_rna_velocity_visualization",
+    "create_spatial_statistics_visualization",
+    "create_pathway_enrichment_visualization",
+    "create_cnv_visualization",
+    "create_batch_integration_visualization",
 ]

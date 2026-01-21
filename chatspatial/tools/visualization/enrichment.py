@@ -115,17 +115,19 @@ def _resolve_score_column(
 # =============================================================================
 
 
-async def create_enrichment_visualization(
+async def _create_enrichment_visualization(
     adata: "ad.AnnData",
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
-    """Create enrichment score visualization.
+    """Internal router for enrichment score visualization.
 
     Routes to appropriate visualization based on params:
     - violin: Enrichment scores violin plot by cluster
     - spatial_*: EnrichMap spatial visualizations
     - Default: Standard spatial scatter plot
+
+    Note: This is an internal function called by create_pathway_enrichment_visualization.
 
     Args:
         adata: AnnData object with enrichment scores
@@ -144,11 +146,13 @@ async def create_enrichment_visualization(
             "No enrichment scores found. Run 'analyze_enrichment' first."
         )
 
-    # Route based on plot_type or subtype
-    if params.plot_type == "violin":
+    # Route based on subtype
+    subtype = params.subtype or "spatial"
+
+    if subtype == "violin":
         return _create_enrichment_violin(adata, params, score_cols, context)
 
-    if params.subtype and params.subtype.startswith("spatial_"):
+    if subtype.startswith("spatial_"):
         return _create_enrichmap_spatial(adata, params, score_cols, context)
 
     # Default: spatial scatter plot
@@ -186,7 +190,7 @@ async def create_pathway_enrichment_visualization(
 
     # Route spatial subtypes to enrichment visualization
     if plot_type.startswith("spatial_"):
-        return await create_enrichment_visualization(adata, params, context)
+        return await _create_enrichment_visualization(adata, params, context)
 
     # Get GSEA/ORA results from adata.uns
     gsea_key = getattr(params, "gsea_results_key", "gsea_results")

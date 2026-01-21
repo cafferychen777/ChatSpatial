@@ -1,18 +1,15 @@
 """
 Image utilities for spatial transcriptomics MCP.
 
-This module provides standardized functions for handling images in the MCP.
-All functions return Image objects that can be directly used in MCP tools.
+This module provides:
+- Matplotlib backend management (prevent GUI popups)
+- Figure export to file with user-specified format/DPI
 """
 
-import base64
-import io
 import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Optional
-
-from mcp.types import ImageContent
 
 from .exceptions import ProcessingError
 from .path_utils import get_safe_output_path
@@ -89,116 +86,6 @@ SAVEFIG_PARAMS: dict[str, Any] = {
 }
 
 
-def bytes_to_image_content(data: bytes, format: str = "png") -> ImageContent:
-    """Convert raw image bytes to MCP ImageContent.
-
-    This unified utility function handles the conversion from raw image bytes
-    to the MCP-compatible ImageContent type with proper MIME type mapping.
-
-    Args:
-        data: Raw image bytes
-        format: Image format (png, jpg, jpeg, gif, webp)
-
-    Returns:
-        ImageContent object ready for MCP tool return
-
-    Examples:
-        >>> img_bytes = fig.savefig(buf, format='png')
-        >>> content = bytes_to_image_content(img_bytes, format='png')
-    """
-    # MIME type mapping for common image formats
-    format_to_mime = {
-        "png": "image/png",
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "gif": "image/gif",
-        "webp": "image/webp",
-    }
-
-    # Get MIME type, default to PNG if format is unknown
-    mime_type = format_to_mime.get(format.lower(), "image/png")
-
-    # Encode to base64 string as required by ImageContent
-    encoded_data = base64.b64encode(data).decode("utf-8")
-
-    return ImageContent(type="image", data=encoded_data, mimeType=mime_type)
-
-
-def fig_to_image(
-    fig: "plt.Figure",
-    dpi: int = 100,
-    format: str = "png",
-    close_fig: bool = True,
-) -> ImageContent:
-    """Convert matplotlib figure to ImageContent
-
-    This function respects user's DPI and format settings without any
-    automatic compression or quality reduction. Large images are handled
-    by optimize_fig_to_image_with_cache which saves them to disk.
-
-    Args:
-        fig: Matplotlib figure
-        dpi: Resolution in dots per inch (user's setting is always respected)
-        format: Image format (png or jpg)
-        close_fig: Whether to close the figure after conversion
-
-    Returns:
-        ImageContent object ready for MCP tool return
-    """
-    _ensure_non_interactive_backend()  # Prevent GUI popups on macOS
-    import matplotlib.pyplot as plt
-
-    buf = io.BytesIO()
-
-    # Save figure with user's exact settings - no compromise
-    # Check for extra artists (e.g., legends positioned outside plot area)
-    extra_artists = getattr(fig, "_chatspatial_extra_artists", None)
-
-    try:
-        if format == "jpg":
-            try:
-                # Try with quality parameter first (newer matplotlib)
-                fig.savefig(
-                    buf,
-                    format=format,
-                    dpi=dpi,
-                    bbox_extra_artists=extra_artists,
-                    quality=85,
-                    **SAVEFIG_PARAMS,
-                )
-            except TypeError:
-                # Fallback for older matplotlib without quality parameter
-                fig.savefig(
-                    buf,
-                    format=format,
-                    dpi=dpi,
-                    bbox_extra_artists=extra_artists,
-                    **SAVEFIG_PARAMS,
-                )
-        else:  # PNG
-            fig.savefig(
-                buf,
-                format=format,
-                dpi=dpi,
-                bbox_extra_artists=extra_artists,
-                **SAVEFIG_PARAMS,
-            )
-
-        buf.seek(0)
-        img_data = buf.read()
-
-        if close_fig:
-            plt.close(fig)
-
-        # Convert to ImageContent using unified utility
-        return bytes_to_image_content(img_data, format=format)
-
-    except Exception as e:
-        if close_fig:
-            plt.close(fig)
-        raise ProcessingError(f"Failed to convert figure to image: {e}") from e
-
-
 # ============ Figure Export (Unified in visualize_data) ============
 
 
@@ -208,7 +95,6 @@ async def optimize_fig_to_image_with_cache(
     ctx: Optional["ToolContext"] = None,
     data_id: Optional[str] = None,
     plot_type: Optional[str] = None,
-    mode: str = "auto",  # Kept for API compatibility, ignored
 ) -> str:
     """Save figure to file and return path.
 
@@ -221,7 +107,6 @@ async def optimize_fig_to_image_with_cache(
         ctx: ToolContext (unused, kept for API compatibility)
         data_id: Dataset ID (unused, kept for API compatibility)
         plot_type: Plot type (used for filename generation)
-        mode: Ignored (always saves to file)
 
     Returns:
         str with file path

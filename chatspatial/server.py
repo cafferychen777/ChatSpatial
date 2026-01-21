@@ -254,11 +254,18 @@ async def visualize_data(
         data_id: Dataset ID
         params: Visualization parameters
 
-    Plot types:
-        - Basic: spatial, heatmap, violin, umap, dotplot
-        - Analysis: deconvolution, cell_communication, trajectory, spatial_statistics
-        - Multi-gene: multi_gene, lr_pairs, gene_correlation
-        - Other: pathway_enrichment, batch_integration, cnv_heatmap
+    Plot types (11 unified types):
+        - feature: Spatial/UMAP feature visualization (use basis='spatial'|'umap')
+        - expression: Aggregated expression (subtype='heatmap'|'violin'|'dotplot'|'correlation')
+        - deconvolution: Cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'imputation')
+        - communication: Cell-cell communication patterns
+        - interaction: Spatial ligand-receptor pairs
+        - trajectory: Pseudotime and fate analysis (subtype='pseudotime'|'fate'|'gene_trends')
+        - velocity: RNA velocity visualization (subtype='stream'|'grid'|'arrow')
+        - statistics: Spatial statistics (subtype='neighborhood'|'co_occurrence'|'ripley'|'moran')
+        - enrichment: Pathway enrichment (subtype='barplot'|'dotplot'|'heatmap')
+        - cnv: Copy number variation (subtype='heatmap'|'spatial')
+        - integration: Batch integration quality
 
     Export options (in params):
         - output_path: Custom save path (default: ./visualizations/)
