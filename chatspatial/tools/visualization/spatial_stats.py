@@ -461,10 +461,14 @@ async def _create_getis_ord_visualization(
             f"Plotting Getis-Ord results for {len(genes_to_plot)} genes: {genes_to_plot}"
         )
 
+    # Only use figure suptitle for multi-panel plots
+    # For single panel, axes title is sufficient
     fig, axes = setup_multi_panel_figure(
         n_panels=len(genes_to_plot),
         params=params,
-        default_title="Getis-Ord Gi* Hotspots/Coldspots",
+        default_title="Getis-Ord Gi* Hotspots/Coldspots"
+        if len(genes_to_plot) > 1
+        else "",
     )
 
     coords = require_spatial_coords(adata)
@@ -513,7 +517,13 @@ async def _create_getis_ord_visualization(
             hot_spots = np.sum((z_scores > 0) & significant)
             cold_spots = np.sum((z_scores < 0) & significant)
 
-            if params.add_gene_labels:
+            # Format title based on number of panels
+            if len(genes_to_plot) == 1:
+                # Single panel: include full description in title
+                ax.set_title(
+                    f"{gene}\nGetis-Ord Gi*: Hot: {hot_spots}, Cold: {cold_spots}"
+                )
+            elif params.add_gene_labels:
                 ax.set_title(f"{gene}\nHot: {hot_spots}, Cold: {cold_spots}")
             else:
                 ax.set_title(f"{gene}")
