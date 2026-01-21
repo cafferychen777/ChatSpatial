@@ -203,7 +203,6 @@ async def create_deconvolution_visualization(
     - spatial_multi: Multi-panel spatial maps (default)
     - dominant_type: Dominant cell type map (CARD-style)
     - diversity: Shannon entropy diversity map
-    - stacked_bar: Stacked barplot
     - scatterpie: Spatial scatterpie (SPOTlight-style)
     - pie: Alias for scatterpie
     - umap: UMAP colored by proportions
@@ -223,8 +222,6 @@ async def create_deconvolution_visualization(
         return await _create_dominant_celltype_map(adata, params, context)
     elif viz_type == "diversity":
         return await _create_diversity_map(adata, params, context)
-    elif viz_type == "stacked_bar":
-        return await _create_stacked_barplot(adata, params, context)
     elif viz_type in ("scatterpie", "pie"):
         return await _create_scatterpie_plot(adata, params, context)
     elif viz_type == "umap":
@@ -236,7 +233,7 @@ async def create_deconvolution_visualization(
     else:
         raise ParameterError(
             f"Unknown deconvolution visualization type: {viz_type}. "
-            f"Available: spatial_multi, dominant_type, diversity, stacked_bar, "
+            f"Available: spatial_multi, dominant_type, diversity, "
             f"scatterpie, pie, umap, imputation"
         )
 
@@ -407,104 +404,6 @@ async def _create_diversity_map(
             f"  Low diversity (<0.3): {low_div_pct:.1f}% of spots"
         )
 
-    return fig
-
-
-async def _create_stacked_barplot(
-    adata: "ad.AnnData",
-    params: VisualizationParameters,
-    context: Optional["ToolContext"] = None,
-) -> plt.Figure:
-    """Create stacked barplot of cell type proportions.
-
-    Shows cell type proportions for each spot as stacked bars.
-    Spots can be sorted by dominant cell type, spatial order, or cluster.
-    """
-    data = await get_deconvolution_data(adata, params.deconv_method, context)
-
-    # Limit number of spots for readability
-    n_spots = len(data.proportions)
-    if n_spots > params.max_spots:
-        sample_indices = np.random.choice(n_spots, size=params.max_spots, replace=False)
-        proportions_plot = data.proportions.iloc[sample_indices]
-        if context:
-            await context.warning(
-                f"Sampled {params.max_spots} spots out of {n_spots} for readability."
-            )
-    else:
-        proportions_plot = data.proportions
-
-    # Sort spots based on sort_by parameter
-    if params.sort_by == "dominant_type":
-        dominant_idx = proportions_plot.values.argmax(axis=1)
-        dominant_types = proportions_plot.columns[dominant_idx]
-        sort_order = np.argsort(dominant_types)
-    elif params.sort_by == "spatial":
-        spatial_key = get_spatial_key(adata)
-        if spatial_key:
-            from scipy.cluster.hierarchy import dendrogram, linkage
-
-            spatial_coords = adata.obsm[spatial_key][proportions_plot.index]
-            linkage_matrix = linkage(spatial_coords, method="ward")
-            dend = dendrogram(linkage_matrix, no_plot=True)
-            sort_order = dend["leaves"]
-        else:
-            sort_order = np.arange(len(proportions_plot))
-    elif params.sort_by == "cluster":
-        cluster_key = params.cluster_key or get_cluster_key(adata)
-        if cluster_key and cluster_key in adata.obs.columns:
-            cluster_values = adata.obs.loc[proportions_plot.index, cluster_key]
-            sort_order = np.argsort(cluster_values.astype(str))
-        else:
-            sort_order = np.arange(len(proportions_plot))
-    else:
-        sort_order = np.arange(len(proportions_plot))
-
-    proportions_sorted = proportions_plot.iloc[sort_order]
-
-    # Create figure
-    fig, axes = create_figure_from_params(params, "violin")  # violin uses (12, 6)
-    ax = axes[0]
-
-    cell_types = proportions_sorted.columns.tolist()
-    n_cell_types = len(cell_types)
-
-    # Use centralized colormap utility
-    colors = get_category_colors(n_cell_types, params.colormap)
-
-    x_positions = np.arange(len(proportions_sorted))
-    bottom = np.zeros(len(proportions_sorted))
-
-    for i, cell_type in enumerate(cell_types):
-        values = proportions_sorted[cell_type].values
-        ax.bar(
-            x_positions,
-            values,
-            bottom=bottom,
-            color=colors[i],
-            label=cell_type,
-            width=1.0,
-            edgecolor="none",
-        )
-        bottom += values
-
-    ax.set_xlabel(params.sort_by.replace("_", " ").title())
-    ax.set_ylabel("Cell Type Proportion")
-    ax.set_title(
-        f"Cell Type Proportions ({data.method})\n"
-        f"Sorted by: {params.sort_by.replace('_', ' ').title()}"
-    )
-    ax.set_ylim((0, 1))
-    ax.set_xlim((0, len(proportions_sorted)))
-    ax.legend(
-        bbox_to_anchor=(1.05, 1),
-        loc="upper left",
-        ncol=1 if n_cell_types <= 15 else 2,
-        fontsize=8,
-    )
-    ax.set_xticks([])
-
-    plt.tight_layout()
     return fig
 
 

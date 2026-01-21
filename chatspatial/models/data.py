@@ -304,7 +304,7 @@ class VisualizationParameters(BaseModel):
     # Refactored plot_type: 10 unified types (from original 19)
     # - feature: spatial/UMAP feature visualization (basis='spatial'|'umap')
     # - expression: heatmap/violin/dotplot/correlation (subtype='heatmap'|'violin'|'dotplot'|'correlation')
-    # - deconvolution: cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'stacked_bar'|'imputation')
+    # - deconvolution: cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'imputation')
     # - communication: cell-cell communication (subtype='heatmap'|'chord'|'network'|'dotplot')
     # - interaction: spatial ligand-receptor pairs
     # - trajectory: pseudotime/fate analysis (subtype='pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir')
@@ -334,7 +334,7 @@ class VisualizationParameters(BaseModel):
         description=(
             "Visualization subtype. Options by plot_type:\n"
             "- expression: 'heatmap'|'violin'|'dotplot'|'correlation'\n"
-            "- deconvolution: 'spatial_multi'|'pie'|'dominant'|'stacked_bar'|'imputation'\n"
+            "- deconvolution: 'spatial_multi'|'pie'|'dominant'|'imputation'\n"
             "- communication: 'heatmap'|'chord'|'network'|'dotplot'\n"
             "- trajectory: 'pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir'\n"
             "- velocity: 'stream'|'phase'|'proportions'|'heatmap'|'paga'\n"
@@ -559,17 +559,6 @@ class VisualizationParameters(BaseModel):
         le=1.0,
         description="Pie chart transparency (0=transparent, 1=opaque).",
     )
-    max_spots: int = Field(
-        100,
-        gt=0,
-        le=1000,
-        description="Max spots to show in stacked_bar.",
-    )
-    sort_by: Literal["dominant_type", "spatial", "cluster"] = Field(
-        "dominant_type",
-        description="Sorting for stacked_bar: by dominant type, spatial order, or cluster.",
-    )
-
     # Export options (unified in visualize_data, no separate save tool needed)
     output_path: Optional[str] = Field(
         None,
