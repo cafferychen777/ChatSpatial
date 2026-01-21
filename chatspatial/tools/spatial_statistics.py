@@ -126,7 +126,7 @@ _ANALYSIS_REGISTRY: dict[str, dict[str, Any]] = {
     "local_join_count": {
         "handler": "_analyze_local_join_count",
         "signature": "hybrid",
-        "metadata_keys": {"obs": []},  # Dynamic
+        "metadata_keys": {"obs": [], "uns": ["local_join_count"]},  # obs is dynamic
     },
     "network_properties": {
         "handler": "_analyze_network_properties",
@@ -136,7 +136,10 @@ _ANALYSIS_REGISTRY: dict[str, dict[str, Any]] = {
     "spatial_centrality": {
         "handler": "_analyze_spatial_centrality",
         "signature": "hybrid",
-        "metadata_keys": {"uns": ["spatial_centrality"]},
+        # Stores three centrality measures in obs
+        "metadata_keys": {"obs": [
+            "degree_centrality", "closeness_centrality", "betweenness_centrality"
+        ]},
     },
 }
 
@@ -456,13 +459,17 @@ def _extract_result_summary(
         summary["results_key"] = result.get("analysis_key")
 
     elif analysis_type == "bivariate_moran":
-        pairs = result.get("gene_pairs", [])
-        summary["n_features_analyzed"] = len(pairs)
-        summary["top_features"] = [f"{p[0]}-{p[1]}" for p in pairs[:10]]
-        # Extract significant correlations
-        per_pair = result.get("results", {})
-        significant = [k for k, v in per_pair.items() if abs(v.get("moran_i", 0)) > 0.3]
+        # Match field names from _analyze_bivariate_moran return value
+        summary["n_features_analyzed"] = result.get("n_pairs_analyzed", 0)
+        # Extract gene pair names from bivariate_morans_i keys (format: "GeneA_vs_GeneB")
+        bivariate_results = result.get("bivariate_morans_i", {})
+        summary["top_features"] = list(bivariate_results.keys())[:10]
+        # Significant correlations (|Moran's I| > 0.3)
+        significant = [k for k, v in bivariate_results.items() if abs(v) > 0.3]
         summary["n_significant"] = len(significant)
+        summary["summary_metrics"] = {
+            "mean_bivariate_i": result.get("mean_bivariate_i", 0),
+        }
 
     elif analysis_type in ["join_count", "local_join_count"]:
         summary["n_features_analyzed"] = result.get("n_categories", 0)
@@ -969,11 +976,17 @@ def _analyze_bivariate_moran(
     except Exception as e:
         raise ProcessingError(f"Bivariate Moran's I failed: {e}") from e
 
-    return {
+    # Build result dict
+    result_dict = {
         "n_pairs_analyzed": len(results),
         "bivariate_morans_i": results,
         "mean_bivariate_i": float(np.mean(list(results.values()))) if results else 0,
     }
+
+    # Store results in adata.uns for persistence and export
+    adata.uns["bivariate_moran"] = result_dict
+
+    return result_dict
 
 
 def _analyze_join_count(
@@ -1284,6 +1297,9 @@ def _analyze_network_properties(
         degree_values = list(degrees.values())
         properties["degree_mean"] = float(np.mean(degree_values))
         properties["degree_std"] = float(np.std(degree_values))
+
+        # Store results in adata.uns for persistence and export
+        adata.uns["network_properties"] = properties
 
         return properties
 

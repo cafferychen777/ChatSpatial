@@ -19,10 +19,12 @@ from ..utils.adata_utils import (
     ensure_unique_var_names,
     find_common_genes,
     get_spatial_key,
+    store_analysis_metadata,
 )
 from ..utils.dependency_manager import require
 from ..utils.device_utils import get_device, get_ot_backend
 from ..utils.exceptions import ParameterError, ProcessingError
+from ..utils.results_export import export_analysis_result
 
 logger = logging.getLogger(__name__)
 
@@ -427,6 +429,36 @@ async def register_spatial_slices_mcp(
             target_adata.obsm["spatial_registered"] = registered[1].obsm[
                 "spatial_registered"
             ]
+
+        # Store metadata and export results for both datasets
+        results_keys: dict[str, list[str]] = {"obsm": ["spatial_registered"]}
+        parameters = {"method": method, "target_id": target_id}
+        statistics = {
+            "n_source_spots": source_adata.n_obs,
+            "n_target_spots": target_adata.n_obs,
+        }
+
+        # Export source dataset registration results
+        store_analysis_metadata(
+            source_adata,
+            analysis_name=f"registration_{method}",
+            method=method,
+            parameters=parameters,
+            results_keys=results_keys,
+            statistics=statistics,
+        )
+        export_analysis_result(source_adata, source_id, f"registration_{method}")
+
+        # Export target dataset registration results
+        store_analysis_metadata(
+            target_adata,
+            analysis_name=f"registration_{method}",
+            method=method,
+            parameters={**parameters, "source_id": source_id},
+            results_keys=results_keys,
+            statistics=statistics,
+        )
+        export_analysis_result(target_adata, target_id, f"registration_{method}")
 
         result = {
             "method": method,

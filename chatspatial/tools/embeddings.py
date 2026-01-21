@@ -11,6 +11,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from ..spatial_mcp_adapter import ToolContext
+from ..utils.adata_utils import store_analysis_metadata
 from ..utils.compute import (
     ensure_diffmap,
     ensure_leiden,
@@ -21,6 +22,7 @@ from ..utils.compute import (
     ensure_umap,
 )
 from ..utils.mcp_utils import mcp_tool_error_handler
+from ..utils.results_export import export_analysis_result
 
 
 class EmbeddingParameters(BaseModel):
@@ -286,8 +288,33 @@ async def compute_embeddings(
     if "pca" in adata.uns and "variance_ratio" in adata.uns["pca"]:
         pca_variance_ratio = float(adata.uns["pca"]["variance_ratio"].sum())
 
-    # Store updated data
-    await ctx.set_adata(data_id, adata)
+    # Store metadata and export results (only if clustering was computed)
+    # Note: Only clustering results are exported as CSV - PCA/UMAP coordinates
+    # are too large for CSV export and are better accessed via adata directly
+    if params.compute_clustering and params.clustering_key in adata.obs:
+        results_keys: dict[str, list[str]] = {"obs": [params.clustering_key]}
+
+        store_analysis_metadata(
+            adata,
+            analysis_name=f"embeddings_{params.clustering_method}",
+            method=params.clustering_method,
+            parameters={
+                "n_pcs": params.n_pcs,
+                "n_neighbors": params.n_neighbors,
+                "clustering_resolution": params.clustering_resolution,
+                "clustering_key": params.clustering_key,
+            },
+            results_keys=results_keys,
+            statistics={
+                "n_clusters": n_clusters,
+                "pca_variance_ratio": pca_variance_ratio,
+                "computed": computed,
+            },
+        )
+
+        export_analysis_result(
+            adata, data_id, f"embeddings_{params.clustering_method}"
+        )
 
     return EmbeddingResult(
         data_id=data_id,
