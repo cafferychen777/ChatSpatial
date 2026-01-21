@@ -196,9 +196,10 @@ def setup_multi_panel_figure(
     axes = axes.flatten()
 
     # Only set suptitle if title is explicitly provided and non-empty
+    # y=1.02 places title above figure to avoid overlap with subplot titles
     title = params.title or default_title
     if title:
-        fig.suptitle(title, fontsize=16)
+        fig.suptitle(title, fontsize=16, y=1.02)
 
     for i in range(n_panels, len(axes)):
         axes[i].axis("off")

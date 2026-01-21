@@ -307,8 +307,8 @@ class VisualizationParameters(BaseModel):
     # - deconvolution: cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'stacked_bar'|'imputation')
     # - communication: cell-cell communication (subtype='heatmap'|'chord'|'network'|'dotplot')
     # - interaction: spatial ligand-receptor pairs
-    # - trajectory: pseudotime/fate analysis (subtype='pseudotime'|'fate'|'gene_trends')
-    # - velocity: RNA velocity (subtype='stream'|'grid'|'arrow')
+    # - trajectory: pseudotime/fate analysis (subtype='pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir')
+    # - velocity: RNA velocity (subtype='stream'|'phase'|'proportions'|'heatmap'|'paga')
     # - statistics: spatial statistics (subtype='neighborhood'|'co_occurrence'|'ripley'|'moran'|'centrality'|'getis_ord')
     # - enrichment: pathway enrichment (subtype='barplot'|'dotplot'|'heatmap'|'network')
     # - cnv: copy number variation (subtype='heatmap'|'spatial')
@@ -336,8 +336,8 @@ class VisualizationParameters(BaseModel):
             "- expression: 'heatmap'|'violin'|'dotplot'|'correlation'\n"
             "- deconvolution: 'spatial_multi'|'pie'|'dominant'|'stacked_bar'|'imputation'\n"
             "- communication: 'heatmap'|'chord'|'network'|'dotplot'\n"
-            "- trajectory: 'pseudotime'|'fate'|'gene_trends'\n"
-            "- velocity: 'stream'|'grid'|'arrow'\n"
+            "- trajectory: 'pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir'\n"
+            "- velocity: 'stream'|'phase'|'proportions'|'heatmap'|'paga'\n"
             "- statistics: 'neighborhood'|'co_occurrence'|'ripley'|'moran'|'centrality'|'getis_ord' (required)\n"
             "- enrichment: 'barplot'|'dotplot'|'heatmap'|'network'\n"
             "- cnv: 'heatmap'|'spatial'\n"

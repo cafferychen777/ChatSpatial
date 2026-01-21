@@ -552,11 +552,16 @@ async def _create_palantir_results(
     # Check for Palantir results
     has_pseudotime = "palantir_pseudotime" in adata.obs.columns
     has_entropy = "palantir_entropy" in adata.obs.columns
+
+    # Check for fate probabilities and ensure they're not empty
     fate_key = None
     for key in ["palantir_fate_probs", "palantir_branch_probs"]:
         if key in adata.obsm:
-            fate_key = key
-            break
+            fate_data = adata.obsm[key]
+            # Check if fate data has any columns (not empty)
+            if hasattr(fate_data, "shape") and fate_data.shape[1] > 0:
+                fate_key = key
+                break
 
     if not has_pseudotime:
         raise DataNotFoundError(
@@ -571,7 +576,7 @@ async def _create_palantir_results(
         adata, preferred=params.basis, priority=["umap", "spatial", "pca"]
     )
 
-    # Determine number of panels
+    # Determine number of panels (only include fate panel if fate data is non-empty)
     n_panels = 1 + int(has_entropy) + (1 if fate_key else 0)
 
     # Create figure with centralized utility
@@ -621,7 +626,17 @@ async def _create_palantir_results(
     if fate_key and panel_idx < n_panels:
         ax = axes[panel_idx]
         fate_probs = adata.obsm[fate_key]
-        dominant_fate = fate_probs.argmax(axis=1)
+
+        # Handle both DataFrame (Palantir) and ndarray (CellRank) formats
+        import pandas as pd
+
+        if isinstance(fate_probs, pd.DataFrame):
+            # Palantir returns DataFrame - use idxmax
+            dominant_fate = fate_probs.idxmax(axis=1)
+        else:
+            # CellRank returns ndarray - use argmax
+            dominant_fate = fate_probs.argmax(axis=1)
+
         adata.obs["_dominant_fate"] = dominant_fate.astype(str)
 
         sc.pl.embedding(

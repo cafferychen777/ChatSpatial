@@ -173,11 +173,12 @@ def infer_spatial_trajectory_cellrank(
         g = cr.estimators.GPCCA(combined_kernel)
         g.compute_eigendecomposition()
 
+        # Compute macrostates
         try:
             g.compute_macrostates(n_states=n_states)
         except Exception as e:
             raise ProcessingError(
-                f"CellRank failed with n_states={n_states}: {e}. "
+                f"CellRank macrostate computation failed: {e}. "
                 f"Try reducing n_states or use method='palantir'/'dpt'."
             ) from e
 
@@ -190,27 +191,38 @@ def infer_spatial_trajectory_cellrank(
 
         # Check terminal states and compute fate probabilities
         has_terminal_states = (
-            hasattr(g, "terminal_states") and g.terminal_states is not None
+            hasattr(g, "terminal_states")
+            and g.terminal_states is not None
+            and len(g.terminal_states.cat.categories) > 0
         )
 
-        if has_terminal_states and len(g.terminal_states.cat.categories) > 0:
-            g.compute_fate_probabilities()
-            absorption_probs = g.fate_probabilities
-            terminal_states = list(g.terminal_states.cat.categories)
-            root_state = terminal_states[0]
-            pseudotime = 1 - absorption_probs[root_state].X.flatten()
+        if has_terminal_states:
+            try:
+                g.compute_fate_probabilities()
+                absorption_probs = g.fate_probabilities
+                terminal_states = list(g.terminal_states.cat.categories)
+                root_state = terminal_states[0]
+                pseudotime = 1 - absorption_probs[root_state].X.flatten()
 
-            adata_for_cellrank.obs["pseudotime"] = pseudotime
-            adata_for_cellrank.obsm["fate_probabilities"] = absorption_probs
-            adata_for_cellrank.obs["terminal_states"] = g.terminal_states
+                adata_for_cellrank.obs["pseudotime"] = pseudotime
+                adata_for_cellrank.obsm["fate_probabilities"] = absorption_probs
+                adata_for_cellrank.obs["terminal_states"] = g.terminal_states
+            except Exception as e:
+                raise ProcessingError(
+                    f"CellRank fate probability computation failed: {e}. "
+                    f"This often indicates numerical instability. "
+                    f"Try method='palantir' or 'dpt' instead."
+                ) from e
         else:
+            # Fall back to macrostates-based pseudotime
             if hasattr(g, "macrostates") and g.macrostates is not None:
                 macrostate_probs = g.macrostates_memberships
                 pseudotime = 1 - macrostate_probs[:, 0].X.flatten()
                 adata_for_cellrank.obs["pseudotime"] = pseudotime
             else:
                 raise ProcessingError(
-                    "CellRank could not compute either terminal states or macrostates"
+                    "CellRank could not compute terminal states or macrostates. "
+                    "Try method='palantir' or 'dpt' instead."
                 )
 
         if hasattr(g, "macrostates") and g.macrostates is not None:
@@ -399,9 +411,7 @@ async def analyze_trajectory(
     elif params.method == "dpt":
         try:
             with suppress_output():
-                adata = compute_dpt_trajectory(
-                    adata, root_cells=params.root_cells
-                )
+                adata = compute_dpt_trajectory(adata, root_cells=params.root_cells)
             pseudotime_key = "dpt_pseudotime"
             method_used = "dpt"
         except Exception as e:

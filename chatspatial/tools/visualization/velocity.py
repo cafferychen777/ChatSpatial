@@ -288,16 +288,38 @@ async def _create_velocity_heatmap(
 ) -> plt.Figure:
     """Create velocity heatmap using scv.pl.heatmap.
 
-    Shows gene expression patterns ordered by latent time.
+    Shows gene expression patterns ordered by pseudotime/latent time.
 
     Data requirements:
-        - adata.obs['latent_time']: Latent time from dynamical model
+        - adata.obs with one of: 'latent_time', 'velocity_pseudotime', 'dpt_pseudotime'
         - adata.var['velocity_genes']: Velocity genes (optional)
     """
     require("scvelo", feature="velocity heatmap")
     import scvelo as scv
 
-    validate_obs_column(adata, "latent_time", "Latent time")
+    # Find available time ordering column
+    time_columns = ["latent_time", "velocity_pseudotime", "dpt_pseudotime"]
+    sortby = None
+    for col in time_columns:
+        if col in adata.obs.columns:
+            sortby = col
+            break
+
+    # If no time column found, compute velocity_pseudotime
+    if sortby is None:
+        if "velocity_graph" in adata.uns:
+            if context:
+                await context.info("Computing velocity_pseudotime for heatmap ordering")
+            scv.tl.velocity_pseudotime(adata)
+            sortby = "velocity_pseudotime"
+        else:
+            raise DataNotFoundError(
+                "No time ordering available. Need one of: latent_time, "
+                "velocity_pseudotime, dpt_pseudotime. Run velocity or trajectory analysis first."
+            )
+
+    if context:
+        await context.info(f"Using '{sortby}' for heatmap ordering")
 
     if params.feature:
         if isinstance(params.feature, str):
@@ -327,7 +349,7 @@ async def _create_velocity_heatmap(
     scv.pl.heatmap(
         adata,
         var_names=var_names,
-        sortby="latent_time",
+        sortby=sortby,
         col_color=params.cluster_key,
         n_convolve=30,
         show=False,
@@ -348,20 +370,17 @@ async def _create_velocity_paga_plot(
     params: VisualizationParameters,
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
-    """Create PAGA plot with velocity using scv.pl.paga.
+    """Create PAGA plot using scanpy.
 
-    Shows partition-based graph abstraction with directed velocity arrows.
+    Shows partition-based graph abstraction for cluster relationships.
+    Uses scanpy's stable PAGA implementation instead of scvelo's
+    (which has compatibility issues with newer scipy versions).
 
     Data requirements:
-        - adata.uns['velocity_graph']: Velocity transition graph
-        - adata.uns['paga']: PAGA results (computed by scv.tl.paga)
+        - adata.uns['velocity_graph']: Velocity transition graph (optional)
         - adata.obs[cluster_key]: Cluster labels used for PAGA
     """
-    require("scvelo", feature="velocity PAGA plot")
-    import scvelo as scv
-
-    if "velocity_graph" not in adata.uns:
-        raise DataNotFoundError("velocity_graph required. Run velocity analysis first.")
+    import scanpy as sc
 
     cluster_key = params.cluster_key
     if not cluster_key:
@@ -378,36 +397,35 @@ async def _create_velocity_paga_plot(
             f"Available columns: {list(adata.obs.columns)[:10]}"
         )
 
-    # Compute PAGA if not already done
-    if "paga" not in adata.uns:
+    # Compute PAGA if not already done or if groups don't match
+    paga_needs_recompute = (
+        "paga" not in adata.uns
+        or adata.uns.get("paga", {}).get("groups") != cluster_key
+    )
+
+    if paga_needs_recompute:
         if context:
             await context.info(f"Computing PAGA for cluster_key='{cluster_key}'")
-        import scanpy as sc
-
         sc.tl.paga(adata, groups=cluster_key)
-        scv.tl.paga(adata, groups=cluster_key)
 
     if context:
-        await context.info(f"Creating velocity PAGA plot for '{cluster_key}'")
+        await context.info(f"Creating PAGA plot for '{cluster_key}'")
 
-    basis = infer_basis(adata, preferred=params.basis, priority=["umap", "spatial"])
     fig, axes = create_figure_from_params(params, "velocity")
     ax = axes[0]
 
-    scv.pl.paga(
+    # Use scanpy's stable paga plotting
+    sc.pl.paga(
         adata,
-        basis=basis,
         color=cluster_key,
+        edge_width_scale=0.5,
         ax=ax,
         show=False,
         frameon=params.show_axes,
     )
 
-    if params.title:
-        ax.set_title(params.title, fontsize=14)
-
-    if basis == "spatial":
-        ax.invert_yaxis()
+    title = params.title or f"PAGA - {cluster_key}"
+    ax.set_title(title, fontsize=14)
 
     plt.tight_layout()
     return fig

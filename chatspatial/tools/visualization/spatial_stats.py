@@ -400,7 +400,14 @@ async def _create_centrality_visualization(
             f"with cluster_key='{cluster_key}' first."
         )
 
-    figsize = resolve_figure_size(params, "spatial")
+    # Calculate appropriate figsize based on number of metrics (typically 3)
+    # squidpy centrality_scores doesn't have smart default like co_occurrence
+    if params.figure_size:
+        figsize = params.figure_size
+    else:
+        # Standard metrics: average_clustering, closeness_centrality, degree_centrality
+        n_metrics = len(adata.uns[centrality_key].columns)
+        figsize = (5 * n_metrics, 5)
 
     sq.pl.centrality_scores(
         adata,
