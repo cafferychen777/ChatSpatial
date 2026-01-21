@@ -137,9 +137,13 @@ _ANALYSIS_REGISTRY: dict[str, dict[str, Any]] = {
         "handler": "_analyze_spatial_centrality",
         "signature": "hybrid",
         # Stores three centrality measures in obs
-        "metadata_keys": {"obs": [
-            "degree_centrality", "closeness_centrality", "betweenness_centrality"
-        ]},
+        "metadata_keys": {
+            "obs": [
+                "degree_centrality",
+                "closeness_centrality",
+                "betweenness_centrality",
+            ]
+        },
     },
 }
 
@@ -206,11 +210,13 @@ def _build_results_keys(
         if analysis_type == "local_moran":
             # Match actual storage keys in _analyze_local_moran()
             for gene in genes:
-                base["obs"].extend([
-                    f"{gene}_local_morans",
-                    f"{gene}_lisa_cluster",
-                    f"{gene}_lisa_pvalue",
-                ])
+                base["obs"].extend(
+                    [
+                        f"{gene}_local_morans",
+                        f"{gene}_lisa_cluster",
+                        f"{gene}_lisa_pvalue",
+                    ]
+                )
         elif analysis_type == "getis_ord":
             for gene in genes:
                 base["obs"].extend([f"{gene}_getis_ord_z", f"{gene}_getis_ord_p"])
@@ -417,13 +423,36 @@ def _extract_result_summary(
         summary["results_key"] = result.get("analysis_key")
 
     elif analysis_type == "local_moran":
-        summary["n_features_analyzed"] = result.get("n_genes_analyzed", 0)
-        summary["n_significant"] = result.get("n_significant_total", 0)
-        summary["top_features"] = result.get("top_clustered_genes", [])[:10]
-        summary["summary_metrics"] = {
-            "mean_hotspots": result.get("mean_hotspots_per_gene", 0.0),
-            "mean_coldspots": result.get("mean_coldspots_per_gene", 0.0),
-        }
+        # Match field names from _analyze_local_moran return value
+        genes_analyzed = result.get("genes_analyzed", [])
+        summary["n_features_analyzed"] = len(genes_analyzed)
+        summary["top_features"] = genes_analyzed[:10]
+
+        # Compute statistics from per-gene results
+        per_gene_results = result.get("results", {})
+        total_significant = sum(
+            r.get("n_significant", 0) for r in per_gene_results.values()
+        )
+        summary["n_significant"] = total_significant
+
+        # Compute mean hotspots/coldspots per gene
+        n_genes = len(per_gene_results)
+        if n_genes > 0:
+            total_hotspots = sum(
+                r.get("n_hotspots", 0) for r in per_gene_results.values()
+            )
+            total_coldspots = sum(
+                r.get("n_coldspots", 0) for r in per_gene_results.values()
+            )
+            summary["summary_metrics"] = {
+                "mean_hotspots_per_gene": total_hotspots / n_genes,
+                "mean_coldspots_per_gene": total_coldspots / n_genes,
+            }
+        else:
+            summary["summary_metrics"] = {
+                "mean_hotspots_per_gene": 0.0,
+                "mean_coldspots_per_gene": 0.0,
+            }
 
     elif analysis_type == "getis_ord":
         genes_analyzed = result.get("genes_analyzed", [])
@@ -471,10 +500,45 @@ def _extract_result_summary(
             "mean_bivariate_i": result.get("mean_bivariate_i", 0),
         }
 
-    elif analysis_type in ["join_count", "local_join_count"]:
+    elif analysis_type == "join_count":
+        # Binary join count - always 2 categories
+        summary["n_features_analyzed"] = 2
+        # Significant if p_value < 0.05
+        p_value = result.get("p_value")
+        summary["n_significant"] = 1 if p_value is not None and p_value < 0.05 else 0
+        summary["summary_metrics"] = {
+            "bb_joins": result.get("bb", 0),
+            "ww_joins": result.get("ww", 0),
+            "bw_joins": result.get("bw", 0),
+            "total_joins": result.get("J", 0),
+            "p_value": p_value,
+        }
+
+    elif analysis_type == "local_join_count":
+        # Match field names from _analyze_local_join_count return value
         summary["n_features_analyzed"] = result.get("n_categories", 0)
-        summary["n_significant"] = result.get("n_significant", 0)
-        summary["results_key"] = result.get("analysis_key")
+        # Sum n_significant across all categories from per_category_stats
+        per_category_stats = result.get("per_category_stats", {})
+        total_significant = sum(
+            stats.get("n_significant", 0) for stats in per_category_stats.values()
+        )
+        summary["n_significant"] = total_significant
+        summary["top_features"] = result.get("categories", [])[:10]
+        # Compute mean hotspots per category
+        n_categories = len(per_category_stats)
+        if n_categories > 0:
+            total_hotspots = sum(
+                stats.get("n_hotspots", 0) for stats in per_category_stats.values()
+            )
+            summary["summary_metrics"] = {
+                "mean_hotspots_per_category": total_hotspots / n_categories,
+                "total_significant_clusters": total_significant,
+            }
+        else:
+            summary["summary_metrics"] = {
+                "mean_hotspots_per_category": 0.0,
+                "total_significant_clusters": 0,
+            }
 
     elif analysis_type in ["network_properties", "spatial_centrality"]:
         summary["results_key"] = result.get("analysis_key")
@@ -709,8 +773,15 @@ def _analyze_ripleys_k(
             n_steps=50,
         )
 
+        # Get number of clusters from the cluster key
+        n_clusters = len(adata.obs[cluster_key].unique())
+
         analysis_key = f"{cluster_key}_ripley_L"
-        return {"analysis_completed": True, "analysis_key": analysis_key}
+        return {
+            "analysis_completed": True,
+            "analysis_key": analysis_key,
+            "n_clusters": n_clusters,
+        }
     except Exception as e:
         raise ProcessingError(f"Ripley's K analysis failed: {e}") from e
 
