@@ -201,7 +201,13 @@ def _build_results_keys(
     # Dynamic keys based on genes (for analyses that store per-gene results)
     if genes:
         if analysis_type == "local_moran":
-            base["obs"].extend(f"{gene}_local_moran" for gene in genes)
+            # Match actual storage keys in _analyze_local_moran()
+            for gene in genes:
+                base["obs"].extend([
+                    f"{gene}_local_morans",
+                    f"{gene}_lisa_cluster",
+                    f"{gene}_lisa_pvalue",
+                ])
         elif analysis_type == "getis_ord":
             for gene in genes:
                 base["obs"].extend([f"{gene}_getis_ord_z", f"{gene}_getis_ord_p"])

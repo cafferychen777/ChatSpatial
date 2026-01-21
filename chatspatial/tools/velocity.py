@@ -414,9 +414,19 @@ async def analyze_rna_velocity(
     method_used = velocity_method_used if params.method == "scvelo" else params.method
     results_keys: dict[str, list[str]] = {
         "uns": ["velocity_method"],
+        "obs": [],
+        "obsm": [],
     }
+
+    # VELOVI results
     if "velocity_velovi_norm" in adata.obs:
-        results_keys["obs"] = ["velocity_velovi_norm"]
+        results_keys["obs"].append("velocity_velovi_norm")
+    if "X_velovi_latent" in adata.obsm:
+        results_keys["obsm"].append("X_velovi_latent")
+
+    # scvelo dynamical mode results
+    if "latent_time" in adata.obs:
+        results_keys["obs"].append("latent_time")
 
     # Store metadata for scientific provenance tracking
     store_analysis_metadata(
