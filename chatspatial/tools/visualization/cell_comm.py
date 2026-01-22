@@ -225,9 +225,14 @@ async def create_cell_communication_visualization(
     """Create cell communication visualization using unified data retrieval.
 
     Routes to appropriate visualization based on analysis method and subtype:
-    - Spatial LIANA: Multi-panel spatial LR plot (ignores subtype)
+    - Spatial LIANA: Multi-panel spatial LR plot (only 'spatial' subtype supported)
     - CellPhoneDB/FastCCC/CellChat R: heatmap (default), chord, dotplot
     - LIANA cluster: dotplot (default), tileplot, circle_plot
+
+    Note: LIANA spatial bivariate analysis measures LR pair co-localization
+    (Moran's I), not cell type pair interactions. For heatmap/dotplot showing
+    cell type interactions, use cluster-based analysis (perform_spatial_analysis=False)
+    or other methods (cellphonedb, fastccc, cellchat_r).
 
     Args:
         adata: AnnData object with cell communication results
@@ -249,7 +254,24 @@ async def create_cell_communication_visualization(
         )
 
     if data.analysis_type == "spatial":
-        return _create_spatial_lr_visualization(adata, data, params, context)
+        # LIANA spatial analysis supports specific visualization types
+        subtype = params.subtype or "spatial"
+        if subtype in ("spatial", None):
+            return _create_spatial_lr_visualization(adata, data, params, context)
+        else:
+            raise ParameterError(
+                f"LIANA spatial analysis does not support '{subtype}' visualization.\n\n"
+                f"Available for spatial analysis:\n"
+                f"  - 'spatial' (default): Multi-panel spatial LR plot showing "
+                f"co-localization scores per spot\n\n"
+                f"For heatmap/dotplot visualizations showing cell type pair "
+                f"interactions:\n"
+                f"  1. Re-run analyze_cell_communication with "
+                f"perform_spatial_analysis=False\n"
+                f"  2. Or use method='cellphonedb', 'fastccc', or 'cellchat_r'\n\n"
+                f"Note: Spatial bivariate analysis (Moran's I) measures LR pair "
+                f"co-localization patterns, which are best visualized spatially."
+            )
     else:
         # CellPhoneDB uses ktplotspy (rich metadata format with 'interacting_pair' column)
         if data.method == "cellphonedb":
