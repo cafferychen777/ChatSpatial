@@ -149,6 +149,16 @@ def numpy2_compat() -> Generator[None, None, None]:
 # Reference:
 #   - https://docs.scipy.org/doc/scipy/release/1.14.0-notes.html
 
+# Issue: scipy.arange, scipy.array etc. were removed in scipy 1.14.0
+#
+# Affected packages:
+#   - SpatialDE 1.1.3 uses `import scipy as sp` then `sp.arange`, `sp.array`
+#   - These were numpy functions exposed as scipy aliases (deprecated practice)
+#   - This fails with scipy >= 1.14: AttributeError
+#
+# Reference:
+#   - https://docs.scipy.org/doc/scipy/release/1.14.0-notes.html
+
 
 def _derivative_compat(
     func: Callable[..., float],
@@ -220,6 +230,61 @@ def patch_scipy_misc_derivative() -> None:
     """
     if not hasattr(scipy_misc, "derivative"):
         scipy_misc.derivative = _derivative_compat
+
+
+def patch_scipy_numpy_aliases() -> None:
+    """Patch scipy to include deprecated numpy function aliases.
+
+    Old versions of scipy exposed numpy functions like arange, array, etc.
+    directly in the scipy namespace. This was deprecated and removed in scipy 1.14.
+
+    SpatialDE uses `import scipy as sp` then calls `sp.arange`, `sp.array`.
+
+    This patch is idempotent - calling it multiple times has no additional effect.
+
+    Example:
+        >>> patch_scipy_numpy_aliases()
+        >>> import scipy as sp
+        >>> sp.arange(0, 1, 0.1)  # Now works with scipy >= 1.14
+    """
+    import scipy
+
+    # List of numpy functions that were previously aliased in scipy
+    # SpatialDE specifically uses: arange, array, argsort, zeros_like
+    numpy_aliases = [
+        "arange",
+        "array",
+        "zeros",
+        "zeros_like",
+        "ones",
+        "ones_like",
+        "empty",
+        "empty_like",
+        "eye",
+        "mean",
+        "sum",
+        "min",
+        "max",
+        "std",
+        "var",
+        "prod",
+        "cumsum",
+        "cumprod",
+        "sort",
+        "argsort",
+        "argmin",
+        "argmax",
+        "where",
+        "concatenate",
+        "vstack",
+        "hstack",
+        "linspace",
+        "logspace",
+    ]
+
+    for func_name in numpy_aliases:
+        if not hasattr(scipy, func_name) and hasattr(np, func_name):
+            setattr(scipy, func_name, getattr(np, func_name))
 
 
 # Issue: scipy.sparse.csr_matrix.A was removed in scipy 1.13.0
@@ -351,11 +416,16 @@ def ensure_spatialde_compat() -> None:
 
     Call this before importing SpatialDE with scipy >= 1.14.
 
+    Patches applied:
+        - scipy.misc.derivative (removed in scipy 1.14)
+        - scipy.arange, scipy.array etc. (numpy aliases removed in scipy 1.14)
+
     Example:
         ensure_spatialde_compat()
         import SpatialDE  # Now works
     """
     patch_scipy_misc_derivative()
+    patch_scipy_numpy_aliases()
 
 
 def ensure_spagcn_compat() -> None:
@@ -386,8 +456,8 @@ KNOWN_ISSUES = {
         "workaround": "Use ensure_cellrank_compat() or @cellrank_compat decorator",
     },
     "spatialde_scipy": {
-        "description": "SpatialDE 1.1.3 imports scipy.misc.derivative which was "
-        "removed in scipy 1.14.0",
+        "description": "SpatialDE 1.1.3 imports scipy.misc.derivative and uses "
+        "scipy.arange/array (numpy aliases), both removed in scipy 1.14.0",
         "affected_versions": {"spatialde": "<=1.1.3", "scipy": ">=1.14.0"},
         "status": "Upstream not fixed",
         "workaround": "Use ensure_spatialde_compat() before importing SpatialDE",
@@ -422,6 +492,7 @@ def get_compatibility_info() -> dict[str, Any]:
             "ensure_spatialde_compat",
             "ensure_spagcn_compat",
             "patch_scipy_misc_derivative",
+            "patch_scipy_numpy_aliases",
             "patch_scipy_sparse_matrix_A",
         ],
     }

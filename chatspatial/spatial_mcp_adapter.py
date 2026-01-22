@@ -30,88 +30,117 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
-    # Data I/O tools
+    # ==========================================================================
+    # Data I/O tools - interact with filesystem and memory state
+    # ==========================================================================
     "load_data": ToolAnnotations(
-        readOnlyHint=True,  # Reads from filesystem, doesn't modify data
-        idempotentHint=True,  # Loading same file yields same result
-        openWorldHint=True,  # Accesses filesystem
+        readOnlyHint=False,  # Creates new dataset in memory (data_store)
+        idempotentHint=False,  # Each call generates new data_id
+        openWorldHint=True,  # Reads from filesystem
     ),
     "export_data": ToolAnnotations(
         readOnlyHint=False,  # Writes to filesystem
-        idempotentHint=True,  # Exporting same data to same path is idempotent
-        openWorldHint=True,  # Accesses filesystem
+        idempotentHint=True,  # Same data to same path is idempotent
+        openWorldHint=True,  # Writes to filesystem
     ),
     "reload_data": ToolAnnotations(
-        readOnlyHint=False,  # Replaces in-memory data
-        idempotentHint=True,  # Reloading same file yields same result
-        openWorldHint=True,  # Accesses filesystem
+        readOnlyHint=False,  # Replaces in-memory adata
+        idempotentHint=True,  # Same file yields same result
+        openWorldHint=True,  # Reads from filesystem
     ),
-    # Preprocessing - modifies data in-place
+    # ==========================================================================
+    # Preprocessing - modifies adata in-place
+    # ==========================================================================
     "preprocess_data": ToolAnnotations(
-        readOnlyHint=False,  # Modifies adata in-place
-        idempotentHint=False,  # Re-running changes state
+        readOnlyHint=False,  # Modifies adata in-place (filtering, normalization)
+        idempotentHint=False,  # Re-running may change state
+        openWorldHint=False,  # No external access
     ),
+    "compute_embeddings": ToolAnnotations(
+        readOnlyHint=False,  # Adds PCA/UMAP/clustering to adata
+        idempotentHint=False,  # Has force param; UMAP has stochasticity
+        openWorldHint=False,  # No external access
+    ),
+    # ==========================================================================
     # Visualization - saves to filesystem
+    # ==========================================================================
     "visualize_data": ToolAnnotations(
         readOnlyHint=False,  # Saves image to filesystem
         idempotentHint=True,  # Same params yield same plot
         openWorldHint=True,  # Writes to filesystem
     ),
+    # ==========================================================================
     # Analysis tools - modify adata by adding results
+    # ==========================================================================
     "annotate_cell_types": ToolAnnotations(
         readOnlyHint=False,  # Adds cell type annotations to adata.obs
-        idempotentHint=False,  # Re-running may yield different results
-        openWorldHint=True,  # May use external references
+        idempotentHint=False,  # Methods may have stochasticity
+        openWorldHint=True,  # May use external references/databases
     ),
     "analyze_spatial_statistics": ToolAnnotations(
         readOnlyHint=False,  # Adds statistics to adata.uns
-        idempotentHint=True,  # Same params yield same statistics
+        idempotentHint=True,  # Deterministic computation
+        openWorldHint=False,  # No external access
     ),
     "find_markers": ToolAnnotations(
-        readOnlyHint=True,  # Computes markers without modifying adata
-        idempotentHint=True,  # Deterministic computation
+        readOnlyHint=False,  # Adds results to adata.uns['rank_genes_groups']
+        idempotentHint=True,  # Deterministic (wilcoxon/t-test)
+        openWorldHint=False,  # No external access
+    ),
+    "compare_conditions": ToolAnnotations(
+        readOnlyHint=False,  # Adds results to adata.uns
+        idempotentHint=True,  # Deterministic (DESeq2)
+        openWorldHint=False,  # No external access
     ),
     "analyze_velocity_data": ToolAnnotations(
         readOnlyHint=False,  # Adds velocity to adata
         idempotentHint=False,  # Stochastic methods
+        openWorldHint=False,  # No external access
     ),
     "analyze_trajectory_data": ToolAnnotations(
         readOnlyHint=False,  # Adds trajectory info to adata
         idempotentHint=False,  # May have stochastic elements
+        openWorldHint=False,  # No external access
     ),
     "integrate_samples": ToolAnnotations(
-        readOnlyHint=False,  # Creates new integrated dataset
-        idempotentHint=False,  # Creates new dataset each time
+        readOnlyHint=False,  # Creates new integrated dataset in memory
+        idempotentHint=False,  # Each call creates new data_id
+        openWorldHint=False,  # No external access
     ),
     "deconvolve_data": ToolAnnotations(
         readOnlyHint=False,  # Adds deconvolution results to adata
         idempotentHint=False,  # Deep learning methods are stochastic
-        openWorldHint=True,  # May use external references
+        openWorldHint=True,  # May load external reference data
     ),
     "identify_spatial_domains": ToolAnnotations(
         readOnlyHint=False,  # Adds domain labels to adata.obs
-        idempotentHint=False,  # Clustering can vary
+        idempotentHint=False,  # Clustering algorithms can vary
+        openWorldHint=False,  # No external access
     ),
     "analyze_cell_communication": ToolAnnotations(
         readOnlyHint=False,  # Adds communication results to adata.uns
         idempotentHint=True,  # Deterministic given same inputs
-        openWorldHint=True,  # Uses LR databases
+        openWorldHint=True,  # Uses LR databases (CellChat, CellPhoneDB)
     ),
     "analyze_enrichment": ToolAnnotations(
         readOnlyHint=False,  # Adds enrichment scores to adata
         idempotentHint=True,  # Deterministic
+        openWorldHint=True,  # Uses gene set databases (GO, KEGG, MSigDB)
     ),
     "find_spatial_genes": ToolAnnotations(
         readOnlyHint=False,  # Adds spatial gene info to adata.var
-        idempotentHint=True,  # Deterministic methods
+        idempotentHint=True,  # Deterministic methods (SPARK-X, SpatialDE)
+        openWorldHint=False,  # No external access
     ),
     "analyze_cnv": ToolAnnotations(
         readOnlyHint=False,  # Adds CNV results to adata
-        idempotentHint=True,  # Deterministic
+        idempotentHint=True,  # Deterministic (inferCNV)
+        openWorldHint=False,  # No external access (uses adata only)
     ),
     "register_spatial_data": ToolAnnotations(
         readOnlyHint=False,  # Modifies spatial coordinates
-        idempotentHint=False,  # Registration can vary
+        idempotentHint=False,  # Registration algorithms can vary
+        openWorldHint=False,  # No external access
     ),
 }
 
