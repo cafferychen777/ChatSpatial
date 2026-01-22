@@ -1062,26 +1062,5 @@ async def reload_data(
         raise
 
 
-def main():
-    """Run the MCP server"""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="ChatSpatial MCP Server")
-    parser.add_argument(
-        "--transport",
-        choices=["stdio", "sse"],
-        default="stdio",
-        help="Transport protocol to use (default: stdio)",
-    )
-
-    args = parser.parse_args()
-
-    print(
-        f"Starting ChatSpatial server with {args.transport} transport...",
-        file=sys.stderr,
-    )
-    mcp.run(transport=args.transport)
-
-
-if __name__ == "__main__":
-    main()
+# CLI entry point is in __main__.py (single source of truth)
+# Use: python -m chatspatial server [options]
