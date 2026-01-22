@@ -27,7 +27,11 @@ import scipy.sparse as sp
 from ..models.analysis import SpatialVariableGenesResult  # noqa: E402
 from ..models.data import SpatialVariableGenesParameters  # noqa: E402
 from ..utils import validate_var_column  # noqa: E402
-from ..utils.adata_utils import require_spatial_coords, to_dense  # noqa: E402
+from ..utils.adata_utils import (  # noqa: E402
+    get_raw_data_source,
+    require_spatial_coords,
+    to_dense,
+)
 from ..utils.dependency_manager import require  # noqa: E402
 from ..utils.exceptions import DataNotFoundError  # noqa: E402
 from ..utils.exceptions import DataError, ParameterError, ProcessingError
@@ -235,22 +239,12 @@ async def _identify_spatial_genes_spatialde(
     )
 
     # Get raw count data for SpatialDE preprocessing
+    # Use get_raw_data_source (single source of truth) for complete gene coverage
     # OPTIMIZATION: Filter genes on SPARSE matrix first, then convert only selected genes to dense
-    if adata.raw is not None:
-        raw_data = adata.raw.X
-        var_names = adata.raw.var_names
-        var_df = adata.var  # For HVG lookup
-    else:
-        # Check if current data appears to be raw counts
-        data_max = adata.X.max() if hasattr(adata.X, "max") else np.max(adata.X)
-        if data_max <= 10:  # Likely already normalized
-            raise DataError(
-                "SpatialDE requires raw counts. Data appears normalized (max<=10)."
-            )
-
-        raw_data = adata.X
-        var_names = adata.var_names
-        var_df = adata.var
+    raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
+    raw_data = raw_result.X
+    var_names = raw_result.var_names
+    var_df = adata.var  # For HVG lookup (HVG info is in adata.var)
 
     # Step 1: Filter low-expression genes ON SPARSE MATRIX (Official recommendation)
     # SpatialDE README: "Filter practically unobserved genes" with total_counts >= 3
@@ -286,16 +280,14 @@ async def _identify_spatial_genes_spatialde(
 
     # Step 3: Slice sparse matrix to final genes, THEN convert to dense
     # This is where the memory optimization happens: only convert selected genes
-    if adata.raw is not None:
-        final_adata_subset = adata.raw[:, final_genes]
-    else:
-        final_adata_subset = adata[:, final_genes]
+    # Directly use raw_result (single source of truth) - no need for double access
+    gene_indices = [raw_result.var_names.get_loc(g) for g in final_genes]
 
     # Now create DataFrame from the SUBSET (much smaller memory footprint)
     counts = pd.DataFrame(
-        to_dense(final_adata_subset.X),
-        columns=final_adata_subset.var_names,
-        index=final_adata_subset.obs_names,
+        to_dense(raw_result.X[:, gene_indices]),
+        columns=final_genes,
+        index=adata.obs_names,
     )
 
     # Performance warning for large gene sets
@@ -489,15 +481,11 @@ async def _identify_spatial_genes_sparkx(
     # Strategy: Keep data sparse throughout filtering, only convert final filtered result
     # Benefit: For 30k cells × 20k genes → 3k genes: save ~15GB memory
 
-    # Get sparse count matrix - DO NOT convert to dense yet!
-    if adata.raw is not None:
-        sparse_counts = adata.raw.X  # Keep sparse!
-        gene_names = [str(name) for name in adata.raw.var_names]
-        n_genes = len(gene_names)
-    else:
-        sparse_counts = adata.X  # Keep sparse!
-        gene_names = [str(name) for name in adata.var_names]
-        n_genes = len(gene_names)
+    # Get sparse count matrix using get_raw_data_source (single source of truth)
+    raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
+    sparse_counts = raw_result.X  # Keep sparse!
+    gene_names = [str(name) for name in raw_result.var_names]
+    n_genes = len(gene_names)
 
     # Ensure gene names are unique (required for SPARK-X R rownames)
     gene_names = _ensure_unique_gene_names(gene_names)
@@ -509,38 +497,22 @@ async def _identify_spatial_genes_sparkx(
     # Initialize gene mask (all True = keep all genes initially)
     gene_mask = np.ones(len(gene_names), dtype=bool)
 
-    # Get var annotation source (prefer raw for complete gene annotations)
-    var_source = adata.raw if adata.raw is not None else adata
-
     # TIER 1: Mitochondrial gene filtering (SPARK-X paper standard practice)
-    # Reuse preprocessing annotations when available for consistency
+    # Use pattern-based detection on gene names (works regardless of data source)
     if params.filter_mt_genes:
-        mt_mask = None
-
-        # Try to reuse preprocessing annotations (elegant consistency)
-        if "mt" in var_source.var.columns:
-            mt_mask = var_source.var["mt"].values
-        else:
-            # Fallback to pattern-based detection
-            mt_mask = np.array([gene.startswith(("MT-", "mt-")) for gene in gene_names])
-
+        mt_mask = np.array(
+            [gene.startswith(("MT-", "mt-")) for gene in gene_names]
+        )
         n_mt_genes = mt_mask.sum()
         if n_mt_genes > 0:
             gene_mask &= ~mt_mask  # Exclude MT genes
 
     # TIER 1: Ribosomal gene filtering (optional)
-    # Reuse preprocessing annotations when available for consistency
+    # Use pattern-based detection on gene names
     if params.filter_ribo_genes:
-        ribo_mask = None
-
-        # Try to reuse preprocessing annotations (elegant consistency)
-        if "ribo" in var_source.var.columns:
-            ribo_mask = var_source.var["ribo"].values
-        else:
-            # Fallback to pattern-based detection
-            ribo_mask = np.array(
-                [gene.startswith(("RPS", "RPL", "Rps", "Rpl")) for gene in gene_names]
-            )
+        ribo_mask = np.array(
+            [gene.startswith(("RPS", "RPL", "Rps", "Rpl")) for gene in gene_names]
+        )
 
         n_ribo_genes = ribo_mask.sum()
         if n_ribo_genes > 0:

@@ -19,7 +19,11 @@ from ..models.analysis import (
 from ..models.data import ConditionComparisonParameters
 from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
-from ..utils.adata_utils import check_is_integer_counts, store_analysis_metadata
+from ..utils.adata_utils import (
+    check_is_integer_counts,
+    get_raw_data_source,
+    store_analysis_metadata,
+)
 from ..utils.dependency_manager import require
 from ..utils.exceptions import DataError, ParameterError, ProcessingError
 from ..utils.results_export import export_analysis_result
@@ -101,7 +105,11 @@ async def compare_conditions(
     )
 
     # Get raw counts (required for DESeq2)
-    raw_X, var_names = _get_raw_counts(adata_filtered)
+    # Use get_raw_data_source (single source of truth) with require_integer_counts
+    raw_result = get_raw_data_source(
+        adata_filtered, prefer_complete_genes=False, require_integer_counts=True
+    )
+    raw_X, var_names = raw_result.X, raw_result.var_names
 
     # Validate counts are integers (handles sparse matrices)
     is_int, _, _ = check_is_integer_counts(raw_X)
@@ -181,25 +189,6 @@ async def compare_conditions(
 
     result.results_key = results_key
     return result
-
-
-def _get_raw_counts(
-    adata,
-) -> tuple[Union[np.ndarray, sparse.spmatrix], pd.Index]:
-    """Extract raw count matrix from AnnData.
-
-    Returns sparse matrix directly to avoid memory explosion.
-    Downstream code handles both sparse and dense via np.asarray().
-
-    Args:
-        adata: AnnData object
-
-    Returns:
-        Tuple of (count_matrix, var_names) - matrix may be sparse or dense
-    """
-    if adata.raw is not None:
-        return adata.raw.X, adata.raw.var_names
-    return adata.X, adata.var_names
 
 
 def _create_pseudobulk(

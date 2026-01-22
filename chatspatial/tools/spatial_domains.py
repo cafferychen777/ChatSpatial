@@ -109,6 +109,7 @@ async def identify_spatial_domains(
             )
 
             # Use raw data if available for better results
+            # adata.raw stores original unscaled data (after normalization but before scaling)
             if adata.raw is not None:
                 gene_mask = adata.raw.var_names.isin(adata_subset.var_names)
                 adata_subset = adata.raw[:, gene_mask].to_adata()
@@ -345,6 +346,11 @@ async def _identify_domains_spagcn(
             # Apply scale factor to get pixel coordinates
             x_pixel = [int(x * scale_factor) for x in x_array]
             y_pixel = [int(y * scale_factor) for y in y_array]
+
+        # Apply scipy compatibility patch for SpaGCN (scipy >= 1.13 removed csr_matrix.A)
+        from ..utils.compat import ensure_spagcn_compat
+
+        ensure_spagcn_compat()
 
         # Import and call SpaGCN function
         from SpaGCN.ez_mode import detect_spatial_domains_ez_mode

@@ -12,8 +12,8 @@ Design Principles:
 
 Sections:
 - NumPy 2.x Compatibility (assert_array_equal parameter names)
-- SciPy Compatibility (deprecated scipy.misc.derivative)
-- Package-specific utilities (CellRank, SpatialDE)
+- SciPy Compatibility (deprecated scipy.misc.derivative, removed csr_matrix.A)
+- Package-specific utilities (CellRank, SpatialDE, SpaGCN)
 - Diagnostic functions
 """
 
@@ -222,6 +222,73 @@ def patch_scipy_misc_derivative() -> None:
         scipy_misc.derivative = _derivative_compat
 
 
+# Issue: scipy.sparse.csr_matrix.A was removed in scipy 1.13.0
+#
+# Affected packages:
+#   - SpaGCN 1.2.7 uses csr_matrix.A in multiple places (SpaGCN.py, util.py)
+#   - This fails with scipy >= 1.13: AttributeError: 'csr_matrix' has no attribute 'A'
+#
+# Timeline:
+#   - scipy 1.11.0: deprecated csr_matrix.A (use .toarray() instead)
+#   - scipy 1.13.0: removed csr_matrix.A
+#
+# Reference:
+#   - https://github.com/scipy/scipy/issues/21049
+#   - https://scipy.github.io/devdocs/reference/sparse.migration_to_sparray.html
+
+
+def _is_scipy_sparse_patched() -> bool:
+    """Check if scipy.sparse matrices already have the .A property."""
+    from scipy.sparse import csr_matrix
+
+    return hasattr(csr_matrix, "A") and isinstance(
+        getattr(type(csr_matrix([0])), "A", None), property
+    )
+
+
+def patch_scipy_sparse_matrix_A() -> None:
+    """Patch scipy.sparse matrix classes to restore the deprecated .A property.
+
+    The .A property was a shorthand for .toarray() that was removed in scipy 1.13.
+    This patch restores it for packages like SpaGCN that depend on this behavior.
+
+    This patch is idempotent - calling it multiple times has no additional effect.
+
+    Example:
+        >>> patch_scipy_sparse_matrix_A()
+        >>> import SpaGCN  # Now works with scipy >= 1.13
+    """
+    if _is_scipy_sparse_patched():
+        return
+
+    from scipy.sparse import (
+        bsr_matrix,
+        coo_matrix,
+        csc_matrix,
+        csr_matrix,
+        dia_matrix,
+        dok_matrix,
+        lil_matrix,
+    )
+
+    # Define the .A property as an alias to .toarray()
+    def _toarray_property(self):  # type: ignore[no-untyped-def]
+        return self.toarray()
+
+    # Patch all sparse matrix classes that previously had .A
+    for sparse_class in [
+        csr_matrix,
+        csc_matrix,
+        coo_matrix,
+        bsr_matrix,
+        dia_matrix,
+        dok_matrix,
+        lil_matrix,
+    ]:
+        if not hasattr(sparse_class, "A"):
+            sparse_class.A = property(_toarray_property)
+
+
 # =============================================================================
 # Package-specific Compatibility Utilities
 # =============================================================================
@@ -291,6 +358,21 @@ def ensure_spatialde_compat() -> None:
     patch_scipy_misc_derivative()
 
 
+def ensure_spagcn_compat() -> None:
+    """Apply all necessary patches for SpaGCN compatibility.
+
+    Call this before importing SpaGCN with scipy >= 1.13.
+
+    SpaGCN uses csr_matrix.A which was removed in scipy 1.13.
+    This patch restores the .A property as an alias to .toarray().
+
+    Example:
+        ensure_spagcn_compat()
+        import SpaGCN  # Now works with scipy >= 1.13
+    """
+    patch_scipy_sparse_matrix_A()
+
+
 # =============================================================================
 # Diagnostic Functions
 # =============================================================================
@@ -309,6 +391,12 @@ KNOWN_ISSUES = {
         "affected_versions": {"spatialde": "<=1.1.3", "scipy": ">=1.14.0"},
         "status": "Upstream not fixed",
         "workaround": "Use ensure_spatialde_compat() before importing SpatialDE",
+    },
+    "spagcn_scipy": {
+        "description": "SpaGCN 1.2.7 uses csr_matrix.A which was removed in scipy 1.13.0",
+        "affected_versions": {"spagcn": "<=1.2.7", "scipy": ">=1.13.0"},
+        "status": "Upstream not fixed",
+        "workaround": "Use ensure_spagcn_compat() before importing SpaGCN",
     },
 }
 
@@ -332,7 +420,9 @@ def get_compatibility_info() -> dict[str, Any]:
             "cellrank_compat",
             "ensure_cellrank_compat",
             "ensure_spatialde_compat",
+            "ensure_spagcn_compat",
             "patch_scipy_misc_derivative",
+            "patch_scipy_sparse_matrix_A",
         ],
     }
 

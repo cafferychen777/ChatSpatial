@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
 from ...utils.adata_utils import (
     find_common_genes,
-    get_raw_data_source,
     get_spatial_key,
     to_dense,
     validate_gene_overlap,
@@ -283,33 +282,36 @@ async def _prepare_counts(
     require_int_dtype: bool,
 ) -> ad.AnnData:
     """Prepare AnnData by restoring raw counts."""
-    result = get_raw_data_source(
-        adata,
-        prefer_complete_genes=True,
-        require_integer_counts=True,
-        sample_size=100,
-    )
-
-    # Normalized data is acceptable for some reference datasets
-
-    # Construct copy based on source
-    if result.source == "raw":
+    # Directly check data sources in priority order (avoids double-access pattern)
+    # Priority: adata.raw > layers["counts"] > adata.X
+    if adata.raw is not None:
         adata_copy = adata.raw.to_adata()
         # Preserve obsm from original (raw.to_adata() doesn't include it)
         for key in adata.obsm:
             adata_copy.obsm[key] = adata.obsm[key].copy()
-    elif result.source == "counts_layer":
+    elif "counts" in adata.layers:
         adata_copy = adata.copy()
         adata_copy.X = adata_copy.layers["counts"]
     else:
         adata_copy = adata.copy()
 
     # Convert to int32 if required (R-based methods)
-    if require_int_dtype and result.is_integer_counts:
-        dense = to_dense(adata_copy.X)
-        adata_copy.X = (
-            dense.astype(np.int32, copy=False) if dense.dtype != np.int32 else dense
-        )
+    # Check if data is integer counts by sampling
+    if require_int_dtype:
+        X = adata_copy.X
+        sample_size = min(100, X.shape[0] * X.shape[1])
+        if hasattr(X, "data"):  # sparse
+            sample = X.data[:sample_size] if len(X.data) > 0 else np.array([0])
+        else:  # dense
+            flat = X.flatten()
+            sample = flat[:sample_size]
+        is_integer = np.allclose(sample, np.round(sample), equal_nan=True)
+
+        if is_integer:
+            dense = to_dense(adata_copy.X)
+            adata_copy.X = (
+                dense.astype(np.int32, copy=False) if dense.dtype != np.int32 else dense
+            )
 
     return adata_copy
 

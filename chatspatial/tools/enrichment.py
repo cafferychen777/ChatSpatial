@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
-from ..utils.adata_utils import store_analysis_metadata, to_dense
+from ..utils.adata_utils import get_raw_data_source, store_analysis_metadata, to_dense
 from ..utils.dependency_manager import require
 from ..utils.exceptions import ParameterError, ProcessingError
 from ..utils.results_export import export_analysis_result
@@ -380,14 +380,10 @@ def perform_gsea(
         ranking = adata.var[ranking_key].to_dict()
     else:
         # Compute ranking from expression data
-        # Use raw data when available and not log-normalized (full gene set for GSEA)
-        # IMPORTANT: Keep X and var_names consistent to avoid dimension mismatch
-        if "log1p" not in adata.uns and adata.raw is not None:
-            X = adata.raw.X
-            var_names = adata.raw.var_names
-        else:
-            X = adata.X
-            var_names = adata.var_names
+        # Use get_raw_data_source (single source of truth) for complete gene coverage
+        raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
+        X = raw_result.X
+        var_names = raw_result.var_names
 
         # Compute gene ranking metric
         # IMPORTANT: GSEA requires biologically meaningful ranking, not just variance
@@ -684,13 +680,10 @@ def perform_ora(
                 gene_list = adata.var_names[top_indices].tolist()
 
     # Background genes
-    # IMPORTANT: Use adata.raw if available, as rank_genes_groups may have been
-    # run on raw data with different gene name casing (e.g., uppercase)
-    # while filtered adata.var_names may be lowercase
-    if adata.raw is not None:
-        background_genes = set(adata.raw.var_names)
-    else:
-        background_genes = set(adata.var_names)
+    # Use get_raw_data_source (single source of truth) to get complete gene set
+    # This handles gene name casing differences between raw and filtered data
+    bg_result = get_raw_data_source(adata, prefer_complete_genes=True)
+    background_genes = set(bg_result.var_names)
 
     # Case-insensitive matching as fallback for gene name format differences
     # (e.g., MT.CO1 vs MT-CO1, uppercase vs lowercase)

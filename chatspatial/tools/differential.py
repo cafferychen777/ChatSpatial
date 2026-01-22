@@ -12,6 +12,7 @@ from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
 from ..utils.adata_utils import (
     check_is_integer_counts,
+    get_raw_data_source,
     store_analysis_metadata,
     to_dense,
 )
@@ -256,14 +257,15 @@ async def differential_expression(
     # Issue: scanpy's logfoldchanges uses mean(log(counts)) which is mathematically incorrect
     # Solution: Calculate log(mean(counts1) / mean(counts2)) from raw data
 
-    # Check if raw count data is available
-    if adata.raw is None:
+    # Use get_raw_data_source (single source of truth) to check for raw count data
+    raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
+    if raw_result.source != "raw":
         raise DataNotFoundError(
-            "Raw count data (adata.raw) required for fold change calculation. "
-            "Run preprocess_data() first to preserve raw counts."
+            f"Raw count data (adata.raw) required for fold change calculation. "
+            f"Found: {raw_result.source}. Run preprocess_data() first to preserve raw counts."
         )
 
-    # Get raw count data
+    # Get raw count data (source is "raw", so adata.raw is valid)
     raw_adata = adata.raw
     log2fc_values = []
 
@@ -432,13 +434,13 @@ async def _run_pydeseq2(
     validate_obs_column(adata, params.sample_key, "Sample")
 
     # Get raw counts (required for DESeq2)
+    # Use get_raw_data_source (single source of truth) with require_integer_counts
     # Keep sparse to avoid memory explosion - downstream handles both formats
-    if adata.raw is not None:
-        raw_X = adata.raw.X
-        var_names = adata.raw.var_names
-    else:
-        raw_X = adata.X
-        var_names = adata.var_names
+    raw_result = get_raw_data_source(
+        adata, prefer_complete_genes=False, require_integer_counts=True
+    )
+    raw_X = raw_result.X
+    var_names = raw_result.var_names
 
     # Validate counts are integers (DESeq2 requirement)
     is_int, _, _ = check_is_integer_counts(raw_X)

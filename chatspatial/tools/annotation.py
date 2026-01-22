@@ -25,6 +25,7 @@ from ..utils.adata_utils import (
     find_common_genes,
     get_cell_type_key,
     get_cluster_key,
+    get_raw_data_source,
     get_spatial_key,
     shallow_copy_adata,
     to_dense,
@@ -114,15 +115,11 @@ async def _annotate_with_singler(
     # IMPORTANT: Ensure test_mat dimensions match adata.var_names (used in test_features)
     if "X_normalized" in adata.layers:
         test_mat = adata.layers["X_normalized"]
-    elif adata.X is not None:
-        test_mat = adata.X
     else:
-        # Fallback: use raw data, but subset to current var_names to ensure dimension match
-        # Note: adata.raw may have full genes while adata has HVG subset
-        if adata.raw is not None:
-            test_mat = adata.raw[:, adata.var_names].X
-        else:
-            test_mat = adata.X
+        # Use get_raw_data_source (single source of truth) with prefer_complete_genes=False
+        # to ensure dimensions match current adata.var_names
+        raw_result = get_raw_data_source(adata, prefer_complete_genes=False)
+        test_mat = raw_result.X
 
     # Ensure log-normalization (SingleR expects log-normalized data)
     if "log1p" not in adata.uns:
@@ -352,8 +349,9 @@ async def _annotate_with_tangram(
     # ===== CRITICAL FIX: Use raw data for Tangram to preserve gene name case =====
     # Issue: Preprocessed data may have lowercase gene names, while reference has uppercase
     # This causes 0 overlapping genes and Tangram mapping failure (all NaN results)
-    # Solution: Use adata.raw which preserves original gene names
+    # Solution: Use adata.raw which preserves original gene names and full gene set
     if adata.raw is not None:
+        # Use raw data which preserves original gene names
         adata_sp = adata.raw.to_adata()
         # Preserve spatial coordinates from preprocessed data
         spatial_key = get_spatial_key(adata)
@@ -362,7 +360,7 @@ async def _annotate_with_tangram(
     else:
         adata_sp = adata
         await ctx.warning(
-            "No raw data available - using preprocessed data (may have gene name mismatches)"
+            "Raw data not available - may have gene name mismatches with reference"
         )
     # =============================================================================
 
@@ -1115,17 +1113,14 @@ async def _annotate_with_cellassign(
 
     marker_genes = params.marker_genes
 
-    # CRITICAL FIX: Use adata.raw for marker gene validation if available
+    # Use get_raw_data_source (single source of truth) for complete gene coverage
     # Preprocessing filters genes to HVGs, but marker genes may not be in HVGs
-    # adata.raw contains all original genes and should be checked first
-    if adata.raw is not None:
-        all_genes = set(adata.raw.var_names)
-        gene_source = "adata.raw"
-    else:
-        all_genes = set(adata.var_names)
-        gene_source = "adata.var_names"
+    raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
+    all_genes = set(raw_result.var_names)
+    gene_source = raw_result.source
+    if raw_result.source != "raw":
         await ctx.warning(
-            f"Using filtered gene set for marker gene validation "
+            f"Using {raw_result.source} data for marker gene validation "
             f"({len(all_genes)} genes). Some marker genes may be missing. "
             f"Consider using unpreprocessed data for CellAssign."
         )
@@ -1204,14 +1199,17 @@ async def _annotate_with_cellassign(
         )
 
     # Subset data to marker genes (size factors already computed)
-    # Use adata.raw if available (contains all genes including markers)
-    if adata.raw is not None:
+    # Use raw data if available (contains all genes including markers)
+    # raw_result already provides X and var_names from get_raw_data_source above
+    if gene_source == "raw":
         import anndata as ad_module
 
+        # Use raw_result directly instead of accessing adata.raw again
+        gene_indices = [raw_result.var_names.get_loc(g) for g in available_marker_genes]
         adata_subset = ad_module.AnnData(
-            X=adata.raw[:, available_marker_genes].X,
+            X=raw_result.X[:, gene_indices],
             obs=adata.obs.copy(),
-            var=adata.raw.var.loc[available_marker_genes].copy(),
+            var=pd.DataFrame(index=available_marker_genes),
         )
     else:
         adata_subset = adata[:, available_marker_genes].copy()

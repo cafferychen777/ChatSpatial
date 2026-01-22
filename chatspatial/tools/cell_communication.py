@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
-from ..utils.adata_utils import get_spatial_key, to_dense
+from ..utils.adata_utils import get_raw_data_source, get_spatial_key, to_dense
 from ..utils.dependency_manager import require, validate_r_package
 from ..utils.exceptions import (
     DataNotFoundError,
@@ -64,8 +64,9 @@ async def analyze_cell_communication(
             # Check if cell type column exists
             validate_obs_column(adata, params.cell_type_key, "Cell type")
 
-            # Check for low counts
-            n_genes = adata.raw.n_vars if adata.raw is not None else adata.n_vars
+            # Check for low counts using get_raw_data_source (single source of truth)
+            raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
+            n_genes = len(raw_result.var_names)
             if n_genes < 5000:
                 await ctx.warning(
                     f"Gene count ({n_genes}) is relatively low. "
@@ -335,6 +336,10 @@ def _run_liana_cluster_analysis(
     # Use parameters from user (respect user choice)
     n_perms = params.liana_n_perms
 
+    # Use get_raw_data_source (single source of truth) to check for raw data
+    raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
+    use_raw = raw_result.source == "raw"
+
     # Run LIANA+ rank aggregate
     li.mt.rank_aggregate(
         adata,
@@ -344,7 +349,7 @@ def _run_liana_cluster_analysis(
         min_cells=params.min_cells,
         n_perms=n_perms,
         verbose=False,
-        use_raw=adata.raw is not None,
+        use_raw=use_raw,
     )
 
     # Get results
@@ -1028,11 +1033,8 @@ def _analyze_communication_cellchat_r(
 
         # Prepare expression matrix (genes x cells, normalized)
         # CellChat requires normalized data with comprehensive gene coverage
-        # Use adata.raw if available (contains all genes before HVG filtering)
-        if adata.raw is not None:
-            data_source = adata.raw
-        else:
-            data_source = adata
+        # Use get_raw_data_source (single source of truth) - directly use raw_result
+        raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
 
         # Run CellChat in R - start early to get gene list for pre-filtering
         with localconverter(
@@ -1068,7 +1070,7 @@ def _analyze_communication_cellchat_r(
             cellchat_genes = set(cellchat_genes_r)
 
             # Filter to genes present in both data and CellChatDB
-            common_genes = data_source.var_names.intersection(cellchat_genes)
+            common_genes = raw_result.var_names.intersection(cellchat_genes)
 
             if len(common_genes) == 0:
                 raise ValueError(
@@ -1077,9 +1079,9 @@ def _analyze_communication_cellchat_r(
                 )
 
             # Create expression matrix with only CellChatDB genes (memory efficient)
-            gene_indices = [data_source.var_names.get_loc(g) for g in common_genes]
+            gene_indices = [raw_result.var_names.get_loc(g) for g in common_genes]
             expr_matrix = pd.DataFrame(
-                to_dense(data_source.X[:, gene_indices]).T,
+                to_dense(raw_result.X[:, gene_indices]).T,
                 index=common_genes,
                 columns=adata.obs_names,
             )
@@ -1423,11 +1425,8 @@ async def _analyze_communication_fastccc(
         # Validate cell type column
         validate_obs_column(adata, params.cell_type_key, "Cell type")
 
-        # Use adata.raw if available for comprehensive gene coverage
-        if adata.raw is not None:
-            data_source = adata.raw
-        else:
-            data_source = adata
+        # Use get_raw_data_source (single source of truth) - directly use raw_result
+        raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
 
         # Create temporary directory for FastCCC I/O
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1442,8 +1441,8 @@ async def _analyze_communication_fastccc(
 
             # Prepare expression matrix (cells × genes)
             # Use copy=True to ensure safe modification for normalize_total/log1p
-            expr_matrix = to_dense(data_source.X, copy=True)
-            gene_names = list(data_source.var_names)
+            expr_matrix = to_dense(raw_result.X, copy=True)
+            gene_names = list(raw_result.var_names)
             cell_names = list(adata.obs_names)
 
             # Create temporary AnnData

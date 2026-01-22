@@ -175,12 +175,15 @@ async def preprocess_data(
         # Memory optimization: AnnData.raw internally copies var, so no need for .copy()
         # obs MUST be copied to prevent contamination from later preprocessing steps
         # uns can be empty dict as raw doesn't need metadata
-        adata.raw = ad_module.AnnData(
-            X=adata.X.copy(),  # Must copy - will be modified during normalization
-            var=adata.var,  # No copy needed - AnnData internally creates independent copy
-            obs=adata.obs.copy(),  # Must copy - will be modified by clustering/annotation
-            uns={},  # Empty dict - raw doesn't need uns metadata
-        )
+        # IMPORTANT: Respect existing raw data - only create if not already present
+        # This follows the same pattern as data_loader.py for consistency
+        if adata.raw is None:
+            adata.raw = ad_module.AnnData(
+                X=adata.X.copy(),  # Must copy - will be modified during normalization
+                var=adata.var,  # No copy needed - AnnData internally creates independent copy
+                obs=adata.obs.copy(),  # Must copy - will be modified by clustering/annotation
+                uns={},  # Empty dict - raw doesn't need uns metadata
+            )
 
         # Store counts layer for scVI-tools compatibility (Cell2location, scANVI, DestVI)
         # Note: This layer follows adata through HVG subsetting, complementing adata.raw
