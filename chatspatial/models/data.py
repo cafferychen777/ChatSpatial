@@ -84,6 +84,43 @@ class PreprocessingParameters(BaseModel):
     )
     subsample_random_seed: int = 42
 
+    # ========== Scrublet Doublet Detection ==========
+    # Scrublet detects doublets (artificial cell pairs) common in droplet-based single-cell data.
+    # Recommended for single-cell resolution platforms (CosMx, MERFISH, Xenium).
+    # NOT recommended for spot-based platforms (Visium) where each spot contains multiple cells.
+    scrublet_enable: bool = Field(
+        default=False,
+        description="Enable Scrublet doublet detection. Recommended for single-cell resolution data.",
+    )
+    scrublet_expected_doublet_rate: float = Field(
+        default=0.05,
+        ge=0.01,
+        le=0.5,
+        description="Expected doublet rate. 0.05 (5%) for ~10k cells. Scale with cell count.",
+    )
+    scrublet_threshold: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Doublet score threshold. None=auto-detect (recommended). HGSOC paper used 0.21.",
+    )
+    scrublet_sim_doublet_ratio: float = Field(
+        default=2.0,
+        ge=1.0,
+        le=10.0,
+        description="Ratio of simulated doublets to observed cells.",
+    )
+    scrublet_n_prin_comps: int = Field(
+        default=30,
+        ge=5,
+        le=100,
+        description="Number of principal components for doublet detection.",
+    )
+    scrublet_filter_doublets: bool = Field(
+        default=True,
+        description="Remove predicted doublets from dataset after detection.",
+    )
+
     # ========== Mitochondrial and Ribosomal Gene Filtering ==========
     filter_mito_pct: Optional[float] = Field(
         default=20.0,

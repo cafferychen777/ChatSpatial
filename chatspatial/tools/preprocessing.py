@@ -16,7 +16,6 @@ from ..utils.adata_utils import (
     sample_expression_values,
     standardize_adata,
 )
-from ..utils.compute import ensure_pca
 from ..utils.dependency_manager import require, validate_r_package
 from ..utils.exceptions import (
     DataError,
@@ -164,6 +163,75 @@ async def preprocess_data(
 
         # Apply gene subsampling if requested (after HVG selection)
         gene_subsample_requested = params.subsample_genes is not None
+
+        # 3. Scrublet doublet detection (for single-cell resolution data)
+        # Scrublet works on raw counts before normalization
+        # Recommended for: CosMx, MERFISH, Xenium (single-cell resolution)
+        # NOT recommended for: Visium (spot-based, multiple cells per spot)
+        if params.scrublet_enable:
+            try:
+                # Scrublet requires sufficient cells for meaningful doublet detection
+                min_cells_for_scrublet = 100
+                if adata.n_obs < min_cells_for_scrublet:
+                    await ctx.warning(
+                        f"Scrublet requires at least {min_cells_for_scrublet} cells, "
+                        f"but only {adata.n_obs} present. Skipping doublet detection."
+                    )
+                else:
+                    # Run Scrublet via scanpy's wrapper function
+                    # This adds 'doublet_score' and 'predicted_doublet' to adata.obs
+                    sc.pp.scrublet(
+                        adata,
+                        expected_doublet_rate=params.scrublet_expected_doublet_rate,
+                        threshold=params.scrublet_threshold,
+                        sim_doublet_ratio=params.scrublet_sim_doublet_ratio,
+                        n_prin_comps=min(
+                            params.scrublet_n_prin_comps, adata.n_vars - 1
+                        ),
+                        batch_key=(
+                            params.batch_key
+                            if params.batch_key in adata.obs.columns
+                            else None
+                        ),
+                    )
+
+                    # Store doublet detection results in qc_metrics
+                    n_doublets = int(adata.obs["predicted_doublet"].sum())
+                    doublet_rate = n_doublets / adata.n_obs
+                    qc_metrics["scrublet_enabled"] = True
+                    qc_metrics["n_doublets_detected"] = n_doublets
+                    qc_metrics["doublet_rate"] = float(doublet_rate)
+                    qc_metrics["scrublet_threshold"] = float(
+                        params.scrublet_threshold
+                        if params.scrublet_threshold is not None
+                        else adata.uns.get("scrublet", {}).get("threshold", 0.0)
+                    )
+                    qc_metrics["median_doublet_score"] = float(
+                        np.median(adata.obs["doublet_score"])
+                    )
+
+                    # Filter doublets if requested
+                    if params.scrublet_filter_doublets and n_doublets > 0:
+                        adata = adata[~adata.obs["predicted_doublet"]].copy()
+                        qc_metrics["n_cells_after_doublet_filter"] = int(adata.n_obs)
+                        await ctx.info(
+                            f"Scrublet: Detected {n_doublets} doublets "
+                            f"({doublet_rate:.1%}), removed from dataset."
+                        )
+                    else:
+                        await ctx.info(
+                            f"Scrublet: Detected {n_doublets} doublets "
+                            f"({doublet_rate:.1%}), kept in dataset."
+                        )
+
+            except Exception as e:
+                # Scrublet failure should not block preprocessing
+                await ctx.warning(
+                    f"Scrublet doublet detection failed: {e}. "
+                    "Continuing without doublet filtering."
+                )
+                qc_metrics["scrublet_enabled"] = False
+                qc_metrics["scrublet_error"] = str(e)
 
         # Save raw data before normalization (required for some analysis methods)
 
@@ -633,31 +701,9 @@ async def preprocess_data(
             # Use properly identified HVGs
             adata = adata[:, adata.var["highly_variable"]].copy()
 
-        # 5. Batch effect correction (if applicable)
-        if (
-            params.batch_key in adata.obs
-            and len(adata.obs[params.batch_key].unique()) > 1
-        ):
-            try:
-                # Use Harmony for batch correction (modern standard, works on PCA space)
-                # Harmony is more robust than ComBat for single-cell/spatial data
-                # Use centralized dependency manager for consistent error handling
-                require(
-                    "harmonypy"
-                )  # Raises ImportError with install instructions if missing
-                import scanpy.external as sce
-
-                # Harmony requires PCA - use lazy computation
-                ensure_pca(adata, n_comps=min(50, adata.n_vars - 1))
-
-                sce.pp.harmony_integrate(adata, key=params.batch_key)
-            except Exception as e:
-                raise ProcessingError(
-                    f"Harmony batch correction failed: {e}. "
-                    f"Check batch sizes or try scVI/BBKNN integration."
-                ) from e
-
-        # 6. Scale data (if requested)
+        # 5. Scale data (if requested)
+        # Note: Batch correction is handled separately by integrate_samples() tool
+        # which supports Harmony, BBKNN, Scanorama, and scVI methods
         if params.scale:
             try:
                 # Trust scanpy's internal zero-variance handling and sparse matrix optimization
