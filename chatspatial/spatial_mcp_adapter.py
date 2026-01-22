@@ -66,7 +66,7 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     # ==========================================================================
     "visualize_data": ToolAnnotations(
         readOnlyHint=False,  # Saves image to filesystem
-        idempotentHint=True,  # Same params yield same plot
+        idempotentHint=False,  # Default behavior writes new file each call
         openWorldHint=True,  # Writes to filesystem
     ),
     # ==========================================================================
