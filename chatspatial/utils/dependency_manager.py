@@ -103,9 +103,6 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "pip install cellphonedb",
         "Statistical method for cell-cell communication",
     ),
-    "ktplotspy": DependencyInfo(
-        "ktplotspy", "pip install ktplotspy", "CellPhoneDB visualization toolkit"
-    ),
     # RNA Velocity
     "scvelo": DependencyInfo("scvelo", "pip install scvelo", "RNA velocity analysis"),
     "velovi": DependencyInfo(

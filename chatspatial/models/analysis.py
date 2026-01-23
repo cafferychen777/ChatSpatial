@@ -272,68 +272,43 @@ class SpatialVariableGenesResult(BaseAnalysisResult):
 
 
 class CellCommunicationResult(BaseAnalysisResult):
-    """Result of cell-cell communication analysis
+    """Result of cell-cell communication analysis.
+
+    All CCC results are stored in a unified structure at adata.uns["ccc"].
+    This model provides a summary for MCP response while full data is in adata.
 
     Note on serialization:
-        To minimize MCP response size, detailed statistics are excluded from
-        JSON serialization. Key summary info is in explicit fields.
+        To minimize MCP response size, detailed statistics are excluded.
+        Access full results via adata.uns["ccc"].
 
-        Fields included in MCP response:
-        - data_id, method, species, database (basic info)
-        - n_lr_pairs, n_significant_pairs, top_lr_pairs (summary)
-        - Various *_key fields (storage keys for accessing full results)
-
-        Fields excluded from MCP response:
-        - statistics (detailed analysis metrics)
+    Autocrine loops:
+        Autocrine signaling occurs when source == target cell type.
+        Automatically detected for cluster-based methods (LIANA cluster,
+        CellPhoneDB, CellChat R, FastCCC). Not supported for spatial analysis.
     """
 
     data_id: str
-    method: str
+    method: str  # "liana", "cellphonedb", "cellchat_r", "fastccc"
     species: str
     database: str
-    n_lr_pairs: int  # Total number of LR pairs tested
-    n_significant_pairs: int  # Number of significant LR pairs
+    analysis_type: str  # "cluster" or "spatial"
 
-    # Global analysis results
-    global_results_key: Optional[str] = (
-        None  # Key in adata.uns where global results are stored
-    )
-    top_lr_pairs: list[str] = Field(default_factory=list)  # Top significant LR pairs
+    # LR pairs summary
+    n_lr_pairs: int  # Total LR pairs tested
+    n_significant_pairs: int  # Significant LR pairs
+    top_lr_pairs: list[str] = Field(default_factory=list)  # Format: "LIGAND_RECEPTOR"
 
-    # Local analysis results (if performed)
-    local_analysis_performed: bool = False
-    local_results_key: Optional[str] = (
-        None  # Key in adata.uns where local results are stored
-    )
-    communication_matrices_key: Optional[str] = (
-        None  # Key in adata.obsp where communication matrices are stored
-    )
+    # Autocrine analysis (source == target)
+    n_autocrine_loops: int = 0
+    top_autocrine_loops: list[str] = Field(default_factory=list)
 
-    # LIANA+ specific results
-    liana_results_key: Optional[str] = (
-        None  # Key in adata.uns for LIANA cluster results
-    )
-    liana_spatial_results_key: Optional[str] = (
-        None  # Key in adata.uns for LIANA spatial results
-    )
-    liana_spatial_scores_key: Optional[str] = (
-        None  # Key in adata.obsm for spatial scores
-    )
-    analysis_type: Optional[str] = (
-        None  # Type of LIANA analysis: 'cluster' or 'spatial'
-    )
-
-    # Communication patterns (if identified)
-    patterns_identified: bool = False
-    n_patterns: Optional[int] = None
-    patterns_key: Optional[str] = (
-        None  # Key in adata.obs where communication patterns are stored
-    )
+    # Storage key (unified location)
+    results_key: str = "ccc"  # adata.uns["ccc"]
 
     # Detailed statistics - excluded from MCP response
     statistics: dict[str, Any] = Field(
         default_factory=dict,
-        exclude=True,  # Exclude from JSON serialization to LLM
+        exclude=True,
     )
 
 

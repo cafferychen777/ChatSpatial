@@ -342,7 +342,7 @@ class VisualizationParameters(BaseModel):
     # - feature: spatial/UMAP feature visualization (basis='spatial'|'umap')
     # - expression: heatmap/violin/dotplot/correlation (subtype='heatmap'|'violin'|'dotplot'|'correlation')
     # - deconvolution: cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'imputation')
-    # - communication: cell-cell communication (subtype='heatmap'|'chord'|'network'|'dotplot')
+    # - communication: cell-cell communication (subtype='dotplot'|'tileplot'|'circle_plot')
     # - interaction: spatial ligand-receptor pairs
     # - trajectory: pseudotime/fate analysis (subtype='pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir')
     # - velocity: RNA velocity (subtype='stream'|'phase'|'proportions'|'heatmap'|'paga')
@@ -372,7 +372,7 @@ class VisualizationParameters(BaseModel):
             "Visualization subtype. Options by plot_type:\n"
             "- expression: 'heatmap'|'violin'|'dotplot'|'correlation'\n"
             "- deconvolution: 'spatial_multi'|'pie'|'dominant'|'diversity'|'umap'|'imputation'\n"
-            "- communication: 'heatmap'|'chord'|'dotplot'|'tileplot'|'circle_plot'\n"
+            "- communication: 'dotplot'|'tileplot'|'circle_plot'\n"
             "- trajectory: 'pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir'\n"
             "- velocity: 'stream'|'phase'|'proportions'|'heatmap'|'paga'\n"
             "- statistics: 'neighborhood'|'co_occurrence'|'ripley'|'moran'|'centrality'|'getis_ord' (required)\n"

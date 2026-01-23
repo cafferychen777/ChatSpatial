@@ -7,7 +7,7 @@ This module contains:
 - Common visualization helpers
 """
 
-from typing import TYPE_CHECKING, NamedTuple, Optional
+from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 import anndata as ad
 import matplotlib
@@ -258,27 +258,32 @@ class DeconvolutionData(NamedTuple):
 class CellCommunicationData(NamedTuple):
     """Unified representation of cell communication analysis results.
 
+    All visualization data comes from CCCStorage (single source of truth).
+    Visualization functions should only read from this object, never from adata.uns directly.
+
     Attributes:
         results: Main results DataFrame (format varies by method)
-        method: Analysis method name ("liana_cluster", "liana_spatial", "cellphonedb")
+        method: Analysis method ("liana", "cellphonedb", "fastccc", "cellchat_r")
         analysis_type: Type of analysis ("cluster" or "spatial")
-        lr_pairs: List of ligand-receptor pair names
+        lr_pairs: List of ligand-receptor pair names (standardized: LIGAND_RECEPTOR)
+        pvalues: P-values DataFrame/array (method-specific format)
         spatial_scores: Spatial communication scores array (n_spots x n_pairs)
-        spatial_pvals: P-values for spatial scores (optional)
+        spatial_pvals: P-values for spatial scores (LIANA spatial only)
         source_labels: List of source cell type labels
         target_labels: List of target cell type labels
-        results_key: Key in adata.uns where results are stored
+        method_data: Method-specific additional data (e.g., deconvoluted for CellPhoneDB)
     """
 
     results: pd.DataFrame
     method: str
     analysis_type: str  # "cluster" or "spatial"
     lr_pairs: list[str]
+    pvalues: Optional[pd.DataFrame] = None
     spatial_scores: Optional[np.ndarray] = None
     spatial_pvals: Optional[np.ndarray] = None
     source_labels: Optional[list[str]] = None
     target_labels: Optional[list[str]] = None
-    results_key: str = ""
+    method_data: Optional[dict[str, Any]] = None
 
 
 # =============================================================================

@@ -1,11 +1,42 @@
 """
 Cell-cell communication analysis tools for spatial transcriptomics data.
+
+Architecture:
+    All CCC results are stored in a unified structure at adata.uns["ccc"].
+    This ensures consistency across methods and simplifies visualization.
+
+Storage Structure:
+    adata.uns["ccc"] = {
+        "method": str,           # "liana", "cellphonedb", "cellchat_r", "fastccc"
+        "analysis_type": str,    # "cluster" or "spatial"
+        "species": str,          # "human", "mouse", "zebrafish"
+        "database": str,         # Resource/database used
+        "lr_pairs": list[str],   # Standardized format: "LIGAND_RECEPTOR"
+        "top_lr_pairs": list[str],
+        "n_pairs": int,
+        "n_significant": int,
+        "results": DataFrame,    # Main results (standardized)
+        "pvalues": DataFrame,    # P-values (optional)
+        "autocrine": {           # Autocrine loop detection results
+            "n_loops": int,
+            "top_pairs": list[str],
+            "results": DataFrame | None,
+        },
+        "statistics": dict,      # Method-specific statistics
+        "method_data": dict,     # Method-specific raw data
+    }
+
+    For spatial analysis, additional data in adata.obsm:
+        "ccc_spatial_scores": ndarray  # (n_spots, n_pairs)
+        "ccc_spatial_pvals": ndarray   # (n_spots, n_pairs) optional
 """
 
 from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
+import pandas as pd
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -23,12 +54,158 @@ from ..utils.exceptions import (
 )
 
 
+# =============================================================================
+# Unified CCC Storage Structure
+# =============================================================================
+
+# Storage keys (single source of truth)
+CCC_UNS_KEY = "ccc"  # Main storage in adata.uns
+CCC_SPATIAL_SCORES_KEY = "ccc_spatial_scores"  # Spatial scores in adata.obsm
+CCC_SPATIAL_PVALS_KEY = "ccc_spatial_pvals"  # Spatial p-values in adata.obsm
+
+
+@dataclass
+class CCCAutocrine:
+    """Autocrine loop detection results."""
+
+    n_loops: int = 0
+    top_pairs: list[str] = field(default_factory=list)
+    results: Optional[pd.DataFrame] = None
+
+
+@dataclass
+class CCCStorage:
+    """Unified storage structure for cell-cell communication results.
+
+    This dataclass defines the canonical structure for all CCC results,
+    regardless of the analysis method used. It ensures consistency across
+    LIANA, CellPhoneDB, CellChat R, and FastCCC.
+
+    All LR pairs are stored in standardized format: "LIGAND_RECEPTOR"
+    """
+
+    # === Core metadata ===
+    method: str  # "liana", "cellphonedb", "cellchat_r", "fastccc"
+    analysis_type: str  # "cluster" or "spatial"
+    species: str  # "human", "mouse", "zebrafish"
+    database: str  # Resource/database used
+
+    # === Standardized LR pairs (format: "LIGAND_RECEPTOR") ===
+    lr_pairs: list[str] = field(default_factory=list)
+    top_lr_pairs: list[str] = field(default_factory=list)
+    n_pairs: int = 0
+    n_significant: int = 0
+
+    # === Results (standardized DataFrames) ===
+    results: Optional[pd.DataFrame] = None  # Main results
+    pvalues: Optional[pd.DataFrame] = None  # P-values matrix
+
+    # === Autocrine analysis ===
+    autocrine: CCCAutocrine = field(default_factory=CCCAutocrine)
+
+    # === Statistics and method-specific data ===
+    statistics: dict = field(default_factory=dict)
+    method_data: dict = field(default_factory=dict)  # Raw method-specific data
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for storage in adata.uns."""
+        return {
+            "method": self.method,
+            "analysis_type": self.analysis_type,
+            "species": self.species,
+            "database": self.database,
+            "lr_pairs": self.lr_pairs,
+            "top_lr_pairs": self.top_lr_pairs,
+            "n_pairs": self.n_pairs,
+            "n_significant": self.n_significant,
+            "results": self.results,
+            "pvalues": self.pvalues,
+            "autocrine": {
+                "n_loops": self.autocrine.n_loops,
+                "top_pairs": self.autocrine.top_pairs,
+                "results": self.autocrine.results,
+            },
+            "statistics": self.statistics,
+            "method_data": self.method_data,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CCCStorage":
+        """Create from dictionary stored in adata.uns."""
+        autocrine_data = data.get("autocrine", {})
+        return cls(
+            method=data["method"],
+            analysis_type=data["analysis_type"],
+            species=data["species"],
+            database=data["database"],
+            lr_pairs=data.get("lr_pairs", []),
+            top_lr_pairs=data.get("top_lr_pairs", []),
+            n_pairs=data.get("n_pairs", 0),
+            n_significant=data.get("n_significant", 0),
+            results=data.get("results"),
+            pvalues=data.get("pvalues"),
+            autocrine=CCCAutocrine(
+                n_loops=autocrine_data.get("n_loops", 0),
+                top_pairs=autocrine_data.get("top_pairs", []),
+                results=autocrine_data.get("results"),
+            ),
+            statistics=data.get("statistics", {}),
+            method_data=data.get("method_data", {}),
+        )
+
+
+def standardize_lr_pair(pair_str: str) -> str:
+    """Standardize LR pair format to 'LIGAND_RECEPTOR'.
+
+    Handles various input formats:
+    - 'LIGAND^RECEPTOR' -> 'LIGAND_RECEPTOR'
+    - 'LIGAND_RECEPTOR' -> 'LIGAND_RECEPTOR' (no change)
+    - 'ligand-receptor' -> 'LIGAND_RECEPTOR'
+    """
+    # Replace common separators with underscore
+    standardized = pair_str.replace("^", "_").replace("-", "_")
+    # Don't uppercase - preserve original gene names
+    return standardized
+
+
+def store_ccc_results(adata: Any, storage: CCCStorage) -> None:
+    """Store CCC results in unified structure.
+
+    Args:
+        adata: AnnData object
+        storage: CCCStorage dataclass with results
+    """
+    adata.uns[CCC_UNS_KEY] = storage.to_dict()
+
+
+def get_ccc_results(adata: Any) -> Optional[CCCStorage]:
+    """Retrieve CCC results from unified structure.
+
+    Args:
+        adata: AnnData object
+
+    Returns:
+        CCCStorage if results exist, None otherwise
+    """
+    if CCC_UNS_KEY not in adata.uns:
+        return None
+    return CCCStorage.from_dict(adata.uns[CCC_UNS_KEY])
+
+
+def has_ccc_results(adata: Any) -> bool:
+    """Check if CCC results exist."""
+    return CCC_UNS_KEY in adata.uns
+
+
 async def analyze_cell_communication(
     data_id: str,
     ctx: "ToolContext",
     params: CellCommunicationParameters,  # No default - must be provided by caller (LLM)
 ) -> CellCommunicationResult:
-    """Analyze cell-cell communication in spatial transcriptomics data
+    """Analyze cell-cell communication in spatial transcriptomics data.
+
+    All results are stored in a unified structure at adata.uns["ccc"].
+    See module docstring for storage structure details.
 
     Args:
         data_id: Dataset ID
@@ -36,263 +213,264 @@ async def analyze_cell_communication(
         params: Cell communication analysis parameters
 
     Returns:
-        Cell communication analysis result
+        CellCommunicationResult with analysis summary
     """
-    # Get data via ToolContext
     adata = await ctx.get_adata(data_id)
 
     try:
-        # Apply method-specific validation
-        if params.method == "liana":
-            # Spatial connectivity validation for LIANA+ bivariate analysis
-            if (
-                params.perform_spatial_analysis
-                and "spatial_connectivities" not in adata.obsp
-            ):
-                raise DataNotFoundError(
-                    "Spatial connectivity required. "
-                    "Run sq.gr.spatial_neighbors() first."
-                )
-            validate_obs_column(adata, params.cell_type_key, "Cell type")
-            if params.species == "mouse" and params.liana_resource == "consensus":
-                await ctx.warning(
-                    "Using 'consensus' for mouse data. "
-                    "Consider liana_resource='mouseconsensus'."
-                )
+        # === Method-specific validation ===
+        await _validate_ccc_params(adata, params, ctx)
 
-        elif params.method == "cellphonedb":
-            # Check if cell type column exists
-            validate_obs_column(adata, params.cell_type_key, "Cell type")
+        # === Run analysis (returns CCCStorage) ===
+        storage = await _run_ccc_analysis(adata, params, ctx)
 
-            # Check for low counts using get_raw_data_source (single source of truth)
-            raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
-            n_genes = len(raw_result.var_names)
-            if n_genes < 5000:
-                await ctx.warning(
-                    f"Gene count ({n_genes}) is relatively low. "
-                    f"This may limit the number of interactions found."
-                )
+        # === Extract autocrine loops and integrate into storage ===
+        _integrate_autocrine_detection(storage, params.plot_top_pairs)
 
-            if adata.n_obs < 100:
-                await ctx.warning(
-                    f"Cell count ({adata.n_obs}) is relatively low. "
-                    f"This may affect statistical power."
-                )
+        # === Store results in unified structure ===
+        store_ccc_results(adata, storage)
 
-        # Note: LIANA internally handles use_raw parameter automatically
-        # No need for manual data_source switching - consistent with other tools
+        # === Store spatial data in obsm if applicable ===
+        if (
+            storage.analysis_type == "spatial"
+            and "spatial_scores" in storage.method_data
+        ):
+            adata.obsm[CCC_SPATIAL_SCORES_KEY] = storage.method_data["spatial_scores"]
+            if "spatial_pvals" in storage.method_data:
+                adata.obsm[CCC_SPATIAL_PVALS_KEY] = storage.method_data["spatial_pvals"]
 
-        # Analyze cell communication using selected method
-        if params.method == "liana":
-            require("liana", ctx, feature="LIANA+ cell communication analysis")
-            result_data = await _analyze_communication_liana(adata, params, ctx)
-
-        elif params.method == "cellphonedb":
-            require(
-                "cellphonedb", ctx, feature="CellPhoneDB cell communication analysis"
-            )
-            result_data = await _analyze_communication_cellphonedb(adata, params, ctx)
-
-        elif params.method == "cellchat_r":
-            validate_r_package(
-                "CellChat",
-                ctx,
-                install_cmd="devtools::install_github('jinworks/CellChat')",
-            )
-            result_data = _analyze_communication_cellchat_r(adata, params, ctx)
-
-        elif params.method == "fastccc":
-            require("fastccc", ctx, feature="FastCCC cell communication analysis")
-            result_data = await _analyze_communication_fastccc(adata, params, ctx)
-
-        else:
-            raise ParameterError(
-                f"Unsupported method: {params.method}. "
-                f"Supported methods: 'liana', 'cellphonedb', 'cellchat_r', 'fastccc'"
-            )
-
-        # Note: Results are already stored in adata.uns by the analysis methods
-        # Since ctx.get_adata() returns a reference to the stored object,
-        # modifications to adata.uns are automatically persisted
-
-        # Store scientific metadata for reproducibility
+        # === Store scientific metadata for reproducibility ===
         from ..utils.adata_utils import store_analysis_metadata
         from ..utils.results_export import export_analysis_result
 
-        # Determine database used
-        database: str  # Explicit type to allow dynamic strings
-        if params.method == "liana":
-            database = params.liana_resource
-        elif params.method == "cellphonedb":
-            database = "cellphonedb"
-        elif params.method == "cellchat_liana":
-            database = (
-                "cellchatdb"  # Match actual LIANA resource name used in implementation
-            )
-        elif params.method == "cellchat_r":
-            database = f"CellChatDB.{params.species}"  # Native R CellChat database
-        elif params.method == "fastccc":
-            database = "fastccc_builtin"  # FastCCC built-in LR database
-        else:
-            database = "unknown"
+        results_keys: dict[str, list[str]] = {
+            "obs": [],
+            "obsm": (
+                [CCC_SPATIAL_SCORES_KEY] if storage.analysis_type == "spatial" else []
+            ),
+            "uns": [CCC_UNS_KEY],
+        }
 
-        # Extract results keys
-        results_keys_dict: dict[str, list[str]] = {"obs": [], "obsm": [], "uns": []}
-
-        # LIANA keys
-        if result_data.get("liana_results_key"):
-            results_keys_dict["uns"].append(result_data["liana_results_key"])
-        if result_data.get("liana_spatial_results_key"):
-            results_keys_dict["uns"].append(result_data["liana_spatial_results_key"])
-        if result_data.get("liana_spatial_scores_key"):
-            results_keys_dict["obsm"].append(result_data["liana_spatial_scores_key"])
-
-        # CellPhoneDB keys
-        if result_data.get("cellphonedb_results_key"):
-            results_keys_dict["uns"].append(result_data["cellphonedb_results_key"])
-        if result_data.get("cellphonedb_pvalues_key"):
-            results_keys_dict["uns"].append(result_data["cellphonedb_pvalues_key"])
-        if result_data.get("cellphonedb_significant_key"):
-            results_keys_dict["uns"].append(result_data["cellphonedb_significant_key"])
-
-        # CellChat R keys
-        if result_data.get("cellchat_r_results_key"):
-            results_keys_dict["uns"].append(result_data["cellchat_r_results_key"])
-        if result_data.get("cellchat_r_prob_key"):
-            results_keys_dict["uns"].append(result_data["cellchat_r_prob_key"])
-        if result_data.get("cellchat_r_pval_key"):
-            results_keys_dict["uns"].append(result_data["cellchat_r_pval_key"])
-
-        # FastCCC keys
-        if result_data.get("fastccc_results_key"):
-            results_keys_dict["uns"].append(result_data["fastccc_results_key"])
-        if result_data.get("fastccc_pvalues_key"):
-            results_keys_dict["uns"].append(result_data["fastccc_pvalues_key"])
-
-        # Store metadata
         store_analysis_metadata(
             adata,
             analysis_name=f"cell_communication_{params.method}",
             method=params.method,
             parameters={
                 "cell_type_key": params.cell_type_key,
-                "n_perms": (params.liana_n_perms if params.method == "liana" else None),
-                "nz_prop": (params.liana_nz_prop if params.method == "liana" else None),
                 "min_cells": params.min_cells,
-                "iterations": (
-                    params.cellphonedb_iterations
-                    if params.method == "cellphonedb"
-                    else None
-                ),
-                "threshold": (
-                    params.cellphonedb_threshold
-                    if params.method == "cellphonedb"
-                    else None
-                ),
             },
-            results_keys=results_keys_dict,
+            results_keys=results_keys,
             statistics={
-                "n_lr_pairs": result_data["n_lr_pairs"],
-                "n_significant_pairs": result_data["n_significant_pairs"],
-                "analysis_type": result_data.get("analysis_type"),
+                "n_lr_pairs": storage.n_pairs,
+                "n_significant_pairs": storage.n_significant,
+                "analysis_type": storage.analysis_type,
             },
             species=params.species,
-            database=database,
+            database=storage.database,
         )
 
-        # Export results to CSV for reproducibility
         export_analysis_result(adata, data_id, f"cell_communication_{params.method}")
 
-        # Create result
-        result = CellCommunicationResult(
+        # === Create MCP response ===
+        return CellCommunicationResult(
             data_id=data_id,
-            method=params.method,
-            species=params.species,
-            database=database,  # Use actual database/resource determined above
-            n_lr_pairs=result_data["n_lr_pairs"],
-            n_significant_pairs=result_data["n_significant_pairs"],
-            global_results_key=result_data.get("global_results_key"),
-            top_lr_pairs=result_data.get("top_lr_pairs", []),
-            local_analysis_performed=result_data.get("local_analysis_performed", False),
-            local_results_key=result_data.get("local_results_key"),
-            communication_matrices_key=result_data.get("communication_matrices_key"),
-            liana_results_key=result_data.get("liana_results_key"),
-            liana_spatial_results_key=result_data.get("liana_spatial_results_key"),
-            liana_spatial_scores_key=result_data.get("liana_spatial_scores_key"),
-            analysis_type=result_data.get("analysis_type"),
-            patterns_identified=result_data.get("patterns_identified", False),
-            n_patterns=result_data.get("n_patterns"),
-            patterns_key=result_data.get("patterns_key"),
-            statistics=result_data.get("statistics", {}),
+            method=storage.method,
+            species=storage.species,
+            database=storage.database,
+            analysis_type=storage.analysis_type,
+            n_lr_pairs=storage.n_pairs,
+            n_significant_pairs=storage.n_significant,
+            top_lr_pairs=storage.top_lr_pairs,
+            n_autocrine_loops=storage.autocrine.n_loops,
+            top_autocrine_loops=storage.autocrine.top_pairs,
+            results_key=CCC_UNS_KEY,
+            statistics=storage.statistics,
         )
-
-        return result
 
     except Exception as e:
         raise ProcessingError(f"Error in cell communication analysis: {e}") from e
 
 
+async def _validate_ccc_params(
+    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
+) -> None:
+    """Validate CCC parameters before analysis."""
+    if params.method == "liana":
+        if (
+            params.perform_spatial_analysis
+            and "spatial_connectivities" not in adata.obsp
+        ):
+            raise DataNotFoundError(
+                "Spatial connectivity required. Run sq.gr.spatial_neighbors() first."
+            )
+        validate_obs_column(adata, params.cell_type_key, "Cell type")
+        if params.species == "mouse" and params.liana_resource == "consensus":
+            await ctx.warning(
+                "Using 'consensus' for mouse data. Consider liana_resource='mouseconsensus'."
+            )
+
+    elif params.method == "cellphonedb":
+        validate_obs_column(adata, params.cell_type_key, "Cell type")
+        raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
+        if len(raw_result.var_names) < 5000:
+            await ctx.warning(
+                f"Gene count ({len(raw_result.var_names)}) is relatively low. "
+                "This may limit the number of interactions found."
+            )
+        if adata.n_obs < 100:
+            await ctx.warning(
+                f"Cell count ({adata.n_obs}) is relatively low. "
+                "This may affect statistical power."
+            )
+
+    elif params.method in ("cellchat_r", "fastccc"):
+        validate_obs_column(adata, params.cell_type_key, "Cell type")
+
+
+async def _run_ccc_analysis(
+    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
+) -> CCCStorage:
+    """Run CCC analysis and return unified storage structure."""
+    if params.method == "liana":
+        require("liana", ctx, feature="LIANA+ cell communication analysis")
+        return await _analyze_communication_liana(adata, params, ctx)
+
+    elif params.method == "cellphonedb":
+        require("cellphonedb", ctx, feature="CellPhoneDB cell communication analysis")
+        return await _analyze_communication_cellphonedb(adata, params, ctx)
+
+    elif params.method == "cellchat_r":
+        validate_r_package(
+            "CellChat", ctx, install_cmd="devtools::install_github('jinworks/CellChat')"
+        )
+        return _analyze_communication_cellchat_r(adata, params, ctx)
+
+    elif params.method == "fastccc":
+        require("fastccc", ctx, feature="FastCCC cell communication analysis")
+        return await _analyze_communication_fastccc(adata, params, ctx)
+
+    else:
+        raise ParameterError(
+            f"Unsupported method: {params.method}. "
+            "Supported methods: 'liana', 'cellphonedb', 'cellchat_r', 'fastccc'"
+        )
+
+
+def _integrate_autocrine_detection(storage: CCCStorage, n_top: int) -> None:
+    """Extract autocrine loops and integrate into CCCStorage.
+
+    Autocrine signaling: source == target cell type.
+    This is integrated directly into the storage structure.
+    """
+    if storage.analysis_type == "spatial":
+        # Spatial analysis doesn't have cell type pairs
+        return
+
+    if storage.results is None or len(storage.results) == 0:
+        return
+
+    results = storage.results
+
+    # Method-specific autocrine extraction
+    if storage.method == "liana" and "source" in results.columns:
+        # LIANA cluster: direct source == target filter
+        autocrine_df = results[results["source"] == results["target"]].copy()
+        if len(autocrine_df) > 0:
+            autocrine_df["lr_pair"] = (
+                autocrine_df["ligand_complex"] + "_" + autocrine_df["receptor_complex"]
+            )
+            if "magnitude_rank" in autocrine_df.columns:
+                autocrine_df = autocrine_df.nsmallest(n_top, "magnitude_rank")
+            storage.autocrine = CCCAutocrine(
+                n_loops=len(autocrine_df["lr_pair"].unique()),
+                top_pairs=autocrine_df["lr_pair"].head(n_top).tolist(),
+                results=autocrine_df,
+            )
+
+    elif storage.method in ("cellphonedb", "fastccc"):
+        # Matrix format: columns are "celltype1|celltype2"
+        autocrine_cols = [
+            col
+            for col in results.columns
+            if "|" in str(col) and str(col).split("|")[0] == str(col).split("|")[1]
+        ]
+        if autocrine_cols:
+            # Filter rows with any autocrine interaction
+            numeric_cols = (
+                results[autocrine_cols].select_dtypes(include=[np.number]).columns
+            )
+            if len(numeric_cols) > 0:
+                mask = (results[numeric_cols] > 0).any(axis=1)
+                autocrine_df = results[mask].copy()
+                if len(autocrine_df) > 0:
+                    lr_pairs = autocrine_df.index.tolist()[:n_top]
+                    storage.autocrine = CCCAutocrine(
+                        n_loops=len(autocrine_df),
+                        top_pairs=[standardize_lr_pair(p) for p in lr_pairs],
+                        results=autocrine_df,
+                    )
+
+    elif storage.method == "cellchat_r" and "prob_matrix" in storage.method_data:
+        # CellChat: extract diagonal from 3D probability matrix
+        prob_matrix = storage.method_data["prob_matrix"]
+        if prob_matrix is not None and len(prob_matrix.shape) == 3:
+            n_cell_types = prob_matrix.shape[0]
+            # Sum diagonal probabilities
+            autocrine_probs = np.sum(
+                [prob_matrix[i, i, :] for i in range(n_cell_types)], axis=0
+            )
+            autocrine_mask = autocrine_probs > 0
+            if autocrine_mask.any() and "interaction_name" in results.columns:
+                autocrine_pairs = results[autocrine_mask]["interaction_name"].tolist()
+                storage.autocrine = CCCAutocrine(
+                    n_loops=len(autocrine_pairs),
+                    top_pairs=[standardize_lr_pair(p) for p in autocrine_pairs[:n_top]],
+                    results=None,  # Raw matrix format, not DataFrame
+                )
+
+
 async def _analyze_communication_liana(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> dict[str, Any]:
-    """Analyze cell communication using LIANA+"""
-    # Use centralized dependency manager for consistent error handling
-    require("liana")  # Raises ImportError with install instructions if missing
+) -> CCCStorage:
+    """Analyze cell communication using LIANA+.
+
+    Returns:
+        CCCStorage with unified results structure
+    """
+    require("liana")
     import liana as li  # noqa: F401
 
     try:
-        # Ensure spatial connectivity is computed
-        if "spatial_connectivities" not in adata.obsp:
-            # Use parameters from user or determine optimal bandwidth based on data size
-            if params.liana_bandwidth is not None:
-                bandwidth = params.liana_bandwidth
-            elif adata.n_obs > 3000:
-                bandwidth = 300  # Larger bandwidth for large datasets
-            else:
-                bandwidth = 200  # Standard bandwidth
-
-            # Use Squidpy for spatial neighbor computation
-            # Note: Spatial analysis requires spatial neighbors (physical coordinates), not expression neighbors
-            # Use centralized dependency manager for consistent error handling
-            require(
-                "squidpy"
-            )  # Raises ImportError with install instructions if missing
+        # Ensure spatial connectivity is computed for spatial analysis
+        if (
+            params.perform_spatial_analysis
+            and "spatial_connectivities" not in adata.obsp
+        ):
+            bandwidth = params.liana_bandwidth or (300 if adata.n_obs > 3000 else 200)
+            require("squidpy")
             import squidpy as sq
 
-            # Squidpy's spatial_neighbors uses PHYSICAL coordinates
             sq.gr.spatial_neighbors(
                 adata,
                 coord_type="generic",
-                n_neighs=min(30, max(6, adata.n_obs // 100)),  # Adaptive neighbor count
-                radius=bandwidth if bandwidth else None,
-                delaunay=True,  # Use Delaunay triangulation for spatial data
-                set_diag=False,  # Standard practice for spatial graphs
+                n_neighs=min(30, max(6, adata.n_obs // 100)),
+                radius=bandwidth,
+                delaunay=True,
+                set_diag=False,
             )
 
-        # Validate species parameter is specified
         if not params.species:
             raise ParameterError(
-                "Species parameter is required!\n\n"
-                "You must explicitly specify the species of your data:\n"
-                "  - species='human': For human data (genes like ACTB, GAPDH)\n"
-                "  - species='mouse': For mouse data (genes like Actb, Gapdh)\n"
-                "  - species='zebrafish': For zebrafish data\n\n"
-                "Example usage:\n"
-                "  params = {\n"
-                "      'species': 'mouse',\n"
-                "      'cell_type_key': 'cell_type',\n"
-                "      'liana_resource': 'mouseconsensus'\n"
-                "  }"
+                "Species parameter is required! "
+                "Specify species='human', 'mouse', or 'zebrafish'."
             )
 
-        # Determine analysis type based on data characteristics
+        # Determine analysis type
         has_clusters = params.cell_type_key in adata.obs.columns
 
         if has_clusters and not params.perform_spatial_analysis:
-            # Single-cell style analysis with clusters
             return _run_liana_cluster_analysis(adata, params, ctx)
         else:
-            # Spatial bivariate analysis
             return _run_liana_spatial_analysis(adata, params, ctx)
 
     except Exception as e:
@@ -321,22 +499,21 @@ def _get_liana_resource_name(species: str, resource_preference: str) -> str:
 
 def _run_liana_cluster_analysis(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> dict[str, Any]:
-    """Run LIANA+ cluster-based analysis"""
+) -> CCCStorage:
+    """Run LIANA+ cluster-based analysis.
+
+    Returns:
+        CCCStorage with unified results structure
+    """
     import liana as li
 
-    # Use cell_type_key from params (required field, no auto-detect)
     groupby_col = params.cell_type_key
-
     validate_obs_column(adata, groupby_col, "Cell type")
 
-    # Get appropriate resource name based on species
     resource_name = _get_liana_resource_name(params.species, params.liana_resource)
-
-    # Use parameters from user (respect user choice)
     n_perms = params.liana_n_perms
 
-    # Use get_raw_data_source (single source of truth) to check for raw data
+    # Check for raw data
     raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
     use_raw = raw_result.source == "raw"
 
@@ -352,76 +529,76 @@ def _run_liana_cluster_analysis(
         use_raw=use_raw,
     )
 
-    # Get results
+    # Get results from LIANA's storage location
     liana_res = adata.uns["liana_res"]
-
-    # Calculate statistics using magnitude_rank (signal strength)
-    # NOT specificity_rank (which has non-uniform distribution)
     n_lr_pairs = len(liana_res)
-    # Use configurable significance threshold (default: 0.05)
+
+    # Calculate significance
     significance_alpha = params.liana_significance_alpha
-    n_significant_pairs = len(
-        liana_res[liana_res["magnitude_rank"] <= significance_alpha]
+    n_significant = len(liana_res[liana_res["magnitude_rank"] <= significance_alpha])
+
+    # Extract top LR pairs (standardized format: LIGAND_RECEPTOR)
+    lr_pairs: list[str] = []
+    top_lr_pairs: list[str] = []
+
+    if "magnitude_rank" in liana_res.columns and len(liana_res) > 0:
+        # All LR pairs
+        lr_pairs = [
+            f"{row['ligand_complex']}_{row['receptor_complex']}"
+            for _, row in liana_res.iterrows()
+        ]
+        # Top pairs by magnitude rank
+        top_df = liana_res.nsmallest(params.plot_top_pairs, "magnitude_rank")
+        top_lr_pairs = [
+            f"{row['ligand_complex']}_{row['receptor_complex']}"
+            for _, row in top_df.iterrows()
+        ]
+
+    # Build unified storage structure
+    return CCCStorage(
+        method="liana",
+        analysis_type="cluster",
+        species=params.species,
+        database=resource_name,
+        lr_pairs=lr_pairs,
+        top_lr_pairs=top_lr_pairs,
+        n_pairs=n_lr_pairs,
+        n_significant=n_significant,
+        results=liana_res,
+        pvalues=None,  # P-values embedded in results DataFrame (magnitude_rank column)
+        statistics={
+            "groupby": groupby_col,
+            "n_permutations": n_perms,
+            "significance_threshold": significance_alpha,
+            "use_raw": use_raw,
+        },
+        method_data={},  # All data in results field
     )
-
-    # Get top pairs using vectorized operations (faster than iterrows)
-    top_lr_pairs = []
-    detected_lr_pairs = []
-    if "magnitude_rank" in liana_res.columns:
-        top_pairs_df = liana_res.nsmallest(params.plot_top_pairs, "magnitude_rank")
-        # Vectorized string concatenation
-        ligands = top_pairs_df["ligand_complex"].values
-        receptors = top_pairs_df["receptor_complex"].values
-        top_lr_pairs = [f"{lig}_{rec}" for lig, rec in zip(ligands, receptors)]
-        detected_lr_pairs = list(zip(ligands, receptors))
-
-    # Store in standardized format for visualization
-    adata.uns["detected_lr_pairs"] = detected_lr_pairs
-    adata.uns["cell_communication_results"] = {
-        "top_lr_pairs": top_lr_pairs,
-        "method": "liana_cluster",
-        "n_pairs": len(top_lr_pairs),
-        "species": params.species,
-    }
-
-    statistics = {
-        "method": "liana_cluster",
-        "groupby": groupby_col,
-        "n_lr_pairs_tested": n_lr_pairs,
-        "n_permutations": n_perms,
-        "significance_threshold": significance_alpha,
-        "resource": params.liana_resource,
-    }
-
-    return {
-        "n_lr_pairs": n_lr_pairs,
-        "n_significant_pairs": n_significant_pairs,
-        "top_lr_pairs": top_lr_pairs,
-        "liana_results_key": "liana_res",  # Key name for CSV export (DataFrame not serialized in MCP response)
-        "analysis_type": "cluster",
-        "statistics": statistics,
-    }
 
 
 def _run_liana_spatial_analysis(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> dict[str, Any]:
-    """Run LIANA+ spatial bivariate analysis"""
+) -> CCCStorage:
+    """Run LIANA+ spatial bivariate analysis.
+
+    Returns:
+        CCCStorage with unified results structure
+    """
     import liana as li
+    from statsmodels.stats.multitest import multipletests
 
-    # Get appropriate resource name based on species
     resource_name = _get_liana_resource_name(params.species, params.liana_resource)
-
-    # Use parameters from user (respect user choice)
     n_perms = params.liana_n_perms
     nz_prop = params.liana_nz_prop
+    global_metric = params.liana_global_metric
+    alpha = params.liana_significance_alpha
 
     # Run LIANA+ bivariate analysis
     lrdata = li.mt.bivariate(
         adata,
         resource_name=resource_name,
         local_name=params.liana_local_metric,
-        global_name=params.liana_global_metric,
+        global_name=global_metric,
         n_perms=n_perms,
         mask_negatives=False,
         add_categories=True,
@@ -430,94 +607,56 @@ def _run_liana_spatial_analysis(
         verbose=False,
     )
 
-    # Get results summary
     n_lr_pairs = lrdata.n_vars
 
-    # Get top pairs based on global metric
-    global_metric = params.liana_global_metric
-    top_pairs_df = lrdata.var.nlargest(params.plot_top_pairs, global_metric)
-    top_lr_pairs = top_pairs_df.index.tolist()
-
-    # Count significant pairs using statistical significance (p-values with FDR correction)
-    #
-    # P-values are ALWAYS available because:
-    # 1. We always pass global_name (params.liana_global_metric, default: "morans")
-    # 2. We always pass n_perms > 0 (params.liana_n_perms, default: 1000, Field(gt=0))
-    # 3. LIANA computes p-values via permutation test when n_perms > 0
-    #    (see liana/method/sp/_bivariate/_global_functions.py lines 104-128)
-    from statsmodels.stats.multitest import multipletests
-
+    # FDR correction for significance
     pvals_col = f"{global_metric}_pvals"
-    alpha = params.liana_significance_alpha
     pvals = lrdata.var[pvals_col]
+    reject, pvals_corrected, _, _ = multipletests(pvals, alpha=alpha, method="fdr_bh")
+    n_significant = int(reject.sum())
 
-    reject, pvals_corrected, _, _ = multipletests(
-        pvals, alpha=alpha, method="fdr_bh"  # Benjamini-Hochberg FDR correction
-    )
-
-    n_significant_pairs = reject.sum()
-
-    # Store corrected p-values and significance flags for downstream use
+    # Store corrected p-values in results
     lrdata.var[f"{pvals_col}_corrected"] = pvals_corrected
     lrdata.var[f"{global_metric}_significant"] = reject
 
-    # Store results in adata
-    adata.uns["liana_spatial_res"] = lrdata.var
-    adata.obsm["liana_spatial_scores"] = to_dense(lrdata.X)
-    adata.uns["liana_spatial_interactions"] = lrdata.var.index.tolist()
+    # Extract LR pairs (standardized format)
+    all_lr_pairs = [standardize_lr_pair(p) for p in lrdata.var.index.tolist()]
 
-    if "pvals" in lrdata.layers:
-        adata.obsm["liana_spatial_pvals"] = to_dense(lrdata.layers["pvals"])
+    # Top pairs by global metric
+    top_df = lrdata.var.nlargest(params.plot_top_pairs, global_metric)
+    top_lr_pairs = [standardize_lr_pair(p) for p in top_df.index.tolist()]
 
-    if "cats" in lrdata.layers:
-        adata.obsm["liana_spatial_cats"] = to_dense(lrdata.layers["cats"])
+    # Prepare spatial scores for storage
+    spatial_scores = to_dense(lrdata.X)
+    spatial_pvals = (
+        to_dense(lrdata.layers["pvals"]) if "pvals" in lrdata.layers else None
+    )
 
-    # Store standardized L-R pairs for visualization
-    detected_lr_pairs = []
-    for pair_str in top_lr_pairs:
-        if "^" in pair_str:
-            ligand, receptor = pair_str.split("^", 1)
-            detected_lr_pairs.append((ligand, receptor))
-        elif "_" in pair_str:
-            parts = pair_str.split("_")
-            if len(parts) == 2:
-                detected_lr_pairs.append((parts[0], parts[1]))
-
-    # Store in standardized format for visualization
-    adata.uns["detected_lr_pairs"] = detected_lr_pairs
-    adata.uns["cell_communication_results"] = {
-        "top_lr_pairs": top_lr_pairs,
-        "method": "liana_spatial",
-        "n_pairs": len(top_lr_pairs),
-        "species": params.species,
-    }
-
-    statistics = {
-        "method": "liana_spatial",
-        "local_metric": params.liana_local_metric,
-        "global_metric": params.liana_global_metric,
-        "n_lr_pairs_tested": n_lr_pairs,
-        "n_permutations": n_perms,
-        "nz_proportion": nz_prop,
-        "resource": params.liana_resource,
-        "significance_method": (
-            "FDR-corrected p-values"
-            if pvals_col in lrdata.var.columns
-            else "threshold-based (deprecated)"
-        ),
-        "fdr_method": "Benjamini-Hochberg" if pvals_col in lrdata.var.columns else None,
-        "alpha": alpha if pvals_col in lrdata.var.columns else None,
-    }
-
-    return {
-        "n_lr_pairs": n_lr_pairs,
-        "n_significant_pairs": n_significant_pairs,
-        "top_lr_pairs": top_lr_pairs,
-        "liana_spatial_results_key": "liana_spatial_res",
-        "liana_spatial_scores_key": "liana_spatial_scores",
-        "analysis_type": "spatial",
-        "statistics": statistics,
-    }
+    # Build unified storage structure
+    return CCCStorage(
+        method="liana",
+        analysis_type="spatial",
+        species=params.species,
+        database=resource_name,
+        lr_pairs=all_lr_pairs,
+        top_lr_pairs=top_lr_pairs,
+        n_pairs=n_lr_pairs,
+        n_significant=n_significant,
+        results=lrdata.var,  # DataFrame with global metrics and p-values
+        pvalues=None,  # P-values are in results DataFrame
+        statistics={
+            "local_metric": params.liana_local_metric,
+            "global_metric": global_metric,
+            "n_permutations": n_perms,
+            "nz_proportion": nz_prop,
+            "fdr_method": "Benjamini-Hochberg",
+            "alpha": alpha,
+        },
+        method_data={
+            "spatial_scores": spatial_scores,  # Per-spot scores for adata.obsm
+            "spatial_pvals": spatial_pvals,  # Per-spot p-values for adata.obsm
+        },
+    )
 
 
 def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
@@ -569,8 +708,12 @@ def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
 
 async def _analyze_communication_cellphonedb(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> dict[str, Any]:
-    """Analyze cell communication using CellPhoneDB"""
+) -> CCCStorage:
+    """Analyze cell communication using CellPhoneDB.
+
+    Returns:
+        CCCStorage with unified results structure
+    """
     # Use centralized dependency manager for consistent error handling
     require("cellphonedb")  # Raises ImportError with install instructions if missing
     import os
@@ -724,12 +867,7 @@ async def _analyze_communication_cellphonedb(
             means = result.get("means")
             pvalues = result.get("pvalues")
             significant_means = result.get("significant_means")
-
-            # Store results in AnnData object
-            adata.uns["cellphonedb_deconvoluted"] = deconvoluted
-            adata.uns["cellphonedb_means"] = means
-            adata.uns["cellphonedb_pvalues"] = pvalues
-            adata.uns["cellphonedb_significant_means"] = significant_means
+            # Results will be stored in unified CCCStorage.method_data
 
         # Calculate statistics
         n_lr_pairs = (
@@ -817,23 +955,10 @@ async def _analyze_communication_cellphonedb(
 
         n_significant_pairs = int(np.sum(mask))
 
-        # Store minimum corrected p-values for transparency
-        # Convert Series to DataFrame for H5AD compatibility (H5AD cannot store pd.Series)
-        adata.uns["cellphonedb_pvalues_min_corrected"] = pd.DataFrame(
-            {f"min_corrected_pvalue_{correction_method}": min_pvals_corrected},
-            index=pvalues.index.astype(str),
-        )
-
-        # Update stored significant_means to match filtered results
+        # Update significant_means to match filtered results
         if n_significant_pairs > 0:
             significant_indices = means.index[mask]
-            significant_means_filtered = means.loc[significant_indices]
-
-            # Update stored significant_means
-            adata.uns["cellphonedb_significant_means"] = significant_means_filtered
-
-            # Also update the variable for downstream use
-            significant_means = significant_means_filtered
+            significant_means = means.loc[significant_indices]
         else:
             # No significant interactions found
             await ctx.warning(
@@ -870,8 +995,19 @@ async def _analyze_communication_cellphonedb(
                     (1 - n_corrected_sig / n_uncorrected_sig) * 100, 2
                 )
 
+        # Extract all LR pairs (standardized format)
+        all_lr_pairs: list[str] = []
+        if means is not None and "interacting_pair" in means.columns:
+            all_lr_pairs = [
+                standardize_lr_pair(p) for p in means["interacting_pair"].tolist()
+            ]
+        elif means is not None:
+            all_lr_pairs = [standardize_lr_pair(str(p)) for p in means.index.tolist()]
+
+        # Standardize top LR pairs
+        top_lr_standardized = [standardize_lr_pair(p) for p in top_lr_pairs]
+
         statistics = {
-            "method": "cellphonedb",
             "iterations": params.cellphonedb_iterations,
             "threshold": params.cellphonedb_threshold,
             "pvalue_threshold": params.cellphonedb_pvalue,
@@ -886,16 +1022,25 @@ async def _analyze_communication_cellphonedb(
         if correction_stats:
             statistics["correction_statistics"] = correction_stats
 
-        return {
-            "n_lr_pairs": n_lr_pairs,
-            "n_significant_pairs": n_significant_pairs,
-            "top_lr_pairs": top_lr_pairs,
-            "cellphonedb_results_key": "cellphonedb_means",
-            "cellphonedb_pvalues_key": "cellphonedb_pvalues",
-            "cellphonedb_significant_key": "cellphonedb_significant_means",
-            "analysis_type": "statistical",
-            "statistics": statistics,
-        }
+        # Build unified storage structure
+        return CCCStorage(
+            method="cellphonedb",
+            analysis_type="cluster",
+            species=params.species,
+            database="cellphonedb",
+            lr_pairs=all_lr_pairs,
+            top_lr_pairs=top_lr_standardized,
+            n_pairs=n_lr_pairs,
+            n_significant=n_significant_pairs,
+            results=means,  # Main results DataFrame
+            pvalues=pvalues,  # P-values DataFrame
+            statistics=statistics,
+            method_data={
+                "deconvoluted": deconvoluted,  # CellPhoneDB deconvoluted results
+                "significant_means": significant_means,  # Filtered significant means
+                "min_pvals_corrected": min_pvals_corrected,  # Corrected p-values
+            },
+        )
 
     except Exception as e:
         raise ProcessingError(f"CellPhoneDB analysis failed: {e}") from e
@@ -999,20 +1144,15 @@ async def _create_microenvironments_file(
 
 def _analyze_communication_cellchat_r(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> dict[str, Any]:
-    """Analyze cell communication using native R CellChat package
+) -> CCCStorage:
+    """Analyze cell communication using native R CellChat package.
 
     This implementation uses rpy2 to call the original R CellChat package,
     which includes full features like mediator proteins and signaling pathways
     that are not available in the LIANA simplified implementation.
 
-    Args:
-        adata: AnnData object with expression data
-        params: Cell communication analysis parameters
-        ctx: ToolContext for logging and data access
-
     Returns:
-        Dictionary with analysis results
+        CCCStorage with unified results structure
     """
     import pandas as pd
     import rpy2.robjects as ro
@@ -1301,73 +1441,73 @@ def _analyze_communication_cellchat_r(
             """
             )
 
-            # Convert results back to Python
+            # Convert results back to Python (force native types for h5ad compatibility)
             n_lr_pairs = int(ro.r("n_lr_pairs")[0])
             n_significant_pairs = int(ro.r("n_significant")[0])
-            top_pathways = list(ro.r("top_pathways"))
-            top_lr_pairs = list(ro.r("top_lr"))
+            # Force str() to ensure Python native strings (not rpy2 objects)
+            top_pathways = [str(x) for x in ro.r("top_pathways")]
+            top_lr_pairs = [str(x) for x in ro.r("top_lr")]
 
             # Get full results for storage
             lr_pairs_df = ro.r("as.data.frame(lr_pairs)")
-            prob_matrix = ro.r("as.matrix(net$prob)")
-            pval_matrix = ro.r("as.matrix(net$pval)")
+            # net$prob is a 3D array (n_cell_types x n_cell_types x n_lr_pairs)
+            # Don't use as.matrix() which would flatten it
+            prob_matrix = ro.r("net$prob")
+            pval_matrix = ro.r("net$pval")
+            # Get cell type names for later use
+            cell_type_names = [str(x) for x in ro.r("rownames(net$prob)")]
 
-            # Store in adata
-            adata.uns["cellchat_r_lr_pairs"] = pd.DataFrame(lr_pairs_df)
-            adata.uns["cellchat_r_prob"] = np.array(prob_matrix)
-            adata.uns["cellchat_r_pval"] = np.array(pval_matrix)
-            adata.uns["cellchat_r_top_pathways"] = top_pathways
-            adata.uns["cellchat_r_params"] = {
-                "species": params.species,
-                "db_category": params.cellchat_db_category,
-                "type": params.cellchat_type,
-                "distance_use": params.cellchat_distance_use if has_spatial else False,
-            }
-
-            # Store detected LR pairs in standardized format for visualization
-            detected_lr_pairs = []
-            for pair_str in top_lr_pairs:
-                if "_" in pair_str:
-                    parts = pair_str.split("_", 1)
-                    if len(parts) == 2:
-                        detected_lr_pairs.append((parts[0], parts[1]))
-
-            adata.uns["detected_lr_pairs"] = detected_lr_pairs
-            adata.uns["cell_communication_results"] = {
-                "top_lr_pairs": top_lr_pairs,
-                "top_pathways": top_pathways,
-                "method": "cellchat_r",
-                "n_pairs": len(top_lr_pairs),
-                "species": params.species,
-            }
+            # Convert results to Python objects with explicit type conversion
+            lr_pairs_df_py = pd.DataFrame(lr_pairs_df)
+            # Ensure all string columns are Python str (not rpy2 objects)
+            for col in lr_pairs_df_py.select_dtypes(include=["object"]).columns:
+                lr_pairs_df_py[col] = lr_pairs_df_py[col].astype(str)
+            prob_matrix_np = np.array(prob_matrix, dtype=np.float64)
+            pval_matrix_np = np.array(pval_matrix, dtype=np.float64)
 
         end_time = time.time()
         analysis_time = end_time - start_time
 
-        statistics = {
-            "method": "cellchat_r",
-            "species": params.species,
-            "db_category": params.cellchat_db_category,
-            "aggregation_type": params.cellchat_type,
-            "trim": params.cellchat_trim,
-            "population_size": params.cellchat_population_size,
-            "min_cells": params.cellchat_min_cells,
-            "spatial_mode": has_spatial and params.cellchat_distance_use,
-            "n_lr_pairs_tested": n_lr_pairs,
-            "analysis_time_seconds": analysis_time,
-            "top_pathways": top_pathways[:5] if top_pathways else [],
-        }
+        # Extract all LR pairs (standardized format)
+        all_lr_pairs: list[str] = []
+        if "interaction_name" in lr_pairs_df_py.columns:
+            all_lr_pairs = [
+                standardize_lr_pair(p)
+                for p in lr_pairs_df_py["interaction_name"].tolist()
+            ]
 
-        return {
-            "n_lr_pairs": n_lr_pairs,
-            "n_significant_pairs": n_significant_pairs,
-            "top_lr_pairs": top_lr_pairs,
-            "cellchat_r_results_key": "cellchat_r_lr_pairs",
-            "cellchat_r_prob_key": "cellchat_r_prob",
-            "cellchat_r_pval_key": "cellchat_r_pval",
-            "analysis_type": "cellchat_native",
-            "statistics": statistics,
-        }
+        # Standardize top LR pairs
+        top_lr_standardized = [standardize_lr_pair(p) for p in top_lr_pairs]
+
+        # Build unified storage structure
+        return CCCStorage(
+            method="cellchat_r",
+            analysis_type="cluster",
+            species=params.species,
+            database=f"CellChatDB.{params.species}",
+            lr_pairs=all_lr_pairs,
+            top_lr_pairs=top_lr_standardized,
+            n_pairs=n_lr_pairs,
+            n_significant=n_significant_pairs,
+            results=lr_pairs_df_py,  # LR pairs DataFrame
+            pvalues=None,  # P-values are in 3D matrix format
+            statistics={
+                "db_category": params.cellchat_db_category,
+                "aggregation_type": params.cellchat_type,
+                "trim": params.cellchat_trim,
+                "population_size": params.cellchat_population_size,
+                "min_cells": params.cellchat_min_cells,
+                "spatial_mode": has_spatial and params.cellchat_distance_use,
+                "analysis_time_seconds": analysis_time,
+                "top_pathways": top_pathways[:5] if top_pathways else [],
+            },
+            method_data={
+                "prob_matrix": prob_matrix_np,  # 3D array (sources x targets x interactions)
+                "pval_matrix": pval_matrix_np,  # 3D array (sources x targets x interactions)
+                "cell_type_names": cell_type_names,  # Cell type names for matrix axes
+                "top_pathways": top_pathways,  # Ranked pathway names
+            },
+        )
 
     except Exception as e:
         raise ProcessingError(f"CellChat R analysis failed: {e}") from e
@@ -1375,7 +1515,7 @@ def _analyze_communication_cellchat_r(
 
 async def _analyze_communication_fastccc(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
-) -> dict[str, Any]:
+) -> CCCStorage:
     """Analyze cell communication using FastCCC permutation-free framework.
 
     FastCCC uses FFT-based convolution to compute p-values analytically,
@@ -1389,7 +1529,7 @@ async def _analyze_communication_fastccc(
         ctx: ToolContext for logging and data access
 
     Returns:
-        Dictionary with analysis results
+        CCCStorage with unified results
     """
     import glob
     import os
@@ -1578,12 +1718,17 @@ async def _analyze_communication_fastccc(
         else:
             n_significant_pairs = 0
 
-        # Get top LR pairs based on interaction strength
-        top_lr_pairs = []
-        detected_lr_pairs = []
+        # Get all LR pairs and top LR pairs based on interaction strength
+        all_lr_pairs = []
+        top_lr_pairs_raw = []
         if interactions_strength is not None and hasattr(
             interactions_strength, "index"
         ):
+            # All LR pairs (standardized format)
+            all_lr_pairs = [
+                standardize_lr_pair(str(p)) for p in interactions_strength.index
+            ]
+
             # Sort by mean interaction strength across cell type pairs
             if hasattr(interactions_strength, "select_dtypes"):
                 strength_array = interactions_strength.select_dtypes(
@@ -1591,56 +1736,46 @@ async def _analyze_communication_fastccc(
                 ).values
                 mean_strength = np.nanmean(strength_array, axis=1)
                 top_indices = np.argsort(mean_strength)[::-1][: params.plot_top_pairs]
-                top_lr_pairs = [interactions_strength.index[i] for i in top_indices]
+                top_lr_pairs_raw = [interactions_strength.index[i] for i in top_indices]
 
-                # Parse LR pair names
-                for pair_str in top_lr_pairs:
-                    if "_" in pair_str:
-                        parts = pair_str.split("_", 1)
-                        if len(parts) == 2:
-                            detected_lr_pairs.append((parts[0], parts[1]))
-
-        # Store results in adata
-        adata.uns["fastccc_interactions_strength"] = interactions_strength
-        adata.uns["fastccc_pvalues"] = pvalues
-        adata.uns["fastccc_percentages"] = percentages
-
-        # Store standardized format for visualization
-        adata.uns["detected_lr_pairs"] = detected_lr_pairs
-        adata.uns["cell_communication_results"] = {
-            "top_lr_pairs": top_lr_pairs,
-            "method": "fastccc",
-            "n_pairs": len(top_lr_pairs),
-            "species": params.species,
-        }
+        # Standardize top LR pairs
+        top_lr_standardized = [standardize_lr_pair(str(p)) for p in top_lr_pairs_raw]
 
         end_time = time.time()
         analysis_time = end_time - start_time
 
-        statistics = {
-            "method": "fastccc",
-            "species": params.species,
-            "use_cauchy": params.fastccc_use_cauchy,
-            "single_unit_summary": params.fastccc_single_unit_summary,
-            "complex_aggregation": params.fastccc_complex_aggregation,
-            "lr_combination": params.fastccc_lr_combination,
-            "min_percentile": params.fastccc_min_percentile,
-            "pvalue_threshold": threshold,
-            "use_deg": params.fastccc_use_deg,
-            "n_lr_pairs_tested": n_lr_pairs,
-            "analysis_time_seconds": analysis_time,
-            "permutation_free": True,  # Key FastCCC feature
-        }
-
-        return {
-            "n_lr_pairs": n_lr_pairs,
-            "n_significant_pairs": n_significant_pairs,
-            "top_lr_pairs": top_lr_pairs,
-            "fastccc_results_key": "fastccc_interactions_strength",
-            "fastccc_pvalues_key": "fastccc_pvalues",
-            "analysis_type": "fastccc_permutation_free",
-            "statistics": statistics,
-        }
+        # Build CCCStorage
+        return CCCStorage(
+            method="fastccc",
+            analysis_type="cluster",  # FastCCC is cluster-level analysis
+            species=params.species,
+            database="CellPhoneDB_v5",
+            lr_pairs=all_lr_pairs,
+            top_lr_pairs=top_lr_standardized,
+            n_pairs=n_lr_pairs,
+            n_significant=n_significant_pairs,
+            results=interactions_strength,
+            pvalues=pvalues,
+            statistics={
+                "use_cauchy": params.fastccc_use_cauchy,
+                "single_unit_summary": params.fastccc_single_unit_summary,
+                "complex_aggregation": params.fastccc_complex_aggregation,
+                "lr_combination": params.fastccc_lr_combination,
+                "min_percentile": params.fastccc_min_percentile,
+                "pvalue_threshold": threshold,
+                "use_deg": params.fastccc_use_deg,
+                "n_lr_pairs_tested": n_lr_pairs,
+                "analysis_time_seconds": analysis_time,
+                "permutation_free": True,  # Key FastCCC feature
+            },
+            method_data={
+                "percentages": percentages,  # Expression percentages per cell type
+            },
+        )
 
     except Exception as e:
         raise ProcessingError(f"FastCCC analysis failed: {e}") from e
+
+
+# Legacy autocrine functions removed - now using _integrate_autocrine_detection()
+# which extracts directly from CCCStorage for consistency

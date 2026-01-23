@@ -3,7 +3,6 @@ Main server implementation for ChatSpatial using the Spatial MCP Adapter.
 """
 
 import os
-import sys
 import warnings
 from typing import Any, Literal, Optional, cast
 
@@ -258,7 +257,7 @@ async def visualize_data(
         - feature: Spatial/UMAP feature visualization (use basis='spatial'|'umap')
         - expression: Aggregated expression (subtype='heatmap'|'violin'|'dotplot'|'correlation')
         - deconvolution: Cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'diversity'|'umap'|'imputation')
-        - communication: Cell-cell communication (subtype='heatmap'|'chord'|'dotplot'|'tileplot'|'circle_plot')
+        - communication: Cell-cell communication (subtype='dotplot'|'tileplot'|'circle_plot')
         - interaction: Spatial ligand-receptor pairs
         - trajectory: Pseudotime and fate analysis (subtype='pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir')
         - velocity: RNA velocity visualization (subtype='stream'|'phase'|'proportions'|'heatmap'|'paga')
