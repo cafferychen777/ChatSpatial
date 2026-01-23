@@ -140,7 +140,7 @@ class PreprocessingParameters(BaseModel):
     # Normalization and scaling parameters
     normalization: Literal["log", "sct", "pearson_residuals", "none", "scvi"] = Field(
         default="log",
-        description="Normalization method. 'sct' requires R, 'scvi' for batch correction.",
+        description="Normalization method. 'sct' requires R. 'scvi' includes batch modeling if batch_key exists.",
     )
     scale: bool = Field(
         default=False,
