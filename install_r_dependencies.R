@@ -129,9 +129,9 @@ github_packages <- list(
   ),
   list(
     name = "CARD",
-    repo = "YingMa0107/CARD",
+    repo = "YMa-lab/CARD",
     method = "CARD deconvolution",
-    cmd = "devtools::install_github('YingMa0107/CARD', upgrade = 'never')"
+    cmd = "devtools::install_github('YMa-lab/CARD', upgrade = 'never')"
   ),
   list(
     name = "CellChat",
