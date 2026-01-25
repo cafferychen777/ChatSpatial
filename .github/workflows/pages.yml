@@ -1,4 +1,4 @@
-name: Deploy Jekyll with Just the Docs to GitHub Pages
+name: Deploy Sphinx Documentation to GitHub Pages
 
 on:
   # Runs on pushes targeting the default branch
@@ -7,7 +7,6 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/pages.yml'
-      # README.md 改动不需要重新部署文档网站
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -18,8 +17,7 @@ permissions:
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# Allow only one concurrent deployment
 concurrency:
   group: "pages"
   cancel-in-progress: false
@@ -32,44 +30,38 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch all history for proper git info
+          fetch-depth: 0
 
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          ruby-version: '3.4'
-          bundler-cache: true
-          cache-version: 0
-          working-directory: docs
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'docs/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r docs/requirements.txt
 
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v4
 
-      - name: Install dependencies
+      - name: Build with Sphinx
         run: |
           cd docs
-          bundle install --jobs=4 --retry=3
-
-      - name: Build with Jekyll
-        # Outputs to the './docs/_site' directory by default
-        run: |
-          cd docs
-          bundle exec jekyll build --baseurl "${{ steps.pages.outputs.base_path }}" --verbose
-        env:
-          JEKYLL_ENV: production
+          sphinx-build -b html . _build/html
 
       - name: Test built site
         run: |
-          cd docs
-          test -f _site/index.html || (echo "Site build failed - index.html not found" && exit 1)
+          test -f docs/_build/html/index.html || (echo "Site build failed - index.html not found" && exit 1)
           echo "Site built successfully"
 
       - name: Upload artifact
-        # Automatically uploads an artifact from the './docs/_site' directory by default
         uses: actions/upload-pages-artifact@v3
         with:
-          path: "docs/_site/"
+          path: "docs/_build/html/"
 
   # Deployment job
   deploy:
