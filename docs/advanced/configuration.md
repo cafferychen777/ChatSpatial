@@ -10,12 +10,12 @@ Configure ChatSpatial MCP server for your environment.
 
 ```bash
 # Find your virtual environment Python path
-source chatspatial_env/bin/activate
+source venv/bin/activate
 which python
 # Copy the output path
 
 # Add ChatSpatial MCP server
-claude mcp add chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial server
+claude mcp add chatspatial /path/to/venv/bin/python -- -m chatspatial server
 
 # Verify connection
 claude mcp list
@@ -37,12 +37,12 @@ Codex stores MCP configuration in `~/.codex/config.toml`. The CLI and IDE extens
 
 ```bash
 # Find your virtual environment Python path
-source chatspatial_env/bin/activate
+source venv/bin/activate
 which python
 # Copy the output path
 
 # Add ChatSpatial MCP server
-codex mcp add chatspatial -- /path/to/chatspatial_env/bin/python -m chatspatial server
+codex mcp add chatspatial -- /path/to/venv/bin/python -m chatspatial server
 
 # Verify in Codex TUI
 /mcp
@@ -52,7 +52,7 @@ codex mcp add chatspatial -- /path/to/chatspatial_env/bin/python -m chatspatial 
 
 ```toml
 [mcp_servers.chatspatial]
-command = "/path/to/chatspatial_env/bin/python"
+command = "/path/to/venv/bin/python"
 args = ["-m", "chatspatial", "server"]
 
 # Optional: Environment variables
@@ -64,7 +64,7 @@ CHATSPATIAL_DATA_DIR = "/path/to/data"
 
 ```toml
 [mcp_servers.chatspatial]
-command = "/path/to/chatspatial_env/bin/python"
+command = "/path/to/venv/bin/python"
 args = ["-m", "chatspatial", "server"]
 startup_timeout_sec = 30    # Default: 10
 tool_timeout_sec = 120      # Default: 60
@@ -93,7 +93,7 @@ Edit Claude Desktop configuration file:
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "/path/to/chatspatial_env/bin/python",
+      "command": "/path/to/venv/bin/python",
       "args": ["-m", "chatspatial", "server"]
     }
   }
@@ -106,7 +106,7 @@ Edit Claude Desktop configuration file:
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
+      "command": "/Users/yourname/Projects/venv/bin/python",
       "args": ["-m", "chatspatial", "server"]
     }
   }

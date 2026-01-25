@@ -1,498 +1,103 @@
 # ChatSpatial Installation
 
-## Quick Start (2 minutes)
-
-### Step 1: Create Virtual Environment (Strongly Recommended)
+## Step 1: Create Virtual Environment
 
 ```bash
-# Clone repository
-git clone https://github.com/cafferychen777/ChatSpatial.git
-cd chatspatial
+# Python 3.11+ required
+python3 -m venv venv
+source venv/bin/activate  # macOS/Linux
+# venv\Scripts\activate   # Windows
 
-# Create virtual environment (choose one method)
-# Option A: Using venv (Python built-in)
-# For macOS with Homebrew Python:
-/opt/homebrew/bin/python3.12 -m venv chatspatial_env  # macOS Homebrew
-# For other systems:
-python3 -m venv chatspatial_env  # Linux/other macOS installs
-source chatspatial_env/bin/activate  # On macOS/Linux
-# chatspatial_env\Scripts\activate    # On Windows
-
-# Option B: Using conda
+# Or use conda
 conda create -n chatspatial python=3.12
 conda activate chatspatial
-
-# Option C: Using uv (fast, modern)
-uv venv
-source .venv/bin/activate
 ```
 
-### Step 2: Install ChatSpatial
+## Step 2: Install
 
 ```bash
-# First, verify Python version (must be 3.11+)
-python --version
-
-# Upgrade pip to latest version
 pip install --upgrade pip
-
-# Recommended: Install with all features
-pip install -e ".[full]"
+pip install chatspatial[full]
 ```
 
-> 💡 **Why [full]?** Enables all 16+ analysis methods including Cell2location, CellRank, SpaGCN, and more. Takes ~13 minutes but worth it for the complete experience.
+| Option | Command | Features | Time |
+|--------|---------|----------|------|
+| **Full** | `pip install chatspatial[full]` | All 60+ methods | ~13 min |
+| Standard | `pip install chatspatial` | Core methods | ~6 min |
 
-### Step 3: Configure Your MCP Client
+## Step 3: Configure MCP Client
 
-Choose your client below:
-
-<a name="claude-code"></a>
-#### Option A: Claude Code (Recommended)
-
-**Step 1: Install Claude Code CLI**
 ```bash
-# Install via npm (recommended)
-npm install -g @anthropic-ai/claude-code
+# Get your Python path
+which python  # e.g., /Users/you/venv/bin/python
 
-# Verify installation
-claude --version
+# Add to Claude Code (recommended)
+claude mcp add chatspatial /path/to/venv/bin/python -- -m chatspatial server
 ```
 
-**Step 2: Add ChatSpatial MCP Server**
+**Other clients:** See [Configuration Guide](docs/advanced/configuration.md) for Codex, Claude Desktop, and advanced options.
+
+## Step 4: Verify
+
 ```bash
-# Get your virtual environment Python path
-which python  # Should show: /path/to/chatspatial_env/bin/python
-
-# Add ChatSpatial (local scope - current project only)
-claude mcp add chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial server
-
-# OR add globally (all projects)
-claude mcp add --scope user chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial server
+python -c "import chatspatial; print('Ready')"
 ```
 
-**Step 3: Verify Configuration**
-```bash
-# List all MCP servers
-claude mcp list
+Restart your client, then see [Quick Start](docs/quickstart.md) to begin analyzing.
 
-# Check ChatSpatial details
-claude mcp get chatspatial
-```
-
-> 💡 **Note:** The `--` separates Claude's options from the server command. Everything after `--` is the command to run ChatSpatial.
-
-<a name="codex"></a>
-#### Option B: Codex (CLI or IDE Extension)
-
-Codex stores MCP configuration in `~/.codex/config.toml`. The CLI and IDE extension share this configuration.
-
-**Option 1: Add via CLI**
-```bash
-# Get your virtual environment Python path
-which python  # Should show: /path/to/chatspatial_env/bin/python
-
-# Add ChatSpatial
-codex mcp add chatspatial -- /path/to/chatspatial_env/bin/python -m chatspatial server
-```
-
-**Option 2: Edit `~/.codex/config.toml` directly**
-```toml
-[mcp_servers.chatspatial]
-command = "/path/to/chatspatial_env/bin/python"
-args = ["-m", "chatspatial", "server"]
-
-# Optional: Set custom data directory
-[mcp_servers.chatspatial.env]
-CHATSPATIAL_DATA_DIR = "/path/to/data"
-```
-
-**Verify Configuration**
-```bash
-# In Codex TUI, type:
-/mcp
-# Should show: chatspatial - Connected
-```
-
-> 💡 **Important:** Use `[mcp_servers.chatspatial]` with underscore (not `mcp-servers`). Using hyphen will cause Codex to silently ignore the configuration.
-
-<a name="claude-desktop"></a>
-#### Option C: Claude Desktop (GUI Application)
-
-**Important:** Use your virtual environment's Python path in the configuration.
-
-Add to Claude Desktop config file:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/path/to/your/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial", "server"]
-    }
-  }
-}
-```
-
-**Example with actual path:**
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial", "server"]
-    }
-  }
-}
-
-### Step 4: Restart Your Client
-
-- **Claude Desktop**: Restart the application
-- **Claude Code**: The server is ready immediately (use `/mcp` in Claude Code to check status)
-- **Codex**: The server is ready immediately (use `/mcp` in Codex TUI to check status)
-
-That's it! Start analyzing your spatial data with natural language.
-
-## Installation Options
-
-| Option | Install Command | Features | Install Time |
-|--------|----------------|----------|--------------|
-| **Full (Recommended)** | `pip install -e ".[full]"` | 100% features | ~13 minutes |
-| Standard | `pip install -e .` | 80% features | ~6 minutes |
-
-### What's included in each option?
-
-**Standard Installation** (Default):
-- ✅ Core spatial analysis (Moran's I, Getis-Ord, etc.)
-- ✅ Basic deconvolution with scvi-tools
-- ✅ RNA velocity with scVelo
-- ✅ Cell communication (LIANA, CellPhoneDB)
-- ✅ Batch integration (Harmony, BBKNN)
-- ✅ Gene enrichment analysis
-
-**Full Installation** (Recommended):
-- ✅ Everything in Standard, plus:
-- ✅ Deep learning methods (PyTorch)
-- ✅ Advanced deconvolution (Cell2location)
-- ✅ Advanced trajectory (CellRank, Palantir)
-- ✅ Spatial domains (SpaGCN, STAGATE)
-- ✅ Spatial variable genes (SPARK-X, SpatialDE)
-- ✅ R-based methods (RCTD, Spotlight)
+---
 
 ## Requirements
 
-- Python 3.11-3.13 (3.12 recommended)
-- macOS, Linux, or Windows
-- 5-10 GB disk space (for full installation)
+- **Python 3.11+** (3.12 recommended)
+- **8GB+ RAM** (16GB+ for large datasets)
+- **macOS, Linux, or Windows**
 
-### Platform-Specific Limitations
+---
 
-#### Windows
+## Platform Notes
 
-**❌ Not Available on Windows:**
-- **SingleR** cell type annotation - C++ dependencies (mattress, knncolle) fail to compile on Windows due to MinGW "too many sections" error (Windows PE format limitation)
-- **PETSc/SLEPc** acceleration for CellRank - Requires Cygwin Python (not native Windows Python)
+### Windows
 
-**✅ Windows Alternatives:**
-- Cell type annotation: Use Tangram, scANVI, CellAssign, or mllmcelltype instead of SingleR
-- CellRank: Works without PETSc (automatically uses 'brandts' method for small-medium datasets)
+**Not available:** SingleR, PETSc
 
-**✅ All other features work on Windows** including:
-- R-based methods (RCTD, SPOTlight, Numbat) via rpy2
-- All deconvolution methods (Cell2location, DestVI, Stereoscope, CARD)
-- All trajectory and spatial analysis methods
+**Use instead:** Tangram, scANVI, CellAssign for annotation; CellRank works without PETSc.
 
-**Technical Note:** GitHub Actions CI installs R 4.4.1 on all platforms, enabling rpy2 compilation on Windows. However, SingleR's C++ dependencies still fail due to compiler limitations.
+### Python Version Error
 
-## Troubleshooting
+If you see `mcp>=1.17.0 not found`:
 
-| Issue | Solution |
-|-------|----------|
-| **"mcp>=1.17.0 not found" error** | **Recreate virtual environment with correct Python version** (see below) |
-| Import errors | Update pip: `pip install --upgrade pip` |
-| Package conflicts | `pip install --force-reinstall -e ".[full]"` |
-| Claude Desktop doesn't see server | Check that command path points to virtual environment Python |
-| Claude Code connection error | Ensure absolute path to Python; run `claude mcp list` to verify |
-| "python not found" error | Use absolute path to virtual environment Python in config |
-| Virtual environment issues | Recreate environment: `rm -rf chatspatial_env && python3 -m venv chatspatial_env` |
-| "STAGATE>=1.0.0 not found" error | STAGATE is not on PyPI. See "Optional Dependencies" section above for manual installation |
-| **Louvain compilation error on macOS/Windows** | **Use Leiden instead** - ChatSpatial automatically uses Leiden (better algorithm, no compilation issues). Known issues: macOS (clang strictness), Windows (MinGW/MSVC incompatibility). No action needed. |
-
-### MCP Package Installation Error (Common on macOS)
-
-**Error message:** `ERROR: Could not find a version that satisfies the requirement mcp>=1.17.0`
-
-**Cause:** Virtual environment is using Python < 3.11, but ChatSpatial requires Python ≥3.11
-
-**Solution for macOS Homebrew users:**
 ```bash
-# 1. Remove old virtual environment
-rm -rf chatspatial_env
-
-# 2. Create environment with Homebrew Python 3.12
-/opt/homebrew/bin/python3.12 -m venv chatspatial_env
-
-# 3. Activate and verify
-source chatspatial_env/bin/activate
-python --version  # Should show Python 3.12.x
-
-# 4. Install ChatSpatial
-pip install --upgrade pip
-pip install -e ".[full]"
+rm -rf venv
+python3.12 -m venv venv
+source venv/bin/activate
+pip install chatspatial[full]
 ```
 
-## Verify Installation
+---
+
+## Optional Dependencies
+
+### R Methods
+
+For RCTD, SPOTlight, CARD, scType, Numbat:
 
 ```bash
-# Make sure you're in the virtual environment
-which python  # Should show path to your virtual environment
-
-# Check if ChatSpatial is installed
-python -m chatspatial --help
-
-# Test in Python
-python -c "import chatspatial; print('✅ Installation successful')"
-```
-
-## Optional Dependencies - Manual Installation Required
-
-Some advanced features require packages that are not available on PyPI and must be installed manually:
-
-### R Dependencies (For R-based Methods)
-
-ChatSpatial integrates several powerful R-based analysis methods. If you want to use these methods, you need to install R and the required R packages.
-
-#### R-based Methods Available
-
-| Method | Category | R Packages Required |
-|--------|----------|-------------------|
-| **RCTD** | Deconvolution | spacexr |
-| **SPOTlight** | Deconvolution | SPOTlight |
-| **CARD** | Deconvolution | CARD |
-| **scType** | Cell Type Annotation | dplyr, openxlsx, HGNChelper |
-| **Numbat** | CNV Analysis | numbat, dplyr |
-| **SPARK** | Spatial Variable Genes | SPARK |
-
-#### Prerequisites
-
-1. **Install R (version 4.4+)**
-   ```bash
-   # macOS
-   brew install r
-
-   # Ubuntu/Debian
-   sudo apt-get update
-   sudo apt-get install r-base r-base-dev
-
-   # Or download from https://www.r-project.org/
-   ```
-
-2. **Install rpy2 (Python-R bridge)**
-   ```bash
-   pip install rpy2
-   ```
-
-#### Automated Installation (Recommended)
-
-We provide a convenient installation script that installs all required R packages:
-
-```bash
-# Navigate to ChatSpatial directory
-cd chatspatial
-
-# Run the R installation script
+# Install R 4.4+ from https://cran.r-project.org/
 Rscript install_r_dependencies.R
 ```
 
-This script will automatically install:
-- **Base dependencies**: devtools, BiocManager
-- **CRAN packages**: dplyr, openxlsx, HGNChelper, SPARK
-- **Bioconductor packages**: SPOTlight
-- **GitHub packages**: spacexr, CARD, numbat
-
-#### Manual Installation
-
-If you prefer to install packages manually or the automated script fails:
-
-**Step 1: Open R console**
-```bash
-R
-```
-
-**Step 2: Install base dependencies**
-```r
-# Install devtools for GitHub packages
-install.packages("devtools")
-
-# Install BiocManager for Bioconductor packages
-install.packages("BiocManager")
-```
-
-**Step 3: Install CRAN packages**
-```r
-install.packages(c("dplyr", "openxlsx", "HGNChelper", "SPARK"))
-```
-
-**Step 4: Install Bioconductor packages**
-```r
-BiocManager::install("SPOTlight")
-```
-
-**Step 5: Install GitHub packages**
-```r
-# RCTD deconvolution
-devtools::install_github("dmcable/spacexr", build_vignettes = FALSE)
-
-# CARD deconvolution
-devtools::install_github("YingMa0107/CARD")
-
-# Numbat CNV analysis
-devtools::install_github("kharchenkolab/numbat")
-```
-
-#### Verify R Installation
-
-Test if R packages are correctly installed:
+### STAGATE
 
 ```bash
-# Test from command line
-R -e "library(spacexr); library(SPOTlight); library(CARD)"
-```
-
-Or in Python:
-```python
-import rpy2.robjects as ro
-ro.r("library(spacexr)")  # Should not raise error if installed
-```
-
-#### Troubleshooting R Installation
-
-**Problem: rpy2 installation fails**
-- **macOS**: Install R from Homebrew (`brew install r`)
-- **Linux**: Install r-base-dev: `sudo apt-get install r-base-dev`
-- **Windows**: Set R_HOME environment variable to your R installation path
-
-**Problem: GitHub package installation fails**
-- Ensure you have a stable internet connection
-- Try installing devtools first: `install.packages("devtools")`
-- Check if you have build tools installed (Rtools on Windows, Xcode on macOS)
-
-**Problem: "R_HOME not found" error**
-```bash
-# Find R home directory
-R RHOME
-
-# Set environment variable (add to ~/.bashrc or ~/.zshrc)
-export R_HOME=/path/to/R/installation
-```
-
-**Note:** All R-based methods are optional. ChatSpatial will work without them, but those specific methods will not be available. Python-based alternatives exist for most analyses:
-- Deconvolution: Cell2location, DestVI, Stereoscope, Tangram (Python)
-- Cell Type Annotation: Tangram, scANVI, CellAssign (Python)
-- Spatial Variable Genes: SpatialDE, SPARK-X (Python)
-
-### STAGATE_pyG (Spatial Domain Identification)
-
-STAGATE is a graph attention-based method for spatial domain identification. It's not available on PyPI and must be installed from GitHub:
-
-```bash
-# Option 1: Install STAGATE_pyG (Recommended - PyTorch Geometric version, 10x faster)
 git clone https://github.com/QIFEIDKN/STAGATE_pyG.git
-cd STAGATE_pyG
-python setup.py build
-python setup.py install
-
-# Option 2: Install original STAGATE (TensorFlow 1.x version)
-git clone https://github.com/zhanglabtools/STAGATE.git
-cd STAGATE
-python setup.py build
-python setup.py install
+cd STAGATE_pyG && python setup.py install
 ```
 
-**Note:** STAGATE is optional. ChatSpatial will work without it, but the `stagate` method in spatial domain identification will not be available. Alternative methods (spagcn, leiden) are fully functional.
+---
 
-**Note on Louvain clustering**: ChatSpatial uses the **Leiden algorithm** instead of Louvain for spatial domain identification. Leiden is an improved version of Louvain with better performance and avoids compilation issues on macOS and Windows:
-- **macOS**: louvain fails due to clang compiler strictness (`-Werror,-Wunused-but-set-parameter`)
-- **Windows**: louvain fails due to MinGW/MSVC linker incompatibility
-- **Automatic fallback**: If you specify `method="louvain"`, it will automatically fall back to Leiden clustering
+## Help
 
-No action is needed - this is the expected behavior.
-
-### STalign (Spatial Alignment Tool)
-
-STalign is used for aligning spatial transcriptomics datasets. It's not available on PyPI and must be installed from GitHub:
-
-```bash
-pip install --upgrade "git+https://github.com/JEFworks-Lab/STalign.git"
-```
-
-**Note:** STalign is optional. ChatSpatial will work without it, but spatial alignment features may be limited.
-
-
-## Getting Help
-
-- **Issues**: [GitHub Issues](https://github.com/cafferychen777/ChatSpatial/issues)
-- **Documentation**: Check docstrings with `help(function_name)`
-- **Community**: Ask questions in Discussions
-
-## Advanced Configuration
-
-### Claude Code Scopes
-
-Claude Code supports three configuration scopes:
-
-| Scope | Command Flag | Visibility | Use Case |
-|-------|-------------|------------|----------|
-| **Local** | (default) | Current project only | Personal projects, experiments |
-| **Project** | `--scope project` | Team via `.mcp.json` | Shared team configuration |
-| **User** | `--scope user` | All your projects | Personal tools across projects |
-
-**Examples:**
-```bash
-# Local scope (default)
-claude mcp add chatspatial /path/to/venv/bin/python -- -m chatspatial server
-
-# Project scope (creates .mcp.json for team sharing)
-claude mcp add --scope project chatspatial /path/to/venv/bin/python -- -m chatspatial server
-
-# User scope (available in all projects)
-claude mcp add --scope user chatspatial /path/to/venv/bin/python -- -m chatspatial server
-```
-
-### Managing MCP Servers
-
-```bash
-# List all servers
-claude mcp list
-
-# Remove a server
-claude mcp remove chatspatial
-
-# Check server details
-claude mcp get chatspatial
-
-# Check status in Claude Code
-/mcp  # Type this in Claude Code chat
-```
-
-### Environment Variables
-
-```bash
-# Add with custom environment variables
-claude mcp add chatspatial \
-  --env CHATSPATIAL_DATA_DIR=/path/to/data \
-  --env CHATSPATIAL_CACHE_DIR=/path/to/cache \
-  /path/to/venv/bin/python -- -m chatspatial server
-```
-
-### Windows-Specific Notes
-
-For Windows users not using WSL:
-```cmd
-# Native Windows path example
-claude mcp add chatspatial ^
-  C:\Users\user\chatspatial_env\Scripts\python.exe ^
-  -- -m chatspatial server
-```
+- [Configuration Guide](docs/advanced/configuration.md) — MCP client setup
+- [Troubleshooting](docs/advanced/troubleshooting.md) — Common issues
+- [GitHub Issues](https://github.com/cafferychen777/ChatSpatial/issues)

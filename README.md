@@ -17,7 +17,7 @@
 <tr>
 <td width="50%">
 
-### ❌ Before
+### Before
 ```python
 import scanpy as sc
 import squidpy as sq
@@ -34,16 +34,16 @@ sc.pp.neighbors(adata)
 </td>
 <td width="50%">
 
-### ✅ After
+### After
 ```text
 "Load my Visium data and identify
  spatial domains"
 ```
 
 ```
-✓ Loaded 3,456 spots, 18,078 genes
-✓ Identified 7 spatial domains
-✓ Generated visualization
+Loaded 3,456 spots, 18,078 genes
+Identified 7 spatial domains
+Generated visualization
 ```
 
 </td>
@@ -52,63 +52,21 @@ sc.pp.neighbors(adata)
 
 ---
 
-> **Note**: This is a **demo version**. If you encounter any issues or have feedback, please [open an issue](https://github.com/cafferychen777/ChatSpatial/issues) or contact us anytime. Your feedback helps us improve!
-
----
-
-## Install
+## Quick Start
 
 ```bash
+# Install
 pip install chatspatial
-```
 
-## Configure
-
-> **Important:** Use your virtual environment's Python path. Run `which python` to find it.
-
-**Claude Code** (Recommended):
-
-```bash
+# Configure (use your venv Python path)
 claude mcp add chatspatial /path/to/venv/bin/python -- -m chatspatial server
 ```
 
-**Codex** (CLI or IDE extension):
-
-```bash
-codex mcp add chatspatial -- /path/to/venv/bin/python -m chatspatial server
-```
-
-Or edit `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.chatspatial]
-command = "/path/to/venv/bin/python"
-args = ["-m", "chatspatial", "server"]
-```
-
-**Claude Desktop** — add to config file:
-
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/path/to/venv/bin/python",
-      "args": ["-m", "chatspatial", "server"]
-    }
-  }
-}
-```
-
-> Config locations: macOS `~/Library/Application Support/Claude/claude_desktop_config.json` · Windows `%APPDATA%\Claude\claude_desktop_config.json` · Linux `~/.config/Claude/claude_desktop_config.json`
-
-Restart your client after configuration.
-
+See [Installation Guide](INSTALLATION.md) for detailed setup including virtual environments and all MCP clients.
 
 ---
 
 ## Use
-
-Open Claude and chat:
 
 ```text
 Load /path/to/spatial_data.h5ad and show me the tissue structure
@@ -137,18 +95,21 @@ Find spatially variable genes and create a heatmap
 | **Enrichment** | GSEA, ORA, Enrichr, ssGSEA, Spatial EnrichMap |
 | **Spatial Genes** | SpatialDE, SPARK-X |
 | **Integration** | Harmony, BBKNN, Scanorama, scVI |
-| **Other** | CNV Analysis (inferCNVpy, Numbat), Spatial Registration (PASTE, STalign) |
+| **Other** | CNV Analysis, Spatial Registration |
 
 **60+ methods** across 15 categories. **Supports** 10x Visium, Xenium, Slide-seq v2, MERFISH, seqFISH.
 
 ---
 
-## Docs
+## Documentation
 
-- [Installation Guide](INSTALLATION.md) — detailed setup for all platforms
-- [Examples](docs/examples.md) — step-by-step workflows
-- [Methods Reference](docs/advanced/methods-reference.md) — all 20 tools documented
-- [Full Documentation](https://cafferychen777.github.io/ChatSpatial/) — complete reference
+| Guide | Description |
+|-------|-------------|
+| [Installation](INSTALLATION.md) | Virtual environment setup, all platforms |
+| [Quick Start](docs/quickstart.md) | 5-minute first analysis |
+| [Examples](docs/examples.md) | Step-by-step workflows |
+| [Methods Reference](docs/advanced/methods-reference.md) | All 20 tools with parameters |
+| [Full Docs](https://cafferychen777.github.io/ChatSpatial/) | Complete reference |
 
 ---
 
