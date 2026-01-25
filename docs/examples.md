@@ -351,3 +351,11 @@ Align tissue sections.
 **Ask for help**
 - "What methods are available for deconvolution?"
 - "How should I preprocess my data?"
+
+---
+
+## Next Steps
+
+- [Concepts](concepts.md) — Understand when to use which method
+- [Methods Reference](advanced/methods-reference.md) — Full parameter details for all 20 tools
+- [Troubleshooting](advanced/troubleshooting.md) — Solutions to common issues

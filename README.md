@@ -64,50 +64,44 @@ pip install chatspatial
 
 ## Configure
 
-**Claude Desktop** — add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+> **Important:** Use your virtual environment's Python path. Run `which python` to find it.
+
+**Claude Code** (Recommended):
+
+```bash
+claude mcp add chatspatial /path/to/venv/bin/python -- -m chatspatial server
+```
+
+**Codex** (CLI or IDE extension):
+
+```bash
+codex mcp add chatspatial -- /path/to/venv/bin/python -m chatspatial server
+```
+
+Or edit `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.chatspatial]
+command = "/path/to/venv/bin/python"
+args = ["-m", "chatspatial", "server"]
+```
+
+**Claude Desktop** — add to config file:
 
 ```json
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "python",
+      "command": "/path/to/venv/bin/python",
       "args": ["-m", "chatspatial", "server"]
     }
   }
 }
 ```
 
-**Claude Code**:
+> Config locations: macOS `~/Library/Application Support/Claude/claude_desktop_config.json` · Windows `%APPDATA%\Claude\claude_desktop_config.json` · Linux `~/.config/Claude/claude_desktop_config.json`
 
-```bash
-claude mcp add chatspatial python -- -m chatspatial server
-```
-
-> Restart Claude after configuration.
-
-**Codex (CLI or IDE extension)** — MCP config is shared in `~/.codex/config.toml`.
-
-Option A: add via CLI
-
-```bash
-codex mcp add chatspatial -- python -m chatspatial server
-```
-
-Option B: edit `~/.codex/config.toml`
-
-```toml
-[mcp_servers.chatspatial]
-command = "python"
-args = ["-m", "chatspatial", "server"]
-```
-
-**Virtual environment note**: Codex runs whatever `command` you configure. To pin a venv, point `command` to that environment’s Python, e.g. `command = "/path/to/venv/bin/python"`, or use the full path in the CLI:
-
-```bash
-codex mcp add chatspatial -- /path/to/venv/bin/python -m chatspatial server
-```
-
-In the Codex TUI, run `/mcp` to verify the server is active.
+Restart your client after configuration.
 
 
 ---

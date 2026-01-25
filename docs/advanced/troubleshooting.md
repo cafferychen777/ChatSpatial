@@ -11,6 +11,7 @@ Quick solutions to common problems.
 1. **Check config path:**
    - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
    - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+   - Linux: `~/.config/Claude/claude_desktop_config.json`
 
 2. **Verify JSON syntax** (missing commas, brackets)
 
@@ -100,3 +101,11 @@ For human: species="human", liana_resource="consensus"
 
 - [GitHub Issues](https://github.com/cafferychen777/ChatSpatial/issues) — Report bugs
 - [FAQ](faq.md) — Common questions
+
+---
+
+## Next Steps
+
+- [FAQ](faq.md) — Frequently asked questions
+- [Configuration Guide](configuration.md) — Detailed MCP setup
+- [Methods Reference](methods-reference.md) — All tools and parameters

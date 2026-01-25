@@ -50,20 +50,30 @@ Yes! ChatSpatial works with any MCP-compatible client.
 
 ## Analysis Questions
 
-### Which cell type annotation method should I use?
+### How do I choose the right method?
 
-Depends on your data:
-- **CellAssign**: When you have known marker genes
-- **Tangram/scANVI**: When you have single-cell reference data
-- **MLLMCellType**: For automated annotation
+See our [Concepts Guide](../concepts.md) for detailed method comparisons. Quick summary:
 
-### How do I choose the right spatial domain method?
+**Cell Type Annotation:**
+| Situation | Recommended Method |
+|-----------|-------------------|
+| Have reference scRNA-seq | Tangram or scANVI |
+| Have marker gene list | CellAssign |
+| Want automatic annotation | mLLMCelltype |
 
-Consider your data type:
-- **SpaGCN**: Best for Visium with histology images
-- **STAGATE**: Good for high-resolution data without images
-- **GraphST**: Advanced graph-based learning
-- **Leiden/Louvain**: Simple clustering-based approach
+**Spatial Domains:**
+| Situation | Recommended Method |
+|-----------|-------------------|
+| Visium with H&E image | SpaGCN |
+| High-resolution, no image | STAGATE or GraphST |
+| Quick exploration | Leiden |
+
+**Deconvolution:**
+| Situation | Recommended Method |
+|-----------|-------------------|
+| Quick exploration | FlashDeconv (fast) |
+| Publication quality | Cell2location (accurate) |
+| R environment | RCTD |
 
 ### Why does my analysis take so long?
 
@@ -125,17 +135,9 @@ Yes! ChatSpatial's modular architecture makes it easy to add new tools. See deve
 
 ### Is GPU acceleration supported?
 
-Yes, for many methods. Set `use_gpu=True` in parameters to enable:
+Yes, for many methods including Cell2location, scANVI, STAGATE, and VeloVI. Set `use_gpu=True` in parameters to enable.
 
-| Category | GPU-accelerated Methods |
-|----------|------------------------|
-| **Preprocessing** | scVI normalization |
-| **Annotation** | Tangram, scANVI |
-| **Deconvolution** | Cell2location, DestVI, Stereoscope, Tangram, CARD |
-| **Spatial Domains** | STAGATE, GraphST |
-| **Velocity** | VeloVI |
-| **Integration** | scVI |
-| **CNV** | inferCNVpy |
+See [Methods Reference](methods-reference.md) for the full list of GPU-accelerated methods.
 
 ---
 

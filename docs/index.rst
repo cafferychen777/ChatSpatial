@@ -19,7 +19,7 @@ Analyze your spatial data by chatting with Claude. No coding required.
 Getting Started
 ---------------
 
-.. grid:: 2
+.. grid:: 3
     :gutter: 3
 
     .. grid-item-card:: Quick Start
@@ -30,6 +30,15 @@ Getting Started
         **5 minutes to first analysis**
 
         Install, configure, and run your first spatial analysis.
+
+    .. grid-item-card:: Concepts
+        :link: concepts
+        :link-type: doc
+        :class-card: sd-rounded-3
+
+        **Understand the methods**
+
+        When to use which method and why.
 
     .. grid-item-card:: Examples
         :link: examples
@@ -83,6 +92,7 @@ Support
    :caption: Getting Started
 
    quickstart
+   concepts
    examples
 
 .. toctree::

@@ -46,41 +46,8 @@ pip install -e ".[full]"
 
 Choose your client below:
 
-<a name="claude-desktop"></a>
-#### Option A: Claude Desktop (GUI Application)
-
-**Important:** Use your virtual environment's Python path in the configuration.
-
-Add to Claude Desktop config file:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/path/to/your/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial", "server"]
-    }
-  }
-}
-```
-
-**Example with actual path:**
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial", "server"]
-    }
-  }
-}
-```
-
 <a name="claude-code"></a>
-#### Option B: Claude Code (Terminal/IDE)
+#### Option A: Claude Code (Recommended)
 
 **Step 1: Install Claude Code CLI**
 ```bash
@@ -115,7 +82,7 @@ claude mcp get chatspatial
 > 💡 **Note:** The `--` separates Claude's options from the server command. Everything after `--` is the command to run ChatSpatial.
 
 <a name="codex"></a>
-#### Option C: Codex (CLI or IDE Extension)
+#### Option B: Codex (CLI or IDE Extension)
 
 Codex stores MCP configuration in `~/.codex/config.toml`. The CLI and IDE extension share this configuration.
 
@@ -147,6 +114,38 @@ CHATSPATIAL_DATA_DIR = "/path/to/data"
 ```
 
 > 💡 **Important:** Use `[mcp_servers.chatspatial]` with underscore (not `mcp-servers`). Using hyphen will cause Codex to silently ignore the configuration.
+
+<a name="claude-desktop"></a>
+#### Option C: Claude Desktop (GUI Application)
+
+**Important:** Use your virtual environment's Python path in the configuration.
+
+Add to Claude Desktop config file:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/path/to/your/chatspatial_env/bin/python",
+      "args": ["-m", "chatspatial", "server"]
+    }
+  }
+}
+```
+
+**Example with actual path:**
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
+      "args": ["-m", "chatspatial", "server"]
+    }
+  }
+}
 
 ### Step 4: Restart Your Client
 

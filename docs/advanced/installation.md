@@ -4,6 +4,8 @@ Detailed setup for all platforms and configurations.
 
 **Quick start?** See [Quick Start](../quickstart.md) for 5-minute setup.
 
+**Full guide?** See [INSTALLATION.md on GitHub](https://github.com/cafferychen777/ChatSpatial/blob/main/INSTALLATION.md) for comprehensive instructions including R dependencies and troubleshooting.
+
 ---
 
 ## Install Options
@@ -51,28 +53,10 @@ pip install chatspatial[full]
 
 ## Configure MCP
 
-### Claude Desktop
-
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
-
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "python",
-      "args": ["-m", "chatspatial", "server"]
-    }
-  }
-}
-```
-
-> Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-> Linux: `~/.config/Claude/claude_desktop_config.json`
-
-### Claude Code
+### Claude Code (Recommended)
 
 ```bash
-claude mcp add chatspatial python -- -m chatspatial server
+claude mcp add chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial server
 ```
 
 ### Codex (CLI or IDE Extension)
@@ -82,32 +66,36 @@ MCP config is shared in `~/.codex/config.toml`.
 **Option A: Add via CLI**
 
 ```bash
-codex mcp add chatspatial -- python -m chatspatial server
+codex mcp add chatspatial -- /path/to/chatspatial_env/bin/python -m chatspatial server
 ```
 
 **Option B: Edit config.toml**
 
 ```toml
 [mcp_servers.chatspatial]
-command = "python"
-args = ["-m", "chatspatial", "server"]
-```
-
-**Virtual environment note:** To use a specific Python environment:
-
-```bash
-codex mcp add chatspatial -- /path/to/venv/bin/python -m chatspatial server
-```
-
-Or in config.toml:
-
-```toml
-[mcp_servers.chatspatial]
-command = "/path/to/venv/bin/python"
+command = "/path/to/chatspatial_env/bin/python"
 args = ["-m", "chatspatial", "server"]
 ```
 
 Use `/mcp` in Codex TUI to verify the server is active.
+
+### Claude Desktop
+
+Edit config file (location varies by OS):
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/path/to/chatspatial_env/bin/python",
+      "args": ["-m", "chatspatial", "server"]
+    }
+  }
+}
+```
 
 **Restart your client after configuration.**
 
@@ -123,25 +111,14 @@ Use `/mcp` in Codex TUI to verify the server is active.
 - Cell type annotation: Tangram, scANVI, CellAssign, mLLMCelltype
 - CellRank: Works without PETSc
 
-### R-based Methods
+### R-based Methods (Optional)
 
-Optional. Requires R 4.4+ installation:
+For RCTD, SPOTlight, CARD, scType, SingleR, CellChat:
 
-| Method | R Package | Install Command |
-|--------|-----------|-----------------|
-| RCTD | spacexr | `install.packages("spacexr")` |
-| SPOTlight | SPOTlight | `BiocManager::install("SPOTlight")` |
-| CARD | CARD | `devtools::install_github("YingMa0107/CARD")` |
-| scType | scType | `devtools::install_github("IanevskiAleksandr/scType")` |
-| SingleR | SingleR | `BiocManager::install("SingleR")` |
-| CellChat | CellChat | `devtools::install_github("jinworks/CellChat")` |
-| SCTransform | sctransform | `install.packages("sctransform")` |
+1. Install R 4.4+ from [CRAN](https://cran.r-project.org/)
+2. Run our installer: `Rscript install_r_dependencies.R`
 
-```bash
-# Install R from https://cran.r-project.org/
-# Install BiocManager for Bioconductor packages
-R -e 'install.packages("BiocManager")'
-```
+See [full installation guide](https://github.com/cafferychen777/ChatSpatial/blob/main/INSTALLATION.md#r-dependencies-for-r-based-methods) for details.
 
 ---
 
@@ -161,5 +138,6 @@ python -c "import chatspatial; print('OK')"
 | Import errors | `pip install --upgrade pip chatspatial[full]` |
 | Claude not seeing tools | Check Python path, restart Claude |
 | R methods failing | Install R and required packages |
+| "mcp>=1.17.0 not found" | Python version too old, need 3.11+ |
 
 See [Troubleshooting Guide](troubleshooting.md) for more.

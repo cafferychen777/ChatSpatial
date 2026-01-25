@@ -6,48 +6,7 @@ Configure ChatSpatial MCP server for your environment.
 
 ## MCP Client Configuration
 
-### Claude Desktop
-
-Edit Claude Desktop configuration file:
-
-**Location:**
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%/Claude/claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
-
-**Basic Configuration:**
-
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/path/to/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial", "server"]
-    }
-  }
-}
-```
-
-**Real Example:**
-
-```json
-{
-  "mcpServers": {
-    "chatspatial": {
-      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
-      "args": ["-m", "chatspatial", "server"]
-    }
-  }
-}
-```
-
-**Why use virtual environment path?** Ensures ChatSpatial uses the correct Python with all required packages, avoiding system-wide conflicts.
-
-**Important:** Restart Claude Desktop after configuration changes.
-
----
-
-### Claude Code (Terminal/IDE)
+### Claude Code (Recommended)
 
 ```bash
 # Find your virtual environment Python path
@@ -116,6 +75,45 @@ enabled = true              # Set to false to disable without deleting
 - Use `[mcp_servers.chatspatial]` (underscore, not hyphen)
 - Configuration is shared between CLI and IDE extension
 - Use `/mcp` in Codex TUI to verify connection
+
+---
+
+### Claude Desktop
+
+Edit Claude Desktop configuration file:
+
+**Location:**
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%/Claude/claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
+**Configuration:**
+
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/path/to/chatspatial_env/bin/python",
+      "args": ["-m", "chatspatial", "server"]
+    }
+  }
+}
+```
+
+**Example with actual path:**
+
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "/Users/yourname/Projects/chatspatial_env/bin/python",
+      "args": ["-m", "chatspatial", "server"]
+    }
+  }
+}
+```
+
+**Important:** Restart Claude Desktop after configuration changes.
 
 ---
 
