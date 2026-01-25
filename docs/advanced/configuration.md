@@ -70,6 +70,55 @@ claude mcp list
 
 ---
 
+### Codex (CLI and IDE Extension)
+
+Codex stores MCP configuration in `~/.codex/config.toml`. The CLI and IDE extension share this configuration.
+
+**Add via CLI:**
+
+```bash
+# Find your virtual environment Python path
+source chatspatial_env/bin/activate
+which python
+# Copy the output path
+
+# Add ChatSpatial MCP server
+codex mcp add chatspatial -- /path/to/chatspatial_env/bin/python -m chatspatial server
+
+# Verify in Codex TUI
+/mcp
+```
+
+**Or edit `~/.codex/config.toml` directly:**
+
+```toml
+[mcp_servers.chatspatial]
+command = "/path/to/chatspatial_env/bin/python"
+args = ["-m", "chatspatial", "server"]
+
+# Optional: Environment variables
+[mcp_servers.chatspatial.env]
+CHATSPATIAL_DATA_DIR = "/path/to/data"
+```
+
+**Advanced options:**
+
+```toml
+[mcp_servers.chatspatial]
+command = "/path/to/chatspatial_env/bin/python"
+args = ["-m", "chatspatial", "server"]
+startup_timeout_sec = 30    # Default: 10
+tool_timeout_sec = 120      # Default: 60
+enabled = true              # Set to false to disable without deleting
+```
+
+**Key points:**
+- Use `[mcp_servers.chatspatial]` (underscore, not hyphen)
+- Configuration is shared between CLI and IDE extension
+- Use `/mcp` in Codex TUI to verify connection
+
+---
+
 ### Other MCP Clients
 
 For other MCP-compatible clients:

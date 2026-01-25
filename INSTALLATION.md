@@ -114,10 +114,45 @@ claude mcp get chatspatial
 
 > 💡 **Note:** The `--` separates Claude's options from the server command. Everything after `--` is the command to run ChatSpatial.
 
+<a name="codex"></a>
+#### Option C: Codex (CLI or IDE Extension)
+
+Codex stores MCP configuration in `~/.codex/config.toml`. The CLI and IDE extension share this configuration.
+
+**Option 1: Add via CLI**
+```bash
+# Get your virtual environment Python path
+which python  # Should show: /path/to/chatspatial_env/bin/python
+
+# Add ChatSpatial
+codex mcp add chatspatial -- /path/to/chatspatial_env/bin/python -m chatspatial server
+```
+
+**Option 2: Edit `~/.codex/config.toml` directly**
+```toml
+[mcp_servers.chatspatial]
+command = "/path/to/chatspatial_env/bin/python"
+args = ["-m", "chatspatial", "server"]
+
+# Optional: Set custom data directory
+[mcp_servers.chatspatial.env]
+CHATSPATIAL_DATA_DIR = "/path/to/data"
+```
+
+**Verify Configuration**
+```bash
+# In Codex TUI, type:
+/mcp
+# Should show: chatspatial - Connected
+```
+
+> 💡 **Important:** Use `[mcp_servers.chatspatial]` with underscore (not `mcp-servers`). Using hyphen will cause Codex to silently ignore the configuration.
+
 ### Step 4: Restart Your Client
 
 - **Claude Desktop**: Restart the application
 - **Claude Code**: The server is ready immediately (use `/mcp` in Claude Code to check status)
+- **Codex**: The server is ready immediately (use `/mcp` in Codex TUI to check status)
 
 That's it! Start analyzing your spatial data with natural language.
 

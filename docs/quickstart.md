@@ -39,7 +39,21 @@ Add to config file (`~/Library/Application Support/Claude/claude_desktop_config.
 claude mcp add chatspatial python -- -m chatspatial server
 ```
 
-Restart Claude after configuring.
+**Codex (CLI or IDE)**
+
+```bash
+codex mcp add chatspatial -- python -m chatspatial server
+```
+
+Or edit `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.chatspatial]
+command = "python"
+args = ["-m", "chatspatial", "server"]
+```
+
+Restart your client after configuring.
 
 ---
 

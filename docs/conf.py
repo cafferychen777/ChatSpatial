@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath(".."))
 project = "ChatSpatial"
 copyright = f"{datetime.now().year}, ChatSpatial Project"
 author = "ChatSpatial Contributors"
-release = "1.1.1"
+release = "1.1.2"
 version = "1.1"
 
 # -- General configuration ---------------------------------------------------

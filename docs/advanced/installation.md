@@ -75,7 +75,41 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 claude mcp add chatspatial python -- -m chatspatial server
 ```
 
-**Restart Claude after configuration.**
+### Codex (CLI or IDE Extension)
+
+MCP config is shared in `~/.codex/config.toml`.
+
+**Option A: Add via CLI**
+
+```bash
+codex mcp add chatspatial -- python -m chatspatial server
+```
+
+**Option B: Edit config.toml**
+
+```toml
+[mcp_servers.chatspatial]
+command = "python"
+args = ["-m", "chatspatial", "server"]
+```
+
+**Virtual environment note:** To use a specific Python environment:
+
+```bash
+codex mcp add chatspatial -- /path/to/venv/bin/python -m chatspatial server
+```
+
+Or in config.toml:
+
+```toml
+[mcp_servers.chatspatial]
+command = "/path/to/venv/bin/python"
+args = ["-m", "chatspatial", "server"]
+```
+
+Use `/mcp` in Codex TUI to verify the server is active.
+
+**Restart your client after configuration.**
 
 ---
 
