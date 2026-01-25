@@ -92,33 +92,6 @@ Depends on dataset size:
 
 ---
 
-## Troubleshooting
-
-### Tool calls are failing. What should I check?
-
-1. Verify data is loaded and preprocessed
-2. Check all required parameters are provided
-3. Review error messages for specifics
-4. See [Troubleshooting Guide](troubleshooting.md)
-
-### How do I update ChatSpatial?
-
-```bash
-pip install --upgrade chatspatial
-# or for full version:
-pip install --upgrade chatspatial[full]
-```
-
-### What if I encounter a bug?
-
-[Report it on GitHub](https://github.com/cafferychen777/ChatSpatial/issues) with:
-- Error message
-- Steps to reproduce
-- System information
-- Dataset details
-
----
-
 ## Advanced Topics
 
 ### Can I use ChatSpatial in research publications?

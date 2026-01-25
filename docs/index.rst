@@ -27,9 +27,9 @@ Getting Started
         :link-type: doc
         :class-card: sd-rounded-3
 
-        **5 minutes to first analysis**
+        **Your first analysis**
 
-        Install, configure, and run your first spatial analysis.
+        Load data and start analyzing with natural language.
 
     .. grid-item-card:: Concepts
         :link: concepts
@@ -54,7 +54,7 @@ Getting Started
 Reference
 ---------
 
-.. grid:: 3
+.. grid:: 2
     :gutter: 2
 
     .. grid-item-card:: Methods Reference
@@ -62,12 +62,6 @@ Reference
         :link-type: doc
 
         All 20 MCP tools with parameters
-
-    .. grid-item-card:: Installation
-        :link: advanced/installation
-        :link-type: doc
-
-        Detailed setup for all platforms
 
     .. grid-item-card:: Configuration
         :link: advanced/configuration
@@ -101,7 +95,6 @@ Support
    :caption: Reference
 
    advanced/methods-reference
-   advanced/installation
    advanced/configuration
 
 .. toctree::
