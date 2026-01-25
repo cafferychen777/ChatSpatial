@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install linters
+        run: pip install ruff black isort
+
+      - name: Check formatting
+        run: |
+          black --check chatspatial/
+          isort --check-only chatspatial/
+          ruff check chatspatial/
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Verify imports
+        run: |
+          python -c "import chatspatial; print(f'v{chatspatial.__version__}')"
+          python -c "from chatspatial.server import mcp; print('MCP OK')"
+          python -c "import scanpy, squidpy, leidenalg; print('Core deps OK')"
+
+      - name: Test CLI
+        run: python -m chatspatial --help
