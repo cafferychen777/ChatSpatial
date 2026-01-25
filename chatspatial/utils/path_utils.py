@@ -18,20 +18,6 @@ from pathlib import Path
 from ..config import PACKAGE_ROOT, get_default_output_dir, is_inside_package_dir
 
 
-def get_project_root() -> Path:
-    """Get ChatSpatial project root directory.
-
-    Returns:
-        Absolute path to project root, regardless of current working directory.
-
-    Example:
-        >>> root = get_project_root()
-        >>> print(root)
-        /path/to/chatspatial/chatspatial
-    """
-    return PACKAGE_ROOT
-
-
 def get_safe_output_path(
     output_dir: str,
     fallback_to_tmp: bool = True,

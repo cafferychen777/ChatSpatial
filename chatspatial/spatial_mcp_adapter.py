@@ -152,18 +152,22 @@ def get_tool_annotations(tool_name: str) -> ToolAnnotations:
         tool_name: Name of the tool (e.g., 'load_data', 'preprocess_data')
 
     Returns:
-        ToolAnnotations object for the tool. Returns conservative defaults
-        if tool is not in registry.
+        ToolAnnotations object for the tool.
+
+    Raises:
+        KeyError: If tool is not in TOOL_ANNOTATIONS registry.
+                  This is intentional - all tools must be explicitly annotated.
 
     Usage:
         @mcp.tool(annotations=get_tool_annotations("load_data"))
         async def load_data(...): ...
     """
-    return TOOL_ANNOTATIONS.get(
-        tool_name,
-        # Conservative defaults: assume tool modifies state and is not idempotent
-        ToolAnnotations(readOnlyHint=False, idempotentHint=False),
-    )
+    if tool_name not in TOOL_ANNOTATIONS:
+        raise KeyError(
+            f"Tool '{tool_name}' not found in TOOL_ANNOTATIONS registry. "
+            f"Add it to TOOL_ANNOTATIONS in spatial_mcp_adapter.py."
+        )
+    return TOOL_ANNOTATIONS[tool_name]
 
 
 class SpatialMCPAdapter:

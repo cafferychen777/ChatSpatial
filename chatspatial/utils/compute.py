@@ -278,21 +278,6 @@ def ensure_spatial_neighbors(
 
 
 # =============================================================================
-# Async Wrapper for Spatial Neighbors (used by spatial_statistics.py)
-# =============================================================================
-
-
-async def ensure_spatial_neighbors_async(
-    adata: "ad.AnnData",
-    ctx,  # ToolContext  # noqa: ARG001
-    coord_type: Literal["grid", "generic"] = "generic",
-    n_neighs: int = 6,
-) -> bool:
-    """Async version of ensure_spatial_neighbors with context logging."""
-    return ensure_spatial_neighbors(adata, coord_type, n_neighs)
-
-
-# =============================================================================
 # Validation Functions (Check-only, no computation)
 # =============================================================================
 

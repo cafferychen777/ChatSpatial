@@ -75,13 +75,14 @@ def _numpy2_compat_assert_array_equal(
         )
 
     # Call original function with positional arguments (works in all NumPy versions)
-    # Use getattr for dynamic attribute access (__wrapped__ is set at runtime)
+    # __wrapped__ is set by _patch_numpy_testing() and must exist when this function is called
     original_func = getattr(np.testing.assert_array_equal, "__wrapped__", None)
-    if original_func is not None:
-        original_func(arr_actual, arr_desired, **kwargs)
-    else:
-        # Fallback if not patched (shouldn't happen in normal usage)
-        np.testing.assert_array_equal(arr_actual, arr_desired, **kwargs)
+    if original_func is None:
+        raise RuntimeError(
+            "_numpy2_compat_assert_array_equal called without patching. "
+            "Use numpy2_compat() context manager or _patch_numpy_testing() first."
+        )
+    original_func(arr_actual, arr_desired, **kwargs)
 
 
 def _is_numpy2() -> bool:

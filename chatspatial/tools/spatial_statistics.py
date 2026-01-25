@@ -48,7 +48,7 @@ from ..utils.adata_utils import (
     validate_adata_basics,
     validate_obs_column,
 )
-from ..utils.compute import ensure_spatial_neighbors_async
+from ..utils.compute import ensure_spatial_neighbors
 from ..utils.exceptions import (
     DataCompatibilityError,
     DataNotFoundError,
@@ -293,7 +293,7 @@ async def analyze_spatial_statistics(
             cluster_key = params.cluster_key
 
         # Ensure spatial neighbors and dispatch to analysis
-        await ensure_spatial_neighbors_async(adata, ctx, n_neighs=params.n_neighbors)
+        ensure_spatial_neighbors(adata, n_neighs=params.n_neighbors)
         result = _dispatch_analysis(
             params.analysis_type, adata, params, cluster_key, ctx
         )
