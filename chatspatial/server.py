@@ -46,7 +46,7 @@ from .models.data import VisualizationParameters  # noqa: E402
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .spatial_mcp_adapter import get_tool_annotations  # noqa: E402
-from .utils.exceptions import DataNotFoundError, ParameterError  # noqa: E402
+from .utils.exceptions import ParameterError  # noqa: E402
 from .utils.mcp_utils import mcp_tool_error_handler  # noqa: E402
 
 # Create MCP server and adapter
@@ -54,19 +54,6 @@ mcp, adapter = create_spatial_mcp_server("ChatSpatial")
 
 # Get data manager from adapter
 data_manager = adapter.data_manager
-
-
-def validate_dataset(data_id: str) -> None:
-    """Validate that a dataset exists in the data store
-
-    Args:
-        data_id: Dataset ID
-
-    Raises:
-        ValueError: If the dataset is not found
-    """
-    if not data_manager.dataset_exists(data_id):
-        raise DataNotFoundError(f"Dataset {data_id} not found")
 
 
 @mcp.tool(annotations=get_tool_annotations("load_data"))
@@ -148,9 +135,6 @@ async def preprocess_data(
     Returns:
         PreprocessingResult with HVGs, PCA, clustering, and spatial neighbors
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
     # Create ToolContext
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -195,9 +179,6 @@ async def compute_embeddings(
     Returns:
         Summary of computed embeddings
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
     # Lazy import
     from .tools.embeddings import EmbeddingParameters
     from .tools.embeddings import compute_embeddings as compute_embeddings_func
@@ -263,8 +244,6 @@ async def visualize_data(
     """
     from .tools.visualization import visualize_data as visualize_func
 
-    validate_dataset(data_id)
-
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     result = await visualize_func(data_id, ctx, params)
@@ -295,19 +274,6 @@ async def annotate_cell_types(
     Returns:
         AnnotationResult with cell type assignments and confidence scores
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
-    # Validate reference data for methods that require it
-    if (
-        params.method in ["tangram", "scanvi", "singler"]
-        and params.reference_data_id
-        and not data_manager.dataset_exists(params.reference_data_id)
-    ):
-        raise DataNotFoundError(
-            f"Reference dataset {params.reference_data_id} not found"
-        )
-
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -349,9 +315,6 @@ async def analyze_spatial_statistics(
     Returns:
         SpatialStatisticsResult with statistics and p-values
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -401,9 +364,6 @@ async def find_markers(
     Returns:
         DifferentialExpressionResult with top marker genes
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -463,9 +423,6 @@ async def compare_conditions(
     Returns:
         ConditionComparisonResult with differential expression results
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
     # Create ToolContext
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -529,9 +486,6 @@ async def analyze_cnv(
     Returns:
         CNVResult with CNV scores and optional clone assignments
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -586,9 +540,6 @@ async def analyze_velocity_data(
     Returns:
         RNAVelocityResult with velocity vectors and latent time
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -624,9 +575,6 @@ async def analyze_trajectory_data(
     Returns:
         TrajectoryResult with pseudotime and fate probabilities
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
     # Create ToolContext
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -662,10 +610,6 @@ async def integrate_samples(
     Returns:
         IntegrationResult with integrated dataset ID
     """
-    # Validate all datasets first
-    for data_id in data_ids:
-        validate_dataset(data_id)
-
     # Create ToolContext for clean data access
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -706,17 +650,6 @@ async def deconvolve_data(
     Returns:
         DeconvolutionResult with cell type proportions per spot
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
-    # Validate reference data if provided
-    if params.reference_data_id and not data_manager.dataset_exists(
-        params.reference_data_id
-    ):
-        raise DataNotFoundError(
-            f"Reference dataset {params.reference_data_id} not found"
-        )
-
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -752,9 +685,6 @@ async def identify_spatial_domains(
     Returns:
         SpatialDomainResult with domain_key for visualization
     """
-    # Validate dataset first
-    validate_dataset(data_id)
-
     # Create ToolContext for clean data access
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -798,9 +728,6 @@ async def analyze_cell_communication(
     Returns:
         CellCommunicationResult with significant ligand-receptor interactions
     """
-    # Validate dataset first
-    validate_dataset(data_id)
-
     # Create ToolContext for clean data access
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -850,9 +777,6 @@ async def analyze_enrichment(
     """
     from .tools.enrichment import analyze_enrichment as analyze_enrichment_func
 
-    # Validate dataset
-    validate_dataset(data_id)
-
     # Create ToolContext
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -887,9 +811,6 @@ async def find_spatial_genes(
     Returns:
         SpatialVariableGenesResult with ranked genes and statistics
     """
-    # Validate dataset
-    validate_dataset(data_id)
-
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -927,10 +848,6 @@ async def register_spatial_data(
     Returns:
         Registration result with transformation matrix
     """
-    # Validate datasets first
-    validate_dataset(source_id)
-    validate_dataset(target_id)
-
     # Create ToolContext for unified data access
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -969,9 +886,6 @@ async def export_data(
     from pathlib import Path as PathLib
 
     from .utils.persistence import export_adata
-
-    # Validate dataset exists
-    validate_dataset(data_id)
 
     if context:
         await context.info(f"Exporting dataset '{data_id}'...")
@@ -1015,9 +929,6 @@ async def reload_data(
     from pathlib import Path as PathLib
 
     from .utils.persistence import load_adata_from_active
-
-    # Validate dataset exists in memory
-    validate_dataset(data_id)
 
     if context:
         await context.info(f"Reloading dataset '{data_id}'...")

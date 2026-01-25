@@ -22,7 +22,9 @@ import traceback
 import warnings
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from functools import wraps
-from typing import get_type_hints
+from typing import Union, get_args, get_origin, get_type_hints
+
+from pydantic import BaseModel
 
 from .exceptions import (
     ChatSpatialError,
@@ -79,13 +81,11 @@ def _get_return_type_category(func) -> str:
     """
     Determine return type category using proper type inspection.
 
+    Called once per decorated function at decoration time (not per call).
+
     Returns one of: "basemodel", "str", "simple", "unknown"
     """
     try:
-        from typing import Union, get_args, get_origin
-
-        from pydantic import BaseModel
-
         hints = get_type_hints(func)
         return_type = hints.get("return")
 
@@ -110,7 +110,9 @@ def _get_return_type_category(func) -> str:
 
         return "simple"
 
-    except Exception:
+    except (TypeError, NameError):
+        # TypeError: get_type_hints fails on some types
+        # NameError: Forward references not resolved
         return "unknown"
 
 
