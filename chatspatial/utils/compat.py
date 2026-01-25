@@ -9,6 +9,7 @@ Design Principles:
 2. Centralized Management - All compatibility fixes in one place
 3. Traceable - Document the issue source, affected versions, and fix
 4. Reversible - Patches should be easy to remove when upstream fixes are released
+5. API Fidelity - ValueError is used intentionally to match original library behavior
 
 Sections:
 - NumPy 2.x Compatibility (assert_array_equal parameter names)

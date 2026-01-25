@@ -9,14 +9,16 @@ This module provides both standard and spatially-aware enrichment analysis metho
 import logging
 from typing import TYPE_CHECKING, Optional, Union
 
+# Core dependencies (REQUIRED - in pyproject.toml dependencies)
+import gseapy as gp  # Gene set enrichment analysis
 import numpy as np
 import pandas as pd
 from scipy import stats
+from statsmodels.stats.multitest import multipletests
 
 if TYPE_CHECKING:
     from ..models.data import EnrichmentParameters
     from ..spatial_mcp_adapter import ToolContext
-from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
 from ..utils.adata_utils import get_raw_data_source, store_analysis_metadata, to_dense
@@ -371,8 +373,7 @@ def perform_gsea(
     -------
     Dict containing enrichment results
     """
-    require("gseapy", ctx, feature="GSEA analysis")
-    import gseapy as gp
+    # gseapy imported at module level (required dependency)
 
     # Prepare ranking
     if ranking_key and ranking_key in adata.var:
@@ -865,8 +866,7 @@ def perform_ssgsea(
     -------
     Dict containing enrichment results
     """
-    require("gseapy", ctx, feature="ssGSEA analysis")
-    import gseapy as gp
+    # gseapy imported at module level (required dependency)
 
     # Memory-efficient batch processing for large datasets
     # Threshold: process in batches if > 1000 samples to avoid OOM
@@ -1079,8 +1079,7 @@ def perform_enrichr(
     -------
     Dict containing enrichment results
     """
-    require("gseapy", ctx, feature="Enrichr analysis")
-    import gseapy as gp
+    # gseapy imported at module level (required dependency)
 
     # Default gene set libraries - use separate variable for list
     gene_sets_list: list[str]
@@ -1489,9 +1488,8 @@ def load_msigdb_gene_sets(
     Dict[str, List[str]]
         Dictionary of gene sets
     """
+    # gseapy imported at module level (required dependency)
     try:
-        import gseapy as gp
-
         organism = _get_organism_name(species)
         gene_sets_dict = {}
 
@@ -1578,9 +1576,8 @@ def load_go_gene_sets(
     if aspect not in aspect_map:
         raise ParameterError(f"Invalid GO aspect: {aspect}")
 
+    # gseapy imported at module level (required dependency)
     try:
-        import gseapy as gp
-
         organism = _get_organism_name(species)
         gene_sets = gp.get_library(aspect_map[aspect], organism=organism)
 
@@ -1612,9 +1609,8 @@ def load_kegg_gene_sets(
     Dict[str, List[str]]
         Dictionary of KEGG pathway gene sets
     """
+    # gseapy imported at module level (required dependency)
     try:
-        import gseapy as gp
-
         organism = _get_organism_name(species)
 
         if species.lower() == "human":
@@ -1650,9 +1646,8 @@ def load_reactome_gene_sets(
     Dict[str, List[str]]
         Dictionary of Reactome pathway gene sets
     """
+    # gseapy imported at module level (required dependency)
     try:
-        import gseapy as gp
-
         organism = _get_organism_name(species)
         gene_sets = gp.get_library("Reactome_2022", organism=organism)
 
@@ -1684,9 +1679,8 @@ def load_cell_marker_gene_sets(
     Dict[str, List[str]]
         Dictionary of cell type marker gene sets
     """
+    # gseapy imported at module level (required dependency)
     try:
-        import gseapy as gp
-
         organism = _get_organism_name(species)
         gene_sets = gp.get_library("CellMarker_Augmented_2021", organism=organism)
 

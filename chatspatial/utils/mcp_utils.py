@@ -2,6 +2,18 @@
 MCP utilities for ChatSpatial.
 
 Tools for MCP server: error handling decorator and output suppression.
+
+Error Handling Design:
+======================
+User-understandable errors (no traceback needed):
+- ParameterError: Invalid parameter values
+- DataError, DataNotFoundError, DataCompatibilityError: Data issues
+- DependencyError: Missing packages
+- ValueError: Legacy/compatibility (same semantic as ParameterError)
+
+Code/algorithm errors (traceback needed for debugging):
+- ProcessingError: Algorithm failures
+- All other exceptions: Unknown errors
 """
 
 import io
@@ -11,6 +23,26 @@ import warnings
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from functools import wraps
 from typing import get_type_hints
+
+from .exceptions import (
+    ChatSpatialError,
+    DataCompatibilityError,
+    DataError,
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+)
+
+# Exceptions that don't need traceback (message is self-explanatory)
+# These are "user errors" - the error message is sufficient for understanding
+USER_ERRORS = (
+    ParameterError,
+    DataError,
+    DataNotFoundError,
+    DataCompatibilityError,
+    DependencyError,
+    ValueError,  # Legacy compatibility
+)
 
 
 # =============================================================================
@@ -111,7 +143,9 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 else:
                     # Return error dict for simple types
                     content = [{"type": "text", "text": f"Error: {error_msg}"}]
-                    if include_traceback and not isinstance(e, ValueError):
+                    # Only include traceback for non-user errors
+                    # User errors (ParameterError, DataError, etc.) have self-explanatory messages
+                    if include_traceback and not isinstance(e, USER_ERRORS):
                         content.append(
                             {
                                 "type": "text",

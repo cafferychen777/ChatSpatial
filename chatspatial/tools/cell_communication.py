@@ -47,6 +47,7 @@ from ..utils import validate_obs_column
 from ..utils.adata_utils import get_raw_data_source, get_spatial_key, to_dense
 from ..utils.dependency_manager import require, validate_r_package
 from ..utils.exceptions import (
+    DataCompatibilityError,
     DataNotFoundError,
     DependencyError,
     ParameterError,
@@ -1213,7 +1214,7 @@ def _analyze_communication_cellchat_r(
             common_genes = raw_result.var_names.intersection(cellchat_genes)
 
             if len(common_genes) == 0:
-                raise ValueError(
+                raise DataCompatibilityError(
                     f"No genes overlap between data and {db_name}. "
                     f"Check if species parameter matches your data."
                 )

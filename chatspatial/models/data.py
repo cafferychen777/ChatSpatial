@@ -623,6 +623,8 @@ class VisualizationParameters(BaseModel):
                 "centrality",
                 "getis_ord",
             ]
+            # ValueError is correct here - Pydantic framework converts it to ValidationError
+            # This is a parameter validation error (semantically ParameterError)
             raise ValueError(
                 f"Parameter dependency error: subtype is required when plot_type='statistics'.\n"
                 f"Available subtypes: {', '.join(available_types)}\n"

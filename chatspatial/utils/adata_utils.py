@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 from scipy import sparse
 
-from .exceptions import DataError
+from .exceptions import DataError, ParameterError
 
 # =============================================================================
 # Constants: Standard Field Names
@@ -1499,7 +1499,7 @@ def find_common_genes(*gene_collections: Any) -> list[str]:
         common = find_common_genes(["GeneA", "GeneB"], ["GeneB", "GeneC"])
     """
     if len(gene_collections) < 2:
-        raise ValueError("find_common_genes requires at least 2 gene collections")
+        raise ParameterError("find_common_genes requires at least 2 gene collections")
 
     # Convert first collection to set
     result = set(gene_collections[0])

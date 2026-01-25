@@ -2,29 +2,16 @@
 Main server implementation for ChatSpatial using the Spatial MCP Adapter.
 """
 
-import os
-import warnings
 from typing import Any, Literal, Optional, cast
 
-# Suppress warnings to speed up startup
-warnings.filterwarnings("ignore", category=FutureWarning)
-warnings.filterwarnings("ignore", category=UserWarning)
+from mcp.server.fastmcp import Context
 
-# CRITICAL: Disable progress bars to prevent stdout pollution
-# This protects against accidental stdout usage if server is imported directly
-os.environ["TQDM_DISABLE"] = "1"
-
-# Suppress scanpy/squidpy verbosity and enable multi-threading
-try:
-    import scanpy as sc
-
-    sc.settings.verbosity = 0
-    sc.settings.n_jobs = -1  # Use all CPU cores for parallel computation
-except ImportError:
-    pass
-
-from mcp.server.fastmcp import Context  # noqa: E402
-
+# Initialize runtime configuration (SSOT - all config in one place)
+# This import triggers init_runtime() which configures:
+# - Environment variables (TQDM_DISABLE, DASK_*)
+# - Warning filters
+# - Scanpy settings
+from . import config  # noqa: F401
 from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
 from .models.analysis import CNVResult  # noqa: E402
@@ -59,7 +46,7 @@ from .models.data import VisualizationParameters  # noqa: E402
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .spatial_mcp_adapter import get_tool_annotations  # noqa: E402
-from .utils.exceptions import DataNotFoundError  # noqa: E402
+from .utils.exceptions import DataNotFoundError, ParameterError  # noqa: E402
 from .utils.mcp_utils import mcp_tool_error_handler  # noqa: E402
 
 # Create MCP server and adapter
@@ -871,7 +858,7 @@ async def analyze_enrichment(
 
     # Use default parameters if not provided (species is required by analyze_enrichment_func)
     if params is None:
-        raise ValueError(
+        raise ParameterError(
             "EnrichmentParameters is required. Please specify at least 'species' parameter."
         )
 
