@@ -92,19 +92,24 @@ def get_safe_output_path(
                 UserWarning,
                 stacklevel=2,
             )
-            # Append the relative part of the original path to safe dir
-            target_path = get_default_output_dir() / user_path.name
+            # Try to preserve path structure relative to package root
+            try:
+                relative_part = user_path.relative_to(PACKAGE_ROOT)
+                target_path = get_default_output_dir() / relative_part
+            except ValueError:
+                # Shouldn't happen since is_inside_package_dir returned True
+                target_path = get_default_output_dir() / user_path.name
         else:
             target_path = user_path
     else:
         # Relative path - check if cwd is inside package
         if is_inside_package_dir(cwd):
             # CWD is inside package - use safe default as base
+            # Preserve full relative path structure to avoid collisions
+            # e.g., "./a/plots" -> ~/chatspatial_outputs/a/plots
+            #       "./b/plots" -> ~/chatspatial_outputs/b/plots (no collision)
             base_dir = get_default_output_dir()
-            # Only use the last component to avoid deep nesting
-            # e.g., "./visualizations" -> ~/chatspatial_outputs/visualizations
-            relative_name = user_path.name if user_path.name else user_path
-            target_path = base_dir / relative_name
+            target_path = base_dir / user_path
         else:
             # CWD is safe - resolve against cwd (standard behavior)
             target_path = cwd / user_path
@@ -112,7 +117,11 @@ def get_safe_output_path(
     # Ensure the resolved path is not inside package (double check)
     if is_inside_package_dir(target_path):
         safe_base = get_default_output_dir()
-        target_path = safe_base / target_path.name
+        try:
+            relative_part = target_path.relative_to(PACKAGE_ROOT)
+            target_path = safe_base / relative_part
+        except ValueError:
+            target_path = safe_base / target_path.name
 
     # Try to create/verify the directory
     try:

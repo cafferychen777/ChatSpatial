@@ -87,7 +87,8 @@ def get_default_output_dir() -> Path:
     env_dir = os.environ.get("CHATSPATIAL_OUTPUT_DIR")
     if env_dir:
         env_path = Path(env_dir)
-        if _is_writable_dir(env_path):
+        # Reject package directory to protect source code
+        if not is_inside_package_dir(env_path) and _is_writable_dir(env_path):
             return env_path.resolve()
 
     # Priority 2: Current working directory (if safe)
@@ -239,23 +240,25 @@ def init_runtime(verbose: bool = False) -> None:
 
     Args:
         verbose: If True, print initialization info to stderr.
+                 This is independent of initialization state - verbose output
+                 will be printed even if already initialized.
 
     Example:
         >>> from chatspatial.config import init_runtime
         >>> init_runtime()  # Call once at startup
+        >>> init_runtime(verbose=True)  # Print status even if already initialized
     """
     global _initialized
 
-    if _initialized:
-        return
+    if not _initialized:
+        # Configure in order of dependency
+        _configure_environment()  # Env vars first (may affect library imports)
+        _configure_warnings()  # Warnings before library imports
+        _configure_libraries()  # Libraries last
+        _initialized = True
 
-    # Configure in order of dependency
-    _configure_environment()  # Env vars first (may affect library imports)
-    _configure_warnings()  # Warnings before library imports
-    _configure_libraries()  # Libraries last
-
-    _initialized = True
-
+    # Verbose output is independent of initialization state
+    # This allows --verbose to work even after auto-initialization on import
     if verbose:
         print(
             f"ChatSpatial initialized:\n"
