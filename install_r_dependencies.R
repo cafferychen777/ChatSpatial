@@ -79,8 +79,9 @@ cran_packages <- c(
   "dplyr",        # Data manipulation (required by scType, Numbat, CellChat)
   "openxlsx",     # Excel file reading (required by scType)
   "HGNChelper",   # Gene name validation (required by scType)
-  "SPARK",        # Spatial variable genes (SPARK method)
-  "sctransform"   # SCTransform v2 normalization (variance-stabilizing)
+  "sctransform",  # SCTransform v2 normalization (variance-stabilizing)
+  "Matrix",       # Sparse matrix operations (required by SCTransform)
+  "mclust"        # Model-based clustering (required by GraphST)
 )
 
 for (pkg in cran_packages) {
@@ -97,7 +98,12 @@ cat("Step 3: Installing Bioconductor Packages\n")
 cat("-----------------------------------------\n")
 
 bioc_packages <- list(
-  list(name = "SPOTlight", cmd = "BiocManager::install('SPOTlight', update = FALSE, ask = FALSE)")
+  # SPOTlight and its dependencies
+  list(name = "SPOTlight", cmd = "BiocManager::install('SPOTlight', update = FALSE, ask = FALSE)"),
+  list(name = "SingleCellExperiment", cmd = "BiocManager::install('SingleCellExperiment', update = FALSE, ask = FALSE)"),
+  list(name = "SpatialExperiment", cmd = "BiocManager::install('SpatialExperiment', update = FALSE, ask = FALSE)"),
+  list(name = "scran", cmd = "BiocManager::install('scran', update = FALSE, ask = FALSE)"),
+  list(name = "scuttle", cmd = "BiocManager::install('scuttle', update = FALSE, ask = FALSE)")
 )
 
 for (pkg_info in bioc_packages) {
@@ -138,6 +144,12 @@ github_packages <- list(
     repo = "kharchenkolab/numbat",
     method = "CNV analysis",
     cmd = "devtools::install_github('kharchenkolab/numbat', upgrade = 'never')"
+  ),
+  list(
+    name = "SPARK",
+    repo = "xzhoulab/SPARK",
+    method = "Spatial variable genes (SPARK-X)",
+    cmd = "devtools::install_github('xzhoulab/SPARK', upgrade = 'never')"
   )
 )
 
@@ -174,13 +186,14 @@ if (length(failed_packages) > 0) {
   cat("\n✓ All R dependencies installed successfully!\n\n")
   cat("You can now use ChatSpatial's R-based methods:\n")
   cat("  • RCTD deconvolution (spacexr)\n")
-  cat("  • SPOTlight deconvolution (SPOTlight)\n")
+  cat("  • SPOTlight deconvolution (SPOTlight + dependencies)\n")
   cat("  • CARD deconvolution (CARD)\n")
   cat("  • CellChat cell communication (CellChat)\n")
-  cat("  • SCTransform normalization (sctransform)\n")
+  cat("  • SCTransform normalization (sctransform, Matrix)\n")
   cat("  • scType cell type annotation (dplyr, openxlsx, HGNChelper)\n")
   cat("  • Numbat CNV analysis (numbat)\n")
-  cat("  • SPARK spatial variable genes (SPARK)\n")
+  cat("  • SPARK-X spatial variable genes (SPARK)\n")
+  cat("  • GraphST clustering (mclust)\n")
   cat("\n")
 }
 

@@ -1,6 +1,6 @@
 # Quick Start
 
-First time? Complete [Installation](../INSTALLATION.md) first, then come back here.
+First time? Complete [Installation](https://github.com/cafferychen777/ChatSpatial/blob/main/INSTALLATION.md) first, then come back here.
 
 ---
 
