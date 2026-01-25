@@ -1,17 +1,268 @@
-/* Custom CSS for ChatSpatial documentation */
+/* ChatSpatial Documentation - Custom Styles for Furo Theme */
 
-/* Improve code block styling */
-.highlight {
-    border-radius: 4px;
+/* ============================================
+   Typography Refinements
+   ============================================ */
+
+/* Improve body text readability */
+body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
-/* Better spacing for grid cards */
+/* Heading styles */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+h1 {
+    font-size: 2.25rem;
+    margin-bottom: 1.5rem;
+}
+
+h2 {
+    font-size: 1.75rem;
+    margin-top: 2.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--color-background-border);
+}
+
+h3 {
+    font-size: 1.375rem;
+    margin-top: 2rem;
+}
+
+/* ============================================
+   Code Blocks
+   ============================================ */
+
+/* Code block styling */
+pre {
+    border-radius: 8px;
+    border: 1px solid var(--color-background-border);
+    padding: 1rem;
+    font-size: 0.875rem;
+    line-height: 1.6;
+}
+
+/* Inline code */
+code.literal {
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-weight: 500;
+}
+
+/* Copy button positioning */
+.copybtn {
+    top: 0.5rem;
+    right: 0.5rem;
+}
+
+/* ============================================
+   Tables
+   ============================================ */
+
+/* Beautiful tables */
+table.docutils {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1.5rem 0;
+    font-size: 0.9rem;
+}
+
+table.docutils th {
+    background: var(--color-background-secondary);
+    font-weight: 600;
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 2px solid var(--color-brand-primary);
+}
+
+table.docutils td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-background-border);
+}
+
+table.docutils tr:hover td {
+    background: var(--color-background-hover);
+}
+
+/* ============================================
+   Cards and Design Elements
+   ============================================ */
+
+/* Sphinx-design cards */
 .sd-card {
+    border-radius: 12px;
+    border: 1px solid var(--color-background-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.sd-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.sd-card-title {
+    font-weight: 600;
+    color: var(--color-brand-primary);
+}
+
+/* Grid cards */
+.sd-cards-carousel .sd-card {
     height: 100%;
 }
 
-/* Custom color scheme tweaks */
-:root {
-    --pst-color-primary: #2196F3;
-    --pst-color-secondary: #4CAF50;
+/* ============================================
+   Navigation and Sidebar
+   ============================================ */
+
+/* Sidebar refinements */
+.sidebar-brand {
+    padding: 1rem;
+}
+
+.sidebar-logo {
+    max-height: 48px;
+    width: auto;
+}
+
+/* Active nav item */
+.sidebar-tree .current-page > .reference {
+    font-weight: 600;
+    color: var(--color-brand-primary);
+}
+
+/* ============================================
+   Admonitions (Notes, Warnings, etc.)
+   ============================================ */
+
+.admonition {
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-left: 4px solid;
+}
+
+.admonition-title {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+/* Note style */
+.admonition.note {
+    border-left-color: var(--color-brand-primary);
+    background: var(--color-admonition-background);
+}
+
+/* Tip style */
+.admonition.tip {
+    border-left-color: #10b981;
+}
+
+/* Warning style */
+.admonition.warning {
+    border-left-color: #f59e0b;
+}
+
+/* ============================================
+   Content Area
+   ============================================ */
+
+/* Main content max width for readability */
+.main .content {
+    max-width: 800px;
+}
+
+/* Paragraph spacing */
+p {
+    margin-bottom: 1rem;
+    line-height: 1.75;
+}
+
+/* List styling */
+ul, ol {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+}
+
+li {
+    margin: 0.5rem 0;
+    line-height: 1.6;
+}
+
+/* ============================================
+   Links
+   ============================================ */
+
+a {
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* External link indicator */
+a.external::after {
+    content: " ↗";
+    font-size: 0.8em;
+    opacity: 0.7;
+}
+
+/* ============================================
+   Footer
+   ============================================ */
+
+footer {
+    border-top: 1px solid var(--color-background-border);
+    padding-top: 1.5rem;
+    margin-top: 3rem;
+}
+
+/* ============================================
+   Responsive Adjustments
+   ============================================ */
+
+@media (max-width: 768px) {
+    h1 {
+        font-size: 1.75rem;
+    }
+
+    h2 {
+        font-size: 1.5rem;
+    }
+
+    h3 {
+        font-size: 1.25rem;
+    }
+
+    table.docutils {
+        font-size: 0.85rem;
+    }
+
+    table.docutils th,
+    table.docutils td {
+        padding: 0.5rem 0.75rem;
+    }
+}
+
+/* ============================================
+   Print Styles
+   ============================================ */
+
+@media print {
+    .sidebar-drawer,
+    .toc-drawer,
+    .header {
+        display: none !important;
+    }
+
+    .main .content {
+        max-width: 100%;
+    }
 }

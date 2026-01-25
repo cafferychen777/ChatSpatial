@@ -3,21 +3,13 @@
 
 # Sphinx core
 sphinx>=7.0.0
-sphinx-rtd-theme>=2.0.0
 
-# PyData Sphinx Theme (scientific Python standard)
-pydata-sphinx-theme>=0.16.0
+# Furo theme - modern, clean, dark mode support
+furo>=2024.0.0
 
 # Sphinx extensions
 sphinx-copybutton>=0.5.2  # Copy button for code blocks
 sphinx-design>=0.6.0  # Design elements (cards, tabs, grids)
-sphinx-autobuild>=2024.0.0  # Live reload for development
-sphinxcontrib-bibtex>=2.5.0  # Bibliography support
 
 # Markdown support for Sphinx
 myst-parser>=2.0.0  # MyST Markdown parser
-
-# Additional useful extensions
-sphinx-tabs>=3.4.0  # Tabbed content
-sphinx-togglebutton>=0.3.0  # Toggle buttons
-sphinxext-opengraph>=0.9.0  # Open Graph meta tags
