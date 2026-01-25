@@ -20,8 +20,8 @@ pip install chatspatial[full]
 
 | Option | Features | Install Time |
 |--------|----------|--------------|
-| Standard | Core analysis, basic deconvolution, cell communication | 3-5 min |
-| Full | + Deep learning, Cell2location, CellRank, SpaGCN, STAGATE | 6-10 min |
+| Standard | Core analysis, basic deconvolution, cell communication | ~6 min |
+| Full | + Deep learning, Cell2location, CellRank, SpaGCN, STAGATE | ~13 min |
 
 ---
 

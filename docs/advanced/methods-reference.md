@@ -114,7 +114,7 @@ Identify spatially variable genes.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `method` | `sparkx` | `sparkx`, `spatialde` |
-| `n_top_genes` | 100 | Top genes to return |
+| `n_top_genes` | None | Top genes to return (None = all significant) |
 
 ---
 
@@ -177,7 +177,7 @@ Estimate cell type proportions per spot.
 | `stereoscope` | Slow | Yes | Alternative DL |
 | `tangram` | Medium | Yes | Spatial mapping |
 | `spotlight` | Fast | No | R-based |
-| `card` | Fast | Yes | R-based, imputation |
+| `card` | Fast | No | R-based, imputation |
 
 ---
 
@@ -205,7 +205,7 @@ Find differentially expressed genes.
 | `group_key` | required | Grouping column |
 | `group1` | None | First group (None = each vs rest) |
 | `group2` | None | Second group |
-| `method` | `wilcoxon` | `wilcoxon`, `t-test`, `logreg`, `pydeseq2` |
+| `method` | `wilcoxon` | `wilcoxon`, `t-test`, `pydeseq2` |
 | `n_top_genes` | 25 | Top genes per group |
 
 ---
@@ -260,7 +260,7 @@ Trajectory and pseudotime inference.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `method` | `dpt` | `dpt`, `palantir`, `cellrank` |
+| `method` | `cellrank` | `cellrank`, `palantir`, `dpt` |
 | `root_cells` | None | Starting cells |
 
 **Note**: CellRank requires velocity data
@@ -348,8 +348,16 @@ Set `use_gpu=True` for these methods:
 |----------|---------|
 | Preprocessing | scVI normalization |
 | Annotation | Tangram, scANVI |
-| Deconvolution | Cell2location, DestVI, Stereoscope, Tangram, CARD |
+| Deconvolution | Cell2location, DestVI, Stereoscope, Tangram |
 | Domains | STAGATE, GraphST |
 | Velocity | VeloVI |
 | Integration | scVI |
 | CNV | inferCNVpy |
+
+---
+
+## Next Steps
+
+- [Examples](../examples.md) — See methods in action
+- [Concepts](../concepts.md) — When to use which method
+- [Troubleshooting](troubleshooting.md) — Common issues and fixes
