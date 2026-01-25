@@ -32,7 +32,7 @@ No! ChatSpatial is designed for natural language conversation. However, understa
 
 ### What Python version do I need?
 
-Python 3.10 or higher. Python 3.11-3.12 recommended for optimal performance.
+Python 3.11 or higher (3.12 recommended, 3.13 supported).
 
 ### Should I use a virtual environment?
 
@@ -125,12 +125,17 @@ Yes! ChatSpatial's modular architecture makes it easy to add new tools. See deve
 
 ### Is GPU acceleration supported?
 
-Yes, for certain methods:
-- Cell2location (deconvolution)
-- scVI-based methods (preprocessing, annotation)
-- VeloVI (RNA velocity)
+Yes, for many methods. Set `use_gpu=True` in parameters to enable:
 
-Set `use_gpu=True` in parameters to enable.
+| Category | GPU-accelerated Methods |
+|----------|------------------------|
+| **Preprocessing** | scVI normalization |
+| **Annotation** | Tangram, scANVI |
+| **Deconvolution** | Cell2location, DestVI, Stereoscope, Tangram, CARD |
+| **Spatial Domains** | STAGATE, GraphST |
+| **Velocity** | VeloVI |
+| **Integration** | scVI |
+| **CNV** | inferCNVpy |
 
 ---
 

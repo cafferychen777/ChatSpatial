@@ -12,14 +12,14 @@ cd chatspatial
 # Create virtual environment (choose one method)
 # Option A: Using venv (Python built-in)
 # For macOS with Homebrew Python:
-/opt/homebrew/bin/python3.10 -m venv chatspatial_env  # macOS Homebrew
+/opt/homebrew/bin/python3.12 -m venv chatspatial_env  # macOS Homebrew
 # For other systems:
 python3 -m venv chatspatial_env  # Linux/other macOS installs
 source chatspatial_env/bin/activate  # On macOS/Linux
 # chatspatial_env\Scripts\activate    # On Windows
 
 # Option B: Using conda
-conda create -n chatspatial python=3.10
+conda create -n chatspatial python=3.12
 conda activate chatspatial
 
 # Option C: Using uv (fast, modern)
@@ -30,7 +30,7 @@ source .venv/bin/activate
 ### Step 2: Install ChatSpatial
 
 ```bash
-# First, verify Python version (must be 3.10+)
+# First, verify Python version (must be 3.11+)
 python --version
 
 # Upgrade pip to latest version
@@ -149,7 +149,7 @@ That's it! Start analyzing your spatial data with natural language.
 
 ## Requirements
 
-- Python 3.10-3.12 (MCP requires Python 3.10+)
+- Python 3.11-3.13 (3.12 recommended)
 - macOS, Linux, or Windows
 - 5-10 GB disk space (for full installation)
 
@@ -176,7 +176,7 @@ That's it! Start analyzing your spatial data with natural language.
 
 | Issue | Solution |
 |-------|----------|
-| **"mcp>=0.1.0 not found" error** | **Recreate virtual environment with correct Python version** (see below) |
+| **"mcp>=1.17.0 not found" error** | **Recreate virtual environment with correct Python version** (see below) |
 | Import errors | Update pip: `pip install --upgrade pip` |
 | Package conflicts | `pip install --force-reinstall -e ".[full]"` |
 | Claude Desktop doesn't see server | Check that command path points to virtual environment Python |
@@ -188,21 +188,21 @@ That's it! Start analyzing your spatial data with natural language.
 
 ### MCP Package Installation Error (Common on macOS)
 
-**Error message:** `ERROR: Could not find a version that satisfies the requirement mcp>=0.1.0`
+**Error message:** `ERROR: Could not find a version that satisfies the requirement mcp>=1.17.0`
 
-**Cause:** Virtual environment is using Python < 3.10, but MCP requires Python ≥3.10
+**Cause:** Virtual environment is using Python < 3.11, but ChatSpatial requires Python ≥3.11
 
 **Solution for macOS Homebrew users:**
 ```bash
 # 1. Remove old virtual environment
 rm -rf chatspatial_env
 
-# 2. Create environment with Homebrew Python 3.10+
-/opt/homebrew/bin/python3.10 -m venv chatspatial_env
+# 2. Create environment with Homebrew Python 3.12
+/opt/homebrew/bin/python3.12 -m venv chatspatial_env
 
 # 3. Activate and verify
 source chatspatial_env/bin/activate
-python --version  # Should show Python 3.10.x
+python --version  # Should show Python 3.12.x
 
 # 4. Install ChatSpatial
 pip install --upgrade pip
@@ -243,7 +243,7 @@ ChatSpatial integrates several powerful R-based analysis methods. If you want to
 
 #### Prerequisites
 
-1. **Install R (version 4.0+)**
+1. **Install R (version 4.4+)**
    ```bash
    # macOS
    brew install r

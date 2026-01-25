@@ -5,12 +5,12 @@ Thank you for your interest in contributing to ChatSpatial! This document provid
 ## Getting Started
 
 ### Prerequisites
-- Python 3.10 or higher (required for MCP support)
+- Python 3.11 or higher (3.12 recommended, 3.13 supported)
 - Git
 - Basic understanding of spatial transcriptomics
 - Familiarity with Model Context Protocol (MCP) is helpful
 - For visualization testing: Understanding of matplotlib and image processing
-- For advanced methods: Knowledge of PyTorch, R (for R-based methods)
+- For advanced methods: Knowledge of PyTorch, R 4.4+ (for R-based methods)
 
 ### Development Setup
 
@@ -68,27 +68,37 @@ ChatSpatial follows a modular MCP server architecture:
 
 ```
 chatspatial/
-├── server.py                    # Main MCP server with tool definitions
+├── server.py                    # Main MCP server with 20 tool definitions
 ├── spatial_mcp_adapter.py       # Spatial data adapter for MCP
+├── config.py                    # Runtime configuration (SSOT)
 ├── tools/                       # Analysis tool implementations
-│   ├── annotation.py            # Cell type annotation methods
-│   ├── cell_communication.py    # LIANA+, CellPhoneDB, CellChat
-│   ├── spatial_genes.py         # GASTON, SpatialDE, SPARK-X
-│   ├── spatial_domains.py       # SpaGCN, STAGATE, Leiden/Louvain
-│   ├── visualization.py         # All plot types and image generation
+│   ├── annotation.py            # Cell type annotation (Tangram, scANVI, etc.)
+│   ├── cell_communication.py    # LIANA, CellPhoneDB, CellChat, FastCCC
+│   ├── spatial_genes.py         # SpatialDE, SPARK-X
+│   ├── spatial_domains.py       # SpaGCN, STAGATE, GraphST, Leiden
+│   ├── spatial_statistics.py    # Moran's I, Getis-Ord, Ripley's K
+│   ├── deconvolution/           # Deconvolution submodule
+│   │   ├── flashdeconv.py       # Fast sketch-based (default)
+│   │   ├── cell2location.py     # Deep learning method
+│   │   ├── rctd.py              # R-based method
+│   │   └── ...
+│   ├── visualization/           # Visualization submodule
+│   │   ├── main.py              # Plot type dispatcher
+│   │   ├── core.py              # Core plotting utilities
+│   │   ├── expression.py        # Expression plots
+│   │   └── ...
 │   └── ...
 ├── models/                      # Pydantic data models
 │   ├── data.py                  # Parameter models for each tool
 │   └── analysis.py              # Result models for analysis outputs
 ├── utils/                       # Utility functions
-│   ├── error_handling.py        # Data validation and business logic errors
-│   ├── tool_error_handling.py   # MCP protocol error handling
+│   ├── exceptions.py            # Custom exception classes
+│   ├── mcp_utils.py             # MCP error handling decorators
 │   ├── data_loader.py           # Data loading utilities
+│   ├── persistence.py           # Data export/reload utilities
 │   └── image_utils.py           # Image processing and conversion
-└── mcp/                         # MCP-specific modules
-    ├── errors.py                # MCP error definitions
-    ├── resources.py             # MCP resource management
-    └── ...
+└── cli/                         # CLI entry points
+    └── __init__.py
 ```
 
 ### Key Design Principles

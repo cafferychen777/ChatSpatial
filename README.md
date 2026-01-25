@@ -5,7 +5,7 @@
 **MCP server for spatial transcriptomics analysis via natural language**
 
 [![PyPI](https://img.shields.io/pypi/v/chatspatial)](https://pypi.org/project/chatspatial/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docs](https://img.shields.io/badge/docs-available-blue)](https://cafferychen777.github.io/ChatSpatial/)
 
@@ -152,7 +152,8 @@ Find spatially variable genes and create a heatmap
 ## Docs
 
 - [Installation Guide](INSTALLATION.md) — detailed setup for all platforms
-- [Examples](docs/examples/) — step-by-step workflows
+- [Examples](docs/examples.md) — step-by-step workflows
+- [Methods Reference](docs/advanced/methods-reference.md) — all 20 tools documented
 - [Full Documentation](https://cafferychen777.github.io/ChatSpatial/) — complete reference
 
 ---

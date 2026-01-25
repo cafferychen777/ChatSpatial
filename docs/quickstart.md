@@ -1,6 +1,6 @@
 # Quick Start
 
-Get ChatSpatial running in 5 minutes.
+Get started in 3 steps.
 
 ---
 
@@ -10,13 +10,17 @@ Get ChatSpatial running in 5 minutes.
 pip install chatspatial
 ```
 
-> For development or all optional features, see [Installation Guide](advanced/installation.md).
+Requires Python 3.11+ ([full installation options](advanced/installation.md))
 
 ---
 
 ## 2. Configure
 
-**Claude Desktop** — edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Choose your client:
+
+**Claude Desktop**
+
+Add to config file (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
@@ -29,58 +33,64 @@ pip install chatspatial
 }
 ```
 
-**Claude Code**:
+**Claude Code**
 
 ```bash
 claude mcp add chatspatial python -- -m chatspatial server
 ```
 
-Restart Claude after configuration.
+Restart Claude after configuring.
 
 ---
 
-## 3. Use
+## 3. Start Analyzing
 
-Open Claude and chat:
+Open Claude and type:
 
-```text
-Load /path/to/spatial_data.h5ad and show me the tissue structure
+```
+Load /path/to/spatial_data.h5ad and show the tissue structure
 ```
 
-```text
-Identify spatial domains using SpaGCN
-```
+ChatSpatial handles the rest.
 
-```text
-Find marker genes for domain 3
-```
+---
 
-That's it. You're analyzing spatial data through conversation.
+## What You Can Do
+
+| Task | Example |
+|------|---------|
+| Load data | "Load my Visium data from /path/to/data" |
+| Preprocess | "Normalize and cluster the data" |
+| Find domains | "Identify spatial domains with SpaGCN" |
+| Annotate cells | "Annotate cell types using the reference" |
+| Deconvolve | "Estimate cell type proportions" |
+| Analyze patterns | "Find spatially variable genes" |
+| Visualize | "Show expression of CD3D on the tissue" |
 
 ---
 
 ## Sample Data
 
-Download test datasets from [Releases](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.3.0-data):
+Test with our datasets:
 
-- `card_spatial.h5ad` (7.7MB) — pancreatic spatial data
-- `card_reference_filtered.h5ad` (36MB) — reference for deconvolution
+- [card_spatial.h5ad](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.3.0-data) (7.7 MB) - Pancreatic spatial data
+- [card_reference_filtered.h5ad](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.3.0-data) (36 MB) - Reference for deconvolution
 
 ---
 
-## Common Issues
+## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| Tools not appearing | Restart Claude after config |
-| Cannot load data | Use absolute paths |
+| Issue | Fix |
+|-------|-----|
+| Tools not showing | Restart Claude |
+| "Dataset not found" | Use absolute path: `/Users/you/data.h5ad` |
 | Analysis fails | Run preprocessing first |
 
-See [Troubleshooting](advanced/troubleshooting.md) for more.
+More help: [Troubleshooting Guide](advanced/troubleshooting.md)
 
 ---
 
-## Next
+## Next Steps
 
-- [Examples](examples.md) — Analysis workflows for every use case
-- [Methods Reference](advanced/methods-reference.md) — All tools and parameters
+- [Examples](examples.md) - Complete workflows
+- [Methods Reference](advanced/methods-reference.md) - All 20 tools

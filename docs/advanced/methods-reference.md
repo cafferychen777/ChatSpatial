@@ -1,642 +1,355 @@
-# MCP Tools Quick Reference
+# Methods Reference
 
-**Quick Link**: Keep this page bookmarked for instant access to all 20 MCP tools.
-
-## Tool Categories Overview
-
-| Category | Tools | Use Cases |
-|----------|-------|-----------|
-| **Data Management** | `load_data`, `preprocess_data`, `save_data` | Loading, preparing, and saving datasets |
-| **Spatial Analysis** | `analyze_spatial_statistics`, `find_spatial_genes`, `identify_spatial_domains` | Spatial patterns, variable genes, domain identification |
-| **Cell Type Analysis** | `annotate_cell_types`, `deconvolve_data` | Cell type annotation and deconvolution |
-| **Gene Analysis** | `find_markers`, `analyze_enrichment` | Differential expression and pathway analysis |
-| **Cell Communication** | `analyze_cell_communication` | Ligand-receptor interactions |
-| **Advanced Analysis** | `analyze_velocity_data`, `analyze_trajectory_data`, `analyze_cnv` | RNA velocity, trajectories, CNV analysis |
-| **Multi-Sample** | `integrate_samples`, `register_spatial_data` | Batch integration and spatial registration |
-| **Visualization** | `visualize_data`, `save_visualization`, `export_all_visualizations`, `clear_visualization_cache` | All plotting and visualization management |
-
-**Total: 20 Core MCP Tools** covering the complete spatial transcriptomics analysis pipeline.
+All 20 ChatSpatial tools with parameters and options.
 
 ---
 
-## Data Management Tools
+## Quick Reference
 
-### `load_data`
-**Purpose**: Load spatial transcriptomics data from various formats
-**Difficulty**: Beginner
-
-**Key Parameters**:
-- `data_path`: Path to data file/directory
-- `data_type`: `"auto"` (default), `"10x_visium"`, `"slide_seq"`, `"merfish"`, `"seqfish"`, `"h5ad"`, `"other"`
-- `name`: Optional dataset name
-
-**Supported Formats**:
-- **10x Visium**: Spatial Gene Expression directories (with `spatial/` folder)
-- **H5AD**: Pre-processed AnnData files with spatial coordinates in `obsm['spatial']`
-- **Slide-seq/MERFISH/seqFISH**: Custom formats with coordinate files
-- **Other**: Generic spatial data (requires manual spatial coordinate specification)
-
-**Example Queries**:
-```
-"Load my Visium data from /path/to/data"
-"Import the 10x Genomics dataset"
-"Load multiple H5AD files"
-```
-
-**Returns**: Dataset information with ID for further analysis
+| Category | Tools |
+|----------|-------|
+| Data | `load_data`, `preprocess_data`, `compute_embeddings`, `export_data`, `reload_data` |
+| Spatial | `analyze_spatial_statistics`, `find_spatial_genes`, `identify_spatial_domains` |
+| Cells | `annotate_cell_types`, `deconvolve_data`, `analyze_cell_communication` |
+| Genes | `find_markers`, `compare_conditions`, `analyze_enrichment` |
+| Dynamics | `analyze_velocity_data`, `analyze_trajectory_data`, `analyze_cnv` |
+| Multi-sample | `integrate_samples`, `register_spatial_data` |
+| Output | `visualize_data` |
 
 ---
 
-### `preprocess_data`
-**Purpose**: Normalize, filter, and prepare data for analysis
-**Difficulty**: Intermediate
+## Data Management
 
-**Key Parameters**:
-- `data_id`: Dataset ID from load_data
-- `params.normalization`: `"log"`, `"sct"`, `"pearson_residuals"`, `"scvi"`, `"none"`
-- `params.n_hvgs`: Number of highly variable genes (default: 2000)
-- `params.n_pcs`: Number of principal components (default: 30)
-- `params.n_neighbors`: Number of neighbors for graph (default: 15)
-- `params.clustering_resolution`: Leiden clustering resolution (default: 1.0)
+### load_data
 
-**Normalization Options**:
-- **log** (default): Standard log(x+1) normalization - robust and widely used
-- **sct**: SCTransform v2 variance-stabilizing normalization via R's sctransform package - best for raw UMI counts from 10x platforms
-- **pearson_residuals**: Analytic Pearson residuals (scanpy built-in, similar to SCTransform) - faster with comparable results
-- **scvi**: Deep learning-based normalization using scVI variational autoencoder - best for batch correction and denoising
-- **none**: Skip normalization (use when data is already normalized)
+Load spatial transcriptomics data.
 
-**Important**:
-- **sct** requires R and sctransform package: `install.packages('sctransform')`
-- **scvi** requires scvi-tools package: `pip install scvi-tools`
-- Raw count data recommended for sct, pearson_residuals, and scvi
-- Automatically saves `.raw` for downstream analyses requiring full gene set
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `data_path` | str | Path to file or folder |
+| `data_type` | str | `visium`, `xenium`, `slide_seq`, `merfish`, `seqfish`, `generic` |
+| `name` | str | Optional dataset name |
 
-**Example Queries**:
-```
-"Preprocess the data with log normalization"
-"Normalize using SCTransform for Visium data"
-"Filter cells and normalize using Pearson residuals"
-"Use scVI normalization for batch correction"
-"Preprocess with sct normalization"
-```
-
-**Returns**: Preprocessed data with QC metrics
+**Supported formats**: H5AD, 10X Visium folders, H5, MTX
 
 ---
 
-## Spatial Analysis Tools
+### preprocess_data
 
-### `analyze_spatial_statistics`
-**Purpose**: Analyze spatial patterns and relationships
-**Difficulty**: Intermediate
+Normalize, filter, and prepare data.
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.analysis_type`: **13 spatial analysis types** (default: `"neighborhood"`)
-  - `"moran"` - Global Moran's I (gene-based)
-  - `"local_moran"` - Local Moran's I / LISA (gene-based)
-  - `"geary"` - Geary's C autocorrelation (gene-based)
-  - `"getis_ord"` - Getis-Ord Gi* hotspot detection (gene-based)
-  - `"neighborhood"` - Neighborhood enrichment (requires `cluster_key`)
-  - `"co_occurrence"` - Co-occurrence patterns (requires `cluster_key`)
-  - `"ripley"` - Ripley's K/L point patterns (requires `cluster_key`)
-  - `"centrality"` - Graph centrality (optional `cluster_key`)
-  - `"bivariate_moran"` - Gene pair spatial correlation (gene-based)
-  - `"join_count"` - Binary categorical autocorrelation (requires `cluster_key` with 2 categories)
-  - `"local_join_count"` - Multi-category local join count (requires `cluster_key` with >2 categories)
-  - `"network_properties"` - Network structure analysis (optional `cluster_key`)
-  - `"spatial_centrality"` - Spatial importance measures (optional `cluster_key`)
-- `params.cluster_key`: **REQUIRED** for group-based analyses (neighborhood, co_occurrence, ripley, join_count, local_join_count)
-- `params.genes`: List of specific genes to analyze (for gene-based analyses)
-- `params.n_neighbors`: Number of spatial neighbors (default: 8)
-- `params.n_top_genes`: Top HVGs to analyze if genes not specified (default: 20)
-
-**Example Queries**:
-```
-"Analyze spatial autocorrelation for CD3D"
-"Find local spatial hotspots for these genes"
-"Calculate Geary's C for my marker genes"
-"Find spatial hotspots using Getis-Ord"
-"Calculate neighborhood enrichment"
-"Analyze bivariate spatial correlation between gene pairs"
-```
-
-**Returns**: Spatial statistics and significance values
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `normalization` | `log` | `log`, `sct`, `pearson_residuals`, `scvi`, `none` |
+| `n_hvgs` | 2000 | Highly variable genes |
+| `n_pcs` | 30 | Principal components |
+| `n_neighbors` | 15 | Neighbor graph |
+| `clustering_resolution` | 1.0 | Leiden clustering |
+| `filter_genes_min_cells` | 3 | Min cells per gene |
+| `filter_cells_min_genes` | 30 | Min genes per cell |
+| `filter_mito_pct` | 20.0 | Max mitochondrial % |
 
 ---
 
-### `find_markers`
-**Purpose**: Identify differentially expressed genes between groups  
-**Difficulty**: Beginner
+### compute_embeddings
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `group_key`: Column defining groups (e.g., "leiden")
-- `group1`/`group2`: Specific groups to compare
-- `method`: `"wilcoxon"`, `"t-test"`, `"logreg"`
-- `n_top_genes`: Top DEGs to return (default: 25)
+Compute dimensionality reduction and clustering.
 
-**Example Queries**:
-```
-"Find marker genes for cluster 0"
-"Compare tumor vs normal regions"
-"Identify top 50 differential genes"
-```
-
-**Returns**: Ranked list of marker genes with statistics
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `compute_pca` | True | Compute PCA |
+| `compute_umap` | True | Compute UMAP |
+| `compute_clustering` | True | Leiden clustering |
+| `compute_spatial_neighbors` | True | Spatial graph |
+| `n_pcs` | 30 | Principal components |
+| `clustering_resolution` | 1.0 | Clustering resolution |
+| `force` | False | Recompute if exists |
 
 ---
 
-### `find_spatial_genes`
-**Purpose**: Identify spatially variable genes  
-**Difficulty**: Advanced
+### export_data / reload_data
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.method`: `"spatialde"`, `"sparkx"`
-- `params.n_top_genes`: Number of top SVGs to return
+Export dataset for external scripts, reload after modifications.
 
-**Example Queries**:
-```
-"Identify spatial patterns with SpatialDE"
-"Use SPARK-X to find spatial genes"
-"Find spatially variable genes"
-```
-
-**Returns**: Ranked spatially variable genes
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `data_id` | required | Dataset ID |
+| `path` | auto | Custom path (default: `~/.chatspatial/active/`) |
 
 ---
 
+## Spatial Analysis
 
-## Cell Annotation Tools
+### analyze_spatial_statistics
 
-### `annotate_cell_types`
-**Purpose**: Identify cell types using multiple methods
-**Difficulty**: Intermediate
+Analyze spatial patterns and autocorrelation.
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.method`: `"tangram"`, `"scanvi"`, `"cellassign"`, `"mllmcelltype"`, `"sctype"`, `"singler"`
-- `params.reference_data_id`: Reference dataset ID (for transfer methods)
-- `params.cell_type_key`: **REQUIRED** for tangram/scanvi/singler - cell type column in reference data
-- `params.marker_genes`: Custom marker gene dict for cellassign method
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `analysis_type` | `neighborhood` | See types below |
+| `cluster_key` | None | Required for group-based analyses |
+| `genes` | None | Genes for gene-based analyses |
+| `n_neighbors` | 8 | Spatial neighbors |
 
-**Method Requirements**:
-- **tangram/scanvi/singler**: Require `reference_data_id` + `cell_type_key`
-- **cellassign**: Requires `marker_genes` parameter
-- **sctype/mllmcelltype**: No reference needed (use built-in databases/LLM)
+**Analysis types**:
 
-**Example Queries**:
-```
-"Annotate cells using marker genes"
-"Use Tangram with single-cell reference"
-"Apply scType for automatic annotation"
-```
-
-**Returns**: Cell type assignments and confidence scores
-
----
-
-## Advanced Analysis Tools
-
-### `analyze_velocity_data`
-**Purpose**: RNA velocity analysis for cellular dynamics  
-**Difficulty**: Advanced
-
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.method`: `"scvelo"` (standard, tested Yes), `"velovi"` (deep learning, tested Yes)
-- `params.mode`: `"dynamical"`, `"stochastic"`, `"deterministic"` (for scVelo)
-- `params.n_top_genes`: Velocity genes to use
-- `params.velovi_n_epochs`: Training epochs (for VeloVI)
-
-**Example Queries**:
-```
-"Analyze RNA velocity with scVelo"
-"Use VELOVI for deep learning velocity computation"
-"Calculate velocity with stochastic mode"
-```
-
-**Returns**: Velocity vectors and velocity graph
-
-**Note**: This computes RNA velocity. For trajectory inference, use `analyze_trajectory_data` afterwards.
+| Type | Category | Requires cluster_key |
+|------|----------|---------------------|
+| `moran` | Gene | No |
+| `local_moran` | Gene | No |
+| `geary` | Gene | No |
+| `getis_ord` | Gene | No |
+| `bivariate_moran` | Gene | No |
+| `neighborhood` | Group | Yes |
+| `co_occurrence` | Group | Yes |
+| `ripley` | Group | Yes |
+| `centrality` | Network | Optional |
 
 ---
 
-### `analyze_trajectory_data`
-**Purpose**: Infer cellular trajectories and pseudotime  
-**Difficulty**: Advanced
+### find_spatial_genes
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.method`: `"dpt"` (diffusion), `"palantir"` (probabilistic), `"cellrank"` (velocity-based)
-- `params.root_cells`: Starting cells for trajectory
-- `params.spatial_weight`: Weight for spatial information
+Identify spatially variable genes.
 
-**Example Queries**:
-```
-"Infer differentiation trajectories"
-"Calculate pseudotime with Palantir"
-"Use CellRank for RNA velocity-based trajectories"
-```
-
-**Returns**: Pseudotime values and trajectory paths
-
-**Note**: CellRank requires velocity data from `analyze_velocity_data`. Palantir and DPT work without velocity.
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `method` | `sparkx` | `sparkx`, `spatialde` |
+| `n_top_genes` | 100 | Top genes to return |
 
 ---
 
-### `analyze_cell_communication`
-**Purpose**: Cell-cell communication analysis
-**Difficulty**: Advanced
+### identify_spatial_domains
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.method`: `"liana"`, `"cellphonedb"`, `"cellchat_liana"`
-- `params.cell_type_column`: **REQUIRED** - cell type/cluster column in spatial data
-- `params.species`: `"human"`, `"mouse"`, `"zebrafish"` (default: "human")
-- `params.liana_resource`: LR database - use `"mouseconsensus"` for mouse
-- `params.data_source`: `"current"` or `"raw"` (use "raw" for full gene coverage)
-- `params.perform_spatial_analysis`: Spatial vs cluster-based (default: True)
+Find tissue domains and spatial niches.
 
-**Common Issues**:
-- **"Too few features"**: Use `data_source="raw"` + correct species/resource
-- **Missing connectivity**: Set `spatial_connectivity_handling="compute_with_params"`
-- **Species mismatch**: Mouse data must use `species="mouse"` + `liana_resource="mouseconsensus"`
-
-**Example Queries**:
-```
-"Analyze ligand-receptor interactions with LIANA"
-"Find spatial cell communication patterns"
-"Identify tumor-immune interactions"
-```
-
-**Returns**: Significant ligand-receptor pairs and spatial patterns
-
-**Note**: Requires cell type annotations. Run `annotate_cell_types` or ensure `cell_type_column` exists in your data before cell communication analysis.
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `method` | `spagcn` | `spagcn`, `stagate`, `graphst`, `leiden`, `louvain` |
+| `n_domains` | 7 | Expected number of domains |
+| `resolution` | 0.5 | Clustering resolution |
 
 ---
 
-### `analyze_enrichment`
-**Purpose**: Gene set enrichment analysis
-**Difficulty**: Intermediate
+## Cell Analysis
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.species`: **REQUIRED** - `"human"`, `"mouse"`, or `"zebrafish"`
-- `params.method`: `"spatial_enrichmap"`, `"pathway_gsea"`, `"pathway_ora"`, `"pathway_enrichr"`
-- `params.gene_set_database`: `"GO_Biological_Process"`, `"KEGG_Pathways"`, `"Reactome_Pathways"`
-- `params.pvalue_cutoff`: Significance threshold (default: 0.05)
+### annotate_cell_types
 
-**Important**:
-- **Species must match your data** (human=uppercase genes, mouse=capitalized)
-- Mouse data: Use `species="mouse"` for correct gene name matching
-- KEGG database is species-specific (KEGG_2021_Human, KEGG_2019_Mouse)
+Assign cell types.
 
-**Note**: Best used after `find_markers` (differential expression) or `find_spatial_genes` (spatial patterns) to enrich biologically meaningful gene sets
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `method` | `tangram` | See methods below |
+| `reference_data_id` | None | Reference dataset (for transfer methods) |
+| `cell_type_key` | None | Cell type column in reference |
+| `marker_genes` | None | Marker dict (for CellAssign) |
 
-**Example Queries**:
-```
-"Perform spatial GSEA analysis"
-"Find enriched pathways in tumor regions"
-"Analyze GO term enrichment"
-```
+**Methods**:
 
-**Returns**: Enriched gene sets with statistics
+| Method | Requires Reference | Notes |
+|--------|-------------------|-------|
+| `tangram` | Yes | Spatial mapping |
+| `scanvi` | Yes | Deep learning transfer |
+| `cellassign` | No | Marker-based |
+| `sctype` | No | Automatic (R) |
+| `singler` | No | Reference-based (R) |
+| `mllmcelltype` | No | LLM-based |
 
 ---
 
-### `analyze_cnv`
-**Purpose**: Detect copy number variations (CNVs) from spatial transcriptomics
-**Difficulty**: Advanced
+### deconvolve_data
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.method`: `"infercnvpy"`, `"numbat"`
-- `params.reference_key`: Cell type/cluster column for reference cells
-- `params.reference_categories`: List of normal cell types (e.g., `["T cells", "B cells"]`)
-- `params.window_size`: CNV averaging window size (default: 100 genes)
-- `params.step`: Sliding window step size (default: 10)
-- `params.exclude_chromosomes`: Chromosomes to exclude (e.g., `["chrX", "chrY"]`)
-- `params.cluster_cells`: Cluster cells by CNV pattern (default: False)
+Estimate cell type proportions per spot.
 
-**Method Comparison**:
-- **infercnvpy**: Expression-based, fast, GPU-friendly (default)
-- **numbat**: Haplotype-aware, requires allele data, more accurate (R-based)
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `method` | `flashdeconv` | See methods below |
+| `reference_data_id` | required | Reference dataset |
+| `cell_type_key` | required | Cell type column in reference |
 
-**Example Queries**:
-```
-"Detect CNVs using immune cells as reference"
-"Analyze copy number variations with inferCNVpy"
-"Find chromosomal alterations in tumor cells"
-"Use Numbat for haplotype-aware CNV detection"
-```
+**Methods**:
 
-**Returns**: CNV scores per cell/gene with clustering and visualization
-
-**Note**: Requires reference (normal) cells for baseline. Numbat requires allele count data in adata layers.
+| Method | Speed | GPU | Notes |
+|--------|-------|-----|-------|
+| `flashdeconv` | Fast | No | Default, recommended |
+| `cell2location` | Slow | Yes | High accuracy |
+| `rctd` | Fast | No | R-based |
+| `destvi` | Medium | Yes | scvi-tools |
+| `stereoscope` | Slow | Yes | Alternative DL |
+| `tangram` | Medium | Yes | Spatial mapping |
+| `spotlight` | Fast | No | R-based |
+| `card` | Fast | Yes | R-based, imputation |
 
 ---
 
-## Integration & Registration Tools
+### analyze_cell_communication
 
-### `integrate_samples`
-**Purpose**: Integrate multiple spatial samples  
-**Difficulty**: Advanced
+Analyze ligand-receptor interactions.
 
-**Key Parameters**:
-- `data_ids`: List of dataset IDs
-- `params.method`: `"harmony"`, `"bbknn"`, `"scanorama"`, `"scvi"`
-- `params.batch_key`: Batch identifier column
-- `params.n_pcs`: Principal components to use
-
-**Example Queries**:
-```
-"Integrate three Visium samples with Harmony"
-"Remove batch effects across datasets"
-"Combine samples from different patients"
-```
-
-**Returns**: Integrated dataset with corrected embeddings
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `method` | `fastccc` | `fastccc`, `liana`, `cellphonedb`, `cellchat_r` |
+| `species` | required | `human`, `mouse`, `zebrafish` |
+| `cell_type_key` | required | Cell type column |
+| `liana_resource` | `consensus` | LR database (`mouseconsensus` for mouse) |
 
 ---
 
-### `register_spatial_data`
-**Purpose**: Align spatial sections or time points
-**Difficulty**: Advanced
+## Gene Analysis
 
-**Key Parameters**:
-- `source_id`: Source dataset ID
-- `target_id`: Target dataset ID
-- `method`: `"paste"`, `"stalign"`
-- `landmarks`: Optional alignment landmarks
+### find_markers
 
-**Example Queries**:
-```
-"Align consecutive tissue sections"
-"Register brain slices for 3D reconstruction"
-"Align samples to reference coordinates"
-```
+Find differentially expressed genes.
 
-**Returns**: Transformation matrix and aligned coordinates in `obsm['spatial_registered']`
-
-**Note**:
-- **PASTE**: Optimal transport-based alignment, supports multi-slice registration
-- **STalign**: Diffeomorphic LDDMM registration, pairwise only
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `group_key` | required | Grouping column |
+| `group1` | None | First group (None = each vs rest) |
+| `group2` | None | Second group |
+| `method` | `wilcoxon` | `wilcoxon`, `t-test`, `logreg`, `pydeseq2` |
+| `n_top_genes` | 25 | Top genes per group |
 
 ---
 
-## Deconvolution & Domain Tools
+### compare_conditions
 
-### `deconvolve_data`
-**Purpose**: Deconvolve spots into cell type proportions
-**Difficulty**: Advanced
+Compare experimental conditions (pseudobulk DESeq2).
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.method`: `"cell2location"`, `"destvi"`, `"stereoscope"`, `"tangram"`, `"rctd"`, `"spotlight"`, `"card"`
-- `params.reference_data_id`: Single-cell reference ID
-- `params.cell_type_key`: **REQUIRED** - cell type column in reference data
-- `params.n_epochs`: Training iterations (default: 30000 for cell2location)
-- `params.n_cells_per_spot`: Expected cells per spot (default: 30)
-
-**Important Notes**:
-- All methods require reference single-cell data with cell type annotations
-- `cell_type_key` must match a column in reference `adata.obs` (e.g., 'cell_type', 'annotation')
-- Cell2location: GPU recommended, uses 2-stage training (250 + 30000 epochs)
-
-**Example Queries**:
-```
-"Deconvolve Visium spots with Cell2location"
-"Estimate cell type proportions using RCTD"
-"Use scRNA reference for deconvolution"
-```
-
-**Returns**: Cell type proportion estimates per spot
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `condition_key` | required | Condition column |
+| `condition1` | required | Treatment group |
+| `condition2` | required | Control group |
+| `sample_key` | required | Sample/patient column |
+| `cell_type_key` | None | Stratify by cell type |
+| `n_top_genes` | 50 | Top DEGs |
 
 ---
 
-### `identify_spatial_domains`
-**Purpose**: Find tissue domains and spatial niches
-**Difficulty**: Intermediate
+### analyze_enrichment
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.method`: `"spagcn"`, `"leiden"`, `"louvain"`, `"stagate"`, `"graphst"`
-- `params.n_domains`: Number of expected domains (default: 7)
-- `params.resolution`: Clustering resolution
+Gene set enrichment analysis.
 
-**Example Queries**:
-```
-"Identify spatial domains with SpaGCN"
-"Find tissue niches using STAGATE"
-"Cluster spots into spatial regions"
-```
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `species` | required | `human`, `mouse`, `zebrafish` |
+| `method` | `pathway_ora` | `pathway_ora`, `pathway_gsea`, `pathway_ssgsea`, `spatial_enrichmap` |
+| `gene_set_database` | `GO_Biological_Process` | See databases below |
 
-**Returns**: Domain assignments and spatial boundaries
+**Databases**: `GO_Biological_Process`, `GO_Molecular_Function`, `KEGG_Pathways`, `Reactome_Pathways`, `MSigDB_Hallmark`
 
 ---
 
-## Visualization Tools
+## Dynamics
 
-### `visualize_data`
-**Purpose**: Create all types of spatial plots and visualizations
-**Difficulty**: Beginner
+### analyze_velocity_data
 
-**Key Parameters**:
-- `data_id`: Dataset ID
-- `params.plot_type`: **20 plot types available** (see complete list below)
-- `params.feature`: Gene(s) or metadata column to visualize (str or List[str])
-- `params.colormap`: Color scheme (default: `"viridis"`)
-- `params.dpi`: Image resolution (default: 300 for publication quality)
-- `params.analysis_type`: **REQUIRED** for `plot_type="spatial_statistics"` - see spatial analysis types
-- `params.cluster_key`: **REQUIRED** for `plot_type="heatmap"` - grouping column in adata.obs
+RNA velocity analysis.
 
-#### Complete List of 20 Plot Types:
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `method` | `scvelo` | `scvelo`, `velovi` |
+| `mode` | `deterministic` | `deterministic`, `stochastic`, `dynamical` |
 
-**Basic Spatial & Dimensionality Reduction** (4 types):
-- `"spatial"` - Basic spatial gene/metadata expression (default)
-- `"umap"` - UMAP dimensionality reduction embedding
-- `"violin"` - Violin plots by group
-- `"heatmap"` - Expression heatmap (requires `cluster_key`)
-
-**Deconvolution** (1 type):
-- `"deconvolution"` - Cell type proportion visualization
-
-> **Note**: For spatial domains visualization, use `plot_type="spatial"` with `feature` set to the domain_key returned by `identify_spatial_domains` (e.g., `"spatial_domains_spagcn"`, `"spatial_domains_leiden"`)
-
-**Trajectory & Velocity** (2 types):
-- `"trajectory"` - Trajectory/pseudotime plots (CellRank/Palantir)
-- `"rna_velocity"` - RNA velocity stream plots (scVelo/VeloVI)
-
-**Cell Communication** (3 types):
-- `"cell_communication"` - Ligand-receptor interaction networks
-- `"lr_pairs"` - Specific L-R pair spatial visualization
-- `"spatial_interaction"` - Spatial proximity-based interactions
-
-**Gene Analysis** (2 types):
-- `"multi_gene"` - Multi-gene panel visualization
-- `"gene_correlation"` - Gene-gene correlation plots
-
-**Enrichment & Pathways** (2 types):
-- `"pathway_enrichment"` - Pathway enrichment results
-- `"spatial_enrichment"` - Spatially enriched pathways
-
-**Batch & Integration** (1 type):
-- `"batch_integration"` - Integration quality assessment (UMAP/metrics)
-
-**CNV Analysis** (2 types):
-- `"cnv_heatmap"` - Copy number variation heatmap
-- `"spatial_cnv"` - CNV spatial projection
-
-**Advanced Deconvolution** (1 type):
-- `"card_imputation"` - CARD high-resolution imputation results
-
-**Spatial Statistics** (1 type):
-- `"spatial_statistics"` - Spatial statistics visualization (requires `analysis_type`)
-  - Available `analysis_type` values: `"neighborhood"`, `"co_occurrence"`, `"ripley"`, `"moran"`, `"centrality"`, `"getis_ord"`
-
-#### Parameter Requirements by Plot Type:
-
-| Plot Type | REQUIRED Parameters | Optional Key Parameters |
-|-----------|---------------------|------------------------|
-| `heatmap` | `cluster_key` | `feature`, `colormap` |
-| `spatial_analysis` | `analysis_type` | `cluster_key` |
-| `lr_pairs` | - | `lr_pairs` (list of tuples), `feature` (L^R format) |
-| All others | - | `feature`, `colormap` |
-
-**Example Queries**:
-```
-"Show spatial expression of CD3D"
-"Create UMAP plot colored by cell types"
-"Plot heatmap of top marker genes grouped by leiden clusters"
-"Visualize neighborhood enrichment results"  # spatial_analysis with analysis_type="neighborhood"
-"Show ligand-receptor pair Fn1^Cd79a spatially"
-"Generate trajectory visualization with pseudotime"
-"Display CNV heatmap for tumor cells"
-```
-
-**Returns**: High-resolution image (300 DPI) for display or publication
+**Requires**: `spliced` and `unspliced` layers
 
 ---
 
-## Quick Start Combinations
+### analyze_trajectory_data
 
-### Basic Analysis Workflow
-```
-1. load_data → 2. preprocess_data → 3. identify_spatial_domains → 4. visualize_data
-```
+Trajectory and pseudotime inference.
 
-### Cell Type Analysis
-```
-1. load_data → 2. preprocess_data → 3. annotate_cell_types → 4. find_markers → 5. visualize_data
-```
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `method` | `dpt` | `dpt`, `palantir`, `cellrank` |
+| `root_cells` | None | Starting cells |
 
-### Communication Analysis  
-```
-1. load_data → 2. preprocess_data → 3. annotate_cell_types → 4. analyze_cell_communication → 5. visualize_data
-```
-
-### Multi-Sample Integration
-```
-1. load_data (×N) → 2. integrate_samples → 3. preprocess_data → 4. analyze_* → 5. visualize_data
-```
+**Note**: CellRank requires velocity data
 
 ---
 
-## Pro Tips
+### analyze_cnv
 
-### Natural Language Examples
-- **Specific**: "Find spatial domains in my mouse brain data using SpaGCN"
-- **General**: "Analyze the spatial patterns in this dataset"  
-- **Complex**: "Compare cell communication between tumor core and invasive front"
+Copy number variation detection.
 
-### Parameter Guidelines
-- Start with default parameters for initial exploration
-- Most tools auto-adapt to your dataset size
-- Use `context.info()` messages to understand what's happening
-- Check return values for quality metrics and suggestions
-
-### Memory Management
-- Large datasets (>50K spots): Consider subsampling for exploration
-- **GPU acceleration available for:**
-  - **Annotation**: Tangram (tangram_device='cuda:0')
-  - **Spatial Domains**: STAGATE, GraphST
-  - **Deconvolution**: Cell2location, CARD
-  - **Integration**: All scVI-based methods (scVI, scANVI)
-  - **Velocity**: VeloVI, scVelo (partial)
-  - **CNV**: inferCNVpy (GPU-friendly)
-- Sparse matrices automatically handled by the tools
-
-### Result Resources
-All analysis results are automatically saved as MCP resources:
-- `spatial://datasets/{data_id}` - Dataset information
-- `spatial://results/{data_id}/{analysis_type}` - Analysis results  
-- `spatial://visualizations/{viz_id}` - Generated plots
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `method` | `infercnvpy` | `infercnvpy`, `numbat` |
+| `reference_key` | required | Cell type column |
+| `reference_categories` | required | Normal cell types |
 
 ---
 
-## Parameter Quick Reference
+## Multi-Sample
 
-### Universal Parameters
-These parameters are available across multiple tools:
+### integrate_samples
 
-| Parameter | Type | Default | Description | Used In |
-|-----------|------|---------|-------------|----------|
-| `data_id` | str | Required | Dataset identifier | All analysis tools |
-| `context` | Context | Auto | MCP context object | All tools |
-| `method` | str | Tool-specific | Analysis method to use | Most analysis tools |
-| `n_neighbors` | int | 6 | Spatial neighbors count | Spatial analysis |
-| `resolution` | float | 0.5 | Clustering resolution | Domain/clustering |
-| `n_top_genes` | int | 2000-3000 | Top variable genes | Multiple tools |
-| `random_state` | int | 42 | Random seed | Reproducible analyses |
+Batch integration.
 
-### Data Type Support Matrix
-
-| Tool | 10X Visium | Slide-seq | MERFISH | seqFISH | H5AD | Notes |
-|------|------------|-----------|---------|---------|------|-------|
-| `load_data` | Yes | Yes | Yes | Yes | Yes | Universal loader |
-| `preprocess_data` | Yes | Yes | Yes | Yes | Yes | All spatial formats |
-| `identify_spatial_domains` | Yes | Yes | Limited | Limited | Yes | Best with continuous coordinates |
-| `deconvolve_data` | Yes | Yes | No | No | Yes | Requires spot-level data |
-| `analyze_cell_communication` | Yes | Yes | Yes | Yes | Yes | Universal |
-
-### Method Compatibility
-
-**Spatial Domain Methods:**
-- `spagcn`: Best with histology images
-- `stagate`: High-resolution, GPU recommended
-- `leiden`: Fast, CPU-friendly clustering
-- `louvain`: Alternative clustering method
-- `graphst`: Graph-based spatial transcriptomics
-
-**Cell Annotation Methods:**
-- `tangram`: Best with scRNA reference
-- `scanvi`: Deep learning label transfer
-- `cellassign`: Probabilistic, custom markers
-- `sctype`: Automatic, good for exploration (R-based)
-- `singler`: Reference-based annotation (R-based)
-- `mllmcelltype`: LLM-based multimodal annotation
-
-**Deconvolution Methods:**
-- `cell2location`: GPU recommended, high accuracy
-- `rctd`: CPU-friendly, robust (R-based)
-- `destvi`: Deep learning, experimental
-- `stereoscope`: Fast, good baseline
-- `spotlight`: SPOTlight (R-based)
-- `tangram`: Spatial mapping mode
-- `card`: CARD deconvolution (R-based)
-
-### Performance Guidelines
-
-| Dataset Size | Recommended Tools | Memory | Time | Notes |
-|-------------|------------------|---------|-------|-------|
-| Small (<5K spots) | Any method | 4GB+ | 5-15 min | Explore all options |
-| Medium (5-20K spots) | SpaGCN, SPARK-X | 8GB+ | 15-45 min | Standard workflows |
-| Large (20-50K spots) | Leiden/Louvain clustering | 16GB+ | 30-90 min | Consider subsampling |
-| XL (50K+ spots) | Leiden, chunked analysis | 32GB+ | 1-3 hours | Definitely subsample first |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `data_ids` | required | List of dataset IDs |
+| `method` | `harmony` | `harmony`, `bbknn`, `scanorama`, `scvi` |
+| `batch_key` | `batch` | Batch column |
 
 ---
 
-**For natural language query examples, see:** [Examples](../examples.md)
+### register_spatial_data
+
+Align spatial sections.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `source_id` | required | Source dataset |
+| `target_id` | required | Target dataset |
+| `method` | `paste` | `paste`, `stalign` |
+
+---
+
+## Visualization
+
+### visualize_data
+
+Create all plot types.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `plot_type` | `feature` | See types below |
+| `subtype` | None | Visualization variant |
+| `feature` | None | Gene(s) or column to show |
+| `basis` | `spatial` | `spatial`, `umap` |
+| `cluster_key` | None | Grouping column |
+| `colormap` | `coolwarm` | Color scheme |
+| `dpi` | 300 | Resolution |
+| `output_format` | `png` | `png`, `pdf`, `svg` |
+
+**Plot types and subtypes**:
+
+| Type | Subtypes | Use |
+|------|----------|-----|
+| `feature` | — | Gene/metadata on spatial or UMAP |
+| `expression` | `heatmap`, `violin`, `dotplot`, `correlation` | Aggregated expression |
+| `deconvolution` | `spatial_multi`, `pie`, `dominant`, `diversity`, `umap` | Cell proportions |
+| `communication` | `dotplot`, `tileplot`, `circle_plot` | LR interactions |
+| `interaction` | — | Spatial LR pairs |
+| `trajectory` | `pseudotime`, `fate_map`, `gene_trends` | Pseudotime |
+| `velocity` | `stream`, `phase`, `paga` | RNA velocity |
+| `statistics` | `neighborhood`, `co_occurrence`, `ripley`, `moran` | Spatial stats |
+| `enrichment` | `barplot`, `dotplot` | Pathway results |
+| `cnv` | `heatmap`, `spatial` | CNV results |
+| `integration` | `batch`, `cluster` | Integration QC |
+
+---
+
+## GPU Acceleration
+
+Set `use_gpu=True` for these methods:
+
+| Category | Methods |
+|----------|---------|
+| Preprocessing | scVI normalization |
+| Annotation | Tangram, scANVI |
+| Deconvolution | Cell2location, DestVI, Stereoscope, Tangram, CARD |
+| Domains | STAGATE, GraphST |
+| Velocity | VeloVI |
+| Integration | scVI |
+| CNV | inferCNVpy |

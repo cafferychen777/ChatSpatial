@@ -56,7 +56,7 @@ which python
 # Copy the output path
 
 # Add ChatSpatial MCP server
-claude mcp add chatspatial -- /Users/yourname/chatspatial_env/bin/python -m chatspatial server
+claude mcp add chatspatial /path/to/chatspatial_env/bin/python -- -m chatspatial server
 
 # Verify connection
 claude mcp list
@@ -64,7 +64,7 @@ claude mcp list
 ```
 
 **Key points:**
-- The `--` separates Claude CLI options from the server command
+- The `--` separates the Python path from the module arguments
 - Always use absolute path from `which python`
 - Use `--scope user` to make ChatSpatial available across all projects
 
@@ -92,7 +92,7 @@ Configure ChatSpatial behavior using environment variables:
 export CHATSPATIAL_DATA_DIR="/path/to/your/spatial/data"
 ```
 
-**Usage:** When you use `save_data()` without specifying `output_path`, datasets are saved to this directory.
+**Usage:** When you use `export_data()` without specifying `path`, datasets are saved to this directory.
 
 **Default:** `.chatspatial_saved/` next to original data file
 

@@ -25,12 +25,12 @@ pip install chatspatial[full]
 
 ## Requirements
 
-- **Python 3.10+** (3.11-3.12 recommended)
+- **Python 3.11+** (3.12 recommended, 3.13 supported)
 - **8GB+ RAM** (16GB+ for large datasets)
 - **macOS, Linux, or Windows**
 
 ```bash
-python --version  # Should be 3.10+
+python --version  # Should be 3.11+
 ```
 
 ---
@@ -89,14 +89,24 @@ claude mcp add chatspatial python -- -m chatspatial server
 - Cell type annotation: Tangram, scANVI, CellAssign, mLLMCelltype
 - CellRank: Works without PETSc
 
-### R-based Methods (RCTD, SPOTlight)
+### R-based Methods
 
-Optional. Requires R installation:
+Optional. Requires R 4.4+ installation:
+
+| Method | R Package | Install Command |
+|--------|-----------|-----------------|
+| RCTD | spacexr | `install.packages("spacexr")` |
+| SPOTlight | SPOTlight | `BiocManager::install("SPOTlight")` |
+| CARD | CARD | `devtools::install_github("YingMa0107/CARD")` |
+| scType | scType | `devtools::install_github("IanevskiAleksandr/scType")` |
+| SingleR | SingleR | `BiocManager::install("SingleR")` |
+| CellChat | CellChat | `devtools::install_github("jinworks/CellChat")` |
+| SCTransform | sctransform | `install.packages("sctransform")` |
 
 ```bash
 # Install R from https://cran.r-project.org/
-# Then in R:
-install.packages(c("spacexr", "SPOTlight"))
+# Install BiocManager for Bioconductor packages
+R -e 'install.packages("BiocManager")'
 ```
 
 ---

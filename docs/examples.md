@@ -1,295 +1,353 @@
 # Examples
 
-All examples are **natural language commands** you type in Claude chat. No coding required!
+Natural language commands for spatial transcriptomics analysis.
 
 ---
 
-## Basic Spatial Analysis
+## Standard Workflow
 
-### Load and Explore Data
-```text
-"Load my Visium dataset from /path/to/data.h5ad"
-"Show me basic statistics and quality metrics"
-"What genes are most expressed?"
-"Create a spatial plot of the tissue"
+A typical analysis follows this flow:
+
+```
+Load → Preprocess → Analyze → Visualize
 ```
 
-### Quality Control
-```text
-"Filter spots with fewer than 200 genes"
-"Remove mitochondrial genes"
-"Show me quality control metrics"
+### 1. Load Your Data
+
+```
+"Load /path/to/spatial_data.h5ad"
+"Load my Visium data from /path/to/visium_folder"
 ```
 
-### Preprocessing
-```text
-"Normalize and preprocess the data"
-"Find the top 2000 highly variable genes"
-"Perform PCA and UMAP dimensionality reduction"
+### 2. Preprocess
+
+```
+"Preprocess the data"
+"Normalize with log transformation and find 2000 variable genes"
+"Preprocess with SCTransform normalization"
 ```
 
-### Clustering
-```text
-"Cluster spots using Leiden algorithm"
-"Try different clustering resolutions"
-"Show me the clusters on spatial coordinates"
-"Find marker genes for each cluster"
+### 3. Analyze
+
+Choose your analysis type below.
+
+### 4. Visualize
+
 ```
-
----
-
-## Spatial Domain Analysis
-
-### Identify Tissue Regions
-```text
-"Identify spatial domains using SpaGCN"
-"Find distinct tissue regions with STAGATE"
-"Show me the spatial domain boundaries"
-```
-
-### Compare Domains
-```text
-"What are the differences between domain 1 and domain 3?"
-"Find genes that distinguish different spatial regions"
-"Create a heatmap comparing all domains"
-```
-
-### Spatial Patterns
-```text
-"Find spatially variable genes"
-"Detect spatial hotspots using Getis-Ord"
-"Analyze spatial autocorrelation with Moran's I"
+"Show the spatial plot"
+"Visualize CD3D expression on tissue"
+"Create a UMAP colored by clusters"
 ```
 
 ---
 
-## Cell Type Analysis
+## Analysis Types
+
+### Spatial Domains
+
+Identify tissue regions and niches.
+
+```
+"Identify spatial domains"
+"Find 7 spatial domains using SpaGCN"
+"Cluster the tissue into regions with STAGATE"
+"Use Leiden clustering with resolution 0.5"
+```
+
+**Methods**: SpaGCN (default), STAGATE, GraphST, Leiden, Louvain
+
+---
 
 ### Cell Type Annotation
-```text
-"Annotate cell types using Tangram with reference data"
-"Use scANVI to transfer labels from reference to spatial"
-"Identify cell types with CellAssign using marker genes"
-"Map cell type distributions across the tissue"
+
+Assign cell types to spots or cells.
+
+```
+"Annotate cell types using the reference dataset"
+"Transfer labels from reference with Tangram"
+"Use scANVI for label transfer"
+"Annotate with marker genes using CellAssign"
 ```
 
-### Cell Type Markers
-```text
-"Find marker genes for each cell type"
-"Show me the top markers for T cells"
-"Create a dotplot of cell type markers"
+**Methods**: Tangram, scANVI, CellAssign, scType, SingleR, mLLMCelltype
+
+**Requires**: Reference dataset with cell type labels (for transfer methods)
+
+---
+
+### Deconvolution
+
+Estimate cell type proportions in each spot.
+
+```
+"Deconvolve the spatial data"
+"Estimate cell type proportions with FlashDeconv"
+"Use Cell2location for deconvolution"
+"Run RCTD deconvolution"
+```
+
+**Methods**: FlashDeconv (default, fastest), Cell2location, RCTD, DestVI, Stereoscope, Tangram, SPOTlight, CARD
+
+**Requires**: Reference single-cell dataset with cell type annotations
+
+---
+
+### Spatial Statistics
+
+Analyze spatial patterns and autocorrelation.
+
+```
+"Analyze spatial autocorrelation"
+"Calculate Moran's I for marker genes"
+"Find spatial hotspots with Getis-Ord"
+"Compute neighborhood enrichment"
+"Analyze co-occurrence of cell types"
+```
+
+**Methods**: Moran's I, Local Moran's I, Geary's C, Getis-Ord Gi*, Ripley's K, neighborhood enrichment, co-occurrence
+
+---
+
+### Spatially Variable Genes
+
+Find genes with spatial expression patterns.
+
+```
+"Find spatially variable genes"
+"Identify spatial genes with SpatialDE"
+"Use SPARK-X to find spatial patterns"
+```
+
+**Methods**: SPARK-X (default, fast), SpatialDE
+
+---
+
+### Differential Expression
+
+Compare gene expression between groups.
+
+```
+"Find marker genes for cluster 0"
+"Compare gene expression between tumor and normal"
+"Find differentially expressed genes in domain 3"
 ```
 
 ---
 
-## Deconvolution Analysis
+### Condition Comparison
 
-### Spatial Deconvolution
-```text
-"Deconvolve spatial spots using Cell2location"
-"Estimate cell type proportions with RCTD"
-"Use Tangram to map single cells to spatial locations"
+Compare experimental conditions with proper statistics.
+
+```
+"Compare treatment vs control across patients"
+"Find genes differentially expressed between conditions"
+"Analyze condition effects stratified by cell type"
 ```
 
-### Analyze Composition
-```text
-"Show me the dominant cell type in each spot"
-"Calculate cell type diversity across tissue regions"
-"Visualize cell type proportions as pie charts"
-"Find spatial patterns in cell type composition"
-```
+**Requires**: Sample/patient identifiers for pseudobulk analysis
 
 ---
 
-## Cell Communication Analysis
+### Cell Communication
 
-### Identify Interactions
-```text
-"Analyze cell-cell communication using LIANA"
-"Find ligand-receptor pairs between cell types"
-"Detect spatial communication patterns"
+Analyze ligand-receptor interactions.
+
+```
+"Analyze cell-cell communication"
+"Find ligand-receptor interactions with LIANA"
+"Identify spatial communication patterns"
+"Which cell types are communicating?"
 ```
 
-### Visualize Networks
-```text
-"Show me communication networks between cell types"
-"Create a chord diagram of interactions"
-"Which cell types communicate most?"
-```
+**Methods**: FastCCC (default, fastest), LIANA, CellPhoneDB, CellChat
 
-### Spatial Context
-```text
-"Analyze communication in spatial neighborhoods"
-"Find interactions enriched at tissue boundaries"
-"Compare communication patterns across regions"
-```
+**Requires**: Cell type annotations
 
 ---
 
-## Advanced Analysis
+### RNA Velocity
 
-### RNA Velocity & Trajectories
-```text
-"Analyze RNA velocity with scVelo"
-"Infer developmental trajectories using CellRank"
-"Find trajectory endpoints and branch points"
-"Overlay velocity vectors on spatial coordinates"
+Understand cellular dynamics.
+
 ```
+"Analyze RNA velocity"
+"Run scVelo velocity analysis"
+"Use VeloVI for velocity estimation"
+```
+
+**Methods**: scVelo (deterministic/stochastic/dynamical), VeloVI
+
+**Requires**: Spliced and unspliced count layers
+
+---
+
+### Trajectory Analysis
+
+Infer developmental trajectories.
+
+```
+"Infer cellular trajectories"
+"Calculate pseudotime with Palantir"
+"Use CellRank for fate mapping"
+"Compute diffusion pseudotime"
+```
+
+**Methods**: CellRank (requires velocity), Palantir, DPT
+
+---
 
 ### Pathway Enrichment
-```text
-"Run pathway enrichment analysis on marker genes"
-"Find enriched GO terms in spatial domains"
-"Perform spatial enrichment mapping"
-"Compare pathway activities across regions"
+
+Find enriched biological pathways.
+
+```
+"Perform pathway enrichment analysis"
+"Find enriched GO terms"
+"Analyze KEGG pathway enrichment"
+"Run GSEA on marker genes"
+```
+
+**Methods**: ORA (default), GSEA, ssGSEA, Enrichr
+
+---
+
+### CNV Analysis
+
+Detect copy number variations.
+
+```
+"Detect copy number variations"
+"Analyze CNV using immune cells as reference"
+"Find chromosomal alterations in tumor cells"
+```
+
+**Methods**: inferCNVpy (default), Numbat
+
+**Requires**: Normal cell types as reference
+
+---
+
+### Multi-Sample Integration
+
+Combine multiple datasets.
+
+```
+"Integrate these three samples"
+"Remove batch effects with Harmony"
+"Combine datasets using scVI"
+```
+
+**Methods**: Harmony (default), BBKNN, Scanorama, scVI
+
+---
+
+### Spatial Registration
+
+Align tissue sections.
+
+```
+"Align these two tissue sections"
+"Register spatial slices for 3D reconstruction"
+```
+
+**Methods**: PASTE, STalign
+
+---
+
+## Visualization Examples
+
+### Basic Plots
+
+```
+"Show spatial expression of CD3D"
+"Create UMAP plot"
+"Plot violin of marker genes by cluster"
+"Generate heatmap of top markers"
+```
+
+### Deconvolution Results
+
+```
+"Show cell type proportions on tissue"
+"Create pie charts of cell composition"
+"Visualize dominant cell type per spot"
+```
+
+### Communication Results
+
+```
+"Show ligand-receptor dotplot"
+"Visualize communication network"
+"Plot top interacting cell types"
 ```
 
 ### Spatial Statistics
-```text
-"Calculate neighborhood enrichment between cell types"
-"Analyze co-occurrence patterns"
-"Compute Ripley's K function for point patterns"
-"Find spatially autocorrelated genes"
+
 ```
-
-### Copy Number Variation
-```text
-"Analyze copy number variations using infercnvpy"
-"Detect CNV patterns in malignant cells"
-"Compare CNV profiles across spatial regions"
-```
-
----
-
-## Multi-Sample Analysis
-
-### Batch Integration
-```text
-"Integrate multiple Visium samples using Harmony"
-"Correct batch effects with scVI"
-"Align samples using PASTE spatial registration"
-```
-
-### Comparative Analysis
-```text
-"Compare spatial domains across samples"
-"Find conserved marker genes across batches"
-"Identify sample-specific spatial patterns"
-```
-
----
-
-## Visualization
-
-### Spatial Plots
-```text
-"Create spatial plot colored by gene expression"
-"Show multiple genes side by side"
-"Overlay cell types on tissue image"
-"Add cluster outlines to spatial plot"
-```
-
-### Expression Heatmaps
-```text
-"Generate heatmap of top variable genes"
-"Show marker gene expression across clusters"
-"Create annotated heatmap with cell type labels"
-```
-
-### Dimension Reduction
-```text
-"Plot UMAP colored by clusters"
-"Show spatial coordinates in low-dimensional space"
-"Create interactive UMAP with gene expression"
-```
-
-### Specialized Plots
-```text
-"Visualize deconvolution results as scatterpie"
-"Create stacked bar chart of cell type proportions"
-"Show communication network as chord diagram"
-"Plot trajectory with pseudotime gradient"
+"Show neighborhood enrichment heatmap"
+"Visualize spatial hotspots"
+"Plot Moran's I results"
 ```
 
 ---
 
 ## Complete Workflows
 
-### Workflow 1: Basic Spatial Analysis (5 minutes)
-```text
+### Basic Spatial Analysis (5 min)
+
+```
 1. "Load /path/to/visium_data.h5ad"
-2. "Preprocess and cluster the data"
-3. "Identify spatial domains using SpaGCN"
+2. "Preprocess the data"
+3. "Identify spatial domains"
 4. "Find marker genes for each domain"
-5. "Create visualizations showing spatial patterns"
+5. "Visualize the domains on tissue"
 ```
 
-### Workflow 2: Cell Type Analysis (10 minutes)
-```text
-1. "Load spatial data and reference scRNA-seq"
-2. "Annotate cell types using Tangram"
-3. "Analyze spatial distribution of each cell type"
-4. "Find cell type-specific marker genes"
-5. "Visualize results with spatial plots and heatmaps"
+### Deconvolution Workflow (10 min)
+
+```
+1. "Load spatial data from /path/to/spatial.h5ad"
+2. "Load reference data from /path/to/reference.h5ad"
+3. "Preprocess both datasets"
+4. "Deconvolve using the reference"
+5. "Show cell type proportions on tissue"
 ```
 
-### Workflow 3: Deconvolution + Communication (15 minutes)
-```text
-1. "Load spatial and reference data"
-2. "Deconvolve spatial data with Cell2location"
-3. "Analyze cell-cell communication using LIANA"
-4. "Find spatially variable genes"
-5. "Create comprehensive visualization of results"
+### Cell Communication Workflow (10 min)
+
+```
+1. "Load the spatial data"
+2. "Preprocess with clustering"
+3. "Annotate cell types" (or use existing annotations)
+4. "Analyze cell-cell communication"
+5. "Show the communication network"
 ```
 
-### Workflow 4: Advanced Multi-Method (20 minutes)
-```text
-1. "Load and preprocess spatial data"
-2. "Identify spatial domains with SpaGCN"
-3. "Annotate cell types with scANVI"
-4. "Deconvolve spots using RCTD"
-5. "Analyze cell communication patterns"
-6. "Infer trajectories with CellRank"
-7. "Run pathway enrichment on all results"
-8. "Generate publication-ready figures"
+### Trajectory Workflow (15 min)
+
+```
+1. "Load the data"
+2. "Preprocess the data"
+3. "Analyze RNA velocity"
+4. "Infer trajectories with CellRank"
+5. "Visualize velocity streams on tissue"
 ```
 
 ---
 
-## Tips for Best Results
+## Tips
 
-### Data Loading
-- Always use absolute paths: `/Users/name/data.h5ad`
-- Verify spatial coordinates exist in data
-- Check data quality before analysis
+**Be specific when needed**
+- General: "Analyze the data" → ChatSpatial chooses defaults
+- Specific: "Use SpaGCN with 7 domains" → ChatSpatial uses your settings
 
-### Analysis Strategy
-- Start with preprocessing and clustering
-- Try multiple methods for robust results
-- Use reference data when available
-- Validate findings with marker genes
+**Chain commands naturally**
+- "Load the data, preprocess it, and identify spatial domains"
 
-### Asking Questions
-- Be specific about what you want to see
-- Mention method names if you have preferences
-- Ask for visualizations to understand results
-- Request comparisons between conditions
+**Reference previous results**
+- "Find markers for the domains we just identified"
+- "Visualize the deconvolution results"
 
-### Troubleshooting
-- If analysis fails, try preprocessing first
-- Check data format and required fields
-- See [Troubleshooting Guide](advanced/troubleshooting.md)
-- Ask Claude to explain errors
-
----
-
-## Related Resources
-
-- **[Quick Start](quickstart.md)** - Get ChatSpatial running in 5 minutes
-- **[Methods Reference](advanced/methods-reference.md)** - Complete tool documentation
-- **[FAQ](advanced/faq.md)** - Common questions and answers
-- **[GitHub Issues](https://github.com/cafferychen777/ChatSpatial/issues)** - Report problems or request features
-
----
-
-**Remember**: ChatSpatial understands natural language. Don't memorize commands - just describe what you want to do!
+**Ask for help**
+- "What methods are available for deconvolution?"
+- "How should I preprocess my data?"
