@@ -48,6 +48,16 @@ Normalize, filter, and prepare data.
 | `filter_genes_min_cells` | 3 | Min cells per gene |
 | `filter_cells_min_genes` | 30 | Min genes per cell |
 | `filter_mito_pct` | 20.0 | Max mitochondrial % |
+| `scale` | False | Scale to unit variance before PCA |
+
+**Advanced options**:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `scrublet_enable` | False | Enable doublet detection (for single-cell resolution data) |
+| `normalize_target_sum` | None | Target counts per cell (None=median, 1e4=Visium, 1e6=MERFISH) |
+| `remove_mito_genes` | True | Exclude mito genes from HVG |
+| `batch_key` | `batch` | Batch column for batch-aware normalization |
 
 ---
 
@@ -88,7 +98,8 @@ Analyze spatial patterns and autocorrelation.
 |-----------|---------|-------------|
 | `analysis_type` | `neighborhood` | See types below |
 | `cluster_key` | None | Required for group-based analyses |
-| `genes` | None | Genes for gene-based analyses |
+| `genes` | None | Specific genes to analyze |
+| `n_top_genes` | 20 | Top HVGs to analyze (if genes not specified) |
 | `n_neighbors` | 8 | Spatial neighbors |
 
 **Analysis types**:
@@ -103,6 +114,7 @@ Analyze spatial patterns and autocorrelation.
 | `neighborhood` | Group | Yes |
 | `co_occurrence` | Group | Yes |
 | `ripley` | Group | Yes |
+| `join_count` | Group | Yes |
 | `centrality` | Network | Optional |
 
 ---
@@ -205,8 +217,8 @@ Find differentially expressed genes.
 | `group_key` | required | Grouping column |
 | `group1` | None | First group (None = each vs rest) |
 | `group2` | None | Second group |
-| `method` | `wilcoxon` | `wilcoxon`, `t-test`, `pydeseq2` |
-| `n_top_genes` | 25 | Top genes per group |
+| `method` | `wilcoxon` | `wilcoxon`, `t-test`, `t-test_overestim_var`, `logreg`, `pydeseq2` |
+| `n_top_genes` | 50 | Top genes per group |
 
 ---
 
@@ -248,7 +260,7 @@ RNA velocity analysis.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `method` | `scvelo` | `scvelo`, `velovi` |
-| `mode` | `deterministic` | `deterministic`, `stochastic`, `dynamical` |
+| `mode` | `stochastic` | `deterministic`, `stochastic`, `dynamical` |
 
 **Requires**: `spliced` and `unspliced` layers
 
