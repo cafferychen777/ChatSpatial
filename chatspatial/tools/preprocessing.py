@@ -391,8 +391,7 @@ async def preprocess_data(
                     )
 
                 # Reconstruct sparse matrix and run SCTransform in R
-                ro.r(
-                    """
+                ro.r("""
                     library(Matrix)
                     library(sctransform)
 
@@ -423,8 +422,7 @@ async def preprocess_data(
                     residual_variance <- vst_result$gene_attr$residual_variance
                     # Extract gene names that survived SCTransform filtering
                     kept_genes <- rownames(vst_result$y)
-                """
-                )
+                """)
 
                 # Extract results from R
                 with localconverter(ro.default_converter + numpy2ri.converter):

@@ -1194,8 +1194,7 @@ def _analyze_communication_cellchat_r(
             # Memory optimization: Get CellChatDB gene list and pre-filter
             # This reduces memory from O(n_cells × n_all_genes) to O(n_cells × n_db_genes)
             # Typical savings: 20000 genes → 1500 genes = 13x memory reduction
-            ro.r(
-                f"""
+            ro.r(f"""
                 CellChatDB <- {db_name}
                 # Get all genes used in CellChatDB (ligands, receptors, cofactors)
                 cellchat_genes <- unique(c(
@@ -1204,8 +1203,7 @@ def _analyze_communication_cellchat_r(
                     unlist(strsplit(CellChatDB$interaction$receptor, "_"))
                 ))
                 cellchat_genes <- cellchat_genes[!is.na(cellchat_genes)]
-            """
-            )
+            """)
             cellchat_genes_r = ro.r("cellchat_genes")
             cellchat_genes = set(cellchat_genes_r)
 
@@ -1270,8 +1268,7 @@ def _analyze_communication_cellchat_r(
                 spatial_tol = params.cellchat_spatial_tol
                 ro.globalenv["pixel_ratio"] = pixel_ratio
                 ro.globalenv["spatial_tol"] = spatial_tol
-                ro.r(
-                    """
+                ro.r("""
                     spatial.factors <- data.frame(
                         ratio = pixel_ratio,
                         tol = spatial_tol
@@ -1285,65 +1282,52 @@ def _analyze_communication_cellchat_r(
                         coordinates = as.matrix(spatial_locs),
                         spatial.factors = spatial.factors
                     )
-                """
-                )
+                """)
             else:
                 # Non-spatial mode
-                ro.r(
-                    """
+                ro.r("""
                     cellchat <- createCellChat(
                         object = as.matrix(expr_matrix),
                         meta = meta_df,
                         group.by = "labels"
                     )
-                """
-                )
+                """)
 
             # Set database
-            ro.r(
-                f"""
+            ro.r(f"""
                 CellChatDB <- {db_name}
-            """
-            )
+            """)
 
             # Subset database by category if specified
             if params.cellchat_db_category != "All":
-                ro.r(
-                    f"""
+                ro.r(f"""
                     CellChatDB.use <- subsetDB(
                         CellChatDB,
                         search = "{params.cellchat_db_category}"
                     )
                     cellchat@DB <- CellChatDB.use
-                """
-                )
+                """)
             else:
-                ro.r(
-                    """
+                ro.r("""
                     cellchat@DB <- CellChatDB
-                """
-                )
+                """)
 
             # Preprocessing
-            ro.r(
-                """
+            ro.r("""
                 cellchat <- subsetData(cellchat)
                 cellchat <- identifyOverExpressedGenes(cellchat)
                 cellchat <- identifyOverExpressedInteractions(cellchat)
-            """
-            )
+            """)
 
             # Project data (optional but recommended)
-            ro.r(
-                """
+            ro.r("""
                 # Project data onto PPI network (optional)
                 tryCatch({
                     cellchat <- projectData(cellchat, PPI.human)
                 }, error = function(e) {
                     message("Skipping data projection: ", e$message)
                 })
-            """
-            )
+            """)
 
             # Compute communication probability
             if has_spatial and params.cellchat_distance_use:
@@ -1354,8 +1338,7 @@ def _analyze_communication_cellchat_r(
                 else:
                     contact_param = f"contact.knn.k = {params.cellchat_contact_knn_k}"
 
-                ro.r(
-                    f"""
+                ro.r(f"""
                     cellchat <- computeCommunProb(
                         cellchat,
                         type = "{params.cellchat_type}",
@@ -1366,45 +1349,35 @@ def _analyze_communication_cellchat_r(
                         scale.distance = {params.cellchat_scale_distance},
                         {contact_param}
                     )
-                """
-                )
+                """)
             else:
                 # Non-spatial mode
-                ro.r(
-                    f"""
+                ro.r(f"""
                     cellchat <- computeCommunProb(
                         cellchat,
                         type = "{params.cellchat_type}",
                         trim = {params.cellchat_trim},
                         population.size = {str(params.cellchat_population_size).upper()}
                     )
-                """
-                )
+                """)
 
             # Filter communication
-            ro.r(
-                f"""
+            ro.r(f"""
                 cellchat <- filterCommunication(cellchat, min.cells = {params.cellchat_min_cells})
-            """
-            )
+            """)
 
             # Compute pathway-level communication
-            ro.r(
-                """
+            ro.r("""
                 cellchat <- computeCommunProbPathway(cellchat)
-            """
-            )
+            """)
 
             # Aggregate network
-            ro.r(
-                """
+            ro.r("""
                 cellchat <- aggregateNet(cellchat)
-            """
-            )
+            """)
 
             # Extract results
-            ro.r(
-                """
+            ro.r("""
                 # Get LR pairs
                 lr_pairs <- cellchat@LR$LRsig
 
@@ -1438,8 +1411,7 @@ def _analyze_communication_cellchat_r(
                 } else {
                     top_lr <- character(0)
                 }
-            """
-            )
+            """)
 
             # Convert results back to Python (force native types for h5ad compatibility)
             n_lr_pairs = int(ro.r("n_lr_pairs")[0])

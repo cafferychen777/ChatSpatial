@@ -428,8 +428,7 @@ def _infer_cnv_numbat(
                 ro.globalenv["skip_nj"] = params.numbat_skip_nj
 
                 # Run Numbat via R (inside context!)
-                ro.r(
-                    """
+                ro.r("""
                     library(numbat)
                     library(dplyr)
 
@@ -475,8 +474,7 @@ def _infer_cnv_numbat(
                     }, error = function(e) {
                         stop(paste("Numbat execution failed:", e$message))
                     })
-                    """
-                )
+                    """)
 
         # Read results from output files (Numbat saves to TSV files, not R objects)
         import pandas as pd
