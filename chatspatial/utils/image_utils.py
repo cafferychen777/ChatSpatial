@@ -11,7 +11,6 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Optional
 
-from .exceptions import ProcessingError
 from .path_utils import get_safe_output_path
 
 if TYPE_CHECKING:

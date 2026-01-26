@@ -27,7 +27,6 @@ from typing import Union, get_args, get_origin, get_type_hints
 from pydantic import BaseModel
 
 from .exceptions import (
-    ChatSpatialError,
     DataCompatibilityError,
     DataError,
     DataNotFoundError,

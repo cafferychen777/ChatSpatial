@@ -500,9 +500,7 @@ async def _identify_spatial_genes_sparkx(
     # TIER 1: Mitochondrial gene filtering (SPARK-X paper standard practice)
     # Use pattern-based detection on gene names (works regardless of data source)
     if params.filter_mt_genes:
-        mt_mask = np.array(
-            [gene.startswith(("MT-", "mt-")) for gene in gene_names]
-        )
+        mt_mask = np.array([gene.startswith(("MT-", "mt-")) for gene in gene_names])
         n_mt_genes = mt_mask.sum()
         if n_mt_genes > 0:
             gene_mask &= ~mt_mask  # Exclude MT genes

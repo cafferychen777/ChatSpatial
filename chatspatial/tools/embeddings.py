@@ -312,9 +312,7 @@ async def compute_embeddings(
             },
         )
 
-        export_analysis_result(
-            adata, data_id, f"embeddings_{params.clustering_method}"
-        )
+        export_analysis_result(adata, data_id, f"embeddings_{params.clustering_method}")
 
     return EmbeddingResult(
         data_id=data_id,
