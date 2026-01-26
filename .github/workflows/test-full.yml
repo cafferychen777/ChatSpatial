@@ -1,11 +1,7 @@
 name: Full Test
 
 on:
-  workflow_dispatch:  # Manual trigger
-  schedule:
-    - cron: "0 0 * * 0"  # Every Sunday at 00:00 UTC
-  release:
-    types: [published]
+  workflow_dispatch:  # Manual trigger only
 
 jobs:
   test:
