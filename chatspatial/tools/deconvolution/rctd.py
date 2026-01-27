@@ -6,13 +6,10 @@ decomposition of cell type mixtures via the spacexr package.
 """
 
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import pandas as pd
-
-if TYPE_CHECKING:
-    pass
 
 from ...utils.dependency_manager import validate_r_package
 from ...utils.exceptions import DataError, ParameterError, ProcessingError
@@ -140,12 +137,14 @@ def deconvolve(
             ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
             ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
 
-            ro.r("""
+            ro.r(
+                """
                 rownames(spatial_counts) <- gene_names_spatial
                 colnames(spatial_counts) <- spot_names
                 rownames(reference_counts) <- gene_names_ref
                 colnames(reference_counts) <- cell_names
-            """)
+            """
+            )
 
         # Transfer other data
         with localconverter(ro.default_converter + pandas2ri.converter):
@@ -160,7 +159,8 @@ def deconvolve(
             ro.globalenv["max_multi_types_val"] = max_multi_types
 
         # Run RCTD in R
-        ro.r("""
+        ro.r(
+            """
             puck <- SpatialRNA(coords, spatial_counts, numi_spatial)
             cell_types_factor <- as.factor(cell_types_vec)
             names(cell_types_factor) <- names(cell_types_vec)
@@ -170,7 +170,8 @@ def deconvolve(
             myRCTD@config$CONFIDENCE_THRESHOLD <- conf_thresh
             myRCTD@config$DOUBLET_THRESHOLD <- doub_thresh
             myRCTD <- run.RCTD(myRCTD, doublet_mode = rctd_mode)
-        """)
+        """
+        )
 
         # Extract results
         proportions = _extract_rctd_results(mode)
@@ -199,7 +200,8 @@ def deconvolve(
         )
 
         # Clean up R global environment
-        ro.r("""
+        ro.r(
+            """
             rm(list = c("spatial_counts", "reference_counts", "gene_names_spatial",
                         "spot_names", "gene_names_ref", "cell_names", "coords",
                         "numi_spatial", "cell_types_vec", "numi_ref", "max_cores_val",
@@ -208,7 +210,8 @@ def deconvolve(
                         "weights_matrix", "cell_type_names"),
                    envir = .GlobalEnv)
             gc()
-        """)
+        """
+        )
 
         return proportions, stats
 
@@ -228,13 +231,16 @@ def _extract_rctd_results(mode: str) -> pd.DataFrame:
         ro.default_converter + pandas2ri.converter + numpy2ri.converter
     ):
         if mode == "full":
-            ro.r("""
+            ro.r(
+                """
                 weights_matrix <- myRCTD@results$weights
                 cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
                 spot_names <- rownames(weights_matrix)
-            """)
+            """
+            )
         elif mode == "doublet":
-            ro.r("""
+            ro.r(
+                """
                 if("weights_doublet" %in% names(myRCTD@results) && "results_df" %in% names(myRCTD@results)) {
                     weights_doublet <- myRCTD@results$weights_doublet
                     results_df <- myRCTD@results$results_df
@@ -269,9 +275,11 @@ def _extract_rctd_results(mode: str) -> pd.DataFrame:
                 } else {
                     stop("Official doublet mode structures not found")
                 }
-            """)
+            """
+            )
         else:  # multi mode
-            ro.r("""
+            ro.r(
+                """
                 results_list <- myRCTD@results
                 spot_names <- colnames(myRCTD@spatialRNA@counts)
                 cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
@@ -292,7 +300,8 @@ def _extract_rctd_results(mode: str) -> pd.DataFrame:
                         }
                     }
                 }
-            """)
+            """
+            )
 
         weights_r = ro.r("as.matrix(weights_matrix)")
         cell_type_names_r = ro.r("cell_type_names")

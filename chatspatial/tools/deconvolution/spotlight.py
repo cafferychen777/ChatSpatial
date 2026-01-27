@@ -5,13 +5,10 @@ SPOTlight is an R-based deconvolution method that uses NMF
 (Non-negative Matrix Factorization) for cell type decomposition.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import pandas as pd
-
-if TYPE_CHECKING:
-    pass
 
 from ...utils.adata_utils import to_dense
 from ...utils.dependency_manager import validate_r_package
@@ -112,7 +109,8 @@ def deconvolve(
             ro.globalenv["weight_id"] = weight_id
 
         # Create SCE and SPE objects, run SPOTlight
-        ro.r("""
+        ro.r(
+            """
             # Create SingleCellExperiment for reference
             sce <- SingleCellExperiment(
                 assays = list(counts = reference_counts),
@@ -169,7 +167,8 @@ def deconvolve(
                 scale = scale_data,
                 verbose = TRUE
             )
-        """)
+        """
+        )
 
         # Extract results
         with localconverter(
@@ -195,14 +194,16 @@ def deconvolve(
         )
 
         # Clean up R global environment
-        ro.r("""
+        ro.r(
+            """
             rm(list = c("spatial_counts", "reference_counts", "spatial_coords",
                         "gene_names", "spatial_names", "reference_names", "cell_types",
                         "nmf_model", "min_prop", "scale_data", "weight_id",
                         "sce", "spe", "markers", "mgs", "spotlight_result"),
                    envir = .GlobalEnv)
             gc()
-        """)
+        """
+        )
 
         return proportions, stats
 
