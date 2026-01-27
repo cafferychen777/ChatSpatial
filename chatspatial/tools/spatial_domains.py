@@ -684,11 +684,8 @@ async def _identify_domains_stagate(
             # Extract classification results
             mclust_labels = np.array(robjects.r("mclust_result$classification"))
 
-            # Store in adata
-            adata_stagate.obs["mclust"] = mclust_labels
-            adata_stagate.obs["mclust"] = adata_stagate.obs["mclust"].astype(int)
-            adata_stagate.obs["mclust"] = adata_stagate.obs["mclust"].astype("category")
-
+            # Store in adata - convert to categorical in single operation
+            adata_stagate.obs["mclust"] = pd.Categorical(mclust_labels.astype(int))
             domain_labels = adata_stagate.obs["mclust"].astype(str)
             clustering_method = "mclust"
 

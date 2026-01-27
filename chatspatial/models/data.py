@@ -387,7 +387,6 @@ class VisualizationParameters(BaseModel):
     )
 
     # Multi-gene visualization parameters
-    multi_panel: bool = False  # Whether to create multi-panel plots
     panel_layout: Optional[tuple[int, int]] = (
         None  # (rows, cols) - auto-determined if None
     )
@@ -480,45 +479,9 @@ class VisualizationParameters(BaseModel):
     gsea_results_key: str = "gsea_results"  # Key in adata.uns for GSEA results
     n_top_pathways: int = 10  # Number of top pathways to show in barplot
 
-    # NEW: Spatial plot enhancement parameters
-    add_outline: bool = Field(
-        False, description="Add cluster outline/contour overlay to spatial plots"
-    )
-    outline_color: str = Field("black", description="Color for cluster outlines")
-    outline_width: float = Field(
-        0.4, description="Line width for cluster outlines (Nature/Cell standard)"
-    )
-    outline_cluster_key: Optional[str] = Field(
-        None, description="Cluster key for outlines (e.g., 'leiden')"
-    )
-
-    # NEW: UMAP enhancement parameters
-    size_by: Optional[str] = Field(
-        None,
-        description="Feature for point size encoding in UMAP (dual color+size encoding)",
-    )
-    show_velocity: bool = Field(
-        False, description="Overlay RNA velocity vectors on UMAP"
-    )
-    velocity_scale: float = Field(1.0, description="Scaling factor for velocity arrows")
-
-    # NEW: Heatmap enhancement parameters
-    obs_annotation: Optional[list[str]] = Field(
-        None, description="List of obs keys to show as column annotations"
-    )
-    var_annotation: Optional[list[str]] = Field(
-        None, description="List of var keys to show as row annotations"
-    )
-    annotation_colors: Optional[dict[str, str]] = Field(
-        None, description="Custom colors for annotations"
-    )
-
-    # NEW: Integration assessment parameters
+    # Batch/integration parameters
     batch_key: str = Field(
         "batch", description="Key in adata.obs for batch/sample identifier"
-    )
-    integration_method: Optional[str] = Field(
-        None, description="Integration method used (for display)"
     )
 
     # Dotplot visualization parameters
@@ -555,10 +518,6 @@ class VisualizationParameters(BaseModel):
     dotplot_var_groups: Optional[dict[str, list[str]]] = Field(
         None,
         description="Group genes by category. Example: {'T cells': ['CD3D', 'CD4']}.",
-    )
-    dotplot_categories_order: Optional[list[str]] = Field(
-        None,
-        description="Custom order for groups (clusters/cell types) on the axis",
     )
 
     # Deconvolution visualization parameters
@@ -1353,17 +1312,10 @@ class SpatialDomainParameters(BaseModel):
         le=1.0,
         description="Spatial information weight (leiden/louvain).",
     )
-    cluster_resolution: Optional[float] = None  # Resolution parameter for clustering
 
     # STAGATE specific parameters
     stagate_rad_cutoff: Optional[float] = (
         None  # Radius cutoff for spatial neighbors (default: 150)
-    )
-    stagate_learning_rate: Optional[float] = None  # Learning rate (default: 0.001)
-    stagate_weight_decay: Optional[float] = None  # Weight decay (default: 0.0001)
-    stagate_epochs: Optional[int] = None  # Number of training epochs (default: 1000)
-    stagate_dim_output: Optional[int] = (
-        None  # Dimension of output representation (default: 15)
     )
     stagate_random_seed: Optional[int] = None  # Random seed (default: 42)
 
