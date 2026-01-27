@@ -17,6 +17,8 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 if TYPE_CHECKING:
+    import anndata as ad
+
     from ..models.data import EnrichmentParameters
     from ..spatial_mcp_adapter import ToolContext
 
@@ -41,7 +43,7 @@ def _filter_significant_statistics(
     adjusted_pvalues: dict,
     method: str,
     fdr_threshold: Optional[float] = None,
-) -> tuple:
+) -> tuple[dict, dict, dict, dict]:
     """
     Filter all enrichment result dictionaries to only include significant pathways.
 
@@ -133,22 +135,15 @@ def _filter_significant_statistics(
 def _filter_gene_sets_by_size(
     gene_sets: dict[str, list[str]], min_size: int, max_size: int
 ) -> dict[str, list[str]]:
-    """
-    Filter gene sets by size constraints.
+    """Filter gene sets by size constraints.
 
-    Parameters
-    ----------
-    gene_sets : Dict[str, List[str]]
-        Dictionary mapping gene set names to gene lists
-    min_size : int
-        Minimum number of genes required
-    max_size : int
-        Maximum number of genes allowed
+    Args:
+        gene_sets: Dictionary mapping gene set names to gene lists.
+        min_size: Minimum number of genes required.
+        max_size: Maximum number of genes allowed.
 
-    Returns
-    -------
-    Dict[str, List[str]]
-        Filtered gene sets within size constraints
+    Returns:
+        Filtered gene sets within size constraints.
     """
     return {
         name: genes
@@ -162,7 +157,7 @@ def _filter_gene_sets_by_size(
 # ============================================================================
 
 
-def _compute_std_sparse_compatible(X, axis=0, ddof=1):
+def _compute_std_sparse_compatible(X, axis: int = 0, ddof: int = 1) -> np.ndarray:
     """
     Compute standard deviation compatible with both dense and sparse matrices.
 
@@ -331,7 +326,7 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
 
 
 def perform_gsea(
-    adata,
+    adata: "ad.AnnData",
     gene_sets: dict[str, list[str]],
     ranking_key: Optional[str] = None,
     method: str = "signal_to_noise",
@@ -343,35 +338,23 @@ def perform_gsea(
     ctx: Optional["ToolContext"] = None,
     data_id: Optional[str] = None,
 ) -> "EnrichmentResult":
-    """
-    Perform Gene Set Enrichment Analysis (GSEA).
+    """Perform Gene Set Enrichment Analysis (GSEA).
 
-    Parameters
-    ----------
-    adata : AnnData
-        Annotated data matrix
-    gene_sets : Dict[str, List[str]]
-        Gene sets to test
-    ranking_key : Optional[str]
-        Key in adata.var for pre-computed ranking. If None, compute from expression
-    method : str
-        Method for ranking genes if ranking_key is None
-    permutation_num : int
-        Number of permutations
-    min_size : int
-        Minimum gene set size
-    max_size : int
-        Maximum gene set size
-    species : Optional[str]
-        Species for the analysis (e.g., 'mouse', 'human')
-    database : Optional[str]
-        Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
-    ctx : ToolContext
-        MCP tool context for logging
+    Args:
+        adata: Annotated data matrix.
+        gene_sets: Gene sets to test (name -> gene list).
+        ranking_key: Key in adata.var for pre-computed ranking. Computes if None.
+        method: Method for ranking genes if ranking_key is None.
+        permutation_num: Number of permutations for p-value calculation.
+        min_size: Minimum gene set size.
+        max_size: Maximum gene set size.
+        species: Species for the analysis ('mouse', 'human').
+        database: Gene set database used ('KEGG_Pathways', 'GO_Biological_Process').
+        ctx: MCP tool context for logging.
+        data_id: Dataset identifier for result tracking.
 
-    Returns
-    -------
-    Dict containing enrichment results
+    Returns:
+        EnrichmentResult with enrichment scores and statistics.
     """
     # gseapy imported at module level (required dependency)
 
@@ -583,7 +566,7 @@ def perform_gsea(
 
 
 def perform_ora(
-    adata,
+    adata: "ad.AnnData",
     gene_sets: dict[str, list[str]],
     gene_list: Optional[list[str]] = None,
     pvalue_threshold: float = 0.05,
@@ -594,40 +577,26 @@ def perform_ora(
     ctx: Optional["ToolContext"] = None,
     data_id: Optional[str] = None,
 ) -> "EnrichmentResult":
-    """
-    Perform Over-Representation Analysis (ORA).
+    """Perform Over-Representation Analysis (ORA).
 
-    Parameters
-    ----------
-    adata : AnnData
-        Annotated data matrix
-    gene_sets : Dict[str, List[str]]
-        Gene sets to test
-    gene_list : Optional[List[str]]
-        List of genes to test. If None, use DEGs from rank_genes_groups
-    pvalue_threshold : float
-        P-value threshold for selecting DEGs (only used if rank_genes_groups exists)
-    min_size : int
-        Minimum gene set size
-    max_size : int
-        Maximum gene set size
-    species : Optional[str]
-        Species for the analysis (e.g., 'mouse', 'human')
-    database : Optional[str]
-        Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
-    ctx : ToolContext
-        MCP tool context for logging
+    Args:
+        adata: Annotated data matrix.
+        gene_sets: Gene sets to test (name -> gene list).
+        gene_list: Genes to test. Uses DEGs from rank_genes_groups if None.
+        pvalue_threshold: P-value threshold for selecting DEGs.
+        min_size: Minimum gene set size.
+        max_size: Maximum gene set size.
+        species: Species for the analysis ('mouse', 'human').
+        database: Gene set database used ('KEGG_Pathways', 'GO_Biological_Process').
+        ctx: MCP tool context for logging.
+        data_id: Dataset identifier for result tracking.
 
-    Returns
-    -------
-    Dict containing enrichment results
+    Returns:
+        EnrichmentResult with enrichment scores and statistics.
 
-    Notes
-    -----
-    LogFC filtering removed: ORA should use genes pre-filtered by find_markers.
-    Different statistical methods (Wilcoxon, t-test) produce different logFC scales,
-    making a fixed threshold inappropriate. Gene filtering is the responsibility of
-    differential expression analysis, not enrichment analysis.
+    Note:
+        LogFC filtering removed. ORA should use genes pre-filtered by find_markers.
+        Gene filtering is the responsibility of differential expression analysis.
     """
     # Get gene list if not provided
     if gene_list is None:
@@ -831,7 +800,7 @@ def perform_ora(
 
 
 def perform_ssgsea(
-    adata,
+    adata: "ad.AnnData",
     gene_sets: dict[str, list[str]],
     min_size: int = 10,
     max_size: int = 500,
@@ -840,31 +809,22 @@ def perform_ssgsea(
     ctx: Optional["ToolContext"] = None,
     data_id: Optional[str] = None,
 ) -> "EnrichmentResult":
-    """
-    Perform single-sample Gene Set Enrichment Analysis (ssGSEA).
+    """Perform single-sample Gene Set Enrichment Analysis (ssGSEA).
 
-    This calculates enrichment scores for each sample independently.
+    Calculates enrichment scores for each sample independently.
 
-    Parameters
-    ----------
-    adata : AnnData
-        Annotated data matrix
-    gene_sets : Dict[str, List[str]]
-        Gene sets to test
-    min_size : int
-        Minimum gene set size
-    max_size : int
-        Maximum gene set size
-    species : Optional[str]
-        Species for the analysis (e.g., 'mouse', 'human')
-    database : Optional[str]
-        Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
-    ctx : ToolContext
-        MCP tool context for logging
+    Args:
+        adata: Annotated data matrix.
+        gene_sets: Gene sets to test (name -> gene list).
+        min_size: Minimum gene set size.
+        max_size: Maximum gene set size.
+        species: Species for the analysis ('mouse', 'human').
+        database: Gene set database used ('KEGG_Pathways', 'GO_Biological_Process').
+        ctx: MCP tool context for logging.
+        data_id: Dataset identifier for result tracking.
 
-    Returns
-    -------
-    Dict containing enrichment results
+    Returns:
+        EnrichmentResult with per-sample enrichment scores.
     """
     # gseapy imported at module level (required dependency)
 
@@ -1061,23 +1021,16 @@ def perform_enrichr(
     organism: str = "human",
     ctx: Optional["ToolContext"] = None,
 ) -> "EnrichmentResult":
-    """
-    Perform enrichment analysis using Enrichr web service.
+    """Perform enrichment analysis using Enrichr web service.
 
-    Parameters
-    ----------
-    gene_list : List[str]
-        List of genes to analyze
-    gene_sets : Optional[str]
-        Enrichr library name. If None, use default libraries
-    organism : str
-        Organism ('human' or 'mouse')
-    ctx : ToolContext
-        MCP tool context for logging
+    Args:
+        gene_list: List of genes to analyze.
+        gene_sets: Enrichr library name. If None, use default libraries.
+        organism: Organism ('human' or 'mouse').
+        ctx: MCP tool context for logging.
 
-    Returns
-    -------
-    Dict containing enrichment results
+    Returns:
+        EnrichmentResult containing enrichment results.
     """
     # gseapy imported at module level (required dependency)
 
@@ -1210,45 +1163,25 @@ async def perform_spatial_enrichment(
     species: str = "unknown",
     database: Optional[str] = None,
 ) -> "EnrichmentResult":
-    """
-    Perform spatially-aware gene set enrichment analysis using EnrichMap.
+    """Perform spatially-aware gene set enrichment analysis using EnrichMap.
 
-    Parameters
-    ----------
-    data_id : str
-        Identifier for the spatial data in the data store
-    ctx : ToolContext
-        MCP tool context for data access and logging
-    gene_sets : Union[List[str], Dict[str, List[str]]]
-        Either a single gene list or a dictionary of gene sets where keys are
-        signature names and values are lists of genes
-    score_keys : Optional[Union[str, List[str]]]
-        Names for the gene signatures if gene_sets is a list. Ignored if gene_sets
-        is already a dictionary
-    spatial_key : str
-        Key in adata.obsm containing spatial coordinates (default: "spatial")
-    n_neighbors : int
-        Number of nearest spatial neighbors for smoothing (default: 6)
-    smoothing : bool
-        Whether to perform spatial smoothing (default: True)
-    correct_spatial_covariates : bool
-        Whether to correct for spatial covariates using GAM (default: True)
-    batch_key : Optional[str]
-        Column in adata.obs for batch-wise normalization
-    species : str
-        Species for the analysis (e.g., 'mouse', 'human')
-    database : Optional[str]
-        Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process')
+    Args:
+        data_id: Identifier for the spatial data in the data store.
+        ctx: MCP tool context for data access and logging.
+        gene_sets: Either a single gene list or a dictionary of gene sets where
+            keys are signature names and values are lists of genes.
+        score_keys: Names for the gene signatures if gene_sets is a list.
+            Ignored if gene_sets is already a dictionary.
+        spatial_key: Key in adata.obsm containing spatial coordinates.
+        n_neighbors: Number of nearest spatial neighbors for smoothing.
+        smoothing: Whether to perform spatial smoothing.
+        correct_spatial_covariates: Whether to correct for spatial covariates using GAM.
+        batch_key: Column in adata.obs for batch-wise normalization.
+        species: Species for the analysis (e.g., 'mouse', 'human').
+        database: Gene set database used (e.g., 'KEGG_Pathways', 'GO_Biological_Process').
 
-    Returns
-    -------
-    Dict[str, Any]
-        Dictionary containing:
-        - data_id: ID of the data with enrichment scores
-        - signatures: List of computed signatures
-        - score_columns: List of column names containing scores
-        - gene_contributions: Dictionary of gene contributions per signature
-        - summary_stats: Summary statistics for each signature
+    Returns:
+        EnrichmentResult containing enrichment scores and statistics.
     """
     # Check if EnrichMap is available
     require("enrichmap", ctx, feature="spatial enrichment analysis")
@@ -1458,35 +1391,22 @@ def load_msigdb_gene_sets(
     min_size: int = 10,
     max_size: int = 500,
 ) -> dict[str, list[str]]:
-    """
-    Load gene sets from MSigDB using gseapy.
+    """Load gene sets from MSigDB using gseapy.
 
-    Parameters
-    ----------
-    species : str
-        Species for gene sets ('human' or 'mouse')
-    collection : str
-        MSigDB collection name:
-        - H: hallmark gene sets
-        - C1: positional gene sets
-        - C2: curated gene sets (e.g., CGP, CP:KEGG, CP:REACTOME)
-        - C3: motif gene sets
-        - C4: computational gene sets
-        - C5: GO gene sets (CC, BP, MF)
-        - C6: oncogenic signatures
-        - C7: immunologic signatures
-        - C8: cell type signatures
-    subcollection : Optional[str]
-        Subcollection for specific databases (e.g., 'CP:KEGG', 'GO:BP')
-    min_size : int
-        Minimum gene set size
-    max_size : int
-        Maximum gene set size
+    Args:
+        species: Species for gene sets ('human' or 'mouse').
+        collection: MSigDB collection name. Options include:
+            H (hallmark gene sets), C1 (positional gene sets),
+            C2 (curated gene sets, e.g., CGP, CP:KEGG, CP:REACTOME),
+            C3 (motif gene sets), C4 (computational gene sets),
+            C5 (GO gene sets: CC, BP, MF), C6 (oncogenic signatures),
+            C7 (immunologic signatures), C8 (cell type signatures).
+        subcollection: Subcollection for specific databases (e.g., 'CP:KEGG', 'GO:BP').
+        min_size: Minimum gene set size.
+        max_size: Maximum gene set size.
 
-    Returns
-    -------
-    Dict[str, List[str]]
-        Dictionary of gene sets
+    Returns:
+        Dictionary of gene sets.
     """
     # gseapy imported at module level (required dependency)
     try:
@@ -1547,25 +1467,17 @@ def load_go_gene_sets(
     min_size: int = 10,
     max_size: int = 500,
 ) -> dict[str, list[str]]:
-    """
-    Load GO terms using gseapy.
+    """Load GO terms using gseapy.
 
-    Parameters
-    ----------
-    species : str
-        Species for gene sets ('human' or 'mouse')
-    aspect : str
-        GO aspect: 'BP' (biological process), 'MF' (molecular function),
-        'CC' (cellular component)
-    min_size : int
-        Minimum gene set size
-    max_size : int
-        Maximum gene set size
+    Args:
+        species: Species for gene sets ('human' or 'mouse').
+        aspect: GO aspect. Options: 'BP' (biological process),
+            'MF' (molecular function), 'CC' (cellular component).
+        min_size: Minimum gene set size.
+        max_size: Maximum gene set size.
 
-    Returns
-    -------
-    Dict[str, List[str]]
-        Dictionary of GO gene sets
+    Returns:
+        Dictionary of GO gene sets.
     """
     aspect_map = {
         "BP": "GO_Biological_Process_2023",
@@ -1592,22 +1504,15 @@ def load_go_gene_sets(
 def load_kegg_gene_sets(
     species: str, min_size: int = 10, max_size: int = 500
 ) -> dict[str, list[str]]:
-    """
-    Load KEGG pathways using gseapy.
+    """Load KEGG pathways using gseapy.
 
-    Parameters
-    ----------
-    species : str
-        Species for gene sets ('human' or 'mouse')
-    min_size : int
-        Minimum gene set size
-    max_size : int
-        Maximum gene set size
+    Args:
+        species: Species for gene sets ('human' or 'mouse').
+        min_size: Minimum gene set size.
+        max_size: Maximum gene set size.
 
-    Returns
-    -------
-    Dict[str, List[str]]
-        Dictionary of KEGG pathway gene sets
+    Returns:
+        Dictionary of KEGG pathway gene sets.
     """
     # gseapy imported at module level (required dependency)
     try:
@@ -1629,22 +1534,15 @@ def load_kegg_gene_sets(
 def load_reactome_gene_sets(
     species: str, min_size: int = 10, max_size: int = 500
 ) -> dict[str, list[str]]:
-    """
-    Load Reactome pathways using gseapy.
+    """Load Reactome pathways using gseapy.
 
-    Parameters
-    ----------
-    species : str
-        Species for gene sets ('human' or 'mouse')
-    min_size : int
-        Minimum gene set size
-    max_size : int
-        Maximum gene set size
+    Args:
+        species: Species for gene sets ('human' or 'mouse').
+        min_size: Minimum gene set size.
+        max_size: Maximum gene set size.
 
-    Returns
-    -------
-    Dict[str, List[str]]
-        Dictionary of Reactome pathway gene sets
+    Returns:
+        Dictionary of Reactome pathway gene sets.
     """
     # gseapy imported at module level (required dependency)
     try:
@@ -1662,22 +1560,15 @@ def load_reactome_gene_sets(
 def load_cell_marker_gene_sets(
     species: str, min_size: int = 5, max_size: int = 200
 ) -> dict[str, list[str]]:
-    """
-    Load cell type marker gene sets using gseapy.
+    """Load cell type marker gene sets using gseapy.
 
-    Parameters
-    ----------
-    species : str
-        Species for gene sets ('human' or 'mouse')
-    min_size : int
-        Minimum gene set size
-    max_size : int
-        Maximum gene set size
+    Args:
+        species: Species for gene sets ('human' or 'mouse').
+        min_size: Minimum gene set size.
+        max_size: Maximum gene set size.
 
-    Returns
-    -------
-    Dict[str, List[str]]
-        Dictionary of cell type marker gene sets
+    Returns:
+        Dictionary of cell type marker gene sets.
     """
     # gseapy imported at module level (required dependency)
     try:
@@ -1699,31 +1590,19 @@ def load_gene_sets(
     max_genes: int = 500,
     ctx: Optional["ToolContext"] = None,
 ) -> dict[str, list[str]]:
-    """
-    Load gene sets from specified database.
+    """Load gene sets from specified database.
 
-    Parameters
-    ----------
-    database : str
-        Database name:
-        - GO_Biological_Process, GO_Molecular_Function, GO_Cellular_Component
-        - KEGG_Pathways
-        - Reactome_Pathways
-        - MSigDB_Hallmark
-        - Cell_Type_Markers
-    species : str
-        Species ('human' or 'mouse')
-    min_genes : int
-        Minimum gene set size
-    max_genes : int
-        Maximum gene set size
-    ctx : ToolContext
-        MCP tool context for logging
+    Args:
+        database: Database name. Options: GO_Biological_Process, GO_Molecular_Function,
+            GO_Cellular_Component, KEGG_Pathways, Reactome_Pathways, MSigDB_Hallmark,
+            Cell_Type_Markers.
+        species: Species ('human' or 'mouse').
+        min_genes: Minimum gene set size.
+        max_genes: Maximum gene set size.
+        ctx: MCP tool context for logging.
 
-    Returns
-    -------
-    Dict[str, List[str]]
-        Dictionary of gene sets
+    Returns:
+        Dictionary of gene sets.
     """
     # Direct function calls - no class overhead
     database_map = {

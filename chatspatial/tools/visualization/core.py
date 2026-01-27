@@ -441,7 +441,7 @@ def get_categorical_cmap(n_categories: int, user_cmap: Optional[str] = None) -> 
 def get_category_colors(
     n_categories: int,
     cmap_name: Optional[str] = None,
-) -> list:
+) -> list[Any]:
     """Get a list of colors for categorical data.
 
     This is the primary function for obtaining colors for categorical
@@ -471,7 +471,7 @@ def get_category_colors(
     return [cmap(i / max(n_categories - 1, 1)) for i in range(n_categories)]
 
 
-def get_colormap(name: str, n_colors: Optional[int] = None):
+def get_colormap(name: str, n_colors: Optional[int] = None) -> Any:
     """Get a matplotlib colormap by name.
 
     For categorical data, prefer using get_category_colors() instead.

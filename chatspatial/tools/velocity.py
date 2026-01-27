@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Optional
 import numpy as np
 
 if TYPE_CHECKING:
+    import anndata as ad
+
     from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import RNAVelocityResult
@@ -35,32 +37,31 @@ from ..utils.results_export import export_analysis_result
 
 
 def preprocess_for_velocity(
-    adata, min_shared_counts=30, n_top_genes=2000, n_pcs=30, n_neighbors=30, params=None
-):
-    """
-    Prepares an AnnData object for RNA velocity analysis using the scVelo pipeline.
+    adata: "ad.AnnData",
+    min_shared_counts: int = 30,
+    n_top_genes: int = 2000,
+    n_pcs: int = 30,
+    n_neighbors: int = 30,
+    params: Optional[RNAVelocityParameters] = None,
+) -> "ad.AnnData":
+    """Prepare AnnData for RNA velocity analysis using scVelo pipeline.
 
-    This function performs the standard scVelo preprocessing workflow:
-    1. Filtering genes based on minimum shared counts between spliced and
-       unspliced layers.
-    2. Normalizing the data.
-    3. Selecting a subset of highly variable genes.
-    4. Computing first and second-order moments across nearest neighbors.
+    Performs the standard scVelo preprocessing workflow:
+    1. Filtering genes based on minimum shared counts between spliced/unspliced layers
+    2. Normalizing the data
+    3. Selecting highly variable genes
+    4. Computing first and second-order moments across nearest neighbors
 
-    Parameters
-    ----------
-    adata : AnnData
-        The annotated data matrix with 'spliced' and 'unspliced' layers.
-    min_shared_counts : int, default 30
-        Minimum number of counts shared between spliced and unspliced layers.
-    n_top_genes : int, default 2000
-        Number of highly variable genes to use.
-    n_pcs : int, default 30
-        Number of principal components to compute.
-    n_neighbors : int, default 30
-        Number of nearest neighbors for moment computation.
-    params : RNAVelocityParameters, optional
-        If provided, overrides the individual parameters.
+    Args:
+        adata: Annotated data matrix with 'spliced' and 'unspliced' layers.
+        min_shared_counts: Minimum counts shared between spliced and unspliced layers.
+        n_top_genes: Number of highly variable genes to use.
+        n_pcs: Number of principal components to compute.
+        n_neighbors: Number of nearest neighbors for moment computation.
+        params: If provided, overrides the individual parameters.
+
+    Returns:
+        Preprocessed AnnData with velocity-ready layers and moments.
     """
     import scvelo as scv
 
@@ -94,31 +95,28 @@ def preprocess_for_velocity(
     return adata
 
 
-def compute_rna_velocity(adata, mode="stochastic", params=None):
-    """
-    Computes RNA velocity to infer the direction of cellular differentiation.
+def compute_rna_velocity(
+    adata: "ad.AnnData",
+    mode: str = "stochastic",
+    params: Optional[RNAVelocityParameters] = None,
+) -> "ad.AnnData":
+    """Compute RNA velocity to infer cellular differentiation direction.
 
-    This function executes the core RNA velocity workflow:
-    1. Ensures preprocessing (moment computation) is complete.
-    2. Estimates RNA velocity using the specified model.
-    3. Constructs a velocity graph for cell-to-cell transitions.
+    Executes the core RNA velocity workflow:
+    1. Ensures preprocessing (moment computation) is complete
+    2. Estimates RNA velocity using the specified model
+    3. Constructs a velocity graph for cell-to-cell transitions
 
-    Parameters
-    ----------
-    adata : AnnData
-        The annotated data matrix with 'spliced' and 'unspliced' layers.
-    mode : str, default 'stochastic'
-        The model for velocity estimation:
-        - 'stochastic': Likelihood-based model accounting for noise.
-        - 'deterministic': Simpler steady-state model.
-        - 'dynamical': Full transcriptional dynamics with ODE fitting.
-    params : RNAVelocityParameters, optional
-        Parameter object (mode will be extracted from params.scvelo_mode).
+    Args:
+        adata: Annotated data matrix with 'spliced' and 'unspliced' layers.
+        mode: Model for velocity estimation:
+            - 'stochastic': Likelihood-based model accounting for noise
+            - 'deterministic': Simpler steady-state model
+            - 'dynamical': Full transcriptional dynamics with ODE fitting
+        params: Parameter object (mode extracted from params.scvelo_mode).
 
-    Returns
-    -------
-    AnnData
-        Updated with velocity vectors and graph.
+    Returns:
+        AnnData updated with velocity vectors and graph.
     """
     import scvelo as scv
 
@@ -148,8 +146,19 @@ def compute_rna_velocity(adata, mode="stochastic", params=None):
     return adata
 
 
-async def _prepare_velovi_data(adata, ctx: Optional["ToolContext"]):
-    """Prepare data for VELOVI according to official standards."""
+async def _prepare_velovi_data(
+    adata: "ad.AnnData",
+    ctx: Optional["ToolContext"],
+) -> "ad.AnnData":
+    """Prepare data for VELOVI according to official standards.
+
+    Args:
+        adata: Input AnnData with spliced/unspliced layers.
+        ctx: ToolContext for logging warnings.
+
+    Returns:
+        Preprocessed AnnData copy ready for VELOVI.
+    """
     import scvelo as scv
 
     adata_velovi = adata.copy()
@@ -181,8 +190,19 @@ async def _prepare_velovi_data(adata, ctx: Optional["ToolContext"]):
     return adata_velovi
 
 
-def _validate_velovi_data(adata):
-    """VELOVI-specific data validation."""
+def _validate_velovi_data(adata: "ad.AnnData") -> bool:
+    """Validate data for VELOVI requirements.
+
+    Args:
+        adata: AnnData to validate for VELOVI compatibility.
+
+    Returns:
+        True if validation passes.
+
+    Raises:
+        DataNotFoundError: If required layers are missing.
+        DataError: If layer shapes are incompatible.
+    """
     if "Ms" not in adata.layers or "Mu" not in adata.layers:
         raise DataNotFoundError("Missing required layers 'Ms' and 'Mu' for VELOVI")
 
@@ -201,7 +221,7 @@ def _validate_velovi_data(adata):
 
 
 async def analyze_velocity_with_velovi(
-    adata,
+    adata: "ad.AnnData",
     n_epochs: int = 1000,
     n_hidden: int = 128,
     n_latent: int = 10,

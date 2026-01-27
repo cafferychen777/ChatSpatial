@@ -168,7 +168,7 @@ async def preprocess_data(
         # Scrublet works on raw counts before normalization
         # Recommended for: CosMx, MERFISH, Xenium (single-cell resolution)
         # NOT recommended for: Visium (spot-based, multiple cells per spot)
-        if params.scrublet_enable:
+        if params.use_scrublet:
             try:
                 # Scrublet requires sufficient cells for meaningful doublet detection
                 min_cells_for_scrublet = 100
@@ -198,7 +198,7 @@ async def preprocess_data(
                     # Store doublet detection results in qc_metrics
                     n_doublets = int(adata.obs["predicted_doublet"].sum())
                     doublet_rate = n_doublets / adata.n_obs
-                    qc_metrics["scrublet_enabled"] = True
+                    qc_metrics["use_scrubletd"] = True
                     qc_metrics["n_doublets_detected"] = n_doublets
                     qc_metrics["doublet_rate"] = float(doublet_rate)
                     qc_metrics["scrublet_threshold"] = float(
@@ -230,7 +230,7 @@ async def preprocess_data(
                     f"Scrublet doublet detection failed: {e}. "
                     "Continuing without doublet filtering."
                 )
-                qc_metrics["scrublet_enabled"] = False
+                qc_metrics["use_scrubletd"] = False
                 qc_metrics["scrublet_error"] = str(e)
 
         # Save raw data before normalization (required for some analysis methods)

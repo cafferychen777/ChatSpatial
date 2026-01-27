@@ -3,7 +3,7 @@ Integration tools for spatial transcriptomics data.
 """
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 
 import anndata as ad
 import numpy as np
@@ -33,29 +33,30 @@ logger = logging.getLogger(__name__)
 
 
 def integrate_multiple_samples(
-    adatas,
-    batch_key="batch",
-    method="harmony",
-    n_pcs=30,
+    adatas: Union[list[ad.AnnData], ad.AnnData],
+    batch_key: str = "batch",
+    method: str = "harmony",
+    n_pcs: int = 30,
     params: Optional[IntegrationParameters] = None,
-):
-    """Integrate multiple spatial transcriptomics samples
+) -> ad.AnnData:
+    """Integrate multiple spatial transcriptomics samples.
 
     This function expects preprocessed data (normalized, log-transformed, with HVGs marked).
     Use preprocessing.py or preprocess_data() before calling this function.
 
     Args:
-        adatas: List of preprocessed AnnData objects or a single combined AnnData object
-        batch_key: Batch information key
-        method: Integration method, options: 'harmony', 'bbknn', 'scanorama', 'scvi'
-        n_pcs: Number of principal components for integration
-        params: Optional IntegrationParameters for method-specific settings (scVI, etc.)
+        adatas: List of preprocessed AnnData objects or a single combined AnnData.
+        batch_key: Batch information key in obs.
+        method: Integration method ('harmony', 'bbknn', 'scanorama', 'scvi').
+        n_pcs: Number of principal components for integration.
+        params: Optional IntegrationParameters for method-specific settings.
 
     Returns:
-        Integrated AnnData object with batch correction applied
+        Integrated AnnData with batch correction applied.
 
     Raises:
-        ValueError: If data is not properly preprocessed
+        ParameterError: If fewer than 2 datasets provided for integration.
+        DataError: If data is not properly preprocessed.
     """
 
     # Merge datasets
@@ -534,16 +535,25 @@ def integrate_multiple_samples(
     return combined
 
 
-def align_spatial_coordinates(combined_adata, batch_key="batch", reference_batch=None):
-    """Align spatial coordinates of multiple samples
+def align_spatial_coordinates(
+    combined_adata: ad.AnnData,
+    batch_key: str = "batch",
+    reference_batch: Optional[str] = None,
+) -> ad.AnnData:
+    """Align spatial coordinates of multiple samples.
 
     Args:
-        combined_adata: Combined AnnData object containing multiple samples
-        batch_key: Batch information key
-        reference_batch: Reference batch, if None use the first batch
+        combined_adata: Combined AnnData containing multiple samples.
+        batch_key: Batch information key in obs.
+        reference_batch: Reference batch for alignment. Uses first batch if None.
 
     Returns:
-        AnnData object with aligned spatial coordinates
+        AnnData with aligned spatial coordinates.
+
+    Raises:
+        DataNotFoundError: If spatial coordinates are missing.
+        DataError: If dataset is empty.
+        ParameterError: If reference batch not found.
     """
     import numpy as np
     from sklearn.preprocessing import StandardScaler

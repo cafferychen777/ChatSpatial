@@ -433,7 +433,7 @@ async def _identify_spatial_genes_sparkx(
         - sparkx_option: 'single' or 'mixture' kernel (default: 'mixture')
         - sparkx_percentage: Min percentage of cells expressing gene (default: 0.1)
         - sparkx_min_total_counts: Min total counts per gene (default: 10)
-        - sparkx_num_core: Number of CPU cores for parallel processing
+        - sparkx_n_cores: Number of CPU cores for parallel processing
         - filter_mt_genes: Filter mitochondrial genes (default: True)
         - filter_ribo_genes: Filter ribosomal genes (default: False)
         - test_only_hvg: Test only HVGs (default: False)
@@ -623,7 +623,7 @@ async def _identify_spatial_genes_sparkx(
                         count_in=r_counts,
                         locus_in=r_coords,
                         X_in=ro.NULL,  # No additional covariates (could be extended in future)
-                        numCores=params.sparkx_num_core,
+                        numCores=params.sparkx_n_cores,
                         option=params.sparkx_option,
                         verbose=False,  # Ensure verbose is off for cleaner MCP communication
                     )
@@ -774,7 +774,7 @@ async def _identify_spatial_genes_sparkx(
         analysis_name="spatial_genes_sparkx",
         method="sparkx",
         parameters={
-            "num_core": params.sparkx_num_core,
+            "num_core": params.sparkx_n_cores,
             "percentage": params.sparkx_percentage,
             "min_total_counts": params.sparkx_min_total_counts,
             "option": params.sparkx_option,

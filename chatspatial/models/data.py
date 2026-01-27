@@ -88,7 +88,7 @@ class PreprocessingParameters(BaseModel):
     # Scrublet detects doublets (artificial cell pairs) common in droplet-based single-cell data.
     # Recommended for single-cell resolution platforms (CosMx, MERFISH, Xenium).
     # NOT recommended for spot-based platforms (Visium) where each spot contains multiple cells.
-    scrublet_enable: bool = Field(
+    use_scrublet: bool = Field(
         default=False,
         description="Enable Scrublet doublet detection. Recommended for single-cell resolution data.",
     )
@@ -683,7 +683,7 @@ class AnnotationParameters(BaseModel):
     training_genes: Optional[list[str]] = (
         None  # For Tangram method - genes to use for mapping
     )
-    num_epochs: int = (
+    n_epochs: int = (
         100  # For Tangram/ScanVI methods - number of training epochs (reduced for faster training)
     )
     tangram_mode: Literal["cells", "clusters"] = (
@@ -838,7 +838,7 @@ class AnnotationParameters(BaseModel):
         default=True,
         description="Whether to perform fine-tuning step in SingleR annotation (refines labels based on marker genes)",
     )
-    num_threads: int = 4  # Number of threads for parallel processing
+    n_threads: int = 4  # Number of threads for parallel processing
 
 
 class SpatialStatisticsParameters(BaseModel):
@@ -1006,7 +1006,7 @@ class TrajectoryParameters(BaseModel):
     palantir_n_diffusion_components: int = Field(
         default=10, gt=0, le=50, description="Diffusion components for Palantir."
     )
-    palantir_num_waypoints: int = Field(
+    palantir_n_waypoints: int = Field(
         default=500, gt=0, description="Number of waypoints for Palantir."
     )
 
@@ -1136,7 +1136,7 @@ class DeconvolutionParameters(BaseModel):
         1.0,
         description="Fraction of spatial data for training. Cell2location only.",
     )
-    cell2location_enable_qc_plots: bool = Field(
+    cell2location_use_qc_plots: bool = Field(
         False,
         description="Generate QC diagnostic plots. Cell2location only.",
     )
@@ -1224,7 +1224,7 @@ class DeconvolutionParameters(BaseModel):
         "full",
         description="'doublet' for high-res (Slide-seq, MERFISH), 'full' for low-res (Visium), 'multi' for constrained mixing.",
     )
-    max_cores: int = Field(
+    rctd_max_cores: int = Field(
         default=4, gt=0, le=16, description="Maximum CPU cores for R-based methods."
     )
     rctd_confidence_threshold: float = Field(
@@ -1418,7 +1418,7 @@ class SpatialVariableGenesParameters(BaseModel):
     sparkx_min_total_counts: int = Field(
         default=10, gt=0, description="Minimum total counts per gene."
     )
-    sparkx_num_core: int = Field(
+    sparkx_n_cores: int = Field(
         default=1, gt=0, le=16, description="CPU cores for parallel processing."
     )
     sparkx_option: Literal["single", "mixture"] = "mixture"

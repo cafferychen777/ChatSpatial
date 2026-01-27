@@ -9,11 +9,13 @@ Key functionality:
 - Supports CellRank (velocity-based), Palantir (expression-based), and DPT (diffusion-based)
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import pandas as pd
 
 if TYPE_CHECKING:
+    import anndata as ad
+
     from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import TrajectoryResult
@@ -37,33 +39,29 @@ from ..utils.mcp_utils import suppress_output
 
 
 def prepare_gam_model_for_visualization(
-    adata,
-    genes: list,
+    adata: "ad.AnnData",
+    genes: list[str],
     time_key: str = "latent_time",
     fate_key: str = "lineages_fwd",
-):
-    """
-    Prepare a GAM model for CellRank gene trends visualization.
+) -> tuple[Any, list[str]]:
+    """Prepare a GAM model for CellRank gene trends visualization.
 
-    This function handles the computation logic needed for CellRank 2.0 gene trends
-    and fate heatmap visualizations. Requires data analyzed via analyze_rna_velocity
-    (dynamical mode) and analyze_trajectory (cellrank method).
+    Handles the computation logic needed for CellRank 2.0 gene trends
+    and fate heatmap visualizations. Requires data analyzed via
+    analyze_rna_velocity (dynamical mode) and analyze_trajectory (cellrank).
 
-    Parameters
-    ----------
-    adata : AnnData
-        The annotated data matrix with CellRank results.
-    genes : list
-        List of gene names to prepare the model for.
-    time_key : str, default 'latent_time'
-        Key in adata.obs for pseudotime/latent time values.
-    fate_key : str, default 'lineages_fwd'
-        Key in adata.obsm for fate probabilities.
+    Args:
+        adata: Annotated data matrix with CellRank results.
+        genes: List of gene names to prepare the model for.
+        time_key: Key in adata.obs for pseudotime/latent time values.
+        fate_key: Key in adata.obsm for fate probabilities.
 
-    Returns
-    -------
-    tuple
-        (model, lineage_names) - The GAM model and list of lineage names.
+    Returns:
+        Tuple of (GAM model, list of lineage names).
+
+    Raises:
+        DataNotFoundError: If fate probabilities or genes not found.
+        DataError: If fate probabilities lack proper Lineage names.
     """
     require("cellrank")
     from cellrank.models import GAM
@@ -101,18 +99,30 @@ def prepare_gam_model_for_visualization(
 
 
 def infer_spatial_trajectory_cellrank(
-    adata, spatial_weight=0.5, kernel_weights=(0.8, 0.2), n_states=5
-):
-    """
-    Infers cellular trajectories by combining RNA velocity with CellRank.
+    adata: "ad.AnnData",
+    spatial_weight: float = 0.5,
+    kernel_weights: tuple[float, float] = (0.8, 0.2),
+    n_states: int = 5,
+) -> "ad.AnnData":
+    """Infer cellular trajectories by combining RNA velocity with CellRank.
 
-    This function uses CellRank to model cell-state transitions by constructing
+    Uses CellRank to model cell-state transitions by constructing
     a transition matrix from multiple kernels:
-    1. A velocity kernel from RNA velocity.
-    2. A connectivity kernel based on transcriptomic similarity.
-    3. (Optional) A spatial kernel based on physical proximity.
+    1. A velocity kernel from RNA velocity
+    2. A connectivity kernel based on transcriptomic similarity
+    3. (Optional) A spatial kernel based on physical proximity
 
-    Raises ProcessingError if CellRank computation fails.
+    Args:
+        adata: AnnData with velocity data computed.
+        spatial_weight: Weight for spatial kernel (0=no spatial, 1=spatial only).
+        kernel_weights: Tuple of (velocity_weight, connectivity_weight).
+        n_states: Number of macrostates to compute.
+
+    Returns:
+        AnnData with pseudotime, terminal states, and fate probabilities.
+
+    Raises:
+        ProcessingError: If CellRank computation fails.
     """
     # Apply NumPy 2.x compatibility patch for CellRank
     # CellRank 2.0.7 uses np.testing.assert_array_equal(x=, y=) which fails with NumPy 2.x
@@ -252,25 +262,28 @@ def infer_spatial_trajectory_cellrank(
 
 
 def infer_pseudotime_palantir(
-    adata, root_cells=None, n_diffusion_components=10, num_waypoints=500
-):
-    """
-    Infers cellular trajectories and pseudotime using Palantir.
+    adata: "ad.AnnData",
+    root_cells: Optional[list[str]] = None,
+    n_diffusion_components: int = 10,
+    num_waypoints: int = 500,
+) -> "ad.AnnData":
+    """Infer cellular trajectories and pseudotime using Palantir.
 
     Palantir models differentiation as a stochastic process on a graph,
     using diffusion maps to capture data geometry and computing fate
     probabilities via random walks from a root cell.
 
-    Parameters
-    ----------
-    adata : AnnData
-        The annotated data matrix with PCA results.
-    root_cells : list of str, optional
-        Cell identifiers as starting points. Auto-selected if not provided.
-    n_diffusion_components : int, default 10
-        Number of diffusion components.
-    num_waypoints : int, default 500
-        Number of waypoints for trajectory granularity.
+    Args:
+        adata: Annotated data matrix with PCA results.
+        root_cells: Cell identifiers as starting points. Auto-selected if None.
+        n_diffusion_components: Number of diffusion components.
+        num_waypoints: Number of waypoints for trajectory granularity.
+
+    Returns:
+        AnnData with palantir_pseudotime and palantir_branch_probs.
+
+    Raises:
+        ParameterError: If specified root cell not found in data.
     """
     import palantir
 
@@ -299,8 +312,23 @@ def infer_pseudotime_palantir(
     return adata
 
 
-def compute_dpt_trajectory(adata, root_cells=None):
-    """Compute Diffusion Pseudotime trajectory analysis."""
+def compute_dpt_trajectory(
+    adata: "ad.AnnData",
+    root_cells: Optional[list[str]] = None,
+) -> "ad.AnnData":
+    """Compute Diffusion Pseudotime (DPT) trajectory analysis.
+
+    Args:
+        adata: Annotated data matrix (will compute PCA/neighbors/diffmap if needed).
+        root_cells: Cell identifiers as starting points. Uses first cell if None.
+
+    Returns:
+        AnnData with dpt_pseudotime in obs.
+
+    Raises:
+        ParameterError: If specified root cell not found.
+        ProcessingError: If DPT computation fails.
+    """
     import numpy as np
     import scanpy as sc
 
@@ -333,8 +361,15 @@ def compute_dpt_trajectory(adata, root_cells=None):
     return adata
 
 
-def has_velocity_data(adata) -> bool:
-    """Check if RNA velocity has been computed (by any method)."""
+def has_velocity_data(adata: "ad.AnnData") -> bool:
+    """Check if RNA velocity has been computed (by any method).
+
+    Args:
+        adata: Annotated data matrix to check for velocity data.
+
+    Returns:
+        True if velocity data exists (scVelo or VELOVI), False otherwise.
+    """
     return (
         "velocity_graph" in adata.uns
         or "velocity_method" in adata.uns
@@ -399,7 +434,7 @@ async def analyze_trajectory(
                     adata,
                     root_cells=params.root_cells,
                     n_diffusion_components=params.palantir_n_diffusion_components,
-                    num_waypoints=params.palantir_num_waypoints,
+                    num_waypoints=params.palantir_n_waypoints,
                 )
 
             pseudotime_key = "palantir_pseudotime"
@@ -450,7 +485,7 @@ async def analyze_trajectory(
         parameters_dict.update(
             {
                 "n_diffusion_components": params.palantir_n_diffusion_components,
-                "num_waypoints": params.palantir_num_waypoints,
+                "num_waypoints": params.palantir_n_waypoints,
             }
         )
 

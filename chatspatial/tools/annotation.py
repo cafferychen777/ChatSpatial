@@ -14,6 +14,8 @@ import pandas as pd
 import scanpy as sc
 
 if TYPE_CHECKING:
+    import anndata as ad
+
     from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import AnnotationResult
@@ -83,7 +85,7 @@ SUPPORTED_METHODS = {
 
 
 async def _annotate_with_singler(
-    adata,
+    adata: "ad.AnnData",
     params: AnnotationParameters,
     ctx: "ToolContext",
     output_key: str,
@@ -225,7 +227,7 @@ async def _annotate_with_singler(
 
     # Run SingleR annotation
     use_integrated = getattr(params, "singler_integrated", False)
-    num_threads = getattr(params, "num_threads", 4)
+    n_threads = getattr(params, "n_threads", 4)
 
     if use_integrated and isinstance(ref_data, list):
         single_results, integrated = singler.annotate_integrated(
@@ -233,7 +235,7 @@ async def _annotate_with_singler(
             ref_data=ref_data,
             ref_labels=ref_labels,
             test_features=test_features,
-            num_threads=num_threads,
+            n_threads=n_threads,
         )
         best_labels = integrated.column("best_label")
         scores = integrated.column("scores")
@@ -244,7 +246,7 @@ async def _annotate_with_singler(
             "test_features": test_features,
             "ref_data": ref_data,
             "ref_labels": ref_labels,
-            "num_threads": num_threads,
+            "n_threads": n_threads,
         }
 
         # Add ref_features if we're using custom reference data (not celldex)
@@ -327,7 +329,7 @@ async def _annotate_with_singler(
 
 
 async def _annotate_with_tangram(
-    adata,
+    adata: "ad.AnnData",
     params: AnnotationParameters,
     ctx: "ToolContext",
     output_key: str,
@@ -421,7 +423,7 @@ async def _annotate_with_tangram(
     # Run Tangram mapping with enhanced parameters
     mapping_args: dict[str, str | int | float | None] = {
         "mode": mode,
-        "num_epochs": params.num_epochs,
+        "num_epochs": params.n_epochs,
         "device": device,
         "density_prior": params.tangram_density_prior,  # Add density prior
         "learning_rate": params.tangram_learning_rate,  # Add learning rate
@@ -615,7 +617,7 @@ async def _annotate_with_tangram(
 
 
 async def _annotate_with_scanvi(
-    adata,
+    adata: "ad.AnnData",
     params: AnnotationParameters,
     ctx: "ToolContext",
     output_key: str,
@@ -654,7 +656,7 @@ async def _annotate_with_scanvi(
         Training Strategy:
             - scanvi_use_scvi_pretrain (default: True): Use SCVI pretraining
             - scanvi_scvi_epochs (default: 200): SCVI pretraining epochs
-            - num_epochs (default: 100): SCANVI training epochs
+            - n_epochs (default: 100): SCANVI training epochs
             - scanvi_query_epochs (default: 100): Query data training epochs
 
         Advanced:
@@ -667,7 +669,7 @@ async def _annotate_with_scanvi(
         - scanvi_n_layers: 2
         - scanvi_n_latent: 30
         - scanvi_scvi_epochs: 300 (SCVI pretraining)
-        - num_epochs: 100 (SCANVI training)
+        - n_epochs: 100 (SCANVI training)
         - scanvi_query_epochs: 100
         - Gene selection: 1000-10000 HVGs recommended
 
@@ -676,7 +678,7 @@ async def _annotate_with_scanvi(
         - scanvi_n_latent: 3-5 (may prevent NaN/gradient explosion)
         - scanvi_dropout_rate: 0.2-0.3 (may improve regularization)
         - scanvi_use_scvi_pretrain: False (may reduce complexity)
-        - num_epochs: 50 (may prevent overfitting)
+        - n_epochs: 50 (may prevent overfitting)
         - scanvi_query_epochs: 50
 
     Common Issues:
@@ -699,7 +701,7 @@ async def _annotate_with_scanvi(
             scanvi_n_latent=5,              # For small dataset
             scanvi_dropout_rate=0.2,        # Better regularization
             scanvi_use_scvi_pretrain=False, # Simpler training
-            num_epochs=50,                  # Prevent overfitting
+            n_epochs=50,                    # Prevent overfitting
         )
     """
 
@@ -823,7 +825,7 @@ async def _annotate_with_scanvi(
         )
 
         model.train(
-            max_epochs=params.num_epochs,
+            max_epochs=params.n_epochs,
             n_samples_per_label=params.scanvi_n_samples_per_label,
             early_stopping=True,
             check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch,
@@ -915,7 +917,7 @@ async def _annotate_with_scanvi(
 
 
 async def _annotate_with_mllmcelltype(
-    adata,
+    adata: "ad.AnnData",
     params: AnnotationParameters,
     ctx: "ToolContext",
     output_key: str,
@@ -1092,7 +1094,7 @@ async def _annotate_with_mllmcelltype(
 
 
 async def _annotate_with_cellassign(
-    adata,
+    adata: "ad.AnnData",
     params: AnnotationParameters,
     ctx: "ToolContext",
     output_key: str,
@@ -1392,7 +1394,7 @@ async def annotate_cell_types(
     if params.method == "tangram":
         parameters_dict = {
             "device": params.tangram_device,
-            "n_epochs": params.num_epochs,  # Fixed: use num_epochs instead of tangram_num_epochs
+            "n_epochs": params.n_epochs,
             "learning_rate": params.tangram_learning_rate,
         }
     elif params.method == "scanvi":
@@ -1581,7 +1583,7 @@ def _load_sctype_functions(ctx: "ToolContext") -> None:
             robjects.r(_R_LOAD_SCTYPE)
 
 
-def _prepare_sctype_genesets(params: AnnotationParameters, ctx: "ToolContext"):
+def _prepare_sctype_genesets(params: AnnotationParameters, ctx: "ToolContext") -> Any:
     """Prepare gene sets for sc-type."""
     if params.sctype_custom_markers:
         return _convert_custom_markers_to_gs(params.sctype_custom_markers, ctx)
@@ -1609,7 +1611,7 @@ def _prepare_sctype_genesets(params: AnnotationParameters, ctx: "ToolContext"):
 
 def _convert_custom_markers_to_gs(
     custom_markers: dict[str, dict[str, list[str]]], ctx: "ToolContext"
-):
+) -> Any:
     """Convert custom markers to sc-type gene set format"""
     if not custom_markers:
         raise DataError("Custom markers dictionary is empty")

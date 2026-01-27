@@ -234,8 +234,7 @@ async def analyze_spatial_statistics(
     ctx: ToolContext,
     params: SpatialStatisticsParameters,  # No default - must be provided by caller (LLM)
 ) -> SpatialStatisticsResult:
-    """
-    Serves as the central dispatcher for executing various spatial analysis methods.
+    """Serve as the central dispatcher for executing various spatial analysis methods.
 
     This function validates the input data, computes a spatial neighbor graph if one
     does not exist, and routes the analysis to the appropriate specialized function
@@ -243,29 +242,19 @@ async def analyze_spatial_statistics(
     the `AnnData` object within the data store. Note that visualization is handled
     by a separate function.
 
-    Parameters
-    ----------
-    data_id : str
-        The identifier for the dataset.
-    ctx : ToolContext
-        Tool context for data access and logging.
-    params : SpatialStatisticsParameters
-        An object containing the parameters for the analysis, including the
-        specific `analysis_type` to perform.
+    Args:
+        data_id: The identifier for the dataset.
+        ctx: Tool context for data access and logging.
+        params: An object containing the parameters for the analysis, including the
+            specific `analysis_type` to perform.
 
-    Returns
-    -------
-    SpatialStatisticsResult
+    Returns:
         An object containing the statistical results and metadata from the analysis.
 
-    Raises
-    ------
-    DataNotFoundError
-        If the specified dataset is not found in the data store.
-    ParameterError
-        If the provided parameters are not valid for the requested analysis.
-    ProcessingError
-        If an error occurs during the execution of the analysis.
+    Raises:
+        DataNotFoundError: If the specified dataset is not found in the data store.
+        ParameterError: If the provided parameters are not valid for the requested analysis.
+        ProcessingError: If an error occurs during the execution of the analysis.
     """
     # Validate parameters (use registry as single source of truth)
     if params.analysis_type not in _ANALYSIS_REGISTRY:
@@ -1066,8 +1055,7 @@ def _analyze_join_count(
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
 ) -> dict[str, Any]:
-    """
-    Compute traditional Join Count statistics for BINARY categorical spatial data.
+    """Compute traditional Join Count statistics for BINARY categorical spatial data.
 
     IMPORTANT: This method only works for binary data (exactly 2 categories).
     For multi-category data (>2 categories), use 'local_join_count' instead.
@@ -1077,38 +1065,34 @@ def _analyze_join_count(
     spatial units of the same or different categories.
 
     Returns three types of joins:
-    - BB (Black-Black): Both neighbors are category 1
-    - WW (White-White): Both neighbors are category 0
-    - BW (Black-White): Neighbors are different categories
+        - BB (Black-Black): Both neighbors are category 1
+        - WW (White-White): Both neighbors are category 0
+        - BW (Black-White): Neighbors are different categories
 
-    Parameters
-    ----------
-    adata : AnnData
-        Annotated data object with spatial coordinates in .obsm['spatial']
-    cluster_key : str
-        Column in adata.obs containing the categorical variable (must have exactly 2 categories)
-    params : SpatialStatisticsParameters
-        Analysis parameters including n_neighbors
-    ctx : ToolContext
-        ToolContext for logging and data access
+    Args:
+        adata: Annotated data object with spatial coordinates in .obsm['spatial'].
+        cluster_key: Column in adata.obs containing the categorical variable
+            (must have exactly 2 categories).
+        params: Analysis parameters including n_neighbors.
+        ctx: ToolContext for logging and data access.
 
-    Returns
-    -------
-    Dict[str, Any]
+    Returns:
         Dictionary containing:
-        - bb: Number of Black-Black joins
-        - ww: Number of White-White joins
-        - bw: Number of Black-White joins
-        - J: Total number of joins
-        - p_value: Significance level from permutation test
+            - bb: Number of Black-Black joins
+            - ww: Number of White-White joins
+            - bw: Number of Black-White joins
+            - J: Total number of joins
+            - p_value: Significance level from permutation test
 
-    References
-    ----------
-    Cliff, A.D. & Ord, J.K. (1981). Spatial Processes. Pion, London.
+    Raises:
+        ParameterError: If cluster_key has more or less than 2 categories.
+        ProcessingError: If Join Count analysis fails.
 
-    See Also
-    --------
-    _analyze_local_join_count : For multi-category data (>2 categories)
+    References:
+        Cliff, A.D. & Ord, J.K. (1981). Spatial Processes. Pion, London.
+
+    See Also:
+        _analyze_local_join_count: For multi-category data (>2 categories).
     """
     # Check for required dependencies
     require("esda")
@@ -1154,8 +1138,7 @@ def _analyze_local_join_count(
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
 ) -> dict[str, Any]:
-    """
-    Compute Local Join Count statistics for MULTI-CATEGORY categorical spatial data.
+    """Compute Local Join Count statistics for MULTI-CATEGORY categorical spatial data.
 
     This method extends traditional Join Count statistics to handle data with more than
     2 categories by using Local Join Count Statistics (Anselin & Li 2019). Each category
@@ -1163,70 +1146,64 @@ def _analyze_local_join_count(
     identify spatial clusters of each category.
 
     WHEN TO USE:
-    - Data has MORE THAN 2 categories (e.g., cell types, tissue domains)
-    - Want to identify WHERE each category spatially clusters
-    - Need category-specific clustering patterns
+        - Data has MORE THAN 2 categories (e.g., cell types, tissue domains)
+        - Want to identify WHERE each category spatially clusters
+        - Need category-specific clustering patterns
 
     For binary data (exactly 2 categories), use 'join_count' instead for traditional
     global statistics.
 
     METHOD:
-    1. One-hot encode: Convert multi-category variable to binary indicators
-    2. For each category: Compute local join count (# of same-category neighbors)
-    3. Permutation test: Assess statistical significance
-    4. Store results: Local statistics in adata.obs, summary in return value
+        1. One-hot encode: Convert multi-category variable to binary indicators
+        2. For each category: Compute local join count (# of same-category neighbors)
+        3. Permutation test: Assess statistical significance
+        4. Store results: Local statistics in adata.obs, summary in return value
 
-    Parameters
-    ----------
-    adata : AnnData
-        Annotated data object with spatial coordinates in .obsm['spatial']
-    cluster_key : str
-        Column in adata.obs containing the categorical variable (can have any number of categories)
-    params : SpatialStatisticsParameters
-        Analysis parameters including n_neighbors
-    ctx : ToolContext
-        ToolContext for logging and data access
+    Args:
+        adata: Annotated data object with spatial coordinates in .obsm['spatial'].
+        cluster_key: Column in adata.obs containing the categorical variable
+            (can have any number of categories).
+        params: Analysis parameters including n_neighbors.
+        ctx: ToolContext for logging and data access.
 
-    Returns
-    -------
-    Dict[str, Any]
+    Returns:
         Dictionary containing:
-        - method: Method name and reference
-        - n_categories: Number of categories analyzed
-        - categories: List of category names
-        - per_category_stats: Statistics for each category
-          - total_joins: Sum of local join counts across all locations
-          - mean_local_joins: Average local join count per location
-          - n_significant: Number of locations with significant clustering (p < 0.05)
-          - n_hotspots: Number of locations with positive significant clustering
-        - interpretation: How to interpret the results
+            - method: Method name and reference
+            - n_categories: Number of categories analyzed
+            - categories: List of category names
+            - per_category_stats: Statistics for each category
+                - total_joins: Sum of local join counts across all locations
+                - mean_local_joins: Average local join count per location
+                - n_significant: Number of locations with significant clustering (p < 0.05)
+                - n_hotspots: Number of locations with positive significant clustering
+            - interpretation: How to interpret the results
 
-    Notes
-    -----
-    Results are stored in adata.obs as:
-    - 'ljc_{category}': Local join count values for each category
-    - 'ljc_{category}_pvalue': Significance levels (from permutation test)
+    Raises:
+        ProcessingError: If Local Join Count analysis fails.
 
-    High local join count values indicate locations where category members cluster together.
-    P-values < 0.05 indicate statistically significant local clustering.
+    Note:
+        Results are stored in adata.obs as:
+            - 'ljc_{category}': Local join count values for each category
+            - 'ljc_{category}_pvalue': Significance levels (from permutation test)
 
-    References
-    ----------
-    Anselin, L., & Li, X. (2019). Operational Local Join Count Statistics for Cluster Detection.
-    Journal of geographical systems, 21(2), 189–210.
-    https://doi.org/10.1007/s10109-019-00299-x
+        High local join count values indicate locations where category members cluster
+        together. P-values < 0.05 indicate statistically significant local clustering.
 
-    See Also
-    --------
-    _analyze_join_count : For binary data (2 categories) using traditional Join Count
+    References:
+        Anselin, L., & Li, X. (2019). Operational Local Join Count Statistics for
+        Cluster Detection. Journal of geographical systems, 21(2), 189-210.
+        https://doi.org/10.1007/s10109-019-00299-x
 
-    Examples
-    --------
-    For a dataset with 7 cell type categories:
-    >>> result = await _analyze_local_join_count(adata, 'leiden', params, ctx)
-    >>> # Check which cell types show significant clustering
-    >>> for cat, stats in result['per_category_stats'].items():
-    ...     print(f"{cat}: {stats['n_hotspots']} significant hotspots")
+    See Also:
+        _analyze_join_count: For binary data (2 categories) using traditional Join Count.
+
+    Example:
+        For a dataset with 7 cell type categories::
+
+            result = await _analyze_local_join_count(adata, 'leiden', params, ctx)
+            # Check which cell types show significant clustering
+            for cat, stats in result['per_category_stats'].items():
+                print(f"{cat}: {stats['n_hotspots']} significant hotspots")
     """
     # Check for required dependencies (esda >= 2.4.0 required for Join_Counts_Local)
     require("esda")
@@ -1485,43 +1462,38 @@ def _analyze_local_moran(
     params: SpatialStatisticsParameters,
     ctx: "ToolContext",
 ) -> dict[str, Any]:
-    """
-    Calculate Local Moran's I (LISA) for spatial clustering detection.
+    """Calculate Local Moran's I (LISA) for spatial clustering detection.
 
     Local Moran's I identifies spatial clusters and outliers by measuring
     the local spatial autocorrelation for each observation.
 
-    Parameters
-    ----------
-    adata : ad.AnnData
-        Annotated data object
-    params : SpatialStatisticsParameters
-        Analysis parameters including genes to analyze
-    ctx : ToolContext
-        ToolContext for logging and data access
+    Args:
+        adata: Annotated data object with spatial coordinates.
+        params: Analysis parameters including genes to analyze.
+        ctx: ToolContext for logging and data access.
 
-    Returns
-    -------
-    Dict[str, Any]
-        Results including Local Moran's I values and statistics for each gene
+    Returns:
+        Results including Local Moran's I values and statistics for each gene.
 
-    Notes
-    -----
-    This implementation uses PySAL's esda.Moran_Local with permutation-based
-    significance testing, following best practices from:
-    - GeoDa Center: https://geodacenter.github.io/workbook/6a_local_auto/lab6a.html
-    - PySAL documentation: https://pysal.org/esda/generated/esda.Moran_Local.html
+    Raises:
+        ProcessingError: If Local Moran's I analysis fails.
 
-    The permutation approach holds each observation fixed while randomly permuting
-    the remaining n-1 values to generate a reference distribution for significance
-    testing. This is more robust than parametric approaches as it makes fewer
-    distributional assumptions.
+    Note:
+        This implementation uses PySAL's esda.Moran_Local with permutation-based
+        significance testing, following best practices from:
+            - GeoDa Center: https://geodacenter.github.io/workbook/6a_local_auto/lab6a.html
+            - PySAL documentation: https://pysal.org/esda/generated/esda.Moran_Local.html
 
-    Quadrant classification (LISA clusters):
-    - HH (High-High): Hot spots - high values surrounded by high values
-    - LL (Low-Low): Cold spots - low values surrounded by low values
-    - HL (High-Low): High outliers - high values surrounded by low values
-    - LH (Low-High): Low outliers - low values surrounded by high values
+        The permutation approach holds each observation fixed while randomly permuting
+        the remaining n-1 values to generate a reference distribution for significance
+        testing. This is more robust than parametric approaches as it makes fewer
+        distributional assumptions.
+
+        Quadrant classification (LISA clusters):
+            - HH (High-High): Hot spots - high values surrounded by high values
+            - LL (Low-Low): Cold spots - low values surrounded by low values
+            - HL (High-Low): High outliers - high values surrounded by low values
+            - LH (Low-High): Low outliers - low values surrounded by high values
     """
     # Import PySAL components for proper LISA analysis
     require("esda")  # Raises ImportError with install instructions if missing

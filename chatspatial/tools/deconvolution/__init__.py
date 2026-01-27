@@ -121,7 +121,7 @@ METHOD_REGISTRY: dict[str, MethodConfig] = {
         is_r_based=True,
         param_mapping=(
             ("rctd_mode", "mode"),
-            ("max_cores", "max_cores"),
+            ("rctd_max_cores", "max_cores"),
             ("rctd_confidence_threshold", "confidence_threshold"),
             ("rctd_doublet_threshold", "doublet_threshold"),
             ("rctd_max_multi_types", "max_multi_types"),

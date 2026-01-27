@@ -5,7 +5,10 @@ This module implements pseudobulk differential expression analysis for comparing
 experimental conditions (e.g., Treatment vs Control) across biological samples.
 """
 
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
+
+if TYPE_CHECKING:
+    import anndata as ad
 
 import numpy as np
 import pandas as pd
@@ -192,7 +195,7 @@ async def compare_conditions(
 
 
 def _create_pseudobulk(
-    adata,
+    adata: "ad.AnnData",
     raw_X: Union[np.ndarray, sparse.spmatrix],
     var_names: pd.Index,
     sample_key: str,
@@ -351,7 +354,7 @@ def _run_deseq2(
 
 
 async def _run_global_comparison(
-    adata,
+    adata: "ad.AnnData",
     raw_X: Union[np.ndarray, sparse.spmatrix],
     var_names: pd.Index,
     ctx: ToolContext,
@@ -444,7 +447,7 @@ async def _run_global_comparison(
 
 
 async def _run_stratified_comparison(
-    adata,
+    adata: "ad.AnnData",
     raw_X: Union[np.ndarray, sparse.spmatrix],
     var_names: pd.Index,
     ctx: ToolContext,

@@ -8,6 +8,8 @@ import numpy as np
 import scanpy as sc
 
 if TYPE_CHECKING:
+    import anndata as ad
+
     from ..spatial_mcp_adapter import ToolContext
 
 from ..models.analysis import CNVResult
@@ -80,7 +82,7 @@ async def infer_cnv(
 
 async def _infer_cnv_infercnvpy(
     data_id: str,
-    adata,
+    adata: "ad.AnnData",
     params: CNVParameters,
     ctx: "ToolContext",
 ) -> CNVResult:
@@ -304,7 +306,7 @@ async def _infer_cnv_infercnvpy(
 
 def _infer_cnv_numbat(
     data_id: str,
-    adata,
+    adata: "ad.AnnData",
     params: CNVParameters,
     ctx: "ToolContext",
 ) -> CNVResult:
