@@ -109,3 +109,8 @@ Documentation improvements, bug reports, and new analysis methods are all welcom
 </div>
 
 <!-- mcp-name: io.github.cafferychen777/chatspatial -->
+
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/cafferychen777-chatspatial).
+
