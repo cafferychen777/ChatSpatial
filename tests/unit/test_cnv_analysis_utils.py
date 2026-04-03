@@ -190,6 +190,7 @@ def test_infer_cnv_numbat_requires_allele_dataframe(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
+    monkeypatch.setitem(__import__("sys").modules, "rpy2", ModuleType("rpy2"))
 
     fake_ro = ModuleType("rpy2.robjects")
     fake_ro.r = lambda *_a, **_k: None

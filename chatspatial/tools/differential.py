@@ -472,11 +472,6 @@ async def _run_pydeseq2(
             "sample_key='sample')"
         )
 
-    # Import pydeseq2 (require() raises ImportError if not available)
-    require("pydeseq2", ctx, feature="DESeq2 differential expression")
-    from pydeseq2.dds import DeseqDataSet
-    from pydeseq2.ds import DeseqStats
-
     # Get data
     adata = await ctx.get_adata(data_id)
 
@@ -616,6 +611,12 @@ async def _run_pydeseq2(
             f"DESeq2 requires at least 2 samples per condition. "
             f"Current counts: {condition_counts.to_dict()}"
         )
+
+    # Import pydeseq2 only after precondition checks so users get actionable
+    # validation errors even when optional dependency is unavailable.
+    require("pydeseq2", ctx, feature="DESeq2 differential expression")
+    from pydeseq2.dds import DeseqDataSet
+    from pydeseq2.ds import DeseqStats
 
     # Run PyDESeq2
     try:
