@@ -5,7 +5,7 @@
 sphinx>=7.0.0
 
 # Furo theme - modern, clean, dark mode support
-furo>=2024.0.0
+furo>=2025.12.19
 
 # Sphinx extensions
 sphinx-copybutton>=0.5.2  # Copy button for code blocks
