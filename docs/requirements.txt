@@ -9,7 +9,7 @@ furo>=2024.0.0
 
 # Sphinx extensions
 sphinx-copybutton>=0.5.2  # Copy button for code blocks
-sphinx-design>=0.6.0  # Design elements (cards, tabs, grids)
+sphinx-design>=0.7.0  # Design elements (cards, tabs, grids)
 
 # Markdown support for Sphinx
 myst-parser>=2.0.0  # MyST Markdown parser
