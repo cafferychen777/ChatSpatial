@@ -80,9 +80,6 @@ dependencies = [
     "esda>=2.4.0",  # Exploratory spatial data analysis
     "libpysal>=4.6.0",  # Core spatial analysis library
 
-    # Gene set enrichment (commonly used)
-    "gseapy>=1.0.0",
-
     # Spatial deconvolution (default method)
     "flashdeconv>=0.1.0",  # Ultra-fast deconvolution using random sketching
 ]
@@ -90,6 +87,9 @@ dependencies = [
 [project.optional-dependencies]
 # Full installation with all features (recommended)
 full = [
+    # ========== Gene Set Enrichment ==========
+    "gseapy>=1.0.0",  # Rust extension — no macOS x86_64 wheel on PyPI
+
     # ========== Deep Learning Frameworks ==========
     "torch>=2.0.0,<3.0",  # Required for many advanced methods
 

@@ -99,6 +99,30 @@ If both commands work, continue to [Quick Start](docs/quickstart.md).
 
 ## Platform Notes
 
+### macOS (Intel / x86_64)
+
+Some dependencies in `chatspatial[full]` do not publish pre-built wheels for Intel Macs:
+
+- **gseapy** — requires the Rust toolchain to compile from source
+- **llvmlite** (via numba) — requires LLVM to compile from source
+
+Install the prerequisites first:
+
+```bash
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+
+# Install LLVM (for llvmlite)
+brew install llvm
+export LLVM_CONFIG="$(brew --prefix llvm)/bin/llvm-config"
+
+# Then install ChatSpatial
+uv pip install chatspatial[full]
+```
+
+> Apple Silicon Macs (M1/M2/M3/M4) have pre-built wheels for all dependencies and do not require these steps.
+
 ### Windows
 
 **Not available:** SingleR, PETSc

@@ -10,7 +10,6 @@ import logging
 from typing import TYPE_CHECKING, Optional, Union
 
 # Core dependencies (REQUIRED - in pyproject.toml dependencies)
-import gseapy as gp  # Gene set enrichment analysis
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -18,9 +17,26 @@ from statsmodels.stats.multitest import multipletests
 
 if TYPE_CHECKING:
     import anndata as ad
+    import gseapy as gp
 
     from ..models.data import EnrichmentParameters
     from ..spatial_mcp_adapter import ToolContext
+
+
+try:
+    import gseapy as gp  # optional dependency, in [full]
+except ImportError:
+    gp = None  # deferred until first use
+
+
+def _get_gseapy():
+    """Return gseapy module, raising a clear error if not installed."""
+    if gp is None:
+        raise ImportError(
+            "gseapy is required for enrichment analysis. "
+            "Install it with: pip install chatspatial[full]"
+        )
+    return gp
 
 from ..models.analysis import EnrichmentResult
 from ..utils.adata_utils import get_raw_data_source, store_analysis_metadata, to_dense
@@ -101,7 +117,7 @@ def _load_library_first_available(
     last_error: Exception | None = None
     for library_name in GENESET_LIBRARY_CANDIDATES[database_key]:
         try:
-            return gp.get_library(library_name, organism=organism)
+            return _get_gseapy().get_library(library_name, organism=organism)
         except Exception as e:  # pragma: no cover - exercised via caller-level wrapping
             last_error = e
             continue
@@ -551,7 +567,7 @@ def perform_gsea(
         ranking_df.index.name = "gene"
         ranking_df = ranking_df.sort_values("score", ascending=False)
 
-        res = gp.prerank(
+        res = _get_gseapy().prerank(
             rnk=ranking_df,  # Pass DataFrame instead of dict
             gene_sets=gene_sets,
             processes=1,
@@ -995,7 +1011,7 @@ def perform_ssgsea(
             expr_df = pd.DataFrame(
                 to_dense(adata.X).T, index=adata.var_names, columns=adata.obs_names
             )
-            res = gp.ssgsea(
+            res = _get_gseapy().ssgsea(
                 data=expr_df,
                 gene_sets=gene_sets,
                 min_size=min_size,
@@ -1022,7 +1038,7 @@ def perform_ssgsea(
                     columns=adata.obs_names[batch_indices],
                 )
 
-                batch_res = gp.ssgsea(
+                batch_res = _get_gseapy().ssgsea(
                     data=batch_df,
                     gene_sets=gene_sets,
                     min_size=min_size,
@@ -1214,7 +1230,7 @@ def perform_enrichr(
 
     # Run Enrichr
     try:
-        enr = gp.enrichr(
+        enr = _get_gseapy().enrichr(
             gene_list=gene_list,
             gene_sets=gene_sets_list,
             organism=organism.capitalize(),
@@ -1595,9 +1611,9 @@ def load_msigdb_gene_sets(
         elif collection == "C2" and subcollection == "CP:KEGG":
             # KEGG pathways
             if species.lower() == "human":
-                gene_sets_dict = gp.get_library("KEGG_2021_Human", organism=organism)
+                gene_sets_dict = _get_gseapy().get_library("KEGG_2021_Human", organism=organism)
             else:
-                gene_sets_dict = gp.get_library("KEGG_2019_Mouse", organism=organism)
+                gene_sets_dict = _get_gseapy().get_library("KEGG_2019_Mouse", organism=organism)
 
         elif collection == "C2" and subcollection == "CP:REACTOME":
             # Reactome pathways
@@ -1688,9 +1704,9 @@ def load_kegg_gene_sets(
 
         species_lower = species.lower()
         if species_lower == "human":
-            gene_sets = gp.get_library("KEGG_2021_Human", organism=organism)
+            gene_sets = _get_gseapy().get_library("KEGG_2021_Human", organism=organism)
         elif species_lower == "mouse":
-            gene_sets = gp.get_library("KEGG_2019_Mouse", organism=organism)
+            gene_sets = _get_gseapy().get_library("KEGG_2019_Mouse", organism=organism)
         else:
             raise ParameterError(
                 f"KEGG_Pathways is only available for 'human' and 'mouse', "
@@ -1749,7 +1765,7 @@ def load_cell_marker_gene_sets(
     # gseapy imported at module level (required dependency)
     try:
         organism = _get_organism_name(species)
-        gene_sets = gp.get_library("CellMarker_Augmented_2021", organism=organism)
+        gene_sets = _get_gseapy().get_library("CellMarker_Augmented_2021", organism=organism)
 
         # Filter by size
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
