@@ -199,7 +199,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/cafferychen777/ChatSpatial"
-Documentation = "https://chatspatial.readthedocs.io"
+Documentation = "https://docs.cafferyang.com/"
 Repository = "https://github.com/cafferychen777/ChatSpatial"
 Issues = "https://github.com/cafferychen777/ChatSpatial/issues"
 

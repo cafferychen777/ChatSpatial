@@ -12,7 +12,7 @@
 [![PyPI](https://img.shields.io/pypi/v/chatspatial)](https://pypi.org/project/chatspatial/)
 [![Python 3.11-3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docs](https://img.shields.io/badge/docs-available-blue)](https://cafferychen777.github.io/ChatSpatial/)
+[![Docs](https://img.shields.io/badge/docs-available-blue)](https://docs.cafferyang.com/)
 
 </div>
 
@@ -73,7 +73,7 @@ Load /absolute/path/to/spatial_data.h5ad and show me the tissue structure
 | [Configuration](docs/advanced/configuration.md) | Exact MCP client configuration syntax |
 | [Troubleshooting](docs/advanced/troubleshooting.md) | Symptom → fix guidance |
 | [Methods Reference](docs/advanced/methods-reference.md) | Canonical tool parameters and defaults |
-| [Full Docs](https://cafferychen777.github.io/ChatSpatial/) | Complete documentation site |
+| [Full Docs](https://docs.cafferyang.com/) | Complete documentation site |
 
 ---
 

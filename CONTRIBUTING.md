@@ -180,4 +180,4 @@ test: add integration test for trajectory
 
 ## Questions?
 
-Open a [GitHub Discussion](https://github.com/cafferychen777/ChatSpatial/discussions) or check the [docs](https://cafferychen777.github.io/ChatSpatial/).
+Open a [GitHub Discussion](https://github.com/cafferychen777/ChatSpatial/discussions) or check the [docs](https://docs.cafferyang.com/).
