@@ -37,9 +37,9 @@ docker run --rm -i \
   ghcr.io/cafferychen777/chatspatial:latest server --transport stdio
 ```
 
-Mounted data are available under `/data`, and generated outputs are written under `/outputs` by default.
+Mounted data are available under `/data`, and generated outputs are written under `/outputs` by default. In prompts, use container paths such as `/data/sample.h5ad`, not the original host path.
 
-See [DOCKER.md](DOCKER.md) for SSE mode, volume details, and local source builds.
+See [DOCKER.md](DOCKER.md) for MCP client examples, SSE mode, volume details, and local source builds.
 
 ---
 
@@ -206,6 +206,7 @@ cd STAGATE_pyG && python setup.py install
 
 ## Next Steps
 
+- [Docker Guide](DOCKER.md) — Run ChatSpatial from GHCR without local Python dependency resolution
 - [Configuration Guide](docs/advanced/configuration.md) — Exact client setup
 - [Quick Start](docs/quickstart.md) — First successful analysis
 - [Troubleshooting](docs/advanced/troubleshooting.md) — Fix install or runtime issues

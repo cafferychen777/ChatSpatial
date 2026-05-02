@@ -10,17 +10,28 @@ This page is the canonical reference for **exact MCP client configuration syntax
 
 ## Configuration Workflow
 
-1. Install ChatSpatial in a virtual environment.
-2. Activate the environment and run `which python`.
-3. Use that **absolute** Python path in your MCP client config.
+1. Choose a runtime: Python environment or Docker/GHCR image.
+2. For Python, activate the environment and run `which python`.
+3. Use the Python command or Docker command shape in your MCP client config.
 4. Restart the client after configuration changes.
 5. Verify the server can start.
 
-Canonical command shape:
+Canonical Python command shape:
 
 ```text
 /absolute/path/to/python -m chatspatial server
 ```
+
+Canonical Docker command shape:
+
+```bash
+docker run --rm -i \
+  -v /absolute/path/to/your/data:/data:ro \
+  -v /absolute/path/to/outputs:/outputs \
+  ghcr.io/cafferychen777/chatspatial:latest server --transport stdio
+```
+
+Use `--rm -i`, not `-it`, for MCP stdio. If you mount host data to `/data`, prompts must use container paths such as `/data/sample.h5ad`.
 
 ---
 
@@ -37,6 +48,18 @@ claude mcp list
 - `--` separates the Python path from module arguments
 - use the absolute Python path from `which python`
 - use `--scope user` if you want the server available across projects
+
+### Docker-backed Claude Code server
+
+```bash
+claude mcp add chatspatial-docker docker -- \
+  run --rm -i \
+  -v /absolute/path/to/your/data:/data:ro \
+  -v /absolute/path/to/outputs:/outputs \
+  ghcr.io/cafferychen777/chatspatial:latest server --transport stdio
+```
+
+Use `/data/...` paths in prompts when using this Docker-backed server.
 
 ---
 
@@ -136,6 +159,31 @@ Edit the Claude Desktop config file:
 }
 ```
 
+Docker-backed example:
+
+```json
+{
+  "mcpServers": {
+    "chatspatial": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-v",
+        "/absolute/path/to/your/data:/data:ro",
+        "-v",
+        "/absolute/path/to/outputs:/outputs",
+        "ghcr.io/cafferychen777/chatspatial:latest",
+        "server",
+        "--transport",
+        "stdio"
+      ]
+    }
+  }
+}
+```
+
 Restart Claude Desktop after saving the file.
 
 ---
@@ -180,6 +228,7 @@ If these checks fail, use [Troubleshooting](troubleshooting.md).
 
 ## Next Steps
 
+- [Docker / GHCR](../docker.md) — container-backed runtime setup
 - [Quick Start](../quickstart.md) — first successful analysis
 - [Troubleshooting](troubleshooting.md) — fix configuration or runtime issues
 - [Methods Reference](methods-reference.md) — exact parameters and defaults

@@ -32,6 +32,46 @@ If you need the exact config file format, go back to the [Configuration Guide](c
 
 ---
 
+## Docker / GHCR Problems
+
+### `docker: command not found`
+
+Install Docker Desktop or Docker Engine, confirm `docker --version` works, then restart your MCP client.
+
+### Pull fails for the GHCR image
+
+Check the image name and network access:
+
+```bash
+docker pull ghcr.io/cafferychen777/chatspatial:latest
+```
+
+### MCP tools do not appear when using Docker
+
+- Use `--rm -i`, not `-it`, in MCP stdio configuration
+- Use absolute host paths in `-v` mounts
+- Restart the MCP client after changing configuration
+
+### Dataset not found in Docker
+
+Mount the host data directory and use the container path in prompts:
+
+```bash
+-v /Users/alice/spatial-data:/data:ro
+```
+
+```text
+Load /data/sample.h5ad
+```
+
+Do not prompt with `/Users/alice/spatial-data/sample.h5ad`; that path exists on the host, not inside the container.
+
+### Permission denied on mounted outputs
+
+Confirm the host output directory exists and Docker has permission to write there. On Docker Desktop, also check file-sharing permissions for the mounted parent directory.
+
+---
+
 ## Data Loading Problems
 
 ### "Dataset not found"
@@ -103,6 +143,8 @@ For human: species="human", liana_resource="consensus"
 | Import errors | Reinstall with `uv pip install chatspatial[full]` |
 | `resolution-too-deep` | Use `uv` instead of `pip` |
 | Client not connecting | Re-check config and restart the client |
+| Docker pull fails | Run `docker pull ghcr.io/cafferychen777/chatspatial:latest` and check network access |
+| Docker dataset not found | Mount the host data directory and prompt with `/data/...` |
 | Path errors | Use absolute paths |
 | Analysis fails immediately | Run preprocessing first |
 | R methods fail | Install R and the required R packages |

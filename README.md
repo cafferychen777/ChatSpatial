@@ -13,6 +13,7 @@
 [![Python 3.11-3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docs](https://img.shields.io/badge/docs-available-blue)](https://docs.cafferyang.com/)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io-blue)](https://github.com/users/cafferychen777/packages/container/package/chatspatial)
 
 </div>
 
@@ -28,15 +29,23 @@ It exposes **60+ spatial transcriptomics methods** as MCP tools, so any MCP-comp
 
 ## Start Here
 
-1. **Install ChatSpatial** — [Installation Guide](INSTALLATION.md)
+1. **Install ChatSpatial** — [Installation Guide](INSTALLATION.md) for Python/uv setup, or [Docker Guide](DOCKER.md) for the GHCR image
 2. **Configure your MCP client** — [Configuration Guide](docs/advanced/configuration.md)
 3. **Run your first analysis** — [Quick Start](docs/quickstart.md)
+
+**Docker quick start:**
+
+```bash
+docker pull ghcr.io/cafferychen777/chatspatial:latest
+```
 
 **Minimal example prompt:**
 
 ```text
 Load /absolute/path/to/spatial_data.h5ad and show me the tissue structure
 ```
+
+If you use Docker, mount host data to `/data` and prompt with the container path, for example `/data/spatial_data.h5ad`.
 
 > ChatSpatial works with **any MCP-compatible client** — Claude Code, Claude Desktop, Codex, OpenCode, and other MCP-capable tools.
 
@@ -67,6 +76,7 @@ Load /absolute/path/to/spatial_data.h5ad and show me the tissue structure
 | Guide | Owns |
 |-------|------|
 | [Installation](INSTALLATION.md) | Environment setup, package install, platform notes |
+| [Docker](DOCKER.md) | GHCR image, volume mounts, and container-backed MCP setup |
 | [Quick Start](docs/quickstart.md) | First successful analysis after setup |
 | [Concepts](docs/concepts.md) | Method selection and analysis reasoning |
 | [Examples](docs/examples.md) | Prompt recipes and workflow examples |

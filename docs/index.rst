@@ -53,6 +53,15 @@ Getting Started
 
         Load data and start analyzing with natural language.
 
+    .. grid-item-card:: Docker / GHCR
+        :link: docker
+        :link-type: doc
+        :class-card: sd-rounded-3
+
+        **Run without local dependency resolution**
+
+        Pull the GHCR image, mount data, and configure MCP.
+
     .. grid-item-card:: Concepts
         :link: concepts
         :link-type: doc
@@ -120,6 +129,7 @@ Support
    :caption: Getting Started
 
    installation
+   docker
    quickstart
    concepts
    examples

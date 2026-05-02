@@ -16,6 +16,14 @@ Open your MCP client and type:
 Load /absolute/path/to/spatial_data.h5ad and show me the tissue structure
 ```
 
+If you configured ChatSpatial through Docker, use the container path from your mount instead:
+
+```text
+Load /data/spatial_data.h5ad and show me the tissue structure
+```
+
+For example, `-v /Users/alice/spatial-data:/data:ro` makes host files under `/Users/alice/spatial-data` visible as `/data` inside ChatSpatial.
+
 Then continue with:
 
 ```text
@@ -80,6 +88,7 @@ Visualizations appear directly in the chat or client UI.
 Check these three things first:
 
 - Use an **absolute** data path, not `~/...` or `./...`
+- If using Docker, use the container path from your mount, such as `/data/sample.h5ad`
 - Restart your client after MCP configuration changes
 - Run preprocessing before most downstream analyses
 

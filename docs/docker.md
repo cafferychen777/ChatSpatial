@@ -1,8 +1,6 @@
-# Docker user guide
+# Docker / GHCR
 
-This guide provides the fastest reproducible way to run ChatSpatial without solving the scientific Python dependency stack on your host machine.
-
-Use Docker when you want a containerized MCP runtime, when local dependency resolution fails, or when you want reviewers and collaborators to start from the same runtime image.
+Use the Docker image when you want to run ChatSpatial without resolving the scientific Python dependency stack on your host machine.
 
 ## Image
 
@@ -20,7 +18,7 @@ docker run --rm ghcr.io/cafferychen777/chatspatial:latest --version
 docker run --rm ghcr.io/cafferychen777/chatspatial:latest server --help
 ```
 
-## Run the MCP server with stdio transport
+## Run as an MCP server
 
 Use this command shape in MCP clients that support Docker-backed stdio servers:
 
@@ -31,22 +29,24 @@ docker run --rm -i \
   ghcr.io/cafferychen777/chatspatial:latest server --transport stdio
 ```
 
-Use `--rm -i`, not `-it`, for MCP stdio. Allocating a TTY can corrupt the JSON-RPC stream used by MCP clients.
+Use `--rm -i`, not `-it`, for MCP stdio. A TTY can corrupt the JSON-RPC stream used by MCP clients.
 
 ## Mount data and outputs
 
-ChatSpatial runs inside the container. It cannot see arbitrary host paths unless you mount them.
+ChatSpatial runs inside the container. It cannot see host files unless they are mounted into the container.
 
-| Host path | Docker mount | Path to use in ChatSpatial prompts |
+| Host path | Docker mount | Path to use in prompts |
 |---|---|---|
 | `/Users/alice/spatial-data` | `-v /Users/alice/spatial-data:/data:ro` | `/data/sample.h5ad` |
 | `/home/alice/chatspatial-outputs` | `-v /home/alice/chatspatial-outputs:/outputs` | generated files appear under `/outputs` |
 
-If you mount `/Users/alice/spatial-data` as `/data`, prompt ChatSpatial with `/data/sample.h5ad`, not `/Users/alice/spatial-data/sample.h5ad`.
+If your host data directory is mounted as `/data`, prompt ChatSpatial with `/data/sample.h5ad`, not the original host path.
 
 Generated visualizations and exported files are written under `/outputs` by default.
 
-## Claude Code MCP example
+## MCP client examples
+
+### Claude Code
 
 ```bash
 claude mcp add chatspatial-docker docker -- \
@@ -56,11 +56,7 @@ claude mcp add chatspatial-docker docker -- \
   ghcr.io/cafferychen777/chatspatial:latest server --transport stdio
 ```
 
-Restart Claude Code after changing MCP configuration.
-
-## Claude Desktop MCP example
-
-Edit `claude_desktop_config.json`:
+### Claude Desktop
 
 ```json
 {
@@ -85,9 +81,9 @@ Edit `claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop after saving the file.
+Restart your MCP client after changing configuration.
 
-## Run the SSE server
+## SSE server
 
 ```bash
 docker run --rm -p 8000:8000 \
@@ -98,30 +94,19 @@ docker run --rm -p 8000:8000 \
 
 Then connect your MCP client to `http://localhost:8000/sse`.
 
-## Build locally from source
-
-From the repository root:
-
-```bash
-docker build -t chatspatial:latest .
-```
-
-Then replace `ghcr.io/cafferychen777/chatspatial:latest` with `chatspatial:latest` in the commands above.
-
 ## Common Docker issues
 
 | Symptom | Fix |
 |---|---|
 | `docker: command not found` | Install Docker Desktop or Docker Engine, then restart your MCP client. |
-| Pull fails | Check the image name and network access: `docker pull ghcr.io/cafferychen777/chatspatial:latest`. |
-| MCP tools do not appear | Use `--rm -i`, not `-it`, and restart the client after configuration changes. |
+| Pull fails | Check the image name and network access with `docker pull ghcr.io/cafferychen777/chatspatial:latest`. |
+| MCP tools do not appear | Use `--rm -i`, not `-it`, and restart the client. |
 | Dataset not found | Mount the host data directory and use the container path in prompts, for example `/data/sample.h5ad`. |
 | Permission denied on outputs | Confirm the host output directory exists and Docker has permission to write to it. |
 | Works in terminal but not in the client | Use absolute host paths in `-v` mounts and restart the client. |
 
-## Notes
+## Next steps
 
-- The Docker image installs ChatSpatial in a controlled Linux environment so users do not need local compilers for packages such as `gseapy` or `llvmlite`.
-- The default container working directory is `/workspace`.
-- `CHATSPATIAL_OUTPUT_DIR` defaults to `/outputs`.
-- Mount only the data directories you need; avoid mounting your entire home directory for sensitive data.
+- [Configuration Guide](advanced/configuration.md) — exact MCP client syntax
+- [Quick Start](quickstart.md) — first analysis prompt
+- [Troubleshooting](advanced/troubleshooting.md) — symptom-based fixes
