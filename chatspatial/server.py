@@ -49,7 +49,7 @@ from .tools.embeddings import EmbeddingParameters  # noqa: E402
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
 from .utils.exceptions import ParameterError  # noqa: E402
-from .utils.mcp_utils import mcp_tool_error_handler  # noqa: E402
+from .utils.mcp_utils import mcp_tool_error_handler, suppress_output  # noqa: E402
 
 # Create MCP server and adapter
 mcp, adapter = create_spatial_mcp_server("ChatSpatial")
@@ -196,7 +196,8 @@ async def compute_embeddings(
 
     resolved = _resolve_params(params, EmbeddingParameters)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
-    result = await compute_embeddings_func(data_id, ctx, resolved)
+    with suppress_output():
+        result = await compute_embeddings_func(data_id, ctx, resolved)
     dumped = result.model_dump()
     await data_manager.save_result(data_id, "embeddings", dumped)
     return dumped
@@ -221,12 +222,13 @@ async def visualize_data(
         data_id: Dataset ID
         params: Visualization parameters (plot_type, subtype, genes, output_format, dpi, etc.)
     """
-    from .tools.visualization import visualize_data as visualize_func
-
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     resolved_params = _resolve_params(params, VisualizationParameters)
-    result = await visualize_func(data_id, ctx, resolved_params)
+    with suppress_output():
+        from .tools.visualization.main import visualize_data as visualize_func
+
+        result = await visualize_func(data_id, ctx, resolved_params)
 
     if result:
         return result

@@ -11,6 +11,8 @@ from typing import Literal, cast
 
 import click
 
+from . import __version__
+
 # Initialize runtime configuration (SSOT - all config in one place)
 # This import triggers init_runtime() which configures:
 # - Environment variables (TQDM_DISABLE, DASK_*)
@@ -21,6 +23,7 @@ from .server import mcp
 
 
 @click.group()
+@click.version_option(__version__, prog_name="ChatSpatial")
 def cli():
     """ChatSpatial - AI-powered spatial transcriptomics analysis"""
     pass

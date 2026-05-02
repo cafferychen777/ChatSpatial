@@ -16,6 +16,33 @@ This page covers **environment setup and package installation**.
 
 ---
 
+
+## Docker Installation
+
+If local installation fails or you want the most reproducible setup, use the published Docker image:
+
+```bash
+# Pull and verify the image
+docker pull ghcr.io/cafferychen777/chatspatial:latest
+docker run --rm ghcr.io/cafferychen777/chatspatial:latest --version
+docker run --rm ghcr.io/cafferychen777/chatspatial:latest server --help
+```
+
+Use this command shape in MCP clients that support Docker-backed stdio servers:
+
+```bash
+docker run --rm -i \
+  -v /absolute/path/to/your/data:/data:ro \
+  -v /absolute/path/to/outputs:/outputs \
+  ghcr.io/cafferychen777/chatspatial:latest server --transport stdio
+```
+
+Mounted data are available under `/data`, and generated outputs are written under `/outputs` by default.
+
+See [DOCKER.md](DOCKER.md) for SSE mode, volume details, and local source builds.
+
+---
+
 ## Step 1: Create an Environment
 
 ```bash

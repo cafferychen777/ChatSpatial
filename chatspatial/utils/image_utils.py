@@ -11,7 +11,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Optional
 
-from .path_utils import get_safe_output_path
+from ..config import get_default_output_dir
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -136,7 +136,8 @@ async def optimize_fig_to_image_with_cache(
             output_format = filepath.suffix.lstrip(".").lower()
     else:
         # Default path
-        output_dir = get_safe_output_path("./visualizations")
+        output_dir = get_default_output_dir() / "visualizations"
+        output_dir.mkdir(parents=True, exist_ok=True)
         filename = (
             f"{plot_type}_{uuid.uuid4().hex[:8]}.{output_format}"
             if plot_type
