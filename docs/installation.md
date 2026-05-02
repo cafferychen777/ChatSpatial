@@ -39,8 +39,8 @@ conda activate chatspatial
 # Install uv if needed
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install all major methods
-uv pip install chatspatial[full]
+# Install the MCP server and core analysis stack
+uv pip install chatspatial
 ```
 
 > **Why `uv`?** ChatSpatial depends on a large scientific Python stack. Standard `pip` can fail on deep dependency resolution; `uv` is more reliable for this environment.
@@ -49,19 +49,36 @@ uv pip install chatspatial[full]
 
 | Option | Command | Use when |
 |--------|---------|----------|
-| **Full** | `uv pip install chatspatial[full]` | You want the broadest method coverage |
-| Standard | `uv pip install chatspatial` | You only need core functionality |
+| **Standard** | `uv pip install chatspatial` | You want the MCP server, data loading, preprocessing, embeddings, visualization, and core analysis |
+| Method extras | `uv pip install 'chatspatial[cell-communication,velocity]'` | You need specific advanced method families |
+| Full | `uv pip install 'chatspatial[full]'` | You want the broadest method coverage on a workstation and accept a large install |
 
 <details>
 <summary>Alternative: pip</summary>
 
 ```bash
 pip install --upgrade pip
-pip install chatspatial[full]
+pip install chatspatial
 ```
 
 If you hit `resolution-too-deep`, switch to `uv`.
 </details>
+
+### Optional method families
+
+Install only the method families you plan to use:
+
+```bash
+uv pip install 'chatspatial[cell-communication]'  # LIANA+, CellPhoneDB, FastCCC
+uv pip install 'chatspatial[velocity]'            # scVelo
+uv pip install 'chatspatial[deep-learning]'       # scVI, scANVI, VeloVI, DestVI backend
+uv pip install 'chatspatial[integration]'         # Harmony, BBKNN, Scanorama
+uv pip install 'chatspatial[deconvolution]'       # FlashDeconv, Cell2location
+uv pip install 'chatspatial[spatial-stats]'       # PySAL/ESDA extensions
+```
+
+ChatSpatial tools fail with targeted installation guidance if you call a method
+whose optional dependency is not installed.
 
 ---
 

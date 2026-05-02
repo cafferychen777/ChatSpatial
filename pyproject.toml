@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chatspatial"
-version = "1.2.3"
+version = "1.2.4"
 description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
 readme = "README.md"
 license = {text = "MIT"}
@@ -57,36 +57,68 @@ dependencies = [
     # Version constraints
     "jinja2>=3.0.0",  # Handle conflict with pygpcca
     
-    # ========== High-Frequency Features (Extended Default) ==========
-    # Most commonly used advanced features based on usage analysis
-    
-    # Multi-tool dependency (24 references in codebase)
-    "scvi-tools>=1.0.0,<2.0",
-    "mudata>=0.2.0",  # Core dependency of scvi-tools (not optional)
-    
-    # RNA velocity (7 references)
-    "scvelo>=0.2.5",  # Removed upper bound for better compatibility
-    
-    # Cell communication (10 references combined)
-    "liana",  # No version constraint - let pip choose compatible version
-    "cellphonedb>=5.0.0,<6.0",
-    "fastccc>=0.1.0",  # FFT-based ultra-fast cell-cell communication (Nature Communications 2025)
-    
-    # Batch integration (frequently needed)
-    "harmonypy>=0.0.9",
-    "bbknn>=1.5.0",
-    
-    # Spatial statistics extensions
-    "esda>=2.4.0",  # Exploratory spatial data analysis
-    "libpysal>=4.6.0",  # Core spatial analysis library
-
-    # Spatial deconvolution (default method)
-    "flashdeconv>=0.1.0",  # Ultra-fast deconvolution using random sketching
+    # Heavy method-specific packages live in optional extras below. The default
+    # install should start the MCP server quickly and let tools report clear
+    # installation guidance only when an optional method is requested.
 ]
 
 [project.optional-dependencies]
+# Deep learning methods (scVI, scANVI, VeloVI, DestVI, Cell2location backend)
+deep-learning = [
+    "torch>=2.0.0,<3.0",
+    "scvi-tools>=1.0.0,<2.0",
+    "mudata>=0.2.0",
+]
+
+# RNA velocity methods
+velocity = [
+    "scvelo>=0.2.5",
+]
+
+# Cell-cell communication methods
+cell-communication = [
+    "liana",
+    "cellphonedb>=5.0.0,<6.0",
+    "fastccc>=0.1.0",
+]
+
+# Batch integration methods that do not require the deep-learning stack
+integration = [
+    "harmonypy>=0.0.9",
+    "bbknn>=1.5.0",
+    "scanorama>=1.7.0",
+]
+
+# Spatial statistics extensions
+spatial-stats = [
+    "esda>=2.4.0",
+    "libpysal>=4.6.0",
+    "pysal>=2.6.0",
+    "statsmodels>=0.13.0",
+    "networkx>=2.6.0",
+]
+
+# Spatial deconvolution methods
+deconvolution = [
+    "flashdeconv>=0.1.0",
+    "cell2location>=0.1.4",
+]
+
 # Full installation with all features (recommended)
 full = [
+    # ========== High-Frequency Method Extras ==========
+    "scvi-tools>=1.0.0,<2.0",
+    "mudata>=0.2.0",
+    "scvelo>=0.2.5",
+    "liana",
+    "cellphonedb>=5.0.0,<6.0",
+    "fastccc>=0.1.0",
+    "harmonypy>=0.0.9",
+    "bbknn>=1.5.0",
+    "flashdeconv>=0.1.0",
+    "esda>=2.4.0",
+    "libpysal>=4.6.0",
+
     # ========== Gene Set Enrichment ==========
     "gseapy>=1.0.0",  # Rust extension — no macOS x86_64 wheel on PyPI
 

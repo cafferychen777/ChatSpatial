@@ -40,18 +40,24 @@ class DependencyInfo:
 DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     # Deep Learning
     "scvi-tools": DependencyInfo(
-        "scvi", "pip install scvi-tools", "Single-cell variational inference tools"
+        "scvi",
+        "pip install 'chatspatial[deep-learning]'",
+        "Single-cell variational inference tools",
     ),
     "torch": DependencyInfo(
-        "torch", "pip install torch", "PyTorch deep learning framework"
+        "torch",
+        "pip install 'chatspatial[deep-learning]'",
+        "PyTorch deep learning framework",
     ),
     "cell2location": DependencyInfo(
         "cell2location",
-        "pip install cell2location",
+        "pip install 'chatspatial[deconvolution]'",
         "Probabilistic cell type deconvolution",
     ),
     "flashdeconv": DependencyInfo(
-        "flashdeconv", "pip install flashdeconv", "Ultra-fast spatial deconvolution"
+        "flashdeconv",
+        "pip install 'chatspatial[deconvolution]'",
+        "Ultra-fast spatial deconvolution",
     ),
     # Spatial Analysis
     "tangram": DependencyInfo(
@@ -101,17 +107,28 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     ),
     # Cell Communication
     "liana": DependencyInfo(
-        "liana", "pip install liana", "Ligand-receptor analysis framework"
+        "liana",
+        "pip install 'chatspatial[cell-communication]'",
+        "Ligand-receptor analysis framework",
     ),
     "cellphonedb": DependencyInfo(
         "cellphonedb",
-        "pip install cellphonedb",
+        "pip install 'chatspatial[cell-communication]'",
         "Statistical method for cell-cell communication",
     ),
+    "fastccc": DependencyInfo(
+        "fastccc",
+        "pip install 'chatspatial[cell-communication]'",
+        "Fast cell-cell communication analysis",
+    ),
     # RNA Velocity
-    "scvelo": DependencyInfo("scvelo", "pip install scvelo", "RNA velocity analysis"),
+    "scvelo": DependencyInfo(
+        "scvelo", "pip install 'chatspatial[velocity]'", "RNA velocity analysis"
+    ),
     "velovi": DependencyInfo(
-        "velovi", "pip install velovi", "Variational inference for RNA velocity"
+        "velovi",
+        "pip install 'chatspatial[deep-learning]'",
+        "Variational inference for RNA velocity",
     ),
     "cellrank": DependencyInfo(
         "cellrank", "pip install cellrank", "Trajectory inference using RNA velocity"
@@ -166,24 +183,34 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     "splot": DependencyInfo("splot", "pip install splot", "Spatial plotting for PySAL"),
     # Data handling
     "mudata": DependencyInfo(
-        "mudata", "pip install mudata", "Multimodal data handling"
+        "mudata", "pip install 'chatspatial[deep-learning]'", "Multimodal data handling"
     ),
     # Integration
     "harmonypy": DependencyInfo(
-        "harmonypy", "pip install harmonypy", "Harmony batch integration"
+        "harmonypy",
+        "pip install 'chatspatial[integration]'",
+        "Harmony batch integration",
     ),
     "scanorama": DependencyInfo(
-        "scanorama", "pip install scanorama", "Scanorama batch integration"
+        "scanorama",
+        "pip install 'chatspatial[integration]'",
+        "Scanorama batch integration",
     ),
     "bbknn": DependencyInfo(
-        "bbknn", "pip install bbknn", "Batch balanced k-nearest neighbors"
+        "bbknn",
+        "pip install 'chatspatial[integration]'",
+        "Batch balanced k-nearest neighbors",
     ),
     # Spatial weights
     "esda": DependencyInfo(
-        "esda", "pip install esda", "Exploratory spatial data analysis"
+        "esda",
+        "pip install 'chatspatial[spatial-stats]'",
+        "Exploratory spatial data analysis",
     ),
     "libpysal": DependencyInfo(
-        "libpysal", "pip install libpysal", "Python spatial analysis library"
+        "libpysal",
+        "pip install 'chatspatial[spatial-stats]'",
+        "Python spatial analysis library",
     ),
     # Other
     "dask": DependencyInfo("dask", "pip install dask", "Parallel computing library"),
