@@ -1,9 +1,9 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
-title: "ChatSpatial: Agentic Workflow Orchestration for Spatial Transcriptomics Analysis"
-version: "0.2.1"
-date-released: "2025-08-26"
+title: "ChatSpatial: Schema-Enforced Orchestration for Auditable Cross-Ecosystem Spatial Transcriptomics Workflows"
+version: "1.2.6"
+date-released: "2026-05-03"
 url: "https://github.com/cafferychen777/ChatSpatial"
 repository-code: "https://github.com/cafferychen777/ChatSpatial"
 license: MIT
@@ -14,15 +14,15 @@ authors:
     affiliation: "Texas A&M University"
     email: "cafferychen777@tamu.edu"
 abstract: >-
-  ChatSpatial is an agentic workflow orchestration platform that eliminates the
-  "implementation tax" in spatial transcriptomics analysis. Built on the Model
-  Context Protocol (MCP), it integrates 60 state-of-the-art methods from fragmented
-  Python and R ecosystems into a unified conversational interface, enabling researchers
-  to execute complex multi-tool workflows through natural language without writing code.
-  Unlike autonomous agents, ChatSpatial prioritizes human-steered discovery through
-  schema-enforced tool-calling that ensures reproducibility and analytical fidelity.
-  The platform eliminates cross-platform data conversion barriers, allowing researchers
-  to focus on biological insight rather than software engineering.
+  ChatSpatial is a schema-enforced orchestration framework for spatial transcriptomics
+  in which the LLM selects versioned tools and parameters rather than generating
+  executable code. Built on the Model Context Protocol (MCP), it exposes 65 methods
+  across 15 analytical categories from fragmented Python and R ecosystems through 20
+  high-level tools with parameter constraints encoded in auditable schemas, enabling
+  researchers to execute complex multi-tool workflows through natural language.
+  ChatSpatial prioritizes human-steered discovery through schema-enforced tool-calling
+  that ensures reproducibility and analytical fidelity, while leaving biological
+  interpretation and method choice under expert control.
 keywords:
   - spatial transcriptomics
   - artificial intelligence
@@ -35,15 +35,15 @@ keywords:
   - agentic workflow
 preferred-citation:
   type: software
-  title: "ChatSpatial: Agentic Workflow Orchestration for Spatial Transcriptomics Analysis"
+  title: "ChatSpatial: Schema-Enforced Orchestration for Auditable Cross-Ecosystem Spatial Transcriptomics Workflows"
   authors:
     - family-names: "Yang"
       given-names: "Caffery(Chen)"
       orcid: "https://orcid.org/0009-0009-9151-2901"
       affiliation: "Texas A&M University"
       email: "cafferychen777@tamu.edu"
-  version: "0.2.1"
-  date-released: "2025-08-26"
+  version: "1.2.6"
+  date-released: "2026-05-03"
   url: "https://github.com/cafferychen777/ChatSpatial"
   repository-code: "https://github.com/cafferychen777/ChatSpatial"
   license: MIT

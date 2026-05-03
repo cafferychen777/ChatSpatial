@@ -78,7 +78,7 @@ uv pip install chatspatial
 |--------|---------|----------|
 | **Standard** | `uv pip install chatspatial` | You want the MCP server, data loading, preprocessing, embeddings, visualization, and core analysis |
 | Method extras | `uv pip install 'chatspatial[cell-communication,velocity]'` | You need specific advanced method families |
-| Full | `uv pip install 'chatspatial[full]'` | You want the broadest method coverage on a workstation and accept a large install |
+| Full | `uv pip install 'chatspatial[full]'` | You want the broadest method coverage on a workstation and accept a large install. **Requires R ≥ 4.4 on PATH** (see [R-based methods](#r-based-methods) below) |
 
 <details>
 <summary>Alternative: pip</summary>
@@ -188,7 +188,9 @@ uv pip install chatspatial[full]
 
 ### R-based methods
 
-For RCTD, SPOTlight, CARD, CellChat, SPARK-X, scType, Numbat, and SCTransform:
+The `[full]` extra includes `rpy2`, which **requires R to be available on your `PATH` at install time** (it compiles against your R installation). On HPC systems where R is provided via modules, run `module load R` (or equivalent) before installing. If you only need Python-based methods, the standard install (`uv pip install chatspatial`) does not require R.
+
+Once R is available, install the R packages used by ChatSpatial:
 
 ```bash
 # Install R 4.4+

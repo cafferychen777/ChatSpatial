@@ -1,8 +1,8 @@
 """
 ChatSpatial
 
-Agentic workflow orchestration platform for spatial transcriptomics analysis.
-Integrates 60 methods from Python and R ecosystems via Model Context Protocol.
+Schema-enforced orchestration framework for spatial transcriptomics analysis.
+Integrates 65 methods across 15 analytical categories via Model Context Protocol.
 """
 
 from importlib.metadata import PackageNotFoundError, version

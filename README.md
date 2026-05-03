@@ -23,7 +23,7 @@
 
 ChatSpatial replaces ad-hoc LLM code generation with **schema-enforced orchestration**. Instead of generating arbitrary scripts, the LLM selects tools and parameters from a curated registry, making spatial transcriptomics workflows more reproducible across sessions and clients.
 
-It exposes **60+ spatial transcriptomics methods** as MCP tools, so any MCP-compatible client can analyze data through natural language.
+It exposes **65 spatial transcriptomics methods** across **15 analytical categories** as MCP tools, so any MCP-compatible client can analyze data through natural language.
 
 ---
 
@@ -36,7 +36,7 @@ It exposes **60+ spatial transcriptomics methods** as MCP tools, so any MCP-comp
 **Docker quick start:**
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:latest
+docker pull ghcr.io/cafferychen777/chatspatial:v1.2.6  # or :latest
 ```
 
 **Minimal example prompt:**
@@ -53,21 +53,25 @@ If you use Docker, mount host data to `/data` and prompt with the container path
 
 ## Capabilities
 
-60+ methods across 11 categories. Supports 10x Visium, Xenium, Slide-seq v2, MERFISH, seqFISH.
+65 methods across 15 analytical categories. Supports 10x Visium, Xenium, Slide-seq v2, MERFISH, seqFISH.
 
 | Category | Methods |
 |----------|---------|
-| **Spatial Domains** | SpaGCN, STAGATE, GraphST, BANKSY, Leiden, Louvain |
+| **Data Loading & Preprocessing** | Scanpy I/O, QC, Normalization, HVG, PCA, Neighbors |
+| **Visualization** | Spatial plots, Embedding plots, Gene expression overlays |
+| **Spatial Domain Identification** | SpaGCN, STAGATE, GraphST, BANKSY, Leiden, Louvain |
 | **Deconvolution** | FlashDeconv, Cell2location, RCTD, DestVI, Stereoscope, SPOTlight, Tangram, CARD |
-| **Cell Communication** | LIANA+, CellPhoneDB, CellChat (`cellchat_r`), FastCCC |
+| **Cell-Cell Communication** | LIANA+, CellPhoneDB, CellChat (`cellchat_r`), FastCCC |
 | **Cell Type Annotation** | Tangram, scANVI, CellAssign, mLLMCelltype, scType, SingleR |
 | **Differential Expression** | Wilcoxon, t-test, Logistic Regression, pyDESeq2 |
-| **Trajectory & Velocity** | CellRank, Palantir, DPT, scVelo, VeloVI |
+| **Trajectory Inference** | CellRank, Palantir, DPT |
+| **RNA Velocity** | scVelo, VeloVI |
 | **Spatial Statistics** | Moran's I, Local Moran, Geary's C, Getis-Ord Gi*, Ripley's K, Co-occurrence, Neighborhood Enrichment, Centrality Scores, Local Join Count, Network Properties |
-| **Enrichment** | GSEA, ORA, Enrichr, ssGSEA, Spatial EnrichMap |
-| **Spatial Genes** | SpatialDE, SPARK-X, FlashS |
-| **Integration** | Harmony, BBKNN, Scanorama, scVI |
-| **Other** | CNV Analysis (InferCNVPy, Numbat), Spatial Registration (PASTE, STalign) |
+| **Enrichment Analysis** | GSEA, ORA, Enrichr, ssGSEA, Spatial EnrichMap |
+| **Spatially Variable Genes** | SpatialDE, SPARK-X, FlashS |
+| **Multi-sample Integration** | Harmony, BBKNN, Scanorama, scVI |
+| **CNV Analysis** | InferCNVPy, Numbat |
+| **Spatial Registration** | PASTE, STalign |
 
 ---
 
