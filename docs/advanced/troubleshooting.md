@@ -8,6 +8,18 @@ This page is the canonical **symptom → fix** guide.
 
 ---
 
+## Diagnosis Order
+
+Start with the earliest layer that could be broken:
+
+1. **Client connection** — the MCP tools do not appear or the server cannot start.
+2. **Runtime paths** — the server starts, but data or output paths are not visible.
+3. **Data loading** — the file is visible, but the format or folder layout is wrong.
+4. **Analysis prerequisites** — the data loaded, but a downstream method is missing preprocessing, metadata, or optional dependencies.
+5. **Resources** — the analysis is valid but runs out of memory, GPU, or time.
+
+---
+
 ## MCP Connection Problems
 
 ### Tools not showing in the client
@@ -64,7 +76,7 @@ Mount the host data directory and use the container path in prompts:
 Load /data/sample.h5ad
 ```
 
-Do not prompt with `/Users/alice/spatial-data/sample.h5ad`; that path exists on the host, not inside the container.
+Do not prompt with `/Users/alice/spatial-data/sample.h5ad`; that path exists on the host, not inside the container. The full Docker mount model is maintained in [Docker / GHCR](../docker.md).
 
 ### Permission denied on mounted outputs
 

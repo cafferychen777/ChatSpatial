@@ -10,6 +10,28 @@ Spatial transcriptomics measures gene expression while preserving the physical l
 
 **Key insight**: Location matters. A tumor cell behaves differently depending on whether it's surrounded by immune cells or fibroblasts.
 
+A spatial transcriptomics dataset usually combines four pieces of information:
+
+1. **Expression** — genes measured in spots or cells.
+2. **Coordinates** — where each spot or cell sits in the tissue.
+3. **Metadata** — sample, condition, cluster, cell type, or patient labels.
+4. **Histology image** — optional tissue morphology, most common in Visium-like data.
+
+Most analyses ask one of six biological questions:
+
+| Question | Analysis family |
+|----------|-----------------|
+| What tissue regions or niches exist? | Spatial domains |
+| What cells are here? | Annotation or deconvolution |
+| Which genes have spatial structure? | Spatially variable genes or spatial statistics |
+| Which cells may communicate in space? | Cell communication |
+| What differs between conditions or regions? | Differential or condition comparison |
+| How do cell states change? | Trajectory or RNA velocity |
+
+Choose methods in this order: first define the biological question, then check
+platform and data requirements, then choose a method that fits your compute
+budget and validation needs.
+
 ---
 
 ## Core Analysis Types

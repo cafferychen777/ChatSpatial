@@ -5,13 +5,18 @@ ChatSpatial
 
 Analyze your spatial data from any MCP-compatible client. No coding required.
 
+ChatSpatial exposes 20 schema-validated MCP tools. Those tools orchestrate
+65 spatial transcriptomics methods across 15 analytical categories; the tools
+are the user-facing interface, and the methods are selected through tool
+parameters.
+
 .. only:: en
 
    .. raw:: html
 
       <div style="margin: 2rem 0; padding: 1.5rem; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; border-left: 4px solid #1565C0;">
         <p style="margin: 0; font-size: 1.1rem; color: #1e293b;">
-          <strong>65 methods</strong> across 15 analytical categories.
+          <strong>20 MCP tools</strong> orchestrating 65 methods across 15 analytical categories.
           Supports 10x Visium, Xenium, Slide-seq, MERFISH, and more.
         </p>
       </div>
@@ -22,10 +27,29 @@ Analyze your spatial data from any MCP-compatible client. No coding required.
 
       <div style="margin: 2rem 0; padding: 1.5rem; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; border-left: 4px solid #1565C0;">
         <p style="margin: 0; font-size: 1.1rem; color: #1e293b;">
-          覆盖 <strong>15 类分析的 65 种方法</strong>。
+          通过 <strong>20 个 MCP 工具</strong> 调度 15 类分析的 65 种方法。
           支持 10x Visium、Xenium、Slide-seq、MERFISH 等。
         </p>
       </div>
+
+----
+
+Choose Your Path
+----------------
+
+New to ChatSpatial:
+   :doc:`installation` → :doc:`advanced/configuration` → :doc:`quickstart`
+
+Already running ChatSpatial:
+   :doc:`concepts` for method selection, :doc:`examples` for prompt recipes,
+   and :doc:`advanced/methods-reference` for exact parameters.
+
+Something failed:
+   Start with :doc:`advanced/troubleshooting`, then use :doc:`advanced/faq`
+   for short answers and pointers.
+
+Contributing:
+   Use :doc:`contributing` to find the right contribution path.
 
 ----
 
@@ -92,7 +116,7 @@ Reference
         :link: advanced/methods-reference
         :link-type: doc
 
-        All 20 MCP tools with parameters
+        MCP tools, supported methods, parameters, and defaults
 
     .. grid-item-card:: Configuration
         :link: advanced/configuration

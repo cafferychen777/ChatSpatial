@@ -107,11 +107,10 @@ The analysis stack can run locally, but you still need an LLM client for natural
 
 ### How is my data stored?
 
-Loaded datasets live in the running MCP server memory. If you call
-`export_data()` without a `path`, ChatSpatial writes
-`~/.chatspatial/active/{data_id}.h5ad` inside the runtime. Generated figures and
-default output files use `CHATSPATIAL_OUTPUT_DIR` when it is set. See
-[Configuration Guide](configuration.md).
+Loaded datasets live in the running MCP server memory. Export/reload defaults,
+Docker mount behavior, and figure output locations are described in the
+[Configuration Guide](configuration.md), with Docker-specific details in
+[Docker / GHCR](../docker.md).
 
 ---
 

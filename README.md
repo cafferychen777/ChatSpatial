@@ -23,7 +23,7 @@
 
 ChatSpatial replaces ad-hoc LLM code generation with **schema-enforced orchestration**. Instead of generating arbitrary scripts, the LLM selects tools and parameters from a curated registry, making spatial transcriptomics workflows more reproducible across sessions and clients.
 
-It exposes **65 spatial transcriptomics methods** across **15 analytical categories** as MCP tools, so any MCP-compatible client can analyze data through natural language.
+ChatSpatial exposes **20 schema-validated MCP tools** that orchestrate **65 spatial transcriptomics methods** across **15 analytical categories**. The tools are the stable natural-language interface; the methods are the analysis backends selected through tool parameters.
 
 ---
 
@@ -53,9 +53,9 @@ If you use Docker, mount host data to `/data` and prompt with the container path
 
 ## Capabilities
 
-65 methods across 15 analytical categories. Supports 10x Visium, Xenium, Slide-seq v2, MERFISH, seqFISH.
+Current coverage includes 65 methods across 15 analytical categories, exposed through 20 MCP tools. Supports 10x Visium, Xenium, Slide-seq v2, MERFISH, seqFISH.
 
-| Category | Methods |
+| Category | Example methods |
 |----------|---------|
 | **Data Loading & Preprocessing** | Scanpy I/O, QC, Normalization, HVG, PCA, Neighbors |
 | **Visualization** | Spatial plots, Embedding plots, Gene expression overlays |
@@ -77,17 +77,17 @@ If you use Docker, mount host data to `/data` and prompt with the container path
 
 ## Documentation
 
-| Guide | Owns |
-|-------|------|
-| [Installation](docs/installation.md) | Environment setup, package install, platform notes |
-| [Docker](docs/docker.md) | GHCR image, volume mounts, and container-backed MCP setup |
-| [Quick Start](docs/quickstart.md) | First successful analysis after setup |
-| [Concepts](docs/concepts.md) | Method selection and analysis reasoning |
-| [Examples](docs/examples.md) | Prompt recipes and workflow examples |
-| [Configuration](docs/advanced/configuration.md) | Exact MCP client configuration syntax |
-| [Troubleshooting](docs/advanced/troubleshooting.md) | Symptom → fix guidance |
-| [Methods Reference](docs/advanced/methods-reference.md) | Canonical tool parameters and defaults |
-| [Full Docs](https://docs.cafferyang.com/) | Complete documentation site |
+| Guide | Use this when... |
+|-------|------------------|
+| [Installation](docs/installation.md) | You need to install ChatSpatial in a Python environment |
+| [Docker](docs/docker.md) | You want a reproducible container runtime or local dependency resolution fails |
+| [Configuration](docs/advanced/configuration.md) | You need exact MCP client syntax or the runtime path model |
+| [Quick Start](docs/quickstart.md) | ChatSpatial is installed and you want the first successful analysis |
+| [Concepts](docs/concepts.md) | You need to choose an analysis strategy from a biological question |
+| [Examples](docs/examples.md) | You want copy-pasteable natural-language workflow prompts |
+| [Methods Reference](docs/advanced/methods-reference.md) | You need canonical tool names, method names, parameters, and defaults |
+| [Troubleshooting](docs/advanced/troubleshooting.md) | Setup, data loading, or analysis behavior is not working |
+| [Full Docs](https://docs.cafferyang.com/) | You want the complete documentation site |
 
 ---
 

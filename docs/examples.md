@@ -41,6 +41,24 @@ Choose your analysis type below.
 
 ---
 
+## Choose a Prompt by Question
+
+| If your question is... | Start with... | You need... |
+|------------------------|---------------|-------------|
+| What tissue regions exist? | Spatial domains | Loaded and preprocessed spatial data |
+| What cells are here? | Annotation or deconvolution | Single-cell resolution data or a reference dataset |
+| Which genes vary spatially? | Spatially variable genes | Spatial coordinates and expression |
+| Which cell types are organized together? | Spatial statistics | Cell type or cluster labels |
+| Which cell types communicate? | Cell communication | Cell type annotations |
+| What differs by condition? | Condition comparison | Sample or patient identifiers |
+| Which pathways are active? | Pathway enrichment | Marker genes, DEGs, or expression scores |
+| How do states change over time? | Velocity or trajectory | Spliced/unspliced layers or a trajectory-ready dataset |
+
+For method-selection reasoning, see [Concepts](concepts.md). For exact tool and
+method names, see [Methods Reference](advanced/methods-reference.md).
+
+---
+
 ## Analysis Types
 
 ### Spatial Domains
@@ -357,5 +375,5 @@ Common choices include PASTE and STalign. See [Methods Reference](advanced/metho
 ## Next Steps
 
 - [Concepts](concepts.md) — Understand when to use which method
-- [Methods Reference](advanced/methods-reference.md) — Full parameter details for all 20 tools
+- [Methods Reference](advanced/methods-reference.md) — MCP tools, supported methods, parameters, and defaults
 - [Troubleshooting](advanced/troubleshooting.md) — Solutions to common issues

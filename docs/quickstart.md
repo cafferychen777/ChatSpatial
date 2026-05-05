@@ -22,7 +22,7 @@ If you configured ChatSpatial through Docker, use the container path from your m
 Load /data/spatial_data.h5ad and show me the tissue structure
 ```
 
-For example, `-v /Users/alice/spatial-data:/data:ro` makes host files under `/Users/alice/spatial-data` visible as `/data` inside ChatSpatial.
+For example, `-v /Users/alice/spatial-data:/data:ro` makes host files under `/Users/alice/spatial-data` visible as `/data` inside ChatSpatial. For the full Docker path model, see [Docker / GHCR](docker.md).
 
 Then continue with:
 
@@ -52,10 +52,12 @@ Identify spatial domains with SpaGCN
 
 ## Sample Data
 
-Try these public test files:
+Try these public test files from the sample-data release:
 
 - [card_spatial.h5ad](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.3.0-data) — pancreatic spatial data
 - [card_reference_filtered.h5ad](https://github.com/cafferychen777/ChatSpatial/releases/tag/v0.3.0-data) — reference dataset
+
+The sample-data release is versioned separately from the ChatSpatial package and Docker image.
 
 ---
 
@@ -88,7 +90,7 @@ Visualizations appear directly in the chat or client UI.
 Check these basics first:
 
 - Use an **absolute** data path, not `~/...` or `./...`
-- If using Docker, use the container path from your mount, such as `/data/sample.h5ad`
+- If using Docker, use the container path from your mount, such as `/data/sample.h5ad`; full Docker mount rules live in [Docker / GHCR](docker.md)
 - Restart your client after MCP configuration changes
 - Run preprocessing before most downstream analyses
 

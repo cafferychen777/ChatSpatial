@@ -93,24 +93,17 @@ whose optional dependency is not installed.
 
 ---
 
-## Step 3: Register ChatSpatial in Your MCP Client
+## Step 3: Connect ChatSpatial to an MCP Client
 
-1. Activate your environment.
-2. Get the **absolute** Python path:
-
-```bash
-which python
-```
-
-3. Register ChatSpatial using this command shape:
+After installation, register the environment's Python executable in your MCP
+client. The command shape is:
 
 ```text
 /absolute/path/to/python -m chatspatial server
 ```
 
-4. Restart your client after configuration changes.
-
-For exact client-specific syntax, use the [Configuration Guide](advanced/configuration.md).
+Use the [Configuration Guide](advanced/configuration.md) for exact client syntax,
+absolute-path rules, Docker-backed client examples, and the runtime path model.
 
 ---
 

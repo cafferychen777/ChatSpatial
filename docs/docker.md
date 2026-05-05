@@ -2,6 +2,11 @@
 
 Use the Docker image when you want to run ChatSpatial without resolving the scientific Python dependency stack on your host machine.
 
+This is the canonical Docker runtime guide. Other pages may remind you to use
+container paths such as `/data/sample.h5ad`, but Docker image tags, mounts,
+`--rm -i`, `/outputs`, SSE mode, and Docker-specific failures are maintained
+here.
+
 ## Image
 
 ```text
