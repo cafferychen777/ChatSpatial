@@ -1,6 +1,9 @@
 # Methods Reference
 
-This page is the canonical specification for ChatSpatial tool names, method names, defaults, accepted values, and parameter behavior.
+This page is the canonical human-readable reference for ChatSpatial tool names,
+method names, common defaults, accepted values, and user-facing parameter
+behavior. MCP clients expose the full schema for method-specific advanced
+options.
 
 ---
 
@@ -84,7 +87,7 @@ Export dataset for external scripts, reload after modifications.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `data_id` | required | Dataset ID |
-| `path` | auto | Custom path (default: `~/.chatspatial/active/`) |
+| `path` | auto | Custom path (default: `~/.chatspatial/active/{data_id}.h5ad`) |
 
 ---
 
@@ -247,10 +250,10 @@ Gene set enrichment analysis.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `species` | required | `human`, `mouse`, `zebrafish` |
-| `method` | `spatial_enrichmap` | `pathway_ora`, `pathway_gsea`, `pathway_ssgsea`, `spatial_enrichmap` |
+| `method` | `spatial_enrichmap` | `spatial_enrichmap`, `pathway_gsea`, `pathway_ora`, `pathway_enrichr`, `pathway_ssgsea` |
 | `gene_set_database` | `GO_Biological_Process` | See databases below |
 
-**Databases**: `GO_Biological_Process`, `GO_Molecular_Function`, `KEGG_Pathways`, `Reactome_Pathways`, `MSigDB_Hallmark`
+**Databases**: `GO_Biological_Process`, `GO_Molecular_Function`, `GO_Cellular_Component`, `KEGG_Pathways`, `Reactome_Pathways`, `MSigDB_Hallmark`, `Cell_Type_Markers`
 
 ---
 
@@ -263,7 +266,7 @@ RNA velocity analysis.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `method` | `scvelo` | `scvelo`, `velovi` |
-| `mode` | `stochastic` | `deterministic`, `stochastic`, `dynamical` |
+| `scvelo_mode` | `stochastic` | `deterministic`, `stochastic`, `dynamical` |
 
 **Requires**: `spliced` and `unspliced` layers
 
@@ -335,7 +338,7 @@ Create all plot types.
 | `cluster_key` | None | Grouping column |
 | `colormap` | `coolwarm` | Color scheme |
 | `dpi` | 300 | Resolution |
-| `output_format` | `png` | `png`, `pdf`, `svg` |
+| `output_format` | `png` | `png`, `pdf`, `svg`, `eps`, `tiff`, `jpg` |
 
 **Plot types and subtypes**:
 
@@ -368,4 +371,3 @@ Set `use_gpu=True` for these methods:
 | Velocity | VeloVI |
 | Integration | scVI |
 | CNV | inferCNVpy |
-

@@ -29,14 +29,14 @@ It exposes **65 spatial transcriptomics methods** across **15 analytical categor
 
 ## Start Here
 
-1. **Install ChatSpatial** — [Installation Guide](INSTALLATION.md) for Python/uv setup, or [Docker Guide](DOCKER.md) for the GHCR image
+1. **Install ChatSpatial** — [Installation Guide](docs/installation.md) for Python/uv setup, or [Docker Guide](docs/docker.md) for the GHCR image
 2. **Configure your MCP client** — [Configuration Guide](docs/advanced/configuration.md)
 3. **Run your first analysis** — [Quick Start](docs/quickstart.md)
 
 **Docker quick start:**
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:v1.2.6  # or :latest
+docker pull ghcr.io/cafferychen777/chatspatial:v1.2.6
 ```
 
 **Minimal example prompt:**
@@ -79,8 +79,8 @@ If you use Docker, mount host data to `/data` and prompt with the container path
 
 | Guide | Owns |
 |-------|------|
-| [Installation](INSTALLATION.md) | Environment setup, package install, platform notes |
-| [Docker](DOCKER.md) | GHCR image, volume mounts, and container-backed MCP setup |
+| [Installation](docs/installation.md) | Environment setup, package install, platform notes |
+| [Docker](docs/docker.md) | GHCR image, volume mounts, and container-backed MCP setup |
 | [Quick Start](docs/quickstart.md) | First successful analysis after setup |
 | [Concepts](docs/concepts.md) | Method selection and analysis reasoning |
 | [Examples](docs/examples.md) | Prompt recipes and workflow examples |

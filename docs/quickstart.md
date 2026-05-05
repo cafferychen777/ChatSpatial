@@ -85,7 +85,7 @@ Visualizations appear directly in the chat or client UI.
 
 ## Before You Troubleshoot
 
-Check these three things first:
+Check these basics first:
 
 - Use an **absolute** data path, not `~/...` or `./...`
 - If using Docker, use the container path from your mount, such as `/data/sample.h5ad`

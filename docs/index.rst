@@ -3,7 +3,7 @@ ChatSpatial
 
 **MCP server for spatial transcriptomics analysis via natural language.**
 
-Analyze your spatial data by chatting with Claude. No coding required.
+Analyze your spatial data from any MCP-compatible client. No coding required.
 
 .. only:: en
 

@@ -1,6 +1,8 @@
 # Configuration Guide
 
 This page is the canonical reference for **exact MCP client configuration syntax**.
+ChatSpatial works with any MCP-compatible client; Claude Code, Codex, OpenCode,
+and Claude Desktop are examples.
 
 - To install ChatSpatial, see [Installation](../installation.md).
 - To run your first workflow after setup, see [Quick Start](../quickstart.md).
@@ -28,14 +30,37 @@ Canonical Docker command shape:
 docker run --rm -i \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:latest server --transport stdio
+  ghcr.io/cafferychen777/chatspatial:v1.2.6 server --transport stdio
 ```
 
 Use `--rm -i`, not `-it`, for MCP stdio. If you mount host data to `/data`, prompts must use container paths such as `/data/sample.h5ad`.
 
 ---
 
-## Claude Code (Recommended)
+## Path Model
+
+ChatSpatial has three separate path concepts:
+
+| Concept | What it means | Default |
+|---------|---------------|---------|
+| **Input data path** | Path passed to `load_data`; it must be visible to the ChatSpatial runtime | No search path; use an absolute path |
+| **Active export/reload path** | Default path used by `export_data()` and `reload_data()` when `path` is omitted | `~/.chatspatial/active/{data_id}.h5ad` inside the runtime |
+| **Visualization/output path** | Where generated figures and explicit output files are written | `CHATSPATIAL_OUTPUT_DIR` if set, otherwise a safe writable directory |
+
+For a local Python runtime, input paths are normal host paths such as
+`/Users/alice/spatial/sample.h5ad`.
+
+For Docker, the runtime sees container paths. If you mount
+`/Users/alice/spatial-data` as `/data`, prompts must use `/data/sample.h5ad`.
+The Docker image sets `CHATSPATIAL_OUTPUT_DIR=/outputs`, so mount a writable
+host directory to `/outputs` when you want generated files to persist.
+
+Do not rely on a global data search directory. Keep data locations explicit in
+prompts or tool calls.
+
+---
+
+## Claude Code
 
 ```bash
 source venv/bin/activate
@@ -56,7 +81,7 @@ claude mcp add chatspatial-docker docker -- \
   run --rm -i \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:latest server --transport stdio
+  ghcr.io/cafferychen777/chatspatial:v1.2.6 server --transport stdio
 ```
 
 Use `/data/...` paths in prompts when using this Docker-backed server.
@@ -81,9 +106,6 @@ codex mcp add chatspatial -- /path/to/venv/bin/python -m chatspatial server
 [mcp_servers.chatspatial]
 command = "/path/to/venv/bin/python"
 args = ["-m", "chatspatial", "server"]
-
-[mcp_servers.chatspatial.env]
-CHATSPATIAL_DATA_DIR = "/path/to/data"
 ```
 
 ### Advanced options
@@ -95,6 +117,9 @@ args = ["-m", "chatspatial", "server"]
 startup_timeout_sec = 30
 tool_timeout_sec = 120
 enabled = true
+
+[mcp_servers.chatspatial.env]
+CHATSPATIAL_OUTPUT_DIR = "/absolute/path/to/chatspatial-outputs"
 ```
 
 ---
@@ -126,7 +151,7 @@ opencode mcp list
       "command": ["/path/to/venv/bin/python", "-m", "chatspatial", "server"],
       "enabled": true,
       "environment": {
-        "CHATSPATIAL_DATA_DIR": "/path/to/data"
+        "CHATSPATIAL_OUTPUT_DIR": "/absolute/path/to/chatspatial-outputs"
       }
     }
   }
@@ -174,7 +199,7 @@ Docker-backed example:
         "/absolute/path/to/your/data:/data:ro",
         "-v",
         "/absolute/path/to/outputs:/outputs",
-        "ghcr.io/cafferychen777/chatspatial:latest",
+        "ghcr.io/cafferychen777/chatspatial:v1.2.6",
         "server",
         "--transport",
         "stdio"
@@ -200,17 +225,19 @@ Use the same absolute Python path pattern shown above.
 
 ---
 
-## Environment Variables
+## Output Configuration
 
-### Data storage
+Set `CHATSPATIAL_OUTPUT_DIR` when you want generated figures and default output
+files in a predictable location:
 
 ```bash
-export CHATSPATIAL_DATA_DIR="/path/to/your/spatial/data"
+export CHATSPATIAL_OUTPUT_DIR="/absolute/path/to/chatspatial-outputs"
 ```
 
-When `export_data()` is called without an explicit `path`, ChatSpatial saves to this directory.
-
-Default behavior: `.chatspatial_saved/` next to the original data file.
+When `export_data()` or `reload_data()` is called without an explicit `path`,
+ChatSpatial uses `~/.chatspatial/active/{data_id}.h5ad` inside the runtime. In
+Docker, pass an explicit `/outputs/...` path if the exported file should persist
+after the container exits.
 
 ---
 

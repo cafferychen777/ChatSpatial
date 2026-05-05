@@ -2,13 +2,12 @@
 
 ## Supported Versions
 
-We provide security updates for the following versions of ChatSpatial:
+We provide security updates for the current minor release of ChatSpatial:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.3.x   | :white_check_mark: |
-| 0.2.x   | :x:                |
-| < 0.2   | :x:                |
+| 1.2.x   | :white_check_mark: |
+| < 1.2   | :x:                |
 
 ## Reporting a Vulnerability
 

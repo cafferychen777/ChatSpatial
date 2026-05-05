@@ -13,6 +13,7 @@ Relies on:
 {%- set depth = pagename.count("/") -%}
 {%- set up = "../" * depth -%}
 
+{%- if enable_language_switcher -%}
 {%- if is_zh -%}
   {%- set en_href = ("../" * (depth + 1)) + ("" if pagename == master_doc else (pagename + ".html")) -%}
   <div class="language-switcher" role="navigation" aria-label="Language">
@@ -28,4 +29,4 @@ Relies on:
     <a class="muted-link language-switcher__link" href="{{ zh_href }}" title="中文">中文</a>
   </div>
 {%- endif -%}
-
+{%- endif -%}

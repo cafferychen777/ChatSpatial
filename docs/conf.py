@@ -58,6 +58,14 @@ language = os.environ.get("SPHINX_LANGUAGE", "en")
 locale_dirs = ["locale/"]
 gettext_compact = False
 
+# Chinese catalogs are currently behind the English source. Keep the switcher
+# opt-in until the translated pages are refreshed, so users do not land in a
+# mixed-language experience.
+html_context = {
+    "enable_language_switcher": os.environ.get("CHATSPATIAL_ENABLE_LANGUAGE_SWITCHER")
+    == "1",
+}
+
 # -- Options for HTML output -------------------------------------------------
 
 html_theme = "furo"

@@ -8,7 +8,7 @@ This page gives **short answers and pointers** to the canonical docs.
 
 ### What is ChatSpatial?
 
-ChatSpatial is an MCP server for spatial transcriptomics analysis through natural language. See the project overview on the [documentation home](../index).
+ChatSpatial is an MCP server for spatial transcriptomics analysis through natural language. See the project overview on the [documentation home](../index.rst).
 
 ### What is MCP?
 
@@ -38,9 +38,10 @@ Yes. Use a dedicated environment to avoid dependency conflicts. See [Installatio
 
 Use the [Configuration Guide](configuration.md) for exact client syntax.
 
-### Can I use ChatSpatial without Claude?
+### Which clients can I use?
 
-Yes. ChatSpatial works with any MCP-compatible client.
+ChatSpatial works with any MCP-compatible client, including Claude Code, Claude
+Desktop, Codex, OpenCode, and other MCP-capable tools.
 
 ---
 
@@ -106,7 +107,11 @@ The analysis stack can run locally, but you still need an LLM client for natural
 
 ### How is my data stored?
 
-Saved data locations can be controlled through `CHATSPATIAL_DATA_DIR`. See [Configuration Guide](configuration.md).
+Loaded datasets live in the running MCP server memory. If you call
+`export_data()` without a `path`, ChatSpatial writes
+`~/.chatspatial/active/{data_id}.h5ad` inside the runtime. Generated figures and
+default output files use `CHATSPATIAL_OUTPUT_DIR` when it is set. See
+[Configuration Guide](configuration.md).
 
 ---
 

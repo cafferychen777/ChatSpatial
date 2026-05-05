@@ -1,6 +1,7 @@
 # Installation
 
-This page is the docs-site version of the installation guide. It is the canonical installation page for the documentation site.
+Use this guide to install ChatSpatial in a local Python environment. If you want
+a containerized runtime, use the [Docker / GHCR](docker.md) guide instead.
 
 - For exact MCP client syntax, see [Configuration Guide](advanced/configuration.md).
 - For your first workflow after setup, see [Quick Start](quickstart.md).
@@ -13,32 +14,16 @@ This page is the docs-site version of the installation guide. It is the canonica
 - **Python 3.11-3.13** (3.12 recommended)
 - **8GB+ RAM** (16GB+ for large datasets)
 - **macOS, Linux, or Windows**
+- **Docker** only if you choose the container runtime
 
 ---
 
-## Docker Installation
+## Choose a Runtime
 
-If local installation fails or you want the most reproducible setup, use the published Docker image:
-
-```bash
-# Pull and verify the image
-docker pull ghcr.io/cafferychen777/chatspatial:latest
-docker run --rm ghcr.io/cafferychen777/chatspatial:latest --version
-docker run --rm ghcr.io/cafferychen777/chatspatial:latest server --help
-```
-
-Use this command shape in MCP clients that support Docker-backed stdio servers:
-
-```bash
-docker run --rm -i \
-  -v /absolute/path/to/your/data:/data:ro \
-  -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:latest server --transport stdio
-```
-
-Mounted data are available under `/data`, and generated outputs are written under `/outputs` by default. In prompts, use container paths such as `/data/sample.h5ad`, not the original host path.
-
-See [Docker / GHCR](docker.md) for MCP client examples, SSE mode, volume details, and local source builds.
+| Runtime | Use when | Guide |
+|---------|----------|-------|
+| **Python environment** | You want direct control of packages on the host machine | Continue below |
+| **Docker / GHCR** | You want the most reproducible runtime or local dependency resolution fails | [Docker / GHCR](docker.md) |
 
 ---
 
@@ -142,6 +127,32 @@ If both commands work, continue to [Quick Start](quickstart.md).
 
 ## Platform Notes
 
+### macOS (Intel / x86_64)
+
+Some dependencies in `chatspatial[full]` do not publish pre-built wheels for
+Intel Macs:
+
+- **gseapy** requires the Rust toolchain to compile from source
+- **llvmlite** (via numba) requires LLVM to compile from source
+
+Install those prerequisites before the full optional stack:
+
+```bash
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+
+# Install LLVM for llvmlite
+brew install llvm
+export LLVM_CONFIG="$(brew --prefix llvm)/bin/llvm-config"
+
+# Then install ChatSpatial with all optional Python methods
+uv pip install 'chatspatial[full]'
+```
+
+Apple Silicon Macs (M1/M2/M3/M4) have pre-built wheels for all dependencies and
+do not require these steps.
+
 ### Windows
 
 **Not available:** SingleR, PETSc
@@ -154,7 +165,7 @@ If both commands work, continue to [Quick Start](quickstart.md).
 rm -rf venv
 python3.12 -m venv venv
 source venv/bin/activate
-uv pip install chatspatial[full]
+uv pip install 'chatspatial[full]'
 ```
 
 ---
