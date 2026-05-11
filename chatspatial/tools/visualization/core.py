@@ -82,7 +82,7 @@ def resolve_figure_size(
     """
     # User-specified size always takes precedence
     if params.figure_size:
-        return params.figure_size
+        return tuple(params.figure_size)
 
     # Multi-panel figure: compute from panel dimensions
     if n_panels is not None and n_panels > 1:
@@ -173,7 +173,7 @@ def setup_multi_panel_figure(
         n_rows = (n_panels + n_cols - 1) // n_cols
 
     if params.figure_size:
-        figsize = params.figure_size
+        figsize = tuple(params.figure_size)
     else:
         figsize = (min(5 * n_cols, 15), min(4 * n_rows, 16))
 

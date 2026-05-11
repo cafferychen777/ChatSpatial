@@ -10,18 +10,18 @@ here.
 ## Image
 
 ```text
-ghcr.io/cafferychen777/chatspatial:v1.2.6
+ghcr.io/cafferychen777/chatspatial:v1.2.7
 ```
 
-This guide uses the versioned `v1.2.6` tag so commands are reproducible. Use
+This guide uses the versioned `v1.2.7` tag so commands are reproducible. Use
 `:latest` only when you explicitly want the newest published image.
 
 ## Pull and verify the image
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:v1.2.6
-docker run --rm ghcr.io/cafferychen777/chatspatial:v1.2.6 --version
-docker run --rm ghcr.io/cafferychen777/chatspatial:v1.2.6 server --help
+docker pull ghcr.io/cafferychen777/chatspatial:v1.2.7
+docker run --rm ghcr.io/cafferychen777/chatspatial:v1.2.7 --version
+docker run --rm ghcr.io/cafferychen777/chatspatial:v1.2.7 server --help
 ```
 
 ## Run as an MCP server
@@ -32,7 +32,7 @@ Use this command shape in MCP clients that support Docker-backed stdio servers:
 docker run --rm -i \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:v1.2.6 server --transport stdio
+  ghcr.io/cafferychen777/chatspatial:v1.2.7 server --transport stdio
 ```
 
 Use `--rm -i`, not `-it`, for MCP stdio. A TTY can corrupt the JSON-RPC stream used by MCP clients.
@@ -62,7 +62,7 @@ claude mcp add chatspatial-docker docker -- \
   run --rm -i \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:v1.2.6 server --transport stdio
+  ghcr.io/cafferychen777/chatspatial:v1.2.7 server --transport stdio
 ```
 
 ### Claude Desktop
@@ -80,7 +80,7 @@ claude mcp add chatspatial-docker docker -- \
         "/absolute/path/to/your/data:/data:ro",
         "-v",
         "/absolute/path/to/outputs:/outputs",
-        "ghcr.io/cafferychen777/chatspatial:v1.2.6",
+        "ghcr.io/cafferychen777/chatspatial:v1.2.7",
         "server",
         "--transport",
         "stdio"
@@ -98,7 +98,7 @@ Restart your MCP client after changing configuration.
 docker run --rm -p 8000:8000 \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:v1.2.6 server --transport sse --host 0.0.0.0 --port 8000
+  ghcr.io/cafferychen777/chatspatial:v1.2.7 server --transport sse --host 0.0.0.0 --port 8000
 ```
 
 Then connect your MCP client to `http://localhost:8000/sse`.
@@ -111,7 +111,7 @@ From the repository root:
 docker build -t chatspatial:local .
 ```
 
-Then replace `ghcr.io/cafferychen777/chatspatial:v1.2.6` with
+Then replace `ghcr.io/cafferychen777/chatspatial:v1.2.7` with
 `chatspatial:local` in the commands above.
 
 ## Common Docker issues
@@ -119,7 +119,7 @@ Then replace `ghcr.io/cafferychen777/chatspatial:v1.2.6` with
 | Symptom | Fix |
 |---|---|
 | `docker: command not found` | Install Docker Desktop or Docker Engine, then restart your MCP client. |
-| Pull fails | Check the image name and network access with `docker pull ghcr.io/cafferychen777/chatspatial:v1.2.6`. |
+| Pull fails | Check the image name and network access with `docker pull ghcr.io/cafferychen777/chatspatial:v1.2.7`. |
 | MCP tools do not appear | Use `--rm -i`, not `-it`, and restart the client. |
 | Dataset not found | Mount the host data directory and use the container path in prompts, for example `/data/sample.h5ad`. |
 | Permission denied on outputs | Confirm the host output directory exists and Docker has permission to write to it. |

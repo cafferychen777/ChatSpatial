@@ -36,7 +36,7 @@ ChatSpatial exposes **20 schema-validated MCP tools** that orchestrate **65 spat
 **Docker quick start:**
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:v1.2.6
+docker pull ghcr.io/cafferychen777/chatspatial:v1.2.7
 ```
 
 **Minimal example prompt:**

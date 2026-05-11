@@ -8,12 +8,16 @@ from pydantic import ValidationError
 from chatspatial.models.data import (
     AnnotationParameters,
     CellCommunicationParameters,
+    ColumnInfo,
     DifferentialExpressionParameters,
     EnrichmentParameters,
     PreprocessingParameters,
+    RegistrationParameters,
+    SpatialDataset,
     SpatialDomainParameters,
     SpatialStatisticsParameters,
     SpatialVariableGenesParameters,
+    TrajectoryParameters,
     VisualizationParameters,
 )
 
@@ -58,7 +62,9 @@ def test_visualization_preprocess_params_handles_none_alias_and_passthrough():
 
 
 def test_visualization_statistics_requires_subtype():
-    with pytest.raises(ValidationError, match="subtype is required when plot_type='statistics'"):
+    with pytest.raises(
+        ValidationError, match="subtype is required when plot_type='statistics'"
+    ):
         VisualizationParameters(plot_type="statistics")
 
 
@@ -71,7 +77,9 @@ def test_visualization_statistics_requires_subtype():
         ("trajectory", "pseudotime"),
     ],
 )
-def test_visualization_defaults_subtype_by_plot_type(plot_type: str, expected_subtype: str):
+def test_visualization_defaults_subtype_by_plot_type(
+    plot_type: str, expected_subtype: str
+):
     params = VisualizationParameters(plot_type=plot_type)
     assert params.subtype == expected_subtype
 
@@ -124,8 +132,14 @@ def test_cell_communication_uses_canonical_cellchat_literal():
 
 
 def test_spatial_statistics_accepts_extended_analysis_literals():
-    for analysis_type in ["local_join_count", "network_properties", "spatial_centrality"]:
-        params = SpatialStatisticsParameters(analysis_type=analysis_type, cluster_key="cluster")
+    for analysis_type in [
+        "local_join_count",
+        "network_properties",
+        "spatial_centrality",
+    ]:
+        params = SpatialStatisticsParameters(
+            analysis_type=analysis_type, cluster_key="cluster"
+        )
         assert params.analysis_type == analysis_type
 
 
@@ -146,3 +160,79 @@ def test_spatial_statistics_accepts_extended_analysis_literals():
 def test_visualization_accepts_documented_subtypes(plot_type: str, subtype: str):
     params = VisualizationParameters(plot_type=plot_type, subtype=subtype)
     assert params.subtype == subtype
+
+
+def _collect_schema_array_issues(
+    schema: object, path: tuple[str, ...] = ()
+) -> list[str]:
+    issues: list[str] = []
+    if isinstance(schema, dict):
+        if schema.get("type") == "array":
+            if "items" not in schema:
+                issues.append(f"{'/'.join(path)} is an array without items")
+            if "prefixItems" in schema:
+                issues.append(f"{'/'.join(path)} uses prefixItems")
+        for key, value in schema.items():
+            issues.extend(_collect_schema_array_issues(value, (*path, str(key))))
+    elif isinstance(schema, list):
+        for index, value in enumerate(schema):
+            issues.extend(_collect_schema_array_issues(value, (*path, str(index))))
+    return issues
+
+
+@pytest.mark.parametrize(
+    "model_cls",
+    [
+        ColumnInfo,
+        SpatialDataset,
+        VisualizationParameters,
+        SpatialStatisticsParameters,
+        TrajectoryParameters,
+        RegistrationParameters,
+    ],
+)
+def test_json_bound_pair_models_emit_anthropic_compatible_array_schemas(model_cls):
+    issues = _collect_schema_array_issues(model_cls.model_json_schema())
+    assert not issues
+
+
+def test_pair_parameters_accept_tuple_like_inputs_as_json_arrays():
+    assert VisualizationParameters(panel_layout=(2, 3)).panel_layout == [2, 3]
+    assert VisualizationParameters(figure_size=(6, 4)).figure_size == [6, 4]
+    assert VisualizationParameters(lr_pairs=[("L1", "R1")]).lr_pairs == [["L1", "R1"]]
+    assert SpatialStatisticsParameters(gene_pairs=[("G1", "G2")]).gene_pairs == [
+        ["G1", "G2"]
+    ]
+    assert TrajectoryParameters(
+        cellrank_kernel_weights=(2.0, 1.0)
+    ).cellrank_kernel_weights == pytest.approx([2 / 3, 1 / 3])
+    assert RegistrationParameters(stalign_image_size=(256, 128)).stalign_image_size == [
+        256,
+        128,
+    ]
+    assert ColumnInfo(
+        name="score", dtype="numerical", n_unique=3, range=(0.0, 1.0)
+    ).range == [
+        0.0,
+        1.0,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("model_cls", "kwargs"),
+    [
+        (VisualizationParameters, {"panel_layout": [2]}),
+        (VisualizationParameters, {"figure_size": [6, 4, 2]}),
+        (VisualizationParameters, {"lr_pairs": [["L1"]]}),
+        (SpatialStatisticsParameters, {"gene_pairs": [["G1", "G2", "G3"]]}),
+        (TrajectoryParameters, {"cellrank_kernel_weights": [1.0]}),
+        (RegistrationParameters, {"stalign_image_size": [128, 128, 64]}),
+        (
+            ColumnInfo,
+            {"name": "score", "dtype": "numerical", "n_unique": 3, "range": [0.0]},
+        ),
+    ],
+)
+def test_pair_parameters_reject_invalid_lengths(model_cls, kwargs):
+    with pytest.raises(ValidationError):
+        model_cls(**kwargs)

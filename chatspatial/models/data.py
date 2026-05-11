@@ -9,6 +9,10 @@ from typing import Annotated, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing_extensions import Self
 
+IntPair = Annotated[list[int], Field(min_length=2, max_length=2)]
+FloatPair = Annotated[list[float], Field(min_length=2, max_length=2)]
+StringPair = Annotated[list[str], Field(min_length=2, max_length=2)]
+
 # =============================================================================
 # Spatial Data Type Definitions (Single Source of Truth)
 # =============================================================================
@@ -32,7 +36,7 @@ class ColumnInfo(BaseModel):
     dtype: Literal["categorical", "numerical"]
     n_unique: int
     sample_values: Optional[list[str]] = None  # Sample values for categorical
-    range: Optional[tuple[float, float]] = None  # Value range for numerical
+    range: Optional[FloatPair] = None  # Value range for numerical
 
 
 class SpatialDataset(BaseModel):
@@ -383,9 +387,7 @@ class VisualizationParameters(BaseModel):
     )
 
     # Multi-gene visualization parameters
-    panel_layout: Optional[tuple[int, int]] = (
-        None  # (rows, cols) - auto-determined if None
-    )
+    panel_layout: Optional[IntPair] = None  # [rows, cols] - auto-determined if None
 
     # GridSpec subplot spacing parameters (for multi-panel plots)
     subplot_wspace: float = Field(
@@ -414,7 +416,7 @@ class VisualizationParameters(BaseModel):
     )
 
     # Ligand-receptor pair parameters
-    lr_pairs: Optional[list[tuple[str, str]]] = None  # List of (ligand, receptor) pairs
+    lr_pairs: Optional[list[StringPair]] = None  # List of [ligand, receptor] pairs
     lr_database: str = "cellchat"  # Database for LR pairs
     plot_top_pairs: int = Field(
         6,
@@ -428,9 +430,7 @@ class VisualizationParameters(BaseModel):
     show_correlation_stats: bool = True
 
     # Figure parameters
-    figure_size: Optional[tuple[int, int]] = (
-        None  # (width, height) - auto-determined if None
-    )
+    figure_size: Optional[IntPair] = None  # [width, height] - auto-determined if None
     dpi: int = 300  # Publication quality (Nature/Cell standard)
     alpha: float = 0.9  # Spot transparency (higher = more opaque)
     spot_size: Optional[float] = Field(
@@ -887,14 +887,9 @@ class SpatialStatisticsParameters(BaseModel):
         0.05,
         description="Significance level for hotspot detection.",
     )
-    local_join_count_alpha: Annotated[
-        float, Field(gt=0.0, le=1.0)
-    ] = Field(
+    local_join_count_alpha: Annotated[float, Field(gt=0.0, le=1.0)] = Field(
         default=0.05,
-        description=(
-            "Significance level for Local Join Count "
-            "(default: 0.05)."
-        ),
+        description=("Significance level for Local Join Count " "(default: 0.05)."),
     )
 
     # Co-occurrence specific parameters
@@ -904,7 +899,7 @@ class SpatialStatisticsParameters(BaseModel):
     )
 
     # Bivariate Moran's I specific parameters
-    gene_pairs: Optional[list[tuple[str, str]]] = Field(
+    gene_pairs: Optional[list[StringPair]] = Field(
         None, description="Gene pairs for bivariate analysis"
     )
 
@@ -975,7 +970,7 @@ class TrajectoryParameters(BaseModel):
     )
 
     # CellRank specific parameters
-    cellrank_kernel_weights: tuple[float, float] = (0.8, 0.2)
+    cellrank_kernel_weights: FloatPair = Field(default_factory=lambda: [0.8, 0.2])
     cellrank_n_states: int = Field(
         default=5, gt=0, le=20, description="Number of macrostates for CellRank."
     )
@@ -993,18 +988,16 @@ class TrajectoryParameters(BaseModel):
         vk, ck = self.cellrank_kernel_weights
         if vk < 0 or ck < 0:
             raise ValueError(
-                f"cellrank_kernel_weights must be non-negative, "
-                f"got ({vk}, {ck})"
+                f"cellrank_kernel_weights must be non-negative, " f"got ({vk}, {ck})"
             )
         total = vk + ck
         if total <= 0:
             raise ValueError(
-                f"cellrank_kernel_weights must sum to > 0, "
-                f"got ({vk}, {ck})"
+                f"cellrank_kernel_weights must sum to > 0, " f"got ({vk}, {ck})"
             )
         # Normalize to sum to 1 if they don't already
         if abs(total - 1.0) > 1e-6:
-            self.cellrank_kernel_weights = (vk / total, ck / total)
+            self.cellrank_kernel_weights = [vk / total, ck / total]
         return self
 
     # Fallback control
@@ -1869,8 +1862,8 @@ class RegistrationParameters(BaseModel):
     )
 
     # STalign-specific parameters
-    stalign_image_size: tuple[int, int] = Field(
-        (128, 128),
+    stalign_image_size: IntPair = Field(
+        default_factory=lambda: [128, 128],
         description="Image size for STalign rasterization (height, width).",
     )
     stalign_niter: Annotated[int, Field(gt=0, le=500)] = Field(

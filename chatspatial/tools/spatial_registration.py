@@ -318,7 +318,7 @@ def _register_stalign(
         target_intensity = np.ones(len(target_coords), dtype=np.float32)
 
     # Prepare images
-    image_size = params.stalign_image_size
+    image_size = tuple(params.stalign_image_size)
     source_grid, source_image = _prepare_stalign_image(
         source_coords, source_intensity, image_size
     )

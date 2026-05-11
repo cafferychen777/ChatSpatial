@@ -198,9 +198,7 @@ def infer_spatial_trajectory_cellrank(
                 spatial_sim = np.exp(-spatial_dist / dist_mean)
                 spatial_kernel = csr_matrix(spatial_sim)
 
-                sk = cr.kernels.PrecomputedKernel(
-                    spatial_kernel, adata_for_cellrank
-                )
+                sk = cr.kernels.PrecomputedKernel(spatial_kernel, adata_for_cellrank)
                 sk.compute_transition_matrix()
 
                 combined_kernel = (1 - spatial_weight) * (
@@ -257,9 +255,7 @@ def infer_spatial_trajectory_cellrank(
                     )
 
                 fate_matrix = np.clip(fate_matrix, 1e-10, None)  # avoid log(0)
-                entropy = -np.sum(
-                    fate_matrix * np.log(fate_matrix), axis=1
-                )
+                entropy = -np.sum(fate_matrix * np.log(fate_matrix), axis=1)
 
                 # NaN cells get pseudotime = NaN (not 0)
                 max_entropy = np.nanmax(entropy)
@@ -314,16 +310,14 @@ def infer_spatial_trajectory_cellrank(
                 "fate_probabilities"
             ]
             # Also write CellRank-standard alias so viz doesn't need to
-            adata.obsm["to_terminal_states"] = adata.obsm[
-                "fate_probabilities"
-            ]
+            adata.obsm["to_terminal_states"] = adata.obsm["fate_probabilities"]
         if (
             "to_terminal_states" in adata_for_cellrank.obsm
             and "to_terminal_states" not in adata.obsm
         ):
-            adata.obsm["to_terminal_states"] = (
-                adata_for_cellrank.obsm["to_terminal_states"]
-            )
+            adata.obsm["to_terminal_states"] = adata_for_cellrank.obsm[
+                "to_terminal_states"
+            ]
 
         # Note: With optimized storage, velovi data is stored as individual arrays
         # in uns (velovi_velocity, velovi_Ms, etc.) rather than a full adata copy.
@@ -529,7 +523,7 @@ async def analyze_trajectory(
                 adata = infer_spatial_trajectory_cellrank(
                     adata,
                     spatial_weight=params.spatial_weight,
-                    kernel_weights=params.cellrank_kernel_weights,
+                    kernel_weights=tuple(params.cellrank_kernel_weights),
                     n_states=params.cellrank_n_states,
                 )
             pseudotime_key = "pseudotime"
@@ -612,7 +606,7 @@ async def analyze_trajectory(
     if method_used == "cellrank":
         parameters_dict.update(
             {
-                "kernel_weights": params.cellrank_kernel_weights,
+                "kernel_weights": list(params.cellrank_kernel_weights),
                 "n_states": params.cellrank_n_states,
             }
         )

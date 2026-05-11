@@ -5,6 +5,14 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.7] - 2026-05-11 - MCP Schema Compatibility Fix
+
+### Fixed
+
+- Replaced MCP-facing tuple parameter schemas with JSON-native constrained arrays so Claude Code and Anthropic tool validation accept all exported ChatSpatial tools.
+- Preserved tuple-like Python input compatibility while normalizing public MCP parameters to JSON arrays.
+- Added regression tests that reject exported MCP schemas containing `prefixItems` or arrays without `items`.
+
 ## [v1.2.6] - 2026-05-05 - Documentation Alignment and Release Hygiene
 
 ### Changed
