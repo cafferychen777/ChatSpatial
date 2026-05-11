@@ -58,3 +58,22 @@ def test_known_tuple_risk_tools_are_registered_and_schema_safe():
             tools_by_name[tool_name].parameters, path=(tool_name, "parameters")
         )
         assert not issues
+
+
+@pytest.mark.unit
+def test_analyze_enrichment_params_required_in_mcp_schema():
+    from chatspatial.server import mcp
+
+    tools_by_name = {tool.name: tool for tool in mcp._tool_manager.list_tools()}
+    schema = tools_by_name["analyze_enrichment"].parameters
+
+    assert "params" in schema["required"]
+
+    params_schema = schema["properties"]["params"]
+    assert "default" not in params_schema
+    assert params_schema.get("type") != "null"
+    assert not any(
+        option.get("type") == "null"
+        for option in params_schema.get("anyOf", [])
+        if isinstance(option, dict)
+    )

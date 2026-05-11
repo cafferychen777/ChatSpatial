@@ -573,7 +573,7 @@ def _create_spatial_lr_visualization(
     n_cols = min(3, n_panels)
     n_rows = (n_panels + n_cols - 1) // n_cols
 
-    figsize = params.figure_size or (5 * n_cols, 4 * n_rows)
+    figsize = tuple(params.figure_size) if params.figure_size else (5 * n_cols, 4 * n_rows)
     fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
 
     if n_panels == 1:
@@ -667,7 +667,7 @@ def _create_unified_dotplot(
 
     # Create dotplot using LIANA native function
     n_top = params.plot_top_pairs or 20
-    figsize = params.figure_size or (12, 10)
+    figsize = tuple(params.figure_size) if params.figure_size else (12, 10)
 
     try:
         p = li.pl.dotplot(
@@ -723,7 +723,7 @@ def _create_fallback_dotplot(
         top_df["dot_size"] = 100
 
     # Create figure
-    figsize = params.figure_size or (12, 10)
+    figsize = tuple(params.figure_size) if params.figure_size else (12, 10)
     fig, ax = plt.subplots(figsize=figsize)
 
     lr_labels = top_df["lr_label"].unique()
@@ -799,7 +799,7 @@ def _create_unified_tileplot(
         raise DataNotFoundError("No suitable columns for tileplot visualization")
 
     n_top = params.plot_top_pairs or 20
-    figsize = params.figure_size or (10, 8)
+    figsize = tuple(params.figure_size) if params.figure_size else (10, 8)
 
     try:
         p = li.pl.tileplot(
@@ -859,7 +859,7 @@ def _create_fallback_tileplot(
         index="lr_label", columns="cell_pair", values=value_col, aggfunc="mean"
     )
 
-    figsize = params.figure_size or (14, 10)
+    figsize = tuple(params.figure_size) if params.figure_size else (14, 10)
     fig, ax = plt.subplots(figsize=figsize)
 
     cmap = params.colormap if params.colormap != "coolwarm" else "viridis_r"
@@ -954,7 +954,7 @@ def _create_unified_circle_plot(
     n_types = len(cell_types)
 
     # Create figure
-    figsize = params.figure_size or (10, 10)
+    figsize = tuple(params.figure_size) if params.figure_size else (10, 10)
     fig, ax = plt.subplots(figsize=figsize, subplot_kw={"projection": "polar"})
 
     # Calculate positions on circle

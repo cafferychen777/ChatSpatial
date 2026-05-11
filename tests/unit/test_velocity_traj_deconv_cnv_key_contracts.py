@@ -9,7 +9,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 # ---------------------------------------------------------------------------
 # _build_velocity_key

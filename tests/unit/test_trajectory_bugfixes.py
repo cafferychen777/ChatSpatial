@@ -6,7 +6,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from chatspatial.tools.trajectory import (
     compute_dpt_trajectory,

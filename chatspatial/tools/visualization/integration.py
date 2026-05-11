@@ -91,7 +91,7 @@ async def _create_umap_by_batch(
         )
 
     # Setup figure
-    figsize = params.figure_size or (8, 6)
+    figsize = tuple(params.figure_size) if params.figure_size else (8, 6)
     fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
 
     umap_coords = adata.obsm["X_umap"]
@@ -176,7 +176,7 @@ async def _create_umap_by_cluster(
         )
 
     # Setup figure
-    figsize = params.figure_size or (8, 6)
+    figsize = tuple(params.figure_size) if params.figure_size else (8, 6)
     fig, ax = plt.subplots(figsize=figsize, dpi=params.dpi)
 
     umap_coords = adata.obsm["X_umap"]
@@ -270,7 +270,7 @@ async def _create_batch_highlight(
 
     # Setup figure
     if params.figure_size:
-        figsize = params.figure_size
+        figsize = tuple(params.figure_size)
     else:
         figsize = (4 * n_cols, 3.5 * n_rows)
 

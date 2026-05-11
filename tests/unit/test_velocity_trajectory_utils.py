@@ -1457,7 +1457,7 @@ async def test_analyze_trajectory_cellrank_success_records_cellrank_specific_met
     assert "terminal_states_cellrank_sw0_25" in captured["results_keys"]["obs"]
     assert "macrostates_cellrank_sw0_25" in captured["results_keys"]["obs"]
     assert "fate_probabilities_cellrank_sw0_25" in captured["results_keys"]["obsm"]
-    assert captured["parameters"]["kernel_weights"] == (0.7, 0.3)
+    assert captured["parameters"]["kernel_weights"] == [0.7, 0.3]
     assert captured["parameters"]["n_states"] == 4
     assert captured["parameters"]["root_cells"] == [adata.obs_names[0]]
 

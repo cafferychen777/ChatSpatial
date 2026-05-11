@@ -2,21 +2,12 @@
 
 from __future__ import annotations
 
-import sys
-from types import SimpleNamespace
-
 import pytest
 from pydantic import ValidationError
 
 from chatspatial.models.data import DifferentialExpressionParameters, VisualizationParameters
-from chatspatial.server import (
-    analyze_enrichment,
-    find_markers,
-    load_data,
-    preprocess_data,
-    visualize_data,
-)
-from chatspatial.utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from chatspatial.server import find_markers, load_data, preprocess_data, visualize_data
+from chatspatial.utils.exceptions import DataNotFoundError
 
 
 @pytest.mark.integration
@@ -44,19 +35,6 @@ async def test_visualize_data_missing_dataset_raises_not_found(reset_data_manage
             "missing_data",
             params=VisualizationParameters(plot_type="feature", feature="gene_0"),
         )
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_analyze_enrichment_requires_params(reset_data_manager, monkeypatch: pytest.MonkeyPatch):
-    # Keep this test focused on server-level parameter contract.
-    # analyze_enrichment imports tools module before validating params,
-    # so we inject a lightweight stub to avoid dependency noise.
-    fake_module = SimpleNamespace(analyze_enrichment=lambda *args, **kwargs: None)
-    monkeypatch.setitem(sys.modules, "chatspatial.tools.enrichment", fake_module)
-
-    with pytest.raises(ParameterError, match="EnrichmentParameters is required"):
-        await analyze_enrichment(data_id="any", params=None)
 
 
 @pytest.mark.integration

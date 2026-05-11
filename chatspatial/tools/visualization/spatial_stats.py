@@ -216,7 +216,7 @@ async def _create_co_occurrence_visualization(
     # squidpy default: (5 * n_clusters, 5) with constrained_layout=True
     # Only override if user explicitly provides figure_size
     if params.figure_size:
-        figsize = params.figure_size
+        figsize = tuple(params.figure_size)
     else:
         # Let squidpy use its default sizing (5 inches per cluster, 5 height)
         figsize = None
@@ -316,7 +316,7 @@ def _create_moran_visualization(
     # Create figure with appropriate size based on actual gene count
     # Width: 8 inches for gene names, Height: 0.4 per gene + margins
     if params.figure_size:
-        figsize = params.figure_size
+        figsize = tuple(params.figure_size)
     else:
         # Minimum height of 3 for small gene counts, scale with actual genes
         figsize = (8, max(n_actual * 0.4 + 1.5, 3))
@@ -427,7 +427,7 @@ async def _create_centrality_visualization(
     # Calculate appropriate figsize based on number of metrics (typically 3)
     # squidpy centrality_scores doesn't have smart default like co_occurrence
     if params.figure_size:
-        figsize = params.figure_size
+        figsize = tuple(params.figure_size)
     else:
         # Standard metrics: average_clustering, closeness_centrality, degree_centrality
         n_metrics = len(adata.uns[centrality_key].columns)

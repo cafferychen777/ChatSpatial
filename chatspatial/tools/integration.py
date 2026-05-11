@@ -6,7 +6,6 @@ import logging
 from typing import TYPE_CHECKING, Optional, Union
 
 import anndata as ad
-import numpy as np
 import scanpy as sc
 
 from ..models.analysis import IntegrationResult

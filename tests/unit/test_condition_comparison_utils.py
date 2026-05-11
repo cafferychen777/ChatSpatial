@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from chatspatial.models.analysis import ConditionComparisonResult, DEGene
+from chatspatial.models.analysis import DEGene
 from chatspatial.models.data import ConditionComparisonParameters
 from chatspatial.tools import condition_comparison as cc_module
 from chatspatial.tools.condition_comparison import (

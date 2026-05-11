@@ -11,7 +11,7 @@ from chatspatial.tools import spatial_domains as domains_module
 from chatspatial.tools import spatial_genes as genes_module
 from chatspatial.tools.spatial_domains import identify_spatial_domains
 from chatspatial.tools.spatial_genes import identify_spatial_genes
-from chatspatial.utils.exceptions import DataError, DataNotFoundError, ProcessingError
+from chatspatial.utils.exceptions import DataError, DataNotFoundError
 
 
 class DummyCtx:

@@ -669,7 +669,6 @@ async def test_register_mcp_metadata_contains_paste_params(
     monkeypatch.setattr(reg, "register_slices", _fake_register)
 
     captured_params: list[dict] = []
-    orig_store = reg.store_analysis_metadata
 
     def _capture_store(_adata, **kwargs):
         captured_params.append(kwargs.get("parameters", {}))

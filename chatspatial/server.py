@@ -48,7 +48,6 @@ from .models.data import VisualizationParameters  # noqa: E402
 from .tools.embeddings import EmbeddingParameters  # noqa: E402
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
-from .utils.exceptions import ParameterError  # noqa: E402
 from .utils.mcp_utils import mcp_tool_error_handler, suppress_output  # noqa: E402
 
 # Create MCP server and adapter
@@ -667,7 +666,7 @@ async def analyze_cell_communication(
 @mcp_tool_error_handler()
 async def analyze_enrichment(
     data_id: str,
-    params: Optional[EnrichmentParameters] = None,
+    params: EnrichmentParameters,
     context: Optional[Context] = None,
 ) -> EnrichmentResult:
     """Perform gene set enrichment analysis.
@@ -680,12 +679,6 @@ async def analyze_enrichment(
 
     # Create ToolContext
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
-
-    # Use default parameters if not provided (species is required by analyze_enrichment_func)
-    if params is None:
-        raise ParameterError(
-            "EnrichmentParameters is required. Please specify at least 'species' parameter."
-        )
 
     # Call enrichment analysis (all business logic is in tools/enrichment.py)
     result = await analyze_enrichment_func(data_id, ctx, params)

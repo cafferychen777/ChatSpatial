@@ -15,7 +15,6 @@ from chatspatial.tools import differential as differential_mod
 from chatspatial.tools.differential import _run_pydeseq2, differential_expression
 from chatspatial.utils.exceptions import (
     DataError,
-    DataNotFoundError,
     ParameterError,
     ProcessingError,
 )

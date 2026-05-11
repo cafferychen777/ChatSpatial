@@ -15,6 +15,13 @@ import pandas as pd
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
+from ..models.analysis import EnrichmentResult
+from ..utils.adata_utils import get_raw_data_source, store_analysis_metadata, to_dense
+from ..utils.compute import top_n_desc_indices
+from ..utils.dependency_manager import require
+from ..utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from ..utils.results_export import export_analysis_result
+
 if TYPE_CHECKING:
     import anndata as ad
     import gseapy as gp
@@ -37,13 +44,6 @@ def _get_gseapy():
             "Install it with: pip install chatspatial[full]"
         )
     return gp
-
-from ..models.analysis import EnrichmentResult
-from ..utils.adata_utils import get_raw_data_source, store_analysis_metadata, to_dense
-from ..utils.compute import top_n_desc_indices
-from ..utils.dependency_manager import require
-from ..utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
-from ..utils.results_export import export_analysis_result
 
 # Subramanian et al. 2005 PNAS: "We recommend an FDR cutoff of 25%"
 _GSEA_FDR_THRESHOLD = 0.25

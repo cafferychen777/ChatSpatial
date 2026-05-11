@@ -31,6 +31,7 @@ from .core import (
     get_colormap,
     get_validated_features,
     plot_spatial_feature,
+    resolve_figure_size,
     setup_multi_panel_figure,
 )
 
@@ -226,7 +227,7 @@ async def _create_single_feature_plot(
     Returns:
         matplotlib Figure
     """
-    fig, ax = create_figure(params.figure_size or (10, 8))
+    fig, ax = create_figure(resolve_figure_size(params, basis))
 
     # Calculate spot size
     spot_size = auto_spot_size(adata, params.spot_size, basis=basis)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np

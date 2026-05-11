@@ -197,7 +197,7 @@ def _parse_lr_pairs(
 
     # 1. Check for explicit lr_pairs parameter
     if params.lr_pairs:
-        lr_pairs = params.lr_pairs
+        lr_pairs = [(ligand, receptor) for ligand, receptor in params.lr_pairs]
     else:
         # 2. Try to parse from feature parameter
         feature_list = (
@@ -444,10 +444,13 @@ async def create_gene_correlation_visualization(
     corr_df = expr_df.corr(method=params.correlation_method)
 
     # Use seaborn clustermap
-    figsize = params.figure_size or (
-        max(8, len(available_genes)),
-        max(8, len(available_genes)),
-    )
+    if params.figure_size:
+        figsize = tuple(params.figure_size)
+    else:
+        figsize = (
+            max(8, len(available_genes)),
+            max(8, len(available_genes)),
+        )
 
     g = sns.clustermap(
         corr_df,

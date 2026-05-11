@@ -84,9 +84,9 @@ def test_visualization_defaults_subtype_by_plot_type(
     assert params.subtype == expected_subtype
 
 
-def test_visualization_communication_defaults_to_dotplot():
+def test_visualization_communication_subtype_defaults_at_runtime():
     params = VisualizationParameters(plot_type="communication")
-    assert params.subtype == "dotplot"
+    assert params.subtype is None
 
 
 def test_annotation_rejects_invalid_method_literal():

@@ -16,11 +16,6 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 
-logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from ..spatial_mcp_adapter import ToolContext
-
 from ..models.analysis import SpatialDomainResult
 from ..models.data import SpatialDomainParameters
 from ..utils.adata_utils import (
@@ -40,6 +35,11 @@ from ..utils.exceptions import (
 )
 from ..utils.mcp_utils import suppress_output
 from ..utils.results_export import export_analysis_result
+
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
+
+logger = logging.getLogger(__name__)
 
 
 def _build_domain_suffix(

@@ -113,8 +113,9 @@ async def test_visualize_data_returns_fallback_message_when_tool_returns_none(
         assert isinstance(params, VisualizationParameters)
         return None
 
-    fake_module = SimpleNamespace(visualize_data=fake_visualize)
-    monkeypatch.setitem(sys.modules, "chatspatial.tools.visualization", fake_module)
+    import chatspatial.tools.visualization.main as visualization_main
+
+    monkeypatch.setattr(visualization_main, "visualize_data", fake_visualize)
 
     result = await visualize_data("d1")
     assert result.startswith("Visualization generation failed")

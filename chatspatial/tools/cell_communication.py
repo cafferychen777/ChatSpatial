@@ -39,11 +39,6 @@ from typing import TYPE_CHECKING, Any, Optional
 import numpy as np
 import pandas as pd
 
-logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from ..spatial_mcp_adapter import ToolContext
-
 from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
@@ -62,6 +57,11 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+
+if TYPE_CHECKING:
+    from ..spatial_mcp_adapter import ToolContext
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Unified CCC Storage Structure

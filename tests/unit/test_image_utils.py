@@ -121,7 +121,7 @@ async def test_optimize_fig_to_image_with_cache_svg_removes_metadata(
     fig = _FakeFigure()
     params = SimpleNamespace(dpi=None, output_format="svg", output_path=None)
     monkeypatch.setattr(image_utils, "_ensure_non_interactive_backend", lambda: None)
-    monkeypatch.setattr(image_utils, "get_safe_output_path", lambda _path: tmp_path)
+    monkeypatch.setattr(image_utils, "get_default_output_dir", lambda: tmp_path)
     monkeypatch.setattr(image_utils.uuid, "uuid4", lambda: SimpleNamespace(hex="deadbeefcafebabe"))
     monkeypatch.setattr(plt, "close", lambda _figure: None)
 
@@ -129,7 +129,7 @@ async def test_optimize_fig_to_image_with_cache_svg_removes_metadata(
         fig, params, plot_type="scatter"
     )
 
-    assert fig.saved_path == tmp_path / "scatter_deadbeef.svg"
+    assert fig.saved_path == tmp_path / "visualizations" / "scatter_deadbeef.svg"
     assert fig.saved_kwargs is not None
     assert fig.saved_kwargs["format"] == "svg"
     assert fig.saved_kwargs["dpi"] == 100

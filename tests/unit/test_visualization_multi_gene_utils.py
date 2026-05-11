@@ -7,16 +7,11 @@ from types import ModuleType
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import pytest
 
 from chatspatial.models.data import VisualizationParameters
 from chatspatial.tools.visualization import multi_gene as viz_mg
-from chatspatial.utils.exceptions import (
-    DataNotFoundError,
-    ParameterError,
-    ProcessingError,
-)
+from chatspatial.utils.exceptions import DataNotFoundError, ProcessingError
 
 
 class DummyCtx:

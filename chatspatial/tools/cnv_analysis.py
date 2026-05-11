@@ -9,13 +9,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 import scanpy as sc
 
-if TYPE_CHECKING:
-    import anndata as ad
-
-    from ..spatial_mcp_adapter import ToolContext
-
-logger = logging.getLogger(__name__)
-
 from ..models.analysis import CNVResult
 from ..models.data import CNVParameters
 from ..utils import validate_obs_column
@@ -29,6 +22,13 @@ from ..utils.exceptions import (
     ProcessingError,
 )
 from ..utils.results_export import export_analysis_result
+
+if TYPE_CHECKING:
+    import anndata as ad
+
+    from ..spatial_mcp_adapter import ToolContext
+
+logger = logging.getLogger(__name__)
 
 
 def _build_cnv_key(params: "CNVParameters") -> str:

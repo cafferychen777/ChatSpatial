@@ -461,7 +461,7 @@ def _create_enrichmap_cross_correlation(
 
     fig = plt.gcf()
     if params.figure_size:
-        fig.set_size_inches(params.figure_size)
+        fig.set_size_inches(tuple(params.figure_size))
     if params.dpi:
         fig.set_dpi(params.dpi)
 
@@ -512,7 +512,7 @@ def _create_enrichmap_single_score(
 
     fig = plt.gcf()
     if params.figure_size:
-        fig.set_size_inches(params.figure_size)
+        fig.set_size_inches(tuple(params.figure_size))
     if params.dpi:
         fig.set_dpi(params.dpi)
 
@@ -657,7 +657,7 @@ def _create_gsea_dotplot(
     _ensure_term_column(df)
     pval_col = _find_pvalue_column(df)
 
-    figsize = params.figure_size or (6, 8)
+    figsize = tuple(params.figure_size) if params.figure_size else (6, 8)
     cmap = params.colormap if params.colormap != "coolwarm" else "viridis_r"
 
     try:

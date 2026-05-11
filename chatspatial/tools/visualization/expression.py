@@ -301,10 +301,13 @@ async def _create_correlation(
     corr_df = expr_df.corr(method=params.correlation_method)
 
     # Use seaborn clustermap
-    figsize = params.figure_size or (
-        max(8, len(available_genes)),
-        max(8, len(available_genes)),
-    )
+    if params.figure_size:
+        figsize = tuple(params.figure_size)
+    else:
+        figsize = (
+            max(8, len(available_genes)),
+            max(8, len(available_genes)),
+        )
 
     g = sns.clustermap(
         corr_df,

@@ -372,7 +372,7 @@ class VisualizationParameters(BaseModel):
             "Visualization subtype. Options by plot_type:\n"
             "- expression: 'heatmap'|'violin'|'dotplot'|'correlation'\n"
             "- deconvolution: 'spatial_multi'|'pie'|'dominant'|'diversity'|'umap'|'imputation'\n"
-            "- communication: 'dotplot'|'tileplot'|'circle_plot'\n"
+            "- communication: 'spatial'|'dotplot'|'tileplot'|'circle_plot'\n"
             "- trajectory: 'pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir'\n"
             "- velocity: 'stream'|'phase'|'proportions'|'heatmap'|'paga'\n"
             "- statistics: 'neighborhood'|'co_occurrence'|'ripley'|'moran'|'centrality'|'getis_ord' (required)\n"
@@ -614,10 +614,6 @@ class VisualizationParameters(BaseModel):
         # Enrichment - set default subtype if not provided
         if self.plot_type == "enrichment" and not self.subtype:
             self.subtype = "barplot"
-
-        # Communication - set default subtype if not provided
-        if self.plot_type == "communication" and not self.subtype:
-            self.subtype = "dotplot"
 
         # Trajectory - set default subtype if not provided
         if self.plot_type == "trajectory" and not self.subtype:
