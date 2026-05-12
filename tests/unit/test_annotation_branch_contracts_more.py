@@ -138,6 +138,7 @@ async def test_singler_uses_normalized_layers_and_warns_for_low_delta_confidence
 
     assert np.array_equal(captured["kwargs"]["test_data"], adata.layers["X_normalized"].T)
     assert np.array_equal(captured["kwargs"]["ref_data"], ref.layers["X_normalized"].T)
+    assert "n_threads" not in captured["kwargs"]
     assert set(out.cell_types) == {"B", "T"}
     assert any("low confidence scores" in msg for msg in ctx.warnings)
 

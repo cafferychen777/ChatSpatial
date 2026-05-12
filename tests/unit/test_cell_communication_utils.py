@@ -47,6 +47,8 @@ def test_standardize_lr_pair_normalizes_separators():
     assert standardize_lr_pair("ITGAL_ICAM1_ITGB2") == "ITGAL_ICAM1_ITGB2"
     # Complex names with ^ are unambiguous
     assert standardize_lr_pair("ITGAL^ICAM1_ITGB2") == "ITGAL^ICAM1_ITGB2"
+    # External matrix outputs may expose non-string index labels.
+    assert standardize_lr_pair(123) == "123"
 
 
 def test_top_n_desc_indices_handles_non_finite_and_bounds():
@@ -115,11 +117,12 @@ def test_integrate_autocrine_detection_for_matrix_based_methods():
     # Simulate cellphonedb/fastccc matrix format: columns are source|target
     results = pd.DataFrame(
         {
+            "interacting_pair": ["L1^R1", "L2^R2"],
             "T|T": [0.4, 0.0],
             "T|B": [0.1, 0.2],
             "B|B": [0.0, 0.9],
         },
-        index=["L1^R1", "L2^R2"],
+        index=[10, 11],
     )
     storage = CCCStorage(
         method="cellphonedb",

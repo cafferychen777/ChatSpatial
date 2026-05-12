@@ -295,7 +295,6 @@ async def _annotate_with_singler(
             "test_features": test_features,
             "ref_data": ref_data,
             "ref_labels": ref_labels,
-            "n_threads": n_threads,
         }
 
         # Add ref_features if we're using custom reference data (not celldex)

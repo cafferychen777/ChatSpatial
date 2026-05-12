@@ -168,7 +168,7 @@ class CCCStorage:
         )
 
 
-def standardize_lr_pair(pair_str: str) -> str:
+def standardize_lr_pair(pair_str: object) -> str:
     """Standardize LR pair format to 'LIGAND^RECEPTOR'.
 
     Uses ``^`` as the ligand-receptor separator because:
@@ -191,6 +191,7 @@ def standardize_lr_pair(pair_str: str) -> str:
     separator (e.g. LIANA output format).  Multi-separator strings
     without ``^`` are returned unchanged to avoid lossy guessing.
     """
+    pair_str = str(pair_str)
     if "^" in pair_str:
         return pair_str  # Already canonical
 
@@ -529,7 +530,10 @@ def _integrate_autocrine_detection(storage: CCCStorage, n_top: int) -> None:
                 mask = (results[numeric_cols] > 0).any(axis=1)
                 autocrine_df = results[mask].copy()
                 if len(autocrine_df) > 0:
-                    lr_pairs = autocrine_df.index.tolist()[:n_top]
+                    if "interacting_pair" in autocrine_df.columns:
+                        lr_pairs = autocrine_df["interacting_pair"].tolist()[:n_top]
+                    else:
+                        lr_pairs = autocrine_df.index.tolist()[:n_top]
                     storage.autocrine = CCCAutocrine(
                         n_loops=len(autocrine_df),
                         top_pairs=[standardize_lr_pair(p) for p in lr_pairs],
