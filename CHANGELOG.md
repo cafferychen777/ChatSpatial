@@ -5,6 +5,12 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.9] - 2026-05-12 - Python 3.14 Compatibility
+
+### Changed
+
+- Added Python 3.14 to supported package metadata after basic installation and runtime smoke testing.
+
 ## [v1.2.8] - 2026-05-12 - MCP Runtime Stability Fixes
 
 ### Fixed
