@@ -273,6 +273,10 @@ async def test_analyze_spatial_statistics_accepts_result_with_dict_method(
                     "n_clusters": 2,
                     "max_enrichment": 1.2,
                     "min_enrichment": -0.7,
+                    "n_enriched_pairs": 3,
+                    "n_depleted_pairs": 1,
+                    "top_enriched_pairs": ["0-1", "1-1", "0-0"],
+                    "z_threshold": 1.96,
                     "analysis_key": "leiden_nhood_enrichment",
                 }
             ),
@@ -284,7 +288,14 @@ async def test_analyze_spatial_statistics_accepts_result_with_dict_method(
     out = await ss.analyze_spatial_statistics("d1", DummyCtx(adata), params)
     assert out.analysis_type == "neighborhood"
     assert out.n_features_analyzed == 2
-    assert out.summary_metrics == {"max_enrichment": 1.2, "min_enrichment": -0.7}
+    assert out.n_significant == 3
+    assert out.top_features == ["0-1", "1-1", "0-0"]
+    assert out.summary_metrics == {
+        "max_enrichment": 1.2,
+        "min_enrichment": -0.7,
+        "z_threshold": 1.96,
+        "n_depleted_pairs": 1,
+    }
     assert out.results_key == "leiden_nhood_enrichment"
 
 
@@ -387,22 +398,43 @@ def test_analyze_neighborhood_enrichment_uses_nan_safe_extrema(
     adata = minimal_spatial_adata.copy()
     adata.obs["leiden"] = pd.Categorical(["0"] * 30 + ["1"] * 30)
 
-    def _fake_nhood(a, cluster_key):
-        del cluster_key
+    captured: dict[str, object] = {}
+
+    def _fake_nhood(a, cluster_key, **kwargs):
+        captured["cluster_key"] = cluster_key
+        captured.update(kwargs)
         a.uns["leiden_nhood_enrichment"] = {
-            "zscore": np.array([[np.nan, 1.2], [-0.8, np.nan]])
+            "zscore": np.array([[2.5, 3.1], [3.1, -2.2]])
         }
 
     monkeypatch.setattr(ss.sq.gr, "nhood_enrichment", _fake_nhood)
 
     out = ss._analyze_neighborhood_enrichment(
         adata,
-        SpatialStatisticsParameters(analysis_type="neighborhood", cluster_key="leiden"),
+        SpatialStatisticsParameters(
+            analysis_type="neighborhood",
+            cluster_key="leiden",
+            neighborhood_n_perms=25,
+            n_jobs=1,
+            backend="threading",
+        ),
         DummyCtx(adata),
     )
+    assert captured == {
+        "cluster_key": "leiden",
+        "n_perms": 25,
+        "n_jobs": 1,
+        "backend": "threading",
+        "seed": 0,
+        "show_progress_bar": False,
+    }
     assert out["n_clusters"] == 2
-    assert out["max_enrichment"] == 1.2
-    assert out["min_enrichment"] == -0.8
+    assert out["n_enriched_pairs"] == 2
+    assert out["n_depleted_pairs"] == 1
+    assert out["top_enriched_pairs"] == ["0-1", "0-0"]
+    assert out["z_threshold"] == 1.96
+    assert out["max_enrichment"] == 3.1
+    assert out["min_enrichment"] == -2.2
     assert out["analysis_key"] == "leiden_nhood_enrichment"
 
 

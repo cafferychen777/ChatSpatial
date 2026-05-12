@@ -853,6 +853,12 @@ class SpatialStatisticsParameters(BaseModel):
         description="Parallelization backend.",
     )
 
+    # Neighborhood enrichment specific parameters
+    neighborhood_n_perms: Annotated[int, Field(gt=0, le=10000)] = Field(
+        100,
+        description="Permutations for neighborhood enrichment. Use 1000+ for publication.",
+    )
+
     # Moran's I specific parameters
     moran_n_perms: Annotated[int, Field(gt=0, le=10000)] = Field(
         10,

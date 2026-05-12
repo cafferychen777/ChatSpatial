@@ -242,6 +242,8 @@ async def analyze_spatial_statistics(
         if params.genes:
             parameters_dict["genes"] = params.genes
         # Add n_perms based on analysis type
+        if params.analysis_type == "neighborhood":
+            parameters_dict["n_perms"] = params.neighborhood_n_perms
         if params.analysis_type in ["moran", "local_moran", "geary"]:
             parameters_dict["n_perms"] = params.moran_n_perms
         # Add getis_ord-specific params for downstream consumers (viz, export)
@@ -253,7 +255,7 @@ async def analyze_spatial_statistics(
                 parameters_dict["z_threshold"] = result["parameters"]["z_threshold"]
 
         # Extract statistics for metadata
-        statistics_dict = {
+        statistics_dict: dict[str, int | float] = {
             "n_cells": adata.n_obs,
         }
         if "n_significant" in result:
@@ -396,9 +398,13 @@ def _extract_result_summary(
 
     elif analysis_type == "neighborhood":
         summary["n_features_analyzed"] = result.get("n_clusters", 0)
+        summary["n_significant"] = result.get("n_enriched_pairs", 0)
+        summary["top_features"] = result.get("top_enriched_pairs", [])[:10]
         summary["summary_metrics"] = {
             "max_enrichment": result.get("max_enrichment", 0.0),
             "min_enrichment": result.get("min_enrichment", 0.0),
+            "z_threshold": result.get("z_threshold", 0.0),
+            "n_depleted_pairs": result.get("n_depleted_pairs", 0),
         }
         summary["results_key"] = result.get("analysis_key")
 
@@ -641,7 +647,16 @@ def _analyze_neighborhood_enrichment(
 ) -> dict[str, Any]:
     """Compute neighborhood enrichment analysis."""
     cluster_key = params.cluster_key
-    sq.gr.nhood_enrichment(adata, cluster_key=cluster_key)
+    n_jobs = _get_optimal_n_jobs(adata.n_obs, params.n_jobs)
+    sq.gr.nhood_enrichment(
+        adata,
+        cluster_key=cluster_key,
+        n_perms=params.neighborhood_n_perms,
+        n_jobs=n_jobs,
+        backend=params.backend,
+        seed=0,
+        show_progress_bar=False,
+    )
 
     analysis_key = f"{cluster_key}_nhood_enrichment"
     if analysis_key in adata.uns:
@@ -649,8 +664,25 @@ def _analyze_neighborhood_enrichment(
 
         # Use nanmax/nanmin to handle NaN values from sparse cell type distributions
         # NaN can occur when certain cell type pairs have insufficient neighborhoods
+        z_threshold = 1.96
+        upper_rows, upper_cols = np.triu_indices_from(z_scores)
+        upper_z = z_scores[upper_rows, upper_cols]
+        cluster_labels = list(adata.obs[cluster_key].cat.categories)
+        enriched_mask = upper_z > z_threshold
+        depleted_mask = upper_z < -z_threshold
+        enriched_order = np.argsort(upper_z[enriched_mask])[::-1]
+        enriched_rows = upper_rows[enriched_mask][enriched_order]
+        enriched_cols = upper_cols[enriched_mask][enriched_order]
+        top_enriched_pairs = [
+            f"{cluster_labels[i]}-{cluster_labels[j]}"
+            for i, j in zip(enriched_rows[:10], enriched_cols[:10], strict=True)
+        ]
         return {
             "n_clusters": len(z_scores),
+            "n_enriched_pairs": int(np.nansum(enriched_mask)),
+            "n_depleted_pairs": int(np.nansum(depleted_mask)),
+            "top_enriched_pairs": top_enriched_pairs,
+            "z_threshold": z_threshold,
             "max_enrichment": float(np.nanmax(z_scores)),
             "min_enrichment": float(np.nanmin(z_scores)),
             "analysis_key": analysis_key,
