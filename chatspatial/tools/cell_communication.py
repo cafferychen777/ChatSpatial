@@ -32,6 +32,7 @@ Storage Structure:
 """
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 import logging
 from typing import TYPE_CHECKING, Any, Optional
@@ -205,6 +206,18 @@ def standardize_lr_pair(pair_str: str) -> str:
 
     # Ambiguous multi-separator or no separator — return as-is
     return pair_str
+
+
+def _unique_standardized_lr_pairs(pairs: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    unique_pairs: list[str] = []
+    for pair in pairs:
+        standardized_pair = standardize_lr_pair(pair)
+        if standardized_pair in seen:
+            continue
+        seen.add(standardized_pair)
+        unique_pairs.append(standardized_pair)
+    return unique_pairs
 
 
 def _build_fastccc_lri_pair_map(database_dir: str) -> dict[str, str]:
@@ -662,10 +675,10 @@ def _run_liana_cluster_analysis(
         ]
         # Top pairs by magnitude rank
         top_df = liana_res.nsmallest(params.plot_top_pairs, "magnitude_rank")
-        top_lr_pairs = [
+        top_lr_pairs = _unique_standardized_lr_pairs(
             f"{row['ligand_complex']}^{row['receptor_complex']}"
             for _, row in top_df.iterrows()
-        ]
+        )
 
     # Build unified storage structure
     return CCCStorage(
@@ -744,7 +757,7 @@ def _run_liana_spatial_analysis(
 
     # Top pairs by global metric
     top_df = lrdata.var.nlargest(params.plot_top_pairs, global_metric)
-    top_lr_pairs = [standardize_lr_pair(p) for p in top_df.index.tolist()]
+    top_lr_pairs = _unique_standardized_lr_pairs(top_df.index.tolist())
 
     # Prepare spatial scores for storage
     spatial_scores = to_dense(lrdata.X)

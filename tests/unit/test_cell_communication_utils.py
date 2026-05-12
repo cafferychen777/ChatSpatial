@@ -462,11 +462,11 @@ def test_run_liana_cluster_analysis_builds_expected_storage(
     def _rank_aggregate(_adata, **_kwargs):
         _adata.uns["liana_res"] = pd.DataFrame(
             {
-                "source": ["T", "B"],
-                "target": ["B", "T"],
-                "ligand_complex": ["L1", "L2"],
-                "receptor_complex": ["R1", "R2"],
-                "magnitude_rank": [0.01, 0.2],
+                "source": ["T", "B", "T", "B"],
+                "target": ["B", "T", "T", "B"],
+                "ligand_complex": ["L1", "L1", "L2", "L3"],
+                "receptor_complex": ["R1", "R1", "R2", "R3"],
+                "magnitude_rank": [0.01, 0.02, 0.03, 0.2],
             }
         )
 
@@ -487,17 +487,18 @@ def test_run_liana_cluster_analysis_builds_expected_storage(
         species="human",
         cell_type_key="cell_type",
         perform_spatial_analysis=False,
-        plot_top_pairs=1,
+        plot_top_pairs=3,
         liana_significance_alpha=0.05,
     )
 
     out = ccc._run_liana_cluster_analysis(adata, params, DummyCtx())
 
     assert out.analysis_type == "cluster"
-    assert out.n_pairs == 2
-    assert out.n_significant == 1
-    assert out.lr_pairs == ["L1^R1", "L2^R2"]
-    assert out.top_lr_pairs == ["L1^R1"]
+    assert out.n_pairs == 4
+    assert out.n_significant == 3
+    assert out.lr_pairs == ["L1^R1", "L1^R1", "L2^R2", "L3^R3"]
+    assert out.top_lr_pairs == ["L1^R1", "L2^R2"]
+    assert len(out.results) == 4
     assert out.statistics["use_raw"] is True
 
 
@@ -508,19 +509,19 @@ def test_run_liana_spatial_analysis_builds_expected_storage(
 
     var = pd.DataFrame(
         {
-            "morans": [0.9, 0.3],
-            "morans_pvals": [0.001, 0.3],
+            "morans": [0.9, 0.8, 0.3],
+            "morans_pvals": [0.001, 0.002, 0.3],
         },
-        index=["L1^R1", "L2-R2"],
+        index=["L1^R1", "L1^R1", "L2-R2"],
     )
     lrdata = type(
         "LR",
         (),
         {
-            "n_vars": 2,
+            "n_vars": 3,
             "var": var,
-            "X": np.array([[0.5, 0.2]] * adata.n_obs),
-            "layers": {"pvals": np.array([[0.01, 0.2]] * adata.n_obs)},
+            "X": np.array([[0.5, 0.4, 0.2]] * adata.n_obs),
+            "layers": {"pvals": np.array([[0.01, 0.02, 0.2]] * adata.n_obs)},
         },
     )()
 
@@ -540,17 +541,18 @@ def test_run_liana_spatial_analysis_builds_expected_storage(
         species="human",
         liana_global_metric="morans",
         cell_type_key="cell_type",
-        plot_top_pairs=1,
+        plot_top_pairs=3,
     )
 
     out = ccc._run_liana_spatial_analysis(adata, params, DummyCtx())
 
     assert out.analysis_type == "spatial"
-    assert out.n_pairs == 2
-    assert out.lr_pairs == ["L1^R1", "L2^R2"]
-    assert out.top_lr_pairs == ["L1^R1"]
-    assert out.method_data["spatial_scores"].shape == (adata.n_obs, 2)
-    assert out.method_data["spatial_pvals"].shape == (adata.n_obs, 2)
+    assert out.n_pairs == 3
+    assert out.lr_pairs == ["L1^R1", "L1^R1", "L2^R2"]
+    assert out.top_lr_pairs == ["L1^R1", "L2^R2"]
+    assert len(out.results) == 3
+    assert out.method_data["spatial_scores"].shape == (adata.n_obs, 3)
+    assert out.method_data["spatial_pvals"].shape == (adata.n_obs, 3)
     assert "morans_pvals_corrected" in out.results.columns
     assert "morans_significant" in out.results.columns
 
