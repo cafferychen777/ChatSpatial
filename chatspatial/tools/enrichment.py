@@ -7,6 +7,8 @@ This module provides both standard and spatially-aware enrichment analysis metho
 """
 
 import logging
+from collections.abc import Iterable
+from functools import lru_cache
 from typing import TYPE_CHECKING, Optional, Union
 
 # Core dependencies (REQUIRED - in pyproject.toml dependencies)
@@ -100,11 +102,129 @@ DEFAULT_ENRICHR_DATABASES: tuple[str, ...] = (
     "Reactome_Pathways",
     "MSigDB_Hallmark",
 )
+ENRICHR_ORGANISM_DATABASE_ALIASES: dict[str, tuple[str, ...]] = {
+    "Fly": ("fly", "d. melanogaster", "drosophila melanogaster"),
+    "Yeast": ("yeast", "s. cerevisiae", "saccharomyces cerevisiae"),
+    "Worm": ("worm", "c. elegans", "caenorhabditis elegans", "nematode"),
+    "Fish": ("fish", "d. rerio", "danio rerio", "zebrafish"),
+}
 
 
 def _top_n_desc_indices(values: np.ndarray, n_top: int) -> np.ndarray:
     """Backward-compatible wrapper with non-finite sanitization."""
     return top_n_desc_indices(values, n_top, sanitize_nonfinite=True)
+
+
+def _normalize_gene_set_library(raw_gene_sets: object) -> dict[str, list[str]]:
+    """Normalize gene-set library payloads from gseapy/Enrichr boundaries."""
+    if not isinstance(raw_gene_sets, dict):
+        raise ProcessingError(
+            f"Gene set library must be a dictionary, got {type(raw_gene_sets).__name__}"
+        )
+
+    normalized: dict[str, list[str]] = {}
+    for raw_name, raw_genes in raw_gene_sets.items():
+        name = raw_name.decode("utf-8") if isinstance(raw_name, bytes) else str(raw_name)
+        if isinstance(raw_genes, bytes | str):
+            genes_iter: Iterable[object] = [raw_genes]
+        else:
+            genes_iter = raw_genes
+
+        genes = [
+            gene.decode("utf-8") if isinstance(gene, bytes) else str(gene)
+            for gene in genes_iter
+            if gene not in (None, b"", "")
+        ]
+        normalized[name] = genes
+
+    return normalized
+
+
+def _enrichr_database_for_organism(organism: str) -> str:
+    organism_lower = organism.lower()
+    if organism_lower in {
+        "human",
+        "mouse",
+        "hs",
+        "mm",
+        "homo sapiens",
+        "mus musculus",
+        "h. sapiens",
+        "m. musculus",
+    }:
+        return "Enrichr"
+
+    for key, aliases in ENRICHR_ORGANISM_DATABASE_ALIASES.items():
+        if organism_lower in aliases:
+            return f"{key}Enrichr"
+
+    raise LookupError(
+        "No supported database. Please input one of: "
+        "Human, Mouse, Yeast, Fly, Fish, Worm"
+    )
+
+
+@lru_cache(maxsize=None)
+def _get_enrichr_library_names(organism: str) -> tuple[str, ...]:
+    return tuple(_get_gseapy().get_library_name(organism=organism))
+
+
+def _is_gseapy_bytes_decode_error(error: TypeError) -> bool:
+    return "bytes-like object" in str(error)
+
+
+def _download_enrichr_library(library_name: str, organism: str) -> dict[str, list[str]]:
+    """Download an Enrichr library without relying on gseapy's line decoding."""
+    import requests
+
+    if library_name not in _get_enrichr_library_names(organism):
+        raise ValueError(
+            f"Library {library_name!r} was not found for organism {organism!r}"
+        )
+
+    parser = getattr(_get_gseapy(), "parser", None)
+    url_root = getattr(parser, "ENRICHR_URL", "http://maayanlab.cloud")
+    url = f"{url_root}/{_enrichr_database_for_organism(organism)}/geneSetLibrary"
+
+    with requests.get(
+        url,
+        params={"mode": "text", "libraryName": library_name},
+        timeout=(10, 60),
+        stream=True,
+    ) as response:
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            raise RuntimeError(
+                f"Error fetching gene set library {library_name!r} for {organism!r}."
+            ) from e
+
+        gene_sets: dict[str, list[str]] = {}
+        for raw_line in response.iter_lines(chunk_size=1024, decode_unicode=True):
+            if not raw_line:
+                continue
+            line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+            entries = line.strip().split("\t")
+            if not entries:
+                continue
+            gene_sets[entries[0]] = [
+                entry.split(",")[0] for entry in entries[2:] if entry
+            ]
+
+    return gene_sets
+
+
+def _load_enrichr_library(library_name: str, organism: str) -> dict[str, list[str]]:
+    try:
+        return _normalize_gene_set_library(
+            _get_gseapy().get_library(library_name, organism=organism)
+        )
+    except TypeError as e:
+        if not _is_gseapy_bytes_decode_error(e):
+            raise
+        return _normalize_gene_set_library(
+            _download_enrichr_library(library_name, organism)
+        )
 
 
 def _load_library_first_available(
@@ -117,7 +237,7 @@ def _load_library_first_available(
     last_error: Exception | None = None
     for library_name in GENESET_LIBRARY_CANDIDATES[database_key]:
         try:
-            return _get_gseapy().get_library(library_name, organism=organism)
+            return _load_enrichr_library(library_name, organism)
         except Exception as e:  # pragma: no cover - exercised via caller-level wrapping
             last_error = e
             continue
@@ -1611,9 +1731,9 @@ def load_msigdb_gene_sets(
         elif collection == "C2" and subcollection == "CP:KEGG":
             # KEGG pathways
             if species.lower() == "human":
-                gene_sets_dict = _get_gseapy().get_library("KEGG_2021_Human", organism=organism)
+                gene_sets_dict = _load_enrichr_library("KEGG_2021_Human", organism)
             else:
-                gene_sets_dict = _get_gseapy().get_library("KEGG_2019_Mouse", organism=organism)
+                gene_sets_dict = _load_enrichr_library("KEGG_2019_Mouse", organism)
 
         elif collection == "C2" and subcollection == "CP:REACTOME":
             # Reactome pathways
@@ -1704,9 +1824,9 @@ def load_kegg_gene_sets(
 
         species_lower = species.lower()
         if species_lower == "human":
-            gene_sets = _get_gseapy().get_library("KEGG_2021_Human", organism=organism)
+            gene_sets = _load_enrichr_library("KEGG_2021_Human", organism)
         elif species_lower == "mouse":
-            gene_sets = _get_gseapy().get_library("KEGG_2019_Mouse", organism=organism)
+            gene_sets = _load_enrichr_library("KEGG_2019_Mouse", organism)
         else:
             raise ParameterError(
                 f"KEGG_Pathways is only available for 'human' and 'mouse', "
@@ -1765,7 +1885,7 @@ def load_cell_marker_gene_sets(
     # gseapy imported at module level (required dependency)
     try:
         organism = _get_organism_name(species)
-        gene_sets = _get_gseapy().get_library("CellMarker_Augmented_2021", organism=organism)
+        gene_sets = _load_enrichr_library("CellMarker_Augmented_2021", organism)
 
         # Filter by size
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)

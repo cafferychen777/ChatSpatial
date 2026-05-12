@@ -287,6 +287,65 @@ def test_prepare_stalign_image_returns_normalized_tensor(
     np.testing.assert_allclose(intensity, intensity_before)
 
 
+def test_paste_pot_compat_patch_accepts_df_g_argument(monkeypatch: pytest.MonkeyPatch):
+    calls: list[str] = []
+
+    def _solver(G, deltaG, cost_G, C1, C2, M, reg, nx=None, **_kwargs):
+        del G, deltaG, C1, C2, M, reg, nx
+        calls.append("solver")
+        return 0.5, 1, cost_G
+
+    def _original(*_args, **_kwargs):
+        raise AssertionError("original should be patched")
+
+    pairwise_globals = {
+        "solve_gromov_linesearch": _solver,
+        "my_fused_gromov_wasserstein": _original,
+    }
+    pairwise_align = types.FunctionType(
+        compile("def pairwise_align():\n    return None", "<fake_paste>", "exec").co_consts[0],
+        pairwise_globals,
+    )
+    fake_paste = types.SimpleNamespace(pairwise_align=pairwise_align)
+
+    reg._patch_paste_line_search_for_pot(fake_paste)
+
+    patched = pairwise_globals["my_fused_gromov_wasserstein"]
+    line_searches: list[object] = []
+
+    def _fake_cg(*args, **kwargs):
+        line_searches.append(args[7])
+        return "transport"
+
+    fake_ot = types.SimpleNamespace(
+        backend=types.SimpleNamespace(get_backend=lambda *_a, **_k: None),
+        gromov=types.SimpleNamespace(
+            init_matrix=lambda *_a, **_k: ("const", "h1", "h2"),
+            gwloss=lambda *_a, **_k: 0.0,
+            gwggrad=lambda *_a, **_k: 0.0,
+        ),
+        utils=types.SimpleNamespace(list_to_array=lambda *args: args),
+        optim=types.SimpleNamespace(
+            cg=_fake_cg,
+            line_search_armijo=lambda *_a, **_k: (0.1, 1, 0.0),
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "ot", fake_ot)
+    out = patched(
+        np.ones((2, 2)),
+        np.eye(2),
+        np.eye(2),
+        np.array([0.5, 0.5]),
+        np.array([0.5, 0.5]),
+        armijo=False,
+    )
+
+    assert out == "transport"
+    result = line_searches[0](None, np.eye(2), np.eye(2), None, 1.0, "df_G")
+    assert result == (0.5, 1, 1.0)
+    assert calls == ["solver"]
+
+
 def test_register_paste_pairwise_populates_registered_coords(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):

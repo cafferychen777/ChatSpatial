@@ -132,6 +132,14 @@ def test_find_pvalue_column_priority():
     assert viz_enrich._find_pvalue_column(df2) == "fdr"
 
 
+def test_gsea_barplot_requires_pvalue_column():
+    with pytest.raises(DataNotFoundError, match="requires tabular GSEA/ORA results"):
+        viz_enrich._create_gsea_barplot(
+            pd.DataFrame({"Term": ["PathA"], "method": ["spatial_enrichmap"]}),
+            VisualizationParameters(plot_type="enrichment", subtype="barplot"),
+        )
+
+
 def test_ensure_term_column_raises_when_missing():
     df = pd.DataFrame({"x": [1], "y": [2]})
     with pytest.raises(DataNotFoundError, match="No pathway/term column found"):
@@ -311,6 +319,32 @@ async def test_create_pathway_enrichment_visualization_uses_alternate_result_key
         VisualizationParameters(plot_type="enrichment", subtype="barplot"),
         context=DummyCtx(),
     )
+    assert out is sentinel
+
+
+@pytest.mark.asyncio
+async def test_create_pathway_enrichment_visualization_defaults_to_spatial_scores(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["A_score"] = 0.1
+    adata.uns["enrichment_spatial_MSigDB_Hallmark_metadata"] = {
+        "results_keys": {"obs": ["A_score"], "uns": []}
+    }
+    adata.uns["rank_genes_groups"] = {"names": {"0": ["gene_0"]}}
+    sentinel = object()
+
+    async def _fake_spatial(*_args, **_kwargs):
+        return sentinel
+
+    monkeypatch.setattr(viz_enrich, "_create_enrichment_visualization", _fake_spatial)
+
+    out = await viz_enrich.create_pathway_enrichment_visualization(
+        adata,
+        VisualizationParameters(plot_type="enrichment", subtype="barplot"),
+        context=DummyCtx(),
+    )
+
     assert out is sentinel
 
 

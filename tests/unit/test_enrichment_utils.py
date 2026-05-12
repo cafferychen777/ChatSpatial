@@ -607,6 +607,30 @@ def test_load_msigdb_hallmark_filters_by_size(monkeypatch: pytest.MonkeyPatch):
     assert out == {"ok": ["A", "B", "C"]}
 
 
+def test_load_library_falls_back_when_gseapy_leaves_lines_as_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        enrichment_module.gp,
+        "get_library",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            TypeError("a bytes-like object is required, not 'str'")
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        enrichment_module,
+        "_download_enrichr_library",
+        lambda name, organism: {b"PathA": [b"Gene1", "Gene2"]},
+    )
+
+    out = enrichment_module._load_library_first_available(
+        "MSigDB_Hallmark", "Mus musculus"
+    )
+
+    assert out == {"PathA": ["Gene1", "Gene2"]}
+
+
 def test_load_go_gene_sets_calls_gseapy_with_expected_library(monkeypatch: pytest.MonkeyPatch):
     captured: dict[str, object] = {}
 

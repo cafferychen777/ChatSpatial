@@ -342,7 +342,7 @@ class VisualizationParameters(BaseModel):
     # - feature: spatial/UMAP feature visualization (basis='spatial'|'umap')
     # - expression: heatmap/violin/dotplot/correlation (subtype='heatmap'|'violin'|'dotplot'|'correlation')
     # - deconvolution: cell type proportions (subtype='spatial_multi'|'pie'|'dominant'|'imputation')
-    # - communication: cell-cell communication (subtype='dotplot'|'tileplot'|'circle_plot')
+    # - communication: cell-cell communication (subtype='spatial'|'dotplot'|'tileplot'|'circle_plot')
     # - interaction: spatial ligand-receptor pairs
     # - trajectory: pseudotime/fate analysis (subtype='pseudotime'|'circular'|'fate_map'|'gene_trends'|'fate_heatmap'|'palantir')
     # - velocity: RNA velocity (subtype='stream'|'phase'|'proportions'|'heatmap'|'paga')

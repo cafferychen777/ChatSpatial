@@ -24,6 +24,22 @@ from ..utils.exceptions import (
 )
 
 
+def _select_hvgs_by_variance(adata, n_hvgs: int) -> None:
+    """Select HVGs by finite per-gene variance when Scanpy binning is invalid."""
+    if scipy.sparse.issparse(adata.X):
+        means = np.asarray(adata.X.mean(axis=0)).ravel()
+        sq_means = np.asarray(adata.X.power(2).mean(axis=0)).ravel()
+        var = sq_means - np.square(means)
+    else:
+        var = np.var(np.asarray(adata.X), axis=0)
+    var = np.nan_to_num(var, nan=-np.inf, posinf=-np.inf, neginf=-np.inf)
+    n_select = min(max(int(n_hvgs), 1), adata.n_vars)
+    top_idx = np.argpartition(var, -n_select)[-n_select:]
+    mask = np.zeros(adata.n_vars, dtype=bool)
+    mask[top_idx] = True
+    adata.var["highly_variable"] = mask
+
+
 def _compute_safe_percent_top(n_genes: int) -> list[int] | None:
     """Compute valid percent_top values for scanpy QC metrics.
 
@@ -712,23 +728,22 @@ async def preprocess_data(
             if gene_subsample_requested and n_hvgs < adata.n_vars:
                 # Small panel but user explicitly wants fewer genes:
                 # rank by variance and select top n_hvgs.
-                if scipy.sparse.issparse(adata.X):
-                    var = np.asarray(
-                        adata.X.power(2).mean(axis=0)
-                        - np.power(adata.X.mean(axis=0), 2)
-                    ).ravel()
-                else:
-                    var = np.var(adata.X, axis=0)
-                top_idx = np.argpartition(var, -n_hvgs)[-n_hvgs:]
-                mask = np.zeros(adata.n_vars, dtype=bool)
-                mask[top_idx] = True
-                adata.var["highly_variable"] = mask
+                _select_hvgs_by_variance(adata, n_hvgs)
             else:
                 adata.var["highly_variable"] = True
         else:
-            # Attempt HVG selection - no fallback for failures
             try:
                 sc.pp.highly_variable_genes(adata, n_top_genes=n_hvgs)
+            except KeyError as e:
+                if "nan" not in str(e).lower():
+                    raise ProcessingError(
+                        f"HVG selection failed: {e}. "
+                        f"Data: {adata.n_obs}×{adata.n_vars}, requested: {n_hvgs} HVGs."
+                    ) from e
+                _select_hvgs_by_variance(adata, n_hvgs)
+                await ctx.warning(
+                    "Scanpy HVG binning produced NaN bins; selected HVGs by finite variance instead."
+                )
             except Exception as e:
                 raise ProcessingError(
                     f"HVG selection failed: {e}. "

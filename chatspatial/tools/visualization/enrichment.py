@@ -71,21 +71,9 @@ def _ensure_enrichmap_compatibility(adata: "ad.AnnData") -> "ad.AnnData":
     return adata
 
 
-def _get_score_columns(adata: "ad.AnnData") -> list[str]:
-    """Get all enrichment score columns from adata.obs.
-
-    Priority:
-        1. Read from stored metadata (most reliable, knows exact columns)
-        2. Fall back to suffix search (for legacy data without metadata)
-
-    Returns columns from:
-        - enrichment_spatial*_metadata["results_keys"]["obs"] (e.g., 'Wnt_score')
-        - enrichment_ssgsea*_metadata["results_keys"]["obs"] (e.g., 'ssgsea_Wnt')
-    """
+def _get_metadata_score_columns(adata: "ad.AnnData") -> list[str]:
+    """Get enrichment score columns recorded by ChatSpatial metadata."""
     score_cols = []
-
-    # Search all metadata keys matching enrichment_spatial* or enrichment_ssgsea*
-    # After parametrization, keys are e.g. "enrichment_spatial_KEGG_Pathways_metadata"
     prefixes = ("enrichment_spatial", "enrichment_ssgsea")
     for uns_key in adata.uns:
         if not uns_key.endswith("_metadata"):
@@ -95,15 +83,17 @@ def _get_score_columns(adata: "ad.AnnData") -> list[str]:
             continue
         obs_cols = get_analysis_metadata_field(adata, analysis_name, "results_keys")
         if obs_cols and isinstance(obs_cols, dict) and "obs" in obs_cols:
-            # Filter to only columns that actually exist
             for col in obs_cols["obs"]:
                 if col in adata.obs.columns and col not in score_cols:
                     score_cols.append(col)
+    return score_cols
 
-    # Fall back to suffix search (for legacy data without metadata)
+
+def _get_score_columns(adata: "ad.AnnData") -> list[str]:
+    """Get all enrichment score columns from adata.obs."""
+    score_cols = _get_metadata_score_columns(adata)
     if not score_cols:
         score_cols = [col for col in adata.obs.columns if col.endswith("_score")]
-
     return score_cols
 
 
@@ -175,6 +165,11 @@ async def _create_enrichment_visualization(
     return await _create_enrichment_spatial(adata, params, score_cols, context)
 
 
+def _has_enrichment_score_columns(adata: "ad.AnnData") -> bool:
+    """Return whether ChatSpatial enrichment score columns are available."""
+    return bool(_get_metadata_score_columns(adata))
+
+
 async def create_pathway_enrichment_visualization(
     adata: "ad.AnnData",
     params: VisualizationParameters,
@@ -204,8 +199,18 @@ async def create_pathway_enrichment_visualization(
 
     plot_type = params.subtype or "barplot"
 
+    # Spatial enrichment stores scores in obs, not p-value tables in uns.
+    # If no GSEA/ORA table exists, the default enrichment visualization should
+    # follow the data that is actually available instead of falling through to
+    # stale analysis keys such as rank_genes_groups.
+    if plot_type == "barplot" and _has_enrichment_score_columns(adata):
+        gsea_key = getattr(params, "gsea_results_key", "gsea_results")
+        if gsea_key not in adata.uns and "ora_results" not in adata.uns:
+            spatial_params = params.model_copy(update={"subtype": "spatial"})
+            return await _create_enrichment_visualization(adata, spatial_params, context)
+
     # Route spatial subtypes to enrichment visualization
-    if plot_type.startswith("spatial_"):
+    if plot_type.startswith("spatial_") or plot_type == "spatial":
         return await _create_enrichment_visualization(adata, params, context)
 
     # Get GSEA/ORA results from adata.uns
@@ -576,6 +581,19 @@ def _create_gsea_enrichment_plot(
     raise ParameterError(f"Unsupported GSEA results format: {type(gsea_results)}")
 
 
+def _require_pvalue_column(df: pd.DataFrame, plot_name: str) -> str:
+    """Return a p-value column or raise a plot-specific enrichment error."""
+    pval_col = _find_pvalue_column(df)
+    if pval_col not in df.columns:
+        raise DataNotFoundError(
+            f"Enrichment {plot_name} requires tabular GSEA/ORA results with a p-value column. "
+            "Available columns: "
+            f"{list(df.columns)}. For spatial enrichment scores, use subtype='spatial' "
+            "or subtype='spatial_score'."
+        )
+    return pval_col
+
+
 def _create_gsea_barplot(
     gsea_results,
     params: VisualizationParameters,
@@ -589,8 +607,8 @@ def _create_gsea_barplot(
     if df.empty:
         raise DataNotFoundError("No enrichment results found")
 
-    pval_col = _find_pvalue_column(df)
     _ensure_term_column(df)
+    pval_col = _require_pvalue_column(df, "barplot")
 
     # Barplot-specific figure size: width for long pathway names, height for pathway count
     # (do NOT use resolve_figure_size with n_panels - barplot is not a grid layout)
@@ -655,7 +673,7 @@ def _create_gsea_dotplot(
         raise DataNotFoundError("No enrichment results found")
 
     _ensure_term_column(df)
-    pval_col = _find_pvalue_column(df)
+    pval_col = _require_pvalue_column(df, "dotplot")
 
     figsize = tuple(params.figure_size) if params.figure_size else (6, 8)
     cmap = params.colormap if params.colormap != "coolwarm" else "viridis_r"

@@ -1260,6 +1260,41 @@ async def test_preprocess_data_hvg_selection_failure_is_wrapped(
 
 
 @pytest.mark.asyncio
+async def test_preprocess_data_hvg_nan_bin_keyerror_falls_back_to_variance(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_lightweight_preprocess_mocks(monkeypatch)
+
+    def _raise_nan_bin_keyerror(*_args, **_kwargs):
+        raise KeyError("[nan] not in index")
+
+    monkeypatch.setattr(
+        preprocessing_mod.sc.pp,
+        "highly_variable_genes",
+        _raise_nan_bin_keyerror,
+    )
+
+    adata = _make_adata(n_obs=14, n_vars=120)
+    ctx = DummyCtx(adata)
+
+    await preprocess_data(
+        "d36b",
+        ctx,
+        PreprocessingParameters(
+            normalization="log",
+            filter_mito_pct=None,
+            n_hvgs=20,
+            remove_mito_genes=False,
+            remove_ribo_genes=False,
+        ),
+    )
+
+    assert ctx.saved_adata is not None
+    assert int(ctx.saved_adata.var["highly_variable"].sum()) == 20
+    assert any("NaN bins" in msg for msg in ctx.warnings)
+
+
+@pytest.mark.asyncio
 async def test_preprocess_data_remove_ribo_genes_drops_ribo_from_hvgs(
     monkeypatch: pytest.MonkeyPatch,
 ):
