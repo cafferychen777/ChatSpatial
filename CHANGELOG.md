@@ -5,6 +5,15 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.8] - 2026-05-12 - MCP Runtime Stability Fixes
+
+### Fixed
+
+- Deduplicated LIANA compact summary LR pairs while preserving full communication result tables.
+- Fixed SingleR annotation compatibility with installed `singler.annotate_single()` APIs.
+- Improved CellPhoneDB autocrine loop summaries to use ligand-receptor names instead of integer row labels.
+- Sanitized CCC result payloads during H5AD export so CellPhoneDB results can round-trip through `export_data()` and `reload_data()`.
+
 ## [v1.2.7] - 2026-05-11 - MCP Schema Compatibility Fix
 
 ### Fixed
