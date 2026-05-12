@@ -11,7 +11,10 @@ Design Principles:
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+import pandas as pd
+from pandas.api.types import is_object_dtype, is_string_dtype
 
 if TYPE_CHECKING:
     from anndata import AnnData
@@ -42,6 +45,37 @@ def get_active_path(data_id: str) -> Path:
     return get_active_dir() / f"{data_id}.h5ad"
 
 
+def _sanitize_dataframe_for_h5ad(df: pd.DataFrame) -> pd.DataFrame:
+    sanitized = df.copy()
+    sanitized.index = sanitized.index.map(str)
+    sanitized.columns = sanitized.columns.map(str)
+    for column in sanitized.columns:
+        series = sanitized[column]
+        if is_object_dtype(series.dtype) or is_string_dtype(series.dtype):
+            sanitized[column] = series.where(series.notna(), "").map(str)
+    return sanitized
+
+
+def _sanitize_value_for_h5ad(value: Any) -> Any:
+    if isinstance(value, pd.DataFrame):
+        return _sanitize_dataframe_for_h5ad(value)
+    if isinstance(value, dict):
+        return {str(key): _sanitize_value_for_h5ad(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_value_for_h5ad(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_sanitize_value_for_h5ad(item) for item in value)
+    return value
+
+
+def _prepare_export_adata(adata: "AnnData") -> "AnnData":
+    export_adata_obj = adata.copy()
+    for key in list(export_adata_obj.uns.keys()):
+        if key == "ccc" or key.startswith("ccc_"):
+            export_adata_obj.uns[key] = _sanitize_value_for_h5ad(export_adata_obj.uns[key])
+    return export_adata_obj
+
+
 def export_adata(data_id: str, adata: "AnnData", path: Path | None = None) -> Path:
     """
     Export AnnData object to disk.
@@ -64,7 +98,8 @@ def export_adata(data_id: str, adata: "AnnData", path: Path | None = None) -> Pa
         export_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        adata.write_h5ad(export_path, compression="gzip", compression_opts=4)
+        export_adata_obj = _prepare_export_adata(adata)
+        export_adata_obj.write_h5ad(export_path, compression="gzip", compression_opts=4)
         return export_path
     except Exception as e:
         raise IOError(f"Failed to export data to {export_path}: {e}") from e

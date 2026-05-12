@@ -6,6 +6,7 @@ from pathlib import Path
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import pytest
 
 from chatspatial.utils import persistence
@@ -36,6 +37,39 @@ def test_export_and_load_roundtrip_with_custom_path(tmp_path: Path):
     assert exported == out
     assert exported.exists()
     assert loaded.shape == adata.shape
+
+
+def test_export_sanitizes_ccc_dataframe_object_columns(tmp_path: Path):
+    adata = _make_adata()
+    results = pd.DataFrame(
+        {
+            "gene_a": ["CXCL12", None, np.nan, 123],
+            "gene_b": ["CXCR4", "CCR7", None, "CD74"],
+            "T|T": [0.1, 0.2, 0.3, 0.4],
+        },
+        index=[10, 11, 12, 13],
+    )
+    adata.uns["ccc"] = {
+        "method": "cellphonedb",
+        "results": results,
+        "method_data": {"significant_means": results.copy()},
+    }
+    adata.uns["ccc_cellphonedb"] = {
+        "method": "cellphonedb",
+        "results": results.copy(),
+    }
+    out = tmp_path / "exported" / "ccc_roundtrip.h5ad"
+
+    exported = persistence.export_adata("d1", adata, out)
+    loaded = persistence.load_adata_from_active("d1", exported)
+
+    loaded_results = loaded.uns["ccc"]["results"]
+    assert "ccc_cellphonedb" in loaded.uns
+    assert list(loaded_results.columns) == ["gene_a", "gene_b", "T|T"]
+    assert list(loaded_results.index) == ["10", "11", "12", "13"]
+    assert loaded_results["gene_a"].tolist() == ["CXCL12", "", "", "123"]
+    assert np.issubdtype(loaded_results["T|T"].dtype, np.number)
+    assert adata.uns["ccc"]["results"].index.tolist() == [10, 11, 12, 13]
 
 
 def test_load_adata_missing_file_raises_file_not_found(tmp_path: Path):
