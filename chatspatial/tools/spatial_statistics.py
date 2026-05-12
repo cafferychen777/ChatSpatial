@@ -254,12 +254,15 @@ async def analyze_spatial_statistics(
             if "parameters" in result and "z_threshold" in result["parameters"]:
                 parameters_dict["z_threshold"] = result["parameters"]["z_threshold"]
 
+        # Extract summary fields for MCP response (detailed statistics excluded)
+        summary = _extract_result_summary(result, params.analysis_type)
+
         # Extract statistics for metadata
         statistics_dict: dict[str, int | float] = {
             "n_cells": adata.n_obs,
         }
         if "n_significant" in result:
-            statistics_dict["n_significant"] = result["n_significant"]
+            statistics_dict["n_significant"] = summary["n_significant"]
         if "mean_score" in result:
             statistics_dict["mean_score"] = result["mean_score"]
 
@@ -275,9 +278,6 @@ async def analyze_spatial_statistics(
 
         # Export results to CSV for reproducibility
         export_analysis_result(adata, data_id, f"spatial_stats_{params.analysis_type}")
-
-        # Extract summary fields for MCP response (detailed statistics excluded)
-        summary = _extract_result_summary(result, params.analysis_type)
 
         return SpatialStatisticsResult(
             data_id=data_id,
@@ -378,19 +378,24 @@ def _extract_result_summary(
         genes_analyzed = result.get("genes_analyzed", [])
         summary["n_features_analyzed"] = len(genes_analyzed)
         summary["top_features"] = genes_analyzed[:10]
-        # Count total hotspots across all genes
         per_gene_results = result.get("results", {})
-        total_hot = sum(r.get("n_hot_spots", 0) for r in per_gene_results.values())
-        total_cold = sum(r.get("n_cold_spots", 0) for r in per_gene_results.values())
-        # Use corrected counts when available, fall back to raw
-        key_sig = (
-            "n_significant_corrected"
-            if any("n_significant_corrected" in r for r in per_gene_results.values())
-            else "n_significant_raw"
+        use_corrected_spot_counts = any(
+            "n_hot_spots_corrected" in r or "n_cold_spots_corrected" in r
+            for r in per_gene_results.values()
         )
-        summary["n_significant"] = sum(
-            r.get(key_sig, 0) for r in per_gene_results.values()
-        )
+        if use_corrected_spot_counts:
+            total_hot = sum(
+                r.get("n_hot_spots_corrected", r.get("n_hot_spots", 0))
+                for r in per_gene_results.values()
+            )
+            total_cold = sum(
+                r.get("n_cold_spots_corrected", r.get("n_cold_spots", 0))
+                for r in per_gene_results.values()
+            )
+        else:
+            total_hot = sum(r.get("n_hot_spots", 0) for r in per_gene_results.values())
+            total_cold = sum(r.get("n_cold_spots", 0) for r in per_gene_results.values())
+        summary["n_significant"] = total_hot + total_cold
         summary["summary_metrics"] = {
             "total_hotspots": total_hot,
             "total_coldspots": total_cold,
@@ -920,17 +925,19 @@ def _analyze_getis_ord(
     except Exception as e:
         raise ProcessingError(f"Getis-Ord analysis failed: {e}") from e
 
-    # Aggregate n_significant across genes
-    total_significant = sum(
-        r.get("n_significant_corrected", r.get("n_significant_raw", 0))
-        for r in getis_ord_results.values()
-    )
+    total_hotspots = 0
+    total_coldspots = 0
+    for result in getis_ord_results.values():
+        total_hotspots += result.get("n_hot_spots_corrected", result.get("n_hot_spots", 0))
+        total_coldspots += result.get(
+            "n_cold_spots_corrected", result.get("n_cold_spots", 0)
+        )
 
     return {
         "method": "Getis-Ord Gi* (star=True)",
         "n_genes_analyzed": len(getis_ord_results),
         "genes_analyzed": list(getis_ord_results),
-        "n_significant": total_significant,
+        "n_significant": total_hotspots + total_coldspots,
         "parameters": {
             "n_neighbors": params.n_neighbors,
             "alpha": params.getis_ord_alpha,

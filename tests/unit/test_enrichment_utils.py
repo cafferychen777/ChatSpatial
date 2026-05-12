@@ -42,6 +42,9 @@ class DummyCtx:
     async def error(self, msg: str):
         self.errors.append(msg)
 
+    async def warning(self, _msg: str):
+        return None
+
 
 def test_filter_significant_statistics_uses_gsea_threshold_025():
     stats, scores, pvals, adj = _filter_significant_statistics(
@@ -211,6 +214,43 @@ async def test_analyze_enrichment_normalizes_list_gene_sets_for_ora(
     out = await analyze_enrichment("d1", ctx, params)
     assert out.method == "pathway_ora"
     assert captured["gene_sets"] == {"user_genes": ["gene_0", "gene_1"]}
+
+
+@pytest.mark.asyncio
+async def test_analyze_enrichment_limits_database_spatial_enrichmap_to_best_overlaps(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    ctx = DummyCtx(minimal_spatial_adata)
+    captured: dict[str, object] = {}
+    many_gene_sets = {
+        f"set_{i:02d}": [f"gene_{i % 24}", f"gene_{(i + 1) % 24}"]
+        for i in range(60)
+    }
+    many_gene_sets["best_match"] = ["gene_0", "gene_1", "gene_2", "gene_3"]
+
+    monkeypatch.setattr(enrichment_module, "load_gene_sets", lambda **_kwargs: many_gene_sets)
+
+    async def _fake_spatial(**kwargs):
+        captured.update(kwargs)
+        return EnrichmentResult(
+            method="spatial_enrichmap",
+            n_gene_sets=len(kwargs["gene_sets"]),
+            n_significant=0,
+            top_gene_sets=[],
+            top_depleted_sets=[],
+        )
+
+    monkeypatch.setattr(enrichment_module, "perform_spatial_enrichment", _fake_spatial)
+
+    params = EnrichmentParameters(
+        species="human",
+        method="spatial_enrichmap",
+        gene_set_database="GO_Biological_Process",
+    )
+    await analyze_enrichment("d1", ctx, params)
+
+    assert len(captured["gene_sets"]) == 50
+    assert "best_match" in captured["gene_sets"]
 
 
 @pytest.mark.asyncio

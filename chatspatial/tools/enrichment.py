@@ -49,6 +49,7 @@ def _get_gseapy():
 
 # Subramanian et al. 2005 PNAS: "We recommend an FDR cutoff of 25%"
 _GSEA_FDR_THRESHOLD = 0.25
+_SPATIAL_ENRICHMAP_MAX_DATABASE_GENE_SETS = 50
 
 logger = logging.getLogger(__name__)
 
@@ -365,6 +366,48 @@ def _filter_gene_sets_by_size(
         for name, genes in gene_sets.items()
         if min_size <= len(genes) <= max_size
     }
+
+
+def _match_gene_set_to_dataset(
+    genes: list[str], available_genes: set[str], species: str
+) -> list[str]:
+    """Return genes from a gene set that are present in the dataset."""
+    common_genes = [gene for gene in genes if gene in available_genes]
+    if len(common_genes) < len(genes) * 0.5 and species != "unknown":
+        dataset_format_genes, _ = _convert_gene_format_for_matching(
+            genes, available_genes, species
+        )
+        if len(dataset_format_genes) > len(common_genes):
+            common_genes = dataset_format_genes
+    return common_genes
+
+
+def _rank_gene_sets_by_dataset_overlap(
+    gene_sets: dict[str, list[str]], available_genes: set[str], species: str
+) -> list[tuple[str, list[str]]]:
+    """Rank gene sets by overlap with the dataset for bounded spatial scoring."""
+    ranked: list[tuple[int, int, str, list[str]]] = []
+    for name, genes in gene_sets.items():
+        common_genes = _match_gene_set_to_dataset(genes, available_genes, species)
+        if len(common_genes) >= 2:
+            ranked.append((len(common_genes), len(genes), name, genes))
+
+    ranked.sort(key=lambda item: (-item[0], item[1], item[2]))
+    return [(name, genes) for _, _, name, genes in ranked]
+
+
+def _limit_spatial_enrichmap_gene_sets(
+    gene_sets: dict[str, list[str]],
+    available_genes: set[str],
+    species: str,
+    max_gene_sets: int = _SPATIAL_ENRICHMAP_MAX_DATABASE_GENE_SETS,
+) -> dict[str, list[str]]:
+    """Limit database-backed spatial EnrichMap scoring to best-overlap signatures."""
+    if len(gene_sets) <= max_gene_sets:
+        return gene_sets
+
+    ranked_gene_sets = _rank_gene_sets_by_dataset_overlap(gene_sets, available_genes, species)
+    return dict(ranked_gene_sets[:max_gene_sets])
 
 
 # ============================================================================
@@ -1519,18 +1562,7 @@ async def perform_spatial_enrichment(
     validated_gene_sets = {}
 
     for sig_name, genes in gene_sets_dict.items():
-        # Try direct matching first
-        common_genes = [gene for gene in genes if gene in available_genes]
-
-        # If few matches and we know the species, try format conversion
-        if len(common_genes) < len(genes) * 0.5 and species != "unknown":
-            dataset_format_genes, _ = _convert_gene_format_for_matching(
-                genes, available_genes, species
-            )
-
-            if len(dataset_format_genes) > len(common_genes):
-                # Format conversion helped, use dataset format genes for EnrichMap
-                common_genes = dataset_format_genes
+        common_genes = _match_gene_set_to_dataset(genes, available_genes, species)
 
         if len(common_genes) < 2:
             await ctx.warning(
@@ -1993,6 +2025,7 @@ async def analyze_enrichment(
     adata = await ctx.get_adata(data_id)
 
     # Load gene sets
+    loaded_from_database = False
     gene_sets = params.gene_sets
     if gene_sets is None and params.gene_set_database:
         try:
@@ -2003,6 +2036,7 @@ async def analyze_enrichment(
                 max_genes=params.max_genes,
                 ctx=ctx,
             )
+            loaded_from_database = True
         except Exception as e:
             await ctx.error(f"Gene set database loading failed: {e}")
             raise ProcessingError(
@@ -2028,6 +2062,21 @@ async def analyze_enrichment(
         gene_sets_dict = {"user_genes": gene_sets}
     else:
         gene_sets_dict = gene_sets
+
+    if params.method == "spatial_enrichmap" and loaded_from_database:
+        n_loaded_gene_sets = len(gene_sets_dict)
+        gene_sets_dict = _limit_spatial_enrichmap_gene_sets(
+            gene_sets_dict,
+            available_genes=set(adata.var_names),
+            species=params.species,
+        )
+        if len(gene_sets_dict) < n_loaded_gene_sets:
+            await ctx.warning(
+                f"Spatial EnrichMap scored the {len(gene_sets_dict)} database gene sets "
+                f"with highest dataset overlap out of {n_loaded_gene_sets} loaded sets. "
+                "Provide custom gene_sets to score specific signatures."
+            )
+        gene_sets = gene_sets_dict
 
     # Normalize score_keys to single string for methods that require it
     ranking_key: str | None = None

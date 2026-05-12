@@ -137,7 +137,6 @@ class CCCStorage:
             "autocrine": {
                 "n_loops": self.autocrine.n_loops,
                 "top_pairs": self.autocrine.top_pairs,
-                "results": self.autocrine.results,
             },
             "statistics": self.statistics,
             "method_data": self.method_data,
@@ -206,6 +205,60 @@ def standardize_lr_pair(pair_str: str) -> str:
 
     # Ambiguous multi-separator or no separator — return as-is
     return pair_str
+
+
+def _build_fastccc_lri_pair_map(database_dir: str) -> dict[str, str]:
+    gene_table = pd.read_csv(f"{database_dir}/gene_table.csv")
+    id_to_symbol = (
+        gene_table[["protein_id", "hgnc_symbol"]]
+        .dropna()
+        .set_index("protein_id")["hgnc_symbol"]
+        .astype(str)
+        .to_dict()
+    )
+
+    complex_composition = pd.read_csv(f"{database_dir}/complex_composition_table.csv")
+    complex_table = pd.read_csv(f"{database_dir}/complex_table.csv")
+    complex_table = complex_table.merge(
+        complex_composition,
+        left_on="complex_multidata_id",
+        right_on="complex_multidata_id",
+    )
+    for complex_id, rows in complex_table.groupby("complex_multidata_id"):
+        symbols = [
+            id_to_symbol.get(protein_id, str(protein_id))
+            for protein_id in rows["protein_multidata_id"].tolist()
+        ]
+        id_to_symbol[complex_id] = "_".join(symbols)
+
+    interactions = pd.read_csv(f"{database_dir}/interaction_table.csv")
+    return {
+        str(row.id_cp_interaction): standardize_lr_pair(
+            f"{id_to_symbol.get(row.multidata_1_id, row.multidata_1_id)}^"
+            f"{id_to_symbol.get(row.multidata_2_id, row.multidata_2_id)}"
+        )
+        for row in interactions.itertuples(index=False)
+    }
+
+
+def _normalize_fastccc_matrix(
+    matrix: Optional[pd.DataFrame], lri_pair_map: dict[str, str]
+) -> Optional[pd.DataFrame]:
+    if matrix is None:
+        return None
+
+    index_has_cell_pairs = any("|" in str(index) for index in matrix.index)
+    column_has_cell_pairs = any("|" in str(column) for column in matrix.columns)
+    normalized = (
+        matrix.T.copy()
+        if index_has_cell_pairs and not column_has_cell_pairs
+        else matrix.copy()
+    )
+    normalized.index = [
+        lri_pair_map.get(str(index), standardize_lr_pair(str(index)))
+        for index in normalized.index
+    ]
+    return normalized
 
 
 def store_ccc_results(adata: Any, storage: CCCStorage) -> None:
@@ -1312,8 +1365,7 @@ def _analyze_communication_cellchat_r(
             # Memory optimization: Get CellChatDB gene list and pre-filter
             # This reduces memory from O(n_cells × n_all_genes) to O(n_cells × n_db_genes)
             # Typical savings: 20000 genes → 1500 genes = 13x memory reduction
-            ro.r(
-                f"""
+            ro.r(f"""
                 CellChatDB <- {db_name}
                 # Get all genes used in CellChatDB (ligands, receptors, cofactors)
                 cellchat_genes <- unique(c(
@@ -1322,8 +1374,7 @@ def _analyze_communication_cellchat_r(
                     unlist(strsplit(CellChatDB$interaction$receptor, "_"))
                 ))
                 cellchat_genes <- cellchat_genes[!is.na(cellchat_genes)]
-            """
-            )
+            """)
             cellchat_genes_r = ro.r("cellchat_genes")
             cellchat_genes = set(cellchat_genes_r)
 
@@ -1392,8 +1443,7 @@ def _analyze_communication_cellchat_r(
                 spatial_tol = params.cellchat_spatial_tol
                 ro.globalenv["pixel_ratio"] = pixel_ratio
                 ro.globalenv["spatial_tol"] = spatial_tol
-                ro.r(
-                    """
+                ro.r("""
                     spatial.factors <- data.frame(
                         ratio = pixel_ratio,
                         tol = spatial_tol
@@ -1407,65 +1457,52 @@ def _analyze_communication_cellchat_r(
                         coordinates = as.matrix(spatial_locs),
                         spatial.factors = spatial.factors
                     )
-                """
-                )
+                """)
             else:
                 # Non-spatial mode
-                ro.r(
-                    """
+                ro.r("""
                     cellchat <- createCellChat(
                         object = as.matrix(expr_matrix),
                         meta = meta_df,
                         group.by = "labels"
                     )
-                """
-                )
+                """)
 
             # Set database
-            ro.r(
-                f"""
+            ro.r(f"""
                 CellChatDB <- {db_name}
-            """
-            )
+            """)
 
             # Subset database by category if specified
             if params.cellchat_db_category != "All":
-                ro.r(
-                    f"""
+                ro.r(f"""
                     CellChatDB.use <- subsetDB(
                         CellChatDB,
                         search = "{params.cellchat_db_category}"
                     )
                     cellchat@DB <- CellChatDB.use
-                """
-                )
+                """)
             else:
-                ro.r(
-                    """
+                ro.r("""
                     cellchat@DB <- CellChatDB
-                """
-                )
+                """)
 
             # Preprocessing
-            ro.r(
-                """
+            ro.r("""
                 cellchat <- subsetData(cellchat)
                 cellchat <- identifyOverExpressedGenes(cellchat)
                 cellchat <- identifyOverExpressedInteractions(cellchat)
-            """
-            )
+            """)
 
             # Project data (optional but recommended)
-            ro.r(
-                """
+            ro.r("""
                 # Project data onto PPI network (optional)
                 tryCatch({
                     cellchat <- projectData(cellchat, PPI.human)
                 }, error = function(e) {
                     message("Skipping data projection: ", e$message)
                 })
-            """
-            )
+            """)
 
             # Compute communication probability
             if has_spatial and params.cellchat_distance_use:
@@ -1476,8 +1513,7 @@ def _analyze_communication_cellchat_r(
                 else:
                     contact_param = f"contact.knn.k = {params.cellchat_contact_knn_k}"
 
-                ro.r(
-                    f"""
+                ro.r(f"""
                     cellchat <- computeCommunProb(
                         cellchat,
                         type = "{params.cellchat_type}",
@@ -1488,45 +1524,35 @@ def _analyze_communication_cellchat_r(
                         scale.distance = {params.cellchat_scale_distance},
                         {contact_param}
                     )
-                """
-                )
+                """)
             else:
                 # Non-spatial mode
-                ro.r(
-                    f"""
+                ro.r(f"""
                     cellchat <- computeCommunProb(
                         cellchat,
                         type = "{params.cellchat_type}",
                         trim = {params.cellchat_trim},
                         population.size = {str(params.cellchat_population_size).upper()}
                     )
-                """
-                )
+                """)
 
             # Filter communication
-            ro.r(
-                f"""
+            ro.r(f"""
                 cellchat <- filterCommunication(cellchat, min.cells = {params.cellchat_min_cells})
-            """
-            )
+            """)
 
             # Compute pathway-level communication
-            ro.r(
-                """
+            ro.r("""
                 cellchat <- computeCommunProbPathway(cellchat)
-            """
-            )
+            """)
 
             # Aggregate network
-            ro.r(
-                """
+            ro.r("""
                 cellchat <- aggregateNet(cellchat)
-            """
-            )
+            """)
 
             # Extract results
-            ro.r(
-                """
+            ro.r("""
                 # Get LR pairs
                 lr_pairs <- cellchat@LR$LRsig
 
@@ -1561,8 +1587,7 @@ def _analyze_communication_cellchat_r(
                 } else {
                     top_lr <- character(0)
                 }
-            """
-            )
+            """)
 
             # Convert results back to Python (force native types for h5ad compatibility)
             n_lr_pairs = int(ro.r("n_lr_pairs")[0])
@@ -1661,8 +1686,6 @@ async def _analyze_communication_fastccc(
 
     import pandas as pd
 
-    from ..utils.adata_utils import to_dense
-
     try:
         start_time = time.time()
 
@@ -1703,8 +1726,8 @@ async def _analyze_communication_fastccc(
             import scanpy as sc
 
             # Prepare expression matrix (cells × genes)
-            # Use copy=True to ensure safe modification for normalize_total/log1p
-            expr_matrix = to_dense(raw_result.X, copy=True)
+            # Preserve sparse matrices to avoid densifying full Visium-scale data.
+            expr_matrix = raw_result.X.copy()
             gene_names = list(raw_result.var_names)
             cell_names = list(adata.obs_names)
 
@@ -1759,6 +1782,8 @@ async def _analyze_communication_fastccc(
             os.makedirs(output_dir, exist_ok=True)
 
             # Run FastCCC analysis
+            lri_pair_map = _build_fastccc_lri_pair_map(database_dir)
+
             if params.fastccc_use_cauchy:
                 # Cauchy combination method (more robust, multiple parameter combinations)
                 # Note: This function saves results to files and returns None
@@ -1835,6 +1860,11 @@ async def _analyze_communication_fastccc(
                 )
 
         # Process results
+        interactions_strength = _normalize_fastccc_matrix(
+            interactions_strength, lri_pair_map
+        )
+        pvalues = _normalize_fastccc_matrix(pvalues, lri_pair_map)
+        percentages = _normalize_fastccc_matrix(percentages, lri_pair_map)
         n_lr_pairs = len(pvalues) if pvalues is not None else 0
 
         # Count significant pairs (with multiple-testing correction)
@@ -1878,10 +1908,7 @@ async def _analyze_communication_fastccc(
         if interactions_strength is not None and hasattr(
             interactions_strength, "index"
         ):
-            # All LR pairs (standardized format)
-            all_lr_pairs = [
-                standardize_lr_pair(str(p)) for p in interactions_strength.index
-            ]
+            all_lr_pairs = [str(p) for p in interactions_strength.index]
 
             # Sort by mean interaction strength across cell type pair columns
             if hasattr(interactions_strength, "select_dtypes"):
@@ -1907,7 +1934,7 @@ async def _analyze_communication_fastccc(
                 top_lr_pairs_raw = [interactions_strength.index[i] for i in top_indices]
 
         # Standardize top LR pairs
-        top_lr_standardized = [standardize_lr_pair(str(p)) for p in top_lr_pairs_raw]
+        top_lr_standardized = [str(p) for p in top_lr_pairs_raw]
 
         end_time = time.time()
         analysis_time = end_time - start_time

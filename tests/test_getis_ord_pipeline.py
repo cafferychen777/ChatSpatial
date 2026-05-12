@@ -212,6 +212,8 @@ class TestNSignificant:
                     "n_cold_spots": 5,
                     "n_significant_raw": 100,
                     "n_significant_corrected": 7,
+                    "n_hot_spots_corrected": 4,
+                    "n_cold_spots_corrected": 3,
                 },
             },
         }
@@ -220,17 +222,26 @@ class TestNSignificant:
         assert summary["n_significant"] == 7
 
     def test_getis_ord_return_includes_n_significant(self):
-        """The return dict from _analyze_getis_ord should have n_significant."""
-        # This tests the aggregation logic directly
-        getis_ord_results = {
-            "GeneA": {"n_significant_raw": 10, "n_significant_corrected": 5},
-            "GeneB": {"n_significant_raw": 20},
-        }
-        total = sum(
-            r.get("n_significant_corrected", r.get("n_significant_raw", 0))
-            for r in getis_ord_results.values()
+        """The return summary should count corrected hot and cold spots."""
+        from chatspatial.tools.spatial_statistics import _extract_result_summary
+
+        summary = _extract_result_summary(
+            {
+                "genes_analyzed": ["GeneA", "GeneB"],
+                "results": {
+                    "GeneA": {
+                        "n_hot_spots": 10,
+                        "n_cold_spots": 20,
+                        "n_hot_spots_corrected": 3,
+                        "n_cold_spots_corrected": 2,
+                    },
+                    "GeneB": {"n_hot_spots": 4, "n_cold_spots": 6},
+                },
+            },
+            "getis_ord",
         )
-        assert total == 25  # 5 (corrected) + 20 (raw fallback)
+
+        assert summary["n_significant"] == 15
 
 
 # ---------------------------------------------------------------------------

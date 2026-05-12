@@ -643,7 +643,8 @@ async def analyze_cell_communication(
     )
 
     # Call cell communication function with ToolContext
-    result = await analyze_comm_func(data_id, ctx, params)
+    with suppress_output():
+        result = await analyze_comm_func(data_id, ctx, params)
 
     # Note: No writeback needed - adata modifications are in-place on the same object
 

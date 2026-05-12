@@ -88,6 +88,39 @@ def test_build_results_keys_unknown_analysis_returns_empty_key_structure():
     assert keys == {"obs": [], "var": [], "obsm": [], "uns": []}
 
 
+def test_extract_result_summary_getis_ord_uses_corrected_hot_and_cold_counts():
+    summary = _extract_result_summary(
+        {
+            "genes_analyzed": ["GeneA", "GeneB"],
+            "parameters": {"correction": "fdr_bh"},
+            "results": {
+                "GeneA": {
+                    "n_hot_spots": 50,
+                    "n_cold_spots": 60,
+                    "n_hot_spots_corrected": 3,
+                    "n_cold_spots_corrected": 4,
+                    "n_significant_corrected": 7,
+                },
+                "GeneB": {
+                    "n_hot_spots": 70,
+                    "n_cold_spots": 80,
+                    "n_hot_spots_corrected": 5,
+                    "n_cold_spots_corrected": 6,
+                    "n_significant_corrected": 11,
+                },
+            },
+        },
+        "getis_ord",
+    )
+
+    assert summary["n_features_analyzed"] == 2
+    assert summary["n_significant"] == 18
+    assert summary["summary_metrics"] == {
+        "total_hotspots": 8,
+        "total_coldspots": 10,
+    }
+
+
 def test_extract_result_summary_join_count_and_network_properties_branches():
     join_summary = _extract_result_summary(
         {"bb": 10, "ww": 20, "bw": 5, "J": 35, "p_value": 0.03},

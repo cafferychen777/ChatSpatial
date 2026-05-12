@@ -986,7 +986,9 @@ async def test_analyze_communication_fastccc_success_single_method(
     )
     percentages = pd.DataFrame({"pct": [0.5, 0.6]}, index=["L1^R1", "L2-R2"])
 
-    def _fake_statistical_analysis_method(**_kwargs):
+    def _fake_statistical_analysis_method(**kwargs):
+        saved = __import__("anndata").read_h5ad(kwargs["counts_file_path"])
+        assert sp.issparse(saved.X)
         return interactions_strength, pvalues, percentages
 
     import sys
@@ -1003,7 +1005,7 @@ async def test_analyze_communication_fastccc_success_single_method(
             "Raw",
             (),
             {
-                "X": np.asarray(_adata.X),
+                "X": sp.csr_matrix(np.asarray(_adata.X)),
                 "var_names": _adata.var_names,
             },
         )(),
@@ -1033,7 +1035,7 @@ async def test_analyze_communication_fastccc_success_single_method(
     assert out.n_significant == 1
     assert out.lr_pairs == ["L1^R1", "L2^R2"]
     assert out.top_lr_pairs == ["L2^R2"]
-    assert out.method_data["percentages"] is percentages
+    assert out.method_data["percentages"].index.tolist() == ["L1^R1", "L2^R2"]
 
 
 def test_ensure_cellphonedb_database_raises_dependency_error_and_restores_ssl_on_download_failure(
@@ -1276,7 +1278,15 @@ async def test_analyze_communication_fastccc_success_standard_path(
         ccc,
         "get_raw_data_source",
         lambda *_a, **_k: type(
-            "Raw", (), {"X": adata.X, "var_names": adata.var_names, "is_integer_counts": True, "has_negatives": False, "source": "X"}
+            "Raw",
+            (),
+            {
+                "X": adata.X,
+                "var_names": adata.var_names,
+                "is_integer_counts": True,
+                "has_negatives": False,
+                "source": "X",
+            },
         )(),
     )
 
@@ -1329,7 +1339,15 @@ async def test_analyze_communication_fastccc_cauchy_without_outputs_raises(
         ccc,
         "get_raw_data_source",
         lambda *_a, **_k: type(
-            "Raw", (), {"X": adata.X, "var_names": adata.var_names, "is_integer_counts": True, "has_negatives": False, "source": "X"}
+            "Raw",
+            (),
+            {
+                "X": adata.X,
+                "var_names": adata.var_names,
+                "is_integer_counts": True,
+                "has_negatives": False,
+                "source": "X",
+            },
         )(),
     )
 
@@ -1883,7 +1901,15 @@ async def test_analyze_communication_fastccc_missing_database_files_raises(
         ccc,
         "get_raw_data_source",
         lambda *_a, **_k: type(
-            "Raw", (), {"X": np.asarray(adata.X), "var_names": adata.var_names, "is_integer_counts": True, "has_negatives": False, "source": "X"}
+            "Raw",
+            (),
+            {
+                "X": np.asarray(adata.X),
+                "var_names": adata.var_names,
+                "is_integer_counts": True,
+                "has_negatives": False,
+                "source": "X",
+            },
         )(),
     )
     monkeypatch.setattr("os.path.exists", lambda _p: False)
@@ -1931,7 +1957,15 @@ async def test_analyze_communication_fastccc_cauchy_reads_saved_outputs_and_none
         ccc,
         "get_raw_data_source",
         lambda *_a, **_k: type(
-            "Raw", (), {"X": np.asarray(adata.X), "var_names": adata.var_names, "is_integer_counts": True, "has_negatives": False, "source": "X"}
+            "Raw",
+            (),
+            {
+                "X": np.asarray(adata.X),
+                "var_names": adata.var_names,
+                "is_integer_counts": True,
+                "has_negatives": False,
+                "source": "X",
+            },
         )(),
     )
     import os.path as osp
@@ -1989,7 +2023,15 @@ async def test_analyze_communication_fastccc_none_pvalues_sets_zero_significant(
         ccc,
         "get_raw_data_source",
         lambda *_a, **_k: type(
-            "Raw", (), {"X": np.asarray(adata.X), "var_names": adata.var_names, "is_integer_counts": True, "has_negatives": False, "source": "X"}
+            "Raw",
+            (),
+            {
+                "X": np.asarray(adata.X),
+                "var_names": adata.var_names,
+                "is_integer_counts": True,
+                "has_negatives": False,
+                "source": "X",
+            },
         )(),
     )
     import os.path as osp
