@@ -2,7 +2,7 @@
 
 Scripts, result data, and supplementary tables for reproducing the experiments in:
 
-> **ChatSpatial: Schema-Enforced Agentic Orchestration for Reproducible and Cross-Platform Spatial Transcriptomics**
+> **ChatSpatial: Schema-Enforced Orchestration of Cross-Ecosystem Spatial Transcriptomics Workflows**
 >
 > Chen Yang, Xianyang Zhang, Jun Chen
 
@@ -163,7 +163,7 @@ This dataset is used in:
 |-----------|-------|
 | Source | [spatialLIBD](http://spatial.libd.org/spatialLIBD/) R/Bioconductor package |
 | Original Paper | Maynard et al., "Transcriptome-scale spatial gene expression in the human dorsolateral prefrontal cortex," *Nature Neuroscience* 24, 425-436 (2021) |
-| GEO Accession | [GSE149662](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE149662) |
+| GEO Accession | [GSE158328](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE158328) |
 | Technology | 10x Genomics Visium |
 | Total Samples | 12 samples from 3 donors (4 samples per donor) |
 | Samples Used | 3 samples (151673, 151507, 151669; one per donor) |
@@ -180,10 +180,10 @@ The following datasets were used for functional validation (Results Section 2.2,
 
 | Dataset | Accession | Technology | Reference | Spots/Cells | Genes |
 |---------|-----------|------------|-----------|-------------|-------|
-| SPOTS Benchmark | [GSE198353](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE198353) | Visium | Kleshchevnikov et al., *Nat. Biotechnol.* 2022 | ~4,000 spots | ~33,000 |
+| SPOTS Benchmark | [GSE198353](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE198353) | Visium + protein | Ben-Chetrit, Niu et al., *Nat. Biotechnol.* 41, 788-793 (2023) | ~4,000 spots | ~33,000 |
 | Visium Multi-Sample (Breast) | [GSE254652](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE254652) | Visium | See Supplementary Table S2 | Multiple samples | ~36,000 |
 | Visium Multi-Sample (Brain) | [GSE243275](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE243275) | Visium | See Supplementary Table S2 | Multiple samples | ~36,000 |
-| MERFISH (Hypothalamus) | [GSE113576](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE113576) | MERFISH | Moffitt et al., *Science* 362, 1348-1353 (2018) | ~73,000 cells | 155 genes |
+| MERFISH (Hypothalamus) | [GSE113576](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE113576) | MERFISH | Moffitt et al., *Science* 362, eaau5324 (2018) | ~73,000 cells | 155 genes |
 | seqFISH (Mouse Embryo) | [GSE133244](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE133244) | seqFISH | Lohoff et al., *Nat. Biotechnol.* 40, 74-85 (2022) | ~19,000 cells | 351 genes |
 | STARmap (Mouse VISp) | [Wang Lab Data Portal](https://www.wangxiaolab.org/data-portal-1) | STARmap | Wang et al., *Science* 361, eaat5691 (2018) | ~300 spots | 150 genes |
 | Slide-seq (Mouse Cerebellum) | [SCP354](https://singlecell.broadinstitute.org/single_cell/study/SCP354) | Slide-seq | Rodriques et al., *Science* 363, 1463-1467 (2019) | ~40,000 beads | ~21,000 |
@@ -386,6 +386,8 @@ Bridges the ablation to the specific case-study workflow by repeating the OSCC C
 ---
 
 ## Running the Scripts
+
+> **Note on script paths:** These scripts were developed and executed in the ChatSpatial development workspace, where they sit alongside the main `code/` package and `benchmarks/` directories. Some scripts (particularly Group 3: end-to-end benchmarks) reference sibling directories for dataset paths and competitor framework installations. When running outside the development workspace, ensure ChatSpatial is installed via pip (`pip install chatspatial`) and adjust data paths as needed. Several scripts share utility functions via sibling imports (e.g., `prompt_sensitivity.py` imports from `ablation_invocation.py`); run them from the repository root (`python scripts/<name>.py`) so that Python resolves these imports correctly.
 
 ### Group 1: Static Analysis (no API keys needed)
 
