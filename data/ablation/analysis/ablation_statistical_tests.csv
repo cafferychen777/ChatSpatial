@@ -1,0 +1,17 @@
+task,metric,test,groups,statistic,p_value,significant,bonferroni_alpha
+spatial_domains,ari,kruskal_wallis,"[""full_schema"", ""bare_schema"", ""no_schema""]",115.9336,0.0,True,
+spatial_domains,ari,mann_whitney_full_schema_vs_bare_schema,"[""full_schema"", ""bare_schema""]",88308.0,0.0,True,0.0167
+spatial_domains,ari,mann_whitney_full_schema_vs_no_schema,"[""full_schema"", ""no_schema""]",4455.0,0.0,True,0.0167
+spatial_domains,ari,mann_whitney_bare_schema_vs_no_schema,"[""bare_schema"", ""no_schema""]",2700.0,0.0,True,0.0167
+spatial_domains,nmi,kruskal_wallis,"[""full_schema"", ""bare_schema"", ""no_schema""]",46.2915,0.0,True,
+spatial_domains,nmi,mann_whitney_full_schema_vs_bare_schema,"[""full_schema"", ""bare_schema""]",64568.0,0.50892,False,0.0167
+spatial_domains,nmi,mann_whitney_full_schema_vs_no_schema,"[""full_schema"", ""no_schema""]",4455.0,0.0,True,0.0167
+spatial_domains,nmi,mann_whitney_bare_schema_vs_no_schema,"[""bare_schema"", ""no_schema""]",2700.0,0.0,True,0.0167
+svg_detection,jaccard,kruskal_wallis,"[""full_schema"", ""bare_schema"", ""no_schema""]",360.3024,0.0,True,
+svg_detection,jaccard,mann_whitney_full_schema_vs_bare_schema,"[""full_schema"", ""bare_schema""]",132892.5,0.0,True,0.0167
+svg_detection,jaccard,mann_whitney_full_schema_vs_no_schema,"[""full_schema"", ""no_schema""]",70687.5,1.0,False,0.0167
+svg_detection,jaccard,mann_whitney_bare_schema_vs_no_schema,"[""bare_schema"", ""no_schema""]",42087.5,0.0,True,0.0167
+deconvolution,pearson,kruskal_wallis,"[""full_schema"", ""bare_schema"", ""no_schema""]",92.2875,0.0,True,
+deconvolution,pearson,mann_whitney_full_schema_vs_bare_schema,"[""full_schema"", ""bare_schema""]",56777.5,0.223059,False,0.0167
+deconvolution,pearson,mann_whitney_full_schema_vs_no_schema,"[""full_schema"", ""no_schema""]",60291.0,0.0,True,0.0167
+deconvolution,pearson,mann_whitney_bare_schema_vs_no_schema,"[""bare_schema"", ""no_schema""]",42664.5,0.0,True,0.0167

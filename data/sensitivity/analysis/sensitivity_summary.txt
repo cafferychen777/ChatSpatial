@@ -1,0 +1,40 @@
+Prompt Sensitivity Analysis — Summary
+======================================================================
+
+Total trials: 375
+Overall tool selection accuracy: 95.7%
+Overall Pydantic validation rate: 95.7%
+
+CROSS-PARAPHRASE METRICS (per group x model)
+----------------------------------------------------------------------
+Group                Model                           Tool%   Pyd%  ParaConcord  AblBaseline
+----------------------------------------------------------------------
+cell_communication   claude-haiku-4-5-20251001      100.0% 100.0%         100%         100%
+cell_communication   gemini-2.5-flash               100.0% 100.0%         100%         100%
+cell_communication   gpt-5.4                        100.0% 100.0%         100%         100%
+deconvolution        claude-haiku-4-5-20251001      100.0% 100.0%         100%         100%
+deconvolution        gemini-2.5-flash               100.0% 100.0%         100%         100%
+deconvolution        gpt-5.4                        100.0% 100.0%         100%         100%
+moran_i              claude-haiku-4-5-20251001      100.0% 100.0%         100%         100%
+moran_i              gemini-2.5-flash                64.0%  64.0%         100%         100%
+moran_i              gpt-5.4                        100.0% 100.0%         100%         100%
+spatial_domains      claude-haiku-4-5-20251001      100.0% 100.0%         100%         100%
+spatial_domains      gemini-2.5-flash                76.0%  76.0%         100%         100%
+spatial_domains      gpt-5.4                        100.0% 100.0%         100%          90%
+svg_detection        claude-haiku-4-5-20251001      100.0% 100.0%         100%         100%
+svg_detection        gemini-2.5-flash                96.0%  96.0%         100%         100%
+svg_detection        gpt-5.4                        100.0% 100.0%          80%          80%
+
+AGGREGATE MEANS
+----------------------------------------
+  Mean tool selection accuracy: 95.7%
+  Mean Pydantic validation rate: 95.7%
+  Mean cross-paraphrase param concordance: 98.7%
+  Mean ablation within-paraphrase consistency: 98.0%
+
+KEY FINDING
+======================================================================
+Across 5 prompt groups x 5 paraphrases x 3 models x 5 reps = 375 trials:
+  Tool selection accuracy: 95.7% (semantic paraphrases preserve tool choice)
+  Pydantic validation rate: 95.7% (schema ensures structural consistency)
+  Cross-paraphrase param concordance: 98.7% (constrained params stable across rephrasings)

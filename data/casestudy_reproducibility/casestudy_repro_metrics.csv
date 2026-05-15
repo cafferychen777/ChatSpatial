@@ -1,0 +1,5 @@
+sample,condition,n_total,n_success,success_rate,pearson_mean,pearson_ci_lo,pearson_ci_hi,n_pairs
+oscc_s1,full_schema,40,40,1.0,0.9999999999999999,0.9999999999999999,0.9999999999999999,780
+oscc_s1,no_schema,40,0,0.0,nan,nan,nan,0
+oscc_s9,full_schema,40,40,1.0,1.0,1.0,1.0,780
+oscc_s9,no_schema,40,0,0.0,nan,nan,nan,0

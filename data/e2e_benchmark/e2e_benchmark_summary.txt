@@ -1,0 +1,51 @@
+======================================================================
+END-TO-END BENCHMARK ANALYSIS
+======================================================================
+
+chatspatial/cell_communication:
+  Success: 5/5 (100%)
+  Avg time (success): 29.9s
+  Jaccard@50 concordance: 1.000 [1.000, 1.000] (10 pairs)
+
+chatspatial/spatial_domains:
+  Success: 5/5 (100%)
+  Avg time (success): 8.6s
+  ARI concordance: 1.000 [1.000, 1.000] (10 pairs)
+
+chatspatial/svg_detection:
+  Success: 5/5 (100%)
+  Avg time (success): 86.5s
+  Jaccard@100 concordance: 0.608 [0.314, 0.902] (10 pairs)
+
+spatialagent/cell_communication:
+  Success: 5/5 (100%)
+  Avg time (success): 127.5s
+  Jaccard@50 concordance: 0.324 [0.048, 0.616] (10 pairs)
+
+spatialagent/spatial_domains:
+  Success: 4/5 (80%)
+  Avg time (success): 86.1s
+  Failures: ['GraphRecursionError: Recursion limit of 50 reached without h']
+  ARI concordance: 0.449 [0.197, 0.740] (6 pairs)
+
+spatialagent/svg_detection:
+  Success: 3/5 (60%)
+  Avg time (success): 108.6s
+  Failures: ['timeout_after_600s', 'timeout_after_600s']
+  Jaccard@100 concordance: 0.440 [0.258, 0.754] (3 pairs)
+
+stagent/cell_communication:
+  Success: 5/5 (100%)
+  Avg time (success): 56.2s
+  Jaccard@50 concordance: insufficient data (0 outputs)
+
+stagent/spatial_domains:
+  Success: 5/5 (100%)
+  Avg time (success): 79.9s
+  ARI concordance: 1.000 [1.000, 1.000] (10 pairs)
+
+stagent/svg_detection:
+  Success: 1/5 (20%)
+  Avg time (success): 145.2s
+  Failures: ['GraphRecursionError: Recursion limit of 50 reached without h', 'GraphRecursionError: Recursion limit of 50 reached without h', 'GraphRecursionError: Recursion limit of 50 reached without h', 'timeout_after_600s']
+  Jaccard@100 concordance: insufficient data (1 outputs)

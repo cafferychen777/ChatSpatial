@@ -1,0 +1,39 @@
+Case-Study Reproducibility Bridge — Summary
+============================================================
+Total trials: 160
+
+--- oscc_s1 | full_schema ---
+  Trials: 40  Parse: 40  Valid: 40  Exec: 40
+  Methods: {'card': 40}
+  Pearson r: 1.0000 [95% CI: 1.0000–1.0000]  (n_pairs=780)
+    claude-haiku-4.5: 10/10 success, r=1.0000 [1.0000–1.0000]
+    claude-sonnet-4.5: 10/10 success, r=1.0000 [1.0000–1.0000]
+    gemini-2.5-flash: 10/10 success, r=1.0000 [1.0000–1.0000]
+    gpt-5.4: 10/10 success, r=1.0000 [1.0000–1.0000]
+
+--- oscc_s1 | no_schema ---
+  Trials: 40  Parse: 40  Valid: 0  Exec: 0
+  Pearson r: N/A (no successful trials)
+    claude-haiku-4.5: 0/10 success
+    claude-sonnet-4.5: 0/10 success
+    gemini-2.5-flash: 0/10 success
+    gpt-5.4: 0/10 success
+  Failures: {'pydantic_validation_failure': 40}
+
+--- oscc_s9 | full_schema ---
+  Trials: 40  Parse: 40  Valid: 40  Exec: 40
+  Methods: {'card': 40}
+  Pearson r: 1.0000 [95% CI: 1.0000–1.0000]  (n_pairs=780)
+    claude-haiku-4.5: 10/10 success, r=1.0000 [1.0000–1.0000]
+    claude-sonnet-4.5: 10/10 success, r=1.0000 [1.0000–1.0000]
+    gemini-2.5-flash: 10/10 success, r=1.0000 [1.0000–1.0000]
+    gpt-5.4: 10/10 success, r=1.0000 [1.0000–1.0000]
+
+--- oscc_s9 | no_schema ---
+  Trials: 40  Parse: 40  Valid: 0  Exec: 0
+  Pearson r: N/A (no successful trials)
+    claude-haiku-4.5: 0/10 success
+    claude-sonnet-4.5: 0/10 success
+    gemini-2.5-flash: 0/10 success
+    gpt-5.4: 0/10 success
+  Failures: {'pydantic_validation_failure': 40}

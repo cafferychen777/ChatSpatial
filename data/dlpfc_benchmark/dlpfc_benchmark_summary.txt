@@ -1,0 +1,83 @@
+======================================================================
+DLPFC GROUND-TRUTH BENCHMARK ANALYSIS
+======================================================================
+
+chatspatial/151507:
+  Success: 10/10 (100%)
+  GT ARI: 0.368 [0.368, 0.368] (n=10)
+  GT NMI: 0.476 [0.476, 0.476]
+  Cross-rep ARI: 1.000 [1.000, 1.000] (45 pairs)
+  Methods: {'spagcn': 10}
+
+chatspatial/151669:
+  Success: 10/10 (100%)
+  GT ARI: 0.302 [0.302, 0.302] (n=10)
+  GT NMI: 0.475 [0.475, 0.475]
+  Cross-rep ARI: 1.000 [1.000, 1.000] (45 pairs)
+  Methods: {'spagcn': 10}
+
+chatspatial/151673:
+  Success: 10/10 (100%)
+  GT ARI: 0.452 [0.452, 0.452] (n=10)
+  GT NMI: 0.564 [0.564, 0.564]
+  Cross-rep ARI: 1.000 [1.000, 1.000] (45 pairs)
+  Methods: {'spagcn': 10}
+
+spatialagent/151507:
+  Success: 10/10 (100%)
+  GT ARI: 0.323 [0.258, 0.385] (n=10)
+  GT NMI: 0.421 [0.366, 0.478]
+  Cross-rep ARI: 0.356 [0.301, 0.414] (45 pairs)
+
+spatialagent/151669:
+  Success: 10/10 (100%)
+  GT ARI: 0.217 [0.150, 0.293] (n=10)
+  GT NMI: 0.294 [0.219, 0.344]
+  Cross-rep ARI: 0.347 [0.267, 0.431] (45 pairs)
+
+spatialagent/151673:
+  Success: 10/10 (100%)
+  GT ARI: 0.281 [0.236, 0.326] (n=10)
+  GT NMI: 0.418 [0.374, 0.462]
+  Cross-rep ARI: 0.317 [0.284, 0.351] (45 pairs)
+
+stagent/151507:
+  Success: 10/10 (100%)
+  GT ARI: 0.220 [0.157, 0.279] (n=10)
+  GT NMI: 0.325 [0.239, 0.394]
+  Cross-rep ARI: 0.200 [0.153, 0.247] (45 pairs)
+
+stagent/151669:
+  Success: 10/10 (100%)
+  GT ARI: 0.182 [0.130, 0.231] (n=10)
+  GT NMI: 0.302 [0.217, 0.374]
+  Cross-rep ARI: 0.321 [0.265, 0.376] (45 pairs)
+
+stagent/151673:
+  Success: 10/10 (100%)
+    rep 6: labels not extractable
+  GT ARI: 0.278 [0.227, 0.327] (n=9)
+  GT NMI: 0.419 [0.381, 0.454]
+  Cross-rep ARI: 0.330 [0.288, 0.375] (36 pairs)
+
+======================================================================
+POOLED SUMMARY (across all samples)
+======================================================================
+
+chatspatial:
+  Success: 30/30
+  GT ARI: 0.374 [0.352, 0.396] (n=30)
+  GT NMI: 0.505 [0.490, 0.520]
+  Cross-rep ARI: 1.000 [1.000, 1.000] (135 pairs)
+
+spatialagent:
+  Success: 30/30
+  GT ARI: 0.274 [0.235, 0.312] (n=30)
+  GT NMI: 0.377 [0.337, 0.414]
+  Cross-rep ARI: 0.340 [0.306, 0.376] (135 pairs)
+
+stagent:
+  Success: 30/30
+  GT ARI: 0.225 [0.190, 0.259] (n=29)
+  GT NMI: 0.346 [0.300, 0.387]
+  Cross-rep ARI: 0.280 [0.250, 0.311] (126 pairs)

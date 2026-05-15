@@ -1,0 +1,16 @@
+group_id,model,n_paraphrases,n_trials,tool_correct_rate,tool_correct_ci_lo,tool_correct_ci_hi,pydantic_valid_rate,constrained_param_concordance,pairwise_tool_agreement
+cell_communication,claude-haiku-4-5-20251001,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+cell_communication,gemini-2.5-flash,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+cell_communication,gpt-5.4,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+deconvolution,claude-haiku-4-5-20251001,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+deconvolution,gemini-2.5-flash,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+deconvolution,gpt-5.4,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+moran_i,claude-haiku-4-5-20251001,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+moran_i,gemini-2.5-flash,5,25,0.64,0.44,0.8,0.64,1.0,0.48
+moran_i,gpt-5.4,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+spatial_domains,claude-haiku-4-5-20251001,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+spatial_domains,gemini-2.5-flash,5,25,0.76,0.6,0.92,0.76,1.0,0.64
+spatial_domains,gpt-5.4,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+svg_detection,claude-haiku-4-5-20251001,5,25,1.0,1.0,1.0,1.0,1.0,1.0
+svg_detection,gemini-2.5-flash,5,25,0.96,0.88,1.0,0.96,1.0,0.92
+svg_detection,gpt-5.4,5,25,1.0,1.0,1.0,1.0,0.8,1.0
