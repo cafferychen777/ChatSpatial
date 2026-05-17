@@ -38,8 +38,8 @@ from ablation_invocation import (
     parse_json,
     GEMINI_KEY,
     ANTHROPIC_KEY,
-    PROXY_URL,
-    PROXY_MODEL,
+    OPENAI_API_URL,
+    OPENAI_MODEL,
     MAX_RETRIES,
     RETRY_BACKOFF,
 )
@@ -108,21 +108,21 @@ def _call_anthropic_extended(system: str, prompt: str) -> str | None:
                 return None
 
 
-def _call_proxy_extended(system: str, prompt: str) -> str | None:
-    """GPT proxy caller with extended max_tokens."""
+def _call_openai_extended(system: str, prompt: str) -> str | None:
+    """OpenAI GPT caller with extended max_tokens."""
     for attempt in range(MAX_RETRIES):
         try:
             payload = {
-                "model": PROXY_MODEL,
+                "model": OPENAI_MODEL,
                 "max_tokens": _MAX_OUTPUT,
                 "temperature": TEMPERATURE,
                 "system": system + RESPONSE_INSTRUCTION,
                 "messages": [{"role": "user", "content": prompt}],
             }
             r = requests.post(
-                PROXY_URL,
+                OPENAI_API_URL,
                 headers={
-                    "x-api-key": "dummy",
+                    "x-api-key": os.environ.get("OPENAI_API_KEY", ""),
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
@@ -138,14 +138,14 @@ def _call_proxy_extended(system: str, prompt: str) -> str | None:
             if attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_BACKOFF * (attempt + 1))
             else:
-                print(f"  Proxy/GPT error after {MAX_RETRIES} retries: {e}")
+                print(f"  OpenAI/GPT error after {MAX_RETRIES} retries: {e}")
                 return None
 
 
 CALLERS = {
     "gemini": _call_gemini_extended,
     "anthropic": _call_anthropic_extended,
-    "openai_proxy": _call_proxy_extended,
+    "openai": _call_openai_extended,
 }
 
 # ---------------------------------------------------------------------------

@@ -40,17 +40,17 @@ RETRY_BACKOFF = 2.0
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
-# cliproxyapi: local Anthropic-compatible proxy that maps to GPT models
-PROXY_URL = "http://127.0.0.1:8317/v1/messages"
-PROXY_MODEL = "gpt-5.4"
+# OpenAI GPT-5.4 accessed via Anthropic Messages-compatible API gateway
+OPENAI_API_URL = os.environ.get("OPENAI_API_URL", "https://api.openai.com/v1/messages")
+OPENAI_MODEL = "gpt-5.4"
 
 MODELS: dict[str, str] = {}
 if GEMINI_KEY:
     MODELS["gemini-2.5-flash"] = "gemini"
 if ANTHROPIC_KEY:
     MODELS["claude-haiku-4-5-20251001"] = "anthropic"
-# gpt-5.4 via local proxy (always available when proxy is running)
-MODELS[PROXY_MODEL] = "openai_proxy"
+# GPT-5.4 via OpenAI-compatible gateway
+MODELS[OPENAI_MODEL] = "openai"
 
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR.parent / "data" / "ablation" / "invocation"
@@ -440,28 +440,28 @@ def call_anthropic(system: str, prompt: str) -> str | None:
                 return None
 
 
-def call_openai_proxy(system: str, prompt: str) -> str | None:
-    """Call GPT model via local cliproxyapi (Anthropic Messages format)."""
+def call_openai(system: str, prompt: str) -> str | None:
+    """Call OpenAI GPT model via Anthropic Messages-compatible gateway."""
     for attempt in range(MAX_RETRIES):
         try:
             payload = {
-                "model": PROXY_MODEL,
+                "model": OPENAI_MODEL,
                 "max_tokens": 512,
                 "temperature": TEMPERATURE,
                 "system": system + RESPONSE_INSTRUCTION,
                 "messages": [{"role": "user", "content": prompt}],
             }
             r = requests.post(
-                PROXY_URL,
+                OPENAI_API_URL,
                 headers={
-                    "x-api-key": "dummy",
+                    "x-api-key": os.environ.get("OPENAI_API_KEY", ""),
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
                 json=payload, timeout=120,
             )
             r.raise_for_status()
-            # Extract text from Anthropic Messages response (skip thinking blocks)
+            # Extract text from response (skip thinking blocks)
             content_blocks = r.json()["content"]
             for block in content_blocks:
                 if block["type"] == "text":
@@ -471,14 +471,14 @@ def call_openai_proxy(system: str, prompt: str) -> str | None:
             if attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_BACKOFF * (attempt + 1))
             else:
-                print(f"  Proxy/GPT error after {MAX_RETRIES} retries: {e}")
+                print(f"  OpenAI/GPT error after {MAX_RETRIES} retries: {e}")
                 return None
 
 
 CALLERS = {
     "gemini": call_gemini,
     "anthropic": call_anthropic,
-    "openai_proxy": call_openai_proxy,
+    "openai": call_openai,
 }
 
 

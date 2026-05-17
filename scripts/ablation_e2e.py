@@ -62,15 +62,15 @@ RETRY_BACKOFF = 2.0
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
-# cliproxyapi: local Anthropic-compatible proxy that maps to GPT models
-PROXY_MODEL = "gpt-5.4"
+# OpenAI GPT-5.4 via Anthropic Messages-compatible API gateway
+OPENAI_MODEL = "gpt-5.4"
 
 MODELS: dict[str, str] = {}
 if GEMINI_KEY:
     MODELS["gemini-2.5-flash"] = "gemini"
 if ANTHROPIC_KEY:
     MODELS["claude-haiku-4-5-20251001"] = "anthropic"
-MODELS[PROXY_MODEL] = "openai_proxy"
+MODELS[OPENAI_MODEL] = "openai"
 
 # ---------------------------------------------------------------------------
 # Ensure chatspatial importable
@@ -217,12 +217,12 @@ def remap_params(tool_name: str, raw_params: dict) -> dict:
 
 import requests
 
-from ablation_invocation import call_gemini, call_anthropic, call_openai_proxy
+from ablation_invocation import call_gemini, call_anthropic, call_openai
 
 CALLERS = {
     "gemini": call_gemini,
     "anthropic": call_anthropic,
-    "openai_proxy": call_openai_proxy,
+    "openai": call_openai,
 }
 
 # ---------------------------------------------------------------------------

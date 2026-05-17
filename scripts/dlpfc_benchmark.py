@@ -261,8 +261,8 @@ def run_external_system(
     env["ANTHROPIC_API_KEY"] = ANTHROPIC_KEY
     env["PYTHONUNBUFFERED"] = "1"
     env["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-    env.setdefault("GOOGLE_API_KEY", "dummy-not-used")
-    env.setdefault("OPENAI_API_KEY", "dummy-not-used")
+    env.setdefault("GOOGLE_API_KEY", "not-used")
+    env.setdefault("OPENAI_API_KEY", "not-used")
 
     t0 = time.time()
     try:

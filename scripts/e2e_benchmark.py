@@ -379,9 +379,9 @@ def run_external_system(
     env["PYTHONUNBUFFERED"] = "1"
     # STAgent needs this for chromadb/protobuf compatibility
     env["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-    # STAgent initializes all providers on startup; set dummy keys for unused ones
-    env.setdefault("GOOGLE_API_KEY", "dummy-not-used")
-    env.setdefault("OPENAI_API_KEY", "dummy-not-used")
+    # STAgent initializes all providers on startup; set placeholder keys for unused ones
+    env.setdefault("GOOGLE_API_KEY", "not-used")
+    env.setdefault("OPENAI_API_KEY", "not-used")
 
     t0 = time.time()
     try:

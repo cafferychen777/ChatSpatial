@@ -79,8 +79,8 @@ if _env_path.exists():
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
-PROXY_URL = "http://127.0.0.1:8317/v1/messages"
-PROXY_MODEL = "gpt-5.4"
+OPENAI_API_URL = os.environ.get("OPENAI_API_URL", "https://api.openai.com/v1/messages")
+OPENAI_MODEL = "gpt-5.4"
 
 # Case-study prompt matching §2.3.1 Step 2
 CASESTUDY_PROMPT = (
@@ -109,7 +109,7 @@ from ablation_invocation import (
     resolve_tool_name,
     parse_json,
     call_gemini,
-    call_openai_proxy,
+    call_openai,
 )
 from ablation_e2e import (
     AblationCtx,
@@ -184,8 +184,8 @@ if ANTHROPIC_KEY:
     MODELS["claude-sonnet-4.5"] = "anthropic_sonnet"
     CALLERS["anthropic_sonnet"] = call_anthropic_sonnet
 
-MODELS[PROXY_MODEL] = "openai_proxy"
-CALLERS["openai_proxy"] = call_openai_proxy
+MODELS[OPENAI_MODEL] = "openai"
+CALLERS["openai"] = call_openai
 
 
 # ---------------------------------------------------------------------------
