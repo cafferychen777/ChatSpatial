@@ -213,6 +213,8 @@ def _unique_standardized_lr_pairs(pairs: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     unique_pairs: list[str] = []
     for pair in pairs:
+        if pd.isna(pair) or str(pair).strip() == "":
+            continue
         standardized_pair = standardize_lr_pair(pair)
         if standardized_pair in seen:
             continue
@@ -507,10 +509,11 @@ def _integrate_autocrine_detection(storage: CCCStorage, n_top: int) -> None:
                 autocrine_df["ligand_complex"] + "^" + autocrine_df["receptor_complex"]
             )
             if "magnitude_rank" in autocrine_df.columns:
-                autocrine_df = autocrine_df.nsmallest(n_top, "magnitude_rank")
+                autocrine_df = autocrine_df.sort_values("magnitude_rank")
+            unique_pairs = _unique_standardized_lr_pairs(autocrine_df["lr_pair"])
             storage.autocrine = CCCAutocrine(
-                n_loops=len(autocrine_df["lr_pair"].unique()),
-                top_pairs=autocrine_df["lr_pair"].head(n_top).tolist(),
+                n_loops=len(unique_pairs),
+                top_pairs=unique_pairs[:n_top],
                 results=autocrine_df,
             )
 
@@ -531,12 +534,13 @@ def _integrate_autocrine_detection(storage: CCCStorage, n_top: int) -> None:
                 autocrine_df = results[mask].copy()
                 if len(autocrine_df) > 0:
                     if "interacting_pair" in autocrine_df.columns:
-                        lr_pairs = autocrine_df["interacting_pair"].tolist()[:n_top]
+                        lr_pairs = autocrine_df["interacting_pair"]
                     else:
-                        lr_pairs = autocrine_df.index.tolist()[:n_top]
+                        lr_pairs = autocrine_df.index
+                    unique_pairs = _unique_standardized_lr_pairs(lr_pairs)
                     storage.autocrine = CCCAutocrine(
-                        n_loops=len(autocrine_df),
-                        top_pairs=[standardize_lr_pair(p) for p in lr_pairs],
+                        n_loops=len(unique_pairs),
+                        top_pairs=unique_pairs[:n_top],
                         results=autocrine_df,
                     )
 
@@ -552,9 +556,10 @@ def _integrate_autocrine_detection(storage: CCCStorage, n_top: int) -> None:
             autocrine_mask = autocrine_probs > 0
             if autocrine_mask.any() and "interaction_name" in results.columns:
                 autocrine_pairs = results[autocrine_mask]["interaction_name"].tolist()
+                unique_pairs = _unique_standardized_lr_pairs(autocrine_pairs)
                 storage.autocrine = CCCAutocrine(
-                    n_loops=len(autocrine_pairs),
-                    top_pairs=[standardize_lr_pair(p) for p in autocrine_pairs[:n_top]],
+                    n_loops=len(unique_pairs),
+                    top_pairs=unique_pairs[:n_top],
                     results=None,  # Raw matrix format, not DataFrame
                 )
 

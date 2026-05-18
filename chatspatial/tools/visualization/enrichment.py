@@ -8,6 +8,7 @@ This module contains:
 - EnrichMap spatial autocorrelation plots
 """
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 import matplotlib.pyplot as plt
@@ -34,9 +35,43 @@ from .core import (
     setup_multi_panel_figure,
 )
 
+logger = logging.getLogger(__name__)
+
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+
+def _resolve_enrichmap_library_id(adata: "ad.AnnData") -> str:
+    """Resolve the library_id EnrichMap should use for spatial metadata."""
+    spatial = adata.uns.get("spatial")
+    spatial_keys = list(spatial.keys()) if isinstance(spatial, dict) else []
+    if len(spatial_keys) == 1:
+        return str(spatial_keys[0])
+
+    obs_library_ids: list[str] = []
+    if "library_id" in adata.obs.columns:
+        obs_library_ids = [
+            str(library_id) for library_id in pd.unique(adata.obs["library_id"].dropna())
+        ]
+
+    if spatial_keys:
+        spatial_key_set = {str(key) for key in spatial_keys}
+        for library_id in obs_library_ids:
+            if library_id in spatial_key_set:
+                return library_id
+        logger.warning(
+            "No observed library_id matches spatial metadata keys (%s). Using '%s'.",
+            [str(key) for key in spatial_keys],
+            spatial_keys[0],
+        )
+        return str(spatial_keys[0])
+
+    if obs_library_ids:
+        return obs_library_ids[0]
+
+    return "sample_1"
 
 
 def _ensure_enrichmap_compatibility(adata: "ad.AnnData") -> "ad.AnnData":
@@ -48,11 +83,11 @@ def _ensure_enrichmap_compatibility(adata: "ad.AnnData") -> "ad.AnnData":
 
     Returns a shallow copy so the original AnnData is never mutated.
     """
-    # Shallow copy: shares .X / .layers matrices but gets independent .obs/.uns
+    library_id = _resolve_enrichmap_library_id(adata)
     adata = adata.copy()
 
     if "library_id" not in adata.obs.columns:
-        adata.obs["library_id"] = "sample_1"
+        adata.obs["library_id"] = library_id
 
     if "spatial" not in adata.uns:
         library_ids = adata.obs["library_id"].unique()
@@ -385,17 +420,15 @@ def _create_enrichmap_spatial(
         ) from e
 
     adata = _ensure_enrichmap_compatibility(adata)
-    library_ids = adata.obs["library_id"].unique()
+    library_id = _resolve_enrichmap_library_id(adata)
+    library_ids = adata.obs["library_id"].dropna().unique()
     if len(library_ids) > 1:
-        import logging
-
-        logging.getLogger(__name__).warning(
-            "Multiple library_ids found (%s). Using first: '%s'. "
+        logger.warning(
+            "Multiple library_ids found (%s). Using '%s'. "
             "For multi-sample EnrichMap, run per-sample separately.",
             list(library_ids),
-            library_ids[0],
+            library_id,
         )
-    library_id = library_ids[0]
 
     try:
         if params.subtype == "spatial_cross_correlation":

@@ -271,6 +271,7 @@ async def test_analyze_enrichment_uses_first_score_key_for_gsea(
         )
 
     monkeypatch.setattr(enrichment_module, "perform_gsea", _fake_gsea)
+    minimal_spatial_adata.var["score_a"] = np.linspace(1.0, -1.0, minimal_spatial_adata.n_vars)
     params = EnrichmentParameters(
         species="human",
         method="pathway_gsea",
@@ -281,6 +282,41 @@ async def test_analyze_enrichment_uses_first_score_key_for_gsea(
     out = await analyze_enrichment("d1", ctx, params)
     assert out.method == "pathway_gsea"
     assert captured["ranking_key"] == "score_a"
+
+
+@pytest.mark.asyncio
+async def test_analyze_enrichment_rejects_missing_gsea_score_key(
+    minimal_spatial_adata,
+):
+    ctx = DummyCtx(minimal_spatial_adata)
+    params = EnrichmentParameters(
+        species="human",
+        method="pathway_gsea",
+        gene_sets={"set_a": ["gene_0", "gene_1"]},
+        gene_set_database=None,
+        score_keys="spatial_domains_spagcn_n7_refined",
+    )
+
+    with pytest.raises(ParameterError, match="numeric gene-level ranking"):
+        await analyze_enrichment("d1", ctx, params)
+
+
+@pytest.mark.asyncio
+async def test_analyze_enrichment_rejects_nonnumeric_gsea_score_key(
+    minimal_spatial_adata,
+):
+    ctx = DummyCtx(minimal_spatial_adata)
+    minimal_spatial_adata.var["rank_label"] = ["high"] * minimal_spatial_adata.n_vars
+    params = EnrichmentParameters(
+        species="human",
+        method="pathway_gsea",
+        gene_sets={"set_a": ["gene_0", "gene_1"]},
+        gene_set_database=None,
+        score_keys="rank_label",
+    )
+
+    with pytest.raises(ParameterError, match="numeric gene-level ranking"):
+        await analyze_enrichment("d1", ctx, params)
 
 
 @pytest.mark.asyncio

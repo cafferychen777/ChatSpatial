@@ -12,6 +12,7 @@ from scipy import sparse
 from chatspatial.models.data import CNVParameters
 from chatspatial.tools import cnv_analysis as cnv
 from chatspatial.utils.exceptions import (
+    DataCompatibilityError,
     DependencyError,
     ParameterError,
     ProcessingError,
@@ -28,6 +29,16 @@ class DummyCtx:
 
     async def warning(self, msg: str):
         self.warnings.append(msg)
+
+
+def _add_gene_positions(adata, chromosomes: list[str] | None = None):
+    if chromosomes is None:
+        chromosomes = ["chr1"] * (adata.n_vars // 2) + [
+            "chr2"
+        ] * (adata.n_vars - adata.n_vars // 2)
+    adata.var["chromosome"] = chromosomes
+    adata.var["start"] = np.arange(adata.n_vars) * 1000
+    adata.var["end"] = adata.var["start"] + 999
 
 
 @pytest.mark.asyncio
@@ -52,7 +63,7 @@ async def test_infer_cnv_infercnvpy_success_sparse_stats_and_metadata(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.var["chromosome"] = ["chr1"] * 12 + ["chr2"] * 12
+    _add_gene_positions(adata)
     captured: dict[str, object] = {}
 
     fake_infercnvpy = ModuleType("infercnvpy")
@@ -103,7 +114,7 @@ async def test_infer_cnv_infercnvpy_workspace_isolation_avoids_leaking_temp_muta
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.var["chromosome"] = ["chr1"] * 12 + ["chr2"] * 12
+    _add_gene_positions(adata)
     adata.obsm["keep"] = np.ones((adata.n_obs, 2), dtype=float)
 
     fake_infercnvpy = ModuleType("infercnvpy")
@@ -143,7 +154,7 @@ async def test_infer_cnv_infercnvpy_workspace_isolation_avoids_leaking_temp_muta
 
 
 @pytest.mark.asyncio
-async def test_infer_cnv_infercnvpy_missing_chromosome_wraps_failure(
+async def test_infer_cnv_infercnvpy_rejects_missing_gene_positions(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
@@ -156,7 +167,7 @@ async def test_infer_cnv_infercnvpy_missing_chromosome_wraps_failure(
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
     monkeypatch.setattr(cnv, "require", lambda *_args, **_kwargs: None)
 
-    with pytest.raises(ProcessingError, match="Gene positions required"):
+    with pytest.raises(DataCompatibilityError, match="Missing columns"):
         await cnv.infer_cnv(
             "d1",
             DummyCtx(adata),
@@ -267,7 +278,7 @@ async def test_infer_cnv_infercnvpy_without_cnv_matrix_returns_non_visual_result
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.var["chromosome"] = ["chr1"] * 12 + ["chr2"] * 12
+    _add_gene_positions(adata)
 
     fake_infercnvpy = ModuleType("infercnvpy")
 
@@ -345,7 +356,7 @@ async def test_infer_cnv_infercnvpy_excludes_chromosomes_before_inference(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.var["chromosome"] = ["chr1"] * 10 + ["chr2"] * 10 + ["chrM"] * 4
+    _add_gene_positions(adata, ["chr1"] * 10 + ["chr2"] * 10 + ["chrM"] * 4)
 
     seen = {"n_vars": None}
     fake_infercnvpy = ModuleType("infercnvpy")
@@ -384,7 +395,7 @@ async def test_infer_cnv_infercnvpy_cluster_and_dendrogram_failures_emit_warning
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.var["chromosome"] = ["chr1"] * 12 + ["chr2"] * 12
+    _add_gene_positions(adata)
     ctx = DummyCtx(adata)
 
     fake_infercnvpy = ModuleType("infercnvpy")
@@ -669,7 +680,7 @@ async def test_infer_cnv_infercnvpy_cluster_and_dendrogram_success_copies_output
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.var["chromosome"] = ["chr1"] * 12 + ["chr2"] * 12
+    _add_gene_positions(adata)
     captured: dict[str, object] = {}
 
     fake_infercnvpy = ModuleType("infercnvpy")
@@ -725,13 +736,12 @@ async def test_infer_cnv_infercnvpy_cluster_and_dendrogram_success_copies_output
 
 
 @pytest.mark.asyncio
-async def test_infer_cnv_infercnvpy_uses_cnv_layer_when_obsm_missing_and_no_chromosome(
+async def test_infer_cnv_infercnvpy_uses_cnv_layer_when_obsm_missing(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    if "chromosome" in adata.var.columns:
-        del adata.var["chromosome"]
+    _add_gene_positions(adata)
 
     fake_infercnvpy = ModuleType("infercnvpy")
 
@@ -760,7 +770,7 @@ async def test_infer_cnv_infercnvpy_uses_cnv_layer_when_obsm_missing_and_no_chro
     )
 
     assert out.cnv_score_key == "cnv"
-    assert out.n_chromosomes == 0
+    assert out.n_chromosomes == 2
 
 
 def test_infer_cnv_numbat_dependency_error_when_r_package_unavailable(
@@ -962,7 +972,7 @@ async def test_infer_cnv_layers_cnv_padded_after_exclude_chromosomes(
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
     # 20 genes on chr1/chr2, 4 on chrM (will be excluded)
-    adata.var["chromosome"] = ["chr1"] * 10 + ["chr2"] * 10 + ["chrM"] * 4
+    _add_gene_positions(adata, ["chr1"] * 10 + ["chr2"] * 10 + ["chrM"] * 4)
     original_n_vars = adata.n_vars  # 24
 
     fake_infercnvpy = ModuleType("infercnvpy")
@@ -1015,7 +1025,7 @@ async def test_infer_cnv_layers_cnv_sparse_padded_after_exclude(
     """Same padding must work when infercnvpy returns sparse layers['cnv']."""
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.var["chromosome"] = ["chr1"] * 10 + ["chr2"] * 10 + ["chrM"] * 4
+    _add_gene_positions(adata, ["chr1"] * 10 + ["chr2"] * 10 + ["chrM"] * 4)
 
     fake_infercnvpy = ModuleType("infercnvpy")
 
@@ -1053,45 +1063,36 @@ async def test_infer_cnv_layers_cnv_sparse_padded_after_exclude(
 
 
 # =============================================================================
-# Issue 2 regression: exclude_chromosomes silently ignored without annotation
+# Issue 2 regression: missing gene positions fail before inference
 # =============================================================================
 
 
 @pytest.mark.asyncio
-async def test_infer_cnv_warns_when_exclude_chromosomes_without_annotation(
+async def test_infer_cnv_rejects_exclude_chromosomes_without_gene_positions(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    """When no chromosome column exists, exclude_chromosomes must trigger warning."""
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
     if "chromosome" in adata.var.columns:
         del adata.var["chromosome"]
 
-    ctx = DummyCtx(adata)
-
     fake_infercnvpy = ModuleType("infercnvpy")
-
-    def _fake_infercnv(adata_obj, **_kwargs):
-        adata_obj.obsm["X_cnv"] = np.ones((adata_obj.n_obs, 3), dtype=float)
-        adata_obj.uns["cnv"] = {"ok": True}
-
-    fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
+    fake_infercnvpy.tl = SimpleNamespace(
+        infercnv=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
     monkeypatch.setattr(cnv, "require", lambda *_a, **_k: None)
-    monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
-    monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
 
-    await cnv.infer_cnv(
-        "d_warn",
-        ctx,
-        CNVParameters(
-            method="infercnvpy",
-            reference_key="cell_type",
-            reference_categories=["A"],
-            exclude_chromosomes=["chrM"],
-            cluster_cells=False,
-            dendrogram=False,
-        ),
-    )
-
-    assert any("exclude_chromosomes" in w and "ignored" in w for w in ctx.warnings)
+    with pytest.raises(DataCompatibilityError, match="Missing columns"):
+        await cnv.infer_cnv(
+            "d_warn",
+            DummyCtx(adata),
+            CNVParameters(
+                method="infercnvpy",
+                reference_key="cell_type",
+                reference_categories=["A"],
+                exclude_chromosomes=["chrM"],
+                cluster_cells=False,
+                dendrogram=False,
+            ),
+        )

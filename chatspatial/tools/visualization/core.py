@@ -154,6 +154,7 @@ def setup_multi_panel_figure(
     params: VisualizationParameters,
     default_title: str,
     use_tight_layout: bool = False,
+    show_suptitle: bool = True,
 ) -> tuple[plt.Figure, np.ndarray]:
     """Sets up a multi-panel matplotlib figure.
 
@@ -162,6 +163,7 @@ def setup_multi_panel_figure(
         params: VisualizationParameters object with GridSpec spacing parameters.
         default_title: Default title for the figure if not provided in params.
         use_tight_layout: If True, skip gridspec_kw and use tight_layout.
+        show_suptitle: If False, suppress the figure-level title.
 
     Returns:
         A tuple of (matplotlib.Figure, flattened numpy.ndarray of Axes).
@@ -199,7 +201,7 @@ def setup_multi_panel_figure(
     # Only set suptitle if title is explicitly provided and non-empty
     # y=1.02 places title above figure to avoid overlap with subplot titles
     title = params.title or default_title
-    if title:
+    if show_suptitle and title:
         fig.suptitle(title, fontsize=16, y=1.02)
 
     for i in range(n_panels, len(axes)):

@@ -278,6 +278,60 @@ def test_moran_visualization_respects_custom_figure_size(minimal_spatial_adata):
     fig.clf()
 
 
+def test_moran_visualization_respects_requested_features(minimal_spatial_adata):
+    adata = minimal_spatial_adata.copy()
+    adata.uns["moranI"] = pd.DataFrame(
+        {"I": [0.1, 0.6, 0.3, 0.9], "pval_norm": [0.01, 0.01, 0.01, 0.01]},
+        index=["gene_0", "gene_1", "gene_2", "gene_3"],
+    )
+
+    fig_single = viz_ss._create_moran_visualization(
+        adata,
+        VisualizationParameters(
+            plot_type="statistics",
+            subtype="moran",
+            feature="gene_2",
+            title="Selected Moran",
+        ),
+    )
+    assert fig_single.axes[0].get_title() == "Selected Moran"
+    assert [label.get_text() for label in fig_single.axes[0].get_yticklabels()] == [
+        "gene_2"
+    ]
+    fig_single.clf()
+
+    fig_multi = viz_ss._create_moran_visualization(
+        adata,
+        VisualizationParameters(
+            plot_type="statistics",
+            subtype="moran",
+            feature=["gene_3", "gene_1"],
+        ),
+    )
+    assert [label.get_text() for label in fig_multi.axes[0].get_yticklabels()] == [
+        "gene_3",
+        "gene_1",
+    ]
+    assert fig_multi.axes[0].get_title() == "Moran's I for Selected Genes"
+    fig_multi.clf()
+
+
+def test_moran_visualization_rejects_missing_requested_feature(minimal_spatial_adata):
+    adata = minimal_spatial_adata.copy()
+    adata.uns["moranI"] = pd.DataFrame(
+        {"I": [0.5], "pval_norm": [0.01]},
+        index=["gene_0"],
+    )
+
+    with pytest.raises(DataNotFoundError, match="missing_gene"):
+        viz_ss._create_moran_visualization(
+            adata,
+            VisualizationParameters(
+                plot_type="statistics", subtype="moran", feature="missing_gene"
+            ),
+        )
+
+
 @pytest.mark.asyncio
 async def test_centrality_visualization_missing_and_success(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
@@ -370,11 +424,21 @@ async def test_getis_ord_visualization_validation_and_success(
     adata.obs["gene_1_getis_ord_z"] = np.linspace(2, -2, adata.n_obs)
     adata.obs["gene_1_getis_ord_p"] = np.linspace(0.001, 0.2, adata.n_obs)
 
-    with pytest.raises(DataNotFoundError, match="None of the specified genes have Getis-Ord results"):
+    with pytest.raises(DataNotFoundError, match="Requested Getis-Ord genes not found"):
         await viz_ss._create_getis_ord_visualization(
             adata,
             VisualizationParameters(
                 plot_type="statistics", subtype="getis_ord", feature=["missing_gene"]
+            ),
+            context=DummyCtx(),
+        )
+    with pytest.raises(DataNotFoundError, match="missing_gene"):
+        await viz_ss._create_getis_ord_visualization(
+            adata,
+            VisualizationParameters(
+                plot_type="statistics",
+                subtype="getis_ord",
+                feature=["gene_0", "missing_gene"],
             ),
             context=DummyCtx(),
         )
@@ -399,6 +463,21 @@ async def test_getis_ord_visualization_validation_and_success(
     assert any("Plotting Getis-Ord results for 2 genes" in msg for msg in ctx.infos)
     assert len(fig.axes) >= 2
     fig.clf()
+
+    fig_titled = await viz_ss._create_getis_ord_visualization(
+        adata,
+        VisualizationParameters(
+            plot_type="statistics",
+            subtype="getis_ord",
+            feature=["gene_0", "gene_1"],
+            title="Figure Gi Title",
+        ),
+        context=DummyCtx(),
+    )
+    assert fig_titled._suptitle is not None
+    assert fig_titled._suptitle.get_text() == "Figure Gi Title"
+    assert all(ax.get_title() != "Figure Gi Title" for ax in fig_titled.axes[:2])
+    fig_titled.clf()
 
 
 @pytest.mark.asyncio
@@ -433,10 +512,13 @@ async def test_getis_ord_default_gene_selection_single_panel_title_and_missing_p
             plot_type="statistics",
             subtype="getis_ord",
             feature="gene_0",
+            title="Custom Gi Title",
         ),
         context=DummyCtx(),
     )
-    assert "Getis-Ord Gi*" in fig_single.axes[0].get_title()
+    assert fig_single.axes[0].get_title() == "Custom Gi Title"
+    assert fig_single._suptitle is None
+    assert any("Hot:" in text.get_text() for text in fig_single.axes[0].texts)
     fig_single.clf()
 
     adata2 = adata.copy()

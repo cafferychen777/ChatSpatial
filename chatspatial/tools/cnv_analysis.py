@@ -56,6 +56,16 @@ def _copy_matrix_data(data):
     return np.array(data, copy=True)
 
 
+def _validate_gene_positions(adata: "ad.AnnData") -> None:
+    required_position_columns = {"chromosome", "start", "end"}
+    missing_position_columns = sorted(required_position_columns - set(adata.var.columns))
+    if missing_position_columns:
+        raise DataCompatibilityError(
+            "CNV inference requires genomic positions in adata.var. Missing columns: "
+            f"{missing_position_columns}. Expected columns: chromosome, start, end."
+        )
+
+
 def _build_infercnvpy_workspace(adata: "ad.AnnData") -> "ad.AnnData":
     """Build minimal AnnData workspace for infercnvpy without copying unrelated fields."""
     import anndata as ad
@@ -141,6 +151,8 @@ async def _infer_cnv_infercnvpy(
     Returns:
         CNVResult containing CNV analysis results and statistics
     """
+    _validate_gene_positions(adata)
+
     # Check if infercnvpy is available using centralized dependency manager
     require("infercnvpy", ctx, feature="CNV analysis")
     import infercnvpy as cnv
@@ -149,52 +161,18 @@ async def _infer_cnv_infercnvpy(
     # Build a minimal workspace to avoid copying unrelated layers/obsm/uns.
     adata_cnv = _build_infercnvpy_workspace(adata)
 
-    # Check if gene position information is available
-    if "chromosome" not in adata_cnv.var.columns:
-        if params.exclude_chromosomes:
-            await ctx.warning(
-                f"exclude_chromosomes={params.exclude_chromosomes} was specified "
-                "but no chromosome annotation exists in adata.var. "
-                "infercnvpy will use its built-in gene position database; "
-                "however, chromosome exclusion requires pre-existing "
-                "annotation and will be ignored for this run."
-            )
-        await ctx.warning(
-            "No chromosome information found in adata.var. "
-            "Attempting to infer from gene names..."
-        )
-        try:
-            # Try to infer gene positions from infercnvpy's built-in database
-            cnv.tl.infercnv(
-                adata_cnv,
-                reference_key=params.reference_key,
-                reference_cat=params.reference_categories,
-                window_size=params.window_size,
-                step=params.step,
-                dynamic_threshold=params.dynamic_threshold,
-            )
-        except Exception as e:
-            raise ProcessingError(
-                f"CNV inference failed. Gene positions required: {e}"
-            ) from e
-    else:
-        # Gene positions are available, run CNV inference
-        # Exclude chromosomes if specified
-        if params.exclude_chromosomes:
-            genes_to_keep = ~adata_cnv.var["chromosome"].isin(
-                params.exclude_chromosomes
-            )
-            adata_cnv = adata_cnv[:, genes_to_keep].copy()
+    if params.exclude_chromosomes:
+        genes_to_keep = ~adata_cnv.var["chromosome"].isin(params.exclude_chromosomes)
+        adata_cnv = adata_cnv[:, genes_to_keep].copy()
 
-        # Run infercnvpy
-        cnv.tl.infercnv(
-            adata_cnv,
-            reference_key=params.reference_key,
-            reference_cat=params.reference_categories,
-            window_size=params.window_size,
-            step=params.step,
-            dynamic_threshold=params.dynamic_threshold,
-        )
+    cnv.tl.infercnv(
+        adata_cnv,
+        reference_key=params.reference_key,
+        reference_cat=params.reference_categories,
+        window_size=params.window_size,
+        step=params.step,
+        dynamic_threshold=params.dynamic_threshold,
+    )
 
     # Optional: Cluster cells by CNV pattern
     if params.cluster_cells:

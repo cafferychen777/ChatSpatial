@@ -426,6 +426,8 @@ def _summarize_centrality_scores(scores: Any) -> dict[str, Any]:
 
     if "degree_centrality" in numeric_scores.columns:
         primary_metric = "degree_centrality"
+    elif "mean_degree" in numeric_scores.columns:
+        primary_metric = "mean_degree"
     elif "degree" in numeric_scores.columns:
         primary_metric = "degree"
     else:
@@ -448,8 +450,10 @@ def _summarize_centrality_scores(scores: Any) -> dict[str, Any]:
         if metric_values.empty:
             continue
         metric_key = str(metric).replace(" ", "_")
-        summary_metrics[f"max_{metric_key}"] = float(metric_values.max())
-        summary_metrics[f"mean_{metric_key}"] = float(metric_values.mean())
+        if metric_key.startswith("mean_"):
+            metric_key = metric_key.removeprefix("mean_")
+        summary_metrics[f"top_{metric_key}"] = float(metric_values.max())
+        summary_metrics[f"average_{metric_key}"] = float(metric_values.mean())
 
     return {"top_features": top_features, "summary_metrics": summary_metrics}
 
@@ -658,13 +662,26 @@ def _extract_result_summary(
                 "total_significant_clusters": 0,
             }
 
-    elif analysis_type in ["network_properties", "spatial_centrality"]:
+    elif analysis_type == "network_properties":
         summary["results_key"] = result.get("analysis_key")
         summary["summary_metrics"] = {
             k: v
             for k, v in result.items()
             if isinstance(v, (int, float)) and k not in ("n_cells", "n_neighbors")
         }
+
+    elif analysis_type == "spatial_centrality":
+        centrality_summary = _summarize_centrality_scores(
+            result.get("cluster_centrality", {})
+        )
+        summary["results_key"] = result.get("analysis_key")
+        summary["n_features_analyzed"] = len(result.get("cluster_centrality", {}))
+        summary["top_features"] = centrality_summary["top_features"]
+        summary_metrics = centrality_summary["summary_metrics"].copy()
+        for key, value in result.get("global_stats", {}).items():
+            if isinstance(value, (int, float)):
+                summary_metrics[f"global_{key}"] = float(value)
+        summary["summary_metrics"] = summary_metrics
 
     return summary
 
@@ -1641,7 +1658,8 @@ def _analyze_spatial_centrality(
                 ),
             }
 
-        return {
+        result = {
+            "analysis_key": "spatial_centrality",
             "centrality_computed": True,
             "cluster_centrality": centrality_stats,
             "global_stats": {
@@ -1652,6 +1670,8 @@ def _analyze_spatial_centrality(
                 ),
             },
         }
+        adata.uns["spatial_centrality"] = result
+        return result
 
     except Exception as e:
         raise ProcessingError(f"Spatial centrality analysis failed: {e}") from e
@@ -1946,7 +1966,8 @@ _ANALYSIS_REGISTRY: dict[str, _AnalysisConfig] = {
                 "degree_centrality",
                 "closeness_centrality",
                 "betweenness_centrality",
-            ]
+            ],
+            "uns": ["spatial_centrality"],
         },
     ),
 }

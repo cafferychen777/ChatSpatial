@@ -212,14 +212,30 @@ def test_ensure_enrichmap_compatibility_adds_minimum_metadata(minimal_spatial_ad
 
     result = viz_enrich._ensure_enrichmap_compatibility(adata)
 
-    # Original adata must NOT be mutated
     assert "library_id" not in adata.obs.columns
     assert "spatial" not in adata.uns
-
-    # Returned copy must have the metadata
     assert "library_id" in result.obs.columns
     assert "spatial" in result.uns
     assert "sample_1" in result.uns["spatial"]
+
+
+def test_ensure_enrichmap_compatibility_uses_existing_spatial_library(minimal_spatial_adata):
+    adata = minimal_spatial_adata.copy()
+    if "library_id" in adata.obs.columns:
+        del adata.obs["library_id"]
+    adata.uns["spatial"] = {
+        "V1_Human_Lymph_Node": {
+            "images": {},
+            "scalefactors": {"spot_diameter_fullres": 1.0},
+        }
+    }
+
+    result = viz_enrich._ensure_enrichmap_compatibility(adata)
+
+    assert "library_id" not in adata.obs.columns
+    assert result.obs["library_id"].unique().tolist() == ["V1_Human_Lymph_Node"]
+    assert list(result.uns["spatial"].keys()) == ["V1_Human_Lymph_Node"]
+    assert "sample_1" not in result.uns["spatial"]
 
 
 def test_get_score_columns_prefers_metadata(minimal_spatial_adata):
@@ -531,6 +547,45 @@ async def test_create_enrichment_spatial_multifeature_suffix_resolution_and_miss
         )
 
 
+def test_create_enrichmap_spatial_uses_visium_spatial_library_id(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    if "library_id" in adata.obs.columns:
+        del adata.obs["library_id"]
+    adata.uns["spatial"] = {
+        "V1_Human_Lymph_Node": {
+            "images": {},
+            "scalefactors": {"spot_diameter_fullres": 1.0},
+        }
+    }
+    adata.obs["A_score"] = np.linspace(0.0, 1.0, adata.n_obs)
+    captured: dict[str, str] = {}
+
+    class _PL:
+        @staticmethod
+        def spatial_enrichmap(*_args, **kwargs):
+            captured["library_id"] = kwargs["library_id"]
+            plt.figure()
+
+    fake_em = ModuleType("enrichmap")
+    fake_em.pl = _PL()
+    monkeypatch.setitem(sys.modules, "enrichmap", fake_em)
+
+    fig = viz_enrich._create_enrichmap_spatial(
+        adata,
+        VisualizationParameters(
+            plot_type="enrichment",
+            subtype="spatial_score",
+            feature="A",
+        ),
+        score_cols=["A_score"],
+    )
+
+    assert captured["library_id"] == "V1_Human_Lymph_Node"
+    fig.clf()
+
+
 def test_create_enrichmap_spatial_routes_cross_and_wraps_errors(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -634,7 +689,7 @@ def test_create_enrichmap_cross_correlation_prefers_per_run_gene_sets(
     class _PL2:
         @staticmethod
         def cross_moran_scatter(*_args, **_kwargs):
-            captured_pathways.append(_kwargs.get("score_x", _args[1] if len(_args) > 1 else ""))
+            captured_pathways.extend([_kwargs["score_x"], _kwargs["score_y"]])
             plt.figure()
 
     class _EM2:
@@ -645,7 +700,7 @@ def test_create_enrichmap_cross_correlation_prefers_per_run_gene_sets(
     )
     fig2.clf()
     # Shared key pathways (SharedA/SharedB) should be used, not KEGG ones
-    assert any("SharedA" in p for p in captured_pathways) or True  # just ensure no error
+    assert captured_pathways[-2:] == ["SharedA_score", "SharedB_score"]
 
     # Non-spatial gene-set keys must NOT be picked up
     adata2 = minimal_spatial_adata.copy()

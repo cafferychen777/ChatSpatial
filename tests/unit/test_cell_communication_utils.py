@@ -91,11 +91,11 @@ def test_store_and_get_ccc_results_roundtrip(minimal_spatial_adata):
 def test_integrate_autocrine_detection_for_liana_cluster_results():
     results = pd.DataFrame(
         {
-            "source": ["T", "T", "B"],
-            "target": ["T", "B", "B"],
-            "ligand_complex": ["L1", "L2", "L3"],
-            "receptor_complex": ["R1", "R2", "R3"],
-            "magnitude_rank": [0.01, 0.2, 0.03],
+            "source": ["T", "B", "T", "T", "B"],
+            "target": ["T", "B", "T", "B", "B"],
+            "ligand_complex": ["L1", "L3", "L1", "L2", "L3"],
+            "receptor_complex": ["R1", "R3", "R1", "R2", "R3"],
+            "magnitude_rank": [0.03, 0.02, 0.01, 0.2, 0.04],
         }
     )
     storage = CCCStorage(
@@ -109,20 +109,20 @@ def test_integrate_autocrine_detection_for_liana_cluster_results():
     _integrate_autocrine_detection(storage, n_top=5)
 
     assert storage.autocrine.n_loops == 2
-    assert "L1^R1" in storage.autocrine.top_pairs
-    assert "L3^R3" in storage.autocrine.top_pairs
+    assert storage.autocrine.top_pairs == ["L1^R1", "L3^R3"]
+    assert len(storage.autocrine.results) == 4
 
 
 def test_integrate_autocrine_detection_for_matrix_based_methods():
     # Simulate cellphonedb/fastccc matrix format: columns are source|target
     results = pd.DataFrame(
         {
-            "interacting_pair": ["L1^R1", "L2^R2"],
-            "T|T": [0.4, 0.0],
-            "T|B": [0.1, 0.2],
-            "B|B": [0.0, 0.9],
+            "interacting_pair": ["L1^R1", "L1_R1", "L2^R2"],
+            "T|T": [0.4, 0.2, 0.0],
+            "T|B": [0.1, 0.2, 0.2],
+            "B|B": [0.0, 0.0, 0.9],
         },
-        index=[10, 11],
+        index=[10, 11, 12],
     )
     storage = CCCStorage(
         method="cellphonedb",
@@ -135,8 +135,8 @@ def test_integrate_autocrine_detection_for_matrix_based_methods():
     _integrate_autocrine_detection(storage, n_top=5)
 
     assert storage.autocrine.n_loops == 2
-    assert "L1^R1" in storage.autocrine.top_pairs
-    assert "L2^R2" in storage.autocrine.top_pairs
+    assert storage.autocrine.top_pairs == ["L1^R1", "L2^R2"]
+    assert len(storage.autocrine.results) == 3
 
 
 @pytest.mark.asyncio
@@ -884,10 +884,12 @@ async def test_create_microenvironments_file_writes_expected_format(
 
 
 def test_integrate_autocrine_detection_cellchat_prob_matrix_branch():
-    results = pd.DataFrame({"interaction_name": ["L1^R1", "L2-R2", "L3^R3"]})
-    prob = np.zeros((2, 2, 3), dtype=float)
-    prob[0, 0, :] = [1.0, 0.0, 2.0]  # diagonal contributions for pairs 1 and 3
-    prob[1, 1, :] = [0.0, 0.0, 0.0]
+    results = pd.DataFrame(
+        {"interaction_name": ["L1^R1", "L1_R1", "L2-R2", "L3^R3"]}
+    )
+    prob = np.zeros((2, 2, 4), dtype=float)
+    prob[0, 0, :] = [1.0, 0.5, 0.0, 2.0]
+    prob[1, 1, :] = [0.0, 0.0, 0.0, 0.0]
 
     storage = CCCStorage(
         method="cellchat_r",

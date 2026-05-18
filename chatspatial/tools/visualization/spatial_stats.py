@@ -134,6 +134,14 @@ async def create_spatial_statistics_visualization(
 # =============================================================================
 
 
+def _normalize_feature_list(feature: str | list[str] | None) -> list[str]:
+    if feature is None:
+        return []
+    if isinstance(feature, str):
+        return [feature]
+    return [str(item) for item in feature]
+
+
 async def _create_neighborhood_enrichment_visualization(
     adata: "ad.AnnData",
     params: VisualizationParameters,
@@ -308,10 +316,18 @@ def _create_moran_visualization(
     else:
         moran_data["significant"] = pvals < 0.05
 
-    # Sort by Moran's I (descending) and take top genes
-    n_top = min(20, len(moran_data))  # Use actual data size if less than 20
-    top_genes = moran_data.nlargest(n_top, "I")
-    n_actual = len(top_genes)  # Actual number of genes to display
+    feature_list = _normalize_feature_list(params.feature)
+    if feature_list:
+        missing_genes = [gene for gene in feature_list if gene not in moran_data.index]
+        if missing_genes:
+            raise DataNotFoundError(
+                "Requested Moran's I genes not found: " + ", ".join(missing_genes)
+            )
+        top_genes = moran_data.loc[feature_list]
+    else:
+        n_top = min(20, len(moran_data))
+        top_genes = moran_data.nlargest(n_top, "I")
+    n_actual = len(top_genes)
 
     # Create figure with appropriate size based on actual gene count
     # Width: 8 inches for gene names, Height: 0.4 per gene + margins
@@ -325,9 +341,12 @@ def _create_moran_visualization(
 
     # Create horizontal barplot (easier to read gene names)
     # Color by -log10(p-value) to show significance
-    norm = plt.Normalize(
-        vmin=top_genes["neg_log_pval"].min(), vmax=top_genes["neg_log_pval"].max()
-    )
+    color_min = float(top_genes["neg_log_pval"].min())
+    color_max = float(top_genes["neg_log_pval"].max())
+    if color_min == color_max:
+        color_min -= 0.5
+        color_max += 0.5
+    norm = plt.Normalize(vmin=color_min, vmax=color_max)
     cmap = plt.colormaps.get_cmap(params.colormap or "viridis")
     colors = [cmap(norm(v)) for v in top_genes["neg_log_pval"].values]
 
@@ -363,7 +382,14 @@ def _create_moran_visualization(
             )
 
     # Labels and title
-    title = params.title or "Top Spatially Variable Genes (Moran's I)"
+    if params.title:
+        title = params.title
+    elif len(feature_list) == 1:
+        title = f"Moran's I for {feature_list[0]}"
+    elif feature_list:
+        title = "Moran's I for Selected Genes"
+    else:
+        title = "Top Spatially Variable Genes (Moran's I)"
     ax.set_title(title, fontsize=14, fontweight="bold")
     ax.set_xlabel("Moran's I (spatial autocorrelation)", fontsize=12)
     ax.set_ylabel("Gene", fontsize=12)
@@ -472,13 +498,14 @@ async def _create_getis_ord_visualization(
         raise DataNotFoundError("No Getis-Ord results found in adata.obs")
 
     # Get genes to plot
-    feature_list = (
-        params.feature
-        if isinstance(params.feature, list)
-        else ([params.feature] if params.feature else [])
-    )
+    feature_list = _normalize_feature_list(params.feature)
     if feature_list:
-        genes_to_plot = [g for g in feature_list if g in getis_ord_genes]
+        missing_genes = [gene for gene in feature_list if gene not in getis_ord_genes]
+        if missing_genes:
+            raise DataNotFoundError(
+                "Requested Getis-Ord genes not found: " + ", ".join(missing_genes)
+            )
+        genes_to_plot = feature_list
     else:
         genes_to_plot = getis_ord_genes[:6]
 
@@ -492,20 +519,35 @@ async def _create_getis_ord_visualization(
             f"Plotting Getis-Ord results for {len(genes_to_plot)} genes: {genes_to_plot}"
         )
 
-    # Only use figure suptitle for multi-panel plots
-    # For single panel, axes title is sufficient
     fig, axes = setup_multi_panel_figure(
         n_panels=len(genes_to_plot),
         params=params,
         default_title=(
             "Getis-Ord Gi* Hotspots/Coldspots" if len(genes_to_plot) > 1 else ""
         ),
+        show_suptitle=len(genes_to_plot) > 1,
     )
 
     coords = require_spatial_coords(adata)
 
     # Calculate spot size (auto or user-specified)
     spot_size = auto_spot_size(adata, params.spot_size, basis="spatial")
+
+    sig_alpha = get_analysis_parameter(
+        adata, "spatial_stats_getis_ord", "alpha", default=0.05
+    )
+    correction = get_analysis_parameter(
+        adata, "spatial_stats_getis_ord", "correction", default="none"
+    )
+    z_threshold_stored = get_analysis_parameter(
+        adata, "spatial_stats_getis_ord", "z_threshold", default=None
+    )
+    if z_threshold_stored is not None:
+        z_thresh = float(z_threshold_stored)
+    else:
+        from scipy.stats import norm as _norm
+
+        z_thresh = _norm.ppf(1 - sig_alpha / 2)
 
     for i, gene in enumerate(genes_to_plot):
         if i < len(axes):
@@ -526,17 +568,6 @@ async def _create_getis_ord_visualization(
                 continue
 
             z_scores = adata.obs[z_key].values
-
-            # Read analysis-time significance settings from stored metadata
-            sig_alpha = get_analysis_parameter(
-                adata, "spatial_stats_getis_ord", "alpha", default=0.05
-            )
-            correction = get_analysis_parameter(
-                adata, "spatial_stats_getis_ord", "correction", default="none"
-            )
-            z_threshold_stored = get_analysis_parameter(
-                adata, "spatial_stats_getis_ord", "z_threshold", default=None
-            )
 
             # Use corrected p-values when available (matches analysis口径)
             p_corr_key = f"{gene}_getis_ord_p_corrected"
@@ -560,23 +591,21 @@ async def _create_getis_ord_visualization(
                 plt.colorbar(scatter, ax=ax, label="Gi* Z-score")
 
             # Count significant hot/cold spots using analysis-time criteria
-            # Derive z_threshold from alpha (matches analysis-time calculation)
-            from scipy.stats import norm as _norm
-
-            z_thresh = (
-                float(z_threshold_stored)
-                if z_threshold_stored is not None
-                else _norm.ppf(1 - sig_alpha / 2)
-            )
             significant = p_vals < sig_alpha
             hot_spots = np.sum((z_scores > z_thresh) & significant)
             cold_spots = np.sum((z_scores < -z_thresh) & significant)
 
-            # Format title based on number of panels
             if len(genes_to_plot) == 1:
-                # Single panel: include full description in title
-                ax.set_title(
-                    f"{gene}\nGetis-Ord Gi*: Hot: {hot_spots}, Cold: {cold_spots}"
+                ax.set_title(params.title or f"{gene} Getis-Ord Gi*")
+                ax.text(
+                    0.02,
+                    0.98,
+                    f"Hot: {hot_spots}\nCold: {cold_spots}",
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=9,
+                    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.75},
                 )
             elif params.add_gene_labels:
                 ax.set_title(f"{gene}\nHot: {hot_spots}, Cold: {cold_spots}")

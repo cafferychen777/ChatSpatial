@@ -606,6 +606,25 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
 # ============================================================================
 
 
+def _get_numeric_var_columns(adata: "ad.AnnData") -> list[str]:
+    return [
+        col for col in adata.var.columns if pd.api.types.is_numeric_dtype(adata.var[col])
+    ]
+
+
+def _validate_gsea_ranking_key(adata: "ad.AnnData", ranking_key: str) -> None:
+    if ranking_key in adata.var and pd.api.types.is_numeric_dtype(adata.var[ranking_key]):
+        return
+
+    available_rankings = _get_numeric_var_columns(adata)
+    raise ParameterError(
+        f"GSEA ranking key '{ranking_key}' was provided but is not a numeric "
+        "gene-level ranking in adata.var. Provide a numeric adata.var column, or omit "
+        "score_keys to let ChatSpatial compute a default expression-based ranking. "
+        f"Available numeric adata.var columns: {available_rankings}"
+    )
+
+
 def perform_gsea(
     adata: "ad.AnnData",
     gene_sets: dict[str, list[str]],
@@ -643,8 +662,8 @@ def perform_gsea(
     ranking_method = method.strip().lower()
 
     # Prepare ranking
-    if ranking_key and ranking_key in adata.var:
-        # Use pre-computed ranking
+    if ranking_key:
+        _validate_gsea_ranking_key(adata, ranking_key)
         ranking = adata.var[ranking_key].to_dict()
     else:
         # Compute ranking from expression data
@@ -2024,6 +2043,16 @@ async def analyze_enrichment(
     # Get adata
     adata = await ctx.get_adata(data_id)
 
+    ranking_key: str | None = None
+    if params.score_keys is not None:
+        ranking_key = (
+            params.score_keys[0]
+            if isinstance(params.score_keys, list)
+            else params.score_keys
+        )
+        if params.method == "pathway_gsea":
+            _validate_gsea_ranking_key(adata, ranking_key)
+
     # Load gene sets
     loaded_from_database = False
     gene_sets = params.gene_sets
@@ -2077,15 +2106,6 @@ async def analyze_enrichment(
                 "Provide custom gene_sets to score specific signatures."
             )
         gene_sets = gene_sets_dict
-
-    # Normalize score_keys to single string for methods that require it
-    ranking_key: str | None = None
-    if params.score_keys is not None:
-        ranking_key = (
-            params.score_keys[0]
-            if isinstance(params.score_keys, list)
-            else params.score_keys
-        )
 
     # Dispatch to appropriate method
     if params.method == "spatial_enrichmap":

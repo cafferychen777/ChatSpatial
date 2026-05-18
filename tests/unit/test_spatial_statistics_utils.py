@@ -138,6 +138,43 @@ def test_extract_result_summary_join_count_and_network_properties_branches():
     assert net_summary["summary_metrics"] == {"density": 0.12}
 
 
+def test_extract_result_summary_spatial_centrality_reports_cluster_and_global_metrics():
+    summary = _extract_result_summary(
+        {
+            "analysis_key": "spatial_centrality",
+            "centrality_computed": True,
+            "cluster_centrality": {
+                "A": {
+                    "mean_degree": 0.2,
+                    "mean_closeness": 0.3,
+                    "mean_betweenness": 0.01,
+                },
+                "B": {
+                    "mean_degree": 0.8,
+                    "mean_closeness": 0.4,
+                    "mean_betweenness": 0.02,
+                },
+            },
+            "global_stats": {
+                "mean_degree": 0.5,
+                "mean_closeness": 0.35,
+                "mean_betweenness": 0.015,
+            },
+        },
+        "spatial_centrality",
+    )
+
+    assert summary["results_key"] == "spatial_centrality"
+    assert summary["n_features_analyzed"] == 2
+    assert summary["top_features"] == ["B", "A"]
+    assert summary["summary_metrics"]["n_centrality_metrics"] == 3.0
+    assert summary["summary_metrics"]["top_centrality_score"] == 0.8
+    assert summary["summary_metrics"]["top_degree"] == 0.8
+    assert summary["summary_metrics"]["average_degree"] == 0.5
+    assert summary["summary_metrics"]["global_mean_degree"] == 0.5
+    assert "centrality_computed" not in summary["summary_metrics"]
+
+
 def test_get_optimal_n_jobs_respects_requested_and_auto_rules(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -725,7 +762,9 @@ def test_analyze_spatial_centrality_handles_missing_node_keys(
             DummyCtx(adata),
         )
 
+    assert out["analysis_key"] == "spatial_centrality"
     assert out["centrality_computed"] is True
+    assert adata.uns["spatial_centrality"] is out
     assert "degree_centrality" in adata.obs.columns
     assert adata.obs["degree_centrality"].shape[0] == adata.n_obs
     # Only node 0 from fake centrality has non-zero; others should be safely backfilled with 0
@@ -738,6 +777,9 @@ def test_build_results_keys_dynamic_cluster_variants_and_getis_ord_obs_keys():
     ripley_keys = _build_results_keys("ripley", genes=None, cluster_key="celltype")
     cent_keys = _build_results_keys("centrality", genes=None, cluster_key="group")
     getis_keys = _build_results_keys("getis_ord", genes=["g1", "g2"])
+    spatial_centrality_keys = _build_results_keys(
+        "spatial_centrality", genes=None, cluster_key="group"
+    )
 
     assert co_keys["uns"] == ["leiden_co_occurrence"]
     assert ripley_keys["uns"] == ["celltype_ripley_L"]
@@ -750,6 +792,7 @@ def test_build_results_keys_dynamic_cluster_variants_and_getis_ord_obs_keys():
         "g2_getis_ord_p",
         "g2_getis_ord_p_corrected",
     }
+    assert spatial_centrality_keys["uns"] == ["spatial_centrality"]
 
 
 def test_extract_result_summary_covers_remaining_analysis_branches():
@@ -1101,8 +1144,8 @@ def test_analyze_centrality_success_and_missing_key_failure(
     assert out["top_features"] == ["1", "0"]
     assert out["summary_metrics"]["n_centrality_metrics"] == 2.0
     assert out["summary_metrics"]["top_centrality_score"] == 0.9
-    assert out["summary_metrics"]["max_degree_centrality"] == 0.9
-    assert out["summary_metrics"]["mean_degree_centrality"] == 0.55
+    assert out["summary_metrics"]["top_degree_centrality"] == 0.9
+    assert out["summary_metrics"]["average_degree_centrality"] == 0.55
 
     adata.uns["legacy_centrality_scores"] = {
         "0": {"degree_centrality": 0.1},
@@ -1357,7 +1400,9 @@ def test_analyze_spatial_centrality_fallback_kneighbors_graph_path(
         ),
         DummyCtx(adata),
     )
+    assert out["analysis_key"] == "spatial_centrality"
     assert out["centrality_computed"] is True
+    assert adata.uns["spatial_centrality"] is out
     assert out["global_stats"]["mean_degree"] == pytest.approx(0.1)
     assert out["global_stats"]["mean_closeness"] == pytest.approx(0.2)
     assert out["global_stats"]["mean_betweenness"] == pytest.approx(0.3)
