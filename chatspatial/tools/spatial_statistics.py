@@ -301,6 +301,189 @@ async def analyze_spatial_statistics(
 # ============================================================================
 
 
+def _cluster_labels_for_dimension(
+    adata: ad.AnnData, cluster_key: str | None, n_labels: int
+) -> list[str]:
+    if not cluster_key or cluster_key not in adata.obs.columns:
+        return [str(i) for i in range(n_labels)]
+
+    cluster_col = adata.obs[cluster_key]
+    if isinstance(cluster_col.dtype, pd.CategoricalDtype):
+        all_labels = list(cluster_col.cat.categories)
+        counts = cluster_col.value_counts(sort=False, dropna=True)
+        observed_labels = counts.index[counts.to_numpy() > 0].tolist()
+    else:
+        all_labels = observed_labels = list(cluster_col.dropna().unique())
+
+    if len(all_labels) == n_labels:
+        return [str(label) for label in all_labels]
+    if len(observed_labels) == n_labels:
+        return [str(label) for label in observed_labels]
+    return [str(i) for i in range(n_labels)]
+
+
+def _summarize_co_occurrence_payload(
+    payload: dict[str, Any], labels: list[str]
+) -> dict[str, Any]:
+    try:
+        occ = np.asarray(payload.get("occ"), dtype=float)
+    except (TypeError, ValueError):
+        return {"top_features": [], "summary_metrics": {}}
+
+    if occ.ndim != 3:
+        return {"top_features": [], "summary_metrics": {}}
+
+    finite_mask = np.isfinite(occ)
+    if not finite_mask.any():
+        return {"top_features": [], "summary_metrics": {}}
+
+    finite_occ = np.where(finite_mask, occ, np.nan)
+    n_rows, n_cols, n_intervals = finite_occ.shape
+    row_labels = labels if len(labels) == n_rows else [str(i) for i in range(n_rows)]
+    col_labels = labels if len(labels) == n_cols else [str(i) for i in range(n_cols)]
+
+    pair_max = np.nanmax(finite_occ, axis=2)
+    if n_rows > 1 and n_cols > 1:
+        for diagonal_idx in range(min(n_rows, n_cols)):
+            pair_max[diagonal_idx, diagonal_idx] = np.nan
+
+    pair_indices = np.argwhere(np.isfinite(pair_max))
+    pair_scores = [
+        (f"{row_labels[i]}-{col_labels[j]}", float(pair_max[i, j]))
+        for i, j in pair_indices
+    ]
+    pair_scores.sort(key=lambda item: item[1], reverse=True)
+    top_features = [pair for pair, _score in pair_scores[:10]]
+
+    peak_index = np.unravel_index(np.nanargmax(finite_occ), finite_occ.shape)
+    peak_interval_index = int(peak_index[2])
+    summary_metrics: dict[str, float] = {
+        "n_intervals": float(n_intervals),
+        "mean_co_occurrence": float(np.nanmean(finite_occ)),
+        "peak_co_occurrence": float(finite_occ[peak_index]),
+        "peak_interval_index": float(peak_interval_index),
+    }
+
+    interval_edges = payload.get("interval")
+    if interval_edges is not None:
+        try:
+            interval_edges = np.asarray(interval_edges, dtype=float)
+        except (TypeError, ValueError):
+            interval_edges = None
+    if interval_edges is not None and interval_edges.ndim == 1:
+        interval_indices = [0, -1, peak_interval_index, peak_interval_index + 1]
+    else:
+        interval_indices = []
+    if (
+        interval_edges is not None
+        and interval_edges.ndim == 1
+        and len(interval_edges) > peak_interval_index + 1
+        and np.isfinite(interval_edges[interval_indices]).all()
+    ):
+        summary_metrics.update(
+            {
+                "distance_min": float(interval_edges[0]),
+                "distance_max": float(interval_edges[-1]),
+                "peak_distance_midpoint": float(
+                    (
+                        interval_edges[peak_interval_index]
+                        + interval_edges[peak_interval_index + 1]
+                    )
+                    / 2
+                ),
+            }
+        )
+
+    return {"top_features": top_features, "summary_metrics": summary_metrics}
+
+
+def _centrality_scores_to_dataframe(scores: Any) -> pd.DataFrame:
+    if isinstance(scores, pd.DataFrame):
+        return scores
+    if isinstance(scores, dict):
+        first_value = next(iter(scores.values()), None)
+        if isinstance(first_value, dict):
+            return pd.DataFrame.from_dict(scores, orient="index")
+        try:
+            return pd.DataFrame(scores)
+        except ValueError:
+            return pd.DataFrame.from_dict(scores, orient="index")
+    return pd.DataFrame()
+
+
+def _summarize_centrality_scores(scores: Any) -> dict[str, Any]:
+    scores_df = _centrality_scores_to_dataframe(scores)
+    if scores_df.empty:
+        return {"top_features": [], "summary_metrics": {}}
+
+    numeric_scores = scores_df.select_dtypes(include="number")
+    if numeric_scores.empty:
+        numeric_scores = scores_df.apply(pd.to_numeric, errors="coerce").dropna(
+            axis=1, how="all"
+        )
+    if numeric_scores.empty:
+        return {"top_features": [], "summary_metrics": {}}
+
+    if "degree_centrality" in numeric_scores.columns:
+        primary_metric = "degree_centrality"
+    elif "degree" in numeric_scores.columns:
+        primary_metric = "degree"
+    else:
+        primary_metric = numeric_scores.columns[0]
+
+    primary_scores = numeric_scores[primary_metric].dropna().sort_values(ascending=False)
+    top_features = [str(label) for label in primary_scores.index[:10]]
+
+    summary_metrics: dict[str, float] = {
+        "n_centrality_metrics": float(len(numeric_scores.columns)),
+        "top_centrality_score": (
+            float(primary_scores.iloc[0]) if len(primary_scores) else 0.0
+        ),
+    }
+    metrics = [primary_metric] + [
+        metric for metric in numeric_scores.columns if metric != primary_metric
+    ][:2]
+    for metric in metrics:
+        metric_values = numeric_scores[metric].dropna()
+        if metric_values.empty:
+            continue
+        metric_key = str(metric).replace(" ", "_")
+        summary_metrics[f"max_{metric_key}"] = float(metric_values.max())
+        summary_metrics[f"mean_{metric_key}"] = float(metric_values.mean())
+
+    return {"top_features": top_features, "summary_metrics": summary_metrics}
+
+
+def _summarize_bivariate_moran_pairs(
+    result: dict[str, Any], threshold: float = 0.3
+) -> dict[str, Any]:
+    bivariate_results = result.get("bivariate_morans_i", {})
+    finite_pairs = [
+        (str(pair), float(value))
+        for pair, value in bivariate_results.items()
+        if np.isfinite(value)
+    ]
+    notable_pairs = [
+        (pair, value) for pair, value in finite_pairs if abs(value) > threshold
+    ]
+    notable_pairs.sort(key=lambda item: abs(item[1]), reverse=True)
+
+    values = [value for _pair, value in finite_pairs]
+    summary_metrics = {
+        "mean_bivariate_i": float(result.get("mean_bivariate_i", 0.0)),
+        "notable_abs_i_threshold": float(threshold),
+        "max_bivariate_i": float(max(values)) if values else 0.0,
+        "min_bivariate_i": float(min(values)) if values else 0.0,
+        "max_abs_bivariate_i": float(max((abs(value) for value in values), default=0.0)),
+    }
+
+    return {
+        "n_significant": len(notable_pairs),
+        "top_features": [pair for pair, _value in notable_pairs[:10]],
+        "summary_metrics": summary_metrics,
+    }
+
+
 def _extract_result_summary(
     result: dict[str, Any], analysis_type: str
 ) -> dict[str, Any]:
@@ -415,6 +598,9 @@ def _extract_result_summary(
 
     elif analysis_type == "co_occurrence":
         summary["n_features_analyzed"] = result.get("n_clusters", 0)
+        summary["n_significant"] = result.get("n_significant", 0)
+        summary["top_features"] = result.get("top_features", [])[:10]
+        summary["summary_metrics"] = result.get("summary_metrics", {})
         summary["results_key"] = result.get("analysis_key")
 
     elif analysis_type == "ripley":
@@ -423,24 +609,14 @@ def _extract_result_summary(
 
     elif analysis_type == "centrality":
         summary["n_features_analyzed"] = result.get("n_clusters", 0)
+        summary["n_significant"] = result.get("n_significant", 0)
+        summary["top_features"] = result.get("top_features", [])[:10]
+        summary["summary_metrics"] = result.get("summary_metrics", {})
         summary["results_key"] = result.get("analysis_key")
 
     elif analysis_type == "bivariate_moran":
-        # Match field names from _analyze_bivariate_moran return value
         summary["n_features_analyzed"] = result.get("n_pairs_analyzed", 0)
-        # Extract gene pair names from bivariate_morans_i keys (format: "GeneA_vs_GeneB")
-        bivariate_results = result.get("bivariate_morans_i", {})
-        summary["top_features"] = list(bivariate_results.keys())[:10]
-        # Heuristic threshold: |Moran's I| > 0.3 indicates notable spatial correlation
-        # (not a formal significance test; no p-value available for bivariate Moran's I)
-        notable = [k for k, v in bivariate_results.items() if abs(v) > 0.3]
-        summary["n_significant"] = len(notable)
-        summary["significance_note"] = (
-            "Based on |I| > 0.3 heuristic, not a formal statistical test"
-        )
-        summary["summary_metrics"] = {
-            "mean_bivariate_i": result.get("mean_bivariate_i", 0),
-        }
+        summary.update(_summarize_bivariate_moran_pairs(result))
 
     elif analysis_type == "join_count":
         # Binary join count - always 2 categories
@@ -742,6 +918,8 @@ def _analyze_co_occurrence(
                 float(interval_data[-1]),
             )
 
+        labels = _cluster_labels_for_dimension(adata, cluster_key, len(co_occurrence))
+        result.update(_summarize_co_occurrence_payload(adata.uns[analysis_key], labels))
         return result
 
     raise ProcessingError("Co-occurrence analysis did not produce results")
@@ -960,14 +1138,16 @@ def _analyze_centrality(
     analysis_key = f"{cluster_key}_centrality_scores"
     if analysis_key in adata.uns:
         scores = adata.uns[analysis_key]
-        # Handle both dict (legacy) and DataFrame (current squidpy) formats
-        n_clusters = len(scores) if hasattr(scores, "__len__") else 0
+        scores_df = _centrality_scores_to_dataframe(scores)
+        n_clusters = len(scores_df.index)
 
-        return {
+        result = {
             "analysis_completed": True,
             "analysis_key": analysis_key,
             "n_clusters": n_clusters,
         }
+        result.update(_summarize_centrality_scores(scores_df))
+        return result
 
     raise ProcessingError("Centrality analysis did not produce results")
 

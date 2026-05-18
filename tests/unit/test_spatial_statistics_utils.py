@@ -482,8 +482,11 @@ def test_analyze_co_occurrence_uses_interval_from_params_and_returns_distance_ra
     def _fake_co_occurrence(a, cluster_key, interval):
         captured["interval"] = interval
         captured["cluster_key"] = cluster_key
+        occ = np.zeros((2, 2, 4))
+        occ[0, 1, 2] = 3.5
+        occ[1, 0, 1] = 2.0
         a.uns["leiden_co_occurrence"] = {
-            "occ": np.zeros((2, 2, 4)),
+            "occ": occ,
             # bin edges: 5 edges → 4 intervals (matches occ shape)
             "interval": np.array([0.0, 5.0, 10.0, 15.0, 20.0]),
         }
@@ -501,6 +504,12 @@ def test_analyze_co_occurrence_uses_interval_from_params_and_returns_distance_ra
     assert out["n_clusters"] == 2
     assert out["n_intervals"] == 4  # 5 bin edges → 4 intervals
     assert out["distance_range"] == (0.0, 20.0)
+    assert out["top_features"] == ["0-1", "1-0"]
+    assert out["summary_metrics"]["peak_co_occurrence"] == 3.5
+    assert out["summary_metrics"]["peak_interval_index"] == 2.0
+    assert out["summary_metrics"]["distance_min"] == 0.0
+    assert out["summary_metrics"]["distance_max"] == 20.0
+    assert out["summary_metrics"]["peak_distance_midpoint"] == 12.5
 
 
 def test_analyze_co_occurrence_uses_default_interval_when_not_set(
@@ -514,7 +523,9 @@ def test_analyze_co_occurrence_uses_default_interval_when_not_set(
     def _fake_co_occurrence(a, cluster_key, interval):
         del cluster_key
         captured["interval"] = interval
-        a.uns["leiden_co_occurrence"] = {"occ": np.zeros((2, 2, 3))}
+        occ = np.zeros((2, 2, 3))
+        occ[1, 0, 2] = 1.7
+        a.uns["leiden_co_occurrence"] = {"occ": occ}
 
     monkeypatch.setattr(ss.sq.gr, "co_occurrence", _fake_co_occurrence)
 
@@ -527,6 +538,10 @@ def test_analyze_co_occurrence_uses_default_interval_when_not_set(
 
     assert captured["interval"] == 50
     assert out["n_intervals"] == 50
+    assert out["top_features"] == ["1-0", "0-1"]
+    assert out["summary_metrics"]["n_intervals"] == 3.0
+    assert out["summary_metrics"]["peak_co_occurrence"] == 1.7
+    assert "distance_min" not in out["summary_metrics"]
 
 
 def test_analyze_gearys_c_raises_when_results_missing(
@@ -772,15 +787,31 @@ def test_extract_result_summary_covers_remaining_analysis_branches():
     assert getis["summary_metrics"] == {"total_hotspots": 7, "total_coldspots": 2}
 
     co = _extract_result_summary(
-        {"n_clusters": 3, "analysis_key": "x_co"}, "co_occurrence"
+        {
+            "n_clusters": 3,
+            "analysis_key": "x_co",
+            "top_features": ["0-1"],
+            "summary_metrics": {"peak_co_occurrence": 2.5},
+        },
+        "co_occurrence",
     )
     rip = _extract_result_summary({"n_clusters": 4, "analysis_key": "x_rip"}, "ripley")
     cen = _extract_result_summary(
-        {"n_clusters": 2, "analysis_key": "x_cent"}, "centrality"
+        {
+            "n_clusters": 2,
+            "analysis_key": "x_cent",
+            "top_features": ["1"],
+            "summary_metrics": {"top_centrality_score": 0.9},
+        },
+        "centrality",
     )
     assert co["n_features_analyzed"] == 3 and co["results_key"] == "x_co"
+    assert co["top_features"] == ["0-1"]
+    assert co["summary_metrics"] == {"peak_co_occurrence": 2.5}
     assert rip["n_features_analyzed"] == 4 and rip["results_key"] == "x_rip"
     assert cen["n_features_analyzed"] == 2 and cen["results_key"] == "x_cent"
+    assert cen["top_features"] == ["1"]
+    assert cen["summary_metrics"] == {"top_centrality_score": 0.9}
 
     biv = _extract_result_summary(
         {
@@ -792,7 +823,10 @@ def test_extract_result_summary_covers_remaining_analysis_branches():
     )
     assert biv["n_features_analyzed"] == 3
     assert biv["n_significant"] == 2
-    assert biv["summary_metrics"] == {"mean_bivariate_i": 0.05}
+    assert biv["top_features"] == ["c_vs_d", "e_vs_f"]
+    assert biv["summary_metrics"]["mean_bivariate_i"] == 0.05
+    assert biv["summary_metrics"]["max_abs_bivariate_i"] == 0.4
+    assert biv["summary_metrics"]["notable_abs_i_threshold"] == 0.3
 
     ljc_empty = _extract_result_summary(
         {"n_categories": 0, "categories": [], "per_category_stats": {}},
@@ -802,6 +836,23 @@ def test_extract_result_summary_covers_remaining_analysis_branches():
         "mean_hotspots_per_category": 0.0,
         "total_significant_clusters": 0,
     }
+
+
+def test_extract_result_summary_bivariate_moran_reports_strongest_non_notable_pair():
+    summary = _extract_result_summary(
+        {
+            "n_pairs_analyzed": 2,
+            "bivariate_morans_i": {"a_vs_b": 0.1, "c_vs_d": -0.25},
+            "mean_bivariate_i": -0.075,
+        },
+        "bivariate_moran",
+    )
+
+    assert summary["n_significant"] == 0
+    assert summary["top_features"] == []
+    assert summary["summary_metrics"]["max_abs_bivariate_i"] == 0.25
+    assert summary["summary_metrics"]["max_bivariate_i"] == 0.1
+    assert summary["summary_metrics"]["min_bivariate_i"] == -0.25
 
 
 def test_extract_result_summary_local_moran_empty_results_uses_zero_defaults():
@@ -1029,13 +1080,17 @@ def test_analyze_centrality_success_and_missing_key_failure(
     adata = minimal_spatial_adata.copy()
     adata.obs["leiden"] = pd.Categorical(["0"] * 30 + ["1"] * 30)
 
-    monkeypatch.setattr(
-        ss.sq.gr,
-        "centrality_scores",
-        lambda a, cluster_key: a.uns.__setitem__(
-            f"{cluster_key}_centrality_scores", {"0": 1.0, "1": 0.5}
-        ),
-    )
+    def _fake_centrality_scores(a, cluster_key):
+        a.uns[f"{cluster_key}_centrality_scores"] = pd.DataFrame(
+            {
+                "degree_centrality": [0.2, 0.9],
+                "closeness_centrality": [0.3, 0.6],
+                "label": ["low", "high"],
+            },
+            index=["0", "1"],
+        )
+
+    monkeypatch.setattr(ss.sq.gr, "centrality_scores", _fake_centrality_scores)
     cent_params = SpatialStatisticsParameters(
         analysis_type="centrality", cluster_key="leiden"
     )
@@ -1043,6 +1098,20 @@ def test_analyze_centrality_success_and_missing_key_failure(
     assert out["analysis_completed"] is True
     assert out["analysis_key"] == "leiden_centrality_scores"
     assert out["n_clusters"] == 2
+    assert out["top_features"] == ["1", "0"]
+    assert out["summary_metrics"]["n_centrality_metrics"] == 2.0
+    assert out["summary_metrics"]["top_centrality_score"] == 0.9
+    assert out["summary_metrics"]["max_degree_centrality"] == 0.9
+    assert out["summary_metrics"]["mean_degree_centrality"] == 0.55
+
+    adata.uns["legacy_centrality_scores"] = {
+        "0": {"degree_centrality": 0.1},
+        "1": {"degree_centrality": 0.8},
+    }
+    legacy_summary = ss._summarize_centrality_scores(
+        adata.uns["legacy_centrality_scores"]
+    )
+    assert legacy_summary["top_features"] == ["1", "0"]
 
     monkeypatch.setattr(ss.sq.gr, "centrality_scores", lambda *_args, **_kwargs: None)
     adata.uns.pop("leiden_centrality_scores", None)
