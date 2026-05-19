@@ -797,11 +797,25 @@ def test_build_results_keys_dynamic_cluster_variants_and_getis_ord_obs_keys():
 
 def test_extract_result_summary_covers_remaining_analysis_branches():
     geary = _extract_result_summary(
-        {"n_genes_analyzed": 5, "mean_gearys_c": 0.88, "analysis_key": "gearyC"},
+        {
+            "n_genes_analyzed": 5,
+            "n_significant": 2,
+            "top_positive_autocorrelation": ["g1", "g2", "g3"],
+            "mean_gearys_c": 0.88,
+            "min_gearys_c": 0.2,
+            "max_gearys_c": 1.4,
+            "analysis_key": "gearyC",
+        },
         "geary",
     )
     assert geary["n_features_analyzed"] == 5
-    assert geary["summary_metrics"] == {"mean_gearys_c": 0.88}
+    assert geary["n_significant"] == 2
+    assert geary["top_features"] == ["g1", "g2", "g3"]
+    assert geary["summary_metrics"] == {
+        "mean_gearys_c": 0.88,
+        "min_gearys_c": 0.2,
+        "max_gearys_c": 1.4,
+    }
     assert geary["results_key"] == "gearyC"
 
     local_moran = _extract_result_summary(
@@ -969,7 +983,10 @@ def test_analyze_gearys_c_success_dataframe_path(
     )
 
     def _fake_geary(a, **_kwargs):
-        a.uns["gearyC"] = pd.DataFrame({"C": [0.2, 1.0]}, index=["gene_0", "gene_1"])
+        a.uns["gearyC"] = pd.DataFrame(
+            {"C": [0.2, 1.0], "pval_norm": [0.001, 0.2]},
+            index=["gene_0", "gene_1"],
+        )
 
     monkeypatch.setattr(ss.sq.gr, "spatial_autocorr", _fake_geary)
     out = ss._analyze_gearys_c(
@@ -978,8 +995,14 @@ def test_analyze_gearys_c_success_dataframe_path(
         DummyCtx(adata),
     )
     assert out["n_genes_analyzed"] == 2
+    assert out["n_significant"] == 1
+    assert out["top_positive_autocorrelation"] == ["gene_0", "gene_1"]
+    assert out["top_weak_autocorrelation"] == ["gene_1", "gene_0"]
     assert out["mean_gearys_c"] == pytest.approx(0.6)
+    assert out["min_gearys_c"] == pytest.approx(0.2)
+    assert out["max_gearys_c"] == pytest.approx(1.0)
     assert out["analysis_key"] == "gearyC"
+    assert adata.uns["gearyC"].loc["gene_0", "pval_norm_fdr"] == pytest.approx(0.002)
 
 
 def test_analyze_neighborhood_and_co_occurrence_raise_when_results_missing(

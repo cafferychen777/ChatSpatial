@@ -50,6 +50,7 @@ def _get_gseapy():
 # Subramanian et al. 2005 PNAS: "We recommend an FDR cutoff of 25%"
 _GSEA_FDR_THRESHOLD = 0.25
 _SPATIAL_ENRICHMAP_MAX_DATABASE_GENE_SETS = 50
+_LATEST_ENRICHMENT_RESULTS_KEY = "enrichment_latest_results_key"
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,52 @@ def _build_enrichment_key(method: str, database: str | None) -> str:
         db_clean = database.replace(" ", "_").replace("/", "_")
         return f"enrichment_{method}_{db_clean}"
     return f"enrichment_{method}"
+
+
+def _store_enrichment_results(
+    adata: "ad.AnnData",
+    result_key: str,
+    results: object,
+    method: str,
+    database: str | None,
+    parameters: dict[str, object],
+    statistics: dict[str, object],
+    species: str | None = None,
+    gene_sets: dict[str, list[str]] | None = None,
+    gene_sets_shared_key: str | None = None,
+    data_id: str | None = None,
+) -> tuple[str, str]:
+    """Store tabular enrichment results with shared, per-run, and metadata keys."""
+    adata.uns[result_key] = results
+    adata.uns[_LATEST_ENRICHMENT_RESULTS_KEY] = result_key
+
+    analysis_key = _build_enrichment_key(method, database)
+    per_run_key = f"{result_key}_{analysis_key.removeprefix('enrichment_')}"
+    adata.uns[per_run_key] = results
+
+    uns_keys = [per_run_key]
+    if gene_sets is not None and gene_sets_shared_key is not None:
+        adata.uns[gene_sets_shared_key] = gene_sets
+        per_run_gs_key = (
+            f"{gene_sets_shared_key}_{analysis_key.removeprefix('enrichment_')}"
+        )
+        adata.uns[per_run_gs_key] = gene_sets
+        uns_keys.append(per_run_gs_key)
+
+    store_analysis_metadata(
+        adata,
+        analysis_name=analysis_key,
+        method=method,
+        parameters=parameters,
+        results_keys={"uns": uns_keys},
+        statistics=statistics,
+        species=species,
+        database=database,
+    )
+    if data_id is not None:
+        export_analysis_result(adata, data_id, analysis_key)
+
+    return analysis_key, per_run_key
 
 
 # Preferred/legacy library candidates to keep versioning deterministic while
@@ -808,27 +855,12 @@ def perform_gsea(
             results_df_sorted[results_df_sorted["NES"] < 0].head(10)["Term"].tolist()
         )
 
-        # Save results to adata.uns for visualization
-        # Store full results DataFrame for visualization (shared key for viz compat)
-        adata.uns["gsea_results"] = results_df
-
-        # Per-run parametrized key so multiple database runs coexist
-        analysis_key = _build_enrichment_key("gsea", database)
-        per_run_key = f"gsea_results_{analysis_key.removeprefix('enrichment_')}"
-        adata.uns[per_run_key] = results_df
-
-        # Store gene set membership (shared for compat + per-run for provenance)
-        adata.uns["enrichment_gsea_gene_sets"] = gene_sets
-        per_run_gs_key = (
-            f"enrichment_gsea_gene_sets_{analysis_key.removeprefix('enrichment_')}"
-        )
-        adata.uns[per_run_gs_key] = gene_sets
-
-        # Store metadata for scientific provenance tracking
-        store_analysis_metadata(
-            adata,
-            analysis_name=analysis_key,
+        _store_enrichment_results(
+            adata=adata,
+            result_key="gsea_results",
+            results=results_df,
             method="gsea",
+            database=database,
             parameters={
                 "permutation_num": permutation_num,
                 "ranking_method": ranking_method,
@@ -836,22 +868,15 @@ def perform_gsea(
                 "max_size": max_size,
                 "ranking_key": ranking_key,
             },
-            results_keys={
-                "uns": [per_run_key, per_run_gs_key],
-            },
             statistics={
                 "n_gene_sets": len(gene_sets),
-                "n_significant": len(
-                    results_df[results_df["FDR q-val"] < pvalue_cutoff]
-                ),
+                "n_significant": int((results_df["FDR q-val"] < pvalue_cutoff).sum()),
             },
             species=species,
-            database=database,
+            gene_sets=gene_sets,
+            gene_sets_shared_key="enrichment_gsea_gene_sets",
+            data_id=data_id,
         )
-
-        # Export results to CSV for reproducibility
-        if data_id is not None:
-            export_analysis_result(adata, data_id, analysis_key)
 
         # Filter all result dictionaries to only significant pathways (reduces MCP response size)
         # Uses method-based FDR threshold: GSEA = 0.25 (Subramanian et al. 2005)
@@ -1072,21 +1097,6 @@ def perform_ora(
     ora_df["NES"] = ora_df["odds_ratio"]  # Use odds_ratio as score for visualization
     ora_df = ora_df.sort_values("pvalue")
 
-    # Shared key for visualization compatibility
-    adata.uns["ora_results"] = ora_df
-
-    # Per-run parametrized key so multiple database runs coexist
-    analysis_key = _build_enrichment_key("ora", database)
-    per_run_key = f"ora_results_{analysis_key.removeprefix('enrichment_')}"
-    adata.uns[per_run_key] = ora_df
-
-    # Store gene set membership (shared for compat + per-run for provenance)
-    adata.uns["enrichment_ora_gene_sets"] = gene_sets
-    per_run_gs_key = (
-        f"enrichment_ora_gene_sets_{analysis_key.removeprefix('enrichment_')}"
-    )
-    adata.uns[per_run_gs_key] = gene_sets
-
     # Count significant pathways using the pathway significance threshold
     # (distinct from the DEG selection threshold used for input gene filtering)
     n_significant = sum(
@@ -1095,11 +1105,12 @@ def perform_ora(
         if p is not None and p < significance_threshold
     )
 
-    # Store metadata for scientific provenance tracking
-    store_analysis_metadata(
-        adata,
-        analysis_name=analysis_key,
+    _store_enrichment_results(
+        adata=adata,
+        result_key="ora_results",
+        results=ora_df,
         method="ora",
+        database=database,
         parameters={
             "deg_pvalue_threshold": pvalue_threshold,
             "significance_threshold": significance_threshold,
@@ -1108,21 +1119,16 @@ def perform_ora(
             "max_size": max_size,
             "n_query_genes": len(query_genes),
         },
-        results_keys={
-            "uns": [per_run_key, per_run_gs_key],
-        },
         statistics={
             "n_gene_sets": len(gene_sets),
             "n_significant": n_significant,
             "n_query_genes": len(query_genes),
         },
         species=species,
-        database=database,
+        gene_sets=gene_sets,
+        gene_sets_shared_key="enrichment_ora_gene_sets",
+        data_id=data_id,
     )
-
-    # Export results to CSV for reproducibility
-    if data_id is not None:
-        export_analysis_result(adata, data_id, analysis_key)
 
     # Filter result dicts to significant pathways (reduces MCP response size)
     (
@@ -1248,36 +1254,46 @@ def perform_ssgsea(
 
             res = CombinedResult(all_batch_results)
 
-        # Extract results - ssGSEA stores enrichment scores in res.results
-        if hasattr(res, "results") and isinstance(res.results, dict):
-            # res.results is a dict where keys are sample names and values are DataFrames
-            # We need to reorganize this into gene sets x samples format
+        if hasattr(res, "res2d") and isinstance(res.res2d, pd.DataFrame):
+            res2d = res.res2d
+            if {"Name", "Term", "ES"}.issubset(res2d.columns):
+                scores_df = res2d.pivot(index="Term", columns="Name", values="ES")
+            else:
+                scores_df = pd.DataFrame()
+        elif hasattr(res, "results") and isinstance(res.results, dict):
             all_samples = list(res.results.keys())
             all_gene_sets = set()
 
-            # Get all gene sets
-            for sample_df in res.results.values():
-                if isinstance(sample_df, pd.DataFrame) and "Term" in sample_df.columns:
-                    all_gene_sets.update(sample_df["Term"].values)
+            for sample_result in res.results.values():
+                if isinstance(sample_result, pd.DataFrame) and "Term" in sample_result.columns:
+                    all_gene_sets.update(sample_result["Term"].values)
+                elif isinstance(sample_result, dict):
+                    all_gene_sets.update(sample_result)
 
             all_gene_sets_list = list(all_gene_sets)
-
-            # Create scores matrix
             scores_matrix = pd.DataFrame(
                 index=all_gene_sets_list, columns=all_samples, dtype=float
             )
 
-            # Fill in scores - vectorized (30x faster than iterrows)
-            for sample, df in res.results.items():
+            for sample, sample_result in res.results.items():
                 if (
-                    isinstance(df, pd.DataFrame)
-                    and "Term" in df.columns
-                    and "ES" in df.columns
+                    isinstance(sample_result, pd.DataFrame)
+                    and "Term" in sample_result.columns
+                    and "ES" in sample_result.columns
                 ):
-                    sample_scores = df.set_index("Term")["ES"]
+                    sample_scores = sample_result.set_index("Term")["ES"]
                     scores_matrix[sample] = sample_scores.reindex(all_gene_sets_list)
+                elif isinstance(sample_result, dict):
+                    sample_scores = {
+                        term: values.get("es")
+                        for term, values in sample_result.items()
+                        if isinstance(values, dict) and "es" in values
+                    }
+                    scores_matrix[sample] = pd.Series(sample_scores).reindex(
+                        all_gene_sets_list
+                    )
 
-            scores_df = scores_matrix  # Keep NaN for accurate statistics
+            scores_df = scores_matrix
         else:
             error_msg = "ssGSEA results format not recognized."
             logger.error(error_msg)
@@ -1318,6 +1334,8 @@ def perform_ssgsea(
             adata.uns["enrichment_ssgsea_gene_sets"] = gene_sets
             per_run_gs_key = f"enrichment_ssgsea_gene_sets_{analysis_key.removeprefix('enrichment_')}"
             adata.uns[per_run_gs_key] = gene_sets
+
+            adata.uns["enrichment_latest_score_key"] = analysis_key
 
             # Store metadata for scientific provenance tracking
             obs_keys = [f"ssgsea_{gs_name}" for gs_name in scores_df.index]
@@ -1383,6 +1401,10 @@ def perform_enrichr(
     organism: str = "human",
     pvalue_cutoff: float = 0.05,
     ctx: Optional["ToolContext"] = None,
+    adata: Optional["ad.AnnData"] = None,
+    species: Optional[str] = None,
+    database: Optional[str] = None,
+    data_id: Optional[str] = None,
 ) -> "EnrichmentResult":
     """Perform enrichment analysis using Enrichr web service.
 
@@ -1473,6 +1495,26 @@ def perform_enrichr(
         all_results_sorted = all_results.sort_values("Combined Score", ascending=False)
         top_gene_sets = all_results_sorted.head(10)["Term"].tolist()
 
+        n_significant = int((all_results["Adjusted P-value"] < pvalue_cutoff).sum())
+        if adata is not None:
+            _store_enrichment_results(
+                adata=adata,
+                result_key="enrichr_results",
+                results=all_results,
+                method="enrichr",
+                database=database,
+                parameters={
+                    "pvalue_cutoff": pvalue_cutoff,
+                    "n_query_genes": len(gene_list),
+                },
+                statistics={
+                    "n_gene_sets": len(all_results),
+                    "n_significant": n_significant,
+                },
+                species=species or organism,
+                data_id=data_id,
+            )
+
         # Filter all result dictionaries to only significant pathways (reduces MCP response size)
         # Uses method-based FDR threshold: Enrichr = 0.05 (same as ORA, hypergeometric-based)
         (
@@ -1492,9 +1534,7 @@ def perform_enrichr(
         return EnrichmentResult(
             method="enrichr",
             n_gene_sets=len(all_results),
-            n_significant=len(
-                all_results[all_results["Adjusted P-value"] < pvalue_cutoff]
-            ),
+            n_significant=n_significant,
             enrichment_scores=filtered_scores,
             pvalues=filtered_pvals,
             adjusted_pvalues=filtered_adj_pvals,
@@ -2172,9 +2212,14 @@ async def analyze_enrichment(
             organism=params.species,
             pvalue_cutoff=params.pvalue_cutoff,
             ctx=ctx,
+            adata=adata,
+            species=params.species,
+            database=params.gene_set_database,
+            data_id=data_id,
         )
 
     else:
         raise ParameterError(f"Unknown enrichment method: {params.method}")
 
+    await ctx.set_adata(data_id, adata)
     return result

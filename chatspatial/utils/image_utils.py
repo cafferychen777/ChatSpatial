@@ -164,8 +164,8 @@ async def optimize_fig_to_image_with_cache(
         }
     elif output_format in ["jpg", "jpeg"]:
         save_params["pil_kwargs"] = {"quality": 95}
-    elif output_format in ["svg", "eps"]:
-        # SVG and EPS writers don't support "Software" metadata key, remove it
+        save_params.pop("metadata", None)
+    elif output_format in ["svg", "eps", "tif", "tiff"]:
         save_params.pop("metadata", None)
 
     # Save figure

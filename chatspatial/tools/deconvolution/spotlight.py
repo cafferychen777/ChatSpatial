@@ -38,8 +38,8 @@ def deconvolve(
         Tuple of (proportions DataFrame, statistics dictionary)
     """
     import rpy2.robjects as ro
-    from rpy2.robjects import numpy2ri, pandas2ri
-    from rpy2.robjects.conversion import localconverter
+    from rpy2.rinterface_lib import openrlib
+    from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
 
     ctx = data.ctx
 
@@ -79,107 +79,90 @@ def deconvolve(
         cell_types = cell_types.str.replace("/", "_", regex=False)
         cell_types = cell_types.str.replace(" ", "_", regex=False)
 
-        # Load R libraries first (using ro.r() to avoid importr conversion issues)
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            ro.r("library(SPOTlight)")
-            ro.r("library(SingleCellExperiment)")
-            ro.r("library(SpatialExperiment)")
-            ro.r("library(scran)")
-            ro.r("library(scuttle)")
+        r_converter = default_converter + pandas2ri.converter + numpy2ri.converter
+        with openrlib.rlock:
+            with conversion.localconverter(r_converter):
+                ro.r("library(SPOTlight)")
+                ro.r("library(SingleCellExperiment)")
+                ro.r("library(SpatialExperiment)")
+                ro.r("library(scran)")
+                ro.r("library(scuttle)")
 
-        # Transfer matrices to R using numpy2ri
-        with localconverter(ro.default_converter + numpy2ri.converter):
-            ro.globalenv["spatial_counts"] = spatial_counts.T
-            ro.globalenv["reference_counts"] = reference_counts.T
-
-        # Transfer other data
-        with localconverter(
-            ro.default_converter + pandas2ri.converter + numpy2ri.converter
-        ):
-            ro.globalenv["spatial_coords"] = spatial_coords
-            ro.globalenv["gene_names"] = ro.StrVector(data.common_genes)
-            ro.globalenv["spatial_names"] = ro.StrVector(list(spatial_data.obs_names))
-            ro.globalenv["reference_names"] = ro.StrVector(
-                list(reference_data.obs_names)
-            )
-            ro.globalenv["cell_types"] = ro.StrVector(cell_types.tolist())
-            ro.globalenv["nmf_model"] = nmf_model
-            ro.globalenv["min_prop"] = min_prop
-            ro.globalenv["scale_data"] = scale
-            ro.globalenv["weight_id"] = weight_id
-            ro.globalenv["n_top_genes"] = n_top_genes
-
-        # Create SCE and SPE objects, run SPOTlight
-        ro.r("""
-            # Create SingleCellExperiment for reference
-            sce <- SingleCellExperiment(
-                assays = list(counts = reference_counts),
-                colData = data.frame(
-                    cell_type = factor(cell_types),
-                    row.names = reference_names
+                ro.globalenv["spatial_counts"] = spatial_counts.T
+                ro.globalenv["reference_counts"] = reference_counts.T
+                ro.globalenv["spatial_coords"] = spatial_coords
+                ro.globalenv["gene_names"] = ro.StrVector(data.common_genes)
+                ro.globalenv["spatial_names"] = ro.StrVector(list(spatial_data.obs_names))
+                ro.globalenv["reference_names"] = ro.StrVector(
+                    list(reference_data.obs_names)
                 )
-            )
-            rownames(sce) <- gene_names
-            sce <- logNormCounts(sce)
+                ro.globalenv["cell_types"] = ro.StrVector(cell_types.tolist())
+                ro.globalenv["nmf_model"] = nmf_model
+                ro.globalenv["min_prop"] = min_prop
+                ro.globalenv["scale_data"] = scale
+                ro.globalenv["weight_id"] = weight_id
+                ro.globalenv["n_top_genes"] = n_top_genes
 
-            # Create SpatialExperiment for spatial data
-            spe <- SpatialExperiment(
-                assays = list(counts = spatial_counts),
-                spatialCoords = spatial_coords,
-                colData = data.frame(row.names = spatial_names)
-            )
-            rownames(spe) <- gene_names
-            colnames(spe) <- spatial_names
+                ro.r("""
+                    sce <- SingleCellExperiment(
+                        assays = list(counts = reference_counts),
+                        colData = data.frame(
+                            cell_type = factor(cell_types),
+                            row.names = reference_names
+                        )
+                    )
+                    rownames(sce) <- gene_names
+                    sce <- logNormCounts(sce)
 
-            # Find marker genes using scran
-            markers <- findMarkers(sce, groups = sce$cell_type, test.type = "wilcox")
+                    spe <- SpatialExperiment(
+                        assays = list(counts = spatial_counts),
+                        spatialCoords = spatial_coords,
+                        colData = data.frame(row.names = spatial_names)
+                    )
+                    rownames(spe) <- gene_names
+                    colnames(spe) <- spatial_names
 
-            # Format marker genes for SPOTlight
-            cell_type_names <- names(markers)
-            mgs_list <- list()
+                    markers <- findMarkers(sce, groups = sce$cell_type, test.type = "wilcox")
+                    cell_type_names <- names(markers)
+                    mgs_list <- list()
 
-            for (ct in cell_type_names) {
-                ct_markers <- markers[[ct]]
-                n_markers <- min(n_top_genes, nrow(ct_markers))
-                top_markers <- head(ct_markers[order(ct_markers$p.value), ], n_markers)
+                    for (ct in cell_type_names) {
+                        ct_markers <- markers[[ct]]
+                        n_markers <- min(n_top_genes, nrow(ct_markers))
+                        top_markers <- head(ct_markers[order(ct_markers$p.value), ], n_markers)
 
-                mgs_df <- data.frame(
-                    gene = rownames(top_markers),
-                    cluster = ct,
-                    mean.AUC = -log10(top_markers$p.value + 1e-10)
+                        mgs_df <- data.frame(
+                            gene = rownames(top_markers),
+                            cluster = ct,
+                            mean.AUC = -log10(top_markers$p.value + 1e-10)
+                        )
+                        mgs_list[[ct]] <- mgs_df
+                    }
+
+                    mgs <- do.call(rbind, mgs_list)
+
+                    spotlight_result <- SPOTlight(
+                        x = sce,
+                        y = spe,
+                        groups = sce$cell_type,
+                        mgs = mgs,
+                        weight_id = weight_id,
+                        group_id = "cluster",
+                        gene_id = "gene",
+                        model = nmf_model,
+                        min_prop = min_prop,
+                        scale = scale_data,
+                        verbose = TRUE
+                    )
+                """)
+
+                proportions_np = np.array(ro.r("spotlight_result$mat"))
+                spot_names = list(ro.r("rownames(spotlight_result$mat)"))
+                cell_type_names = list(ro.r("colnames(spotlight_result$mat)"))
+
+                proportions = pd.DataFrame(
+                    proportions_np, index=spot_names, columns=cell_type_names
                 )
-                mgs_list[[ct]] <- mgs_df
-            }
-
-            mgs <- do.call(rbind, mgs_list)
-
-            # Run SPOTlight
-            spotlight_result <- SPOTlight(
-                x = sce,
-                y = spe,
-                groups = sce$cell_type,
-                mgs = mgs,
-                weight_id = weight_id,
-                group_id = "cluster",
-                gene_id = "gene",
-                model = nmf_model,
-                min_prop = min_prop,
-                scale = scale_data,
-                verbose = TRUE
-            )
-        """)
-
-        # Extract results
-        with localconverter(
-            ro.default_converter + pandas2ri.converter + numpy2ri.converter
-        ):
-            proportions_np = np.array(ro.r("spotlight_result$mat"))
-            spot_names = list(ro.r("rownames(spotlight_result$mat)"))
-            cell_type_names = list(ro.r("colnames(spotlight_result$mat)"))
-
-        proportions = pd.DataFrame(
-            proportions_np, index=spot_names, columns=cell_type_names
-        )
 
         # Create statistics
         stats = create_deconvolution_stats(
@@ -192,15 +175,16 @@ def deconvolve(
             min_prop=min_prop,
         )
 
-        # Clean up R global environment
-        ro.r("""
-            rm(list = c("spatial_counts", "reference_counts", "spatial_coords",
-                        "gene_names", "spatial_names", "reference_names", "cell_types",
-                        "nmf_model", "min_prop", "scale_data", "weight_id",
-                        "sce", "spe", "markers", "mgs", "spotlight_result"),
-                   envir = .GlobalEnv)
-            gc()
-        """)
+        with openrlib.rlock:
+            with conversion.localconverter(r_converter):
+                ro.r("""
+                    rm(list = c("spatial_counts", "reference_counts", "spatial_coords",
+                                "gene_names", "spatial_names", "reference_names", "cell_types",
+                                "nmf_model", "min_prop", "scale_data", "weight_id",
+                                "sce", "spe", "markers", "mgs", "spotlight_result"),
+                           envir = .GlobalEnv)
+                    gc()
+                """)
 
         return proportions, stats
 

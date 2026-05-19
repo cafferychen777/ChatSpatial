@@ -279,10 +279,19 @@ def _prepare_paste_slices(
     regardless of how many slices are being aligned.
     """
     import scanpy as sc
+    from scipy import sparse
 
     slices: list["ad.AnnData"] = []
     for adata in adata_list:
         s = adata[:, common_genes].copy()
+        if "counts" in s.layers:
+            s.X = s.layers["counts"].copy()
+        elif s.raw is not None and s.raw.shape == s.shape:
+            s.X = s.raw[:, common_genes].X.copy()
+        if sparse.issparse(s.X):
+            s.X.data = np.clip(s.X.data, 0, None)
+        else:
+            s.X = np.clip(np.asarray(s.X), 0, None)
         # Guarantee PASTE can read obsm["spatial"]
         if spatial_key != "spatial":
             s.obsm["spatial"] = s.obsm[spatial_key]
@@ -333,7 +342,7 @@ def _register_paste(
             slices[other_idx],
             alpha=params.paste_alpha,
             numItermax=params.paste_numItermax,
-            verbose=True,
+            verbose=False,
         )
 
         # Stack and extract aligned coordinates

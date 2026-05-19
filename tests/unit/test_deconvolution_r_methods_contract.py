@@ -55,7 +55,11 @@ def _install_fake_r_modules(monkeypatch: pytest.MonkeyPatch, ro_r):
     ro_mod.default_converter = _Converter()
     ro_mod.StrVector = lambda x: list(x)
     ro_mod.r = ro_r
-    ro_mod.conversion = SimpleNamespace(py2rpy=lambda x: x, rpy2py=lambda x: x)
+    ro_mod.conversion = SimpleNamespace(
+        py2rpy=lambda x: x,
+        rpy2py=lambda x: x,
+        localconverter=_localconverter,
+    )
 
     pandas2ri_mod = ModuleType("rpy2.robjects.pandas2ri")
     pandas2ri_mod.converter = _Converter()
@@ -64,6 +68,16 @@ def _install_fake_r_modules(monkeypatch: pytest.MonkeyPatch, ro_r):
 
     conversion_mod = ModuleType("rpy2.robjects.conversion")
     conversion_mod.localconverter = _localconverter
+
+    class _RLock:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *_args):
+            return False
+
+    rinterface_lib_mod = ModuleType("rpy2.rinterface_lib")
+    rinterface_lib_mod.openrlib = SimpleNamespace(rlock=_RLock())
 
     rpy2_mod = ModuleType("rpy2")
     anndata2ri_mod = ModuleType("anndata2ri")
@@ -74,6 +88,7 @@ def _install_fake_r_modules(monkeypatch: pytest.MonkeyPatch, ro_r):
     monkeypatch.setitem(modules, "rpy2.robjects.pandas2ri", pandas2ri_mod)
     monkeypatch.setitem(modules, "rpy2.robjects.numpy2ri", numpy2ri_mod)
     monkeypatch.setitem(modules, "rpy2.robjects.conversion", conversion_mod)
+    monkeypatch.setitem(modules, "rpy2.rinterface_lib", rinterface_lib_mod)
     monkeypatch.setitem(modules, "anndata2ri", anndata2ri_mod)
 
 

@@ -35,9 +35,14 @@ class DummyCtx:
     def __init__(self, adata):
         self._adata = adata
         self.errors: list[str] = []
+        self.set_adata_calls: list[tuple[str, object]] = []
 
     async def get_adata(self, data_id: str):
         return self._adata
+
+    async def set_adata(self, data_id: str, adata):
+        self.set_adata_calls.append((data_id, adata))
+        self._adata = adata
 
     async def error(self, msg: str):
         self.errors.append(msg)
@@ -145,6 +150,7 @@ async def test_analyze_enrichment_pathway_ora_dispatch_with_loaded_gene_sets(
 
     assert result.method == "pathway_ora"
     assert result.n_significant == 1
+    assert ctx.set_adata_calls == [("d1", minimal_spatial_adata)]
 
 
 @pytest.mark.asyncio
@@ -353,6 +359,10 @@ async def test_analyze_enrichment_enrichr_uses_highly_variable_genes(
     assert captured["gene_list"] == ["gene_2", "gene_3"]
     assert captured["gene_sets"] == "KEGG_Pathways"
     assert captured["organism"] == "human"
+    assert captured["adata"] is minimal_spatial_adata
+    assert captured["species"] == "human"
+    assert captured["database"] == "KEGG_Pathways"
+    assert captured["data_id"] == "d1"
 
 
 @pytest.mark.asyncio
@@ -528,6 +538,107 @@ def test_perform_enrichr_maps_library_and_filters_significant(monkeypatch: pytes
     assert out.n_significant == 1
     assert set(out.gene_set_statistics.keys()) == {"Path_A"}
     assert out.top_gene_sets == ["Path_B", "Path_A"]
+
+
+def test_perform_enrichr_stores_results_for_visualization(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    class _EnrResult:
+        def __init__(self):
+            self.results = pd.DataFrame(
+                {
+                    "Term": ["Path_B", "Path_A"],
+                    "Combined Score": [8.0, 5.0],
+                    "P-value": [0.2, 0.001],
+                    "Adjusted P-value": [0.2, 0.01],
+                    "Z-score": [1.0, 2.5],
+                    "Overlap": ["1/10", "2/10"],
+                    "Genes": ["GENE3", "GENE1;GENE2"],
+                    "Odds Ratio": [1.2, 2.0],
+                }
+            )
+
+    monkeypatch.setattr(
+        enrichment_module.gp,
+        "enrichr",
+        lambda **_kwargs: _EnrResult(),
+        raising=False,
+    )
+
+    out = enrichment_module.perform_enrichr(
+        gene_list=["GENE1", "GENE2"],
+        gene_sets="MSigDB_Hallmark",
+        organism="human",
+        adata=minimal_spatial_adata,
+        species="human",
+        database="MSigDB_Hallmark",
+        data_id=None,
+    )
+
+    assert out.method == "enrichr"
+    assert "enrichr_results" in minimal_spatial_adata.uns
+    assert "enrichr_results_enrichr_MSigDB_Hallmark" in minimal_spatial_adata.uns
+    assert "enrichment_enrichr_MSigDB_Hallmark_metadata" in minimal_spatial_adata.uns
+    assert (
+        minimal_spatial_adata.uns[enrichment_module._LATEST_ENRICHMENT_RESULTS_KEY]
+        == "enrichr_results"
+    )
+
+
+def test_perform_gsea_stores_latest_result_key(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    minimal_spatial_adata.var["rank_score"] = np.linspace(
+        1.0, -1.0, minimal_spatial_adata.n_vars
+    )
+
+    class _PreRankResult:
+        res2d = pd.DataFrame(
+            {
+                "Term": ["Path_A"],
+                "ES": [0.5],
+                "NES": [1.2],
+                "NOM p-val": [0.01],
+                "FDR q-val": [0.05],
+                "Matched_size": [2],
+                "Lead_genes": ["gene_0;gene_1"],
+            }
+        )
+
+    monkeypatch.setattr(
+        enrichment_module.gp,
+        "prerank",
+        lambda **_kwargs: _PreRankResult(),
+        raising=False,
+    )
+
+    enrichment_module.perform_gsea(
+        adata=minimal_spatial_adata,
+        gene_sets={"Path_A": ["gene_0", "gene_1"]},
+        ranking_key="rank_score",
+        database="MSigDB_Hallmark",
+        data_id=None,
+    )
+
+    assert (
+        minimal_spatial_adata.uns[enrichment_module._LATEST_ENRICHMENT_RESULTS_KEY]
+        == "gsea_results"
+    )
+
+
+def test_perform_ora_stores_latest_result_key(minimal_spatial_adata):
+    minimal_spatial_adata.var["highly_variable"] = True
+    enrichment_module.perform_ora(
+        adata=minimal_spatial_adata,
+        gene_sets={"Path_A": ["gene_0", "gene_1"], "Path_B": ["missing"]},
+        database="MSigDB_Hallmark",
+        data_id=None,
+    )
+
+    assert (
+        minimal_spatial_adata.uns[enrichment_module._LATEST_ENRICHMENT_RESULTS_KEY]
+        == "ora_results"
+    )
 
 
 def test_load_gene_sets_dispatches_to_expected_loader(monkeypatch: pytest.MonkeyPatch):
@@ -818,13 +929,20 @@ def test_perform_ssgsea_success_populates_obs_and_uns(monkeypatch: pytest.Monkey
 
     class _Res:
         def __init__(self, obs_names):
-            self.results = {
-                sample: pd.DataFrame(
-                    {
-                        "Term": ["GS_A", "GS_B"],
-                        "ES": [0.4 + (i % 3) * 0.1, 0.2],
-                    }
+            rows = []
+            for i, sample in enumerate(obs_names):
+                rows.extend(
+                    [
+                        {"Name": sample, "Term": "GS_A", "ES": 0.4 + (i % 3) * 0.1},
+                        {"Name": sample, "Term": "GS_B", "ES": 0.2},
+                    ]
                 )
+            self.res2d = pd.DataFrame(rows)
+            self.results = {
+                sample: {
+                    "GS_A": {"es": 0.4 + (i % 3) * 0.1},
+                    "GS_B": {"es": 0.2},
+                }
                 for i, sample in enumerate(obs_names)
             }
 
@@ -857,6 +975,7 @@ def test_perform_ssgsea_success_populates_obs_and_uns(monkeypatch: pytest.Monkey
     assert "ssgsea_GS_A" in adata.obs.columns
     assert "ssgsea_GS_B" in adata.obs.columns
     assert "enrichment_ssgsea_gene_sets" in adata.uns
+    assert adata.uns["enrichment_latest_score_key"] == "enrichment_ssgsea"
     # Parametrized: no database → falls back to method-only key
     assert captured["analysis_name"] == "enrichment_ssgsea"
 

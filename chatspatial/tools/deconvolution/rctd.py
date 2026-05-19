@@ -5,7 +5,11 @@ RCTD is an R-based deconvolution method that performs robust
 decomposition of cell type mixtures via the spacexr package.
 """
 
+import logging
+import os
+import sys
 import warnings
+from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
@@ -14,6 +18,42 @@ import pandas as pd
 from ...utils.dependency_manager import validate_r_package
 from ...utils.exceptions import DataError, ParameterError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
+
+
+@contextmanager
+def _suppress_r_console():
+    """Suppress RCTD worker output that bypasses rpy2 console callbacks."""
+    try:
+        import rpy2.rinterface_lib.callbacks as callbacks
+    except ImportError:
+        callbacks = None
+
+    old_stdout_fd = os.dup(sys.stdout.fileno())
+    old_stderr_fd = os.dup(sys.stderr.fileno())
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+
+    if callbacks is not None:
+        old_print = callbacks.consolewrite_print
+        old_warnerror = callbacks.consolewrite_warnerror
+        old_level = callbacks.logger.level
+        callbacks.consolewrite_print = lambda _text: None
+        callbacks.consolewrite_warnerror = lambda _text: None
+        callbacks.logger.setLevel(logging.ERROR)
+
+    try:
+        os.dup2(devnull_fd, sys.stdout.fileno())
+        os.dup2(devnull_fd, sys.stderr.fileno())
+        yield
+    finally:
+        os.dup2(old_stdout_fd, sys.stdout.fileno())
+        os.dup2(old_stderr_fd, sys.stderr.fileno())
+        os.close(old_stdout_fd)
+        os.close(old_stderr_fd)
+        os.close(devnull_fd)
+        if callbacks is not None:
+            callbacks.consolewrite_print = old_print
+            callbacks.consolewrite_warnerror = old_warnerror
+            callbacks.logger.setLevel(old_level)
 
 
 def deconvolve(
@@ -39,8 +79,8 @@ def deconvolve(
     """
     import anndata2ri
     import rpy2.robjects as ro
-    from rpy2.robjects import pandas2ri
-    from rpy2.robjects.conversion import localconverter
+    from rpy2.rinterface_lib import openrlib
+    from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
 
     ctx = data.ctx
 
@@ -59,10 +99,12 @@ def deconvolve(
     )
 
     try:
-        # Load R packages using ro.r() instead of importr() to avoid
-        # conversion context issues in async environments
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            ro.r("library(spacexr)")
+        r_converter = (
+            default_converter
+            + anndata2ri.converter
+            + pandas2ri.converter
+            + numpy2ri.converter
+        )
 
         # Data already copied in prepare_deconvolution
         spatial_data = data.spatial
@@ -127,50 +169,59 @@ def deconvolve(
             name="nUMI",
         )
 
-        # Transfer matrices to R
-        with localconverter(ro.default_converter + anndata2ri.converter):
-            ro.globalenv["spatial_counts"] = spatial_data.X.T
-            ro.globalenv["reference_counts"] = reference_data.X.T
+        with openrlib.rlock:
+            with conversion.localconverter(r_converter):
+                ro.r("library(spacexr)")
 
-            ro.globalenv["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
-            ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
-            ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
-            ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
+                ro.globalenv["spatial_counts"] = spatial_data.X.T
+                ro.globalenv["reference_counts"] = reference_data.X.T
 
-            ro.r("""
-                rownames(spatial_counts) <- gene_names_spatial
-                colnames(spatial_counts) <- spot_names
-                rownames(reference_counts) <- gene_names_ref
-                colnames(reference_counts) <- cell_names
-            """)
+                ro.globalenv["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
+                ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
+                ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
+                ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
 
-        # Transfer other data
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            ro.globalenv["coords"] = ro.conversion.py2rpy(coords)
-            ro.globalenv["numi_spatial"] = ro.conversion.py2rpy(spatial_numi)
-            ro.globalenv["cell_types_vec"] = ro.conversion.py2rpy(cell_types_series)
-            ro.globalenv["numi_ref"] = ro.conversion.py2rpy(reference_numi)
-            ro.globalenv["max_cores_val"] = max_cores
-            ro.globalenv["rctd_mode"] = mode
-            ro.globalenv["conf_thresh"] = confidence_threshold
-            ro.globalenv["doub_thresh"] = doublet_threshold
-            ro.globalenv["max_multi_types_val"] = max_multi_types
+                ro.r("""
+                    rownames(spatial_counts) <- gene_names_spatial
+                    colnames(spatial_counts) <- spot_names
+                    rownames(reference_counts) <- gene_names_ref
+                    colnames(reference_counts) <- cell_names
+                """)
 
-        # Run RCTD in R
-        ro.r("""
-            puck <- SpatialRNA(coords, spatial_counts, numi_spatial)
-            cell_types_factor <- as.factor(cell_types_vec)
-            names(cell_types_factor) <- names(cell_types_vec)
-            reference <- Reference(reference_counts, cell_types_factor, numi_ref, min_UMI = 5)
-            myRCTD <- create.RCTD(puck, reference, max_cores = max_cores_val,
-                                  MAX_MULTI_TYPES = max_multi_types_val, UMI_min_sigma = 10)
-            myRCTD@config$CONFIDENCE_THRESHOLD <- conf_thresh
-            myRCTD@config$DOUBLET_THRESHOLD <- doub_thresh
-            myRCTD <- run.RCTD(myRCTD, doublet_mode = rctd_mode)
-        """)
+                ro.globalenv["coords"] = ro.conversion.py2rpy(coords)
+                ro.globalenv["numi_spatial"] = ro.conversion.py2rpy(spatial_numi)
+                ro.globalenv["cell_types_vec"] = ro.conversion.py2rpy(cell_types_series)
+                ro.globalenv["numi_ref"] = ro.conversion.py2rpy(reference_numi)
+                ro.globalenv["max_cores_val"] = max_cores
+                ro.globalenv["rctd_mode"] = mode
+                ro.globalenv["conf_thresh"] = confidence_threshold
+                ro.globalenv["doub_thresh"] = doublet_threshold
+                ro.globalenv["max_multi_types_val"] = max_multi_types
 
-        # Extract results
-        proportions = _extract_rctd_results(mode)
+                with _suppress_r_console():
+                    ro.r("""
+                        puck <- SpatialRNA(coords, spatial_counts, numi_spatial)
+                        cell_types_factor <- as.factor(cell_types_vec)
+                        names(cell_types_factor) <- names(cell_types_vec)
+                        reference <- Reference(
+                            reference_counts,
+                            cell_types_factor,
+                            numi_ref,
+                            min_UMI = 5
+                        )
+                        myRCTD <- create.RCTD(
+                            puck,
+                            reference,
+                            max_cores = max_cores_val,
+                            MAX_MULTI_TYPES = max_multi_types_val,
+                            UMI_min_sigma = 10
+                        )
+                        myRCTD@config$CONFIDENCE_THRESHOLD <- conf_thresh
+                        myRCTD@config$DOUBLET_THRESHOLD <- doub_thresh
+                        myRCTD <- run.RCTD(myRCTD, doublet_mode = rctd_mode)
+                    """)
+
+                proportions = _extract_rctd_results(mode)
 
         # Validate results
         if proportions.isna().any().any():
@@ -195,17 +246,18 @@ def deconvolve(
             doublet_threshold=doublet_threshold,
         )
 
-        # Clean up R global environment
-        ro.r("""
-            rm(list = c("spatial_counts", "reference_counts", "gene_names_spatial",
-                        "spot_names", "gene_names_ref", "cell_names", "coords",
-                        "numi_spatial", "cell_types_vec", "numi_ref", "max_cores_val",
-                        "rctd_mode", "conf_thresh", "doub_thresh", "max_multi_types_val",
-                        "puck", "cell_types_factor", "reference", "myRCTD",
-                        "weights_matrix", "cell_type_names"),
-                   envir = .GlobalEnv)
-            gc()
-        """)
+        with openrlib.rlock:
+            with conversion.localconverter(r_converter):
+                ro.r("""
+                    rm(list = c("spatial_counts", "reference_counts", "gene_names_spatial",
+                                "spot_names", "gene_names_ref", "cell_names", "coords",
+                                "numi_spatial", "cell_types_vec", "numi_ref", "max_cores_val",
+                                "rctd_mode", "conf_thresh", "doub_thresh", "max_multi_types_val",
+                                "puck", "cell_types_factor", "reference", "myRCTD",
+                                "weights_matrix", "cell_type_names"),
+                           envir = .GlobalEnv)
+                    gc()
+                """)
 
         return proportions, stats
 
@@ -216,87 +268,82 @@ def deconvolve(
 
 
 def _extract_rctd_results(mode: str) -> pd.DataFrame:
-    """Extract RCTD results from R environment."""
+    """Extract RCTD results; caller must hold the R lock/converter context."""
     import rpy2.robjects as ro
-    from rpy2.robjects import numpy2ri, pandas2ri
-    from rpy2.robjects.conversion import localconverter
 
-    with localconverter(
-        ro.default_converter + pandas2ri.converter + numpy2ri.converter
-    ):
-        if mode == "full":
-            ro.r("""
-                weights_matrix <- myRCTD@results$weights
+    if mode == "full":
+        ro.r("""
+            weights_matrix <- myRCTD@results$weights
+            cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
+            spot_names <- rownames(weights_matrix)
+        """)
+    elif mode == "doublet":
+        ro.r("""
+            if("weights_doublet" %in% names(myRCTD@results) && "results_df" %in% names(myRCTD@results)) {
+                weights_doublet <- myRCTD@results$weights_doublet
+                results_df <- myRCTD@results$results_df
                 cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
-                spot_names <- rownames(weights_matrix)
-            """)
-        elif mode == "doublet":
-            ro.r("""
-                if("weights_doublet" %in% names(myRCTD@results) && "results_df" %in% names(myRCTD@results)) {
-                    weights_doublet <- myRCTD@results$weights_doublet
-                    results_df <- myRCTD@results$results_df
-                    cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
-                    spot_names <- rownames(results_df)
-                    n_spots <- length(spot_names)
-                    n_cell_types <- length(cell_type_names)
-                    weights_matrix <- matrix(0, nrow = n_spots, ncol = n_cell_types)
-                    rownames(weights_matrix) <- spot_names
-                    colnames(weights_matrix) <- cell_type_names
-                    for(i in 1:n_spots) {
-                        spot_class <- results_df$spot_class[i]
-                        if(spot_class %in% c("doublet_certain", "doublet_uncertain")) {
-                            first_type <- as.character(results_df$first_type[i])
-                            second_type <- as.character(results_df$second_type[i])
-                            if(first_type %in% cell_type_names) {
-                                first_idx <- which(cell_type_names == first_type)
-                                weights_matrix[i, first_idx] <- weights_doublet[i, "first_type"]
-                            }
-                            if(second_type %in% cell_type_names && second_type != first_type) {
-                                second_idx <- which(cell_type_names == second_type)
-                                weights_matrix[i, second_idx] <- weights_doublet[i, "second_type"]
-                            }
-                        } else if(spot_class == "singlet") {
-                            first_type <- as.character(results_df$first_type[i])
-                            if(first_type %in% cell_type_names) {
-                                first_idx <- which(cell_type_names == first_type)
-                                weights_matrix[i, first_idx] <- 1.0
-                            }
-                        }
-                    }
-                } else {
-                    stop("Official doublet mode structures not found")
-                }
-            """)
-        else:  # multi mode
-            ro.r("""
-                results_list <- myRCTD@results
-                spot_names <- colnames(myRCTD@spatialRNA@counts)
-                cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
+                spot_names <- rownames(results_df)
                 n_spots <- length(spot_names)
                 n_cell_types <- length(cell_type_names)
                 weights_matrix <- matrix(0, nrow = n_spots, ncol = n_cell_types)
                 rownames(weights_matrix) <- spot_names
                 colnames(weights_matrix) <- cell_type_names
                 for(i in 1:n_spots) {
-                    spot_result <- results_list[[i]]
-                    predicted_types <- spot_result$cell_type_list
-                    proportions <- spot_result$sub_weights
-                    for(j in seq_along(predicted_types)) {
-                        cell_type <- predicted_types[j]
-                        if(cell_type %in% cell_type_names) {
-                            col_idx <- which(cell_type_names == cell_type)
-                            weights_matrix[i, col_idx] <- proportions[j]
+                    spot_class <- results_df$spot_class[i]
+                    if(spot_class %in% c("doublet_certain", "doublet_uncertain")) {
+                        first_type <- as.character(results_df$first_type[i])
+                        second_type <- as.character(results_df$second_type[i])
+                        if(first_type %in% cell_type_names) {
+                            first_idx <- which(cell_type_names == first_type)
+                            weights_matrix[i, first_idx] <- weights_doublet[i, "first_type"]
+                        }
+                        if(second_type %in% cell_type_names && second_type != first_type) {
+                            second_idx <- which(cell_type_names == second_type)
+                            weights_matrix[i, second_idx] <- weights_doublet[i, "second_type"]
+                        }
+                    } else if(spot_class == "singlet") {
+                        first_type <- as.character(results_df$first_type[i])
+                        if(first_type %in% cell_type_names) {
+                            first_idx <- which(cell_type_names == first_type)
+                            weights_matrix[i, first_idx] <- 1.0
                         }
                     }
                 }
-            """)
+            } else {
+                stop("Official doublet mode structures not found")
+            }
+        """)
+    else:  # multi mode
+        ro.r("""
+            results_list <- myRCTD@results
+            spot_names <- colnames(myRCTD@spatialRNA@counts)
+            cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
+            n_spots <- length(spot_names)
+            n_cell_types <- length(cell_type_names)
+            weights_matrix <- matrix(0, nrow = n_spots, ncol = n_cell_types)
+            rownames(weights_matrix) <- spot_names
+            colnames(weights_matrix) <- cell_type_names
+            for(i in 1:n_spots) {
+                spot_result <- results_list[[i]]
+                predicted_types <- spot_result$cell_type_list
+                proportions <- spot_result$sub_weights
+                for(j in seq_along(predicted_types)) {
+                    cell_type <- predicted_types[j]
+                    if(cell_type %in% cell_type_names) {
+                        col_idx <- which(cell_type_names == cell_type)
+                        weights_matrix[i, col_idx] <- proportions[j]
+                    }
+                }
+            }
+        """)
 
-        weights_r = ro.r("as.matrix(weights_matrix)")
-        cell_type_names_r = ro.r("cell_type_names")
-        spot_names_r = ro.r("spot_names")
+    weights_r = ro.r("as.matrix(weights_matrix)")
+    cell_type_names_r = ro.r("cell_type_names")
+    spot_names_r = ro.r("spot_names")
 
-        weights_array = ro.conversion.rpy2py(weights_r)
-        cell_type_names = ro.conversion.rpy2py(cell_type_names_r)
-        spot_names = ro.conversion.rpy2py(spot_names_r)
+    weights_array = ro.conversion.rpy2py(weights_r)
+    cell_type_names = ro.conversion.rpy2py(cell_type_names_r)
+    spot_names = ro.conversion.rpy2py(spot_names_r)
 
-        return pd.DataFrame(weights_array, index=spot_names, columns=cell_type_names)
+    return pd.DataFrame(weights_array, index=spot_names, columns=cell_type_names)

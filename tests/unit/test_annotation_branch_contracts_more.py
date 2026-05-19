@@ -680,7 +680,7 @@ async def test_cellassign_non_raw_source_data_cleaning_and_index_predictions(
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=True: SimpleNamespace(
+        lambda _adata, prefer_complete_genes=True, require_integer_counts=False: SimpleNamespace(
             X=_adata.X,
             var_names=_adata.var_names,
             source="X",
@@ -709,6 +709,118 @@ async def test_cellassign_non_raw_source_data_cleaning_and_index_predictions(
     assert any("Using X data for marker gene validation" in msg for msg in ctx.warnings)
     assert any("Missing most markers for B" in msg for msg in ctx.warnings)
     assert any("zero variance" in msg for msg in ctx.warnings)
+
+
+@pytest.mark.asyncio
+async def test_cellassign_retries_without_n_hidden_for_newer_scvi_api(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    init_kwargs = []
+
+    class _FakeCellAssign:
+        @staticmethod
+        def setup_anndata(*_a, **_k):
+            return None
+
+        def __init__(self, adata_subset, marker_gene_matrix, **kwargs):
+            init_kwargs.append(kwargs)
+            if "n_hidden" in kwargs:
+                raise TypeError(
+                    "CellAssignModule.__init__() got an unexpected keyword argument 'n_hidden'"
+                )
+            self._adata = adata_subset
+            self._labels = list(reversed(marker_gene_matrix.columns.tolist()))
+
+        def train(self, **_kwargs):
+            return None
+
+        def predict(self):
+            values = np.zeros((self._adata.n_obs, len(self._labels)))
+            for i in range(self._adata.n_obs):
+                values[i, i % len(self._labels)] = 1.0
+            return pd.DataFrame(values, index=self._adata.obs_names, columns=self._labels)
+
+    fake_scvi_external = ModuleType("scvi.external")
+    fake_scvi_external.CellAssign = _FakeCellAssign
+    monkeypatch.setitem(__import__("sys").modules, "scvi.external", fake_scvi_external)
+    monkeypatch.setattr(ann, "validate_scvi_tools", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        ann,
+        "get_raw_data_source",
+        lambda _adata, prefer_complete_genes=True, require_integer_counts=False: SimpleNamespace(
+            X=_adata.X,
+            var_names=_adata.var_names,
+            source="X",
+        ),
+    )
+
+    params = AnnotationParameters(
+        method="cellassign",
+        marker_genes={"B": ["gene_0"], "T": ["gene_1"]},
+    )
+
+    ctx = DummyWarnCtx()
+    out = await ann._annotate_with_cellassign(
+        adata,
+        params,
+        ctx,
+        "cell_type_cellassign",
+        "confidence_cellassign",
+    )
+
+    assert out.cell_types == ["B", "T"]
+    assert set(adata.obs["cell_type_cellassign"]) == {"B", "T"}
+    assert init_kwargs == [{"n_hidden": params.cellassign_n_hidden}, {}]
+    assert any("does not accept n_hidden" in msg for msg in ctx.warnings)
+
+
+@pytest.mark.asyncio
+async def test_cellassign_rejects_unknown_prediction_labels(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+
+    class _FakeCellAssign:
+        @staticmethod
+        def setup_anndata(*_a, **_k):
+            return None
+
+        def __init__(self, adata_subset, _marker_gene_matrix, **_kwargs):
+            self._adata = adata_subset
+
+        def train(self, **_kwargs):
+            return None
+
+        def predict(self):
+            return pd.DataFrame(
+                {"Unknown": np.ones(self._adata.n_obs)}, index=self._adata.obs_names
+            )
+
+    fake_scvi_external = ModuleType("scvi.external")
+    fake_scvi_external.CellAssign = _FakeCellAssign
+    monkeypatch.setitem(__import__("sys").modules, "scvi.external", fake_scvi_external)
+    monkeypatch.setattr(ann, "validate_scvi_tools", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        ann,
+        "get_raw_data_source",
+        lambda _adata, prefer_complete_genes=True, require_integer_counts=False: SimpleNamespace(
+            X=_adata.X,
+            var_names=_adata.var_names,
+            source="X",
+        ),
+    )
+
+    with pytest.raises(ann.DataError, match="not present in the marker matrix"):
+        await ann._annotate_with_cellassign(
+            adata,
+            AnnotationParameters(
+                method="cellassign", marker_genes={"B": ["gene_0"], "T": ["gene_1"]}
+            ),
+            DummyWarnCtx(),
+            "cell_type_cellassign",
+            "confidence_cellassign",
+        )
 
 
 @pytest.mark.asyncio

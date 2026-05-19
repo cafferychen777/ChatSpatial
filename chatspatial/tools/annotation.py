@@ -1217,7 +1217,9 @@ async def _annotate_with_cellassign(
 
     # Use get_raw_data_source (single source of truth) for complete gene coverage
     # Preprocessing filters genes to HVGs, but marker genes may not be in HVGs
-    raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
+    raw_result = get_raw_data_source(
+        adata, prefer_complete_genes=True, require_integer_counts=True
+    )
     all_genes = set(raw_result.var_names)
     gene_source = raw_result.source
     if raw_result.source != "raw":
@@ -1356,9 +1358,18 @@ async def _annotate_with_cellassign(
     CellAssign.setup_anndata(adata_subset, size_factor_key="size_factors")
 
     # Train CellAssign model
-    model = CellAssign(
-        adata_subset, marker_gene_matrix, n_hidden=params.cellassign_n_hidden
-    )
+    try:
+        model = CellAssign(
+            adata_subset, marker_gene_matrix, n_hidden=params.cellassign_n_hidden
+        )
+    except TypeError as exc:
+        if "n_hidden" not in str(exc):
+            raise
+        await ctx.warning(
+            "Installed scvi-tools CellAssign does not accept n_hidden; "
+            "using its default architecture."
+        )
+        model = CellAssign(adata_subset, marker_gene_matrix)
 
     model.train(
         max_epochs=params.cellassign_max_iter, lr=params.cellassign_learning_rate
@@ -1372,17 +1383,20 @@ async def _annotate_with_cellassign(
     confidence_scores: dict[str, float] = {}
 
     if isinstance(predictions, pd.DataFrame):
-        # CellAssign returns DataFrame with per-cell probabilities
-        predicted_indices = predictions.values.argmax(axis=1)
-        adata.obs[output_key] = [valid_cell_types[i] for i in predicted_indices]
+        predicted_labels = predictions.idxmax(axis=1).astype(str).tolist()
+        unknown_labels = sorted(set(predicted_labels) - set(valid_cell_types))
+        if unknown_labels:
+            raise DataError(
+                "CellAssign returned labels that are not present in the marker matrix: "
+                + ", ".join(unknown_labels)
+            )
+        adata.obs[output_key] = predicted_labels
 
-        # Per-cell confidence = P(predicted_class) for each cell
-        for i, idx in enumerate(predicted_indices):
-            per_cell_confidence[i] = round(float(predictions.iloc[i, idx]), 3)
+        for i, label in enumerate(predicted_labels):
+            per_cell_confidence[i] = round(float(predictions.iloc[i][label]), 3)
 
-        # Per-type summary for metadata
-        for j, cell_type in enumerate(valid_cell_types):
-            mask = predicted_indices == j
+        for cell_type in valid_cell_types:
+            mask = np.asarray(predicted_labels) == cell_type
             if mask.any():
                 confidence_scores[cell_type] = round(
                     float(per_cell_confidence[mask].mean()), 2

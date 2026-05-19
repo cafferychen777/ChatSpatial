@@ -526,7 +526,13 @@ def _extract_result_summary(
 
     elif analysis_type == "geary":
         summary["n_features_analyzed"] = result.get("n_genes_analyzed", 0)
-        summary["summary_metrics"] = {"mean_gearys_c": result.get("mean_gearys_c", 0.0)}
+        summary["n_significant"] = result.get("n_significant", 0)
+        summary["top_features"] = result.get("top_positive_autocorrelation", [])[:10]
+        summary["summary_metrics"] = {
+            "mean_gearys_c": result.get("mean_gearys_c", 0.0),
+            "min_gearys_c": result.get("min_gearys_c", 0.0),
+            "max_gearys_c": result.get("max_gearys_c", 0.0),
+        }
         summary["results_key"] = result.get("analysis_key")
 
     elif analysis_type == "local_moran":
@@ -824,15 +830,53 @@ def _analyze_gearys_c(
         show_progress_bar=False,
     )
 
-    # Extract results (squidpy returns DataFrame, not dict)
     geary_key = "gearyC"
     if geary_key in adata.uns:
         results_df = adata.uns[geary_key]
         if isinstance(results_df, pd.DataFrame):
+            from statsmodels.stats.multitest import multipletests
+
+            if "pval_norm" in results_df.columns:
+                raw_pvals = results_df["pval_norm"].values
+                nan_mask = np.isnan(raw_pvals)
+                if nan_mask.all():
+                    fdr_pvals = np.full_like(raw_pvals, np.nan)
+                elif nan_mask.any():
+                    fdr_pvals = np.full_like(raw_pvals, np.nan)
+                    valid = ~nan_mask
+                    _, fdr_pvals[valid], _, _ = multipletests(
+                        raw_pvals[valid], method="fdr_bh"
+                    )
+                else:
+                    _, fdr_pvals, _, _ = multipletests(raw_pvals, method="fdr_bh")
+                results_df["pval_norm_fdr"] = fdr_pvals
+                adata.uns[geary_key] = results_df
+
+            if "pval_norm_fdr" in results_df.columns:
+                significant_genes = results_df[
+                    results_df["pval_norm_fdr"] < 0.05
+                ].index.tolist()
+            elif "pval_norm" in results_df.columns:
+                significant_genes = results_df[results_df["pval_norm"] < 0.05].index.tolist()
+            else:
+                significant_genes = []
+
+            n_analyzed = len(results_df)
+            n_top = min(10, max(3, n_analyzed // 2))
+            n_top = min(n_top, n_analyzed // 2) if n_analyzed >= 6 else n_analyzed
+
             return {
                 "n_genes_analyzed": len(genes),
+                "n_significant": len(significant_genes),
+                "top_positive_autocorrelation": results_df.nsmallest(n_top, "C")
+                .index.tolist(),
+                "top_weak_autocorrelation": results_df.nlargest(n_top, "C")
+                .index.tolist(),
                 "mean_gearys_c": float(results_df["C"].mean()),
+                "min_gearys_c": float(results_df["C"].min()),
+                "max_gearys_c": float(results_df["C"].max()),
                 "analysis_key": geary_key,
+                "note": "Lower Geary's C indicates stronger positive spatial autocorrelation",
             }
 
     raise ProcessingError("Geary's C computation did not produce results")

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import matplotlib
 import matplotlib.pyplot as plt
+import pytest
 
 from chatspatial.utils import image_utils
 
@@ -110,29 +111,35 @@ async def test_optimize_fig_to_image_with_cache_jpg_sets_quality_and_suffix(
     assert fig.saved_kwargs["format"] == "jpg"
     assert fig.saved_kwargs["dpi"] == 144
     assert fig.saved_kwargs["pil_kwargs"] == {"quality": 95}
+    assert "metadata" not in fig.saved_kwargs
     assert "Format: JPG" in result
     assert "Resolution: 144 DPI" in result
     assert closed["fig"] is fig
 
 
-async def test_optimize_fig_to_image_with_cache_svg_removes_metadata(
-    monkeypatch, tmp_path: Path
+@pytest.mark.parametrize("output_format", ["jpeg", "svg", "eps", "tif", "tiff"])
+async def test_optimize_fig_to_image_with_cache_removes_unsupported_metadata(
+    monkeypatch, tmp_path: Path, output_format: str
 ):
     fig = _FakeFigure()
-    params = SimpleNamespace(dpi=None, output_format="svg", output_path=None)
+    params = SimpleNamespace(dpi=None, output_format=output_format, output_path=None)
     monkeypatch.setattr(image_utils, "_ensure_non_interactive_backend", lambda: None)
     monkeypatch.setattr(image_utils, "get_default_output_dir", lambda: tmp_path)
-    monkeypatch.setattr(image_utils.uuid, "uuid4", lambda: SimpleNamespace(hex="deadbeefcafebabe"))
+    monkeypatch.setattr(
+        image_utils.uuid,
+        "uuid4",
+        lambda: SimpleNamespace(hex="deadbeefcafebabe"),
+    )
     monkeypatch.setattr(plt, "close", lambda _figure: None)
 
     result = await image_utils.optimize_fig_to_image_with_cache(
         fig, params, plot_type="scatter"
     )
 
-    assert fig.saved_path == tmp_path / "visualizations" / "scatter_deadbeef.svg"
+    assert fig.saved_path == tmp_path / "visualizations" / f"scatter_deadbeef.{output_format}"
     assert fig.saved_kwargs is not None
-    assert fig.saved_kwargs["format"] == "svg"
+    assert fig.saved_kwargs["format"] == output_format
     assert fig.saved_kwargs["dpi"] == 100
     assert fig.saved_kwargs["bbox_extra_artists"] == ("artist",)
     assert "metadata" not in fig.saved_kwargs
-    assert "Format: SVG" in result
+    assert f"Format: {output_format.upper()}" in result

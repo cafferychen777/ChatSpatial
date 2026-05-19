@@ -85,8 +85,9 @@ async def test_create_enrichment_visualization_requires_scores(minimal_spatial_a
 
 
 @pytest.mark.asyncio
-async def test_create_pathway_enrichment_visualization_routes_spatial(
-    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("subtype", ["spatial_score", "spatial", "violin"])
+async def test_create_pathway_enrichment_visualization_routes_score_subtypes(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, subtype: str
 ):
     sentinel = object()
 
@@ -96,7 +97,7 @@ async def test_create_pathway_enrichment_visualization_routes_spatial(
     monkeypatch.setattr(viz_enrich, "_create_enrichment_visualization", _fake_router)
     out = await viz_enrich.create_pathway_enrichment_visualization(
         minimal_spatial_adata,
-        VisualizationParameters(plot_type="enrichment", subtype="spatial_score"),
+        VisualizationParameters(plot_type="enrichment", subtype=subtype),
         context=DummyCtx(),
     )
     assert out is sentinel
@@ -261,7 +262,6 @@ def test_get_score_columns_finds_parametrized_metadata_keys(minimal_spatial_adat
     adata.obs["ssgsea_PathA"] = 0.3
     adata.obs["Wnt_score"] = 0.5
 
-    # Parametrized metadata key (database appended)
     adata.uns["enrichment_ssgsea_KEGG_Pathways_metadata"] = {
         "parameters": {},
         "results_keys": {"obs": ["ssgsea_PathA"]},
@@ -275,6 +275,25 @@ def test_get_score_columns_finds_parametrized_metadata_keys(minimal_spatial_adat
     assert "ssgsea_PathA" in out
     assert "Wnt_score" in out
     assert len(out) == 2
+
+
+def test_get_score_columns_prioritizes_latest_score_key(minimal_spatial_adata):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["ssgsea_Old"] = 0.1
+    adata.obs["ssgsea_New"] = 0.2
+    adata.uns["enrichment_ssgsea_OldDB_metadata"] = {
+        "parameters": {},
+        "results_keys": {"obs": ["ssgsea_Old"]},
+    }
+    adata.uns["enrichment_ssgsea_NewDB_metadata"] = {
+        "parameters": {},
+        "results_keys": {"obs": ["ssgsea_New"]},
+    }
+    adata.uns["enrichment_latest_score_key"] = "enrichment_ssgsea_NewDB"
+
+    out = viz_enrich._get_score_columns(adata)
+
+    assert out == ["ssgsea_New", "ssgsea_Old"]
 
 
 @pytest.mark.asyncio
@@ -339,7 +358,60 @@ async def test_create_pathway_enrichment_visualization_uses_alternate_result_key
 
 
 @pytest.mark.asyncio
+async def test_create_pathway_enrichment_visualization_prefers_latest_results_key(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.uns["gsea_results"] = pd.DataFrame(
+        {"Term": ["Old_GSEA"], "FDR q-val": [0.001]}
+    )
+    adata.uns["enrichr_results"] = pd.DataFrame(
+        {"Term": ["Latest_Enrichr"], "Adjusted P-value": [0.9]}
+    )
+    adata.uns[viz_enrich._LATEST_ENRICHMENT_RESULTS_KEY] = "enrichr_results"
+    captured: dict[str, object] = {}
+
+    def _fake_barplot(gsea_results, *_args, **_kwargs):
+        captured["terms"] = list(gsea_results["Term"])
+        return object()
+
+    monkeypatch.setattr(viz_enrich, "_create_gsea_barplot", _fake_barplot)
+    await viz_enrich.create_pathway_enrichment_visualization(
+        adata,
+        VisualizationParameters(plot_type="enrichment", subtype="barplot"),
+        context=DummyCtx(),
+    )
+
+    assert captured["terms"] == ["Latest_Enrichr"]
+
+
+@pytest.mark.asyncio
 async def test_create_pathway_enrichment_visualization_defaults_to_spatial_scores(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["A_score"] = 0.1
+    adata.uns["enrichment_spatial_MSigDB_Hallmark_metadata"] = {
+        "results_keys": {"obs": ["A_score"], "uns": []}
+    }
+    sentinel = object()
+
+    async def _fake_spatial(*_args, **_kwargs):
+        return sentinel
+
+    monkeypatch.setattr(viz_enrich, "_create_enrichment_visualization", _fake_spatial)
+
+    out = await viz_enrich.create_pathway_enrichment_visualization(
+        adata,
+        VisualizationParameters(plot_type="enrichment", subtype="barplot"),
+        context=DummyCtx(),
+    )
+
+    assert out is sentinel
+
+
+@pytest.mark.asyncio
+async def test_create_pathway_enrichment_visualization_uses_rank_genes_when_available(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
@@ -350,10 +422,10 @@ async def test_create_pathway_enrichment_visualization_defaults_to_spatial_score
     adata.uns["rank_genes_groups"] = {"names": {"0": ["gene_0"]}}
     sentinel = object()
 
-    async def _fake_spatial(*_args, **_kwargs):
+    def _fake_barplot(*_args, **_kwargs):
         return sentinel
 
-    monkeypatch.setattr(viz_enrich, "_create_enrichment_visualization", _fake_spatial)
+    monkeypatch.setattr(viz_enrich, "_create_gsea_barplot", _fake_barplot)
 
     out = await viz_enrich.create_pathway_enrichment_visualization(
         adata,

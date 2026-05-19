@@ -37,6 +37,18 @@ from .core import (
 
 logger = logging.getLogger(__name__)
 
+_LATEST_ENRICHMENT_RESULTS_KEY = "enrichment_latest_results_key"
+_LATEST_ENRICHMENT_SCORE_KEY = "enrichment_latest_score_key"
+_DEFAULT_ENRICHMENT_RESULTS_KEY = "gsea_results"
+_FALLBACK_ENRICHMENT_RESULTS_KEYS = (
+    "enrichr_results",
+    "ora_results",
+    "gsea_results",
+    "rank_genes_groups",
+    "de_results",
+    "pathway_enrichment",
+)
+
 
 # =============================================================================
 # Helper Functions
@@ -106,22 +118,36 @@ def _ensure_enrichmap_compatibility(adata: "ad.AnnData") -> "ad.AnnData":
     return adata
 
 
-def _get_metadata_score_columns(adata: "ad.AnnData") -> list[str]:
-    """Get enrichment score columns recorded by ChatSpatial metadata."""
+def _collect_metadata_score_columns(
+    adata: "ad.AnnData", analysis_names: list[str]
+) -> list[str]:
     score_cols = []
-    prefixes = ("enrichment_spatial", "enrichment_ssgsea")
-    for uns_key in adata.uns:
-        if not uns_key.endswith("_metadata"):
-            continue
-        analysis_name = uns_key.removesuffix("_metadata")
-        if not analysis_name.startswith(prefixes):
-            continue
+    for analysis_name in analysis_names:
         obs_cols = get_analysis_metadata_field(adata, analysis_name, "results_keys")
         if obs_cols and isinstance(obs_cols, dict) and "obs" in obs_cols:
             for col in obs_cols["obs"]:
                 if col in adata.obs.columns and col not in score_cols:
                     score_cols.append(col)
     return score_cols
+
+
+def _get_metadata_score_columns(adata: "ad.AnnData") -> list[str]:
+    """Get enrichment score columns recorded by ChatSpatial metadata."""
+    prefixes = ("enrichment_spatial", "enrichment_ssgsea")
+    analysis_names = [
+        uns_key.removesuffix("_metadata")
+        for uns_key in adata.uns
+        if uns_key.endswith("_metadata")
+        and uns_key.removesuffix("_metadata").startswith(prefixes)
+    ]
+
+    latest_score_key = adata.uns.get(_LATEST_ENRICHMENT_SCORE_KEY)
+    if isinstance(latest_score_key, str) and f"{latest_score_key}_metadata" in adata.uns:
+        analysis_names = [latest_score_key] + [
+            name for name in analysis_names if name != latest_score_key
+        ]
+
+    return _collect_metadata_score_columns(adata, analysis_names)
 
 
 def _get_score_columns(adata: "ad.AnnData") -> list[str]:
@@ -149,6 +175,22 @@ def _resolve_score_column(
     if score_cols:
         return score_cols[0]
     raise DataNotFoundError("No enrichment scores found in adata.obs")
+
+
+def _resolve_enrichment_results_key(
+    adata: "ad.AnnData", requested_key: str
+) -> str | None:
+    if requested_key != _DEFAULT_ENRICHMENT_RESULTS_KEY:
+        return requested_key if requested_key in adata.uns else None
+
+    latest_key = adata.uns.get(_LATEST_ENRICHMENT_RESULTS_KEY)
+    if isinstance(latest_key, str) and latest_key in adata.uns:
+        return latest_key
+
+    for key in _FALLBACK_ENRICHMENT_RESULTS_KEYS:
+        if key in adata.uns:
+            return key
+    return None
 
 
 # =============================================================================
@@ -234,41 +276,32 @@ async def create_pathway_enrichment_visualization(
 
     plot_type = params.subtype or "barplot"
 
-    # Spatial enrichment stores scores in obs, not p-value tables in uns.
-    # If no GSEA/ORA table exists, the default enrichment visualization should
-    # follow the data that is actually available instead of falling through to
-    # stale analysis keys such as rank_genes_groups.
-    if plot_type == "barplot" and _has_enrichment_score_columns(adata):
-        gsea_key = getattr(params, "gsea_results_key", "gsea_results")
-        if gsea_key not in adata.uns and "ora_results" not in adata.uns:
-            spatial_params = params.model_copy(update={"subtype": "spatial"})
-            return await _create_enrichment_visualization(adata, spatial_params, context)
+    requested_key = getattr(
+        params, "gsea_results_key", _DEFAULT_ENRICHMENT_RESULTS_KEY
+    )
+    resolved_results_key = _resolve_enrichment_results_key(adata, requested_key)
 
-    # Route spatial subtypes to enrichment visualization
-    if plot_type.startswith("spatial_") or plot_type == "spatial":
+    # Spatial enrichment stores scores in obs, not p-value tables in uns.
+    if (
+        plot_type == "barplot"
+        and _has_enrichment_score_columns(adata)
+        and resolved_results_key is None
+    ):
+        spatial_params = params.model_copy(update={"subtype": "spatial"})
+        return await _create_enrichment_visualization(adata, spatial_params, context)
+
+    # Route score-based subtypes to enrichment score visualization.
+    if plot_type.startswith("spatial_") or plot_type in {"spatial", "violin"}:
         return await _create_enrichment_visualization(adata, params, context)
 
-    # Get GSEA/ORA results from adata.uns
-    gsea_key = getattr(params, "gsea_results_key", "gsea_results")
-    if gsea_key not in adata.uns:
-        alt_keys = [
-            "ora_results",  # ORA stores its own results separately
-            "gsea_results",
-            "rank_genes_groups",
-            "de_results",
-            "pathway_enrichment",
-        ]
-        for key in alt_keys:
-            if key in adata.uns:
-                gsea_key = key
-                break
-        else:
-            raise DataNotFoundError(
-                f"Enrichment results not found. Expected key: {gsea_key}. "
-                "Run GSEA or ORA analysis first."
-            )
+    # Get tabular enrichment results from adata.uns.
+    if resolved_results_key is None:
+        raise DataNotFoundError(
+            f"Enrichment results not found. Expected key: {requested_key}. "
+            "Run GSEA, ORA, or Enrichr analysis first."
+        )
 
-    gsea_results = adata.uns[gsea_key]
+    gsea_results = adata.uns[resolved_results_key]
 
     if plot_type == "enrichment_plot":
         return _create_gsea_enrichment_plot(gsea_results, params)
