@@ -559,6 +559,8 @@ async def analyze_trajectory(
             pseudotime_key = "palantir_pseudotime"
             method_used = "palantir"
 
+        except ParameterError:
+            raise
         except Exception as e:
             raise ProcessingError(f"Palantir trajectory inference failed: {e}") from e
 
@@ -568,6 +570,8 @@ async def analyze_trajectory(
                 adata = compute_dpt_trajectory(adata, root_cells=params.root_cells)
             pseudotime_key = "dpt_pseudotime"
             method_used = "dpt"
+        except ParameterError:
+            raise
         except Exception as e:
             raise ProcessingError(f"DPT analysis failed: {e}") from e
 

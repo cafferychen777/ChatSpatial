@@ -29,6 +29,7 @@ from ..utils.adata_utils import (
 )
 from ..utils.dependency_manager import require
 from ..utils.exceptions import DataError, ParameterError, ProcessingError
+from ..utils.mcp_utils import suppress_output
 from ..utils.results_export import export_analysis_result
 
 
@@ -129,7 +130,7 @@ async def compare_conditions(
     # Get raw counts (required for DESeq2)
     # require_integer_counts=True raises DataError if no integer counts found
     raw_result = get_raw_data_source(
-        adata_filtered, prefer_complete_genes=False, require_integer_counts=True
+        adata_filtered, prefer_complete_genes=True, require_integer_counts=True
     )
     raw_X, var_names = raw_result.X, raw_result.var_names
 
@@ -362,19 +363,20 @@ def _run_deseq2(
     from pydeseq2.dds import DeseqDataSet
     from pydeseq2.ds import DeseqStats
 
-    # Create DESeq2 dataset
-    dds = DeseqDataSet(
-        counts=counts_df,
-        metadata=metadata_df,
-        design_factors="condition",
-    )
+    with suppress_output():
+        # Create DESeq2 dataset
+        dds = DeseqDataSet(
+            counts=counts_df,
+            metadata=metadata_df,
+            design_factors="condition",
+        )
 
-    # Run DESeq2 pipeline
-    dds.deseq2()
+        # Run DESeq2 pipeline
+        dds.deseq2()
 
-    # Get results (condition1 vs condition2)
-    stat_res = DeseqStats(dds, contrast=["condition", condition1, condition2])
-    stat_res.summary()
+        # Get results (condition1 vs condition2)
+        stat_res = DeseqStats(dds, contrast=["condition", condition1, condition2])
+        stat_res.summary()
 
     results_df = stat_res.results_df.dropna(subset=["padj"])
 

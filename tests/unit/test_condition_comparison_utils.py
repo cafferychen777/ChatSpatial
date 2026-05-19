@@ -101,7 +101,9 @@ def test_create_pseudobulk_cell_type_filter_only_keeps_selected_type(
     assert all(v >= 5 for v in cell_counts.values())
 
 
-def test_run_deseq2_filters_thresholds_and_nan(monkeypatch: pytest.MonkeyPatch):
+def test_run_deseq2_filters_thresholds_and_nan(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
     counts_df = pd.DataFrame(
         [[10, 5, 2, 1], [12, 3, 1, 2], [6, 10, 2, 2], [8, 11, 1, 3]],
         index=["s1", "s2", "s3", "s4"],
@@ -116,15 +118,18 @@ def test_run_deseq2_filters_thresholds_and_nan(monkeypatch: pytest.MonkeyPatch):
 
     class FakeDeseqDataSet:
         def __init__(self, counts, metadata, design_factors):
+            print("dataset init output")
             captured["counts"] = counts
             captured["metadata"] = metadata
             captured["design_factors"] = design_factors
 
         def deseq2(self):
+            print("deseq2 output")
             captured["deseq2_called"] = True
 
     class FakeDeseqStats:
         def __init__(self, dds, contrast):
+            print("stats init output")
             captured["dds"] = dds
             captured["contrast"] = contrast
             self.results_df = pd.DataFrame(
@@ -137,6 +142,7 @@ def test_run_deseq2_filters_thresholds_and_nan(monkeypatch: pytest.MonkeyPatch):
             )
 
         def summary(self):
+            print("summary output")
             captured["summary_called"] = True
 
     dds_mod = ModuleType("pydeseq2.dds")
@@ -160,6 +166,7 @@ def test_run_deseq2_filters_thresholds_and_nan(monkeypatch: pytest.MonkeyPatch):
     assert captured["contrast"] == ["condition", "treated", "control"]
     assert captured["deseq2_called"] is True
     assert captured["summary_called"] is True
+    assert capsys.readouterr().out == ""
     assert n_significant == 2
     assert len(results_df) == 3
     assert top_up[0].gene == "gene_up"
@@ -451,11 +458,13 @@ async def test_compare_conditions_min_samples_guard_for_condition2(
             self.var_names = var_names
 
     monkeypatch.setattr(cc_module, "require", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        cc_module,
-        "get_raw_data_source",
-        lambda *_args, **_kwargs: _RawStub(adata.X, adata.var_names),
-    )
+
+    def _raw_source(_adata, *, prefer_complete_genes, require_integer_counts):
+        assert prefer_complete_genes is True
+        assert require_integer_counts is True
+        return _RawStub(adata.X, adata.var_names)
+
+    monkeypatch.setattr(cc_module, "get_raw_data_source", _raw_source)
 
     params = ConditionComparisonParameters(
         condition_key="condition",
@@ -483,11 +492,13 @@ async def test_compare_conditions_min_samples_guard_for_condition1(
             self.var_names = var_names
 
     monkeypatch.setattr(cc_module, "require", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        cc_module,
-        "get_raw_data_source",
-        lambda *_args, **_kwargs: _RawStub(adata.X, adata.var_names),
-    )
+
+    def _raw_source(_adata, *, prefer_complete_genes, require_integer_counts):
+        assert prefer_complete_genes is True
+        assert require_integer_counts is True
+        return _RawStub(adata.X, adata.var_names)
+
+    monkeypatch.setattr(cc_module, "get_raw_data_source", _raw_source)
 
     params = ConditionComparisonParameters(
         condition_key="condition",

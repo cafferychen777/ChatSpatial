@@ -352,6 +352,7 @@ async def _create_cellrank_fate_map(
         cr.pl.aggregate_fate_probabilities(
             adata,
             cluster_key=cluster_key,
+            mode="heatmap",
             figsize=figsize,
             dpi=params.dpi,
         )

@@ -179,6 +179,24 @@ async def test_annotate_cell_types_passes_through_parameter_error(
 
 
 @pytest.mark.asyncio
+async def test_annotate_cell_types_passes_through_import_error(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx({"d1": adata})
+
+    async def _raise_import(*_args, **_kwargs):
+        raise ImportError("mllmcelltype is required")
+
+    monkeypatch.setattr(ann, "_annotate_with_mllmcelltype", _raise_import)
+
+    with pytest.raises(ImportError, match="mllmcelltype is required"):
+        await ann.annotate_cell_types(
+            "d1", ctx, AnnotationParameters(method="mllmcelltype")
+        )
+
+
+@pytest.mark.asyncio
 async def test_annotate_cell_types_wraps_unexpected_errors(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):

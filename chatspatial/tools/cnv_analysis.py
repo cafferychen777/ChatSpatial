@@ -751,7 +751,6 @@ def _infer_cnv_numbat(
             "  - R environment configuration issues"
         ) from e
     finally:
-        # Cleanup: Remove temporary output directory
         if os.path.exists(out_dir):
             try:
                 shutil.rmtree(out_dir)
@@ -759,10 +758,6 @@ def _infer_cnv_numbat(
                 debug_fn = getattr(ctx, "debug", None)
                 if callable(debug_fn):
                     debug_fn(f"Numbat cleanup skipped: {cleanup_error}")
-
-        # Deactivate converters
-        pandas2ri.deactivate()
-        numpy2ri.deactivate()
 
     return CNVResult(
         data_id=data_id,

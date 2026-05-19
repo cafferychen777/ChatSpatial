@@ -225,8 +225,8 @@ def test_infer_cnv_numbat_requires_allele_dataframe(
         )
     )
     fake_robj.default_converter = object()
-    fake_robj.numpy2ri = SimpleNamespace(converter=object(), deactivate=lambda: None)
-    fake_robj.pandas2ri = SimpleNamespace(converter=object(), deactivate=lambda: None)
+    fake_robj.numpy2ri = SimpleNamespace(converter=object())
+    fake_robj.pandas2ri = SimpleNamespace(converter=object())
     monkeypatch.setitem(__import__("sys").modules, "rpy2.robjects", fake_robj)
 
     with pytest.raises(ParameterError, match="numbat_allele_data_raw"):

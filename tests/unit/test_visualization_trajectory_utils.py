@@ -289,8 +289,7 @@ async def test_cellrank_fate_map_success_with_auto_cluster_key(
         context=ctx,
     )
     assert captured["cluster_key"] == "group"
-    # mode should not be hardcoded; CellRank uses its default (paga_pie)
-    assert "mode" not in captured
+    assert captured["mode"] == "heatmap"
     assert any("Using cluster_key: 'group'" in msg for msg in ctx.infos)
     assert any("Creating CellRank fate map for 'group'" in msg for msg in ctx.infos)
     fig.clf()
@@ -851,16 +850,14 @@ def test_export_empty_results_keys_still_writes_index(
 
 
 # ---------------------------------------------------------------------------
-# Regression: fate_map must not hardcode mode="bar"
+# Regression: fate_map must use a PAGA-independent mode
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_fate_map_does_not_hardcode_bar_mode(
+async def test_fate_map_uses_paga_independent_heatmap_mode(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    """cr.pl.aggregate_fate_probabilities should use CellRank default mode,
-    not a hardcoded 'bar'."""
     adata = minimal_spatial_adata.copy()
     adata.obsm["to_terminal_states"] = np.ones((adata.n_obs, 2), dtype=float)
 
@@ -883,6 +880,5 @@ async def test_fate_map_does_not_hardcode_bar_mode(
         ),
         context=DummyCtx(),
     )
-    # mode should NOT be "bar" — should be absent (CellRank default: paga_pie)
-    assert "mode" not in captured
+    assert captured["mode"] == "heatmap"
     plt.close("all")

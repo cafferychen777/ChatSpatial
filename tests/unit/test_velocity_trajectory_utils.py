@@ -314,6 +314,33 @@ async def test_analyze_trajectory_palantir_success_records_metadata(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["palantir", "dpt"])
+async def test_analyze_trajectory_preserves_root_cell_parameter_errors(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, method: str
+):
+    adata = minimal_spatial_adata.copy()
+    helper_name = {
+        "palantir": "infer_pseudotime_palantir",
+        "dpt": "compute_dpt_trajectory",
+    }[method]
+
+    monkeypatch.setattr(
+        traj,
+        helper_name,
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            ParameterError("Root cell 'missing' not found")
+        ),
+    )
+
+    with pytest.raises(ParameterError, match="Root cell 'missing' not found"):
+        await traj.analyze_trajectory(
+            "t3",
+            _VelCtx(adata),
+            traj.TrajectoryParameters(method=method, root_cells=["missing"]),
+        )
+
+
+@pytest.mark.asyncio
 async def test_analyze_trajectory_dpt_wraps_internal_errors(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
