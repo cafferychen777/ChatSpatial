@@ -1151,9 +1151,9 @@ class DeconvolutionParameters(BaseModel):
     )
 
     # SPOTlight specific parameters
-    spotlight_n_top_genes: Annotated[int, Field(gt=0, le=5000)] = Field(
-        2000,
-        description="Number of HVGs for deconvolution. SPOTlight only.",
+    spotlight_n_top_genes: Annotated[int, Field(gt=0, le=500)] = Field(
+        50,
+        description="Marker genes per cell type for SPOTlight deconvolution.",
     )
     spotlight_nmf_model: Literal["ns"] = Field(
         "ns",

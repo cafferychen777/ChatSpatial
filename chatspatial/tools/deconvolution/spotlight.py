@@ -18,7 +18,7 @@ from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 def deconvolve(
     data: PreparedDeconvolutionData,
-    n_top_genes: int = 2000,
+    n_top_genes: int = 50,
     nmf_model: str = "ns",
     min_prop: float = 0.01,
     scale: bool = True,
@@ -28,7 +28,7 @@ def deconvolve(
 
     Args:
         data: Prepared deconvolution data (immutable, includes spatial coordinates)
-        n_top_genes: Number of top HVGs to use
+        n_top_genes: Number of marker genes per cell type
         nmf_model: NMF model type - 'ns' (non-smooth) or 'std' (standard)
         min_prop: Minimum proportion threshold
         scale: Whether to scale data
@@ -152,7 +152,7 @@ def deconvolve(
                         model = nmf_model,
                         min_prop = min_prop,
                         scale = scale_data,
-                        verbose = TRUE
+                        verbose = FALSE
                     )
                 """)
 

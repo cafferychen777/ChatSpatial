@@ -6,7 +6,7 @@ import pytest
 
 from chatspatial.models.analysis import PreprocessingResult
 from chatspatial.utils.exceptions import ParameterError, ProcessingError
-from chatspatial.utils.mcp_utils import mcp_tool_error_handler
+from chatspatial.utils.mcp_utils import mcp_tool_error_handler, suppress_output
 
 
 @pytest.mark.asyncio
@@ -49,3 +49,12 @@ async def test_error_handler_for_basemodel_reraises():
 
     with pytest.raises(ProcessingError, match="must bubble up"):
         await tool()
+
+
+def test_suppress_output_discards_large_output(capsys: pytest.CaptureFixture[str]):
+    with suppress_output():
+        print("x" * 1_000_000)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""

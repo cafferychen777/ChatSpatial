@@ -19,8 +19,8 @@ Code/algorithm errors (message + traceback for debugging):
 - ProcessingError, all other exceptions
 """
 
-import io
 import logging
+import os
 import traceback
 import warnings
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
@@ -63,12 +63,11 @@ def suppress_output():
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        stdout_buffer = io.StringIO()
-        stderr_buffer = io.StringIO()
 
         try:
-            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                yield
+            with open(os.devnull, "w") as devnull:
+                with redirect_stdout(devnull), redirect_stderr(devnull):
+                    yield
         finally:
             logging.getLogger().setLevel(old_level)
 

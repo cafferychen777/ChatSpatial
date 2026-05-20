@@ -197,6 +197,9 @@ def test_spotlight_success_casts_counts_and_returns_stats(
 
     def _ro_r(code: str):
         text = code.strip()
+        if "SPOTlight(" in text:
+            ro_mod = __import__("sys").modules["rpy2.robjects"]
+            ro_mod.globalenv["last_spotlight_code"] = code
         if text == "spotlight_result$mat":
             return np.array([[0.9, 0.1], [0.4, 0.6]], dtype=float)
         if text == "rownames(spotlight_result$mat)":
@@ -225,6 +228,8 @@ def test_spotlight_success_casts_counts_and_returns_stats(
     assert ro.globalenv["reference_counts"].dtype == np.int32
     assert ro.globalenv["cell_types"][0] == "A_B"
     assert ro.globalenv["cell_types"][-1] == "B_C"
+    assert ro.globalenv["n_top_genes"] == 1234
+    assert "verbose = FALSE" in ro.globalenv["last_spotlight_code"]
     assert proportions.shape == (2, 2)
     assert list(proportions.columns) == ["A_B", "B_C"]
     assert stats["method"] == "SPOTlight"
