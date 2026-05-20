@@ -166,6 +166,22 @@ Assign cell types.
 | `reference_data_id` | None | Reference dataset (for transfer methods) |
 | `cell_type_key` | None | Cell type column in reference |
 | `marker_genes` | None | Marker dict (for CellAssign) |
+| `sctype_tissue` | None | scType tissue name, required unless custom markers are provided |
+| `sctype_db_` | None | Local scType database path, or remote URL when explicitly allowed |
+| `sctype_custom_markers` | None | Custom scType marker sets |
+| `sctype_scaled` | True | Whether scType should treat the expression matrix as scaled |
+| `sctype_allow_remote` | False | One-off opt-in to load scType remote R scripts and default marker database |
+| `sctype_allow_runtime_r_install` | False | One-off opt-in to install missing R packages at runtime |
+
+**scType remote resources**: by default, scType does not load remote R scripts or the remote default marker database. For one-off exploratory runs, pass `sctype_allow_remote=true`. For production or offline workflows, prefer local R scripts via `CHATSPATIAL_SCTYPE_R_DIR` and a local `sctype_db_` path.
+
+```json
+{
+  "method": "sctype",
+  "sctype_tissue": "Immune system",
+  "sctype_allow_remote": true
+}
+```
 
 **Methods**:
 

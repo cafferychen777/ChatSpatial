@@ -21,6 +21,60 @@ class DummyCtx:
         return None
 
 
+class _FakeRLock:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeLocalConverter:
+    def __enter__(self):
+        return None
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeConverter:
+    def __add__(self, _other):
+        return self
+
+
+def _install_fake_robjects(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_conversion = ModuleType("conversion")
+    fake_conversion.localconverter = lambda _converter: _FakeLocalConverter()
+    fake_robjects_mod = ModuleType("rpy2.robjects")
+    fake_robjects_mod.conversion = fake_conversion
+    monkeypatch.setitem(__import__("sys").modules, "rpy2.robjects", fake_robjects_mod)
+
+
+def _mock_validate_r_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    r_obj: object,
+    *,
+    converter: object | None = None,
+) -> None:
+    _install_fake_robjects(monkeypatch)
+    robjects = SimpleNamespace(r=r_obj)
+    openrlib = SimpleNamespace(rlock=_FakeRLock())
+    monkeypatch.setattr(
+        ann,
+        "validate_r_environment",
+        lambda _ctx: (
+            robjects,
+            None,
+            None,
+            None,
+            None,
+            converter or object(),
+            openrlib,
+            None,
+        ),
+    )
+
+
 def test_softmax_is_stable_and_normalized():
     arr = np.array([1000.0, 1001.0, 999.0], dtype=float)
     out = ann._softmax(arr)
@@ -207,6 +261,58 @@ async def test_annotate_with_sctype_cache_miss_preserves_cell_type_order_and_cac
     assert captured["results"][3] == per_cell_conf
 
 
+@pytest.mark.asyncio
+async def test_annotate_with_sctype_forwards_remote_options(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    adata = minimal_spatial_adata.copy()
+    params = AnnotationParameters(
+        method="sctype",
+        sctype_tissue="Brain",
+        sctype_use_cache=False,
+        sctype_allow_remote=True,
+        sctype_allow_runtime_r_install=True,
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_load(_ctx, *, allow_remote=False, allow_runtime_install=False):
+        captured["load_allow_remote"] = allow_remote
+        captured["load_allow_runtime_install"] = allow_runtime_install
+
+    def _fake_prepare(_params, _ctx, *, allow_remote=False):
+        captured["prepare_allow_remote"] = allow_remote
+        return "GS"
+
+    monkeypatch.setattr(ann, "_load_sctype_functions", _fake_load)
+    monkeypatch.setattr(ann, "_prepare_sctype_genesets", _fake_prepare)
+    monkeypatch.setattr(
+        ann,
+        "_run_sctype_scoring",
+        lambda *_args, **_kwargs: pd.DataFrame({"c1": [1.0]}, index=["T"]),
+    )
+    monkeypatch.setattr(
+        ann,
+        "_assign_sctype_celltypes",
+        lambda *_args, **_kwargs: (["T"] * adata.n_obs, [0.9] * adata.n_obs),
+    )
+
+    out = await ann._annotate_with_sctype(
+        adata,
+        params,
+        DummyCtx(),
+        output_key="cell_type_sctype",
+        confidence_key="confidence_sctype",
+    )
+
+    assert out.cell_types == ["T"]
+    assert captured == {
+        "load_allow_remote": True,
+        "load_allow_runtime_install": True,
+        "prepare_allow_remote": True,
+    }
+
+
 def test_prepare_sctype_genesets_requires_tissue_without_custom_markers():
     with pytest.raises(
         ann.ParameterError,
@@ -304,38 +410,12 @@ def test_load_sctype_functions_runs_install_and_load_scripts(
     monkeypatch.setenv("CHATSPATIAL_ALLOW_RUNTIME_R_INSTALL", "1")
     monkeypatch.setenv("CHATSPATIAL_ALLOW_REMOTE_R_SOURCE", "1")
 
-    class _Lock:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    class _LCtx:
-        def __enter__(self):
-            return None
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
     class _R:
         def __call__(self, script: str):
             calls.append(script)
             return None
 
-    fake_conversion = ModuleType("conversion")
-    fake_conversion.localconverter = lambda _converter: _LCtx()
-    fake_robjects_mod = ModuleType("rpy2.robjects")
-    fake_robjects_mod.conversion = fake_conversion
-    monkeypatch.setitem(__import__("sys").modules, "rpy2.robjects", fake_robjects_mod)
-
-    robjects = SimpleNamespace(r=_R())
-    openrlib = SimpleNamespace(rlock=_Lock())
-    monkeypatch.setattr(
-        ann,
-        "validate_r_environment",
-        lambda _ctx: (robjects, None, None, None, None, object(), openrlib, None),
-    )
+    _mock_validate_r_environment(monkeypatch, _R())
 
     ann._load_sctype_functions(DummyCtx())
 
@@ -350,9 +430,30 @@ def test_load_sctype_functions_rejects_remote_by_default(
     monkeypatch.delenv("CHATSPATIAL_SCTYPE_R_DIR", raising=False)
 
     with pytest.raises(
-        ann.ParameterError, match="remote R script sourcing is disabled"
+        ann.ParameterError, match="sctype_allow_remote=true"
     ):
         ann._load_sctype_functions(DummyCtx())
+
+
+def test_load_sctype_functions_allows_remote_per_call(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    calls: list[str] = []
+    monkeypatch.delenv("CHATSPATIAL_ALLOW_REMOTE_R_SOURCE", raising=False)
+    monkeypatch.delenv("CHATSPATIAL_ALLOW_RUNTIME_R_INSTALL", raising=False)
+    monkeypatch.delenv("CHATSPATIAL_SCTYPE_R_DIR", raising=False)
+
+    class _R:
+        def __call__(self, script: str):
+            calls.append(script)
+            return None
+
+    _mock_validate_r_environment(monkeypatch, _R())
+
+    ann._load_sctype_functions(DummyCtx(), allow_remote=True)
+
+    assert any("gene_sets_prepare.R" in script for script in calls)
+    assert not any("install.packages" in script for script in calls)
 
 
 def test_prepare_sctype_genesets_uses_custom_markers_short_circuit(
@@ -380,24 +481,6 @@ def test_prepare_sctype_genesets_loads_database_and_returns_gs_list(
     assigns: dict[str, object] = {}
     executed: list[str] = []
 
-    class _Conv:
-        def __add__(self, _other):
-            return self
-
-    class _Lock:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    class _LCtx:
-        def __enter__(self):
-            return None
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
     class _R:
         def assign(self, key: str, value):
             assigns[key] = value
@@ -411,19 +494,7 @@ def test_prepare_sctype_genesets_loads_database_and_returns_gs_list(
                 return {"ok": True}
             raise KeyError(name)
 
-    fake_conversion = ModuleType("conversion")
-    fake_conversion.localconverter = lambda _converter: _LCtx()
-    fake_robjects_mod = ModuleType("rpy2.robjects")
-    fake_robjects_mod.conversion = fake_conversion
-    monkeypatch.setitem(__import__("sys").modules, "rpy2.robjects", fake_robjects_mod)
-
-    robjects = SimpleNamespace(r=_R())
-    openrlib = SimpleNamespace(rlock=_Lock())
-    monkeypatch.setattr(
-        ann,
-        "validate_r_environment",
-        lambda _ctx: (robjects, None, None, None, None, _Conv(), openrlib, None),
-    )
+    _mock_validate_r_environment(monkeypatch, _R(), converter=_FakeConverter())
 
     db_path = tmp_path / "db.xlsx"
     db_path.write_bytes(b"dummy")
@@ -445,12 +516,42 @@ def test_prepare_sctype_genesets_loads_database_and_returns_gs_list(
 
 def test_prepare_sctype_genesets_rejects_remote_db_by_default():
     with pytest.raises(
-        ann.ParameterError, match="remote database download is disabled"
+        ann.ParameterError, match="sctype_allow_remote=true"
     ):
         ann._prepare_sctype_genesets(
             AnnotationParameters(method="sctype", sctype_tissue="Brain"),
             DummyCtx(),
         )
+
+
+def test_prepare_sctype_genesets_allows_remote_db_per_call(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    assigns: dict[str, object] = {}
+
+    class _R:
+        def assign(self, key: str, value):
+            assigns[key] = value
+
+        def __call__(self, _code: str):
+            return None
+
+        def __getitem__(self, name: str):
+            if name == "gs_list":
+                return {"ok": True}
+            raise KeyError(name)
+
+    _mock_validate_r_environment(monkeypatch, _R(), converter=_FakeConverter())
+    monkeypatch.delenv("CHATSPATIAL_ALLOW_REMOTE_SCTYPE_DB", raising=False)
+
+    out = ann._prepare_sctype_genesets(
+        AnnotationParameters(method="sctype", sctype_tissue="Brain"),
+        DummyCtx(),
+        allow_remote=True,
+    )
+
+    assert out == {"ok": True}
+    assert assigns["db_path"] == ann._SCTYPE_DEFAULT_DB_URL
 
 
 def test_run_sctype_scoring_converts_r_matrix_to_dataframe(

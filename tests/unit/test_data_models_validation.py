@@ -94,6 +94,12 @@ def test_annotation_rejects_invalid_method_literal():
         AnnotationParameters(method="not_supported")
 
 
+def test_annotation_sctype_remote_options_default_to_false():
+    params = AnnotationParameters(method="sctype")
+    assert params.sctype_allow_remote is False
+    assert params.sctype_allow_runtime_r_install is False
+
+
 def test_preprocessing_uses_canonical_scrublet_field_name():
     params = PreprocessingParameters(use_scrublet=True)
     assert params.use_scrublet is True

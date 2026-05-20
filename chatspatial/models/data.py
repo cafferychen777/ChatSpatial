@@ -782,6 +782,14 @@ class AnnotationParameters(BaseModel):
         None  # Custom markers: {"CellType": {"positive": [...], "negative": [...]}}
     )
     sctype_use_cache: bool = True  # Whether to cache results to avoid repeated R calls
+    sctype_allow_remote: bool = Field(
+        default=False,
+        description="Allow scType to load remote R scripts and the default remote marker database for this call.",
+    )
+    sctype_allow_runtime_r_install: bool = Field(
+        default=False,
+        description="Allow scType to install missing R packages at runtime for this call.",
+    )
 
     # SingleR parameters (for enhanced marker_genes method)
     singler_reference: Optional[str] = Field(

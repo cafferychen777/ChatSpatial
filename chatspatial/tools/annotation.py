@@ -1581,7 +1581,12 @@ async def annotate_cell_types(
         parameters_dict = {
             "tissue": params.sctype_tissue,
             "scaled": params.sctype_scaled,
+            "custom_markers_provided": params.sctype_custom_markers is not None,
+            "allow_remote": params.sctype_allow_remote,
+            "allow_runtime_r_install": params.sctype_allow_runtime_r_install,
         }
+        if params.sctype_db_:
+            parameters_dict["db"] = params.sctype_db_
     elif params.method == "singler":
         parameters_dict = {
             "fine_tune": params.singler_fine_tune,
@@ -1743,6 +1748,10 @@ def _is_truthy_env(name: str, default: str = "0") -> bool:
     return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _is_allowed_by_call_or_env(allow_per_call: bool, env_name: str) -> bool:
+    return allow_per_call or _is_truthy_env(env_name, "0")
+
+
 def _is_remote_resource(path: str) -> bool:
     """Whether a resource path points to an HTTP(S) URL."""
     return path.lower().startswith(("http://", "https://"))
@@ -1854,16 +1863,25 @@ def _store_memory_sctype_cache(
     _evict_sctype_cache_if_needed()
 
 
-def _load_sctype_functions(ctx: "ToolContext") -> None:
+def _load_sctype_functions(
+    ctx: "ToolContext",
+    *,
+    allow_remote: bool = False,
+    allow_runtime_install: bool = False,
+) -> None:
     """Load scType R functions with explicit supply-chain controls.
 
     Security policy (default-safe):
-    - Runtime R package auto-install is OFF unless CHATSPATIAL_ALLOW_RUNTIME_R_INSTALL=1
-    - Remote script sourcing is OFF unless CHATSPATIAL_ALLOW_REMOTE_R_SOURCE=1
+    - Runtime R package auto-install is OFF unless allowed per call or by env
+    - Remote script sourcing is OFF unless allowed per call or by env
     - Prefer local script directory via CHATSPATIAL_SCTYPE_R_DIR
     """
-    allow_runtime_install = _is_truthy_env("CHATSPATIAL_ALLOW_RUNTIME_R_INSTALL", "0")
-    allow_remote_source = _is_truthy_env("CHATSPATIAL_ALLOW_REMOTE_R_SOURCE", "0")
+    allow_runtime_install = _is_allowed_by_call_or_env(
+        allow_runtime_install, "CHATSPATIAL_ALLOW_RUNTIME_R_INSTALL"
+    )
+    allow_remote_source = _is_allowed_by_call_or_env(
+        allow_remote, "CHATSPATIAL_ALLOW_REMOTE_R_SOURCE"
+    )
     local_script_dir = os.getenv("CHATSPATIAL_SCTYPE_R_DIR")
 
     if local_script_dir:
@@ -1884,8 +1902,9 @@ def _load_sctype_functions(ctx: "ToolContext") -> None:
         if not allow_remote_source:
             raise ParameterError(
                 "scType remote R script sourcing is disabled by default. "
-                "Set CHATSPATIAL_SCTYPE_R_DIR to a local script directory or "
-                "explicitly enable remote sourcing with CHATSPATIAL_ALLOW_REMOTE_R_SOURCE=1."
+                "For one-off runs, pass sctype_allow_remote=true. "
+                "For persistent local use, set CHATSPATIAL_SCTYPE_R_DIR to a local script directory. "
+                "For persistent remote use, set CHATSPATIAL_ALLOW_REMOTE_R_SOURCE=1."
             )
         load_script = _R_LOAD_SCTYPE_REMOTE
 
@@ -1901,7 +1920,12 @@ def _load_sctype_functions(ctx: "ToolContext") -> None:
             robjects.r(load_script)
 
 
-def _prepare_sctype_genesets(params: AnnotationParameters, ctx: "ToolContext") -> Any:
+def _prepare_sctype_genesets(
+    params: AnnotationParameters,
+    ctx: "ToolContext",
+    *,
+    allow_remote: bool = False,
+) -> Any:
     """Prepare gene sets for sc-type."""
     if params.sctype_custom_markers:
         return _convert_custom_markers_to_gs(params.sctype_custom_markers, ctx)
@@ -1913,11 +1937,15 @@ def _prepare_sctype_genesets(params: AnnotationParameters, ctx: "ToolContext") -
 
     db_path = params.sctype_db_ or _SCTYPE_DEFAULT_DB_URL
     if _is_remote_resource(db_path):
-        if not _is_truthy_env("CHATSPATIAL_ALLOW_REMOTE_SCTYPE_DB", "0"):
+        allow_remote_db = _is_allowed_by_call_or_env(
+            allow_remote, "CHATSPATIAL_ALLOW_REMOTE_SCTYPE_DB"
+        )
+        if not allow_remote_db:
             raise ParameterError(
                 "scType remote database download is disabled by default. "
-                "Provide a local sctype_db_ path, or explicitly enable remote DB "
-                "with CHATSPATIAL_ALLOW_REMOTE_SCTYPE_DB=1."
+                "For one-off runs, pass sctype_allow_remote=true. "
+                "For persistent local use, provide a local sctype_db_ path. "
+                "For persistent remote use, set CHATSPATIAL_ALLOW_REMOTE_SCTYPE_DB=1."
             )
     else:
         local_db = Path(db_path).expanduser()
@@ -2266,8 +2294,16 @@ async def _annotate_with_sctype(
             )
 
     # Run sc-type pipeline
-    _load_sctype_functions(ctx)
-    gs_list = _prepare_sctype_genesets(params, ctx)
+    _load_sctype_functions(
+        ctx,
+        allow_remote=params.sctype_allow_remote,
+        allow_runtime_install=params.sctype_allow_runtime_r_install,
+    )
+    gs_list = _prepare_sctype_genesets(
+        params,
+        ctx,
+        allow_remote=params.sctype_allow_remote,
+    )
     scores_df = _run_sctype_scoring(adata, gs_list, params, ctx)
     per_cell_types, per_cell_confidence = _assign_sctype_celltypes(scores_df, ctx)
 
