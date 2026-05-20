@@ -236,11 +236,15 @@ async def test_preprocess_data_rejects_none_normalization_for_raw_counts(monkeyp
     # _make_adata produces integer counts (Poisson draws) — check_is_integer_counts
     # detects these regardless of magnitude, catching low-depth platforms too.
     adata = _make_adata(n_obs=10, n_vars=120)
+    original_shape = adata.shape
     ctx = DummyCtx(adata)
     params = PreprocessingParameters(normalization="none", filter_mito_pct=None)
 
     with pytest.raises(DataError, match="Cannot perform HVG selection on raw counts"):
         await preprocess_data("d3", ctx, params)
+
+    assert adata.shape == original_shape
+    assert ctx.saved_adata is None
 
 
 @pytest.mark.asyncio
@@ -260,6 +264,27 @@ async def test_preprocess_data_rejects_none_normalization_low_depth_counts(monke
 
     with pytest.raises(DataError, match="Cannot perform HVG selection on raw counts"):
         await preprocess_data("d3_low", ctx, params)
+
+
+@pytest.mark.asyncio
+async def test_preprocess_data_failed_validation_does_not_mutate_source(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_lightweight_preprocess_mocks(monkeypatch)
+
+    adata = _make_adata(n_obs=20, n_vars=120)
+    ctx = DummyCtx(adata)
+    params = PreprocessingParameters(
+        normalization="none",
+        subsample_spots=5,
+        filter_mito_pct=None,
+    )
+
+    with pytest.raises(DataError, match="Cannot perform HVG selection on raw counts"):
+        await preprocess_data("d3_subsample", ctx, params)
+
+    assert adata.n_obs == 20
+    assert ctx.saved_adata is None
 
 
 @pytest.mark.asyncio

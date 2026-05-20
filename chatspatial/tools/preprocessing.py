@@ -85,17 +85,17 @@ async def preprocess_data(
     if params is None:
         params = PreprocessingParameters()
 
-    # Get AnnData directly via ToolContext
-    adata = await ctx.get_adata(data_id)
+    # Work on a copy and commit via ctx.set_adata only after all steps succeed.
+    source_adata = await ctx.get_adata(data_id)
 
     # Standardize data format at the entry point
     try:
-        adata = standardize_adata(adata, copy=False)
+        adata = standardize_adata(source_adata, copy=True)
     except Exception as e:
         await ctx.warning(
             f"Data standardization failed: {e}. Proceeding with original data."
         )
-        # Continue with original data if standardization fails
+        adata = source_adata.copy()
 
     # Validate input data
     if adata.n_obs == 0 or adata.n_vars == 0:
