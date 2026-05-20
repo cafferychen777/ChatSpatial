@@ -151,9 +151,11 @@ def test_tangram_success_with_fake_module(
     def _pp_adatas(_ref, _spatial, genes):
         assert len(genes) > 0
 
-    def _map_cells_to_space(ref_data, spatial_data, **_kwargs):
-        # mapping matrix: n_ref_cells x n_spots
-        return _Map(np.ones((ref_data.n_obs, spatial_data.n_obs), dtype=float))
+    def _map_cells_to_space(_ref_data, spatial_data, **kwargs):
+        assert kwargs["mode"] == "clusters"
+        return _Map(
+            np.tile(np.array([[0.8], [0.2]]), (1, spatial_data.n_obs)).astype(float)
+        )
 
     fake_mod = ModuleType("tangram")
     fake_mod.pp_adatas = _pp_adatas
@@ -161,8 +163,8 @@ def test_tangram_success_with_fake_module(
     monkeypatch.setitem(__import__("sys").modules, "tangram", fake_mod)
 
     proportions, stats = tangram_module.deconvolve(data, mode="clusters", n_epochs=5)
-    assert proportions.shape[0] == data.n_spots
-    assert set(proportions.columns) == {"A", "B"}
+    assert proportions.shape == (data.n_spots, 2)
+    assert list(proportions.columns) == ["A", "B"]
     assert np.allclose(proportions.sum(axis=1).values, 1.0)
     assert stats["method"] == "Tangram"
 
@@ -200,6 +202,26 @@ def test_tangram_cells_mode_uses_fallback_cell_type_column(
     assert stats["device"] == "CPU"
 
 
+def test_tangram_cluster_mode_rejects_cell_level_mapping_shape(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    data = _prepared_data(minimal_spatial_adata)
+
+    class _Map:
+        def __init__(self, X):
+            self.X = X
+
+    fake_mod = ModuleType("tangram")
+    fake_mod.pp_adatas = lambda *_a, **_k: None
+    fake_mod.map_cells_to_space = lambda ref_data, spatial_data, **_k: _Map(
+        np.ones((ref_data.n_obs, spatial_data.n_obs), dtype=float)
+    )
+    monkeypatch.setitem(__import__("sys").modules, "tangram", fake_mod)
+
+    with pytest.raises(ProcessingError, match="Unexpected Tangram cluster mapping shape"):
+        tangram_module.deconvolve(data, mode="clusters", n_epochs=5)
+
+
 def test_tangram_wraps_unexpected_errors(minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch):
     data = _prepared_data(minimal_spatial_adata)
 
@@ -229,8 +251,8 @@ def test_tangram_preserves_processing_error_from_internal_checks(
 
     fake_mod = ModuleType("tangram")
     fake_mod.pp_adatas = lambda *_a, **_k: None
-    fake_mod.map_cells_to_space = lambda ref_data, spatial_data, **_k: _Map(
-        np.ones((ref_data.n_obs, spatial_data.n_obs), dtype=float)
+    fake_mod.map_cells_to_space = lambda _ref_data, spatial_data, **_k: _Map(
+        np.ones((2, spatial_data.n_obs), dtype=float)
     )
     monkeypatch.setitem(__import__("sys").modules, "tangram", fake_mod)
     monkeypatch.setattr(

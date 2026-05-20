@@ -95,24 +95,33 @@ def deconvolve(
                 device=device,
             )
 
-        # Get mapping matrix (cells x spots)
+        cell_types = list(ref_data.obs[data.cell_type_key].unique())
         mapping_matrix = ad_map.X
 
-        # Calculate cell type proportions from mapping
-        cell_types = ref_data.obs[data.cell_type_key].unique()
-
-        # Create cell type indicator matrix
-        cell_type_series = ref_data.obs[data.cell_type_key]
-        type_indicators = pd.get_dummies(cell_type_series)
-        type_indicators = type_indicators.reindex(columns=cell_types, fill_value=0)
-
-        # (n_types x n_cells) @ (n_cells x n_spots) = (n_types x n_spots)
-        proportions_array = type_indicators.values.T @ mapping_matrix
-
-        # Create DataFrame
-        proportions = pd.DataFrame(
-            proportions_array.T, index=spatial_data.obs_names, columns=cell_types
-        )
+        if mode == "clusters":
+            if mapping_matrix.shape != (len(cell_types), spatial_data.n_obs):
+                raise ProcessingError(
+                    "Unexpected Tangram cluster mapping shape: "
+                    f"{mapping_matrix.shape}, expected "
+                    f"({len(cell_types)}, {spatial_data.n_obs})"
+                )
+            proportions = pd.DataFrame(
+                mapping_matrix.T, index=spatial_data.obs_names, columns=cell_types
+            )
+        else:
+            if mapping_matrix.shape != (ref_data.n_obs, spatial_data.n_obs):
+                raise ProcessingError(
+                    "Unexpected Tangram cell mapping shape: "
+                    f"{mapping_matrix.shape}, expected "
+                    f"({ref_data.n_obs}, {spatial_data.n_obs})"
+                )
+            cell_type_series = ref_data.obs[data.cell_type_key]
+            type_indicators = pd.get_dummies(cell_type_series)
+            type_indicators = type_indicators.reindex(columns=cell_types, fill_value=0)
+            proportions_array = type_indicators.values.T @ mapping_matrix
+            proportions = pd.DataFrame(
+                proportions_array.T, index=spatial_data.obs_names, columns=cell_types
+            )
 
         # Normalize to proportions
         row_sums = proportions.sum(axis=1)
@@ -132,7 +141,7 @@ def deconvolve(
         )
 
         # Memory cleanup
-        del ad_map, mapping_matrix, type_indicators
+        del ad_map, mapping_matrix
         del spatial_data, ref_data
         gc.collect()
 
