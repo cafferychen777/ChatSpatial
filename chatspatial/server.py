@@ -265,7 +265,8 @@ async def annotate_cell_types(
     resolved_params = _resolve_params(params, AnnotationParameters)
 
     # Call annotation function with ToolContext
-    result = await annotate_cell_types(data_id, ctx, resolved_params)
+    with suppress_output():
+        result = await annotate_cell_types(data_id, ctx, resolved_params)
 
     # Note: No writeback needed - adata modifications are in-place on the same object
 
