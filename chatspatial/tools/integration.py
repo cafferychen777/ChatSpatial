@@ -217,6 +217,8 @@ def integrate_multiple_samples(
                 n_epochs=scvi_n_epochs,
                 use_gpu=scvi_use_gpu,
             )
+        except (DataError, DataNotFoundError, ParameterError):
+            raise
         except Exception as e:
             raise ProcessingError(
                 f"scVI integration failed: {e}. "

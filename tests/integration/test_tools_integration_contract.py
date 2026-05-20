@@ -48,6 +48,36 @@ def test_integrate_multiple_samples_rejects_raw_count_like_input(minimal_spatial
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_integrate_samples_preserves_scvi_data_errors(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata1 = minimal_spatial_adata.copy()
+    adata2 = minimal_spatial_adata.copy()
+    adata2.obs_names = [f"batch2_{i}" for i in range(adata2.n_obs)]
+    normalized = np.log1p(np.random.default_rng(0).poisson(4, adata1.X.shape)).astype(
+        np.float32
+    )
+    for adata in (adata1, adata2):
+        adata.X = normalized.copy()
+        adata.layers["counts"] = np.full(adata.X.shape, 0.25, dtype=np.float32)
+        adata.var["highly_variable"] = True
+
+    ctx = DummyCtx({"d1": adata1, "d2": adata2})
+
+    def fake_integrate_with_scvi(*_args, **_kwargs):
+        raise DataError("scVI requires raw integer counts")
+
+    monkeypatch.setattr(
+        integration_module, "integrate_with_scvi", fake_integrate_with_scvi
+    )
+
+    params = IntegrationParameters(method="scvi", batch_key="batch", align_spatial=False)
+    with pytest.raises(DataError, match="raw integer counts"):
+        await integrate_samples(["d1", "d2"], ctx, params)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_integrate_samples_adds_integrated_dataset_and_exports(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):

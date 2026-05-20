@@ -285,3 +285,58 @@ async def test_cnv_heatmap_infercnvpy_chromosome_branch(minimal_spatial_adata, m
     assert captured["dendrogram"] is True
     assert fig is not None
     fig.clf()
+
+
+@pytest.mark.asyncio
+async def test_cnv_heatmap_infercnvpy_auto_selects_groupby(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obsm["X_cnv"] = np.random.default_rng(4).normal(size=(adata.n_obs, 12))
+    adata.uns["cnv"] = {"genomic_positions": True}
+    adata.var["chromosome"] = ["chr1"] * adata.n_vars
+    adata.obs["cell_type"] = ["A"] * (adata.n_obs // 2) + [
+        "B"
+    ] * (adata.n_obs - adata.n_obs // 2)
+
+    monkeypatch.setattr(viz_cnv, "require", lambda *_a, **_k: None)
+    captured: dict[str, object] = {}
+
+    fake_infercnvpy = ModuleType("infercnvpy")
+
+    def _chrom_heatmap(*_args, **kwargs):
+        captured["groupby"] = kwargs.get("groupby")
+        plt.figure()
+
+    fake_infercnvpy.pl = SimpleNamespace(chromosome_heatmap=_chrom_heatmap)
+    monkeypatch.setitem(sys.modules, "infercnvpy", fake_infercnvpy)
+    ctx = DummyCtx()
+
+    fig = await viz_cnv._create_cnv_heatmap(
+        adata,
+        VisualizationParameters(plot_type="cnv", subtype="heatmap"),
+        context=ctx,
+    )
+    assert captured["groupby"] == "cell_type"
+    assert any("Grouping CNV heatmap by 'cell_type'" in msg for msg in ctx.infos)
+    fig.clf()
+
+
+@pytest.mark.asyncio
+async def test_cnv_heatmap_infercnvpy_requires_groupby_when_none_available(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    del adata.obs["group"]
+    adata.obsm["X_cnv"] = np.random.default_rng(5).normal(size=(adata.n_obs, 12))
+    adata.uns["cnv"] = {"genomic_positions": True}
+    adata.var["chromosome"] = ["chr1"] * adata.n_vars
+
+    monkeypatch.setattr(viz_cnv, "require", lambda *_a, **_k: None)
+
+    with pytest.raises(ParameterError, match="requires a grouping column"):
+        await viz_cnv._create_cnv_heatmap(
+            adata,
+            VisualizationParameters(plot_type="cnv", subtype="heatmap"),
+            context=DummyCtx(),
+        )

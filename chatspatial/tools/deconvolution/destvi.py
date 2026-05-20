@@ -8,12 +8,36 @@ model on reference data, then using it to initialize a DestVI model.
 import gc
 from typing import Any
 
+import numpy as np
 import pandas as pd
+import torch
+from scipy import sparse
 
 from ...utils.dependency_manager import is_available
 from ...utils.device_utils import get_accelerator
 from ...utils.exceptions import DataError, DependencyError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
+
+
+def _ensure_float32_x(adata: Any) -> None:
+    if adata.X.dtype != np.float32:
+        adata.X = adata.X.astype(np.float32, copy=False)
+    if sparse.issparse(adata.X):
+        adata.X.data = adata.X.data.astype(np.float32, copy=False)
+
+
+def _patch_condscvi_vamp_prior_tensors(condscvi_model: Any) -> None:
+    original_get_vamp_prior = getattr(condscvi_model, "get_vamp_prior", None)
+    if original_get_vamp_prior is None:
+        return
+
+    def _get_vamp_prior_tensors(*args: Any, **kwargs: Any) -> dict[str, torch.Tensor]:
+        return {
+            key: torch.as_tensor(value, dtype=torch.float32)
+            for key, value in original_get_vamp_prior(*args, **kwargs).items()
+        }
+
+    condscvi_model.get_vamp_prior = _get_vamp_prior_tensors
 
 
 def deconvolve(
@@ -60,6 +84,8 @@ def deconvolve(
         # Data already copied in prepare_deconvolution
         spatial_data = data.spatial
         ref_data = data.reference
+        _ensure_float32_x(spatial_data)
+        _ensure_float32_x(ref_data)
 
         # Validate cell types
         if data.n_cell_types < 2:
@@ -73,7 +99,8 @@ def deconvolve(
 
         # Device setting
         accelerator = get_accelerator(prefer_gpu=use_gpu)
-        plan_kwargs = {"lr": learning_rate}
+        condscvi_plan_kwargs = {"lr": learning_rate}
+        destvi_plan_kwargs = {"lr": learning_rate, "ct_sparsity_weight": l1_reg}
 
         # ===== Stage 1: Train CondSCVI on reference =====
         scvi.model.CondSCVI.setup_anndata(
@@ -88,30 +115,31 @@ def deconvolve(
             n_latent=n_latent,
             n_layers=n_layers,
             dropout_rate=dropout_rate,
+            prior="normal",
         )
 
         condscvi_model.train(
             max_epochs=condscvi_epochs,
             accelerator=accelerator,
             train_size=train_size,
-            plan_kwargs=plan_kwargs,
+            plan_kwargs=condscvi_plan_kwargs,
         )
 
         # ===== Stage 2: Train DestVI on spatial =====
         scvi.model.DestVI.setup_anndata(spatial_data)
+        _patch_condscvi_vamp_prior_tensors(condscvi_model)
 
         destvi_model = scvi.model.DestVI.from_rna_model(
             spatial_data,
             condscvi_model,
             vamp_prior_p=vamp_prior_p,
-            l1_reg=l1_reg,
         )
 
         destvi_model.train(
             max_epochs=destvi_epochs,
             accelerator=accelerator,
             train_size=train_size,
-            plan_kwargs=plan_kwargs,
+            plan_kwargs=destvi_plan_kwargs,
         )
 
         # Get proportions

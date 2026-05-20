@@ -163,6 +163,35 @@ async def _create_spatial_cnv(
 # =============================================================================
 
 
+_CNV_HEATMAP_GROUPBY_CANDIDATES = (
+    "cnv_clusters",
+    "numbat_clone",
+    "cell_type",
+    "celltype.l1",
+    "cluster",
+    "leiden",
+    "group",
+)
+
+
+def _resolve_cnv_heatmap_groupby(
+    adata: "ad.AnnData",
+    params: VisualizationParameters,
+) -> str:
+    if params.cluster_key:
+        validate_obs_column(adata, params.cluster_key, "CNV heatmap groupby")
+        return params.cluster_key
+
+    for key in _CNV_HEATMAP_GROUPBY_CANDIDATES:
+        if key in adata.obs:
+            return key
+
+    raise ParameterError(
+        "CNV heatmap requires a grouping column. Provide cluster_key, or add one of: "
+        f"{', '.join(_CNV_HEATMAP_GROUPBY_CANDIDATES)}."
+    )
+
+
 async def _create_cnv_heatmap(
     adata: "ad.AnnData",
     params: VisualizationParameters,
@@ -352,9 +381,13 @@ async def _create_cnv_heatmap(
         if context:
             await context.info("Creating chromosome-organized CNV heatmap...")
 
+        groupby = _resolve_cnv_heatmap_groupby(adata, params)
+        if context:
+            await context.info(f"Grouping CNV heatmap by '{groupby}'")
+
         cnv.pl.chromosome_heatmap(
             adata,
-            groupby=params.cluster_key,
+            groupby=groupby,
             dendrogram=True,
             show=False,
             figsize=figsize,

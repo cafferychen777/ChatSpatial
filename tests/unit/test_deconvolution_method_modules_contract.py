@@ -10,6 +10,7 @@ from types import ModuleType, SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 from chatspatial.tools.deconvolution import cell2location as c2l_module
 from chatspatial.tools.deconvolution import destvi as destvi_module
@@ -262,32 +263,51 @@ def test_destvi_validates_minimum_cell_types(
 
 def test_destvi_success_with_fake_scvi(minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch):
     data = _prepared_data(minimal_spatial_adata)
+    data.spatial.X = data.spatial.X.astype(np.float64)
+    data.reference.X = data.reference.X.astype(np.int64)
     monkeypatch.setattr(destvi_module, "is_available", lambda *_: True)
+
+    train_calls: list[dict[str, object]] = []
 
     class FakeCondSCVI:
         @staticmethod
-        def setup_anndata(*_args, **_kwargs):
-            return None
+        def setup_anndata(ref, **_kwargs):
+            assert ref.X.dtype == np.float32
 
-        def __init__(self, _ref, **_kwargs):
+        def __init__(self, ref, **kwargs):
+            assert ref.X.dtype == np.float32
+            assert kwargs["prior"] == "normal"
             self.history = None
 
-        def train(self, **_kwargs):
-            return None
+        def train(self, **kwargs):
+            train_calls.append({"stage": "condscvi", **kwargs})
+
+        def get_vamp_prior(self, *_args, **_kwargs):
+            return {
+                "mean_vprior": np.zeros((2, 3, 5), dtype=np.float32),
+                "var_vprior": np.ones((2, 3, 5), dtype=np.float32),
+                "weights_vprior": np.full((2, 3), 1 / 3, dtype=np.float32),
+            }
 
     class FakeDestVI:
         @staticmethod
-        def setup_anndata(*_args, **_kwargs):
-            return None
+        def setup_anndata(spatial, **_kwargs):
+            assert spatial.X.dtype == np.float32
 
         @classmethod
-        def from_rna_model(cls, spatial_data, _cond_model, **_kwargs):
+        def from_rna_model(cls, spatial_data, cond_model, **kwargs):
+            assert spatial_data.X.dtype == np.float32
+            assert "l1_reg" not in kwargs
+            assert kwargs["vamp_prior_p"] == 15
+            prior = cond_model.get_vamp_prior()
+            assert all(isinstance(value, torch.Tensor) for value in prior.values())
+            assert all(value.dtype == torch.float32 for value in prior.values())
             inst = cls()
             inst._n = spatial_data.n_obs
             return inst
 
-        def train(self, **_kwargs):
-            return None
+        def train(self, **kwargs):
+            train_calls.append({"stage": "destvi", **kwargs})
 
         def get_proportions(self):
             return pd.DataFrame(
@@ -303,6 +323,11 @@ def test_destvi_success_with_fake_scvi(minimal_spatial_adata, monkeypatch: pytes
     assert proportions.shape == (data.n_spots, 2)
     assert stats["method"] == "DestVI"
     assert stats["n_cell_types"] == 2
+
+    condscvi_call = next(c for c in train_calls if c["stage"] == "condscvi")
+    destvi_call = next(c for c in train_calls if c["stage"] == "destvi")
+    assert condscvi_call["plan_kwargs"] == {"lr": 1e-3}
+    assert destvi_call["plan_kwargs"] == {"lr": 1e-3, "ct_sparsity_weight": 10.0}
 
 
 def test_destvi_raises_processing_error_for_invalid_proportion_shape(
