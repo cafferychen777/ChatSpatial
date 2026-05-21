@@ -5,6 +5,23 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.10] - 2026-05-21 - MCP Usability and Runtime Fixes
+
+### Added
+
+- Added per-call scType remote resource controls so MCP users can opt into remote scType scripts and marker databases without editing server environment configuration.
+
+### Changed
+
+- Improved scType error messages and documentation to point users toward secure one-off or local-resource workflows.
+
+### Fixed
+
+- Fixed preprocessing failure handling to avoid mutating datasets after failed runs.
+- Tuned SPOTlight defaults for more reliable MCP runtime behavior.
+- Suppressed verbose annotation tool output at the MCP boundary.
+- Fixed Tangram cluster deconvolution mapping and related MCP deconvolution/visualization contracts.
+
 ## [v1.2.9] - 2026-05-12 - Python 3.14 Compatibility
 
 ### Changed
