@@ -30,5 +30,45 @@ jobs:
       - name: Login with GitHub OIDC
         run: ./mcp-publisher login github-oidc
 
+      - name: Wait for PyPI package availability
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          server = json.loads(Path("server.json").read_text())
+          pypi_packages = [
+              package
+              for package in server["packages"]
+              if package.get("registryType") == "pypi"
+          ]
+
+          for package in pypi_packages:
+              identifier = package["identifier"]
+              version = package["version"]
+              url = f"https://pypi.org/pypi/{identifier}/{version}/json"
+              for attempt in range(1, 31):
+                  try:
+                      with urllib.request.urlopen(url, timeout=10) as response:
+                          if response.status == 200:
+                              print(f"Found PyPI package {identifier}=={version}")
+                              break
+                  except urllib.error.HTTPError as error:
+                      if error.code != 404:
+                          raise
+                  except urllib.error.URLError as error:
+                      print(f"PyPI check attempt {attempt} failed: {error}", file=sys.stderr)
+
+                  if attempt == 30:
+                      raise RuntimeError(f"PyPI package {identifier}=={version} was not available after waiting")
+
+                  print(f"Waiting for PyPI package {identifier}=={version} (attempt {attempt}/30)")
+                  time.sleep(10)
+          PY
+
       - name: Publish to MCP Registry
         run: ./mcp-publisher publish

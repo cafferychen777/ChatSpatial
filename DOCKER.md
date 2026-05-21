@@ -6,7 +6,7 @@ client examples, SSE mode, local builds, and troubleshooting stay in one place.
 
 Key rules:
 
-- Use a versioned image such as `ghcr.io/cafferychen777/chatspatial:v1.2.9` for reproducible analyses.
+- Use a versioned image such as `ghcr.io/cafferychen777/chatspatial:v1.2.10` for reproducible analyses.
 - Mount host data into the container, usually as `/data`, and prompt ChatSpatial with the container path.
 - Mount a writable output directory as `/outputs`; the Docker image sets `CHATSPATIAL_OUTPUT_DIR=/outputs`.
 - Use `--rm -i`, not `-it`, for MCP stdio servers.
