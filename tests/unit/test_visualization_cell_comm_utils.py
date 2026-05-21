@@ -372,6 +372,29 @@ async def test_create_cell_communication_visualization_spatial_requires_spatial_
 
 
 @pytest.mark.asyncio
+async def test_cluster_only_communication_visualizations_reject_spatial_results(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    data = _mock_cc_data(
+        pd.DataFrame({"morans": [0.8]}, index=["L1^R1"]),
+        analysis_type="spatial",
+        spatial_scores=np.ones((adata.n_obs, 1), dtype=float),
+    )
+
+    async def _fake_get(*_args, **_kwargs):
+        return data
+
+    monkeypatch.setattr(viz_cc, "get_cell_communication_data", _fake_get)
+
+    with pytest.raises(ParameterError, match="requires cluster-level communication results"):
+        await viz_cc.create_cell_communication_visualization(
+            adata,
+            VisualizationParameters(plot_type="communication", subtype="circle_plot"),
+        )
+
+
+@pytest.mark.asyncio
 async def test_create_cell_communication_visualization_unknown_subtype_error(
     minimal_spatial_adata,
 ):

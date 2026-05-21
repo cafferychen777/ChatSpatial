@@ -501,6 +501,15 @@ async def create_cell_communication_visualization(
             )
         return _create_spatial_lr_visualization(adata, data, params, context)
 
+    # Unified cell-type visualizations require source/target cell labels.
+    if data.analysis_type == "spatial" and subtype in {"dotplot", "tileplot", "circle_plot"}:
+        raise ParameterError(
+            f"{subtype} visualization requires cluster-level communication results.\n"
+            f"Current analysis type: {data.analysis_type}\n\n"
+            "Use subtype='spatial' for spatial LIANA results, or re-run "
+            "analyze_cell_communication with perform_spatial_analysis=False."
+        )
+
     # Unified visualizations (all methods use same code path)
     # Data is already in LIANA format, enabling unified visualization
     if subtype == "dotplot":
