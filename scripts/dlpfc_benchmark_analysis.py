@@ -31,9 +31,18 @@ GT_DIR = DATA_DIR / "ground_truth"
 OUTPUT_DIR = DATA_DIR / "outputs"
 RAW_PATH = DATA_DIR / "dlpfc_benchmark_raw.jsonl"
 RESULTS_CSV = DATA_DIR / "dlpfc_benchmark_results.csv"
+PER_TRIAL_CSV = DATA_DIR / "dlpfc_benchmark_per_trial.csv"
 SUMMARY_PATH = DATA_DIR / "dlpfc_benchmark_summary.txt"
 
 SAMPLE_IDS = ["151673", "151507", "151669"]
+
+
+def committed_outputs_available() -> bool:
+    return all(path.exists() and path.stat().st_size > 0 for path in (
+        RESULTS_CSV,
+        PER_TRIAL_CSV,
+        SUMMARY_PATH,
+    ))
 
 # ---------------------------------------------------------------------------
 # Load data
@@ -144,6 +153,20 @@ def bootstrap_ci(values, n_boot=10_000, seed=42):
 # ---------------------------------------------------------------------------
 
 def analyze():
+    if not RAW_PATH.exists():
+        if committed_outputs_available():
+            print(f"Raw checkpoint not found: {RAW_PATH}")
+            print("Using committed aggregate outputs:")
+            print(f"  {RESULTS_CSV}")
+            print(f"  {PER_TRIAL_CSV}")
+            print(f"  {SUMMARY_PATH}")
+            print("To recompute raw-level metrics, run scripts/dlpfc_benchmark.py first.")
+            return
+        raise FileNotFoundError(
+            f"{RAW_PATH} is required to recompute DLPFC benchmark metrics. "
+            "Run scripts/dlpfc_benchmark.py first, or use the committed aggregate CSV/TXT outputs."
+        )
+
     records = load_raw()
     print(f"Loaded {len(records)} trial records")
 
@@ -309,14 +332,13 @@ def analyze():
                 "method": t.get("method", ""),
             })
 
-    per_trial_csv = DATA_DIR / "dlpfc_benchmark_per_trial.csv"
-    pd.DataFrame(per_trial_rows).to_csv(per_trial_csv, index=False)
-    print(f"Wrote {per_trial_csv}")
+    pd.DataFrame(per_trial_rows).to_csv(PER_TRIAL_CSV, index=False)
+    print(f"Wrote {PER_TRIAL_CSV}")
 
     # Write results CSV
     if results:
         with open(RESULTS_CSV, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=results[0].keys())
+            writer = csv.DictWriter(f, fieldnames=results[0].keys(), lineterminator="\n")
             writer.writeheader()
             writer.writerows(results)
         print(f"Wrote {RESULTS_CSV}")

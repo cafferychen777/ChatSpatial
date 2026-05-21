@@ -8,6 +8,7 @@ Reads the raw JSONL from e2e_benchmark.py and computes:
   3. Output concordance:
      - Spatial domains: pairwise ARI between replicates
      - SVG detection: pairwise Jaccard@100 between replicates
+     - Cell communication: pairwise Jaccard@50 between ligand-receptor lists
 """
 
 import csv
@@ -31,6 +32,13 @@ OUTPUT_DIR = DATA_DIR / "outputs"
 RAW_PATH = DATA_DIR / "e2e_benchmark_raw.jsonl"
 RESULTS_CSV = DATA_DIR / "e2e_benchmark_results.csv"
 SUMMARY_PATH = DATA_DIR / "e2e_benchmark_summary.txt"
+
+
+def committed_outputs_available() -> bool:
+    return all(path.exists() and path.stat().st_size > 0 for path in (
+        RESULTS_CSV,
+        SUMMARY_PATH,
+    ))
 
 # ---------------------------------------------------------------------------
 # Load raw data
@@ -200,6 +208,19 @@ def bootstrap_ci(values, n_boot=10_000, seed=42):
 # ---------------------------------------------------------------------------
 
 def analyze():
+    if not RAW_PATH.exists():
+        if committed_outputs_available():
+            print(f"Raw checkpoint not found: {RAW_PATH}")
+            print("Using committed aggregate outputs:")
+            print(f"  {RESULTS_CSV}")
+            print(f"  {SUMMARY_PATH}")
+            print("To recompute raw-level metrics, run scripts/e2e_benchmark.py first.")
+            return
+        raise FileNotFoundError(
+            f"{RAW_PATH} is required to recompute end-to-end benchmark metrics. "
+            "Run scripts/e2e_benchmark.py first, or use the committed aggregate CSV/TXT outputs."
+        )
+
     records = load_raw()
 
     # Group by (system, task)
@@ -304,8 +325,11 @@ def analyze():
         })
 
     # Write CSV
+    if not results:
+        raise ValueError("No benchmark result rows were produced from the raw checkpoint.")
+
     with open(RESULTS_CSV, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=results[0].keys())
+        writer = csv.DictWriter(f, fieldnames=results[0].keys(), lineterminator="\n")
         writer.writeheader()
         writer.writerows(results)
     print(f"Wrote {RESULTS_CSV}")

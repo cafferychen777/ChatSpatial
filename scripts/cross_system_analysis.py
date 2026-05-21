@@ -57,6 +57,14 @@ PROMPT_IDS = [
     "moran_i", "spatial_plot", "trajectory", "cnv",
 ]
 
+
+def committed_outputs_available() -> bool:
+    return all(path.exists() and path.stat().st_size > 0 for path in (
+        METRICS_CSV,
+        AGGREGATE_CSV,
+        SUMMARY_PATH,
+    ))
+
 # ---------------------------------------------------------------------------
 # Bootstrap CI
 # ---------------------------------------------------------------------------
@@ -211,6 +219,27 @@ def compute_aggregate(metric_rows: list[dict]) -> list[dict]:
 
 def main():
     print("Loading data ...")
+    missing_raw = [path for path in (ABLATION_RAW, CROSS_RAW) if not path.exists()]
+    if missing_raw:
+        if committed_outputs_available():
+            print("Raw checkpoints not found:")
+            for path in missing_raw:
+                print(f"  {path}")
+            print("Using committed aggregate outputs:")
+            print(f"  {METRICS_CSV}")
+            print(f"  {AGGREGATE_CSV}")
+            print(f"  {SUMMARY_PATH}")
+            print(
+                "To recompute raw-level metrics, run scripts/ablation_invocation.py "
+                "and scripts/cross_system_comparison.py first."
+            )
+            return
+        raise FileNotFoundError(
+            "Raw JSONL checkpoints are required to recompute cross-system metrics. "
+            "Run scripts/ablation_invocation.py and scripts/cross_system_comparison.py first, "
+            "or use the committed aggregate CSV/TXT outputs."
+        )
+
     abl_raw = load_jsonl(ABLATION_RAW)
     cross_raw = load_jsonl(CROSS_RAW)
     print(f"  Ablation records: {len(abl_raw)}")
@@ -222,9 +251,11 @@ def main():
     # Per-cell metrics
     print("\nComputing per-cell metrics ...")
     metric_rows = compute_metrics(all_records)
+    if not metric_rows:
+        raise ValueError("No metric rows were produced from the raw checkpoints.")
 
     with open(METRICS_CSV, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=metric_rows[0].keys())
+        writer = csv.DictWriter(f, fieldnames=metric_rows[0].keys(), lineterminator="\n")
         writer.writeheader()
         writer.writerows(metric_rows)
     print(f"  Saved: {METRICS_CSV}")
@@ -234,7 +265,7 @@ def main():
     agg_rows = compute_aggregate(metric_rows)
 
     with open(AGGREGATE_CSV, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=agg_rows[0].keys())
+        writer = csv.DictWriter(f, fieldnames=agg_rows[0].keys(), lineterminator="\n")
         writer.writeheader()
         writer.writerows(agg_rows)
     print(f"  Saved: {AGGREGATE_CSV}")

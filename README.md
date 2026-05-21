@@ -66,8 +66,8 @@ ChatSpatial-Reproducibility/
 ### Software
 
 - Python 3.11+
-- [ChatSpatial](https://github.com/cafferychen777/ChatSpatial) (`pip install chatspatial` or `pip install chatspatial[full]` for R-based methods)
-- Additional Python packages: `requests`, `numpy`, `scipy`, `scikit-learn`, `pandas`, `anndata`, `scanpy`
+- [ChatSpatial](https://github.com/cafferychen777/ChatSpatial) `v1.2.10`
+- Additional Python packages listed in `requirements.txt`, including `requests`, `numpy`, `scipy`, `scikit-learn`, `pandas`, `anndata`, `scanpy`, `python-dotenv`, and `statsmodels`
 - For R-based analyses: `rpy2`, R 4.1+, and the R packages `CellChat`, `RCTD`/`spacexr`, `spatialLIBD`
 
 ### API Keys
@@ -78,7 +78,10 @@ The LLM-based experiments require API keys set as environment variables:
 export GEMINI_API_KEY="..."       # Google Gemini
 export ANTHROPIC_API_KEY="..."    # Anthropic Claude
 export OPENAI_API_KEY="..."       # OpenAI GPT
+export OPENAI_API_URL="..."       # Anthropic Messages-compatible gateway for GPT-5.4 experiments
 ```
+
+The preliminary GPT-5 Mini experiments use the standard OpenAI Chat Completions API. The later GPT-5.4 ablation, sensitivity, cross-system, and case-study experiments were run through an Anthropic Messages-compatible gateway and therefore require both `OPENAI_API_KEY` and `OPENAI_API_URL` when regenerating those raw checkpoints.
 
 ### Installation
 
@@ -87,12 +90,14 @@ export OPENAI_API_KEY="..."       # OpenAI GPT
 git clone https://github.com/cafferychen777/ChatSpatial-Reproducibility.git
 cd ChatSpatial-Reproducibility
 
-# Install ChatSpatial and dependencies
-pip install chatspatial requests numpy scipy scikit-learn pandas anndata scanpy
+# Install ChatSpatial and reproducibility dependencies
+pip install -r requirements.txt
 
-# For full environment including R-based methods
-pip install chatspatial[full]
+# Optional advanced stack for R-based and compiled methods
+pip install "chatspatial[full]==1.2.10"
 ```
+
+The base install no longer pulls compiled optional packages. The `chatspatial[full]` extra remains an advanced optional stack with documented platform prerequisites, and the Docker image listed below provides the validated full-stack environment used for complete reproduction.
 
 ---
 
@@ -219,7 +224,7 @@ Tests whether a single LLM produces deterministic tool invocations under schema 
 **Script:** `scripts/determinism_multimodel.py`
 **Paper Section:** Results Section 2.4
 **Design:** 8 prompts x 3 models x 10 replicates at T=1.0
-**Models:** Gemini 2.5 Flash, Claude Haiku 4.5, GPT-5.4
+**Models:** Gemini 2.5 Flash, Claude Haiku 4.5, GPT-5 Mini
 **Trial Count:** 240
 
 Extends the single-model experiment to test whether schema enforcement produces consistent invocations *across* different LLM providers. Measures cross-model tool selection accuracy and parameter agreement.
@@ -231,6 +236,7 @@ Extends the single-model experiment to test whether schema enforcement produces 
 **Script:** `scripts/codegen_hallucination.py`
 **Paper Section:** Results Section 2.4
 **Design:** Same 8 prompts x 3 models x 10 replicates at T=1.0
+**Models:** Gemini 2.5 Flash, Claude Haiku 4.5, GPT-5 Mini
 **Trial Count:** 240
 
 Baseline comparison where the same LLMs are asked to generate free-form Python code for the same analytical tasks, without schema enforcement. Measures code correctness, import validity, and API usage accuracy to quantify the error rate of unconstrained code generation.
@@ -273,7 +279,7 @@ Extends the ablation to executable tasks on an OSCC Visium dataset (GSE208253, S
 | Task | Method | Output Metric |
 |------|--------|---------------|
 | Spatial domain identification | Leiden clustering | ARI, NMI |
-| Spatially variable gene detection | FlashSV | Jaccard@100 |
+| Spatially variable gene detection | FlashS | Jaccard@100 |
 | Cell-type deconvolution | FlashDeconv | Pearson r |
 
 Each trial operates on an independent data copy to prevent cross-contamination.
@@ -387,7 +393,7 @@ Bridges the ablation to the specific case-study workflow by repeating the OSCC C
 
 ## Running the Scripts
 
-> **Note on script paths:** These scripts were developed and executed in the ChatSpatial development workspace, where they sit alongside the main `code/` package and `benchmarks/` directories. Some scripts (particularly Group 3: end-to-end benchmarks) reference sibling directories for dataset paths and competitor framework installations. When running outside the development workspace, ensure ChatSpatial is installed via pip (`pip install chatspatial`) and adjust data paths as needed. Several scripts share utility functions via sibling imports (e.g., `prompt_sensitivity.py` imports from `ablation_invocation.py`); run them from the repository root (`python scripts/<name>.py`) so that Python resolves these imports correctly.
+> **Note on script paths:** Run scripts from the repository root (`python scripts/<name>.py`) so sibling imports resolve correctly. Scripts auto-detect a local ChatSpatial checkout and benchmark installs in common workspace layouts; set `CHATSPATIAL_CODE_DIR=/path/to/ChatSpatial/code` and `CHATSPATIAL_BENCHMARKS_DIR=/path/to/benchmarks` if auto-detection does not match your machine. The STAgent and SpatialAgent drivers also accept `STAGENT_ROOT` and `SPATIALAGENT_ROOT`.
 
 ### Group 1: Static Analysis (no API keys needed)
 
@@ -403,23 +409,23 @@ Requires only ChatSpatial installed. Outputs `data/reproducibility_analysis.csv`
 # Single-model determinism (Gemini only)
 python scripts/determinism_experiment.py
 
-# Cross-model determinism (all 3 API keys)
+# Cross-model determinism (Gemini, Anthropic, and OpenAI keys)
 python scripts/determinism_multimodel.py
 
-# Code generation baseline (all 3 API keys)
+# Code generation baseline (Gemini, Anthropic, and OpenAI keys)
 python scripts/codegen_hallucination.py
 
-# Schema-enforcement ablation: invocation level (all 3 API keys)
+# Schema-enforcement ablation: invocation level
 python scripts/ablation_invocation.py
 
-# Prompt sensitivity (all 3 API keys)
+# Prompt sensitivity
 python scripts/prompt_sensitivity.py
 
-# Cross-system invocation comparison (all 3 API keys)
+# Cross-system invocation comparison
 python scripts/cross_system_comparison.py
 ```
 
-These scripts make LLM API calls and include incremental JSONL checkpointing for resume-on-failure. Rate limiting and retry logic are built in.
+These scripts make LLM API calls and include incremental JSONL checkpointing for resume-on-failure. Gemini and Anthropic experiments require their provider keys. GPT-5 Mini uses `OPENAI_API_KEY`; GPT-5.4 experiments require both `OPENAI_API_KEY` and the Anthropic Messages-compatible `OPENAI_API_URL` gateway. Rate limiting and retry logic are built in.
 
 ### Group 3: End-to-End Execution (datasets + API keys required)
 
@@ -464,7 +470,7 @@ python scripts/compute_case_study_stats.py
 python scripts/build_supplementary_tables.py
 ```
 
-Analysis scripts read from `data/` and write summary CSVs and text files. They do not make API calls.
+Analysis scripts read from `data/` and write summary CSVs and text files. They do not make API calls. Raw JSONL checkpoints are intentionally not committed; when a raw checkpoint is absent but the aggregate CSV/TXT outputs are present, the analysis script reports the committed outputs and exits without overwriting them. To recompute raw-level summaries, first rerun the corresponding API-dependent experiment.
 
 ---
 
@@ -551,7 +557,7 @@ Analysis scripts read from `data/` and write summary CSVs and text files. They d
 
 - All random seeds are fixed (seed=42 for bootstrap resampling) where applicable.
 - LLM experiments use T=1.0 (temperature) to maximize stochastic variation and stress-test consistency.
-- All scripts include incremental JSONL checkpointing: if a run is interrupted, re-running the script resumes from the last completed trial.
+- API-dependent experiment scripts include incremental JSONL checkpointing: if a run is interrupted, re-running the script resumes from the last completed trial. JSONL checkpoints are excluded from git and can be regenerated.
 - Bootstrap confidence intervals use 10,000 resamples throughout.
 - The DLPFC benchmark uses hierarchical bootstrap (samples, then replicates within) to account for nested structure.
 - Cross-system benchmarks isolate each system in separate virtual environments with independent timeouts (10-15 minutes per trial).
@@ -562,7 +568,7 @@ Analysis scripts read from `data/` and write summary CSVs and text files. They d
 
 - **ChatSpatial Package:** [github.com/cafferychen777/ChatSpatial](https://github.com/cafferychen777/ChatSpatial) — main package with MCP server, tool implementations, and documentation
 - **Documentation:** [docs.cafferyang.com](https://docs.cafferyang.com/) — comprehensive user guide and API reference
-- **Docker Image:** `ghcr.io/cafferychen777/chatspatial:v1.2.6` — pre-built environment with all dependencies
+- **Docker Image:** `ghcr.io/cafferychen777/chatspatial:v1.2.10` — validated full-stack environment with dependencies pre-resolved
 
 ## License
 

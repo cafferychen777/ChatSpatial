@@ -16,8 +16,12 @@ import sys
 from pathlib import Path
 from typing import Any, Literal, Optional, Union, get_args, get_origin, get_type_hints
 
-# Add the code directory to path so we can import ChatSpatial models
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "code"))
+from paths import find_chatspatial_code_dir
+
+# Prefer a local source checkout when available; otherwise use installed package.
+_CODE_ROOT = find_chatspatial_code_dir(required=False)
+if _CODE_ROOT is not None and str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
 
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
@@ -591,7 +595,7 @@ def save_results(results: list[dict], output_path: Path):
     ]
 
     with open(output_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         for r in sorted(results, key=lambda x: x["determinism_score"], reverse=True):
             writer.writerow(r)

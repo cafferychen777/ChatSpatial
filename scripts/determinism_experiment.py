@@ -406,7 +406,7 @@ def run_experiment():
         writer = csv.DictWriter(f, fieldnames=[
             "prompt_id", "trial", "tool_selected", "method_selected",
             "full_response", "expected_tool",
-        ])
+        ], lineterminator="\n")
         writer.writeheader()
         writer.writerows(csv_rows)
     print(f"\nDetailed results saved to: {CSV_PATH}")

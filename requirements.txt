@@ -1,0 +1,10 @@
+chatspatial==1.2.10
+requests
+numpy
+scipy
+scikit-learn
+pandas
+anndata
+scanpy
+python-dotenv
+statsmodels

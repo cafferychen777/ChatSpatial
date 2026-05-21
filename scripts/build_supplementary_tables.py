@@ -196,8 +196,21 @@ DISPLAY_NAMES = {
 
 def write_effect_sizes():
     """S1: Merge sample-level tests and effect size summary into one table."""
-    tests = pd.read_csv(CASE_DIR / "sample_level_tests.csv")
-    effects = pd.read_csv(CASE_DIR / "effect_size_summary.csv")
+    path = OUT_DIR / "Supplementary_Table_1_Effect_Sizes.csv"
+    tests_path = CASE_DIR / "sample_level_tests.csv"
+    effects_path = CASE_DIR / "effect_size_summary.csv"
+    if not tests_path.exists() or not effects_path.exists():
+        if path.exists() and path.stat().st_size > 0:
+            print(f"  S1: {path.name} (existing committed table; source Case2_OSCC files not present)")
+            return
+        raise FileNotFoundError(
+            "Supplementary Table S1 requires data/Case2_OSCC/sample_level_tests.csv "
+            "and data/Case2_OSCC/effect_size_summary.csv. Run "
+            "scripts/compute_case_study_stats.py first, or use the committed S1 table."
+        )
+
+    tests = pd.read_csv(tests_path)
+    effects = pd.read_csv(effects_path)
     merged = tests.merge(effects, on="cell_type", how="left", suffixes=("", "_eff"))
 
     rows = []
@@ -229,7 +242,6 @@ def write_effect_sizes():
     out["_q"] = pd.to_numeric(out["Wilcoxon signed-rank q (BH-FDR)"], errors="coerce")
     out = out.sort_values("_q").drop(columns="_q")
 
-    path = OUT_DIR / "Supplementary_Table_1_Effect_Sizes.csv"
     out.to_csv(path, index=False)
     print(f"  S1: {path.name} ({len(out)} cell types)")
 
@@ -237,7 +249,7 @@ def write_effect_sizes():
 def write_methods():
     path = OUT_DIR / "Supplementary_Table_2_Integrated_Methods.csv"
     with open(path, "w", newline="") as f:
-        w = csv.writer(f)
+        w = csv.writer(f, lineterminator="\n")
         w.writerow(["Analytical Category", "Method Name", "Version", "Primary Citation"])
         for row in METHODS:
             w.writerow(row)
@@ -247,7 +259,7 @@ def write_methods():
 def write_scenarios():
     path = OUT_DIR / "Supplementary_Table_3_Test_Scenarios.csv"
     with open(path, "w", newline="") as f:
-        w = csv.writer(f)
+        w = csv.writer(f, lineterminator="\n")
         w.writerow(["ID", "Category", "Scenario", "Input Data", "Command / Goal",
                      "Expected Outcome", "Result", "Notes"])
         for row in SCENARIOS:
@@ -258,7 +270,7 @@ def write_scenarios():
 def write_ai_comparison():
     path = OUT_DIR / "Supplementary_Table_4_AI_Agent_Comparison.csv"
     with open(path, "w", newline="") as f:
-        w = csv.writer(f)
+        w = csv.writer(f, lineterminator="\n")
         w.writerow(["Feature", "ChatSpatial (This Work)", "STAgent", "SpatialAgent"])
         for row in AI_COMPARISON:
             w.writerow(row)

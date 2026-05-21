@@ -19,10 +19,12 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from paths import find_chatspatial_code_dir
+
 # ── Paths ────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).resolve().parent
-PAPER_DIR = SCRIPT_DIR.parent
-CODE_DIR = PAPER_DIR.parent / "code"
+REPO_ROOT = SCRIPT_DIR.parent
+CODE_DIR = find_chatspatial_code_dir(required=True)
 
 OSCC_H5AD_DIR = (
     CODE_DIR
@@ -40,10 +42,10 @@ OSCC_RESULTS_DIR = (
     / "GSE208253"
     / "server_results"
 )
-OSCC_OUT_DIR = PAPER_DIR / "data" / "Case2_OSCC"
+OSCC_OUT_DIR = REPO_ROOT / "data" / "Case2_OSCC"
 
-HGSOC_H5AD_DIR = PAPER_DIR / "data" / "Case1_HGSOC" / "Visium_replication"
-HGSOC_OUT_DIR = PAPER_DIR / "data" / "Case1_HGSOC"
+HGSOC_H5AD_DIR = REPO_ROOT / "data" / "Case1_HGSOC" / "Visium_replication"
+HGSOC_OUT_DIR = REPO_ROOT / "data" / "Case1_HGSOC"
 
 SEED = 42
 N_BOOT = 10_000

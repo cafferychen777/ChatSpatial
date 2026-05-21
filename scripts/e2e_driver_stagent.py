@@ -22,6 +22,8 @@ import sys
 import time
 import traceback
 
+from paths import find_competitor_dir
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", required=True)
@@ -34,12 +36,8 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Set environment for STAgent
-    # This script lives in paper/scripts/, STAgent is in benchmarks/STAgent/
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    paper_dir = os.path.dirname(script_dir)
-    workspace_root = os.path.dirname(paper_dir)
-    stagent_root = os.path.join(workspace_root, "benchmarks", "STAgent")
+    # Set environment for STAgent. Override with STAGENT_ROOT when needed.
+    stagent_root = str(find_competitor_dir("STAgent", "STAGENT_ROOT", required=True))
     src_dir = os.path.join(stagent_root, "src")
 
     # Load .env from STAgent src/

@@ -7,7 +7,7 @@ same tasks (spatial domains, spatially variable genes), same LLM
 (Claude Sonnet 4), and measures execution success, method consistency,
 and output concordance.
 
-Trial matrix: 2 tasks x 3 systems x 5 reps = 30 runs.
+Trial matrix: 3 tasks x 3 systems x 5 reps = 45 runs.
 """
 
 import asyncio
@@ -20,26 +20,25 @@ import time
 from pathlib import Path
 
 import numpy as np
-from dotenv import load_dotenv
+
+from paths import find_benchmarks_dir, find_chatspatial_code_dir, load_env_file
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
-PAPER_ROOT = SCRIPT_DIR.parent
-CODE_ROOT = PAPER_ROOT.parent / "code"
-BENCH_ROOT = PAPER_ROOT.parent / "benchmarks"
+REPO_ROOT = SCRIPT_DIR.parent
+load_env_file()
+CODE_ROOT = find_chatspatial_code_dir(required=True)
+BENCH_ROOT = find_benchmarks_dir(required=True)
 
-DATA_DIR = PAPER_ROOT / "data" / "e2e_benchmark"
+DATA_DIR = REPO_ROOT / "data" / "e2e_benchmark"
 OUTPUT_DIR = DATA_DIR / "outputs"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 RAW_PATH = DATA_DIR / "e2e_benchmark_raw.jsonl"
-
-# Load .env from workspace root
-load_dotenv(PAPER_ROOT.parent / ".env")
 
 # Benchmark dataset
 DATASET_PATH = CODE_ROOT / "data" / "processed_datasets" / "visium" / "human_lymph_node.h5ad"

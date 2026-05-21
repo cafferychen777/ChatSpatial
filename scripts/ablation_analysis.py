@@ -48,6 +48,14 @@ CONDITIONS = ["full_schema", "bare_schema", "no_schema"]
 TASKS = ["spatial_domains", "svg_detection", "deconvolution"]
 TOP_K_SVG = 100  # Jaccard on top-K genes
 
+
+def committed_outputs_available() -> bool:
+    return all(path.exists() and path.stat().st_size > 0 for path in (
+        METRICS_CSV,
+        TESTS_CSV,
+        SUMMARY_PATH,
+    ))
+
 # ---------------------------------------------------------------------------
 # Bootstrap CI
 # ---------------------------------------------------------------------------
@@ -284,6 +292,20 @@ def main():
     print("Schema-Enforcement Ablation — Part 3: Analysis")
     print(f"{'='*60}\n")
 
+    if not E2E_RAW.exists():
+        if committed_outputs_available():
+            print(f"Raw checkpoint not found: {E2E_RAW}")
+            print("Using committed aggregate outputs:")
+            print(f"  {METRICS_CSV}")
+            print(f"  {TESTS_CSV}")
+            print(f"  {SUMMARY_PATH}")
+            print("To recompute raw-level concordance, run scripts/ablation_e2e.py first.")
+            return
+        raise FileNotFoundError(
+            f"{E2E_RAW} is required to recompute ablation concordance. "
+            "Run scripts/ablation_e2e.py first, or use the committed aggregate CSV/TXT outputs."
+        )
+
     # ---- Load invocation-level results ----
     inv_data = {}
     if INV_RESULTS.exists():
@@ -375,7 +397,12 @@ def main():
                 ordered_fields.append(f)
 
         with open(METRICS_CSV, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=ordered_fields, extrasaction="ignore")
+            writer = csv.DictWriter(
+                f,
+                fieldnames=ordered_fields,
+                extrasaction="ignore",
+                lineterminator="\n",
+            )
             writer.writeheader()
             writer.writerows(csv_rows)
         print(f"\nMetrics CSV: {METRICS_CSV}")
@@ -408,7 +435,12 @@ def main():
                 test_fields.append(f)
 
         with open(TESTS_CSV, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=test_fields, extrasaction="ignore")
+            writer = csv.DictWriter(
+                f,
+                fieldnames=test_fields,
+                extrasaction="ignore",
+                lineterminator="\n",
+            )
             writer.writeheader()
             for t in all_tests:
                 row = {k: (json.dumps(v) if isinstance(v, list) else v) for k, v in t.items()}

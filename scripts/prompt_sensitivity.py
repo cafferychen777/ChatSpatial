@@ -286,7 +286,7 @@ def generate_summary():
         "constrained_param_consistency",
     ]
     with open(CSV_PATH, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     print(f"Saved: {CSV_PATH}")

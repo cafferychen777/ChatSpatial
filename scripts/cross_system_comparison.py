@@ -110,6 +110,13 @@ def _call_anthropic_extended(system: str, prompt: str) -> str | None:
 
 def _call_openai_extended(system: str, prompt: str) -> str | None:
     """OpenAI GPT caller with extended max_tokens."""
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if not openai_key or not OPENAI_API_URL:
+        print(
+            "  GPT-5.4 gateway not configured; set OPENAI_API_KEY and "
+            "OPENAI_API_URL to run this model."
+        )
+        return None
     for attempt in range(MAX_RETRIES):
         try:
             payload = {
@@ -122,7 +129,7 @@ def _call_openai_extended(system: str, prompt: str) -> str | None:
             r = requests.post(
                 OPENAI_API_URL,
                 headers={
-                    "x-api-key": os.environ.get("OPENAI_API_KEY", ""),
+                    "x-api-key": openai_key,
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
@@ -1184,7 +1191,7 @@ def generate_summary():
     # Write CSV
     if rows:
         with open(CSV_PATH, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+            writer = csv.DictWriter(f, fieldnames=rows[0].keys(), lineterminator="\n")
             writer.writeheader()
             writer.writerows(rows)
         print(f"CSV saved: {CSV_PATH}")

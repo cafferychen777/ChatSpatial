@@ -22,6 +22,8 @@ import sys
 import time
 import traceback
 
+from paths import find_competitor_dir
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", required=True)
@@ -35,12 +37,8 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Add SpatialAgent to path
-    # This script lives in paper/scripts/, SpatialAgent is in benchmarks/SpatialAgent/
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    paper_dir = os.path.dirname(script_dir)
-    workspace_root = os.path.dirname(paper_dir)
-    sa_root = os.path.join(workspace_root, "benchmarks", "SpatialAgent")
+    # Add SpatialAgent to path. Override with SPATIALAGENT_ROOT when needed.
+    sa_root = str(find_competitor_dir("SpatialAgent", "SPATIALAGENT_ROOT", required=True))
     if sa_root not in sys.path:
         sys.path.insert(0, sa_root)
 

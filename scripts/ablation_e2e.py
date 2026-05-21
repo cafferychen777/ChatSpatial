@@ -25,12 +25,14 @@ from pathlib import Path
 
 import numpy as np
 
+from paths import find_chatspatial_code_dir, load_env_file
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
-CODE_ROOT = SCRIPT_DIR.parent.parent / "code"
+CODE_ROOT = find_chatspatial_code_dir(required=True)
 DATA_DIR = SCRIPT_DIR.parent / "data" / "ablation" / "e2e"
 OUTPUT_DIR = DATA_DIR / "outputs"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -59,8 +61,12 @@ DELAY = 1.0
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0
 
+load_env_file()
+
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_API_URL = os.environ.get("OPENAI_API_URL", "")
 
 # OpenAI GPT-5.4 via Anthropic Messages-compatible API gateway
 OPENAI_MODEL = "gpt-5.4"
@@ -70,7 +76,8 @@ if GEMINI_KEY:
     MODELS["gemini-2.5-flash"] = "gemini"
 if ANTHROPIC_KEY:
     MODELS["claude-haiku-4-5-20251001"] = "anthropic"
-MODELS[OPENAI_MODEL] = "openai"
+if OPENAI_KEY and OPENAI_API_URL:
+    MODELS[OPENAI_MODEL] = "openai"
 
 # ---------------------------------------------------------------------------
 # Ensure chatspatial importable
@@ -513,7 +520,7 @@ async def run_experiment():
 
     if rows:
         with open(CSV_PATH, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+            writer = csv.DictWriter(f, fieldnames=rows[0].keys(), lineterminator="\n")
             writer.writeheader()
             writer.writerows(rows)
         print(f"Results CSV: {CSV_PATH}")

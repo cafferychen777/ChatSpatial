@@ -30,12 +30,14 @@ import numpy as np
 import requests
 from scipy.stats import pearsonr
 
+from paths import find_chatspatial_code_dir, load_env_file
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
-CODE_ROOT = SCRIPT_DIR.parent.parent / "code"
+CODE_ROOT = find_chatspatial_code_dir(required=True)
 DATA_DIR = SCRIPT_DIR.parent / "data" / "casestudy_reproducibility"
 PROP_DIR = DATA_DIR / "proportions"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -66,20 +68,13 @@ DELAY = 1.0
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0
 
-# Load .env from workspace root if present
-_env_path = Path(__file__).resolve().parents[2] / ".env"
-if _env_path.exists():
-    with open(_env_path) as _f:
-        for _line in _f:
-            _line = _line.strip()
-            if _line and not _line.startswith("#") and "=" in _line:
-                _k, _, _v = _line.partition("=")
-                os.environ.setdefault(_k.strip(), _v.strip())
+load_env_file()
 
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
 
-OPENAI_API_URL = os.environ.get("OPENAI_API_URL", "https://api.openai.com/v1/messages")
+OPENAI_API_URL = os.environ.get("OPENAI_API_URL", "")
 OPENAI_MODEL = "gpt-5.4"
 
 # Case-study prompt matching §2.3.1 Step 2
@@ -184,8 +179,9 @@ if ANTHROPIC_KEY:
     MODELS["claude-sonnet-4.5"] = "anthropic_sonnet"
     CALLERS["anthropic_sonnet"] = call_anthropic_sonnet
 
-MODELS[OPENAI_MODEL] = "openai"
-CALLERS["openai"] = call_openai
+if OPENAI_KEY and OPENAI_API_URL:
+    MODELS[OPENAI_MODEL] = "openai"
+    CALLERS["openai"] = call_openai
 
 
 # ---------------------------------------------------------------------------
@@ -584,7 +580,7 @@ def run_analysis():
     # Write metrics CSV
     if metrics_rows:
         with open(METRICS_CSV, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=metrics_rows[0].keys())
+            writer = csv.DictWriter(f, fieldnames=metrics_rows[0].keys(), lineterminator="\n")
             writer.writeheader()
             writer.writerows(metrics_rows)
         print(f"Metrics written to {METRICS_CSV}")

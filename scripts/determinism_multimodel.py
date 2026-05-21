@@ -370,7 +370,7 @@ def run_experiment():
     # Write CSV
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(CSV_PATH, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=all_results[0].keys())
+        writer = csv.DictWriter(f, fieldnames=all_results[0].keys(), lineterminator="\n")
         writer.writeheader()
         writer.writerows(all_results)
     print(f"\nCSV saved: {CSV_PATH}")

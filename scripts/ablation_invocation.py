@@ -27,9 +27,13 @@ from pathlib import Path
 
 import requests
 
+from paths import find_chatspatial_code_dir, load_env_file
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+
+load_env_file()
 
 N_TRIALS = 10
 TEMPERATURE = 1.0
@@ -39,9 +43,10 @@ RETRY_BACKOFF = 2.0
 
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
 
-# OpenAI GPT-5.4 accessed via Anthropic Messages-compatible API gateway
-OPENAI_API_URL = os.environ.get("OPENAI_API_URL", "https://api.openai.com/v1/messages")
+# GPT-5.4 was run through an Anthropic Messages-compatible gateway.
+OPENAI_API_URL = os.environ.get("OPENAI_API_URL", "")
 OPENAI_MODEL = "gpt-5.4"
 
 MODELS: dict[str, str] = {}
@@ -49,8 +54,8 @@ if GEMINI_KEY:
     MODELS["gemini-2.5-flash"] = "gemini"
 if ANTHROPIC_KEY:
     MODELS["claude-haiku-4-5-20251001"] = "anthropic"
-# GPT-5.4 via OpenAI-compatible gateway
-MODELS[OPENAI_MODEL] = "openai"
+if OPENAI_KEY and OPENAI_API_URL:
+    MODELS[OPENAI_MODEL] = "openai"
 
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR.parent / "data" / "ablation" / "invocation"
@@ -336,9 +341,9 @@ def resolve_tool_name(raw_name: str | None) -> str | None:
 # Pydantic Validation
 # ---------------------------------------------------------------------------
 
-# Add chatspatial to path for imports
-_CODE_ROOT = SCRIPT_DIR.parent.parent / "code"
-if str(_CODE_ROOT) not in sys.path:
+# Add chatspatial to path for imports when a local source tree is available.
+_CODE_ROOT = find_chatspatial_code_dir(required=False)
+if _CODE_ROOT is not None and str(_CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(_CODE_ROOT))
 
 try:
@@ -442,6 +447,12 @@ def call_anthropic(system: str, prompt: str) -> str | None:
 
 def call_openai(system: str, prompt: str) -> str | None:
     """Call OpenAI GPT model via Anthropic Messages-compatible gateway."""
+    if not OPENAI_KEY or not OPENAI_API_URL:
+        print(
+            "  GPT-5.4 gateway not configured; set OPENAI_API_KEY and "
+            "OPENAI_API_URL to run this model."
+        )
+        return None
     for attempt in range(MAX_RETRIES):
         try:
             payload = {
@@ -454,7 +465,7 @@ def call_openai(system: str, prompt: str) -> str | None:
             r = requests.post(
                 OPENAI_API_URL,
                 headers={
-                    "x-api-key": os.environ.get("OPENAI_API_KEY", ""),
+                    "x-api-key": OPENAI_KEY,
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
@@ -694,7 +705,7 @@ def run_experiment():
     # Write CSV
     if summary_rows:
         with open(CSV_PATH, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=summary_rows[0].keys())
+            writer = csv.DictWriter(f, fieldnames=summary_rows[0].keys(), lineterminator="\n")
             writer.writeheader()
             writer.writerows(summary_rows)
         print(f"CSV saved: {CSV_PATH}")

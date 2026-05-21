@@ -30,6 +30,13 @@ ABLATION_RAW_PATH = SCRIPT_DIR.parent / "data" / "ablation" / "invocation" / "ab
 OUTPUT_CSV = ANALYSIS_DIR / "sensitivity_cross_paraphrase.csv"
 SUMMARY_PATH = ANALYSIS_DIR / "sensitivity_summary.txt"
 
+
+def committed_outputs_available() -> bool:
+    return all(path.exists() and path.stat().st_size > 0 for path in (
+        OUTPUT_CSV,
+        SUMMARY_PATH,
+    ))
+
 # ---------------------------------------------------------------------------
 # Prompt group metadata (mirrors prompt_sensitivity.py)
 # ---------------------------------------------------------------------------
@@ -245,8 +252,23 @@ def load_ablation_within_paraphrase(path: Path) -> dict:
 
 def main():
     print("Loading prompt sensitivity data ...")
+    if not RAW_PATH.exists():
+        if committed_outputs_available():
+            print(f"Raw checkpoint not found: {RAW_PATH}")
+            print("Using committed aggregate outputs:")
+            print(f"  {OUTPUT_CSV}")
+            print(f"  {SUMMARY_PATH}")
+            print("To recompute raw-level metrics, run scripts/prompt_sensitivity.py first.")
+            return
+        raise FileNotFoundError(
+            f"{RAW_PATH} is required to recompute prompt sensitivity metrics. "
+            "Run scripts/prompt_sensitivity.py first, or use the committed aggregate CSV/TXT outputs."
+        )
+
     records = load_jsonl(RAW_PATH)
     print(f"  {len(records)} records loaded")
+    if not records:
+        raise ValueError(f"No records were loaded from {RAW_PATH}.")
 
     print("Computing cross-paraphrase metrics ...")
     rows = compute_cross_paraphrase_metrics(records)
@@ -259,7 +281,7 @@ def main():
         "pairwise_tool_agreement",
     ]
     with open(OUTPUT_CSV, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     print(f"Saved: {OUTPUT_CSV}")
