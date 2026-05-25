@@ -129,6 +129,14 @@ def test_extract_result_summary_join_count_and_network_properties_branches():
     assert join_summary["n_features_analyzed"] == 2
     assert join_summary["n_significant"] == 1
     assert join_summary["summary_metrics"]["total_joins"] == 35
+    assert join_summary["summary_metrics"]["p_value"] == 0.03
+
+    no_pvalue_summary = _extract_result_summary(
+        {"bb": 10, "ww": 20, "bw": 5, "J": 35, "p_value": None},
+        "join_count",
+    )
+    assert no_pvalue_summary["n_significant"] == 0
+    assert "p_value" not in no_pvalue_summary["summary_metrics"]
 
     net_summary = _extract_result_summary(
         {"analysis_key": "network_properties", "density": 0.12, "n_cells": 60},

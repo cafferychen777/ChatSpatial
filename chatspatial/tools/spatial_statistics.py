@@ -633,14 +633,16 @@ def _extract_result_summary(
         summary["n_features_analyzed"] = 2
         alpha = result.get("alpha", 0.05)
         p_value = result.get("p_value")
-        summary["n_significant"] = 1 if p_value is not None and p_value < alpha else 0
+        has_p_value = isinstance(p_value, (int, float)) and np.isfinite(p_value)
+        summary["n_significant"] = 1 if has_p_value and p_value < alpha else 0
         summary["summary_metrics"] = {
             "bb_joins": result.get("bb", 0),
             "ww_joins": result.get("ww", 0),
             "bw_joins": result.get("bw", 0),
             "total_joins": result.get("J", 0),
-            "p_value": p_value,
         }
+        if has_p_value:
+            summary["summary_metrics"]["p_value"] = float(p_value)
 
     elif analysis_type == "local_join_count":
         # Match field names from _analyze_local_join_count return value

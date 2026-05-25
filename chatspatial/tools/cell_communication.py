@@ -1990,6 +1990,8 @@ async def _analyze_communication_fastccc(
             },
         )
 
+    except (ParameterError, DataNotFoundError, DataCompatibilityError):
+        raise
     except Exception as e:
         raise ProcessingError(f"FastCCC analysis failed: {e}") from e
 

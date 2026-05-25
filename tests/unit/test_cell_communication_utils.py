@@ -720,7 +720,7 @@ async def test_analyze_communication_fastccc_rejects_non_human_early(
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
 
-    with pytest.raises(ProcessingError, match="FastCCC only supports human"):
+    with pytest.raises(ParameterError, match="FastCCC only supports human"):
         await ccc._analyze_communication_fastccc(
             adata,
             CellCommunicationParameters(
