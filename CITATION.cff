@@ -4,6 +4,7 @@ type: software
 title: "ChatSpatial: Schema-Enforced Orchestration for Auditable Cross-Ecosystem Spatial Transcriptomics Workflows"
 version: "1.2.10"
 date-released: "2026-05-21"
+doi: "10.5281/zenodo.20647930"
 url: "https://github.com/cafferychen777/ChatSpatial"
 repository-code: "https://github.com/cafferychen777/ChatSpatial"
 license: MIT
@@ -44,6 +45,7 @@ preferred-citation:
       email: "cafferychen777@tamu.edu"
   version: "1.2.10"
   date-released: "2026-05-21"
+  doi: "10.5281/zenodo.20647930"
   url: "https://github.com/cafferychen777/ChatSpatial"
   repository-code: "https://github.com/cafferychen777/ChatSpatial"
   license: MIT
