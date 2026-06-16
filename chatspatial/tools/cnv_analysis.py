@@ -408,10 +408,20 @@ def _infer_cnv_numbat(
     # Lazy import and check for Numbat availability
     # Note: Numbat requires rpy2 + R + Numbat R package - cannot use centralized manager
     try:
-        import anndata2ri
-        import rpy2.robjects as ro
-        from rpy2.rinterface_lib import openrlib
-        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
+        import importlib
+        import sys
+
+        anndata2ri = importlib.import_module("anndata2ri")
+        ro = sys.modules.get("rpy2.robjects") or importlib.import_module("rpy2.robjects")
+        rinterface_lib = sys.modules.get("rpy2.rinterface_lib") or importlib.import_module(
+            "rpy2.rinterface_lib"
+        )
+        openrlib = rinterface_lib.openrlib
+
+        conversion = ro.conversion
+        default_converter = ro.default_converter
+        numpy2ri = ro.numpy2ri
+        pandas2ri = ro.pandas2ri
 
         # Test if Numbat R package is available
         ro.r("suppressPackageStartupMessages(library(numbat))")

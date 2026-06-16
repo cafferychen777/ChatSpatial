@@ -383,11 +383,6 @@ async def preprocess_data(
         vst_flavor = "v2" if params.sct_method == "fix-slope" else "v1"
 
         try:
-            # Import rpy2 modules
-            import rpy2.robjects as ro
-            from rpy2.robjects import numpy2ri
-            from rpy2.robjects.conversion import localconverter
-
             # Note: counts layer is already created earlier in this preprocessing workflow.
             # It will be properly subsetted if SCT filters genes
             # Convert to sparse CSC matrix (genes × cells) for R's dgCMatrix
@@ -395,6 +390,18 @@ async def preprocess_data(
                 counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
             else:
                 counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
+
+            # Import rpy2 modules
+            try:
+                import rpy2.robjects as ro
+                from rpy2.robjects import numpy2ri
+                from rpy2.robjects.conversion import localconverter
+            except ImportError as e:
+                raise DependencyError(
+                    "SCTransform requires rpy2. "
+                    "Install with: pip install 'rpy2>=3.5.0' "
+                    "or use normalization='pearson_residuals'/'log'."
+                ) from e
 
             # Transfer sparse matrix components to R
             with localconverter(ro.default_converter + numpy2ri.converter):
