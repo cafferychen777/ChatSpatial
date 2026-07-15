@@ -52,6 +52,7 @@ from ..utils.adata_utils import (
 from ..utils.compute import top_n_desc_indices
 from ..utils.dependency_manager import require, validate_r_package
 from ..utils.exceptions import (
+    ChatSpatialError,
     DataCompatibilityError,
     DataNotFoundError,
     DependencyError,
@@ -414,7 +415,7 @@ async def analyze_cell_communication(
             statistics=storage.statistics,
         )
 
-    except (ParameterError, DataNotFoundError, DataCompatibilityError):
+    except ChatSpatialError:
         raise
     except Exception as e:
         raise ProcessingError(f"Error in cell communication analysis: {e}") from e
@@ -588,8 +589,7 @@ async def _analyze_communication_liana(
             and "spatial_connectivities" not in adata.obsp
         ):
             bandwidth = params.liana_bandwidth or (300 if adata.n_obs > 3000 else 200)
-            require("squidpy")
-            import squidpy as sq
+            sq = require("squidpy", feature="LIANA+ spatial neighbor graph")
 
             sq.gr.spatial_neighbors(
                 adata,
@@ -614,6 +614,8 @@ async def _analyze_communication_liana(
         else:
             return _run_liana_spatial_analysis(adata, params, ctx)
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"LIANA+ analysis failed: {e}") from e
 
@@ -810,7 +812,7 @@ def _run_liana_spatial_analysis(
 def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
     """Ensure CellPhoneDB database is available, download if not exists"""
     # Use centralized dependency manager for consistent error handling
-    require("cellphonedb")  # Raises ImportError with install instructions if missing
+    require("cellphonedb", feature="CellPhoneDB database management")
     import os
     import ssl
 
@@ -865,7 +867,7 @@ async def _analyze_communication_cellphonedb(
         CCCStorage with unified results structure
     """
     # Use centralized dependency manager for consistent error handling
-    require("cellphonedb")  # Raises ImportError with install instructions if missing
+    require("cellphonedb", feature="CellPhoneDB cell communication analysis")
     import os
     import tempfile
 
@@ -967,9 +969,11 @@ async def _analyze_communication_cellphonedb(
 
                 try:
                     db_path = _ensure_cellphonedb_database(temp_dir, ctx)
+                except DependencyError:
+                    raise
                 except Exception as db_error:
                     raise DependencyError(
-                        f"CellPhoneDB database setup failed: " f"{db_error}"
+                        f"CellPhoneDB database setup failed: {db_error}"
                     ) from db_error
 
                 # Run the analysis using CellPhoneDB v5 API
@@ -1230,7 +1234,7 @@ async def _analyze_communication_cellphonedb(
             },
         )
 
-    except (ProcessingError, DataNotFoundError):
+    except ChatSpatialError:
         raise
     except Exception as e:
         raise ProcessingError(f"CellPhoneDB analysis failed: {e}") from e
@@ -2002,7 +2006,7 @@ async def _analyze_communication_fastccc(
             },
         )
 
-    except (ParameterError, DataNotFoundError, DataCompatibilityError):
+    except ChatSpatialError:
         raise
     except Exception as e:
         raise ProcessingError(f"FastCCC analysis failed: {e}") from e

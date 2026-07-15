@@ -28,7 +28,7 @@ from chatspatial.tools.enrichment import (
     load_gene_sets,
     map_gene_set_database_to_enrichr_library,
 )
-from chatspatial.utils.exceptions import ParameterError, ProcessingError
+from chatspatial.utils.exceptions import DependencyError, ParameterError, ProcessingError
 
 
 class DummyCtx:
@@ -381,6 +381,27 @@ async def test_analyze_enrichment_unknown_method_raises_parameter_error(
 
 
 @pytest.mark.asyncio
+async def test_analyze_enrichment_preserves_database_dependency_error(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    ctx = DummyCtx(minimal_spatial_adata)
+    params = EnrichmentParameters(
+        species="human",
+        method="pathway_ora",
+        gene_sets=None,
+        gene_set_database="GO_Biological_Process",
+    )
+
+    def _missing_backend(*_args, **_kwargs):
+        raise DependencyError("gseapy is required")
+
+    monkeypatch.setattr(enrichment_module, "load_gene_sets", _missing_backend)
+
+    with pytest.raises(DependencyError, match="gseapy is required"):
+        await analyze_enrichment("d1", ctx, params)
+
+
+@pytest.mark.asyncio
 async def test_perform_spatial_enrichment_partial_failure_still_returns_success(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -410,7 +431,9 @@ async def test_perform_spatial_enrichment_partial_failure_still_returns_success(
     fake_enrichmap.tl = SimpleNamespace(score=_score)
 
     captured: dict[str, object] = {}
-    monkeypatch.setattr(enrichment_module, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        enrichment_module, "require", lambda *_args, **_kwargs: fake_enrichmap
+    )
     monkeypatch.setitem(__import__("sys").modules, "enrichmap", fake_enrichmap)
     monkeypatch.setattr(
         "chatspatial.tools.enrichment.store_analysis_metadata",
@@ -463,7 +486,9 @@ async def test_perform_spatial_enrichment_raises_when_all_signatures_fail(
     fake_enrichmap = SimpleNamespace(
         tl=SimpleNamespace(score=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
     )
-    monkeypatch.setattr(enrichment_module, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        enrichment_module, "require", lambda *_args, **_kwargs: fake_enrichmap
+    )
     monkeypatch.setitem(__import__("sys").modules, "enrichmap", fake_enrichmap)
 
     with pytest.raises(ProcessingError, match="All EnrichMap scoring failed"):
@@ -490,8 +515,11 @@ async def test_perform_spatial_enrichment_requires_spatial_coordinates(
 
     ctx = CtxWithLogs(adata)
 
-    monkeypatch.setattr(enrichment_module, "require", lambda *_args, **_kwargs: None)
-    monkeypatch.setitem(__import__("sys").modules, "enrichmap", SimpleNamespace(tl=SimpleNamespace(score=lambda **_kwargs: None)))
+    fake_enrichmap = SimpleNamespace(tl=SimpleNamespace(score=lambda **_kwargs: None))
+    monkeypatch.setattr(
+        enrichment_module, "require", lambda *_args, **_kwargs: fake_enrichmap
+    )
+    monkeypatch.setitem(__import__("sys").modules, "enrichmap", fake_enrichmap)
 
     with pytest.raises(ProcessingError, match="Spatial coordinates 'spatial' not found"):
         await enrichment_module.perform_spatial_enrichment(

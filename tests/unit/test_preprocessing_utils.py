@@ -485,10 +485,12 @@ async def test_preprocess_data_sct_missing_dependency_raises_dependency_error(
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
-    def _raise_import_error(_pkg, _ctx):
-        raise ImportError("r package missing")
+    def _raise_dependency_error(_pkg, _ctx):
+        raise DependencyError("r package missing")
 
-    monkeypatch.setattr(preprocessing_mod, "validate_r_package", _raise_import_error)
+    monkeypatch.setattr(
+        preprocessing_mod, "validate_r_package", _raise_dependency_error
+    )
 
     adata = _make_adata(n_obs=12, n_vars=120)
     ctx = DummyCtx(adata)

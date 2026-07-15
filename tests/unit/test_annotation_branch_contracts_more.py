@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import warnings
 from types import ModuleType, SimpleNamespace
 
@@ -13,6 +14,11 @@ import scipy.sparse as sp
 from chatspatial.models.data import AnnotationParameters
 from chatspatial.tools import annotation as ann
 from chatspatial.utils.exceptions import DataError, DataNotFoundError, ParameterError, ProcessingError
+
+
+def _required_module(name: str, *_args, **_kwargs):
+    """Return the fake backend installed by each test."""
+    return sys.modules.get(name, object())
 
 
 class DummyWarnCtx:
@@ -48,7 +54,7 @@ async def test_singler_celldex_reference_without_labels_raises(
     fake_celldex = ModuleType("celldex")
     fake_celldex.fetch_reference = lambda *_a, **_k: _Ref()
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "is_available", lambda name: name == "celldex")
     monkeypatch.setitem(__import__("sys").modules, "celldex", fake_celldex)
     monkeypatch.setitem(__import__("sys").modules, "singler", ModuleType("singler"))
@@ -117,7 +123,7 @@ async def test_singler_uses_normalized_layers_and_warns_for_low_delta_confidence
     async def _fake_ensure_unique_var_names_async(_ad, _ctx, label: str):
         return 1 if label == "query data" else 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "is_available", lambda *_a, **_k: False)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _fake_ensure_unique_var_names_async)
     monkeypatch.setattr(
@@ -179,7 +185,7 @@ async def test_singler_delta_extraction_failure_falls_back_to_score_confidence(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "is_available", lambda *_a, **_k: False)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(
@@ -250,7 +256,7 @@ async def test_singler_delta_confidence_computation_failure_falls_back_to_scores
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "is_available", lambda *_a, **_k: False)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(
@@ -291,7 +297,7 @@ async def test_tangram_clusters_mode_without_detectable_cluster_label_raises(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_cell_type_key", lambda *_a, **_k: None)
     monkeypatch.setattr(ann, "get_cluster_key", lambda *_a, **_k: None)
@@ -355,7 +361,7 @@ async def test_tangram_optional_mapping_args_validation_warnings_and_low_score_w
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
@@ -417,7 +423,7 @@ async def test_tangram_score_extraction_unknown_history_format_raises(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
@@ -463,7 +469,7 @@ async def test_tangram_copies_gene_predictions_back_to_original_adata(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
@@ -519,7 +525,7 @@ async def test_tangram_gene_predictions_uses_parametrized_key_with_suffix(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
@@ -847,7 +853,7 @@ async def test_mllmcelltype_consensus_path_handles_unmapped_clusters(
     }
     monkeypatch.setitem(__import__("sys").modules, "mllmcelltype", fake_mllm)
     monkeypatch.setattr(ann.sc.tl, "rank_genes_groups", _fake_rank_genes_groups)
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
 
     ctx = DummyWarnCtx()
     out = await ann._annotate_with_mllmcelltype(
@@ -886,7 +892,7 @@ async def test_mllmcelltype_single_model_errors_are_wrapped(
     fake_mllm.annotate_clusters = lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("api boom"))
     monkeypatch.setitem(__import__("sys").modules, "mllmcelltype", fake_mllm)
     monkeypatch.setattr(ann.sc.tl, "rank_genes_groups", _fake_rank_genes_groups)
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
 
     with pytest.raises(ProcessingError, match="mLLMCellType annotation failed: api boom"):
         await ann._annotate_with_mllmcelltype(
@@ -1019,7 +1025,7 @@ async def test_singler_default_celldex_reference_path_runs_successfully(
 
     monkeypatch.setitem(__import__("sys").modules, "celldex", fake_celldex)
     monkeypatch.setitem(__import__("sys").modules, "singler", fake_singler)
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "is_available", lambda name: name == "celldex")
     monkeypatch.setattr(
         ann,
@@ -1070,7 +1076,7 @@ async def test_singler_celldex_label_fallback_and_integrated_branch(
     fake_singler.annotate_integrated = lambda *_a, **_k: (None, _Integrated())
     monkeypatch.setitem(__import__("sys").modules, "celldex", fake_celldex)
     monkeypatch.setitem(__import__("sys").modules, "singler", fake_singler)
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "is_available", lambda name: name == "celldex")
     monkeypatch.setattr(
         ann,
@@ -1102,7 +1108,7 @@ async def test_singler_custom_reference_requires_cell_type_key(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "is_available", lambda *_a, **_k: False)
     monkeypatch.setitem(__import__("sys").modules, "singler", ModuleType("singler"))
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
@@ -1174,7 +1180,7 @@ async def test_singler_score_fallback_handles_non_dataframe_score_objects(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "is_available", lambda *_a, **_k: False)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(
@@ -1216,7 +1222,7 @@ async def test_tangram_requires_hvg_when_training_genes_and_markers_not_provided
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
@@ -1259,7 +1265,7 @@ async def test_tangram_uses_marker_genes_when_training_genes_not_given(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
@@ -1310,7 +1316,7 @@ async def test_tangram_uses_reference_hvgs_when_training_genes_not_provided(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
@@ -1355,7 +1361,7 @@ async def test_tangram_stores_validation_scores_on_success(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
@@ -1395,7 +1401,7 @@ async def test_tangram_warns_when_cell_type_key_missing_then_fails_without_predi
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)

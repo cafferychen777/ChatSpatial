@@ -13,6 +13,7 @@ from chatspatial.tools import annotation as ann
 from chatspatial.utils.exceptions import (
     DataError,
     DataNotFoundError,
+    DependencyError,
     ParameterError,
     ProcessingError,
 )
@@ -179,7 +180,7 @@ async def test_annotate_cell_types_passes_through_parameter_error(
 
 
 @pytest.mark.asyncio
-async def test_annotate_cell_types_passes_through_import_error(
+async def test_annotate_cell_types_converts_raw_import_error_to_dependency_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
@@ -190,10 +191,13 @@ async def test_annotate_cell_types_passes_through_import_error(
 
     monkeypatch.setattr(ann, "_annotate_with_mllmcelltype", _raise_import)
 
-    with pytest.raises(ImportError, match="mllmcelltype is required"):
+    with pytest.raises(
+        DependencyError, match="Annotation dependency import failed"
+    ) as exc:
         await ann.annotate_cell_types(
             "d1", ctx, AnnotationParameters(method="mllmcelltype")
         )
+    assert isinstance(exc.value.__cause__, ImportError)
 
 
 @pytest.mark.asyncio
@@ -218,7 +222,7 @@ async def test_annotate_cell_types_wraps_unexpected_errors(
 async def test_annotate_with_tangram_requires_reference_data_id(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: object())
     monkeypatch.setitem(__import__("sys").modules, "tangram", ModuleType("tangram"))
     ctx = DummyCtx({"d1": minimal_spatial_adata.copy()})
 
@@ -277,7 +281,7 @@ async def test_annotate_with_cellassign_requires_marker_genes(
 async def test_annotate_with_mllmcelltype_requires_cluster_label(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: object())
     monkeypatch.setitem(
         __import__("sys").modules,
         "mllmcelltype",
@@ -304,7 +308,11 @@ async def test_annotate_with_mllmcelltype_consensus_without_models_raises_parame
         ["0"] * (adata.n_obs // 2) + ["1"] * (adata.n_obs - adata.n_obs // 2)
     )
 
-    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        ann,
+        "require",
+        lambda name, *_args, **_kwargs: __import__("sys").modules.get(name, object()),
+    )
     monkeypatch.setitem(
         __import__("sys").modules,
         "mllmcelltype",
@@ -384,7 +392,13 @@ async def test_annotate_with_singler_custom_reference_success_deterministic_orde
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        ann,
+        "require",
+        lambda name, *_args, **_kwargs: fake_singler
+        if name == "singler"
+        else object(),
+    )
     monkeypatch.setattr(ann, "is_available", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(
@@ -446,7 +460,7 @@ async def test_annotate_with_tangram_success_extracts_score_and_copies_back(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: fake_tg)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
@@ -492,7 +506,7 @@ async def test_annotate_with_tangram_raises_when_no_predictions_generated(
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: fake_tg)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
@@ -950,7 +964,7 @@ async def test_annotate_with_tangram_zero_sum_rows_include_unassigned_in_cell_ty
     async def _no_dupes(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: fake_tg)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)

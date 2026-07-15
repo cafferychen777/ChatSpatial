@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional
 
+from .exceptions import DependencyError
+
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
@@ -126,9 +128,9 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "scvelo", "pip install 'chatspatial[velocity]'", "RNA velocity analysis"
     ),
     "velovi": DependencyInfo(
-        "velovi",
+        "scvi",
         "pip install 'chatspatial[deep-learning]'",
-        "Variational inference for RNA velocity",
+        "VELOVI model provided by scvi-tools",
     ),
     "cellrank": DependencyInfo(
         "cellrank",
@@ -164,9 +166,14 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "sparkx", "pip install SPARK-X", "SPARK-X non-parametric spatial gene detection"
     ),
     "spatialde": DependencyInfo(
-        "NaiveDE",
+        "SpatialDE",
         "pip install SpatialDE",
         "SpatialDE Gaussian process spatial gene detection",
+    ),
+    "naivede": DependencyInfo(
+        "NaiveDE",
+        "pip install SpatialDE",
+        "Variance stabilization used by SpatialDE",
     ),
     "flashs": DependencyInfo(
         "flashs",
@@ -273,11 +280,20 @@ def _get_info(name: str) -> DependencyInfo:
 
 @lru_cache(maxsize=256)
 def _try_import(module_name: str) -> Optional[Any]:
-    """Import module with caching. Returns None if unavailable."""
+    """Import a module, returning ``None`` only when that module is absent.
+
+    Import failures raised from inside an installed package must propagate so
+    callers can distinguish a missing package from a broken dependency stack.
+    """
     try:
         return importlib.import_module(module_name)
-    except ImportError:
-        return None
+    except ModuleNotFoundError as exc:
+        missing_name = exc.name
+        if missing_name and (
+            module_name == missing_name or module_name.startswith(f"{missing_name}.")
+        ):
+            return None
+        raise
 
 
 @lru_cache(maxsize=256)
@@ -292,8 +308,32 @@ def _check_spec(module_name: str) -> bool:
 
 
 def is_available(name: str) -> bool:
-    """Check if a dependency is available (fast, no import)."""
+    """Check whether a dependency is installed without importing it.
+
+    This is a fast presence check, not a guarantee that the installed package
+    and all of its transitive dependencies are importable.
+    """
     return _check_spec(_get_info(name).module_name)
+
+
+def _load_dependency(
+    name: str,
+    *,
+    feature: Optional[str] = None,
+) -> tuple[DependencyInfo, Optional[Any]]:
+    """Load a dependency while preserving broken-import diagnostics."""
+    info = _get_info(name)
+    try:
+        module = _try_import(info.module_name)
+    except Exception as exc:
+        feature_msg = f" for {feature}" if feature else ""
+        raise DependencyError(
+            f"{name} is installed but could not be imported{feature_msg}.\n\n"
+            f"Import failure: {exc}\n"
+            f"Install or repair: {info.install_cmd}\n"
+            f"Description: {info.description}"
+        ) from exc
+    return info, module
 
 
 def get(
@@ -301,9 +341,12 @@ def get(
     ctx: Optional["ToolContext"] = None,
     warn_if_missing: bool = False,
 ) -> Optional[Any]:
-    """Get optional dependency, returning None if unavailable."""
-    info = _get_info(name)
-    module = _try_import(info.module_name)
+    """Get an optional dependency, returning ``None`` only if it is absent.
+
+    Raises:
+        DependencyError: If the package is installed but cannot be imported.
+    """
+    info, module = _load_dependency(name)
 
     if module is not None:
         return module
@@ -320,15 +363,18 @@ def require(
     ctx: Optional["ToolContext"] = None,
     feature: Optional[str] = None,
 ) -> Any:
-    """Require a dependency, raising ImportError if unavailable."""
-    info = _get_info(name)
-    module = _try_import(info.module_name)
+    """Return a required dependency or raise a domain dependency error.
+
+    Raises:
+        DependencyError: If the package is absent or cannot be imported.
+    """
+    info, module = _load_dependency(name, feature=feature)
 
     if module is not None:
         return module
 
     feature_msg = f" for {feature}" if feature else ""
-    raise ImportError(
+    raise DependencyError(
         f"{name} is required{feature_msg}.\n\n"
         f"Install: {info.install_cmd}\n"
         f"Description: {info.description}"
@@ -351,26 +397,21 @@ def validate_r_environment(
                   default_converter, openrlib, anndata2ri)
 
     Raises:
-        ImportError: If rpy2 or required R packages are not available
+        DependencyError: If Python/R dependencies or required R packages fail
     """
-    if not is_available("rpy2"):
-        raise ImportError(
-            "rpy2 is required for R-based methods. "
-            "Install: pip install rpy2 (requires R installation)"
-        )
-    if not is_available("anndata2ri"):
-        raise ImportError(
-            "anndata2ri is required for R-based methods. "
-            "Install: pip install anndata2ri"
-        )
+    require("rpy2", ctx, feature="R-based methods")
+    anndata2ri = require("anndata2ri", ctx, feature="R-based methods")
 
     try:
-        import anndata2ri
         import rpy2.robjects as robjects
         from rpy2.rinterface_lib import openrlib
         from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
         from rpy2.robjects.conversion import localconverter
-        from rpy2.robjects.packages import importr
+        from rpy2.robjects.packages import (
+            LibraryError,
+            PackageNotInstalledError,
+            importr,
+        )
 
         # Test R availability
         with openrlib.rlock:
@@ -385,12 +426,20 @@ def validate_r_environment(
                     with openrlib.rlock:
                         with conversion.localconverter(default_converter):
                             importr(pkg)
-                except Exception:
+                except PackageNotInstalledError:
                     missing.append(pkg)
+                except LibraryError as e:
+                    raise DependencyError(
+                        f"R package '{pkg}' is installed but could not be loaded: {e}"
+                    ) from e
+                except Exception as e:
+                    raise DependencyError(
+                        f"Failed to validate R package '{pkg}': {e}"
+                    ) from e
 
             if missing:
                 pkg_list = ", ".join(f"'{p}'" for p in missing)
-                raise ImportError(
+                raise DependencyError(
                     f"Missing R packages: {pkg_list}\n"
                     f"Install in R: install.packages(c({pkg_list}))"
                 )
@@ -406,10 +455,15 @@ def validate_r_environment(
             anndata2ri,
         )
 
-    except ImportError:
+    except DependencyError:
         raise
+    except ImportError as e:
+        raise DependencyError(
+            f"R integration modules could not be imported: {e}\n\n"
+            "Reinstall compatible rpy2 and anndata2ri packages."
+        ) from e
     except Exception as e:
-        raise ImportError(
+        raise DependencyError(
             f"R environment setup failed: {e}\n\n"
             "Solutions:\n"
             "  - Install R: https://www.r-project.org/\n"
@@ -424,28 +478,43 @@ def validate_r_package(
     ctx: Optional["ToolContext"] = None,
     install_cmd: Optional[str] = None,
 ) -> bool:
-    """Check if an R package is available."""
-    if not is_available("rpy2"):
-        raise ImportError(
-            "rpy2 is required for R-based methods.\n"
-            "Install: pip install rpy2 (requires R)"
-        )
+    """Check whether an R package can be imported."""
+    require("rpy2", ctx, feature=f"R package '{package_name}' validation")
 
     try:
         from rpy2.rinterface_lib import openrlib
         from rpy2.robjects import conversion, default_converter
-        from rpy2.robjects.packages import importr
+        from rpy2.robjects.packages import (
+            LibraryError,
+            PackageNotInstalledError,
+            importr,
+        )
+    except ImportError as e:
+        raise DependencyError(
+            f"rpy2 is installed but its R bindings could not be imported: {e}\n"
+            "Install or repair: pip install rpy2 (requires R)"
+        ) from e
 
+    try:
         with openrlib.rlock:
             with conversion.localconverter(default_converter):
                 importr(package_name)
 
         return True
 
-    except Exception as e:
+    except PackageNotInstalledError as e:
         install = install_cmd or f"install.packages('{package_name}')"
-        raise ImportError(
-            f"R package '{package_name}' not installed.\n" f"Install in R: {install}"
+        raise DependencyError(
+            f"R package '{package_name}' not installed.\nInstall in R: {install}"
+        ) from e
+    except LibraryError as e:
+        raise DependencyError(
+            f"R package '{package_name}' is installed but could not be loaded: {e}\n"
+            "Check the package version and its system-library dependencies."
+        ) from e
+    except Exception as e:
+        raise DependencyError(
+            f"R environment failed while validating package '{package_name}': {e}"
         ) from e
 
 
@@ -454,14 +523,16 @@ def check_r_packages(
     ctx: Optional["ToolContext"] = None,
 ) -> list[str]:
     """Check availability of multiple R packages. Returns missing ones."""
-    if not is_available("rpy2"):
+    try:
+        require("rpy2", ctx, feature="R package validation")
+    except DependencyError:
         return packages
 
     missing = []
     for pkg in packages:
         try:
-            validate_r_package(pkg)
-        except ImportError:
+            validate_r_package(pkg, ctx)
+        except DependencyError:
             missing.append(pkg)
 
     return missing
@@ -496,7 +567,7 @@ def validate_scvi_tools(
                 missing.append(comp)
 
         if missing:
-            raise ImportError(
+            raise DependencyError(
                 f"scvi-tools components not available: {', '.join(missing)}\n"
                 "Try: pip install --upgrade scvi-tools"
             )

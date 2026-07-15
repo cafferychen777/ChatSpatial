@@ -25,6 +25,7 @@ from ...utils.adata_utils import (
     get_analysis_metadata_field,
     validate_obs_column,
 )
+from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
 from .core import (
     create_figure,
@@ -444,13 +445,10 @@ def _create_enrichmap_spatial(
     context: Optional["ToolContext"] = None,
 ) -> plt.Figure:
     """Create EnrichMap spatial autocorrelation visualizations."""
-    try:
-        import enrichmap as em
-    except ImportError as e:
-        raise ProcessingError(
-            f"Spatial enrichment visualization ('{params.subtype}') requires EnrichMap.\n"
-            "Install with: pip install enrichmap"
-        ) from e
+    em = require(
+        "enrichmap",
+        feature=f"spatial enrichment visualization '{params.subtype}'",
+    )
 
     adata = _ensure_enrichmap_compatibility(adata)
     library_id = _resolve_enrichmap_library_id(adata)

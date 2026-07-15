@@ -45,8 +45,10 @@ from ..utils.dependency_manager import (
 )
 from ..utils.device_utils import get_device
 from ..utils.exceptions import (
+    ChatSpatialError,
     DataError,
     DataNotFoundError,
+    DependencyError,
     ParameterError,
     ProcessingError,
 )
@@ -106,9 +108,8 @@ async def _annotate_with_singler(
     - Correlation scores: max(0, r), where negative correlations map to 0
     """
     # Validate and import dependencies
-    require("singler", ctx, feature="SingleR annotation")
+    singler = require("singler", ctx, feature="SingleR annotation")
     require("singlecellexperiment", ctx, feature="SingleR annotation")
-    import singler
 
     # Optional: check for celldex (import to module-level alias to avoid redef)
     celldex_module: Any = None
@@ -401,8 +402,7 @@ async def _annotate_with_tangram(
 ) -> AnnotationMethodOutput:
     """Annotate cell types using Tangram method"""
     # Validate dependencies with comprehensive error reporting
-    require("tangram", ctx, feature="Tangram annotation")
-    import tangram as tg
+    tg = require("tangram", ctx, feature="Tangram annotation")
 
     # Check if reference data is provided
     if reference_adata is None:
@@ -1051,8 +1051,7 @@ async def _annotate_with_mllmcelltype(
     """
 
     # Validate dependencies with comprehensive error reporting
-    require("mllmcelltype", ctx, feature="mLLMCellType annotation")
-    import mllmcelltype
+    mllmcelltype = require("mllmcelltype", ctx, feature="mLLMCellType annotation")
 
     # Validate clustering has been performed
     # cluster_label is now required for mLLMCellType (no default value)
@@ -1509,8 +1508,10 @@ async def annotate_cell_types(
                 adata, params, ctx, output_key, confidence_key
             )
 
-    except (ParameterError, DataError, DataNotFoundError, ImportError):
+    except ChatSpatialError:
         raise
+    except ImportError as e:
+        raise DependencyError(f"Annotation dependency import failed: {e}") from e
     except Exception as e:
         raise ProcessingError(f"Annotation failed: {e}") from e
 

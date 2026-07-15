@@ -13,7 +13,12 @@ import pytest
 
 from chatspatial.models.data import VisualizationParameters
 from chatspatial.tools.visualization import enrichment as viz_enrich
-from chatspatial.utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 class DummyCtx:
@@ -161,23 +166,12 @@ def test_create_enrichmap_single_score_requires_feature(minimal_spatial_adata):
 def test_create_enrichmap_spatial_requires_dependency(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    modules = __import__("sys").modules
-    if "enrichmap" in modules:
-        monkeypatch.delitem(modules, "enrichmap", raising=False)
+    def _require_missing(*_args, **_kwargs):
+        raise DependencyError("EnrichMap is required")
 
-    # Force import to fail regardless of environment state
-    import builtins
+    monkeypatch.setattr(viz_enrich, "require", _require_missing)
 
-    orig_import = builtins.__import__
-
-    def _fake_import(name, *args, **kwargs):
-        if name == "enrichmap":
-            raise ImportError("missing enrichmap")
-        return orig_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", _fake_import)
-
-    with pytest.raises(ProcessingError, match="requires EnrichMap"):
+    with pytest.raises(DependencyError, match="EnrichMap is required"):
         viz_enrich._create_enrichmap_spatial(
             minimal_spatial_adata,
             VisualizationParameters(plot_type="enrichment", subtype="spatial_score"),

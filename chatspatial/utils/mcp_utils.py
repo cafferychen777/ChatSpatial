@@ -27,9 +27,7 @@ from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from functools import wraps
 
 from .exceptions import (
-    DataCompatibilityError,
     DataError,
-    DataNotFoundError,
     DependencyError,
     ParameterError,
 )
@@ -39,8 +37,6 @@ from .exceptions import (
 USER_ERRORS = (
     ParameterError,
     DataError,
-    DataNotFoundError,
-    DataCompatibilityError,
     DependencyError,
     ValueError,  # Legacy compatibility
 )

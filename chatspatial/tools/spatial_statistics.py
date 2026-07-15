@@ -52,8 +52,7 @@ from ..utils.adata_utils import (
 )
 from ..utils.compute import ensure_spatial_neighbors
 from ..utils.exceptions import (
-    DataCompatibilityError,
-    DataNotFoundError,
+    ChatSpatialError,
     ParameterError,
     ProcessingError,
 )
@@ -290,7 +289,7 @@ async def analyze_spatial_statistics(
             statistics=result,  # Excluded from MCP response via Field(exclude=True)
         )
 
-    except (DataNotFoundError, ParameterError, DataCompatibilityError):
+    except ChatSpatialError:
         raise
     except Exception as e:
         raise ProcessingError(f"Error in {params.analysis_type} analysis: {e}") from e
@@ -1062,8 +1061,8 @@ def _analyze_getis_ord(
 
     getis_ord_results = {}
 
-    require("esda")  # Raises ImportError with install instructions if missing
-    require("libpysal")  # Raises ImportError with install instructions if missing
+    require("esda")
+    require("libpysal")
     from esda.getisord import G_Local
     from pysal.lib import weights
     from scipy.stats import norm
@@ -1253,7 +1252,7 @@ def _analyze_bivariate_moran(
     results = {}
 
     # Use centralized dependency manager for consistent error handling
-    require("libpysal")  # Raises ImportError with install instructions if missing
+    require("libpysal")
     from libpysal.weights import KNN
 
     try:
@@ -1773,8 +1772,8 @@ def _analyze_local_moran(
             - LH (Low-High): Low outliers - low values surrounded by high values
     """
     # Import PySAL components for proper LISA analysis
-    require("esda")  # Raises ImportError with install instructions if missing
-    require("libpysal")  # Raises ImportError with install instructions if missing
+    require("esda")
+    require("libpysal")
     from esda.moran import Moran_Local
     from libpysal.weights import W as PySALWeights
 
@@ -1848,9 +1847,7 @@ def _analyze_local_moran(
             # Apply FDR correction if requested
             if use_fdr and permutations > 0:
                 # Check statsmodels availability for FDR correction
-                require(
-                    "statsmodels"
-                )  # Raises ImportError with install instructions if missing
+                require("statsmodels")
                 from statsmodels.stats.multitest import multipletests
 
                 # Filter NaN p-values before FDR correction

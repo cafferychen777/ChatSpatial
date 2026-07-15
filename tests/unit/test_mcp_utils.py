@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from chatspatial.models.analysis import PreprocessingResult
-from chatspatial.utils.exceptions import ParameterError, ProcessingError
+from chatspatial.utils.exceptions import DependencyError, ParameterError, ProcessingError
 from chatspatial.utils.mcp_utils import mcp_tool_error_handler, suppress_output
 
 
@@ -26,6 +26,17 @@ async def test_error_handler_for_simple_type_user_error_no_traceback():
         raise ParameterError("bad input")
 
     with pytest.raises(ParameterError, match="bad input") as exc:
+        await tool()
+    assert "Traceback:" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_error_handler_preserves_dependency_error_without_traceback():
+    @mcp_tool_error_handler()
+    async def tool() -> dict:
+        raise DependencyError("install optional backend")
+
+    with pytest.raises(DependencyError, match="install optional backend") as exc:
         await tool()
     assert "Traceback:" not in str(exc.value)
 

@@ -15,8 +15,8 @@ from ..utils.adata_utils import check_is_integer_counts
 from ..utils.dependency_manager import require
 from ..utils.device_utils import get_accelerator
 from ..utils.exceptions import (
+    ChatSpatialError,
     DataError,
-    DataNotFoundError,
     ParameterError,
     ProcessingError,
 )
@@ -327,7 +327,7 @@ def integrate_multiple_samples(
                 n_epochs=scvi_n_epochs,
                 use_gpu=scvi_use_gpu,
             )
-        except (DataError, DataNotFoundError, ParameterError):
+        except ChatSpatialError:
             raise
         except Exception as e:
             raise ProcessingError(
@@ -484,9 +484,8 @@ def integrate_multiple_samples(
         # Use Harmony for batch correction
         # Direct harmonypy call for version compatibility (scanpy.external has issues
         # with harmonypy >= 0.1.0, see: https://github.com/scverse/scanpy/issues/3940)
-        require("harmonypy", feature="Harmony integration")
+        harmonypy = require("harmonypy", feature="Harmony integration")
         try:
-            import harmonypy
             import pandas as pd
 
             X_pca = combined.obsm["X_pca"]
@@ -518,8 +517,7 @@ def integrate_multiple_samples(
 
     elif method == "bbknn":
         # Use BBKNN for batch correction
-        require("bbknn", feature="BBKNN integration")
-        import bbknn
+        bbknn = require("bbknn", feature="BBKNN integration")
 
         bbknn.bbknn(combined, batch_key=batch_key, neighbors_within_batch=3)
 
@@ -766,15 +764,14 @@ def integrate_with_scvi(
         AnnData object with scVI latent representation in obsm['X_scvi']
 
     Raises:
-        ImportError: If scvi-tools is not installed
+        DependencyError: If scvi-tools is not installed or cannot be imported
         ValueError: If data is not preprocessed or invalid
 
     Reference:
         Lopez et al. (2018) "Deep generative modeling for single-cell transcriptomics"
         Nature Methods 15, 1053–1058
     """
-    require("scvi", feature="scVI integration")
-    import scvi
+    scvi = require("scvi", feature="scVI integration")
 
     # Validate data is preprocessed (HVG selection uses normalized X)
     max_val = combined.X.max() if hasattr(combined.X, "max") else np.max(combined.X)

@@ -462,7 +462,7 @@ async def _run_pydeseq2(
 
     Raises:
         ParameterError: If sample_key is not provided
-        ImportError: If pydeseq2 is not installed
+        DependencyError: If pydeseq2 is not installed or cannot be imported
     """
     # Validate sample_key is provided
     if params.sample_key is None:
@@ -474,7 +474,7 @@ async def _run_pydeseq2(
             "sample_key='sample')"
         )
 
-    # Import pydeseq2 (require() raises ImportError if not available)
+    # Import pydeseq2 after validating the optional backend.
     require("pydeseq2", ctx, feature="DESeq2 differential expression")
     from pydeseq2.dds import DeseqDataSet
     from pydeseq2.ds import DeseqStats

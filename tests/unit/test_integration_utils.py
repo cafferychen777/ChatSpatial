@@ -48,7 +48,10 @@ def _install_fake_scvi(monkeypatch: pytest.MonkeyPatch, calls: dict[str, object]
     fake_scvi = ModuleType("scvi")
     fake_scvi.model = SimpleNamespace(SCVI=FakeSCVI)
 
-    monkeypatch.setattr("chatspatial.tools.integration.require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "chatspatial.tools.integration.require",
+        lambda *_args, **_kwargs: fake_scvi,
+    )
     monkeypatch.setitem(__import__("sys").modules, "scvi", fake_scvi)
 
 
@@ -495,9 +498,12 @@ def _install_classical_integration_mocks(
         "chatspatial.tools.integration.store_analysis_metadata",
         lambda _adata, **kwargs: captured.update(kwargs),
     )
+    def _require_fake_module(name: str, *_args, **_kwargs):
+        return __import__("sys").modules.get(name, object())
+
     monkeypatch.setattr(
         "chatspatial.tools.integration.require",
-        lambda *_args, **_kwargs: None,
+        _require_fake_module,
     )
 
 

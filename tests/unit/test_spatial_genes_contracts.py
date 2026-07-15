@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
@@ -10,7 +11,21 @@ import pytest
 
 from chatspatial.models.data import SpatialVariableGenesParameters
 from chatspatial.tools import spatial_genes as sg
-from chatspatial.utils.exceptions import DataError, DataNotFoundError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    DependencyError,
+    ProcessingError,
+)
+
+
+def _required_module(name: str, *_args, **_kwargs):
+    """Return the fake backend installed by each test."""
+    module_name = {
+        "spatialde": "SpatialDE",
+        "naivede": "NaiveDE",
+    }.get(name, name)
+    return sys.modules.get(module_name, object())
 
 
 class DummyCtx:
@@ -145,6 +160,34 @@ def _install_fake_rpy2_runtime(
 
 
 @pytest.mark.asyncio
+async def test_spatialde_applies_compatibility_patch_before_import(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    events: list[str] = []
+
+    monkeypatch.setattr(
+        "chatspatial.utils.compat.ensure_spatialde_compat",
+        lambda: events.append("compat"),
+    )
+
+    def _stop_after_first_import(name: str, *_args, **_kwargs):
+        events.append(name)
+        raise DependencyError("stop after import order check")
+
+    monkeypatch.setattr(sg, "require", _stop_after_first_import)
+
+    with pytest.raises(DependencyError, match="import order check"):
+        await sg._identify_spatial_genes_spatialde(
+            "d1",
+            minimal_spatial_adata.copy(),
+            SpatialVariableGenesParameters(method="spatialde"),
+            DummyCtx(),
+        )
+
+    assert events == ["compat", "spatialde"]
+
+
+@pytest.mark.asyncio
 async def test_spatialde_success_stores_var_outputs_and_metadata(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -166,7 +209,7 @@ async def test_spatialde_success_stores_var_outputs_and_metadata(
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE.util", fake_spatialde_util)
 
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         "chatspatial.utils.compat.ensure_spatialde_compat",
         lambda *_args, **_kwargs: None,
@@ -243,7 +286,7 @@ async def test_flashs_success_stores_var_outputs_and_metadata(
     fake_flashs.FlashS = _FakeFlashS
     monkeypatch.setitem(__import__("sys").modules, "flashs", fake_flashs)
 
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -286,17 +329,17 @@ async def test_flashs_success_stores_var_outputs_and_metadata(
 
 
 @pytest.mark.asyncio
-async def test_flashs_missing_dependency_raises_import_error(
+async def test_flashs_missing_dependency_raises_dependency_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
 
-    def _raise_import(*_args, **_kwargs):
-        raise ImportError("flashs dependency missing")
+    def _raise_dependency(*_args, **_kwargs):
+        raise DependencyError("flashs dependency missing")
 
-    monkeypatch.setattr(sg, "require", _raise_import)
+    monkeypatch.setattr(sg, "require", _raise_dependency)
 
-    with pytest.raises(ImportError, match="flashs dependency missing"):
+    with pytest.raises(DependencyError, match="flashs dependency missing"):
         await sg._identify_spatial_genes_flashs(
             "d_missing",
             adata,
@@ -311,7 +354,7 @@ async def test_sparkx_requires_hvg_column_when_test_only_hvg_enabled(
 ):
     adata = minimal_spatial_adata.copy()
     _install_fake_rpy2(monkeypatch)
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -336,7 +379,7 @@ async def test_sparkx_raises_when_no_hvgs_found(minimal_spatial_adata, monkeypat
     adata = minimal_spatial_adata.copy()
     adata.var["highly_variable"] = False
     _install_fake_rpy2(monkeypatch)
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -357,14 +400,14 @@ async def test_sparkx_raises_when_no_hvgs_found(minimal_spatial_adata, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_sparkx_missing_r_package_raises_informative_import_error(
+async def test_sparkx_missing_r_package_raises_dependency_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     import sys
 
     adata = minimal_spatial_adata.copy()
     _install_fake_rpy2(monkeypatch)
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -382,7 +425,7 @@ async def test_sparkx_missing_r_package_raises_informative_import_error(
 
     fake_packages.importr = _raise_importr
 
-    with pytest.raises(ImportError, match="SPARK not installed in R"):
+    with pytest.raises(DependencyError, match="SPARK not installed in R"):
         await sg._identify_spatial_genes_sparkx(
             "d2",
             adata,
@@ -421,7 +464,7 @@ async def test_spatialde_warns_for_large_gene_set_runtime(
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE.util", fake_spatialde_util)
 
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         "chatspatial.utils.compat.ensure_spatialde_compat",
         lambda *_args, **_kwargs: None,
@@ -492,7 +535,7 @@ async def test_spatialde_prefers_hvgs_and_passes_pi0_to_qvalue(
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE.util", fake_spatialde_util)
 
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         "chatspatial.utils.compat.ensure_spatialde_compat",
         lambda *_args, **_kwargs: None,
@@ -564,7 +607,7 @@ async def test_spatialde_falls_back_to_expression_when_hvgs_insufficient(
     monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE.util", fake_spatialde_util)
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         "chatspatial.utils.compat.ensure_spatialde_compat",
         lambda *_args, **_kwargs: None,
@@ -635,7 +678,7 @@ async def test_spatialde_selects_by_expression_without_hvg_column(
     monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE.util", fake_spatialde_util)
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         "chatspatial.utils.compat.ensure_spatialde_compat",
         lambda *_args, **_kwargs: None,
@@ -704,7 +747,7 @@ async def test_flashs_reindexs_to_adata_var_and_defaults_tested_mask(
     fake_flashs.FlashS = _FakeFlashS
     monkeypatch.setitem(__import__("sys").modules, "flashs", fake_flashs)
 
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -762,7 +805,7 @@ async def test_sparkx_success_covers_filtering_and_housekeeping_warning(
 
     _install_fake_rpy2_runtime(monkeypatch, spark_factory=lambda: _SparkPkg())
 
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -830,7 +873,7 @@ async def test_sparkx_success_with_hvg_only_branch_and_low_result_warning(
             )
 
     _install_fake_rpy2_runtime(monkeypatch, spark_factory=lambda: _SparkPkg())
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -875,7 +918,7 @@ async def test_sparkx_hvg_no_overlap_raises_data_error(
     adata = minimal_spatial_adata[:, :4].copy()
     adata.var["highly_variable"] = [True, False, True, False]
     _install_fake_rpy2(monkeypatch)
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -934,7 +977,7 @@ async def test_sparkx_invalid_output_formats_raise_processing_error(
     fake_ro = sys.modules["rpy2.robjects"]
     fake_ro.r._funcs["is.data.frame"] = lambda _obj: [is_dataframe]
 
-    monkeypatch.setattr(sg, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",

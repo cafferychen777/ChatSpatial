@@ -28,6 +28,7 @@ from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 from ..utils.device_utils import resolve_device_async
 from ..utils.exceptions import (
+    ChatSpatialError,
     DataError,
     DataNotFoundError,
     ParameterError,
@@ -306,7 +307,7 @@ async def identify_spatial_domains(
 
         return result
 
-    except (ParameterError, DataError, DataNotFoundError):
+    except ChatSpatialError:
         raise
     except Exception as e:
         raise ProcessingError(f"Error in spatial domain identification: {e}") from e

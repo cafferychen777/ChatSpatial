@@ -34,8 +34,13 @@ from ..utils.adata_utils import (  # noqa: E402
 )
 from ..utils.compute import top_n_desc_indices  # noqa: E402
 from ..utils.dependency_manager import require  # noqa: E402
-from ..utils.exceptions import DataNotFoundError  # noqa: E402
-from ..utils.exceptions import DataError, ParameterError, ProcessingError
+from ..utils.exceptions import (  # noqa: E402
+    DataError,
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 from ..utils.mcp_utils import suppress_output  # noqa: E402
 
 # =============================================================================
@@ -117,7 +122,7 @@ async def identify_spatial_genes(
 
     Raises:
         ValueError: If dataset not found or spatial coordinates missing
-        ImportError: If required method dependencies not installed
+        DependencyError: If a method dependency is unavailable or broken
 
     Performance Notes:
         - FlashS: ~1-3 min for 3000 spots × 20000 genes (depends on n_features)
@@ -205,16 +210,15 @@ async def _identify_spatial_genes_spatialde(
         Nature Methods, DOI: 10.1038/nmeth.4636
         Official tutorial: https://github.com/Teichlab/SpatialDE
     """
-    # Use centralized dependency manager for consistent error handling
-    require("spatialde")  # Raises ImportError with install instructions if missing
-
     # Apply scipy compatibility patch for SpatialDE (scipy >= 1.14 removed scipy.misc.derivative)
     from ..utils.compat import ensure_spatialde_compat
 
     ensure_spatialde_compat()
 
-    import NaiveDE
-    import SpatialDE
+    # SpatialDE must be imported after applying its SciPy compatibility patch.
+    spatialde = require("spatialde")
+    naivede = require("naivede")
+
     from SpatialDE.util import qvalue
 
     # Prepare spatial coordinates
@@ -323,15 +327,15 @@ async def _identify_spatial_genes_spatialde(
 
     # Apply official SpatialDE preprocessing workflow
     # Step 1: Variance stabilization
-    norm_expr = NaiveDE.stabilize(counts.T).T
+    norm_expr = naivede.stabilize(counts.T).T
 
     # Step 2: Regress out library size effects
-    resid_expr = NaiveDE.regress_out(
+    resid_expr = naivede.regress_out(
         total_counts, norm_expr.T, "np.log(total_counts)"
     ).T
 
     # Step 3: Run SpatialDE
-    results = SpatialDE.run(coords.values, resid_expr)
+    results = spatialde.run(coords.values, resid_expr)
 
     # Multiple testing correction using Storey q-value method
     if params.spatialde_pi0 is not None:
@@ -423,8 +427,8 @@ async def _identify_spatial_genes_flashs(
     """
     del ctx  # Signature parity with other methods; no warnings currently emitted.
 
-    require("flashs")
-    from flashs import FlashS
+    flashs = require("flashs")
+    FlashS = flashs.FlashS
 
     # Prefer adata-compatible gene dimensions to keep writeback and result keys aligned.
     raw_result = get_raw_data_source(adata, prefer_complete_genes=False)
@@ -632,7 +636,7 @@ async def _identify_spatial_genes_sparkx(
         - HVG+SVG best practice: PMC11537352 (2024)
     """
     # Use centralized dependency manager for consistent error handling
-    require("rpy2")  # Raises ImportError with install instructions if missing
+    require("rpy2", feature="SPARK-X spatial gene analysis")
     from rpy2 import robjects as ro
     from rpy2.rinterface_lib import openrlib  # For thread safety
     from rpy2.robjects import conversion, default_converter
@@ -770,7 +774,7 @@ async def _identify_spatial_genes_sparkx(
             try:
                 spark = importr("SPARK")
             except Exception as e:
-                raise ImportError(
+                raise DependencyError(
                     f"SPARK not installed in R. Install with: install.packages('SPARK'). Error: {e}"
                 ) from e
 

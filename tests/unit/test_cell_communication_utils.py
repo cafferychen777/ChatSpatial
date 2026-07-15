@@ -196,7 +196,7 @@ async def test_run_ccc_analysis_dispatches_to_fastccc(
     async def _fake_fastccc(*_args, **_kwargs):
         return expected
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(ccc, "_analyze_communication_fastccc", _fake_fastccc)
 
     out = await ccc._run_ccc_analysis(adata, params, DummyCtx())
@@ -580,7 +580,11 @@ async def test_analyze_communication_liana_auto_builds_spatial_neighbors(
     )()
     monkeypatch.setitem(__import__("sys").modules, "squidpy", fake_sq)
     monkeypatch.setitem(__import__("sys").modules, "liana", type("L", (), {})())
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        ccc,
+        "require",
+        lambda name, *_args, **_kwargs: fake_sq if name == "squidpy" else object(),
+    )
 
     expected = CCCStorage(
         method="liana",
@@ -701,7 +705,7 @@ async def test_analyze_communication_cellphonedb_rejects_non_human_early(
     sys.modules["cellphonedb.src.core"] = core_pkg
     sys.modules["cellphonedb.src.core.methods"] = methods_pkg
 
-    with pytest.raises(ProcessingError, match="CellPhoneDB only supports human"):
+    with pytest.raises(ParameterError, match="CellPhoneDB only supports human"):
         await ccc._analyze_communication_cellphonedb(
             adata,
             CellCommunicationParameters(
@@ -1553,7 +1557,7 @@ async def test_analyze_communication_liana_requires_species_parameter(
         perform_spatial_analysis=False,
     ).model_copy(update={"species": None})
 
-    with pytest.raises(ProcessingError, match="Species parameter is required"):
+    with pytest.raises(ParameterError, match="Species parameter is required"):
         await ccc._analyze_communication_liana(adata, params, DummyCtx())
 
 
@@ -1657,7 +1661,7 @@ async def test_analyze_communication_cellphonedb_database_setup_error_is_wrapped
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("db boom")),
     )
 
-    with pytest.raises(ProcessingError, match="database setup failed"):
+    with pytest.raises(DependencyError, match="database setup failed"):
         await ccc._analyze_communication_cellphonedb(
             adata,
             CellCommunicationParameters(

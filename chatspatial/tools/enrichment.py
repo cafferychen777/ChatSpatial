@@ -21,7 +21,12 @@ from ..models.analysis import EnrichmentResult
 from ..utils.adata_utils import get_raw_data_source, store_analysis_metadata, to_dense
 from ..utils.compute import top_n_desc_indices
 from ..utils.dependency_manager import require
-from ..utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from ..utils.exceptions import (
+    ChatSpatialError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 from ..utils.results_export import export_analysis_result
 
 if TYPE_CHECKING:
@@ -41,11 +46,12 @@ except ImportError:
 def _get_gseapy():
     """Return gseapy module, raising a clear error if not installed."""
     if gp is None:
-        raise ImportError(
-            "gseapy is required for enrichment analysis. "
-            "Install it with: pip install chatspatial[full]"
+        return require(
+            "gseapy",
+            feature="gene set enrichment analysis",
         )
     return gp
+
 
 # Subramanian et al. 2005 PNAS: "We recommend an FDR cutoff of 25%"
 _GSEA_FDR_THRESHOLD = 0.25
@@ -286,6 +292,8 @@ def _load_library_first_available(
     for library_name in GENESET_LIBRARY_CANDIDATES[database_key]:
         try:
             return _load_enrichr_library(library_name, organism)
+        except ChatSpatialError:
+            raise
         except Exception as e:  # pragma: no cover - exercised via caller-level wrapping
             last_error = e
             continue
@@ -1604,11 +1612,7 @@ async def perform_spatial_enrichment(
     Returns:
         EnrichmentResult containing enrichment scores and statistics.
     """
-    # Check if EnrichMap is available
-    require("enrichmap", ctx, feature="spatial enrichment analysis")
-
-    # Import EnrichMap
-    import enrichmap as em
+    em = require("enrichmap", ctx, feature="spatial enrichment analysis")
 
     # Get data using standard ctx pattern
     adata = await ctx.get_adata(data_id)
@@ -1875,6 +1879,8 @@ def load_msigdb_gene_sets(
         filtered_sets = _filter_gene_sets_by_size(gene_sets_dict, min_size, max_size)
         return filtered_sets
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Failed to load MSigDB gene sets: {e}") from e
 
@@ -1910,6 +1916,8 @@ def load_go_gene_sets(
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
         return filtered_sets
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Failed to load GO gene sets: {e}") from e
 
@@ -1946,7 +1954,7 @@ def load_kegg_gene_sets(
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
         return filtered_sets
 
-    except ParameterError:
+    except ChatSpatialError:
         raise
     except Exception as e:
         raise ProcessingError(f"Failed to load KEGG pathways: {e}") from e
@@ -1974,6 +1982,8 @@ def load_reactome_gene_sets(
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
         return filtered_sets
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Failed to load Reactome pathways: {e}") from e
 
@@ -2000,6 +2010,8 @@ def load_cell_marker_gene_sets(
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
         return filtered_sets
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Failed to load cell markers: {e}") from e
 
@@ -2124,6 +2136,8 @@ async def analyze_enrichment(
                 ctx=ctx,
             )
             loaded_from_database = True
+        except ChatSpatialError:
+            raise
         except Exception as e:
             await ctx.error(f"Gene set database loading failed: {e}")
             raise ProcessingError(

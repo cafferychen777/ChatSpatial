@@ -23,8 +23,8 @@ Naming Conventions (MUST follow across codebase):
     Example: ensure_categorical(adata, "leiden")
 
 - require(name, ctx, feature) -> module
-    Dependency check. Raises ImportError with install instructions if missing.
-    Used in dependency_manager.py only.
+    Dependency check. Raises DependencyError with install or repair guidance.
+    Used by optional analysis backends.
 
 Async variants: Add '_async' suffix (e.g., ensure_unique_var_names_async).
 """

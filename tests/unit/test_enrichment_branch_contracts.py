@@ -505,8 +505,9 @@ async def test_perform_spatial_enrichment_normalizes_list_input_and_score_keys(
     def _fake_score(*, adata, score_key, **_kwargs):
         adata.obs[f"{score_key}_score"] = np.linspace(0.0, 1.0, adata.n_obs)
 
-    monkeypatch.setattr(enrichment_module, "require", lambda *_a, **_k: None)
-    monkeypatch.setitem(sys.modules, "enrichmap", SimpleNamespace(tl=SimpleNamespace(score=_fake_score)))
+    fake_enrichmap = SimpleNamespace(tl=SimpleNamespace(score=_fake_score))
+    monkeypatch.setattr(enrichment_module, "require", lambda *_a, **_k: fake_enrichmap)
+    monkeypatch.setitem(sys.modules, "enrichmap", fake_enrichmap)
     monkeypatch.setattr(enrichment_module, "store_analysis_metadata", lambda *_a, **_k: None)
     monkeypatch.setattr(enrichment_module, "export_analysis_result", lambda *_a, **_k: None)
 
@@ -530,11 +531,12 @@ async def test_perform_spatial_enrichment_warns_and_raises_when_all_signatures_i
     adata = minimal_spatial_adata.copy()
     ctx = _LogCtx(adata)
 
-    monkeypatch.setattr(enrichment_module, "require", lambda *_a, **_k: None)
+    fake_enrichmap = SimpleNamespace(tl=SimpleNamespace(score=lambda **_kwargs: None))
+    monkeypatch.setattr(enrichment_module, "require", lambda *_a, **_k: fake_enrichmap)
     monkeypatch.setitem(
         sys.modules,
         "enrichmap",
-        SimpleNamespace(tl=SimpleNamespace(score=lambda **_kwargs: None)),
+        fake_enrichmap,
     )
 
     with pytest.raises(ProcessingError, match="No valid gene signatures found"):

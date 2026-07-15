@@ -355,7 +355,7 @@ async def preprocess_data(
         try:
             validate_r_package("sctransform", ctx)
             validate_r_package("Matrix", ctx)
-        except ImportError as e:
+        except DependencyError as e:
             full_error = (
                 f"SCTransform requires R and the sctransform package.\n\n"
                 f"ERROR: {e}\n\n"
