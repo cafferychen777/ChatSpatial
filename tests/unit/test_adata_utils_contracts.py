@@ -12,7 +12,7 @@ from chatspatial.utils.adata_utils import (
     require_spatial_coords,
     to_dense,
 )
-from chatspatial.utils.exceptions import DataError
+from chatspatial.utils.exceptions import DataError, DataNotFoundError
 
 
 def test_get_spatial_key_returns_known_key(minimal_spatial_adata):
@@ -36,6 +36,16 @@ def test_require_spatial_coords_rejects_identical_points(minimal_spatial_adata):
     adata.obsm["spatial"] = np.ones((adata.n_obs, 2), dtype=float)
 
     with pytest.raises(DataError, match="identical"):
+        require_spatial_coords(adata)
+
+
+def test_require_spatial_coords_uses_not_found_error_for_missing_data(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    del adata.obsm["spatial"]
+
+    with pytest.raises(DataNotFoundError, match="No spatial coordinates found"):
         require_spatial_coords(adata)
 
 

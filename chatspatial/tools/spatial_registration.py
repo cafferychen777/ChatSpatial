@@ -150,7 +150,7 @@ def _patch_paste_line_search_for_pot(pst) -> None:
             **kwargs,
         )
 
-    setattr(compatible_my_fused_gromov_wasserstein, "_chatspatial_pot_compat", True)
+    compatible_my_fused_gromov_wasserstein.__dict__["_chatspatial_pot_compat"] = True
     paste_module["my_fused_gromov_wasserstein"] = compatible_my_fused_gromov_wasserstein
 
 
@@ -383,10 +383,16 @@ def _register_paste(
             verbose=False,
             gpu_verbose=False,
         )
+        if len(pis_new) != len(registered):
+            raise ProcessingError(
+                "PASTE center alignment returned a different number of transport "
+                f"plans than input slices: expected {len(registered)}, "
+                f"received {len(pis_new)}."
+            )
 
         # Apply transformations — read coords from prepared slices
         # (which have "spatial" guaranteed by _prepare_paste_slices)
-        for i, (adata, pi) in enumerate(zip(registered, pis_new, strict=False)):
+        for i, (adata, pi) in enumerate(zip(registered, pis_new, strict=True)):
             if i == reference_idx:
                 adata.obsm["spatial_registered"] = adata.obsm[spatial_key].copy()
             else:

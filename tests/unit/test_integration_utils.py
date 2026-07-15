@@ -11,9 +11,11 @@ import scipy.sparse as sp
 from anndata import AnnData, ImplicitModificationWarning
 
 from chatspatial.tools.integration import (
-    rescale_spatial_coordinates,
+    _orient_harmony_embedding,
+    _reassemble_scanorama_embeddings,
     integrate_multiple_samples,
     integrate_with_scvi,
+    rescale_spatial_coordinates,
 )
 from chatspatial.utils.exceptions import (
     DataError,
@@ -70,6 +72,29 @@ def test_rescale_spatial_coordinates_preserves_row_mapping_for_interleaved_batch
     out = rescale_spatial_coordinates(adata, batch_key="batch", reference_batch="A")
 
     np.testing.assert_allclose(out.obsm["spatial_aligned"], expected, atol=1e-8)
+
+
+def test_orient_harmony_embedding_accepts_supported_axis_orders():
+    row_major = np.arange(12, dtype=np.float32).reshape(4, 3)
+    np.testing.assert_array_equal(_orient_harmony_embedding(row_major, 4), row_major)
+    np.testing.assert_array_equal(
+        _orient_harmony_embedding(row_major.T, 4), row_major
+    )
+
+
+@pytest.mark.parametrize(
+    ("embedding", "message"),
+    [
+        (np.ones(4), "two-dimensional"),
+        (np.ones((3, 2)), "does not match the dataset"),
+        (np.ones((4, 0)), "zero embedding components"),
+        (np.full((4, 2), np.nan), "non-finite"),
+        ([["not-numeric"]], "non-numeric"),
+    ],
+)
+def test_orient_harmony_embedding_rejects_invalid_output(embedding, message):
+    with pytest.raises(ProcessingError, match=message):
+        _orient_harmony_embedding(embedding, 4)
 
 
 @pytest.mark.integration
@@ -860,8 +885,53 @@ def test_integrate_multiple_samples_scanorama_raw_fallback_path(
     assert captured["neighbors"][0]["use_rep"] == "X_scanorama"
 
 
+def test_reassemble_scanorama_embeddings_restores_interleaved_rows():
+    out = _reassemble_scanorama_embeddings(
+        [np.array([0, 2]), np.array([1, 3])],
+        [
+            np.array([[10.0, 11.0], [20.0, 21.0]]),
+            np.array([[30.0, 31.0], [40.0, 41.0]]),
+        ],
+        n_obs=4,
+    )
+
+    np.testing.assert_array_equal(
+        out,
+        np.array(
+            [[10.0, 11.0], [30.0, 31.0], [20.0, 21.0], [40.0, 41.0]],
+            dtype=np.float32,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("batch_indices", "embeddings", "message"),
+    [
+        ([np.array([0]), np.array([1])], [np.ones((1, 2))], "number of embeddings"),
+        ([np.array([0, 1])], [np.ones((1, 2))], "rows for 2 observations"),
+        (
+            [np.array([0]), np.array([1])],
+            [np.ones((1, 2)), np.ones((1, 3))],
+            "inconsistent embedding dimensions",
+        ),
+        (
+            [np.array([0]), np.array([0])],
+            [np.ones((1, 2)), np.ones((1, 2))],
+            "duplicated or outside",
+        ),
+        ([np.array([0])], [np.ones((1, 2))], "missing embeddings for 1"),
+    ],
+)
+def test_reassemble_scanorama_embeddings_rejects_inconsistent_backend_output(
+    batch_indices, embeddings, message
+):
+    with pytest.raises(ProcessingError, match=message):
+        _reassemble_scanorama_embeddings(batch_indices, embeddings, n_obs=2)
+
+
 def test_rescale_spatial_coordinates_error_branches(minimal_spatial_adata):
     adata_missing = minimal_spatial_adata.copy()
+    adata_missing.obs["batch"] = "only"
     del adata_missing.obsm["spatial"]
     with pytest.raises(DataNotFoundError, match="spatial coordinates"):
         rescale_spatial_coordinates(adata_missing, batch_key="batch")
@@ -872,10 +942,41 @@ def test_rescale_spatial_coordinates_error_branches(minimal_spatial_adata):
     with pytest.raises(DataError, match="Dataset is empty"):
         rescale_spatial_coordinates(adata_empty, batch_key="batch")
 
+    adata_missing_batch = minimal_spatial_adata.copy()
+    with pytest.raises(ParameterError, match="Batch key 'batch' not found"):
+        rescale_spatial_coordinates(adata_missing_batch, batch_key="batch")
+
+    adata_missing_label = minimal_spatial_adata.copy()
+    adata_missing_label.obs["batch"] = np.array(
+        ["A"] * (adata_missing_label.n_obs - 1) + [None], dtype=object
+    )
+    with pytest.raises(DataError, match="contains missing values"):
+        rescale_spatial_coordinates(adata_missing_label, batch_key="batch")
+
     adata = minimal_spatial_adata.copy()
     adata.obs["batch"] = "only"
     with pytest.raises(ParameterError, match="Reference batch 'missing' not found"):
         rescale_spatial_coordinates(adata, batch_key="batch", reference_batch="missing")
+
+
+def test_rescale_spatial_coordinates_preserves_coordinate_dimensions(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["batch"] = np.where(np.arange(adata.n_obs) % 2 == 0, 1, 2)
+    third_dimension = np.linspace(0.0, 1.0, adata.n_obs)[:, None]
+    adata.obsm["spatial"] = np.column_stack(
+        [adata.obsm["spatial"], third_dimension]
+    )
+
+    out = rescale_spatial_coordinates(
+        adata,
+        batch_key="batch",
+        reference_batch="1",
+    )
+
+    assert out.obsm["spatial_aligned"].shape == (adata.n_obs, 3)
+    assert out.uns["spatial_alignment_metadata"]["parameters"]["reference_batch"] == "1"
 
 
 def test_integrate_with_scvi_auto_epochs_for_medium_and_large_datasets(

@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 from scipy import sparse
 
-from .exceptions import DataError, ParameterError
+from .exceptions import DataError, DataNotFoundError, ParameterError
 
 # =============================================================================
 # Constants: Standard Field Names
@@ -252,7 +252,7 @@ def require_spatial_coords(
                     raise DataError(
                         f"Failed to parse obs['x'/'y'] as coordinates: {exc}"
                     ) from exc
-            raise DataError(
+            raise DataNotFoundError(
                 "No spatial coordinates found. Expected in adata.obsm['spatial'] "
                 "or similar key. Available obsm keys: "
                 f"{list(adata.obsm.keys()) if adata.obsm else 'none'}"
@@ -260,7 +260,7 @@ def require_spatial_coords(
 
     # Check if key exists
     if spatial_key not in adata.obsm:
-        raise DataError(
+        raise DataNotFoundError(
             f"Spatial coordinates '{spatial_key}' not found in adata.obsm. "
             f"Available keys: {list(adata.obsm.keys())}"
         )
@@ -664,9 +664,8 @@ def validate_adata(
     """
     missing = []
 
-    for category, keys in required_keys.items():
-        if isinstance(keys, str):
-            keys = [keys]
+    for category, configured_keys in required_keys.items():
+        keys = [configured_keys] if isinstance(configured_keys, str) else configured_keys
 
         attr = getattr(adata, category, None)
         if attr is None:

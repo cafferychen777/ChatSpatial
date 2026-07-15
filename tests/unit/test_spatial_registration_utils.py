@@ -433,6 +433,29 @@ def test_register_paste_multi_slice_uses_center_alignment(
     assert out[2].X is ad3.X
 
 
+def test_register_paste_rejects_missing_center_transport_plan(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    slices = [minimal_spatial_adata.copy() for _ in range(3)]
+
+    fake_paste = types.ModuleType("paste")
+    fake_paste.pairwise_align = lambda ref, moving, **_kwargs: np.eye(
+        moving.n_obs, ref.n_obs
+    )
+    fake_paste.center_align = lambda ref, _slices, **_kwargs: (
+        ref,
+        [np.eye(ref.n_obs), np.eye(ref.n_obs)],
+    )
+    monkeypatch.setitem(sys.modules, "paste", fake_paste)
+    monkeypatch.setattr(reg, "get_ot_backend", lambda _use_gpu: "numpy")
+
+    with pytest.raises(ProcessingError, match="expected 3, received 2"):
+        reg._register_paste(
+            slices,
+            RegistrationParameters(method="paste", reference_idx=0, use_gpu=False),
+        )
+
+
 def test_register_stalign_success_with_uniform_intensity(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):

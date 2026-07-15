@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Optional, Union
 
 import anndata as ad
+import numpy as np
 import scanpy as sc
 
 from ..models.analysis import IntegrationResult
@@ -25,12 +26,121 @@ if TYPE_CHECKING:
 
 from ..utils.adata_utils import (
     get_spatial_key,
+    require_spatial_coords,
     store_analysis_metadata,
     validate_adata_basics,
 )
 from ..utils.results_export import export_analysis_result
 
 logger = logging.getLogger(__name__)
+
+
+def _orient_harmony_embedding(embedding: object, n_obs: int) -> np.ndarray:
+    """Return a finite Harmony embedding with observations on the first axis."""
+    try:
+        normalized = np.asarray(embedding, dtype=np.float32)
+    except (TypeError, ValueError) as exc:
+        raise ProcessingError("Harmony returned a non-numeric embedding.") from exc
+
+    if normalized.ndim != 2:
+        raise ProcessingError("Harmony embedding must be two-dimensional.")
+
+    if normalized.shape[0] == n_obs:
+        oriented = normalized
+    elif normalized.shape[1] == n_obs:
+        oriented = normalized.T
+    else:
+        raise ProcessingError(
+            "Harmony embedding does not match the dataset: "
+            f"expected {n_obs} observations, received shape {normalized.shape}."
+        )
+
+    if oriented.shape[1] == 0:
+        raise ProcessingError("Harmony returned zero embedding components.")
+    if not np.isfinite(oriented).all():
+        raise ProcessingError("Harmony returned non-finite embedding values.")
+    return oriented
+
+
+def _reassemble_scanorama_embeddings(
+    batch_indices: list[np.ndarray],
+    embeddings: list[np.ndarray],
+    n_obs: int,
+) -> np.ndarray:
+    """Restore batch-wise Scanorama embeddings to the original observation order."""
+    if not embeddings:
+        raise ProcessingError("Scanorama returned no batch embeddings.")
+    if len(batch_indices) != len(embeddings):
+        raise ProcessingError(
+            "Scanorama returned a different number of embeddings than input batches: "
+            f"expected {len(batch_indices)}, received {len(embeddings)}."
+        )
+
+    n_components: int | None = None
+    reassembled: np.ndarray | None = None
+    assigned = np.zeros(n_obs, dtype=bool)
+
+    for batch_number, (indices, embedding) in enumerate(
+        zip(batch_indices, embeddings, strict=True)
+    ):
+        normalized_indices = np.asarray(indices, dtype=int)
+        try:
+            normalized_embedding = np.asarray(embedding, dtype=np.float32)
+        except (TypeError, ValueError) as exc:
+            raise ProcessingError(
+                f"Scanorama embedding {batch_number} must be numeric."
+            ) from exc
+        if normalized_indices.ndim != 1:
+            raise ProcessingError(
+                f"Scanorama batch indices {batch_number} must be one-dimensional."
+            )
+        if normalized_embedding.ndim != 2:
+            raise ProcessingError(
+                f"Scanorama embedding {batch_number} must be two-dimensional."
+            )
+        if normalized_embedding.shape[0] != len(normalized_indices):
+            raise ProcessingError(
+                f"Scanorama embedding {batch_number} has "
+                f"{normalized_embedding.shape[0]} rows for "
+                f"{len(normalized_indices)} observations."
+            )
+
+        if n_components is None:
+            n_components = normalized_embedding.shape[1]
+            if n_components == 0:
+                raise ProcessingError("Scanorama returned zero embedding components.")
+            reassembled = np.empty((n_obs, n_components), dtype=np.float32)
+        elif normalized_embedding.shape[1] != n_components:
+            raise ProcessingError(
+                "Scanorama returned inconsistent embedding dimensions across batches."
+            )
+        if not np.isfinite(normalized_embedding).all():
+            raise ProcessingError(
+                f"Scanorama embedding {batch_number} contains non-finite values."
+            )
+
+        if (
+            np.any(normalized_indices < 0)
+            or np.any(normalized_indices >= n_obs)
+            or len(np.unique(normalized_indices)) != len(normalized_indices)
+            or assigned[normalized_indices].any()
+        ):
+            raise ProcessingError(
+                "Scanorama batch indices are duplicated or outside the dataset bounds."
+            )
+
+        assert reassembled is not None
+        reassembled[normalized_indices] = normalized_embedding
+        assigned[normalized_indices] = True
+
+    if not assigned.all():
+        raise ProcessingError(
+            f"Scanorama output is missing embeddings for {int((~assigned).sum())} "
+            "observations."
+        )
+
+    assert reassembled is not None
+    return reassembled
 
 
 def integrate_multiple_samples(
@@ -276,7 +386,6 @@ def integrate_multiple_samples(
         combined = combined[:, combined.var["highly_variable"]]
 
     # Remove genes with zero variance to avoid NaN in scaling
-    import numpy as np
     from scipy import sparse
 
     # MEMORY OPTIMIZATION: Calculate variance without toarray()
@@ -332,7 +441,6 @@ def integrate_multiple_samples(
     # MEMORY OPTIMIZATION: Check sparse matrix .data directly without toarray()
     # Sparse matrices only store non-zero elements, and zero elements cannot be NaN/Inf
     # Saves ~80% memory (e.g., 76 MB → 15 MB for 10k cells × 2k genes)
-    import numpy as np
     from scipy import sparse
 
     if sparse.issparse(combined.X):
@@ -393,14 +501,12 @@ def integrate_multiple_samples(
                 verbose=True,
             )
 
-            # Smart shape detection for version compatibility:
+            # Shape normalization for version compatibility:
             # - harmonypy < 0.1.0: Z_corr is (n_pcs, n_cells), needs .T
             # - harmonypy >= 0.1.0: Z_corr is (n_cells, n_pcs), already correct
-            Z_corr = harmony_out.Z_corr
-            if Z_corr.shape[0] == n_cells:
-                combined.obsm["X_pca_harmony"] = Z_corr
-            else:
-                combined.obsm["X_pca_harmony"] = Z_corr.T
+            combined.obsm["X_pca_harmony"] = _orient_harmony_embedding(
+                harmony_out.Z_corr, n_cells
+            )
 
             sc.pp.neighbors(combined, use_rep="X_pca_harmony")
 
@@ -434,7 +540,6 @@ def integrate_multiple_samples(
                 sc.pp.neighbors(combined, use_rep="X_scanorama")
             else:
                 # Fallback to raw scanorama (same algorithm, different interface)
-                import numpy as np
                 import scanorama
 
                 # Separate data by batch, tracking original row indices
@@ -453,15 +558,14 @@ def integrate_multiple_samples(
                     genes_list.append(batch_data.var_names.tolist())
 
                 # Run Scanorama integration
-                integrated, corrected_genes = scanorama.integrate(
+                integrated, _corrected_genes = scanorama.integrate(
                     datasets, genes_list, dimred=n_pcs
                 )
 
                 # Reassemble in original row order (handles interleaved batches)
-                n_dim = integrated[0].shape[1]
-                integrated_X = np.empty((combined.n_obs, n_dim), dtype=np.float32)
-                for idx, emb in zip(batch_indices, integrated):
-                    integrated_X[idx] = emb
+                integrated_X = _reassemble_scanorama_embeddings(
+                    batch_indices, integrated, combined.n_obs
+                )
 
                 # Store integrated representation in obsm
                 combined.obsm["X_scanorama"] = integrated_X
@@ -547,73 +651,62 @@ def rescale_spatial_coordinates(
     Args:
         combined_adata: Combined AnnData containing multiple samples.
         batch_key: Batch information key in obs.
-        reference_batch: Reference batch for rescaling. Uses first batch if None.
+        reference_batch: Reference batch for rescaling. String values are also
+            matched against non-string batch labels. Uses the first batch if None.
 
     Returns:
         AnnData with rescaled spatial coordinates in obsm['spatial_aligned'].
 
     Raises:
-        DataNotFoundError: If spatial coordinates are missing.
-        DataError: If dataset is empty.
-        ParameterError: If reference batch not found.
+        DataError: If the dataset, batch labels, or spatial coordinates are invalid.
+        ParameterError: If the batch column or reference batch is not found.
     """
-    import numpy as np
     from sklearn.preprocessing import StandardScaler
 
-    # Ensure data contains spatial coordinates
-    spatial_key = get_spatial_key(combined_adata)
-    if not spatial_key:
-        raise DataNotFoundError("Data is missing spatial coordinates")
+    if batch_key not in combined_adata.obs:
+        raise ParameterError(
+            f"Batch key '{batch_key}' not found in adata.obs. "
+            f"Available columns: {list(combined_adata.obs.columns)}"
+        )
+    if combined_adata.n_obs == 0:
+        raise DataError("Dataset is empty, cannot perform spatial registration")
+
+    batch_values = combined_adata.obs[batch_key]
+    if batch_values.isna().any():
+        raise DataError(f"Batch column '{batch_key}' contains missing values")
+
+    spatial_coords = require_spatial_coords(combined_adata)
 
     # Get batch information
-    batches = combined_adata.obs[batch_key].unique()
-
-    if len(batches) == 0:
-        raise DataError("Dataset is empty, cannot perform spatial registration")
+    batches = list(batch_values.unique())
+    batches_by_label = {str(batch): batch for batch in batches}
 
     # If reference batch not specified, use the first batch
     if reference_batch is None:
-        reference_batch = batches[0]
-    elif reference_batch not in batches:
+        reference_batch_value = batches[0]
+    elif reference_batch in batches:
+        reference_batch_value = reference_batch
+    elif reference_batch in batches_by_label:
+        reference_batch_value = batches_by_label[reference_batch]
+    else:
         raise ParameterError(f"Reference batch '{reference_batch}' not found in data")
+    reference_batch_label = str(reference_batch_value)
 
     # Get reference batch spatial coordinates
-    ref_coords = combined_adata[combined_adata.obs[batch_key] == reference_batch].obsm[
-        spatial_key
-    ]
+    reference_mask = (batch_values == reference_batch_value).to_numpy()
+    ref_coords = spatial_coords[reference_mask]
 
     # Standardize reference coordinates
     scaler = StandardScaler()
-    ref_coords_scaled = scaler.fit_transform(ref_coords)
+    scaler.fit(ref_coords)
 
-    # Rescale spatial coordinates for each batch
-    aligned_coords = []
-
+    # Transform and restore every batch directly in original observation order.
+    aligned_coords = np.empty(spatial_coords.shape, dtype=float)
     for batch in batches:
-        # Get current batch index
-        batch_idx = combined_adata.obs[batch_key] == batch
+        batch_mask = (batch_values == batch).to_numpy()
+        aligned_coords[batch_mask] = scaler.transform(spatial_coords[batch_mask])
 
-        if batch == reference_batch:
-            # Reference batch remains unchanged
-            aligned_coords.append(ref_coords_scaled)
-        else:
-            # Get current batch spatial coordinates
-            batch_coords = combined_adata[batch_idx].obsm[spatial_key]
-
-            # Standardize current batch coordinates
-            batch_coords_scaled = scaler.transform(batch_coords)
-
-            # Add to aligned coordinates list
-            aligned_coords.append(batch_coords_scaled)
-
-    # Merge all aligned coordinates
-    combined_adata.obsm["spatial_aligned"] = np.zeros((combined_adata.n_obs, 2))
-
-    # Fill aligned coordinates back to original rows by boolean index.
-    # Using running slices breaks when batches are interleaved in obs order.
-    for batch, coords in zip(batches, aligned_coords, strict=False):
-        batch_idx = combined_adata.obs[batch_key] == batch
-        combined_adata.obsm["spatial_aligned"][batch_idx.to_numpy()] = coords
+    combined_adata.obsm["spatial_aligned"] = aligned_coords
 
     # Store metadata for scientific provenance tracking
     n_batches = len(batches)
@@ -629,13 +722,13 @@ def rescale_spatial_coordinates(
         method="standardization",
         parameters={
             "batch_key": batch_key,
-            "reference_batch": reference_batch,
+            "reference_batch": reference_batch_label,
         },
         results_keys={"obsm": ["spatial_aligned"]},
         statistics={
             "n_batches": n_batches,
             "batch_sizes": batch_sizes,
-            "reference_batch": reference_batch,
+            "reference_batch": reference_batch_label,
         },
     )
 
@@ -680,8 +773,6 @@ def integrate_with_scvi(
         Lopez et al. (2018) "Deep generative modeling for single-cell transcriptomics"
         Nature Methods 15, 1053–1058
     """
-    import numpy as np
-
     require("scvi", feature="scVI integration")
     import scvi
 
