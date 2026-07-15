@@ -244,24 +244,7 @@ def _extract_rank_genes_groups(
         if key not in adata.uns:
             return None
 
-        # scanpy's get function requires key="rank_genes_groups" in adata.uns.
-        # For per-run copies, temporarily alias to the expected key.
-        if key != "rank_genes_groups":
-            original = adata.uns.get("rank_genes_groups")
-            adata.uns["rank_genes_groups"] = adata.uns[key]
-            try:
-                df = sc.get.rank_genes_groups_df(adata, group=None)
-            finally:
-                # Restore or remove
-                if original is not None:
-                    adata.uns["rank_genes_groups"] = original
-                else:
-                    del adata.uns["rank_genes_groups"]
-            return df
-
-        # Standard path
-        df = sc.get.rank_genes_groups_df(adata, group=None)
-        return df
+        return sc.get.rank_genes_groups_df(adata, group=None, key=key)
     except Exception as e:
         logger.warning(f"Failed to extract rank_genes_groups: {e}")
         return None
@@ -519,7 +502,7 @@ def _extract_from_obsm(adata: "AnnData", key: str) -> pd.DataFrame | None:
     if hasattr(data, "names") and hasattr(data, "X"):
         # Lineage object
         return pd.DataFrame(
-            data.X if hasattr(data, "X") else data,
+            data.X,
             index=adata.obs_names,
             columns=data.names,
         )

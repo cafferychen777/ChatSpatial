@@ -392,6 +392,30 @@ def test_extract_rank_genes_groups_per_run_key_restores_original(
     assert adata.uns["rank_genes_groups"] is original_rgg
 
 
+def test_extract_rank_genes_groups_passes_custom_key_without_mutating_uns(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scanpy as sc
+
+    adata = minimal_spatial_adata.copy()
+    custom_result = {"sentinel": True}
+    adata.uns["rank_genes_groups_custom"] = custom_result
+    captured: dict[str, object] = {}
+
+    def _extract(_adata, group, *, key):
+        captured.update(group=group, key=key)
+        return pd.DataFrame({"names": ["G1"]})
+
+    monkeypatch.setattr(sc.get, "rank_genes_groups_df", _extract)
+
+    result = re._extract_rank_genes_groups(adata, "rank_genes_groups_custom")
+
+    assert result is not None
+    assert captured == {"group": None, "key": "rank_genes_groups_custom"}
+    assert "rank_genes_groups" not in adata.uns
+    assert adata.uns["rank_genes_groups_custom"] is custom_result
+
+
 def test_extract_ccc_per_method_key(
     minimal_spatial_adata,
 ) -> None:
