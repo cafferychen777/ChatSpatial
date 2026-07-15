@@ -504,7 +504,7 @@ def _compute_cv_ranking(X, var_names: pd.Index) -> dict[str, float]:
     cv = np.zeros_like(mean)
     nonzero_mask = np.abs(mean) > 1e-10
     cv[nonzero_mask] = std[nonzero_mask] / np.abs(mean[nonzero_mask])
-    return dict(zip(var_names, cv, strict=False))
+    return dict(zip(var_names, cv, strict=True))
 
 
 def _compute_variance_ranking(X, var_names: pd.Index) -> dict[str, float]:
@@ -517,7 +517,7 @@ def _compute_variance_ranking(X, var_names: pd.Index) -> dict[str, float]:
         var = mean_sq - np.power(mean, 2)
     else:
         var = np.array(X.var(axis=0)).flatten()
-    return dict(zip(var_names, var, strict=False))
+    return dict(zip(var_names, var, strict=True))
 
 
 # ============================================================================
@@ -813,9 +813,15 @@ def perform_gsea(
         results_df = res.res2d
 
         # Prepare output - OPTIMIZED: vectorized dict + array iteration (16x faster)
-        enrichment_scores = dict(zip(results_df["Term"], results_df["ES"]))
-        pvalues = dict(zip(results_df["Term"], results_df["NOM p-val"]))
-        adjusted_pvalues = dict(zip(results_df["Term"], results_df["FDR q-val"]))
+        enrichment_scores = dict(
+            zip(results_df["Term"], results_df["ES"], strict=True)
+        )
+        pvalues = dict(
+            zip(results_df["Term"], results_df["NOM p-val"], strict=True)
+        )
+        adjusted_pvalues = dict(
+            zip(results_df["Term"], results_df["FDR q-val"], strict=True)
+        )
 
         # Pre-extract arrays for fast iteration
         terms = results_df["Term"].values
@@ -1073,7 +1079,7 @@ def perform_ora(
         stats_method = _method_map.get(adjust_method, "fdr_bh")
         pval_array = np.array(list(pvalues.values()))
         _, adjusted_pvals, _, _ = multipletests(pval_array, method=stats_method)
-        adjusted_pvalues = dict(zip(pvalues.keys(), adjusted_pvals, strict=False))
+        adjusted_pvalues = dict(zip(pvalues.keys(), adjusted_pvals, strict=True))
     else:
         # No correction: adjusted = raw
         adjusted_pvalues = dict(pvalues) if pvalues else {}
@@ -1310,7 +1316,9 @@ def perform_ssgsea(
             mins = np.nanmin(values, axis=1)
             maxs = np.nanmax(values, axis=1)
 
-            enrichment_scores = dict(zip(scores_df.index, means.astype(float)))
+            enrichment_scores = dict(
+                zip(scores_df.index, means.astype(float), strict=True)
+            )
 
             for i, gs_name in enumerate(scores_df.index):
                 gene_set_statistics[gs_name] = {
@@ -1447,11 +1455,21 @@ def perform_enrichr(
 
         # Prepare output - OPTIMIZED: vectorized dict + array iteration (12x faster)
         enrichment_scores = dict(
-            zip(all_results["Term"], all_results["Combined Score"])
+            zip(
+                all_results["Term"],
+                all_results["Combined Score"],
+                strict=True,
+            )
         )
-        pvalues = dict(zip(all_results["Term"], all_results["P-value"]))
+        pvalues = dict(
+            zip(all_results["Term"], all_results["P-value"], strict=True)
+        )
         adjusted_pvalues = dict(
-            zip(all_results["Term"], all_results["Adjusted P-value"])
+            zip(
+                all_results["Term"],
+                all_results["Adjusted P-value"],
+                strict=True,
+            )
         )
 
         # Pre-extract arrays for fast iteration

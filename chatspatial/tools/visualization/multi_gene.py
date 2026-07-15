@@ -581,7 +581,7 @@ async def create_spatial_interaction_visualization(
                             distances <= distance_threshold
                         )
                         for li, ri in zip(
-                            ligand_indices[:50], receptor_indices[:50], strict=False
+                            ligand_indices[:50], receptor_indices[:50], strict=True
                         ):
                             ax.plot(
                                 [ligand_coords[li, 0], receptor_coords[ri, 0]],

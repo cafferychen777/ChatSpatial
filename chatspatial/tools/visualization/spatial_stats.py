@@ -373,7 +373,7 @@ def _create_moran_visualization(
     ax.invert_yaxis()
 
     # Add significance markers
-    for i, (idx, row) in enumerate(top_genes.iterrows()):
+    for i, (_, row) in enumerate(top_genes.iterrows()):
         if row["significant"]:
             ax.text(
                 row["I"] + 0.01,

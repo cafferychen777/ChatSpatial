@@ -361,7 +361,9 @@ async def differential_expression(
         )
 
         # Build result dict mapping gene -> log2fc
-        gene_to_log2fc = dict(zip(genes_in_raw, log2fc_array.astype(float)))
+        gene_to_log2fc = dict(
+            zip(genes_in_raw, log2fc_array.astype(float), strict=True)
+        )
         # Preserve order of top_genes, None for missing genes
         log2fc_values = [gene_to_log2fc.get(g) for g in top_genes]
     else:

@@ -733,7 +733,7 @@ async def _identify_spatial_genes_sparkx(
     if gene_mask.sum() < len(gene_names):
         filtered_sparse = sparse_counts[:, gene_mask]
         gene_names = [
-            gene for gene, keep in zip(gene_names, gene_mask, strict=False) if keep
+            gene for gene, keep in zip(gene_names, gene_mask, strict=True) if keep
         ]
     else:
         filtered_sparse = sparse_counts
@@ -937,12 +937,12 @@ async def _identify_spatial_genes_sparkx(
 
     # Store results in adata.var (per-gene statistics)
     adata.var["sparkx_pval"] = pd.Series(
-        dict(zip(results_df["gene"], results_df["pvalue"], strict=False)),
+        dict(zip(results_df["gene"], results_df["pvalue"], strict=True)),
         name="sparkx_pval",
     ).reindex(adata.var_names, fill_value=1.0)
 
     adata.var["sparkx_qval"] = pd.Series(
-        dict(zip(results_df["gene"], results_df["adjusted_pvalue"], strict=False)),
+        dict(zip(results_df["gene"], results_df["adjusted_pvalue"], strict=True)),
         name="sparkx_qval",
     ).reindex(adata.var_names, fill_value=1.0)
 

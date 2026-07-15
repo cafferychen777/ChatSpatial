@@ -544,15 +544,17 @@ def _find_spatial_folder(h5_path: str) -> Optional[str]:
     ]
 
     for candidate in candidates:
-        candidate = os.path.normpath(candidate)
-        if os.path.exists(candidate) and os.path.isdir(candidate):
+        normalized_candidate = os.path.normpath(candidate)
+        if os.path.isdir(normalized_candidate):
             # Verify it contains a supported positions file and scale factors.
-            has_positions = _find_tissue_positions_file(candidate) is not None
+            has_positions = (
+                _find_tissue_positions_file(normalized_candidate) is not None
+            )
             has_scalefactors = os.path.isfile(
-                os.path.join(candidate, "scalefactors_json.json")
+                os.path.join(normalized_candidate, "scalefactors_json.json")
             )
             if has_positions and has_scalefactors:
-                return candidate
+                return normalized_candidate
 
     logger.warning(f"No spatial folder found for {h5_path}")
     return None

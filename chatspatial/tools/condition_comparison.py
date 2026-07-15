@@ -407,6 +407,7 @@ def _run_deseq2(
                 df_head["log2FoldChange"].values,
                 df_head["pvalue"].values,
                 df_head["padj"].values,
+                strict=True,
             )
         ]
 
@@ -442,7 +443,7 @@ async def _run_global_comparison(
     """
 
     # Create pseudobulk
-    counts_df, metadata_df, cell_counts = _create_pseudobulk(
+    counts_df, metadata_df, _cell_counts = _create_pseudobulk(
         adata,
         raw_X,
         var_names,
@@ -561,7 +562,7 @@ async def _run_stratified_comparison(
 
         try:
             # Create pseudobulk for this cell type
-            counts_df, metadata_df, cell_counts = _create_pseudobulk(
+            counts_df, metadata_df, _cell_counts = _create_pseudobulk(
                 adata,
                 raw_X,
                 var_names,

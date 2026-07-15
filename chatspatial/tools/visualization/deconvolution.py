@@ -463,7 +463,9 @@ async def _create_scatterpie_plot(
     base_radius = coord_range * 0.02
     pie_radius = base_radius * params.pie_scale
 
-    for (x, y), (_, prop_row) in zip(coords_plot, proportions_plot.iterrows()):
+    for (x, y), (_, prop_row) in zip(
+        coords_plot, proportions_plot.iterrows(), strict=True
+    ):
         prop_values = prop_row.values
 
         if prop_values.sum() == 0:
@@ -472,7 +474,7 @@ async def _create_scatterpie_plot(
         prop_normalized = prop_values / prop_values.sum()
 
         start_angle = 0
-        for cell_type, proportion in zip(cell_types, prop_normalized, strict=False):
+        for cell_type, proportion in zip(cell_types, prop_normalized, strict=True):
             if proportion > 0.01:
                 angle = proportion * 360
                 wedge = Wedge(

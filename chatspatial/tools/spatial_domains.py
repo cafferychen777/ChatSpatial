@@ -645,7 +645,7 @@ def _refine_spatial_domains(
             # Request k+1 neighbors because kneighbors includes the query point
             # itself as the nearest neighbor (distance=0); we exclude it below.
             nbrs = NearestNeighbors(n_neighbors=k + 1).fit(coords)
-            distances, indices = nbrs.kneighbors(coords)
+            _distances, indices = nbrs.kneighbors(coords)
         except Exception as nn_error:
             # If nearest neighbors fails, raise error
             raise ProcessingError(

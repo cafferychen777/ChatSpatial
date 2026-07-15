@@ -279,7 +279,7 @@ async def _annotate_with_singler(
         )
 
     if use_integrated and isinstance(ref_data, list):
-        single_results, integrated = singler.annotate_integrated(
+        _single_results, integrated = singler.annotate_integrated(
             test_mat,
             ref_data=ref_data,
             ref_labels=ref_labels,
@@ -2009,7 +2009,7 @@ def _convert_custom_markers_to_gs(
         )
 
     # Get robjects and converters from validation
-    robjects, pandas2ri, _, _, localconverter, default_converter, openrlib, _ = (
+    robjects, pandas2ri, _, _, localconverter, _, openrlib, _ = (
         validate_r_environment(ctx)
     )
 
@@ -2313,7 +2313,7 @@ async def _annotate_with_sctype(
     # Average confidence per cell type in O(n) time.
     confidence_sums: dict[str, float] = {}
     confidence_counts: dict[str, int] = {}
-    for ct, conf in zip(per_cell_types, per_cell_confidence, strict=False):
+    for ct, conf in zip(per_cell_types, per_cell_confidence, strict=True):
         confidence_sums[ct] = confidence_sums.get(ct, 0.0) + float(conf)
         confidence_counts[ct] = confidence_counts.get(ct, 0) + 1
     confidence_by_celltype = {
