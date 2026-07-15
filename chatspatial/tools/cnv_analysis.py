@@ -4,9 +4,10 @@ Copy Number Variation (CNV) analysis tools for spatial transcriptomics data.
 
 import glob
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import pandas as pd
 import scanpy as sc
 
 from ..models.analysis import CNVResult
@@ -64,6 +65,48 @@ def _validate_gene_positions(adata: "ad.AnnData") -> None:
             "CNV inference requires genomic positions in adata.var. Missing columns: "
             f"{missing_position_columns}. Expected columns: chromosome, start, end."
         )
+    if not adata.var_names.is_unique:
+        raise DataCompatibilityError(
+            "CNV inference requires unique gene names for position-aligned results."
+        )
+
+
+def _expand_gene_aligned_layer(
+    layer: Any,
+    source_genes: pd.Index,
+    target_genes: pd.Index,
+    n_obs: int,
+) -> Any:
+    """Expand a gene-aligned layer to a target gene index without reordering values."""
+    import scipy.sparse as sp_sparse
+
+    if not source_genes.is_unique or not target_genes.is_unique:
+        raise DataCompatibilityError(
+            "Gene-aligned CNV results require unique source and target gene names."
+        )
+    if len(layer.shape) != 2 or layer.shape != (n_obs, len(source_genes)):
+        raise DataCompatibilityError(
+            "Gene-level CNV matrix does not match its source axes: "
+            f"received {layer.shape}, expected {(n_obs, len(source_genes))}."
+        )
+
+    target_positions = target_genes.get_indexer(source_genes)
+    if (target_positions < 0).any():
+        missing = source_genes[target_positions < 0].tolist()
+        raise DataCompatibilityError(
+            f"CNV result genes are missing from the target dataset: {missing[:10]}."
+        )
+
+    if sp_sparse.issparse(layer):
+        expanded = sp_sparse.lil_matrix(
+            (n_obs, len(target_genes)), dtype=layer.dtype
+        )
+        expanded[:, target_positions] = layer
+        return expanded.tocsr()
+
+    expanded = np.zeros((n_obs, len(target_genes)), dtype=layer.dtype)
+    expanded[:, target_positions] = layer
+    return expanded
 
 
 def _build_infercnvpy_workspace(adata: "ad.AnnData") -> "ad.AnnData":
@@ -161,8 +204,23 @@ async def _infer_cnv_infercnvpy(
     # Build a minimal workspace to avoid copying unrelated layers/obsm/uns.
     adata_cnv = _build_infercnvpy_workspace(adata)
 
-    if params.exclude_chromosomes:
-        genes_to_keep = ~adata_cnv.var["chromosome"].isin(params.exclude_chromosomes)
+    has_complete_position = adata_cnv.var[["chromosome", "start", "end"]].notna().all(axis=1)
+    n_missing_positions = int((~has_complete_position).sum())
+    if n_missing_positions:
+        await ctx.warning(
+            f"Excluding {n_missing_positions} genes with incomplete genomic positions."
+        )
+
+    genes_to_keep = has_complete_position
+    if params.exclude_chromosomes is not None:
+        genes_to_keep &= ~adata_cnv.var["chromosome"].isin(
+            params.exclude_chromosomes
+        )
+    if not genes_to_keep.any():
+        raise DataCompatibilityError(
+            "No genes with usable genomic positions remain after chromosome filtering."
+        )
+    if not genes_to_keep.all():
         adata_cnv = adata_cnv[:, genes_to_keep].copy()
 
     cnv.tl.infercnv(
@@ -172,6 +230,9 @@ async def _infer_cnv_infercnvpy(
         window_size=params.window_size,
         step=params.step,
         dynamic_threshold=params.dynamic_threshold,
+        # Filtering is performed above so the user-facing None value means
+        # "exclude nothing" instead of inheriting infercnvpy's chrX/chrY default.
+        exclude_chromosomes=None,
     )
 
     # Optional: Cluster cells by CNV pattern
@@ -296,26 +357,19 @@ async def _infer_cnv_infercnvpy(
     if cnv_score_key == "X_cnv" and "X_cnv" in adata_cnv.obsm:
         adata.obsm["X_cnv"] = adata_cnv.obsm["X_cnv"]
     elif cnv_score_key == "cnv" and "cnv" in adata_cnv.layers:
-        import scipy.sparse as sp_sparse
-
         cnv_layer = adata_cnv.layers["cnv"]
-        if adata_cnv.n_vars == adata.n_vars:
+        if adata_cnv.var_names.equals(adata.var_names):
             # No gene filtering — direct copy
             adata.layers["cnv"] = cnv_layer
         else:
             # Genes were filtered (e.g., exclude_chromosomes).
             # Pad to original shape; excluded genes get CNV score of 0.
-            gene_mask = np.isin(adata.var_names, adata_cnv.var_names)
-            if sp_sparse.issparse(cnv_layer):
-                full = sp_sparse.lil_matrix(
-                    (adata.n_obs, adata.n_vars), dtype=cnv_layer.dtype
-                )
-                full[:, gene_mask] = cnv_layer
-                adata.layers["cnv"] = full.tocsr()
-            else:
-                full = np.zeros((adata.n_obs, adata.n_vars), dtype=cnv_layer.dtype)
-                full[:, gene_mask] = cnv_layer
-                adata.layers["cnv"] = full
+            adata.layers["cnv"] = _expand_gene_aligned_layer(
+                cnv_layer,
+                adata_cnv.var_names,
+                adata.var_names,
+                adata.n_obs,
+            )
 
     # Store CNV metadata (required for infercnvpy plotting functions)
     if "cnv" in adata_cnv.uns:
@@ -427,8 +481,6 @@ def _infer_cnv_numbat(
     # Check if we have the raw allele dataframe in adata.uns
     if "numbat_allele_data_raw" in adata.uns:
         # Use pre-prepared long-format allele data
-        import pandas as pd
-
         df_allele = adata.uns["numbat_allele_data_raw"]
 
         # Validate required columns
@@ -562,8 +614,6 @@ def _infer_cnv_numbat(
         # Read results from output files (Numbat saves to TSV files, not R objects)
         # The suffix (e.g., _2) is the iteration number and varies by run.
         # Discover the actual iteration by finding clone_post_*.tsv files.
-        import pandas as pd
-
         clone_post_files = glob.glob(os.path.join(out_dir, "clone_post_*.tsv"))
         if not clone_post_files:
             raise DataNotFoundError(f"No Numbat clone_post output found in: {out_dir}")

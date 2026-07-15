@@ -11,6 +11,7 @@ from scipy import sparse
 
 from chatspatial.models.data import CNVParameters
 from chatspatial.tools import cnv_analysis as cnv
+from chatspatial.tools.cnv_analysis import _expand_gene_aligned_layer
 from chatspatial.utils.exceptions import (
     DataCompatibilityError,
     DependencyError,
@@ -358,11 +359,12 @@ async def test_infer_cnv_infercnvpy_excludes_chromosomes_before_inference(
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
     _add_gene_positions(adata, ["chr1"] * 10 + ["chr2"] * 10 + ["chrM"] * 4)
 
-    seen = {"n_vars": None}
+    seen = {"n_vars": None, "exclude_chromosomes": "unset"}
     fake_infercnvpy = ModuleType("infercnvpy")
 
     def _fake_infercnv(adata_obj, **_kwargs):
         seen["n_vars"] = adata_obj.n_vars
+        seen["exclude_chromosomes"] = _kwargs.get("exclude_chromosomes")
         adata_obj.obsm["X_cnv"] = np.ones((adata_obj.n_obs, 3), dtype=float)
         adata_obj.uns["cnv"] = {"ok": True}
 
@@ -386,7 +388,66 @@ async def test_infer_cnv_infercnvpy_excludes_chromosomes_before_inference(
     )
 
     assert seen["n_vars"] == 20
+    assert seen["exclude_chromosomes"] is None
     assert out.n_genes_analyzed == 20
+
+
+@pytest.mark.asyncio
+async def test_infer_cnv_none_exclusion_keeps_sex_chromosomes(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
+    _add_gene_positions(adata, ["chr1"] * 20 + ["chrX"] * 2 + ["chrY"] * 2)
+    captured: dict[str, object] = {}
+
+    fake_infercnvpy = ModuleType("infercnvpy")
+
+    def _fake_infercnv(adata_obj, **kwargs):
+        captured["genes"] = adata_obj.var_names.tolist()
+        captured["exclude_chromosomes"] = kwargs["exclude_chromosomes"]
+        adata_obj.obsm["X_cnv"] = np.ones((adata_obj.n_obs, 2), dtype=float)
+        adata_obj.uns["cnv"] = {"ok": True}
+
+    fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
+    monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
+    monkeypatch.setattr(cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
+    monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
+
+    out = await cnv.infer_cnv(
+        "d_keep_sex",
+        DummyCtx(adata),
+        CNVParameters(
+            method="infercnvpy",
+            reference_key="cell_type",
+            reference_categories=["A"],
+            exclude_chromosomes=None,
+            cluster_cells=False,
+            dendrogram=False,
+        ),
+    )
+
+    assert captured["genes"] == adata.var_names.tolist()
+    assert captured["exclude_chromosomes"] is None
+    assert out.n_genes_analyzed == adata.n_vars
+
+
+@pytest.mark.parametrize("sparse_input", [False, True])
+def test_expand_gene_aligned_layer_maps_columns_by_gene_name(sparse_input):
+    source_genes = pd.Index(["g3", "g1"])
+    target_genes = pd.Index(["g1", "g2", "g3"])
+    values = np.array([[30.0, 10.0], [31.0, 11.0]], dtype=np.float32)
+    layer = sparse.csr_matrix(values) if sparse_input else values
+
+    expanded = _expand_gene_aligned_layer(layer, source_genes, target_genes, n_obs=2)
+    if sparse.issparse(expanded):
+        expanded = expanded.toarray()
+
+    np.testing.assert_array_equal(
+        expanded,
+        np.array([[10.0, 0.0, 30.0], [11.0, 0.0, 31.0]], dtype=np.float32),
+    )
 
 
 @pytest.mark.asyncio
