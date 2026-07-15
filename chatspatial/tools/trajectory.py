@@ -11,6 +11,7 @@ Key functionality:
 
 from typing import TYPE_CHECKING, Any, Optional
 
+import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -30,6 +31,7 @@ from ..utils.compat import ensure_cellrank_compat
 from ..utils.compute import ensure_diffmap, ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require
 from ..utils.exceptions import (
+    DataCompatibilityError,
     DataError,
     DataNotFoundError,
     ParameterError,
@@ -148,7 +150,6 @@ def infer_spatial_trajectory_cellrank(
 
     try:
         import cellrank as cr
-        import numpy as np
         from scipy.sparse import csr_matrix
         from scipy.spatial.distance import pdist, squareform
 
@@ -330,6 +331,104 @@ def infer_spatial_trajectory_cellrank(
         cleanup_compat()
 
 
+def _normalize_palantir_matrix(
+    matrix: object,
+    obs_names: pd.Index,
+    *,
+    name: str,
+) -> pd.DataFrame:
+    """Validate and align a Palantir cell-by-feature matrix."""
+    expected_index = pd.Index(obs_names)
+    if not expected_index.is_unique:
+        raise DataCompatibilityError(
+            "Palantir requires unique observation names for result alignment."
+        )
+
+    if isinstance(matrix, pd.DataFrame):
+        if not matrix.index.is_unique:
+            raise DataCompatibilityError(
+                f"Palantir {name} contains duplicate cell identifiers."
+            )
+        missing = expected_index.difference(matrix.index)
+        unexpected = matrix.index.difference(expected_index)
+        if len(missing) or len(unexpected):
+            raise DataCompatibilityError(
+                f"Palantir {name} cells do not match the dataset: "
+                f"{len(missing)} missing and {len(unexpected)} unexpected."
+            )
+        normalized = matrix.reindex(expected_index)
+    else:
+        try:
+            values = np.asarray(matrix, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise DataCompatibilityError(
+                f"Palantir {name} must be numeric."
+            ) from exc
+        if values.ndim != 2 or values.shape[0] != len(expected_index):
+            raise DataCompatibilityError(
+                f"Palantir {name} has shape {values.shape}; expected "
+                f"({len(expected_index)}, n_features)."
+            )
+        normalized = pd.DataFrame(values, index=expected_index)
+
+    if normalized.shape[1] == 0:
+        raise DataCompatibilityError(f"Palantir {name} contains no components.")
+    try:
+        values = normalized.to_numpy(dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise DataCompatibilityError(f"Palantir {name} must be numeric.") from exc
+    if not np.isfinite(values).all():
+        raise DataCompatibilityError(
+            f"Palantir {name} contains non-finite values."
+        )
+    return pd.DataFrame(values, index=expected_index, columns=normalized.columns)
+
+
+def _normalize_palantir_pseudotime(
+    pseudotime: object, obs_names: pd.Index
+) -> pd.Series:
+    """Validate and align Palantir pseudotime to the AnnData observation axis."""
+    expected_index = pd.Index(obs_names)
+    if isinstance(pseudotime, pd.Series):
+        if not pseudotime.index.is_unique:
+            raise DataCompatibilityError(
+                "Palantir pseudotime contains duplicate cell identifiers."
+            )
+        missing = expected_index.difference(pseudotime.index)
+        unexpected = pseudotime.index.difference(expected_index)
+        if len(missing) or len(unexpected):
+            raise DataCompatibilityError(
+                "Palantir pseudotime cells do not match the dataset."
+            )
+        aligned = pseudotime.reindex(expected_index)
+    else:
+        try:
+            values = np.asarray(pseudotime, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise DataCompatibilityError(
+                "Palantir pseudotime must be numeric."
+            ) from exc
+        if values.ndim != 1 or len(values) != len(expected_index):
+            raise DataCompatibilityError(
+                "Palantir pseudotime must contain exactly one value per cell."
+            )
+        aligned = pd.Series(values, index=expected_index)
+
+    try:
+        values = aligned.to_numpy(dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise DataCompatibilityError("Palantir pseudotime must be numeric.") from exc
+    if (
+        not np.isfinite(values).all()
+        or (values < -1e-10).any()
+        or (values > 1 + 1e-10).any()
+    ):
+        raise DataCompatibilityError(
+            "Palantir pseudotime must contain finite values in [0, 1]."
+        )
+    return pd.Series(np.clip(values, 0, 1), index=expected_index)
+
+
 def infer_pseudotime_palantir(
     adata: "ad.AnnData",
     root_cells: Optional[list[str]] = None,
@@ -362,7 +461,11 @@ def infer_pseudotime_palantir(
     dm_res = palantir.utils.run_diffusion_maps(
         pca_df, n_components=n_diffusion_components
     )
-    ms_data = pd.DataFrame(dm_res["EigenVectors"], index=pca_df.index)
+    ms_data = _normalize_palantir_matrix(
+        palantir.utils.determine_multiscale_space(dm_res),
+        adata.obs_names,
+        name="multiscale diffusion space",
+    )
 
     if root_cells is not None and len(root_cells) > 0:
         if root_cells[0] not in ms_data.index:
@@ -384,8 +487,22 @@ def infer_pseudotime_palantir(
         ms_data, start_cell, num_waypoints=num_waypoints
     )
 
-    adata.obs["palantir_pseudotime"] = pr_res.pseudotime
-    adata.obsm["palantir_branch_probs"] = pr_res.branch_probs
+    pseudotime = _normalize_palantir_pseudotime(
+        pr_res.pseudotime, adata.obs_names
+    )
+    branch_probs = _normalize_palantir_matrix(
+        pr_res.branch_probs,
+        adata.obs_names,
+        name="branch probabilities",
+    )
+    branch_values = branch_probs.to_numpy()
+    if (branch_values < -1e-10).any() or (branch_values > 1 + 1e-10).any():
+        raise DataCompatibilityError(
+            "Palantir branch probabilities must lie in [0, 1]."
+        )
+
+    adata.obs["palantir_pseudotime"] = pseudotime
+    adata.obsm["palantir_branch_probs"] = branch_probs.clip(0, 1)
 
     return adata
 
@@ -407,7 +524,6 @@ def compute_dpt_trajectory(
         ParameterError: If specified root cell not found.
         ProcessingError: If DPT computation fails.
     """
-    import numpy as np
     import scanpy as sc
 
     ensure_pca(adata)

@@ -12,6 +12,7 @@ import pytest
 from chatspatial.tools import trajectory as traj
 from chatspatial.tools import velocity as vel
 from chatspatial.utils.exceptions import (
+    DataCompatibilityError,
     DataError,
     DataNotFoundError,
     ParameterError,
@@ -148,7 +149,10 @@ def test_infer_pseudotime_palantir_root_validation(minimal_spatial_adata, monkey
     fake_palantir.utils = SimpleNamespace(
         run_diffusion_maps=lambda *_args, **_kwargs: {
             "EigenVectors": adata.obsm["X_pca"]
-        }
+        },
+        determine_multiscale_space=lambda result: pd.DataFrame(
+            result["EigenVectors"], index=adata.obs_names
+        ),
     )
     fake_palantir.core = SimpleNamespace(run_palantir=lambda *_args, **_kwargs: _PR())
     monkeypatch.setitem(__import__("sys").modules, "palantir", fake_palantir)
@@ -1342,7 +1346,10 @@ def test_infer_pseudotime_palantir_valid_root_populates_outputs(
 
     fake_palantir = ModuleType("palantir")
     fake_palantir.utils = SimpleNamespace(
-        run_diffusion_maps=lambda *_a, **_k: {"EigenVectors": adata.obsm["X_pca"]}
+        run_diffusion_maps=lambda *_a, **_k: {"EigenVectors": adata.obsm["X_pca"]},
+        determine_multiscale_space=lambda result: pd.DataFrame(
+            result["EigenVectors"], index=adata.obs_names
+        ),
     )
 
     def _fake_run_palantir(_ms_data, start_cell, num_waypoints):
@@ -1372,15 +1379,23 @@ def test_infer_pseudotime_palantir_auto_selects_root_from_first_component(
     captured: dict[str, object] = {}
 
     eigen = np.zeros((adata.n_obs, 3), dtype=float)
-    eigen[5, 0] = 10.0
+    eigen[1, 0] = 10.0
+    multiscale = np.zeros((adata.n_obs, 2), dtype=float)
+    multiscale[5, 0] = -4.0
 
     class _PR:
         pseudotime = pd.Series(np.linspace(0, 1, adata.n_obs), index=adata.obs_names)
         branch_probs = np.ones((adata.n_obs, 2))
 
     fake_palantir = ModuleType("palantir")
+
+    def _determine_multiscale_space(_result):
+        captured["used_multiscale"] = True
+        return pd.DataFrame(multiscale, index=adata.obs_names)
+
     fake_palantir.utils = SimpleNamespace(
-        run_diffusion_maps=lambda *_a, **_k: {"EigenVectors": eigen}
+        run_diffusion_maps=lambda *_a, **_k: {"EigenVectors": eigen},
+        determine_multiscale_space=_determine_multiscale_space,
     )
 
     def _fake_run_palantir(_ms_data, start_cell, num_waypoints):
@@ -1393,8 +1408,31 @@ def test_infer_pseudotime_palantir_auto_selects_root_from_first_component(
 
     out = traj.infer_pseudotime_palantir(adata, root_cells=None, num_waypoints=77)
     assert out is adata
+    assert captured["used_multiscale"] is True
     assert captured["start_cell"] == adata.obs_names[5]
     assert captured["num_waypoints"] == 77
+
+
+def test_normalize_palantir_outputs_aligns_labels_and_rejects_invalid_values():
+    obs_names = pd.Index(["c1", "c2", "c3"])
+    matrix = pd.DataFrame(
+        {"fate": [0.3, 0.1, 0.2]}, index=["c3", "c1", "c2"]
+    )
+
+    aligned = traj._normalize_palantir_matrix(
+        matrix, obs_names, name="branch probabilities"
+    )
+    np.testing.assert_allclose(aligned["fate"], [0.1, 0.2, 0.3])
+
+    with pytest.raises(DataCompatibilityError, match=r"values in \[0, 1\]"):
+        traj._normalize_palantir_pseudotime(
+            pd.Series([0.0, 0.5, 1.2], index=obs_names), obs_names
+        )
+
+    with pytest.raises(DataCompatibilityError, match="cells do not match"):
+        traj._normalize_palantir_matrix(
+            matrix.iloc[:-1], obs_names, name="branch probabilities"
+        )
 
 
 def test_compute_dpt_trajectory_valid_root_and_fillna(

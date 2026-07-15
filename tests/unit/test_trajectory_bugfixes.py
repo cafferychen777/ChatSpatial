@@ -67,7 +67,10 @@ class TestPalantirAutoRoot:
 
         fake_palantir = types.ModuleType("palantir")
         fake_palantir.utils = types.SimpleNamespace(
-            run_diffusion_maps=fake_run_diffusion_maps
+            run_diffusion_maps=fake_run_diffusion_maps,
+            determine_multiscale_space=lambda result: pd.DataFrame(
+                result["EigenVectors"], index=adata.obs_names
+            ),
         )
         fake_palantir.core = types.SimpleNamespace(
             run_palantir=fake_run_palantir
@@ -130,7 +133,10 @@ class TestPalantirAutoRoot:
 
         fake_palantir = types.ModuleType("palantir")
         fake_palantir.utils = types.SimpleNamespace(
-            run_diffusion_maps=fake_run_diffusion_maps
+            run_diffusion_maps=fake_run_diffusion_maps,
+            determine_multiscale_space=lambda result: pd.DataFrame(
+                result["EigenVectors"], index=adata.obs_names
+            ),
         )
         fake_palantir.core = types.SimpleNamespace(
             run_palantir=fake_run_palantir
