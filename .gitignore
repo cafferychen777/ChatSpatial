@@ -181,6 +181,7 @@ bower_components/
 *.tsv
 *.tsv.gz
 *.txt
+!constraints/shared-py312.txt
 *.txt.gz
 *.xlsx
 *.xls

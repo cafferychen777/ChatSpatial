@@ -70,7 +70,7 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     ),
     "SpaGCN": DependencyInfo(
         "SpaGCN",
-        "pip install SpaGCN",
+        "pip install 'chatspatial[spatial-domains]'",
         "Spatial domain identification using graph convolutional networks",
     ),
     "STAGATE": DependencyInfo(
@@ -85,7 +85,7 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     ),
     "banksy": DependencyInfo(
         "banksy",
-        "pip install pybanksy",
+        "pip install 'chatspatial[spatial-domains]'",
         "Spatial domain identification using neighborhood feature augmentation",
     ),
     "paste": DependencyInfo(
@@ -131,10 +131,14 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "Variational inference for RNA velocity",
     ),
     "cellrank": DependencyInfo(
-        "cellrank", "pip install cellrank", "Trajectory inference using RNA velocity"
+        "cellrank",
+        "pip install 'chatspatial[trajectory]'",
+        "Trajectory inference using RNA velocity",
     ),
     "palantir": DependencyInfo(
-        "palantir", "pip install palantir", "Trajectory inference for cell fate"
+        "palantir",
+        "pip install 'chatspatial[trajectory]'",
+        "Trajectory inference for cell fate",
     ),
     # Annotation
     "singler": DependencyInfo(
@@ -216,7 +220,9 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     "dask": DependencyInfo("dask", "pip install dask", "Parallel computing library"),
     "ot": DependencyInfo("ot", "pip install POT", "Python Optimal Transport library"),
     "louvain": DependencyInfo(
-        "louvain", "pip install louvain", "Louvain community detection algorithm"
+        "louvain",
+        "pip install 'chatspatial[spatial-domains]'",
+        "Louvain community detection algorithm",
     ),
     "pydeseq2": DependencyInfo(
         "pydeseq2", "pip install pydeseq2", "Python implementation of DESeq2"
@@ -225,7 +231,9 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "enrichmap", "pip install enrichmap", "Spatial enrichment mapping"
     ),
     "pygam": DependencyInfo(
-        "pygam", "pip install pygam", "Generalized additive models"
+        "pygam",
+        "pip install 'chatspatial[trajectory]'",
+        "Generalized additive models",
     ),
     "skgstat": DependencyInfo(
         "skgstat", "pip install scikit-gstat", "Geostatistical analysis toolkit"

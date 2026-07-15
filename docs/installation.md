@@ -62,7 +62,7 @@ uv pip install chatspatial
 |--------|---------|----------|
 | **Standard** | `uv pip install chatspatial` | You want the MCP server, data loading, preprocessing, embeddings, visualization, and core analysis |
 | Method extras | `uv pip install 'chatspatial[cell-communication,velocity]'` | You need specific advanced method families |
-| Full | `uv pip install 'chatspatial[full]'` | You want the broadest method coverage on a workstation and accept a large install. **Requires R ≥ 4.4 on PATH** (see below) |
+| Full | `uv pip install 'chatspatial[full]'` | You want the broadest mutually compatible PyPI method set on a workstation. **Requires R ≥ 4.4 on PATH** (see below) |
 
 <details>
 <summary>Alternative: pip</summary>
@@ -82,14 +82,36 @@ Install only the method families you plan to use:
 ```bash
 uv pip install 'chatspatial[cell-communication]'  # LIANA+, CellPhoneDB, FastCCC
 uv pip install 'chatspatial[velocity]'            # scVelo
+uv pip install 'chatspatial[trajectory]'          # CellRank, Palantir
 uv pip install 'chatspatial[deep-learning]'       # scVI, scANVI, VeloVI, DestVI backend
 uv pip install 'chatspatial[integration]'         # Harmony, BBKNN, Scanorama
 uv pip install 'chatspatial[deconvolution]'       # FlashDeconv, Cell2location
 uv pip install 'chatspatial[spatial-stats]'       # PySAL/ESDA extensions
+uv pip install 'chatspatial[spatial-domains]'     # SpaGCN and BANKSY
 ```
 
 ChatSpatial tools fail with targeted installation guidance if you call a method
 whose optional dependency is not installed.
+
+FastCCC and the PyPI release of pyGPCCA currently require incompatible Jinja2
+versions. Keep `cell-communication`/`full` and `trajectory` in separate runtime
+environments for standard PyPI installations. Repository developers who need
+both use the pinned shared-environment constraints documented below.
+
+### Shared repository environment
+
+The workspace environment intentionally combines development, documentation,
+and every optional method family. Install it with the repository constraint
+set so upstream metadata cannot leave only part of a dependency family upgraded:
+
+```bash
+# Replace the stale PyPI metadata even when pyGPCCA 1.0.4 is already installed.
+python -m pip install --force-reinstall --no-deps \
+  -c constraints/shared-py312.txt pygpcca
+
+python -m pip install -c constraints/shared-py312.txt \
+  -e '.[full,trajectory,spatial-domains,dev]'
+```
 
 ---
 

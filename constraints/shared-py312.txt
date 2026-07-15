@@ -1,0 +1,13 @@
+# Coherent versions for the combined Python 3.12 repository environment.
+# pyGPCCA main has removed its obsolete Jinja2==3.0.3 dependency, allowing it
+# to coexist with FastCCC and the documentation stack.
+cellrank==2.3.2
+fastccc==1.0.1
+igraph==0.11.9
+ktplotspy==0.3.5
+leidenalg==0.10.2
+louvain==0.8.2
+pybanksy==1.3.5
+pygpcca @ git+https://github.com/msmdev/pyGPCCA.git@773c463cc5043a5d40e6f31bbbc20f4e49587008
+python-igraph==0.11.9
+scipy==1.16.3

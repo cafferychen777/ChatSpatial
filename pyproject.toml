@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,8 @@ name = "chatspatial"
 version = "1.2.10"
 description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "Chen Yang", email = "cafferychen777@tamu.edu"}
 ]
@@ -15,7 +16,6 @@ keywords = ["spatial-transcriptomics", "single-cell", "mcp", "llm", "bioinformat
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
@@ -56,9 +56,6 @@ dependencies = [
     "click>=8.0.0",
     "aiohttp>=3.8.0",
     
-    # Version constraints
-    "jinja2>=3.0.0",  # Handle conflict with pygpcca
-    
     # Heavy method-specific packages live in optional extras below. The default
     # install should start the MCP server quickly and let tools report clear
     # installation guidance only when an optional method is requested.
@@ -77,11 +74,24 @@ velocity = [
     "scvelo>=0.2.5",
 ]
 
+# Trajectory methods are separate from [full] because the latest FastCCC and
+# PyPI pyGPCCA releases require mutually exclusive Jinja2 versions. The shared
+# developer constraints file uses current upstream pyGPCCA source when both
+# method families are needed in one environment.
+trajectory = [
+    "cellrank>=2.0.0,<2.3; python_version < '3.12'",
+    "cellrank>=2.3.2,<3.0; python_version >= '3.12'",
+    "palantir>=1.0.0",
+    "scipy>=1.14.1,<1.17",
+    "pygam>=0.12.0,<0.13",
+]
+
 # Cell-cell communication methods
 cell-communication = [
     "liana",
     "cellphonedb>=5.0.0,<6.0",
-    "fastccc>=0.1.0",
+    "fastccc>=1.0.1,<2.0",
+    "ktplotspy>=0.3.5,<0.4",
 ]
 
 # Batch integration methods that do not require the deep-learning stack
@@ -106,7 +116,8 @@ deconvolution = [
     "cell2location>=0.1.4",
 ]
 
-# Full installation with all features (recommended)
+# Broadest mutually compatible PyPI installation. CellRank lives in the
+# separate [trajectory] extra because of the upstream pyGPCCA/FastCCC conflict.
 full = [
     # ========== High-Frequency Method Extras ==========
     "scvi-tools>=1.0.0,<2.0",
@@ -114,7 +125,8 @@ full = [
     "scvelo>=0.2.5",
     "liana",
     "cellphonedb>=5.0.0,<6.0",
-    "fastccc>=0.1.0",
+    "fastccc>=1.0.1,<2.0",
+    "ktplotspy>=0.3.5,<0.4",
     "harmonypy>=0.0.9",
     "bbknn>=1.5.0",
     "flashdeconv>=0.1.0",
@@ -129,19 +141,14 @@ full = [
 
     # ========== Spatial Domain Identification ==========
     "GraphST>=1.1.0",  # Graph self-supervised contrastive learning (no louvain dependency)
-    # Note: SpaGCN/BANKSY moved to [spatial-domains] due to dependency issues
-    # SpaGCN requires louvain which has compilation issues on macOS
-    # BANKSY requires numpy<2.0 which conflicts with other packages
+    # SpaGCN and BANKSY live in [spatial-domains] so their graph stack can use
+    # a coherent igraph/leidenalg compatibility range.
 
     # ========== Advanced Deconvolution ==========
     "cell2location>=0.1.4",  # Bayesian deconvolution (0.1.4+ fixes scvi-tools one_hot compatibility)
     
     # ========== Advanced Trajectory Analysis ==========
-    "cellrank>=2.0.0,<3.0",  # RNA velocity-based fate mapping
     "palantir>=1.0.0",  # Probabilistic trajectory inference
-    
-    # CellRank acceleration: petsc4py/slepc4py moved to [hpc] - requires system PETSc/SLEPc
-    # CellRank works without these, just slower for some operations
     
     # ========== Additional Integration Methods ==========
     "scanorama>=1.7.0",  # Cross-dataset integration
@@ -187,7 +194,6 @@ full = [
     # ========== Spatial Enrichment Extensions ==========
     "enrichmap",  # Enrichment map visualization (Python >=3.10)
     "statannotations>=0.2.0",  # Statistical annotations for plots
-    "pygam>=0.8.0",  # Generalized additive models
     "scikit-gstat>=1.0.0",  # Geostatistical analysis
     "adjustText>=0.8.0",  # Automatic label placement
     "splot>=1.1.0",  # Spatial plotting
@@ -202,15 +208,16 @@ full = [
 # Install R package: R -e 'install.packages("sctransform")'
 # rpy2 is already included in the [full] optional dependencies
 
-# Spatial domain methods with known dependency issues
-# - SpaGCN: directly depends on louvain which fails to compile on newer macOS/Clang
-#   (louvain 0.7.x has C function prototype issues, fixed in 0.8.0 but SpaGCN pins old version)
-# - BANKSY: requires numpy<2.0 which conflicts with many modern packages
-#   (pybanksy works with numpy 2.x despite the constraint, see GitHub issue #37)
-# Install igraph first if issues: brew install igraph (macOS) or apt install libigraph-dev (Linux)
+# Spatial domain methods. SpaGCN depends on louvain, whose current release
+# requires igraph <0.12. Pin the complete graph stack together so the resolver
+# cannot later upgrade only one member and leave an inconsistent environment.
 spatial-domains = [
-    "SpaGCN>=1.2.5,<2.0",  # Graph convolutional network (requires louvain)
-    "pybanksy>=1.3.4",  # BANKSY: spatial feature augmentation (declares numpy<2.0)
+    "SpaGCN>=1.2.7,<2.0",
+    "louvain>=0.8.2,<0.9",
+    "igraph>=0.11.8,<0.12",
+    "python-igraph>=0.11.8,<0.12",
+    "leidenalg>=0.10.2,<0.11",
+    "pybanksy>=1.3.5,<2.0",
 ]
 
 # HPC acceleration (requires system PETSc/SLEPc libraries)
@@ -226,6 +233,7 @@ dev = [
     "pytest-asyncio>=0.23.0,<2.0",
     "black>=22.0.0,<26.0",
     "mypy>=1.0.0,<2.0",
+    "types-requests>=2.31.0",
     "ruff>=0.1.0",
     "isort>=5.0.0",
     "pre-commit>=3.0.0,<5.0",
@@ -256,12 +264,6 @@ markers = [
     "e2e: End-to-end workflow tests through public tool interfaces",
     "slow: Heavy dependency or long-running tests (excluded by default)",
 ]
-# Suppress known upstream dependency version warnings
-filterwarnings = [
-    "ignore:.*jinja2.*:UserWarning",
-    "ignore:.*numpy.*version.*:UserWarning",
-]
-
 [tool.black]
 line-length = 88
 target-version = ["py311"]
