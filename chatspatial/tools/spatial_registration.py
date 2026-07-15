@@ -150,7 +150,7 @@ def _patch_paste_line_search_for_pot(pst) -> None:
             **kwargs,
         )
 
-    compatible_my_fused_gromov_wasserstein._chatspatial_pot_compat = True
+    setattr(compatible_my_fused_gromov_wasserstein, "_chatspatial_pot_compat", True)
     paste_module["my_fused_gromov_wasserstein"] = compatible_my_fused_gromov_wasserstein
 
 
@@ -630,6 +630,7 @@ async def register_spatial_slices_mcp(
 
         # Record all parameters that affect registration results
         # so downstream users can reproduce the exact experiment.
+        method_params: dict[str, object]
         if method == "paste":
             method_params = {
                 "paste_alpha": params.paste_alpha,

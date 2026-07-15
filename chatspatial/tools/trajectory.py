@@ -523,7 +523,10 @@ async def analyze_trajectory(
                 adata = infer_spatial_trajectory_cellrank(
                     adata,
                     spatial_weight=params.spatial_weight,
-                    kernel_weights=tuple(params.cellrank_kernel_weights),
+                    kernel_weights=(
+                        params.cellrank_kernel_weights[0],
+                        params.cellrank_kernel_weights[1],
+                    ),
                     n_states=params.cellrank_n_states,
                 )
             pseudotime_key = "pseudotime"

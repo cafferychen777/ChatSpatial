@@ -1550,7 +1550,7 @@ async def annotate_cell_types(
         results_keys_dict["obsm"].append(tangram_ct_pred_key)
 
     # Prepare parameters dict (only scientifically important ones)
-    parameters_dict = {}
+    parameters_dict: dict[str, object] = {}
     if params.method == "tangram":
         parameters_dict = {
             "use_gpu": params.tangram_use_gpu,

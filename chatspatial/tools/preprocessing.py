@@ -129,7 +129,7 @@ async def preprocess_data(
 
     # Store original QC metrics before filtering (including mito stats)
     mito_pct_col = "pct_counts_mt" if "pct_counts_mt" in adata.obs else None
-    qc_metrics = {
+    qc_metrics: dict[str, int | float | bool | str] = {
         "n_cells_before_filtering": int(adata.n_obs),
         "n_genes_before_filtering": int(adata.n_vars),
         "median_genes_per_cell": float(np.median(adata.obs.n_genes_by_counts)),
@@ -183,7 +183,7 @@ async def preprocess_data(
         )
 
     # Apply gene subsampling if requested (after HVG selection)
-    gene_subsample_requested = params.subsample_genes is not None
+    requested_gene_count = params.subsample_genes
 
     # 3. Scrublet doublet detection (for single-cell resolution data)
     # Scrublet works on raw counts before normalization
@@ -672,8 +672,8 @@ async def preprocess_data(
         current_hvg_mask = adata.var["highly_variable"].to_numpy(dtype=bool)
         current_hvg_count = int(current_hvg_mask.sum())
 
-        if gene_subsample_requested:
-            n_hvgs = min(params.subsample_genes, current_hvg_count)
+        if requested_gene_count is not None:
+            n_hvgs = min(requested_gene_count, current_hvg_count)
         else:
             n_hvgs = current_hvg_count
 
@@ -693,9 +693,9 @@ async def preprocess_data(
             adata.var["highly_variable"] = new_mask
     else:
         # Determine number of HVGs to select
-        if gene_subsample_requested:
+        if requested_gene_count is not None:
             # User wants to subsample genes
-            n_hvgs = min(params.subsample_genes, adata.n_vars - 1, params.n_hvgs)
+            n_hvgs = min(requested_gene_count, adata.n_vars - 1, params.n_hvgs)
         else:
             # Use standard HVG selection
             n_hvgs = min(params.n_hvgs, adata.n_vars - 1)
@@ -725,7 +725,7 @@ async def preprocess_data(
     if not use_existing_sct_hvgs:
         # Check if we should use all genes (for very small gene sets like MERFISH)
         if adata.n_vars < 100:
-            if gene_subsample_requested and n_hvgs < adata.n_vars:
+            if requested_gene_count is not None and n_hvgs < adata.n_vars:
                 # Small panel but user explicitly wants fewer genes:
                 # rank by variance and select top n_hvgs.
                 _select_hvgs_by_variance(adata, n_hvgs)
@@ -764,7 +764,7 @@ async def preprocess_data(
             adata.var.loc[adata.var["ribo"], "highly_variable"] = False
 
     # Apply gene subsampling if requested
-    if gene_subsample_requested and params.subsample_genes < adata.n_vars:
+    if requested_gene_count is not None and requested_gene_count < adata.n_vars:
         # Ensure HVG selection was successful
         if "highly_variable" not in adata.var:
             raise ProcessingError(

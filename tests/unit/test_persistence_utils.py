@@ -39,7 +39,7 @@ def test_export_and_load_roundtrip_with_custom_path(tmp_path: Path):
     assert loaded.shape == adata.shape
 
 
-def test_export_sanitizes_ccc_dataframe_object_columns(tmp_path: Path):
+def test_export_sanitizes_uns_dataframe_object_columns(tmp_path: Path):
     adata = _make_adata()
     results = pd.DataFrame(
         {
@@ -58,7 +58,15 @@ def test_export_sanitizes_ccc_dataframe_object_columns(tmp_path: Path):
         "method": "cellphonedb",
         "results": results.copy(),
     }
-    out = tmp_path / "exported" / "ccc_roundtrip.h5ad"
+    adata.uns["gsea_results"] = pd.DataFrame(
+        {
+            "Term": ["Pathway A", "Pathway B"],
+            "ES": [None, {"unexpected": "object"}],
+            "NES": [1.2, -0.4],
+            "FDR q-val": pd.Series(["0.05", "0.20"], dtype=object),
+        }
+    )
+    out = tmp_path / "exported" / "uns_roundtrip.h5ad"
 
     exported = persistence.export_adata("d1", adata, out)
     loaded = persistence.load_adata_from_active("d1", exported)
@@ -69,6 +77,11 @@ def test_export_sanitizes_ccc_dataframe_object_columns(tmp_path: Path):
     assert list(loaded_results.index) == ["10", "11", "12", "13"]
     assert loaded_results["gene_a"].tolist() == ["CXCL12", "", "", "123"]
     assert np.issubdtype(loaded_results["T|T"].dtype, np.number)
+    loaded_gsea = loaded.uns["gsea_results"]
+    assert loaded_gsea["ES"].tolist() == ["", "{'unexpected': 'object'}"]
+    assert np.issubdtype(loaded_gsea["NES"].dtype, np.number)
+    assert loaded_gsea["FDR q-val"].tolist() == [0.05, 0.2]
+    assert np.issubdtype(loaded_gsea["FDR q-val"].dtype, np.number)
     assert adata.uns["ccc"]["results"].index.tolist() == [10, 11, 12, 13]
 
 

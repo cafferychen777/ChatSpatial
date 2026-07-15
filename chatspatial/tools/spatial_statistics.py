@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, get_args
 
 import anndata as ad
 import numpy as np
@@ -234,7 +234,7 @@ async def analyze_spatial_statistics(
         )
 
         # Prepare parameters dict (heterogeneous value types)
-        parameters_dict: dict[str, int | str | list[str]] = {
+        parameters_dict: dict[str, int | float | str | list[str]] = {
             "n_neighbors": params.n_neighbors,
         }
         if params.cluster_key:
@@ -631,18 +631,27 @@ def _extract_result_summary(
     elif analysis_type == "join_count":
         # Binary join count - always 2 categories
         summary["n_features_analyzed"] = 2
-        alpha = result.get("alpha", 0.05)
+        alpha_value = result.get("alpha", 0.05)
+        alpha = (
+            float(alpha_value) if isinstance(alpha_value, (int, float)) else 0.05
+        )
         p_value = result.get("p_value")
-        has_p_value = isinstance(p_value, (int, float)) and np.isfinite(p_value)
-        summary["n_significant"] = 1 if has_p_value and p_value < alpha else 0
+        finite_p_value = (
+            float(p_value)
+            if isinstance(p_value, (int, float)) and np.isfinite(p_value)
+            else None
+        )
+        summary["n_significant"] = (
+            1 if finite_p_value is not None and finite_p_value < alpha else 0
+        )
         summary["summary_metrics"] = {
             "bb_joins": result.get("bb", 0),
             "ww_joins": result.get("ww", 0),
             "bw_joins": result.get("bw", 0),
             "total_joins": result.get("J", 0),
         }
-        if has_p_value:
-            summary["summary_metrics"]["p_value"] = float(p_value)
+        if finite_p_value is not None:
+            summary["summary_metrics"]["p_value"] = finite_p_value
 
     elif analysis_type == "local_join_count":
         # Match field names from _analyze_local_join_count return value
@@ -1169,9 +1178,11 @@ def _analyze_getis_ord(
     total_hotspots = 0
     total_coldspots = 0
     for result in getis_ord_results.values():
-        total_hotspots += result.get("n_hot_spots_corrected", result.get("n_hot_spots", 0))
-        total_coldspots += result.get(
-            "n_cold_spots_corrected", result.get("n_cold_spots", 0)
+        total_hotspots += int(
+            result.get("n_hot_spots_corrected", result.get("n_hot_spots", 0))
+        )
+        total_coldspots += int(
+            result.get("n_cold_spots_corrected", result.get("n_cold_spots", 0))
         )
 
     return {
@@ -2029,7 +2040,7 @@ _CLUSTER_REQUIRED_ANALYSES = frozenset(
 # drift between the two sources.
 # ---------------------------------------------------------------------------
 _literal_types = set(
-    SpatialStatisticsParameters.model_fields["analysis_type"].annotation.__args__
+    get_args(SpatialStatisticsParameters.model_fields["analysis_type"].annotation)
 )
 assert set(_ANALYSIS_REGISTRY) == _literal_types, (
     f"_ANALYSIS_REGISTRY keys and SpatialStatisticsParameters.analysis_type "

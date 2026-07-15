@@ -82,15 +82,16 @@ def resolve_figure_size(
     """
     # User-specified size always takes precedence
     if params.figure_size:
-        return tuple(params.figure_size)
+        requested_width, requested_height = params.figure_size
+        return requested_width, requested_height
 
     # Multi-panel figure: compute from panel dimensions
     if n_panels is not None and n_panels > 1:
         n_cols = min(3, n_panels)
         n_rows = (n_panels + n_cols - 1) // n_cols
-        width = min(panel_width * n_cols, 15)
-        height = min(panel_height * n_rows, 16)
-        return (int(width), int(height))
+        resolved_width = min(panel_width * n_cols, 15)
+        resolved_height = min(panel_height * n_rows, 16)
+        return (int(resolved_width), int(resolved_height))
 
     # Use plot-type specific default
     return FIGURE_DEFAULTS.get(plot_type, FIGURE_DEFAULTS["default"])
@@ -395,7 +396,7 @@ def validate_and_prepare_feature(
     if feature in adata.obs.columns:
         data = adata.obs[feature]
         is_cat = pd.api.types.is_categorical_dtype(data) or data.dtype == object
-        return data.values, feature, is_cat
+        return np.asarray(data), feature, is_cat
 
     raise DataNotFoundError(f"Feature '{feature}' not found in data")
 

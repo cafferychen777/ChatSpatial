@@ -532,7 +532,8 @@ def _create_enrichmap_cross_correlation(
 
     fig = plt.gcf()
     if params.figure_size:
-        fig.set_size_inches(tuple(params.figure_size))
+        width, height = params.figure_size
+        fig.set_size_inches(width, height)
     if params.dpi:
         fig.set_dpi(params.dpi)
 
@@ -553,9 +554,12 @@ def _create_enrichmap_single_score(
         )
 
     # Normalize feature to a single string
-    feature = params.feature
-    if isinstance(feature, list):
-        feature = feature[0] if feature else None
+    raw_feature = params.feature
+    feature = (
+        raw_feature[0]
+        if isinstance(raw_feature, list) and raw_feature
+        else raw_feature if isinstance(raw_feature, str) else None
+    )
     if not feature:
         raise DataNotFoundError(
             "Feature parameter required for spatial enrichment visualization"
@@ -583,7 +587,8 @@ def _create_enrichmap_single_score(
 
     fig = plt.gcf()
     if params.figure_size:
-        fig.set_size_inches(tuple(params.figure_size))
+        width, height = params.figure_size
+        fig.set_size_inches(width, height)
     if params.dpi:
         fig.set_dpi(params.dpi)
 
@@ -788,7 +793,13 @@ def _resolve_feature_list(
 def _gsea_results_to_dataframe(gsea_results) -> pd.DataFrame:
     """Convert GSEA results to DataFrame."""
     if isinstance(gsea_results, pd.DataFrame):
-        return gsea_results.copy()
+        df = gsea_results.copy()
+        for column in df.columns:
+            numeric = pd.to_numeric(df[column], errors="coerce")
+            non_null = df[column].notna()
+            if non_null.any() and numeric[non_null].notna().all():
+                df[column] = numeric
+        return df
     if isinstance(gsea_results, dict):
         rows = []
         for pathway, data in gsea_results.items():

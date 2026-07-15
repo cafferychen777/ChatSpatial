@@ -232,9 +232,6 @@ async def _create_cnv_heatmap(
     if context:
         await context.info(f"Detected CNV data from {cnv_method} method")
 
-    # Check if infercnvpy is available (needed for visualization)
-    require("infercnvpy", feature="CNV heatmap visualization")
-
     # For Numbat data, create a working copy with X_cnv mapped from numbat key
     # so infercnvpy can consume it without polluting the original adata.
     if cnv_method == "numbat":
@@ -376,12 +373,13 @@ async def _create_cnv_heatmap(
 
     else:
         # Use infercnvpy chromosome_heatmap for infercnvpy data or Numbat with chr info
+        groupby = _resolve_cnv_heatmap_groupby(adata, params)
+        require("infercnvpy", feature="CNV heatmap visualization")
         import infercnvpy as cnv
 
         if context:
             await context.info("Creating chromosome-organized CNV heatmap...")
 
-        groupby = _resolve_cnv_heatmap_groupby(adata, params)
         if context:
             await context.info(f"Grouping CNV heatmap by '{groupby}'")
 

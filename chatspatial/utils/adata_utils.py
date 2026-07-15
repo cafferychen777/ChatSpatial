@@ -448,7 +448,7 @@ def shallow_copy_adata(adata: "ad.AnnData") -> "ad.AnnData":
     if adata.raw is not None:
         # AnnData.raw setter only accepts AnnData, but we intentionally keep
         # shallow-copy semantics here to avoid duplicating raw matrices.
-        adata_new._raw = adata.raw  # type: ignore[attr-defined]
+        adata_new._raw = adata.raw
 
     return adata_new
 

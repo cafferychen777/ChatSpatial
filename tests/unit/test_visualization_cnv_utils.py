@@ -224,7 +224,10 @@ async def test_cnv_heatmap_numbat_aggregated_branch(minimal_spatial_adata, monke
     adata.obsm["X_cnv_numbat"] = np.random.default_rng(1).normal(size=(adata.n_obs, 50))
     adata.obs["clone"] = ["A"] * (adata.n_obs // 2) + ["B"] * (adata.n_obs - adata.n_obs // 2)
 
-    monkeypatch.setattr(viz_cnv, "require", lambda *_a, **_k: None)
+    def _unexpected_require(*_args, **_kwargs):
+        raise AssertionError("Numbat aggregation must not require infercnvpy")
+
+    monkeypatch.setattr(viz_cnv, "require", _unexpected_require)
     ctx = DummyCtx()
 
     fig = await viz_cnv._create_cnv_heatmap(

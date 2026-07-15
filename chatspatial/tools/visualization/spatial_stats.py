@@ -223,8 +223,10 @@ async def _create_co_occurrence_visualization(
     # Calculate appropriate figsize based on number of clusters
     # squidpy default: (5 * n_clusters, 5) with constrained_layout=True
     # Only override if user explicitly provides figure_size
+    figsize: tuple[float, float] | None
     if params.figure_size:
-        figsize = tuple(params.figure_size)
+        width, height = params.figure_size
+        figsize = float(width), float(height)
     else:
         # Let squidpy use its default sizing (5 inches per cluster, 5 height)
         figsize = None
@@ -331,13 +333,15 @@ def _create_moran_visualization(
 
     # Create figure with appropriate size based on actual gene count
     # Width: 8 inches for gene names, Height: 0.4 per gene + margins
+    moran_figsize: tuple[float, float]
     if params.figure_size:
-        figsize = tuple(params.figure_size)
+        width, height = params.figure_size
+        moran_figsize = float(width), float(height)
     else:
         # Minimum height of 3 for small gene counts, scale with actual genes
-        figsize = (8, max(n_actual * 0.4 + 1.5, 3))
+        moran_figsize = (8, max(n_actual * 0.4 + 1.5, 3))
 
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = plt.subplots(figsize=moran_figsize)
 
     # Create horizontal barplot (easier to read gene names)
     # Color by -log10(p-value) to show significance

@@ -18,7 +18,7 @@ Usage:
 
 import gc
 import importlib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_args
 
 import numpy as np
 import pandas as pd
@@ -192,7 +192,7 @@ METHOD_REGISTRY: dict[str, MethodConfig] = {
 # drift between the two sources.
 # ---------------------------------------------------------------------------
 _literal_methods = set(
-    DeconvolutionParameters.model_fields["method"].annotation.__args__
+    get_args(DeconvolutionParameters.model_fields["method"].annotation)
 )
 assert set(METHOD_REGISTRY) == _literal_methods, (
     f"METHOD_REGISTRY keys and DeconvolutionParameters.method Literal are out "

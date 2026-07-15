@@ -186,6 +186,22 @@ def test_create_enrichmap_spatial_requires_dependency(
         )
 
 
+def test_gsea_results_to_dataframe_restores_numeric_object_columns():
+    df = viz_enrich._gsea_results_to_dataframe(
+        pd.DataFrame(
+            {
+                "Term": ["PathA", "PathB"],
+                "FDR q-val": pd.Series(["0.05", "0.20"], dtype=object),
+                "Lead_genes": ["GeneA;GeneB", "GeneC"],
+            }
+        )
+    )
+
+    assert df["FDR q-val"].tolist() == [0.05, 0.2]
+    assert np.issubdtype(df["FDR q-val"].dtype, np.number)
+    assert df["Lead_genes"].tolist() == ["GeneA;GeneB", "GeneC"]
+
+
 def test_create_gsea_barplot_wraps_gseapy_errors(monkeypatch: pytest.MonkeyPatch):
     fake_gp = ModuleType("gseapy")
 

@@ -16,6 +16,14 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 from pandas.api.types import is_object_dtype, is_string_dtype
 
+
+def _coerce_object_series_for_h5ad(series: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    non_null = series.notna()
+    if non_null.any() and numeric[non_null].notna().all():
+        return numeric
+    return series.where(non_null, "").map(str)
+
 if TYPE_CHECKING:
     from anndata import AnnData
 
@@ -52,7 +60,7 @@ def _sanitize_dataframe_for_h5ad(df: pd.DataFrame) -> pd.DataFrame:
     for column in sanitized.columns:
         series = sanitized[column]
         if is_object_dtype(series.dtype) or is_string_dtype(series.dtype):
-            sanitized[column] = series.where(series.notna(), "").map(str)
+            sanitized[column] = _coerce_object_series_for_h5ad(series)
     return sanitized
 
 
@@ -71,8 +79,7 @@ def _sanitize_value_for_h5ad(value: Any) -> Any:
 def _prepare_export_adata(adata: "AnnData") -> "AnnData":
     export_adata_obj = adata.copy()
     for key in list(export_adata_obj.uns.keys()):
-        if key == "ccc" or key.startswith("ccc_"):
-            export_adata_obj.uns[key] = _sanitize_value_for_h5ad(export_adata_obj.uns[key])
+        export_adata_obj.uns[key] = _sanitize_value_for_h5ad(export_adata_obj.uns[key])
     return export_adata_obj
 
 

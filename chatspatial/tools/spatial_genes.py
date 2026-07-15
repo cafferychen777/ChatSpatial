@@ -62,6 +62,8 @@ def _calculate_sparse_gene_stats(X) -> tuple[np.ndarray, np.ndarray]:
     """
     is_sparse = sp.issparse(X)
 
+    gene_totals: np.ndarray
+    n_expressed: np.ndarray
     if is_sparse:
         gene_totals = np.array(X.sum(axis=0)).flatten()
         n_expressed = np.array((X > 0).sum(axis=0)).flatten()

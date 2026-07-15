@@ -100,7 +100,7 @@ async def _create_umap_by_batch(
 
     # Get colors
     cmap_name = get_categorical_cmap(len(unique_batches))
-    cmap = plt.cm.get_cmap(cmap_name)
+    cmap = plt.get_cmap(cmap_name)
     colors = [
         cmap(i / max(1, len(unique_batches) - 1)) for i in range(len(unique_batches))
     ]
@@ -185,7 +185,7 @@ async def _create_umap_by_cluster(
 
     # Get colors
     cmap_name = get_categorical_cmap(len(unique_clusters))
-    cmap = plt.cm.get_cmap(cmap_name)
+    cmap = plt.get_cmap(cmap_name)
     colors = [
         cmap(i / max(1, len(unique_clusters) - 1)) for i in range(len(unique_clusters))
     ]
@@ -269,8 +269,10 @@ async def _create_batch_highlight(
     n_rows = (n_batches + n_cols - 1) // n_cols
 
     # Setup figure
+    figsize: tuple[float, float]
     if params.figure_size:
-        figsize = tuple(params.figure_size)
+        width, height = params.figure_size
+        figsize = float(width), float(height)
     else:
         figsize = (4 * n_cols, 3.5 * n_rows)
 
@@ -279,7 +281,7 @@ async def _create_batch_highlight(
 
     # Get colors
     cmap_name = get_categorical_cmap(n_batches)
-    cmap = plt.cm.get_cmap(cmap_name)
+    cmap = plt.get_cmap(cmap_name)
     colors = [cmap(i / max(1, n_batches - 1)) for i in range(n_batches)]
 
     # Plot each batch

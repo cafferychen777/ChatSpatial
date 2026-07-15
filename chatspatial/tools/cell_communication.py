@@ -820,10 +820,12 @@ def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
     # Fix macOS SSL certificate issue: patch urllib to use certifi certificates
     # CellPhoneDB uses urllib.request.urlopen which fails on macOS without this fix
     original_https_context = ssl._create_default_https_context
-    # Monkeypatch to use certifi certificates - type mismatch is expected
-    ssl._create_default_https_context = lambda: ssl.create_default_context(  # type: ignore[misc,assignment]
-        cafile=certifi.where()
-    )
+
+    def _create_certifi_https_context(*args: Any, **kwargs: Any) -> ssl.SSLContext:
+        kwargs.setdefault("cafile", certifi.where())
+        return ssl.create_default_context(*args, **kwargs)
+
+    ssl._create_default_https_context = _create_certifi_https_context
 
     try:
         # Download latest database
@@ -1101,8 +1103,8 @@ async def _analyze_communication_cellphonedb(
                 pvals_valid = pvals_this_lr[valid_mask_lr]
 
                 # Count uncorrected significance (NaN-safe)
-                n_uncorrected_sig += (
-                    np.any(pvals_valid < threshold) if pvals_valid.size > 0 else 0
+                n_uncorrected_sig += int(
+                    np.any(pvals_valid < threshold) if pvals_valid.size > 0 else False
                 )
 
                 if pvals_valid.size == 0:
