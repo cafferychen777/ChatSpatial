@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from chatspatial.tools import embeddings as emb
+from chatspatial.utils.exceptions import DataNotFoundError
 
 
 class DummyCtx:
@@ -161,6 +162,47 @@ async def test_compute_embeddings_force_removes_existing_artifacts(
 
 
 @pytest.mark.asyncio
+async def test_compute_embeddings_force_removes_dependency_artifacts(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obsm["X_pca"] = np.ones((adata.n_obs, 2))
+    adata.uns["pca"] = {"variance_ratio": np.array([1.0])}
+    adata.uns["neighbors"] = {"params": {"n_neighbors": 99}}
+    adata.obsp["connectivities"] = np.eye(adata.n_obs)
+    adata.obsp["distances"] = np.eye(adata.n_obs)
+    ctx = DummyCtx(adata)
+
+    def _ensure_neighbors(adata_obj, **_kwargs):
+        assert "X_pca" not in adata_obj.obsm
+        assert "pca" not in adata_obj.uns
+        assert "neighbors" not in adata_obj.uns
+        assert "connectivities" not in adata_obj.obsp
+        assert "distances" not in adata_obj.obsp
+        return True
+
+    monkeypatch.setattr(emb, "ensure_neighbors", _ensure_neighbors)
+    monkeypatch.setattr(emb, "ensure_umap", lambda *_args, **_kwargs: True)
+
+    out = await emb.compute_embeddings(
+        "d3",
+        ctx,
+        emb.EmbeddingParameters(
+            force=True,
+            compute_pca=False,
+            compute_neighbors=False,
+            compute_umap=True,
+            compute_clustering=False,
+            compute_diffmap=False,
+            compute_spatial_neighbors=False,
+        ),
+    )
+
+    assert "neighbors (dependency)" in out.computed
+    assert "UMAP" in out.computed
+
+
+@pytest.mark.asyncio
 async def test_compute_embeddings_spatial_neighbor_error_is_non_fatal(
     minimal_spatial_adata, monkeypatch
 ):
@@ -185,6 +227,75 @@ async def test_compute_embeddings_spatial_neighbor_error_is_non_fatal(
     out = await emb.compute_embeddings("d4", ctx, emb.EmbeddingParameters())
     assert any("spatial neighbors (error: no spatial coordinates)" in s for s in out.skipped)
     assert any("Could not compute spatial neighbors" in w for w in ctx.warnings)
+
+
+@pytest.mark.asyncio
+async def test_compute_embeddings_missing_spatial_coordinates_is_non_fatal(
+    minimal_spatial_adata, monkeypatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["leiden"] = ["0"] * adata.n_obs
+    ctx = DummyCtx(adata)
+
+    monkeypatch.setattr(emb, "ensure_pca", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(emb, "ensure_neighbors", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(emb, "ensure_umap", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(emb, "ensure_diffmap", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(emb, "ensure_leiden", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(emb, "ensure_louvain", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(emb, "store_analysis_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(emb, "export_analysis_result", lambda *_args, **_kwargs: None)
+
+    def _spatial_fail(*_args, **_kwargs):
+        raise DataNotFoundError("no spatial coordinates")
+
+    monkeypatch.setattr(emb, "ensure_spatial_neighbors", _spatial_fail)
+
+    out = await emb.compute_embeddings("d4", ctx, emb.EmbeddingParameters())
+    assert any(
+        "spatial neighbors (error: no spatial coordinates)" in item
+        for item in out.skipped
+    )
+    assert any("Could not compute spatial neighbors" in item for item in ctx.warnings)
+
+
+@pytest.mark.asyncio
+async def test_compute_embeddings_uses_requested_neighbor_params_for_dependencies(
+    minimal_spatial_adata, monkeypatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obsm.clear()
+    adata.uns.clear()
+    ctx = DummyCtx(adata)
+    captured: dict[str, object] = {}
+
+    def _ensure_neighbors(adata_obj, **kwargs):
+        captured.update(kwargs)
+        adata_obj.uns["neighbors"] = {}
+        adata_obj.obsp["connectivities"] = np.eye(adata_obj.n_obs)
+        return True
+
+    monkeypatch.setattr(emb, "ensure_neighbors", _ensure_neighbors)
+    monkeypatch.setattr(emb, "ensure_umap", lambda *_args, **_kwargs: True)
+
+    out = await emb.compute_embeddings(
+        "d4",
+        ctx,
+        emb.EmbeddingParameters(
+            compute_pca=False,
+            compute_neighbors=False,
+            compute_umap=True,
+            compute_clustering=False,
+            compute_spatial_neighbors=False,
+            n_pcs=12,
+            n_neighbors=7,
+            random_state=19,
+        ),
+    )
+
+    assert captured == {"n_neighbors": 7, "n_pcs": 12, "random_state": 19}
+    assert "neighbors (dependency)" in out.computed
+    assert "UMAP" in out.computed
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,7 @@ Usage:
     await ensure_pca_async(adata, ctx)
 """
 
+import inspect
 from typing import TYPE_CHECKING, Literal, Optional
 
 import numpy as np
@@ -95,12 +96,16 @@ def ensure_pca(
             f"{adata.n_vars} genes (need at least 2 of each)."
         )
 
-    sc.tl.pca(
-        adata,
-        n_comps=n_comps,
-        use_highly_variable=use_highly_variable and "highly_variable" in adata.var,
-        random_state=random_state,
-    )
+    pca_kwargs: dict[str, object] = {
+        "n_comps": n_comps,
+        "random_state": random_state,
+    }
+    use_hvg_mask = use_highly_variable and "highly_variable" in adata.var
+    if "mask_var" in inspect.signature(sc.tl.pca).parameters:
+        pca_kwargs["mask_var"] = "highly_variable" if use_hvg_mask else None
+    else:
+        pca_kwargs["use_highly_variable"] = use_hvg_mask
+    sc.tl.pca(adata, **pca_kwargs)
     return True
 
 
@@ -131,7 +136,17 @@ def ensure_neighbors(
 
     # Ensure PCA exists if using X_pca
     if use_rep == "X_pca":
-        ensure_pca(adata)
+        ensure_pca(
+            adata,
+            n_comps=n_pcs if n_pcs is not None else 30,
+            random_state=random_state,
+        )
+
+    # PCA may contain fewer dimensions than requested for small datasets.
+    # Clamp to the representation that was actually computed instead of
+    # passing an impossible value to Scanpy's representation selector.
+    if n_pcs is not None and use_rep in adata.obsm:
+        n_pcs = min(n_pcs, adata.obsm[use_rep].shape[1])
 
     sc.pp.neighbors(
         adata,

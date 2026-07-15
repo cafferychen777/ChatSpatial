@@ -8,7 +8,7 @@ and ChatSpatial's spatial analysis functionality.
 import itertools
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
 
@@ -16,11 +16,16 @@ from .utils.exceptions import DataNotFoundError
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from .models.data import SpatialPlatform
+
 
 class SpatialMCPAdapter:
     """Main adapter class that bridges MCP and spatial analysis functionality."""
 
-    def __init__(self, mcp_server: FastMCP, data_manager: "DefaultSpatialDataManager"):
+    def __init__(
+        self, mcp_server: FastMCP, data_manager: "DefaultSpatialDataManager"
+    ) -> None:
         self.mcp = mcp_server
         self.data_manager = data_manager
 
@@ -35,7 +40,7 @@ class DefaultSpatialDataManager:
         is negligible and changing the interface later would break 20+ call sites.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.data_store: dict[str, Any] = {}
         self._id_counter = itertools.count(1)
 
@@ -104,18 +109,12 @@ class DefaultSpatialDataManager:
             dataset_info.update(self._extract_adata_metadata(adata))
 
     async def load_dataset(
-        self, path: str, data_type: str, name: Optional[str] = None
+        self, path: str, data_type: "SpatialPlatform", name: Optional[str] = None
     ) -> str:
         """Load a spatial dataset and return its ID"""
-        from typing import cast
-
-        from .models.data import SpatialPlatform
         from .utils.data_loader import load_spatial_data
 
-        # Load data - cast to SpatialPlatform (validated at load_spatial_data)
-        dataset_info = await load_spatial_data(
-            path, cast(SpatialPlatform, data_type), name
-        )
+        dataset_info = await load_spatial_data(path, data_type, name)
 
         # Generate ID — single expression, structurally atomic
         data_id = f"data_{next(self._id_counter)}"
@@ -318,7 +317,7 @@ class ToolContext:
             AnnData object for the dataset
 
         Raises:
-            ValueError: If dataset not found
+            DataNotFoundError: If dataset not found
         """
         dataset_info = await self._data_manager.get_dataset(data_id)
         return dataset_info["adata"]
@@ -343,7 +342,7 @@ class ToolContext:
             adata: New AnnData object to store
 
         Raises:
-            ValueError: If dataset not found
+            DataNotFoundError: If dataset not found
         """
         await self._data_manager.update_adata(data_id, adata)
 

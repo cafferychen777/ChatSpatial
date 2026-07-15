@@ -139,7 +139,13 @@ def test_configure_warnings_registers_known_filters(
 
     cfg._configure_warnings()
 
-    assert len(calls) >= 6
+    broad_filters = [
+        kwargs
+        for _, kwargs in calls
+        if kwargs.get("category") in {UserWarning, FutureWarning}
+        and "message" not in kwargs
+    ]
+    assert broad_filters == []
     assert any(
         kwargs.get("message") == "The legacy Dask DataFrame implementation is deprecated"
         for _, kwargs in calls

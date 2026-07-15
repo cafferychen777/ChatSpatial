@@ -77,3 +77,20 @@ def test_analyze_enrichment_params_required_in_mcp_schema():
         for option in params_schema.get("anyOf", [])
         if isinstance(option, dict)
     )
+
+
+@pytest.mark.unit
+def test_load_data_schema_enumerates_supported_spatial_platforms():
+    from chatspatial.server import mcp
+
+    tools_by_name = {tool.name: tool for tool in mcp._tool_manager.list_tools()}
+    data_type_schema = tools_by_name["load_data"].parameters["properties"]["data_type"]
+
+    assert data_type_schema["enum"] == [
+        "visium",
+        "xenium",
+        "slide_seq",
+        "merfish",
+        "seqfish",
+        "generic",
+    ]

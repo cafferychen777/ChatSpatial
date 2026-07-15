@@ -80,6 +80,19 @@ def test_find_spatial_folder_requires_expected_files(tmp_path: Path):
     assert Path(found).name == "spatial"
 
 
+def test_find_spatial_folder_accepts_spaceranger_v2_positions_file(tmp_path: Path):
+    h5 = tmp_path / "x.h5"
+    h5.write_text("x")
+    spatial_dir = tmp_path / "spatial"
+    spatial_dir.mkdir()
+    (spatial_dir / "tissue_positions.csv").write_text(
+        "barcode,in_tissue,array_row,array_col,pxl_row_in_fullres,pxl_col_in_fullres\n"
+    )
+    (spatial_dir / "scalefactors_json.json").write_text("{}")
+
+    assert dl._find_spatial_folder(str(h5)) == str(spatial_dir)
+
+
 def test_add_spatial_info_handles_barcode_suffix_alignment(
     minimal_spatial_adata, tmp_path: Path, monkeypatch
 ):
@@ -271,4 +284,3 @@ def test_load_does_not_freeze_normalized_x_as_raw(minimal_spatial_adata):
 
     # Contract: normalized X should not be frozen as .raw
     assert not is_int or has_neg  # verify our test data IS normalized
-

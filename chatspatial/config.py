@@ -142,11 +142,9 @@ def _configure_warnings() -> None:
 
     This function is idempotent - safe to call multiple times.
     """
-    # Broad filters for startup speed (matching original behavior)
-    warnings.filterwarnings("ignore", category=FutureWarning)
-    warnings.filterwarnings("ignore", category=UserWarning)
-
-    # Specific filters for known library issues
+    # Suppress only known dependency noise. Broad category filters would also
+    # hide scientific convergence and data-quality warnings emitted by our own
+    # analysis code.
     warnings.filterwarnings(
         "ignore",
         message="The legacy Dask DataFrame implementation is deprecated",
@@ -163,6 +161,12 @@ def _configure_warnings() -> None:
         "ignore",
         message="nopython is set for njit and is ignored",
         category=RuntimeWarning,
+    )
+
+    warnings.filterwarnings(
+        "ignore",
+        message="pkg_resources is deprecated as an API",
+        category=UserWarning,
     )
 
     warnings.filterwarnings(

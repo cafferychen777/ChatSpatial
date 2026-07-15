@@ -36,6 +36,20 @@ from .exceptions import (
 
 logger = logging.getLogger(__name__)
 
+_TISSUE_POSITIONS_FILENAMES = (
+    "tissue_positions.csv",
+    "tissue_positions_list.csv",
+)
+
+
+def _find_tissue_positions_file(spatial_path: str) -> Optional[str]:
+    """Return the supported Space Ranger tissue positions file, if present."""
+    for filename in _TISSUE_POSITIONS_FILENAMES:
+        candidate = os.path.join(spatial_path, filename)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
 
 def _load_xenium_zarr(data_path: str) -> Any:
     """Load Xenium data from zarr format.
@@ -182,70 +196,25 @@ async def load_spatial_data(
                             var_names="gene_symbols",
                             cache=False,
                         )
-                        # Try to load spatial coordinates if available
+                        # Load spatial metadata through the same path used for
+                        # standalone H5 inputs. This keeps the AnnData layout
+                        # consistent across supported Visium matrix formats.
                         spatial_dir = os.path.join(data_path, "spatial")
-                        if os.path.exists(spatial_dir):
-                            try:
-                                # Add spatial information manually
-                                import json
-
-                                import pandas as pd
-
-                                # Load tissue positions
-                                positions_path = os.path.join(
-                                    spatial_dir, "tissue_positions_list.csv"
-                                )
-                                if os.path.exists(positions_path):
-                                    # Try to detect if file has header
-                                    with open(positions_path, "r") as f:
-                                        first_line = f.readline().strip()
-
-                                    if first_line.startswith("barcode"):
-                                        # File has header
-                                        positions = pd.read_csv(positions_path)
-                                    else:
-                                        # File has no header
-                                        positions = pd.read_csv(
-                                            positions_path, header=None
-                                        )
-                                        positions.columns = [
-                                            "barcode",
-                                            "in_tissue",
-                                            "array_row",
-                                            "array_col",
-                                            "pxl_row_in_fullres",
-                                            "pxl_col_in_fullres",
-                                        ]
-
-                                    positions.set_index("barcode", inplace=True)
-
-                                    # Filter for spots in tissue
-                                    positions = positions[positions["in_tissue"] == 1]
-
-                                    # Add spatial coordinates to adata
-                                    adata.obsm["spatial"] = positions.loc[
-                                        adata.obs_names,
-                                        ["pxl_col_in_fullres", "pxl_row_in_fullres"],
-                                    ].values
-
-                                    # Load scalefactors
-                                    scalefactors_path = os.path.join(
-                                        spatial_dir, "scalefactors_json.json"
-                                    )
-                                    if os.path.exists(scalefactors_path):
-                                        with open(scalefactors_path, "r") as f:
-                                            scalefactors = json.load(f)
-
-                                        # Add scalefactors to adata
-                                        adata.uns["spatial"] = {
-                                            "scalefactors": scalefactors
-                                        }
-                            except Exception as e:
-                                raise DataCompatibilityError(
-                                    f"Visium spatial information failed to load: {e}. "
-                                    "Spatial coordinates are required for Visium data. "
-                                    "If you only need expression data, use platform='auto'."
-                                ) from e
+                        if not os.path.isdir(spatial_dir):
+                            raise DataNotFoundError(
+                                f"Visium spatial directory not found: {spatial_dir}. "
+                                "Use data_type='generic' to load expression-only data."
+                            )
+                        try:
+                            adata = _add_spatial_info_to_adata(adata, spatial_dir)
+                        except (DataNotFoundError, DataCompatibilityError):
+                            raise
+                        except Exception as e:
+                            raise DataCompatibilityError(
+                                f"Visium spatial information failed to load: {e}. "
+                                "Spatial coordinates are required for Visium data. "
+                                "If you only need expression data, use data_type='generic'."
+                            ) from e
                     else:
                         raise DataCompatibilityError(
                             f"Directory {mtx_dir} is missing matrix.mtx or matrix.mtx.gz"
@@ -260,15 +229,23 @@ async def load_spatial_data(
 
                 # Try to find and add spatial information
                 spatial_path = _find_spatial_folder(data_path)
-                if spatial_path:
-                    try:
-                        adata = _add_spatial_info_to_adata(adata, spatial_path)
-                    except Exception as e:
-                        raise DataCompatibilityError(
-                            f"Visium spatial information failed to load: {e}. "
-                            "Spatial coordinates are required for Visium data. "
-                            "If you only need expression data, use platform='auto'."
-                        ) from e
+                if spatial_path is None:
+                    raise DataNotFoundError(
+                        f"Visium spatial metadata not found for {data_path}. "
+                        "Expected a spatial directory containing a tissue positions "
+                        "file and scalefactors_json.json. Use data_type='generic' "
+                        "to load expression-only data."
+                    )
+                try:
+                    adata = _add_spatial_info_to_adata(adata, spatial_path)
+                except (DataNotFoundError, DataCompatibilityError):
+                    raise
+                except Exception as e:
+                    raise DataCompatibilityError(
+                        f"Visium spatial information failed to load: {e}. "
+                        "Spatial coordinates are required for Visium data. "
+                        "If you only need expression data, use data_type='generic'."
+                    ) from e
             elif os.path.isfile(data_path) and data_path.endswith(".h5ad"):
                 # If it's an h5ad file but marked as visium, read it as h5ad
                 adata = sc.read_h5ad(data_path)
@@ -284,6 +261,8 @@ async def load_spatial_data(
                     f"Unsupported file format for visium: {data_path}. Supported formats: directory with Visium structure, .h5 file, or .h5ad file"
                 )
 
+        except (DataNotFoundError, DataCompatibilityError, ParameterError):
+            raise
         except FileNotFoundError as e:
             raise DataNotFoundError(f"File not found: {e}") from e
         except Exception as e:
@@ -295,7 +274,10 @@ async def load_spatial_data(
                 error_msg += "\n\nPossible solutions:"
                 error_msg += "\n1. Check if the H5 file and spatial coordinates are from the same sample"
                 error_msg += "\n2. Verify barcode format (with or without -1 suffix)"
-                error_msg += "\n3. Ensure the spatial folder contains the correct tissue_positions_list.csv file"
+                error_msg += (
+                    "\n3. Ensure the spatial folder contains tissue_positions.csv "
+                    "or tissue_positions_list.csv"
+                )
             elif ".h5" in data_path and "read_10x_h5" in str(e):
                 error_msg += "\n\nThis might not be a valid 10x H5 file. Try:"
                 error_msg += (
@@ -309,7 +291,11 @@ async def load_spatial_data(
                 error_msg += (
                     "\n1. Loading without spatial data by using data_type='generic'"
                 )
-                error_msg += "\n2. Ensuring spatial folder contains: tissue_positions_list.csv and scalefactors_json.json"
+                error_msg += (
+                    "\n2. Ensuring the spatial folder contains: "
+                    "tissue_positions.csv (or tissue_positions_list.csv) "
+                    "and scalefactors_json.json"
+                )
 
             raise ProcessingError(error_msg) from e
     elif platform == "xenium":
@@ -560,9 +546,12 @@ def _find_spatial_folder(h5_path: str) -> Optional[str]:
     for candidate in candidates:
         candidate = os.path.normpath(candidate)
         if os.path.exists(candidate) and os.path.isdir(candidate):
-            # Verify it contains required spatial files
-            required_files = ["tissue_positions_list.csv", "scalefactors_json.json"]
-            if all(os.path.exists(os.path.join(candidate, f)) for f in required_files):
+            # Verify it contains a supported positions file and scale factors.
+            has_positions = _find_tissue_positions_file(candidate) is not None
+            has_scalefactors = os.path.isfile(
+                os.path.join(candidate, "scalefactors_json.json")
+            )
+            if has_positions and has_scalefactors:
                 return candidate
 
     logger.warning(f"No spatial folder found for {h5_path}")
@@ -587,7 +576,13 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
 
     try:
         # Load tissue positions
-        positions_file = os.path.join(spatial_path, "tissue_positions_list.csv")
+        positions_file = _find_tissue_positions_file(spatial_path)
+        if positions_file is None:
+            supported = ", ".join(_TISSUE_POSITIONS_FILENAMES)
+            raise DataNotFoundError(
+                f"No tissue positions file found in {spatial_path}. "
+                f"Expected one of: {supported}."
+            )
 
         # Try to detect if file has header
         with open(positions_file, "r") as f:

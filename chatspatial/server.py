@@ -41,6 +41,7 @@ from .models.data import RegistrationParameters  # noqa: E402
 from .models.data import RNAVelocityParameters  # noqa: E402
 from .models.data import SpatialDataset  # noqa: E402
 from .models.data import SpatialDomainParameters  # noqa: E402
+from .models.data import SpatialPlatform  # noqa: E402
 from .models.data import SpatialStatisticsParameters  # noqa: E402
 from .models.data import SpatialVariableGenesParameters  # noqa: E402
 from .models.data import TrajectoryParameters  # noqa: E402
@@ -74,7 +75,7 @@ def _resolve_params(params: Optional[P], default_factory: type[P]) -> P:
 @mcp_tool_error_handler()
 async def load_data(
     data_path: str,
-    data_type: str,
+    data_type: SpatialPlatform,
     name: Optional[str] = None,
     context: Optional[Context] = None,
 ) -> SpatialDataset:

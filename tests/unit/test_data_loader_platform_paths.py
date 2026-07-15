@@ -17,6 +17,7 @@ from chatspatial.utils import data_loader as dl
 from chatspatial.utils.exceptions import (
     DataCompatibilityError,
     DataNotFoundError,
+    ParameterError,
     ProcessingError,
 )
 
@@ -131,7 +132,7 @@ async def test_load_visium_mtx_directory_rejects_missing_matrix_files(
     monkeypatch.setitem(sys.modules, "scanpy", _FakeScanpy())
 
     with pytest.raises(
-        ProcessingError,
+        DataCompatibilityError,
         match="does not have the expected 10x Visium structure",
     ):
         await dl.load_spatial_data(str(visium_dir), "visium")
@@ -149,7 +150,7 @@ async def test_load_visium_filtered_matrix_dir_requires_matrix_file(
     monkeypatch.setitem(sys.modules, "scanpy", _FakeScanpy())
 
     with pytest.raises(
-        ProcessingError,
+        DataCompatibilityError,
         match="missing matrix.mtx or matrix.mtx.gz",
     ):
         await dl.load_spatial_data(str(visium_dir), "visium")
@@ -185,6 +186,7 @@ async def test_load_visium_mtx_directory_parses_header_positions_file(
         }
     )
     positions.to_csv(spatial_dir / "tissue_positions_list.csv", index=False)
+    (spatial_dir / "scalefactors_json.json").write_text("{}")
 
     fake_scanpy = _FakeScanpy()
     fake_scanpy._read_10x_mtx_ret = adata
@@ -192,6 +194,53 @@ async def test_load_visium_mtx_directory_parses_header_positions_file(
 
     out = await dl.load_spatial_data(str(visium_dir), "visium")
     assert out["adata"].obsm["spatial"].shape == (adata.n_obs, 2)
+
+
+@pytest.mark.asyncio
+async def test_load_visium_mtx_directory_supports_spaceranger_v2_positions(
+    minimal_spatial_adata,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    visium_dir = tmp_path / "sample_mtx_v2"
+    mtx_dir = visium_dir / "filtered_feature_bc_matrix"
+    spatial_dir = visium_dir / "spatial"
+    mtx_dir.mkdir(parents=True)
+    spatial_dir.mkdir(parents=True)
+    (mtx_dir / "matrix.mtx").write_text("mtx")
+
+    adata = minimal_spatial_adata.copy()
+    adata.obs_names = [f"bc{i}" for i in range(adata.n_obs)]
+    adata.obsm.clear()
+    adata.uns.clear()
+    positions = pd.DataFrame(
+        {
+            "barcode": adata.obs_names,
+            "in_tissue": np.ones(adata.n_obs, dtype=int),
+            "array_row": np.arange(adata.n_obs),
+            "array_col": np.arange(adata.n_obs),
+            "pxl_row_in_fullres": np.linspace(0, 100, adata.n_obs),
+            "pxl_col_in_fullres": np.linspace(10, 110, adata.n_obs),
+        }
+    )
+    positions.to_csv(spatial_dir / "tissue_positions.csv", index=False)
+    (spatial_dir / "scalefactors_json.json").write_text(
+        json.dumps({"spot_diameter_fullres": 10})
+    )
+
+    fake_scanpy = _FakeScanpy()
+    fake_scanpy._read_10x_mtx_ret = adata
+    monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
+    monkeypatch.setattr(dl, "is_available", lambda _name: False)
+
+    out = await dl.load_spatial_data(str(visium_dir), "visium")
+    out_adata = out["adata"]
+
+    assert out_adata.obsm["spatial"].shape == (adata.n_obs, 2)
+    assert "sample_mtx_v2" in out_adata.uns["spatial"]
+    assert out_adata.uns["spatial"]["sample_mtx_v2"]["scalefactors"] == {
+        "spot_diameter_fullres": 10
+    }
 
 
 @pytest.mark.asyncio
@@ -234,7 +283,7 @@ async def test_load_visium_mtx_directory_errors_when_spatial_alignment_fails(
     fake_scanpy._read_10x_mtx_ret = adata
     monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
 
-    with pytest.raises(ProcessingError, match="Visium spatial information failed"):
+    with pytest.raises(DataCompatibilityError, match="No matching barcodes"):
         await dl.load_spatial_data(str(visium_dir), "visium")
 
 
@@ -270,6 +319,24 @@ async def test_load_visium_h5_path_calls_spatial_helpers(
 
 
 @pytest.mark.asyncio
+async def test_load_visium_h5_path_requires_spatial_metadata(
+    minimal_spatial_adata,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    h5_path = tmp_path / "sample_without_spatial.h5"
+    h5_path.write_text("h5")
+
+    fake_scanpy = _FakeScanpy()
+    fake_scanpy._read_10x_h5_ret = minimal_spatial_adata.copy()
+    monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
+    monkeypatch.setattr(dl, "_find_spatial_folder", lambda _path: None)
+
+    with pytest.raises(DataNotFoundError, match="Visium spatial metadata not found"):
+        await dl.load_spatial_data(str(h5_path), "visium")
+
+
+@pytest.mark.asyncio
 async def test_load_visium_h5_path_errors_when_spatial_helper_fails(
     minimal_spatial_adata,
     tmp_path: Path,
@@ -289,7 +356,7 @@ async def test_load_visium_h5_path_errors_when_spatial_helper_fails(
         lambda _adata, _spatial_path: (_ for _ in ()).throw(RuntimeError("bad spatial")),
     )
 
-    with pytest.raises(ProcessingError, match="Visium spatial information failed"):
+    with pytest.raises(DataCompatibilityError, match="Visium spatial information failed"):
         await dl.load_spatial_data(str(h5_path), "visium")
 
 
@@ -383,7 +450,7 @@ async def test_load_visium_rejects_unsupported_visium_input_format(
     txt_path.write_text("plain")
     monkeypatch.setitem(sys.modules, "scanpy", _FakeScanpy())
 
-    with pytest.raises(ProcessingError, match="Unsupported file format for visium"):
+    with pytest.raises(ParameterError, match="Unsupported file format for visium"):
         await dl.load_spatial_data(str(txt_path), "visium")
 
 

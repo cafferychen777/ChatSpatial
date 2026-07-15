@@ -36,11 +36,42 @@ def test_ensure_pca_computes_with_safe_n_comps(minimal_spatial_adata, monkeypatc
     assert "X_pca" in adata.obsm
 
 
+def test_ensure_pca_uses_current_scanpy_mask_var_api(
+    minimal_spatial_adata, monkeypatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.var["highly_variable"] = [True] * adata.n_vars
+    captured: dict[str, object] = {}
+
+    def _fake_pca(
+        _adata,
+        *,
+        n_comps,
+        mask_var,
+        random_state,
+    ):
+        captured.update(
+            n_comps=n_comps,
+            mask_var=mask_var,
+            random_state=random_state,
+        )
+        _adata.obsm["X_pca"] = np.zeros((_adata.n_obs, n_comps))
+
+    monkeypatch.setattr(compute.sc.tl, "pca", _fake_pca)
+
+    assert compute.ensure_pca(adata, n_comps=6, random_state=13) is True
+    assert captured == {
+        "n_comps": 6,
+        "mask_var": "highly_variable",
+        "random_state": 13,
+    }
+
+
 def test_ensure_neighbors_calls_prerequisites(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
     called = {"ensure_pca": False, "neighbors": False}
 
-    def _fake_ensure_pca(_adata):
+    def _fake_ensure_pca(_adata, **_kwargs):
         called["ensure_pca"] = True
         _adata.obsm["X_pca"] = np.zeros((_adata.n_obs, 4))
         return True
@@ -56,6 +87,30 @@ def test_ensure_neighbors_calls_prerequisites(minimal_spatial_adata, monkeypatch
 
     assert compute.ensure_neighbors(adata, use_rep="X_pca") is True
     assert called["ensure_pca"] and called["neighbors"]
+
+
+def test_ensure_neighbors_clamps_n_pcs_to_available_representation(
+    minimal_spatial_adata, monkeypatch
+):
+    adata = minimal_spatial_adata.copy()
+    captured: dict[str, object] = {}
+
+    def _fake_ensure_pca(_adata, **kwargs):
+        captured["pca_kwargs"] = kwargs
+        _adata.obsm["X_pca"] = np.zeros((_adata.n_obs, 4))
+        return True
+
+    def _fake_neighbors(_adata, **kwargs):
+        captured["neighbors_kwargs"] = kwargs
+        _adata.uns["neighbors"] = {}
+        _adata.obsp["connectivities"] = np.eye(_adata.n_obs)
+
+    monkeypatch.setattr(compute, "ensure_pca", _fake_ensure_pca)
+    monkeypatch.setattr(compute.sc.pp, "neighbors", _fake_neighbors)
+
+    assert compute.ensure_neighbors(adata, n_pcs=30, random_state=17) is True
+    assert captured["pca_kwargs"] == {"n_comps": 30, "random_state": 17}
+    assert captured["neighbors_kwargs"]["n_pcs"] == 4
 
 
 def test_ensure_umap_calls_neighbors_then_umap(minimal_spatial_adata, monkeypatch):

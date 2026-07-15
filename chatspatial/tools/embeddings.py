@@ -21,6 +21,7 @@ from ..utils.compute import (
     ensure_spatial_neighbors,
     ensure_umap,
 )
+from ..utils.exceptions import DataNotFoundError
 from ..utils.results_export import export_analysis_result
 
 
@@ -174,13 +175,24 @@ async def compute_embeddings(
     computed = []
     skipped = []
 
+    # UMAP, clustering, and diffusion maps all depend on the neighbor graph,
+    # which in turn depends on PCA.
+    needs_neighbors = any(
+        (
+            params.compute_neighbors,
+            params.compute_umap,
+            params.compute_clustering,
+            params.compute_diffmap,
+        )
+    )
+
     # Handle force recomputation by removing existing results
     if params.force:
-        if params.compute_pca and "X_pca" in adata.obsm:
+        if (params.compute_pca or needs_neighbors) and "X_pca" in adata.obsm:
             del adata.obsm["X_pca"]
             if "pca" in adata.uns:
                 del adata.uns["pca"]
-        if params.compute_neighbors:
+        if needs_neighbors:
             if "neighbors" in adata.uns:
                 del adata.uns["neighbors"]
             if "connectivities" in adata.obsp:
@@ -210,16 +222,22 @@ async def compute_embeddings(
         else:
             skipped.append("PCA (already exists)")
 
-    # 2. Neighbors (requires PCA)
-    if params.compute_neighbors:
-        if ensure_neighbors(
+    # 2. Neighbors (required by UMAP, clustering, and diffusion maps)
+    if needs_neighbors:
+        had_pca = "X_pca" in adata.obsm
+        neighbors_computed = ensure_neighbors(
             adata,
             n_neighbors=params.n_neighbors,
             n_pcs=params.n_pcs,
             random_state=params.random_state,
-        ):
-            computed.append("neighbors")
-        else:
+        )
+        if not params.compute_pca and not had_pca and "X_pca" in adata.obsm:
+            computed.append("PCA (dependency)")
+        if neighbors_computed:
+            computed.append(
+                "neighbors" if params.compute_neighbors else "neighbors (dependency)"
+            )
+        elif params.compute_neighbors:
             skipped.append("neighbors (already exists)")
 
     # 3. UMAP (requires neighbors)
@@ -292,7 +310,7 @@ async def compute_embeddings(
                 computed.append("spatial neighbors")
             else:
                 skipped.append("spatial neighbors (already exists)")
-        except ValueError as e:
+        except (DataNotFoundError, ValueError) as e:
             await ctx.warning(f"Could not compute spatial neighbors: {e}")
             skipped.append(f"spatial neighbors (error: {e})")
 
