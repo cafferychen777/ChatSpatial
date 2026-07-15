@@ -216,21 +216,14 @@ def deconvolve(
         )
 
         # Extract cell abundance and normalize to proportions
-        cell_abundance = _extract_cell_abundance(sp)
+        cell_abundance = _extract_cell_abundance(sp, ref_signatures.columns)
 
         # Cell2location outputs absolute abundance (not 0-1 proportions).
         # Normalize each spot's abundances to sum to 1 for consistent
         # downstream interpretation as cell type proportions.
-        row_sums = cell_abundance.sum(axis=1, keepdims=True)
-        row_sums = np.where(row_sums == 0, 1.0, row_sums)  # avoid /0
-        cell_proportions = cell_abundance / row_sums
-
-        # Create proportions DataFrame
-        proportions = pd.DataFrame(
-            cell_proportions,
-            index=sp.obs_names,
-            columns=ref_signatures.columns,
-        )
+        row_sums = cell_abundance.sum(axis=1)
+        row_sums = row_sums.mask(row_sums == 0, 1.0)
+        proportions = cell_abundance.div(row_sums, axis=0)
 
         # Create statistics
         stats = create_deconvolution_stats(
@@ -318,13 +311,33 @@ def _extract_reference_signatures(ref: "ad.AnnData") -> pd.DataFrame:
     return signatures
 
 
-def _extract_cell_abundance(sp: "ad.AnnData"):
-    """Extract cell abundance from Cell2location results.
+def _extract_cell_abundance(
+    sp: "ad.AnnData", factor_names: pd.Index | list[object]
+) -> pd.DataFrame:
+    """Extract and validate cell abundance without discarding factor identities.
 
     Cell2location stores results as DataFrames with prefixed column names like
-    'q05cell_abundance_w_sf_CellType'. We need to extract the values and
-    return them as a numpy array for consistent downstream processing.
+    'q05cell_abundance_w_sf_CellType'. Array outputs from older versions use
+    the model factor order supplied by ``factor_names``.
     """
+    expected_factors = pd.Index([str(name) for name in factor_names])
+    if len(expected_factors) == 0 or not expected_factors.is_unique:
+        raise ProcessingError(
+            "Cell2location reference factors must be non-empty and unique."
+        )
+
+    model_metadata = sp.uns.get("mod")
+    if (
+        isinstance(model_metadata, dict)
+        and model_metadata.get("factor_names") is not None
+    ):
+        exported_factors = [str(name) for name in model_metadata["factor_names"]]
+        if exported_factors != expected_factors.tolist():
+            raise ProcessingError(
+                "Cell2location exported factor names do not match the reference "
+                "signature columns."
+            )
+
     # Prefer posterior mean (unbiased), then median, then lower quantile
     possible_keys = [
         "means_cell_abundance_w_sf",
@@ -335,9 +348,83 @@ def _extract_cell_abundance(sp: "ad.AnnData"):
     for key in possible_keys:
         if key in sp.obsm:
             result = sp.obsm[key]
-            if hasattr(result, "values"):
-                return result.values
-            return result
+            if isinstance(result, pd.DataFrame):
+                normalized = result.copy()
+                normalized.index = normalized.index.map(str)
+                normalized.columns = normalized.columns.map(str)
+                expected_index = pd.Index(sp.obs_names.map(str))
+                if not expected_index.is_unique or not normalized.index.is_unique:
+                    raise ProcessingError(
+                        "Cell2location abundance output contains duplicate spot IDs."
+                    )
+                if not normalized.columns.is_unique:
+                    raise ProcessingError(
+                        "Cell2location abundance output contains duplicate factor labels."
+                    )
+                missing_spots = expected_index.difference(normalized.index)
+                unexpected_spots = normalized.index.difference(expected_index)
+                if len(missing_spots) or len(unexpected_spots):
+                    raise ProcessingError(
+                        "Cell2location abundance spots do not match the spatial dataset."
+                    )
+
+                summary_name = key.split("_", 1)[0]
+                prefixed_columns = pd.Index(
+                    [
+                        f"{summary_name}cell_abundance_w_sf_{factor}"
+                        for factor in expected_factors
+                    ]
+                )
+                if normalized.columns.equals(expected_factors):
+                    abundance = normalized.reindex(
+                        index=expected_index, columns=expected_factors
+                    )
+                elif set(normalized.columns) == set(prefixed_columns):
+                    abundance = normalized.reindex(
+                        index=expected_index, columns=prefixed_columns
+                    )
+                    abundance.columns = expected_factors
+                else:
+                    raise ProcessingError(
+                        "Cell2location abundance columns do not match the exported "
+                        "reference factors."
+                    )
+            else:
+                try:
+                    values = np.asarray(result, dtype=float)
+                except (TypeError, ValueError) as exc:
+                    raise ProcessingError(
+                        "Cell2location abundance output must be numeric."
+                    ) from exc
+                expected_shape = (sp.n_obs, len(expected_factors))
+                if values.ndim != 2 or values.shape != expected_shape:
+                    raise ProcessingError(
+                        "Cell2location abundance output has shape "
+                        f"{values.shape}; expected {expected_shape}."
+                    )
+                abundance = pd.DataFrame(
+                    values, index=sp.obs_names.map(str), columns=expected_factors
+                )
+
+            try:
+                abundance_values = abundance.to_numpy(dtype=float)
+            except (TypeError, ValueError) as exc:
+                raise ProcessingError(
+                    "Cell2location abundance output must be numeric."
+                ) from exc
+            if not np.isfinite(abundance_values).all():
+                raise ProcessingError(
+                    "Cell2location abundance output contains non-finite values."
+                )
+            if (abundance_values < 0).any():
+                raise ProcessingError(
+                    "Cell2location abundance output contains negative values."
+                )
+            return pd.DataFrame(
+                abundance_values,
+                index=sp.obs_names.map(str),
+                columns=expected_factors,
+            )
 
     raise ProcessingError(
         f"Cell2location did not produce expected output. "

@@ -719,16 +719,24 @@ def test_cell2location_extract_reference_signatures_and_abundance(minimal_spatia
 
     sp = minimal_spatial_adata.copy()
     sp.obsm["q05_cell_abundance_w_sf"] = pd.DataFrame(
-        np.tile([0.6, 0.4], (sp.n_obs, 1)),
+        np.tile([0.4, 0.6], (sp.n_obs, 1)),
         index=sp.obs_names,
+        columns=[
+            "q05cell_abundance_w_sf_B",
+            "q05cell_abundance_w_sf_A",
+        ],
     )
-    abundance = c2l_module._extract_cell_abundance(sp)
+    abundance = c2l_module._extract_cell_abundance(sp, ["A", "B"])
     assert abundance.shape == (sp.n_obs, 2)
+    assert abundance.columns.tolist() == ["A", "B"]
+    np.testing.assert_allclose(abundance.iloc[0], [0.6, 0.4])
 
 
 def test_cell2location_extract_cell_abundance_missing_key_raises(minimal_spatial_adata):
     with pytest.raises(ProcessingError, match="did not produce expected output"):
-        c2l_module._extract_cell_abundance(minimal_spatial_adata.copy())
+        c2l_module._extract_cell_abundance(
+            minimal_spatial_adata.copy(), ["A", "B"]
+        )
 
 
 @pytest.mark.asyncio
@@ -783,8 +791,51 @@ def test_cell2location_extract_reference_signatures_prefers_varm(minimal_spatial
 def test_cell2location_extract_cell_abundance_fallback_key(minimal_spatial_adata):
     sp = minimal_spatial_adata.copy()
     sp.obsm["means_cell_abundance_w_sf"] = np.tile([0.1, 0.9], (sp.n_obs, 1))
-    abundance = c2l_module._extract_cell_abundance(sp)
+    abundance = c2l_module._extract_cell_abundance(sp, ["A", "B"])
     assert abundance.shape == (sp.n_obs, 2)
+
+
+def test_cell2location_extract_cell_abundance_rejects_mislabeled_columns(
+    minimal_spatial_adata,
+):
+    sp = minimal_spatial_adata.copy()
+    sp.obsm["q05_cell_abundance_w_sf"] = pd.DataFrame(
+        np.ones((sp.n_obs, 2)),
+        index=sp.obs_names,
+        columns=["unknown_A", "unknown_B"],
+    )
+
+    with pytest.raises(ProcessingError, match="columns do not match"):
+        c2l_module._extract_cell_abundance(sp, ["A", "B"])
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        (lambda n: np.ones((n, 1)), "expected"),
+        (lambda n: np.full((n, 2), np.nan), "non-finite"),
+        (lambda n: np.full((n, 2), -0.1), "negative"),
+    ],
+)
+def test_cell2location_extract_cell_abundance_rejects_invalid_values(
+    minimal_spatial_adata, values, message
+):
+    sp = minimal_spatial_adata.copy()
+    sp.obsm["means_cell_abundance_w_sf"] = values(sp.n_obs)
+
+    with pytest.raises(ProcessingError, match=message):
+        c2l_module._extract_cell_abundance(sp, ["A", "B"])
+
+
+def test_cell2location_extract_cell_abundance_validates_exported_factor_order(
+    minimal_spatial_adata,
+):
+    sp = minimal_spatial_adata.copy()
+    sp.uns["mod"] = {"factor_names": ["B", "A"]}
+    sp.obsm["means_cell_abundance_w_sf"] = np.ones((sp.n_obs, 2))
+
+    with pytest.raises(ProcessingError, match="factor names do not match"):
+        c2l_module._extract_cell_abundance(sp, ["A", "B"])
 
 
 def test_cell2location_deconvolve_success_with_fake_models(
@@ -835,8 +886,12 @@ def test_cell2location_deconvolve_success_with_fake_models(
 
         def export_posterior(self, sp, **_kwargs):
             sp.obsm["q05_cell_abundance_w_sf"] = pd.DataFrame(
-                np.tile([0.6, 0.4], (sp.n_obs, 1)),
+                np.tile([0.4, 0.6], (sp.n_obs, 1)),
                 index=sp.obs_names,
+                columns=[
+                    "q05cell_abundance_w_sf_B",
+                    "q05cell_abundance_w_sf_A",
+                ],
             )
             return sp
 
@@ -853,6 +908,7 @@ def test_cell2location_deconvolve_success_with_fake_models(
 
     assert proportions.shape == (data.n_spots, 2)
     assert set(proportions.columns) == {"A", "B"}
+    np.testing.assert_allclose(proportions.iloc[0], [0.6, 0.4])
     assert stats["method"] == "Cell2location"
     assert stats["device"] == "cpu"
     assert "final_elbo" in stats
