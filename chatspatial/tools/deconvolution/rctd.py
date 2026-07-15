@@ -124,9 +124,7 @@ def deconvolve(
         )
 
         # Prepare cell type information
-        cell_types = reference_data.obs[data.cell_type_key].copy()
-        cell_types = cell_types.str.replace("/", "_", regex=False)
-        cell_types = cell_types.str.replace(" ", "_", regex=False)
+        cell_types = reference_data.obs[data.cell_type_key].astype(str)
 
         # RCTD requires minimum 25 cells per cell type
         MIN_CELLS_PER_TYPE = 25

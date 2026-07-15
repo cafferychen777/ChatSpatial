@@ -10,11 +10,12 @@ import chatspatial.tools.deconvolution as deconv_module
 from chatspatial.models.analysis import DeconvolutionResult
 from chatspatial.models.data import DeconvolutionParameters
 from chatspatial.tools.deconvolution import (
+    _validate_and_align_proportions,
     _store_results,
     deconvolve_spatial_data,
 )
 from chatspatial.tools.deconvolution.base import PreparedDeconvolutionData
-from chatspatial.utils.exceptions import DataError, ParameterError
+from chatspatial.utils.exceptions import DataError, ParameterError, ProcessingError
 
 
 class DummyCtx:
@@ -181,6 +182,45 @@ async def test_store_results_persists_expected_keys_and_calls_set_adata(
     assert "deconvolution_flashdeconv" in adata.obsm
     assert "dominant_celltype_flashdeconv" in adata.obs
     assert "d1" in ctx.updated
+
+
+def test_validate_and_align_proportions_reorders_without_inventing_rows(
+    minimal_spatial_adata,
+):
+    obs_names = minimal_spatial_adata.obs_names
+    proportions = pd.DataFrame(
+        {"T": [0.25, 0.75], "B": [0.75, 0.25]},
+        index=[obs_names[1], obs_names[0]],
+    )
+
+    aligned = _validate_and_align_proportions(
+        proportions, pd.Index(obs_names[:2]), "test_method"
+    )
+
+    assert aligned.index.tolist() == obs_names[:2].tolist()
+    np.testing.assert_array_equal(aligned["T"], [0.75, 0.25])
+
+
+@pytest.mark.parametrize(
+    ("mutator", "message"),
+    [
+        (lambda df: df.iloc[:-1], "1 missing"),
+        (lambda df: df.assign(T=np.nan), "non-finite"),
+        (lambda df: df.assign(T=-0.1), "negative proportions"),
+        (lambda df: df.rename(columns={"T": "B"}), "duplicate cell-type"),
+    ],
+)
+def test_validate_and_align_proportions_rejects_invalid_backend_output(
+    minimal_spatial_adata, mutator, message
+):
+    obs_names = minimal_spatial_adata.obs_names[:3]
+    valid = pd.DataFrame(
+        {"T": [0.6, 0.6, 0.6], "B": [0.4, 0.4, 0.4]},
+        index=obs_names,
+    )
+
+    with pytest.raises(ProcessingError, match=message):
+        _validate_and_align_proportions(mutator(valid), pd.Index(obs_names), "backend")
 
 
 @pytest.mark.integration

@@ -205,7 +205,7 @@ def test_spotlight_success_casts_counts_and_returns_stats(
         if text == "rownames(spotlight_result$mat)":
             return ["s1", "s2"]
         if text == "colnames(spotlight_result$mat)":
-            return ["A_B", "B_C"]
+            return ["A/B", "B C"]
         return None
 
     _install_fake_r_modules(monkeypatch, ro_r=_ro_r)
@@ -226,12 +226,12 @@ def test_spotlight_success_casts_counts_and_returns_stats(
 
     assert ro.globalenv["spatial_counts"].dtype == np.int32
     assert ro.globalenv["reference_counts"].dtype == np.int32
-    assert ro.globalenv["cell_types"][0] == "A_B"
-    assert ro.globalenv["cell_types"][-1] == "B_C"
+    assert ro.globalenv["cell_types"][0] == "A/B"
+    assert ro.globalenv["cell_types"][-1] == "B C"
     assert ro.globalenv["n_top_genes"] == 1234
     assert "verbose = FALSE" in ro.globalenv["last_spotlight_code"]
     assert proportions.shape == (2, 2)
-    assert list(proportions.columns) == ["A_B", "B_C"]
+    assert list(proportions.columns) == ["A/B", "B C"]
     assert stats["method"] == "SPOTlight"
     assert stats["n_top_genes"] == 1234
     assert stats["nmf_model"] == "std"
@@ -288,6 +288,31 @@ def test_rctd_deconvolve_raises_for_negative_proportions(
 
     with pytest.raises(ProcessingError, match="negative values"):
         rctd_module.deconvolve(data, mode="full")
+
+
+def test_rctd_preserves_distinct_cell_type_labels_supported_by_r(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    data = _prepared_data(minimal_spatial_adata)
+    data.reference.obs["cell_type"] = ["A/B"] * 30 + ["A B"] * 30
+    _install_fake_r_modules(monkeypatch, ro_r=lambda _code: None)
+    monkeypatch.setattr(rctd_module, "validate_r_package", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        rctd_module,
+        "_extract_rctd_results",
+        lambda _mode: pd.DataFrame(
+            np.tile([0.6, 0.4], (data.spatial.n_obs, 1)),
+            index=data.spatial.obs_names,
+            columns=["A/B", "A B"],
+        ),
+    )
+
+    proportions, _stats = rctd_module.deconvolve(data, mode="full")
+
+    import rpy2.robjects as ro
+
+    assert set(ro.globalenv["cell_types_vec"]) == {"A/B", "A B"}
+    assert proportions.columns.tolist() == ["A/B", "A B"]
 
 
 def test_rctd_deconvolve_warns_on_nan_and_returns_stats(

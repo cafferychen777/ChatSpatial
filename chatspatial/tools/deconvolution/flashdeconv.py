@@ -78,8 +78,6 @@ def deconvolve(
                 index=data.spatial.obs_names,
                 columns=data.cell_types,
             )
-        else:
-            proportions.index = data.spatial.obs_names
 
         # Create statistics
         stats = create_deconvolution_stats(

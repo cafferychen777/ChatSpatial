@@ -85,7 +85,7 @@ def test_flashdeconv_missing_output_raises_processing_error(
         flash_module.deconvolve(data)
 
 
-def test_flashdeconv_dataframe_output_uses_spatial_obs_names(
+def test_flashdeconv_dataframe_output_uses_spatial_observation_labels(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     data = _prepared_data(minimal_spatial_adata)
@@ -145,8 +145,9 @@ def test_tangram_success_with_fake_module(
     data = _prepared_data(minimal_spatial_adata)
 
     class _Map:
-        def __init__(self, X):
+        def __init__(self, X, labels):
             self.X = X
+            self.obs = pd.DataFrame({data.cell_type_key: labels})
 
     def _pp_adatas(_ref, _spatial, genes):
         assert len(genes) > 0
@@ -154,7 +155,8 @@ def test_tangram_success_with_fake_module(
     def _map_cells_to_space(_ref_data, spatial_data, **kwargs):
         assert kwargs["mode"] == "clusters"
         return _Map(
-            np.tile(np.array([[0.8], [0.2]]), (1, spatial_data.n_obs)).astype(float)
+            np.tile(np.array([[0.8], [0.2]]), (1, spatial_data.n_obs)).astype(float),
+            ["B", "A"],
         )
 
     fake_mod = ModuleType("tangram")
@@ -164,7 +166,8 @@ def test_tangram_success_with_fake_module(
 
     proportions, stats = tangram_module.deconvolve(data, mode="clusters", n_epochs=5)
     assert proportions.shape == (data.n_spots, 2)
-    assert list(proportions.columns) == ["A", "B"]
+    assert list(proportions.columns) == ["B", "A"]
+    assert proportions.iloc[0].to_dict() == pytest.approx({"B": 0.8, "A": 0.2})
     assert np.allclose(proportions.sum(axis=1).values, 1.0)
     assert stats["method"] == "Tangram"
 
@@ -248,6 +251,7 @@ def test_tangram_preserves_processing_error_from_internal_checks(
     class _Map:
         def __init__(self, X):
             self.X = X
+            self.obs = pd.DataFrame({data.cell_type_key: ["A", "B"]})
 
     fake_mod = ModuleType("tangram")
     fake_mod.pp_adatas = lambda *_a, **_k: None

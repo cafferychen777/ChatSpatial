@@ -95,15 +95,30 @@ def deconvolve(
                 device=device,
             )
 
-        cell_types = list(ref_data.obs[data.cell_type_key].unique())
+        reference_cell_types = list(ref_data.obs[data.cell_type_key].unique())
         mapping_matrix = ad_map.X
 
         if mode == "clusters":
-            if mapping_matrix.shape != (len(cell_types), spatial_data.n_obs):
+            if mapping_matrix.shape != (
+                len(reference_cell_types),
+                spatial_data.n_obs,
+            ):
                 raise ProcessingError(
                     "Unexpected Tangram cluster mapping shape: "
                     f"{mapping_matrix.shape}, expected "
-                    f"({len(cell_types)}, {spatial_data.n_obs})"
+                    f"({len(reference_cell_types)}, {spatial_data.n_obs})"
+                )
+            if (
+                not hasattr(ad_map, "obs")
+                or data.cell_type_key not in ad_map.obs.columns
+            ):
+                raise ProcessingError(
+                    "Tangram cluster mapping is missing its cell-type row labels."
+                )
+            cell_types = ad_map.obs[data.cell_type_key].map(str).tolist()
+            if len(cell_types) != len(set(cell_types)):
+                raise ProcessingError(
+                    "Tangram cluster mapping returned duplicate cell-type labels."
                 )
             proportions = pd.DataFrame(
                 mapping_matrix.T, index=spatial_data.obs_names, columns=cell_types
@@ -117,10 +132,14 @@ def deconvolve(
                 )
             cell_type_series = ref_data.obs[data.cell_type_key]
             type_indicators = pd.get_dummies(cell_type_series)
-            type_indicators = type_indicators.reindex(columns=cell_types, fill_value=0)
+            type_indicators = type_indicators.reindex(
+                columns=reference_cell_types, fill_value=0
+            )
             proportions_array = type_indicators.values.T @ mapping_matrix
             proportions = pd.DataFrame(
-                proportions_array.T, index=spatial_data.obs_names, columns=cell_types
+                proportions_array.T,
+                index=spatial_data.obs_names,
+                columns=[str(cell_type) for cell_type in reference_cell_types],
             )
 
         # Normalize to proportions

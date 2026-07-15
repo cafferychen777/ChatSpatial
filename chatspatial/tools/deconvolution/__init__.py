@@ -35,7 +35,12 @@ from ...utils.adata_utils import (
     store_analysis_metadata,
     validate_obs_column,
 )
-from ...utils.exceptions import DataError, DependencyError, ParameterError
+from ...utils.exceptions import (
+    DataError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 from ...utils.results_export import export_analysis_result
 from .base import MethodConfig, PreparedDeconvolutionData, prepare_deconvolution
 
@@ -381,6 +386,59 @@ def _dispatch_method(
     return deconvolve_func(data, **kwargs)
 
 
+def _validate_and_align_proportions(
+    proportions: pd.DataFrame,
+    obs_names: pd.Index,
+    method: str,
+) -> pd.DataFrame:
+    """Validate backend proportions and align rows to the spatial observation index."""
+    if not isinstance(proportions, pd.DataFrame):
+        raise ProcessingError(
+            f"{method} returned {type(proportions).__name__}, expected a DataFrame."
+        )
+    if len(obs_names) == 0:
+        raise DataError("Cannot store deconvolution results for an empty dataset.")
+    if proportions.shape[1] == 0:
+        raise ProcessingError(f"{method} returned no cell-type proportion columns.")
+
+    normalized = proportions.copy()
+    normalized.index = normalized.index.map(str)
+    normalized.columns = normalized.columns.map(str)
+    expected_index = pd.Index(obs_names.map(str))
+
+    if not normalized.index.is_unique:
+        raise ProcessingError(f"{method} returned duplicate spatial observation IDs.")
+    if not normalized.columns.is_unique:
+        raise ProcessingError(f"{method} returned duplicate cell-type labels.")
+
+    missing = expected_index.difference(normalized.index)
+    unexpected = normalized.index.difference(expected_index)
+    if len(missing) or len(unexpected):
+        raise ProcessingError(
+            f"{method} result observations do not match the spatial dataset: "
+            f"{len(missing)} missing and {len(unexpected)} unexpected IDs."
+        )
+
+    normalized = normalized.reindex(expected_index)
+    raw_values = normalized.to_numpy()
+    if np.iscomplexobj(raw_values):
+        raise ProcessingError(f"{method} returned complex-valued proportions.")
+    try:
+        values = np.asarray(raw_values, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ProcessingError(f"{method} returned non-numeric proportions.") from exc
+    if not np.isfinite(values).all():
+        raise ProcessingError(f"{method} returned non-finite proportions.")
+
+    minimum = float(values.min())
+    if minimum < -1e-10:
+        raise ProcessingError(
+            f"{method} returned negative proportions (minimum={minimum:.3g})."
+        )
+    values = np.maximum(values, 0.0)
+    return pd.DataFrame(values, index=expected_index, columns=normalized.columns)
+
+
 async def _store_results(
     spatial_adata: "ad.AnnData",
     proportions: pd.DataFrame,
@@ -393,32 +451,14 @@ async def _store_results(
 ) -> DeconvolutionResult:
     """Store deconvolution results in AnnData and return result object."""
     proportions_key = f"deconvolution_{method}"
-    cell_types = list(proportions.columns)
-
-    # Align proportions with spatial_adata.obs_names
-    # Reindex to match spatial_adata — new spots get NaN
-    reindexed = proportions.reindex(spatial_adata.obs_names)
-
-    # Distinguish: spots missing from proportions vs method-produced NaN
-    missing_mask = ~spatial_adata.obs_names.isin(proportions.index)
-    method_nan_mask = reindexed.isna().any(axis=1) & ~missing_mask
-
-    if method_nan_mask.any():
-        n_nan = int(method_nan_mask.sum())
-        import logging
-
-        logging.getLogger(__name__).warning(
-            "%d spots have NaN proportions from %s (set to 0; "
-            "may indicate numerical issues).",
-            n_nan,
-            method,
-        )
-        # Store mask so downstream can distinguish real zeros
-        # from method failures
-        spatial_adata.obs[f"{proportions_key}_nan_flag"] = method_nan_mask.values
-
-    # Fill all NaN with 0 for downstream compatibility
-    full_proportions = reindexed.fillna(0).values
+    aligned = _validate_and_align_proportions(
+        proportions, spatial_adata.obs_names, method
+    )
+    cell_types = aligned.columns.tolist()
+    full_proportions = aligned.to_numpy(copy=True)
+    result_stats = dict(stats)
+    result_stats["n_spots"] = len(full_proportions)
+    result_stats["n_cell_types"] = len(cell_types)
 
     # Store in obsm
     spatial_adata.obsm[proportions_key] = full_proportions
@@ -447,10 +487,7 @@ async def _store_results(
 
     # Store metadata for provenance tracking
     analysis_key = _build_deconvolution_key(method, reference_data_id)
-    nan_flag_key = f"{proportions_key}_nan_flag"
     obs_keys: list[str] = [dominant_key]
-    if nan_flag_key in spatial_adata.obs:
-        obs_keys.append(nan_flag_key)
     store_analysis_metadata(
         spatial_adata,
         analysis_name=analysis_key,
@@ -472,7 +509,7 @@ async def _store_results(
     )
 
     # Store CARD imputation data if present (bridge analysis → visualization)
-    imputation = stats.get("imputation")
+    imputation = result_stats.get("imputation")
     if imputation and method == "card":
         n_original = len(full_proportions)
         n_imputed = imputation.get("n_imputed_locations", 0)
@@ -495,7 +532,9 @@ async def _store_results(
         n_cell_types=len(cell_types),
         cell_types=cell_types,
         proportions_key=proportions_key,
-        n_spots=stats.get("n_spots", 0),
-        genes_used=stats.get("genes_used", stats.get("common_genes", 0)),
-        statistics=stats,
+        n_spots=len(full_proportions),
+        genes_used=result_stats.get(
+            "genes_used", result_stats.get("common_genes", 0)
+        ),
+        statistics=result_stats,
     )

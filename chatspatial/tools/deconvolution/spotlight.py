@@ -74,10 +74,8 @@ def deconvolve(
             dense.astype(np.int32, copy=False) if dense.dtype != np.int32 else dense
         )
 
-        # Clean cell type labels
+        # R factors support arbitrary string values; preserve biological labels.
         cell_types = reference_data.obs[data.cell_type_key].astype(str)
-        cell_types = cell_types.str.replace("/", "_", regex=False)
-        cell_types = cell_types.str.replace(" ", "_", regex=False)
 
         r_converter = default_converter + pandas2ri.converter + numpy2ri.converter
         with openrlib.rlock:
