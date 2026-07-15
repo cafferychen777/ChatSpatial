@@ -31,6 +31,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_NUMBAT_ALLELE_COLUMNS = (
+    "cell",
+    "snp_id",
+    "CHROM",
+    "POS",
+    "cM",
+    "REF",
+    "ALT",
+    "AD",
+    "DP",
+    "GT",
+)
+_NUMBAT_CLONE_COLUMNS = ("cell", "clone_opt", "p_cnv", "compartment_opt")
+
 
 def _build_cnv_key(params: "CNVParameters") -> str:
     """Build a parametric analysis key for CNV results.
@@ -107,6 +121,159 @@ def _expand_gene_aligned_layer(
     expanded = np.zeros((n_obs, len(target_genes)), dtype=layer.dtype)
     expanded[:, target_positions] = layer
     return expanded
+
+
+def _validate_numbat_allele_data(data: object) -> pd.DataFrame:
+    """Validate the allele-count fields consumed by Numbat before crossing into R."""
+    if not isinstance(data, pd.DataFrame):
+        raise ParameterError(
+            "adata.uns['numbat_allele_data_raw'] must be a pandas DataFrame."
+        )
+    if data.empty:
+        raise ParameterError("Numbat allele dataframe must contain at least one row.")
+
+    missing_columns = [
+        column for column in _NUMBAT_ALLELE_COLUMNS if column not in data.columns
+    ]
+    if missing_columns:
+        raise ParameterError(
+            f"Allele dataframe missing required columns: {missing_columns}\n"
+            f"Available columns: {list(data.columns)}\n"
+            "Numbat requires phased allele counts with columns: "
+            f"{', '.join(_NUMBAT_ALLELE_COLUMNS)}."
+        )
+    return data
+
+
+def _normalize_numbat_cell_table(
+    table: pd.DataFrame,
+    *,
+    required_columns: tuple[str, ...],
+    expected_cells: pd.Index,
+    table_name: str,
+) -> pd.DataFrame:
+    """Validate a Numbat cell table and normalize its cell identifiers."""
+    if not isinstance(table, pd.DataFrame):
+        raise DataCompatibilityError(
+            f"Numbat {table_name} output must be a pandas DataFrame."
+        )
+    if table.empty:
+        raise DataCompatibilityError(f"Numbat {table_name} output is empty.")
+    if not table.columns.is_unique:
+        raise DataCompatibilityError(
+            f"Numbat {table_name} output contains duplicate column labels."
+        )
+
+    missing_columns = [
+        column for column in required_columns if column not in table.columns
+    ]
+    if missing_columns:
+        raise DataCompatibilityError(
+            f"Numbat {table_name} output is missing required columns: "
+            f"{missing_columns}."
+        )
+
+    normalized = table.copy()
+    if normalized["cell"].isna().any():
+        raise DataCompatibilityError(
+            f"Numbat {table_name} output contains missing cell identifiers."
+        )
+    normalized["cell"] = normalized["cell"].map(str)
+    if normalized["cell"].duplicated().any():
+        raise DataCompatibilityError(
+            f"Numbat {table_name} output contains duplicate cell identifiers."
+        )
+
+    unexpected_cells = pd.Index(normalized["cell"]).difference(expected_cells)
+    if len(unexpected_cells):
+        raise DataCompatibilityError(
+            f"Numbat {table_name} output contains cells absent from the dataset: "
+            f"{unexpected_cells[:10].tolist()}."
+        )
+    return normalized
+
+
+def _validate_and_align_numbat_outputs(
+    clone_post: pd.DataFrame,
+    geno: pd.DataFrame,
+    obs_names: pd.Index,
+) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
+    """Validate Numbat output axes and align cell-level results to AnnData order."""
+    expected_cells = pd.Index(obs_names.map(str), name="cell")
+    if not expected_cells.is_unique:
+        raise DataCompatibilityError(
+            "Numbat result alignment requires unique AnnData observation names."
+        )
+
+    normalized_clone_post = _normalize_numbat_cell_table(
+        clone_post,
+        required_columns=_NUMBAT_CLONE_COLUMNS,
+        expected_cells=expected_cells,
+        table_name="clone_post",
+    )
+    if normalized_clone_post[["clone_opt", "compartment_opt"]].isna().any().any():
+        raise DataCompatibilityError(
+            "Numbat clone_post output contains missing clone assignments."
+        )
+    try:
+        clone_probabilities = normalized_clone_post["p_cnv"].to_numpy(dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise DataCompatibilityError(
+            "Numbat clone_post p_cnv values must be numeric."
+        ) from exc
+    if (
+        not np.isfinite(clone_probabilities).all()
+        or (clone_probabilities < 0).any()
+        or (clone_probabilities > 1).any()
+    ):
+        raise DataCompatibilityError(
+            "Numbat clone_post p_cnv values must be finite probabilities in [0, 1]."
+        )
+    normalized_clone_post["p_cnv"] = clone_probabilities
+
+    normalized_geno = _normalize_numbat_cell_table(
+        geno,
+        required_columns=("cell",),
+        expected_cells=expected_cells,
+        table_name="geno",
+    )
+    segment_columns = normalized_geno.columns.drop("cell")
+    if len(segment_columns) == 0:
+        raise DataCompatibilityError(
+            "Numbat geno output contains no CNV segment columns."
+        )
+    try:
+        genotype_values = normalized_geno[segment_columns].to_numpy(dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise DataCompatibilityError(
+            "Numbat geno segment values must be numeric."
+        ) from exc
+    if (
+        not np.isfinite(genotype_values).all()
+        or (genotype_values < 0).any()
+        or (genotype_values > 1).any()
+    ):
+        raise DataCompatibilityError(
+            "Numbat geno segment values must be finite probabilities in [0, 1]."
+        )
+
+    aligned_genotypes = np.full(
+        (len(expected_cells), len(segment_columns)), np.nan, dtype=float
+    )
+    genotype_positions = expected_cells.get_indexer(normalized_geno["cell"])
+    aligned_genotypes[genotype_positions] = genotype_values
+
+    aligned_clone_post = normalized_clone_post.set_index("cell").reindex(
+        expected_cells
+    )
+    aligned_clone_post["clone_opt"] = (
+        aligned_clone_post["clone_opt"].fillna("unassigned").map(str)
+    )
+    aligned_clone_post["compartment_opt"] = (
+        aligned_clone_post["compartment_opt"].fillna("unassigned").map(str)
+    )
+
+    return normalized_clone_post, aligned_clone_post, aligned_genotypes
 
 
 def _build_infercnvpy_workspace(adata: "ad.AnnData") -> "ad.AnnData":
@@ -481,26 +648,17 @@ def _infer_cnv_numbat(
     # Check if we have the raw allele dataframe in adata.uns
     if "numbat_allele_data_raw" in adata.uns:
         # Use pre-prepared long-format allele data
-        df_allele = adata.uns["numbat_allele_data_raw"]
-
-        # Validate required columns
-        required_cols = ["cell", "CHROM", "POS", "REF", "ALT", "AD", "DP"]
-        missing_cols = [col for col in required_cols if col not in df_allele.columns]
-
-        if missing_cols:
-            raise ParameterError(
-                f"Allele dataframe missing required columns: {missing_cols}\n"
-                f"Available columns: {list(df_allele.columns)}\n"
-                "Numbat requires: cell, CHROM, POS, REF, ALT, AD (alt count), "
-                "DP (total depth)"
-            )
+        df_allele = _validate_numbat_allele_data(
+            adata.uns["numbat_allele_data_raw"]
+        )
 
     else:
         # Fallback: try to use matrix format (less ideal for Numbat)
         raise ParameterError(
             "Numbat requires long-format allele dataframe in adata.uns['numbat_allele_data_raw'].\n"
             "This should be created during data preparation (e.g., from pileup_and_phase).\n"
-            "The dataframe should have columns: cell, CHROM, POS, REF, ALT, AD, DP, etc.\n"
+            "The dataframe should contain phased SNP identifiers, genetic positions, "
+            "genotypes, and allele depths.\n"
             f"Available uns keys: {list(adata.uns.keys())}"
         )
 
@@ -513,6 +671,10 @@ def _infer_cnv_numbat(
     # Prepare metadata — gene names must match count_mat dimensions
     gene_names = list(raw_result.var_names)
     cell_barcodes = list(adata.obs_names)
+    if not pd.Index(cell_barcodes).map(str).is_unique:
+        raise DataCompatibilityError(
+            "Numbat requires unique observation names for cell-level result alignment."
+        )
 
     # Identify reference cells (1-indexed for R)
     ref_mask = adata.obs[params.reference_key].isin(params.reference_categories)
@@ -649,36 +811,19 @@ def _infer_cnv_numbat(
         if os.path.exists(segs_file):
             segs = pd.read_csv(segs_file, sep="\t")
 
-        # 4. Check for phylogeny tree (if skip_nj=FALSE)
+    # 4. Check for the final phylogeny tree
         tree_file = os.path.join(out_dir, f"tree_final_{iter_suffix}.rds")
         has_phylo = os.path.exists(tree_file)
 
-        # Process genotype matrix for AnnData storage
-        # geno has structure: cell | segment1 | segment2 | ...
-        # Convert to numpy array (cells × segments)
-        geno_cells = geno["cell"].values
-        geno_segments = geno.drop(columns=["cell"]).values
-
-        # Ensure cells are in correct order (matching adata.obs_names)
-        cell_order = {cell: i for i, cell in enumerate(cell_barcodes)}
-        geno_sorted_indices = [cell_order.get(cell, -1) for cell in geno_cells]
-
-        if -1 in geno_sorted_indices:
-            raise DataCompatibilityError(
-                "Mismatch between genotype cells and AnnData cells"
+        normalized_clone_post, aligned_clone_post, cnv_matrix = (
+            _validate_and_align_numbat_outputs(
+                clone_post, geno, pd.Index(cell_barcodes)
             )
-
-        # Reorder genotype matrix to match AnnData cell order
-        # Use NaN for cells not in Numbat output (not analyzed, not "no CNV")
-        geno_cell_set = set(geno_cells)
-        cnv_matrix = np.full(
-            (len(cell_barcodes), geno_segments.shape[1]), np.nan
         )
-        for geno_idx, adata_idx in enumerate(geno_sorted_indices):
-            cnv_matrix[adata_idx, :] = geno_segments[geno_idx, :]
 
         # Track cells missing from Numbat results
-        n_missing = len(cell_barcodes) - len(geno_cell_set)
+        n_analyzed = int(np.count_nonzero(~np.isnan(cnv_matrix).all(axis=1)))
+        n_missing = len(cell_barcodes) - n_analyzed
         if n_missing > 0:
             logger.warning(
                 "%d / %d cells not in Numbat output — "
@@ -690,24 +835,15 @@ def _infer_cnv_numbat(
         # Store results in AnnData
         adata.obsm["X_cnv_numbat"] = cnv_matrix
 
-        # Extract clone assignments and probabilities
-        # Match clone_post cells with adata.obs_names
-        clone_dict = clone_post.set_index("cell").to_dict()
-
         # Convert numpy types to Python native types for H5AD compatibility
         # Use "unassigned" for cells not in Numbat output (distinct from clone IDs)
-        adata.obs["numbat_clone"] = [
-            str(clone_dict["clone_opt"].get(cell, "unassigned"))
-            for cell in cell_barcodes
-        ]
-        adata.obs["numbat_p_cnv"] = [
-            float(clone_dict["p_cnv"].get(cell, np.nan))
-            for cell in cell_barcodes
-        ]
-        adata.obs["numbat_compartment"] = [
-            str(clone_dict["compartment_opt"].get(cell, "unassigned"))
-            for cell in cell_barcodes
-        ]
+        adata.obs["numbat_clone"] = aligned_clone_post["clone_opt"].to_numpy()
+        adata.obs["numbat_p_cnv"] = aligned_clone_post["p_cnv"].to_numpy(
+            dtype=float
+        )
+        adata.obs["numbat_compartment"] = aligned_clone_post[
+            "compartment_opt"
+        ].to_numpy()
 
         # Store segment information if available
         if segs is not None:
@@ -730,18 +866,20 @@ def _infer_cnv_numbat(
 
         # Calculate statistics
         statistics = {
-            "mean_cnv": float(np.mean(cnv_matrix)),
-            "std_cnv": float(np.std(cnv_matrix)),
-            "median_cnv": float(np.median(cnv_matrix)),
-            "n_clones": int(clone_post["clone_opt"].nunique()),
-            "mean_p_cnv": float(clone_post["p_cnv"].mean()),
+            "mean_cnv": float(np.nanmean(cnv_matrix)),
+            "std_cnv": float(np.nanstd(cnv_matrix)),
+            "median_cnv": float(np.nanmedian(cnv_matrix)),
+            "n_clones": int(normalized_clone_post["clone_opt"].nunique()),
+            "mean_p_cnv": float(normalized_clone_post["p_cnv"].mean()),
             "n_reference_cells": len(ref_indices_r),
             "n_non_reference_cells": len(cell_barcodes) - len(ref_indices_r),
-            "n_segments": geno_segments.shape[1],
+            "n_cells_analyzed": n_analyzed,
+            "n_cells_missing": n_missing,
+            "n_segments": cnv_matrix.shape[1],
         }
 
         # Get clone distribution
-        clone_counts = clone_post["clone_opt"].value_counts()
+        clone_counts = normalized_clone_post["clone_opt"].value_counts()
         statistics["clone_distribution"] = {
             str(clone): int(count) for clone, count in clone_counts.items()
         }

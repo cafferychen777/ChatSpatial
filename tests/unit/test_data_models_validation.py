@@ -9,6 +9,7 @@ from chatspatial.models.data import (
     AnnotationParameters,
     CellCommunicationParameters,
     ColumnInfo,
+    CNVParameters,
     DifferentialExpressionParameters,
     EnrichmentParameters,
     PreprocessingParameters,
@@ -134,6 +135,25 @@ def test_cell_communication_uses_canonical_cellchat_literal():
             method="cellchat",
             species="human",
             cell_type_key="cell_type",
+        )
+
+
+def test_numbat_genome_matches_supported_backend_references():
+    for genome in ["hg38", "hg19", "mm10"]:
+        params = CNVParameters(
+            method="numbat",
+            reference_key="cell_type",
+            reference_categories=["normal"],
+            numbat_genome=genome,
+        )
+        assert params.numbat_genome == genome
+
+    with pytest.raises(ValidationError):
+        CNVParameters(
+            method="numbat",
+            reference_key="cell_type",
+            reference_categories=["normal"],
+            numbat_genome="mm39",
         )
 
 

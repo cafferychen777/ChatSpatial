@@ -42,6 +42,24 @@ def _add_gene_positions(adata, chromosomes: list[str] | None = None):
     adata.var["end"] = adata.var["start"] + 999
 
 
+def _numbat_allele_data(cell: str) -> pd.DataFrame:
+    """Return one valid phased SNP row for Numbat boundary tests."""
+    return pd.DataFrame(
+        {
+            "cell": [cell],
+            "snp_id": ["chr1_100_A_G"],
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "cM": [0.1],
+            "REF": ["A"],
+            "ALT": ["G"],
+            "AD": [3],
+            "DP": [10],
+            "GT": ["0|1"],
+        }
+    )
+
+
 @pytest.mark.asyncio
 async def test_infer_cnv_rejects_unknown_method_via_runtime_guard(
     minimal_spatial_adata,
@@ -530,22 +548,100 @@ def test_infer_cnv_numbat_rejects_allele_dataframe_with_missing_required_columns
         )
 
 
+@pytest.mark.parametrize("invalid", [None, [], pd.DataFrame()])
+def test_validate_numbat_allele_data_rejects_invalid_containers(invalid):
+    with pytest.raises(ParameterError):
+        cnv._validate_numbat_allele_data(invalid)
+
+
+def test_validate_and_align_numbat_outputs_preserves_cell_identity():
+    obs_names = pd.Index(["s1", "s2", "s3"])
+    clone_post = pd.DataFrame(
+        {
+            "cell": ["s3", "s1"],
+            "clone_opt": ["c3", "c1"],
+            "p_cnv": [0.8, 0.2],
+            "compartment_opt": ["tumor", "normal"],
+        }
+    )
+    geno = pd.DataFrame(
+        {
+            "cell": ["s3", "s1"],
+            "seg1": [0.9, 0.1],
+            "seg2": [0.7, 0.3],
+        }
+    )
+
+    normalized, aligned_clones, aligned_genotypes = (
+        cnv._validate_and_align_numbat_outputs(clone_post, geno, obs_names)
+    )
+
+    assert normalized["cell"].tolist() == ["s3", "s1"]
+    assert aligned_clones.index.tolist() == obs_names.tolist()
+    assert aligned_clones["clone_opt"].tolist() == ["c1", "unassigned", "c3"]
+    np.testing.assert_allclose(aligned_genotypes[[0, 2]], [[0.1, 0.3], [0.9, 0.7]])
+    assert np.isnan(aligned_genotypes[1]).all()
+
+
+@pytest.mark.parametrize(
+    ("table_name", "mutator", "message"),
+    [
+        (
+            "clone",
+            lambda table: pd.concat([table, table.iloc[[0]]], ignore_index=True),
+            "duplicate cell identifiers",
+        ),
+        (
+            "geno",
+            lambda table: pd.concat([table, table.iloc[[0]]], ignore_index=True),
+            "duplicate cell identifiers",
+        ),
+        (
+            "clone",
+            lambda table: table.drop(columns="p_cnv"),
+            "missing required columns",
+        ),
+        ("geno", lambda table: table[["cell"]], "no CNV segment columns"),
+        (
+            "geno",
+            lambda table: table.assign(cell=["unknown", "s2"]),
+            "cells absent from the dataset",
+        ),
+        (
+            "clone",
+            lambda table: table.assign(p_cnv=1.5),
+            r"probabilities in \[0, 1\]",
+        ),
+    ],
+)
+def test_validate_and_align_numbat_outputs_rejects_ambiguous_axes(
+    table_name, mutator, message
+):
+    obs_names = pd.Index(["s1", "s2"])
+    clone_post = pd.DataFrame(
+        {
+            "cell": obs_names,
+            "clone_opt": ["c1", "c2"],
+            "p_cnv": [0.2, 0.8],
+            "compartment_opt": ["normal", "tumor"],
+        }
+    )
+    geno = pd.DataFrame({"cell": obs_names, "seg1": [0.1, 0.9]})
+    if table_name == "clone":
+        clone_post = mutator(clone_post)
+    else:
+        geno = mutator(geno)
+
+    with pytest.raises(DataCompatibilityError, match=message):
+        cnv._validate_and_align_numbat_outputs(clone_post, geno, obs_names)
+
+
 def test_infer_cnv_numbat_requires_nonempty_reference_cells(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.uns["numbat_allele_data_raw"] = pd.DataFrame(
-        {
-            "cell": [adata.obs_names[0]],
-            "CHROM": ["chr1"],
-            "POS": [100],
-            "REF": ["A"],
-            "ALT": ["G"],
-            "AD": [3],
-            "DP": [10],
-        }
-    )
+    adata.uns["numbat_allele_data_raw"] = _numbat_allele_data(adata.obs_names[0])
     _install_fake_rpy2_stack(monkeypatch)
 
     with pytest.raises(ParameterError, match="No reference cells found"):
@@ -618,37 +714,28 @@ async def test_infer_cnv_numbat_success_parses_outputs_and_writes_metadata(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.uns["numbat_allele_data_raw"] = pd.DataFrame(
-        {
-            "cell": [adata.obs_names[0]],
-            "CHROM": ["chr1"],
-            "POS": [100],
-            "REF": ["A"],
-            "ALT": ["G"],
-            "AD": [3],
-            "DP": [10],
-        }
-    )
+    adata.uns["numbat_allele_data_raw"] = _numbat_allele_data(adata.obs_names[0])
 
     def _runner(env: dict):
         out_dir = env["out_dir"]
         cell_barcodes = list(env["cell_barcodes"])
 
+        analyzed_cells = cell_barcodes[::2]
         clone_post = pd.DataFrame(
             {
-                "cell": cell_barcodes,
-                "clone_opt": ["c1"] * len(cell_barcodes),
-                "p_cnv": [0.7] * len(cell_barcodes),
-                "compartment_opt": ["tumor"] * len(cell_barcodes),
+                "cell": analyzed_cells,
+                "clone_opt": ["c1"] * len(analyzed_cells),
+                "p_cnv": [0.7] * len(analyzed_cells),
+                "compartment_opt": ["tumor"] * len(analyzed_cells),
             }
         )
         clone_post.to_csv(f"{out_dir}/clone_post_2.tsv", sep="\t", index=False)
 
         geno = pd.DataFrame(
             {
-                "cell": cell_barcodes,
-                "seg1": np.ones(len(cell_barcodes)),
-                "seg2": np.zeros(len(cell_barcodes)),
+                "cell": analyzed_cells,
+                "seg1": np.ones(len(analyzed_cells)),
+                "seg2": np.zeros(len(analyzed_cells)),
             }
         )
         geno.to_csv(f"{out_dir}/geno_2.tsv", sep="\t", index=False)
@@ -686,7 +773,12 @@ async def test_infer_cnv_numbat_success_parses_outputs_and_writes_metadata(
     assert out.cnv_score_key == "X_cnv_numbat"
     assert out.statistics["n_segments"] == 2
     assert out.statistics["n_clones"] == 1
+    assert out.statistics["n_cells_analyzed"] == adata.n_obs // 2
+    assert out.statistics["n_cells_missing"] == adata.n_obs // 2
+    assert np.isfinite(out.statistics["mean_cnv"])
     assert adata.obsm["X_cnv_numbat"].shape == (adata.n_obs, 2)
+    assert np.isnan(adata.obsm["X_cnv_numbat"][1]).all()
+    assert adata.obs["numbat_clone"].iloc[1] == "unassigned"
     assert "numbat_clone" in adata.obs
     assert "numbat_segments" in adata.uns
     assert "numbat_phylogeny" in adata.uns
@@ -697,17 +789,7 @@ def test_infer_cnv_numbat_missing_output_files_raises_processing_error(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.uns["numbat_allele_data_raw"] = pd.DataFrame(
-        {
-            "cell": [adata.obs_names[0]],
-            "CHROM": ["chr1"],
-            "POS": [100],
-            "REF": ["A"],
-            "ALT": ["G"],
-            "AD": [3],
-            "DP": [10],
-        }
-    )
+    adata.uns["numbat_allele_data_raw"] = _numbat_allele_data(adata.obs_names[0])
 
     def _runner(_env: dict):
         return None
@@ -865,17 +947,7 @@ def test_infer_cnv_numbat_missing_geno_file_raises_processing_error(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.uns["numbat_allele_data_raw"] = pd.DataFrame(
-        {
-            "cell": [adata.obs_names[0]],
-            "CHROM": ["chr1"],
-            "POS": [100],
-            "REF": ["A"],
-            "ALT": ["G"],
-            "AD": [3],
-            "DP": [10],
-        }
-    )
+    adata.uns["numbat_allele_data_raw"] = _numbat_allele_data(adata.obs_names[0])
 
     def _runner(env: dict):
         out_dir = env["out_dir"]
@@ -919,17 +991,7 @@ def test_infer_cnv_numbat_cell_mismatch_raises_processing_error(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.uns["numbat_allele_data_raw"] = pd.DataFrame(
-        {
-            "cell": [adata.obs_names[0]],
-            "CHROM": ["chr1"],
-            "POS": [100],
-            "REF": ["A"],
-            "ALT": ["G"],
-            "AD": [3],
-            "DP": [10],
-        }
-    )
+    adata.uns["numbat_allele_data_raw"] = _numbat_allele_data(adata.obs_names[0])
 
     def _runner(env: dict):
         out_dir = env["out_dir"]
@@ -958,7 +1020,7 @@ def test_infer_cnv_numbat_cell_mismatch_raises_processing_error(
 
     monkeypatch.setattr(__import__("tempfile"), "mkdtemp", _mkdtemp)
 
-    with pytest.raises(ProcessingError, match="Mismatch between genotype cells"):
+    with pytest.raises(ProcessingError, match="geno output contains cells absent"):
         cnv._infer_cnv_numbat(
             "d16",
             adata,
@@ -976,17 +1038,7 @@ def test_infer_cnv_numbat_cleanup_failure_is_swallowed(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-    adata.uns["numbat_allele_data_raw"] = pd.DataFrame(
-        {
-            "cell": [adata.obs_names[0]],
-            "CHROM": ["chr1"],
-            "POS": [100],
-            "REF": ["A"],
-            "ALT": ["G"],
-            "AD": [3],
-            "DP": [10],
-        }
-    )
+    adata.uns["numbat_allele_data_raw"] = _numbat_allele_data(adata.obs_names[0])
 
     def _runner(_env: dict):
         return None  # Missing outputs -> ProcessingError path

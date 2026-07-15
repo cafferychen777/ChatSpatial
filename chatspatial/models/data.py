@@ -1823,7 +1823,7 @@ class CNVParameters(BaseModel):
     dendrogram: bool = Field(False, description="Compute hierarchical clustering.")
 
     # Numbat-specific parameters
-    numbat_genome: Literal["hg38", "hg19", "mm10", "mm39"] = Field(
+    numbat_genome: Literal["hg38", "hg19", "mm10"] = Field(
         "hg38", description="Reference genome. Numbat only."
     )
     numbat_t: Annotated[float, Field(gt=0.0, le=1.0)] = Field(
