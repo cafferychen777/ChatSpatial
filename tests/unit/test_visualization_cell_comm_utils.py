@@ -13,7 +13,12 @@ import pytest
 from chatspatial.models.data import VisualizationParameters
 from chatspatial.tools.cell_communication import CCCStorage, store_ccc_results
 from chatspatial.tools.visualization import cell_comm as viz_cc
-from chatspatial.utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 class DummyCtx:
@@ -159,8 +164,10 @@ def test_convert_to_liana_format_handles_empty_and_passthrough_cases():
     out_passthrough = viz_cc._convert_to_liana_format(
         liana_ready, pvalues=None, method="cellphonedb"
     )
-    assert out_liana is liana_ready
-    assert out_passthrough is liana_ready
+    assert out_liana.equals(liana_ready)
+    assert out_passthrough.equals(liana_ready)
+    assert out_liana is not liana_ready
+    assert out_passthrough is not liana_ready
 
 
 def test_convert_to_liana_format_cellchat_3d_contract():
@@ -194,7 +201,100 @@ def test_convert_to_liana_format_cellchat_3d_contract():
     assert out["magnitude_rank"].between(0, 1).all()
 
 
-def test_cellchat_3d_to_liana_format_handles_fallback_lr_nan_pval_and_empty_rows():
+def test_cellchat_3d_uses_matrix_position_for_lr_metadata():
+    results = pd.DataFrame(
+        {
+            "interaction_name": ["CXCL12_CXCR4"],
+            "ligand": ["CXCL12"],
+            "receptor": ["CXCR4"],
+        },
+        index=["interaction_42"],
+    )
+
+    out = viz_cc._cellchat_3d_to_liana_format(
+        results,
+        {
+            "prob_matrix": np.ones((1, 1, 1), dtype=float),
+            "cell_type_names": "T cell",
+        },
+    )
+
+    assert out[["ligand_complex", "receptor_complex"]].iloc[0].tolist() == [
+        "CXCL12",
+        "CXCR4",
+    ]
+
+
+def test_cellchat_3d_prefers_named_interaction_axis_over_result_row_order():
+    results = pd.DataFrame(
+        {
+            "interaction_name": ["L2_R2", "L1_R1"],
+            "ligand": ["L2", "L1"],
+            "receptor": ["R2", "R1"],
+        }
+    )
+    probability = np.zeros((1, 1, 2), dtype=float)
+    probability[0, 0, 0] = 0.8
+
+    out = viz_cc._cellchat_3d_to_liana_format(
+        results,
+        {
+            "prob_matrix": probability,
+            "cell_type_names": ["T"],
+            "lr_names": ["L1_R1", "L2_R2"],
+        },
+    )
+
+    assert out[["ligand_complex", "receptor_complex"]].iloc[0].tolist() == [
+        "L1",
+        "R1",
+    ]
+
+
+def test_cellchat_3d_validates_matrix_invariants():
+    results = pd.DataFrame({"interaction_name": ["L1_R1"]})
+
+    with pytest.raises(ProcessingError, match="must have shape"):
+        viz_cc._cellchat_3d_to_liana_format(
+            results,
+            {"prob_matrix": np.ones((1, 1)), "cell_type_names": ["A"]},
+        )
+
+    with pytest.raises(ProcessingError, match="labels do not match"):
+        viz_cc._cellchat_3d_to_liana_format(
+            results,
+            {"prob_matrix": np.ones((2, 2, 1)), "cell_type_names": ["A"]},
+        )
+
+    with pytest.raises(ProcessingError, match="p-value matrix must match"):
+        viz_cc._cellchat_3d_to_liana_format(
+            results,
+            {
+                "prob_matrix": np.ones((1, 1, 1)),
+                "pval_matrix": np.ones((1, 1, 2)),
+                "cell_type_names": ["A"],
+            },
+        )
+
+    with pytest.raises(ProcessingError, match="metadata does not match"):
+        viz_cc._cellchat_3d_to_liana_format(
+            results,
+            {"prob_matrix": np.ones((1, 1, 2)), "cell_type_names": ["A"]},
+        )
+
+
+def test_cell_communication_data_uses_immutable_empty_top_pairs():
+    data = viz_cc.CellCommunicationData(
+        results=pd.DataFrame(),
+        method="liana",
+        analysis_type="cluster",
+        lr_pairs=(),
+    )
+
+    assert data.top_lr_pairs == ()
+
+
+def test_cellchat_3d_to_liana_format_handles_nan_pval_and_empty_rows():
     results = pd.DataFrame(
         {
             "interaction_name": ["L1_R1"],
@@ -202,10 +302,8 @@ def test_cellchat_3d_to_liana_format_handles_fallback_lr_nan_pval_and_empty_rows
             "receptor": ["R1"],
         }
     )
-    prob = np.zeros((1, 1, 2), dtype=float)
-    prob[0, 0, 1] = 0.7
-    pval = np.ones((1, 1, 2), dtype=float)
-    pval[0, 0, 1] = np.nan
+    prob = np.full((1, 1, 1), 0.7, dtype=float)
+    pval = np.full((1, 1, 1), np.nan, dtype=float)
 
     out = viz_cc._cellchat_3d_to_liana_format(
         results=results,
@@ -216,8 +314,8 @@ def test_cellchat_3d_to_liana_format_handles_fallback_lr_nan_pval_and_empty_rows
         },
     )
     assert len(out) == 1
-    assert out.iloc[0]["ligand_complex"] == "LR_1"
-    assert out.iloc[0]["receptor_complex"] == "LR_1"
+    assert out.iloc[0]["ligand_complex"] == "L1"
+    assert out.iloc[0]["receptor_complex"] == "R1"
     assert out.iloc[0]["magnitude_rank"] == 1.0
 
     empty = viz_cc._cellchat_3d_to_liana_format(
@@ -299,7 +397,6 @@ async def test_get_cell_communication_data_converts_and_extracts_labels(
     minimal_spatial_adata,
 ):
     adata = minimal_spatial_adata.copy()
-    adata.obsm["ccc_spatial_scores"] = np.ones((adata.n_obs, 2))
     _store_cluster_ccc(adata)
     ctx = DummyCtx()
 
@@ -309,8 +406,48 @@ async def test_get_cell_communication_data_converts_and_extracts_labels(
     assert not data.results.empty
     assert set(data.source_labels) == {"T", "B"}
     assert set(data.target_labels) == {"T", "B"}
-    assert data.spatial_scores is not None
+    assert data.spatial_scores is None
     assert any("converted to LIANA format" in m for m in ctx.infos)
+
+
+@pytest.mark.asyncio
+async def test_get_cell_communication_data_rejects_missing_result_table(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    _store_cluster_ccc(adata)
+    adata.uns["ccc"]["results"] = None
+
+    with pytest.raises(DataCompatibilityError, match="DataFrame result table"):
+        await viz_cc.get_cell_communication_data(adata)
+
+
+@pytest.mark.asyncio
+async def test_get_cell_communication_data_ignores_stale_spatial_data_for_cluster_result(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    _store_cluster_ccc(adata)
+    adata.obsm["ccc_spatial_scores"] = np.ones((adata.n_obs, 2))
+
+    data = await viz_cc.get_cell_communication_data(adata)
+
+    assert data.analysis_type == "cluster"
+    assert data.spatial_scores is None
+
+
+@pytest.mark.asyncio
+async def test_get_cell_communication_data_validates_spatial_matrix_axes(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    _store_cluster_ccc(adata)
+    adata.uns["ccc"]["analysis_type"] = "spatial"
+    adata.obsm["ccc_spatial_scores"] = np.ones((adata.n_obs, 1))
+
+    expected_shape = rf"expected \({adata.n_obs}, 2\)"
+    with pytest.raises(DataCompatibilityError, match=expected_shape):
+        await viz_cc.get_cell_communication_data(adata)
 
 
 @pytest.mark.asyncio
@@ -992,6 +1129,7 @@ async def test_get_cell_communication_data_per_method_spatial_obsm(minimal_spati
     """Per-method obsm keys should be used when method is specified."""
     adata = minimal_spatial_adata.copy()
     _store_cluster_ccc(adata)
+    adata.uns["ccc"]["analysis_type"] = "spatial"
     adata.uns["ccc_cellphonedb"] = adata.uns["ccc"].copy()
 
     # Shared obsm: ones

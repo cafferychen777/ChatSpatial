@@ -897,6 +897,7 @@ def test_integrate_autocrine_detection_cellchat_prob_matrix_branch():
         species="human",
         database="cellchatdb",
         results=results,
+        lr_pairs=["L1^R1", "L1^R1", "L2^R2", "L3^R3"],
         method_data={"prob_matrix": prob},
     )
 
@@ -2100,6 +2101,7 @@ def _install_fake_rpy2(
                 ),
                 "net$prob": np.ones((2, 2, 2), dtype=float),
                 "net$pval": np.full((2, 2, 2), 0.05, dtype=float),
+                "dimnames(net$prob)[[3]]": ["L1^R1", "L2-R2"],
                 "rownames(net$prob)": ["T", "B"],
             }
 
@@ -2175,6 +2177,7 @@ def test_analyze_communication_cellchat_r_non_spatial_success(
     assert out.n_significant == 3
     assert out.lr_pairs == ["L1^R1", "L2^R2"]
     assert out.method_data["prob_matrix"].shape == (2, 2, 2)
+    assert out.method_data["lr_names"] == ["L1^R1", "L2-R2"]
     assert "createCellChat" in "\n".join(r_exec.scripts)
     assert "spatial_locs" not in fake_ro.globalenv
 

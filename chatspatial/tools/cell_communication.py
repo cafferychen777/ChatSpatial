@@ -549,13 +549,19 @@ def _integrate_autocrine_detection(storage: CCCStorage, n_top: int) -> None:
         prob_matrix = storage.method_data["prob_matrix"]
         if prob_matrix is not None and len(prob_matrix.shape) == 3:
             n_cell_types = prob_matrix.shape[0]
+            if len(storage.lr_pairs) != prob_matrix.shape[2]:
+                raise ProcessingError(
+                    "CellChat LR pair metadata does not match the probability matrix: "
+                    f"received {len(storage.lr_pairs)} pairs for shape "
+                    f"{prob_matrix.shape}."
+                )
             # Sum diagonal probabilities
             autocrine_probs = np.sum(
                 [prob_matrix[i, i, :] for i in range(n_cell_types)], axis=0
             )
             autocrine_mask = autocrine_probs > 0
-            if autocrine_mask.any() and "interaction_name" in results.columns:
-                autocrine_pairs = results[autocrine_mask]["interaction_name"].tolist()
+            if autocrine_mask.any():
+                autocrine_pairs = np.asarray(storage.lr_pairs)[autocrine_mask].tolist()
                 unique_pairs = _unique_standardized_lr_pairs(autocrine_pairs)
                 storage.autocrine = CCCAutocrine(
                     n_loops=len(unique_pairs),
@@ -1056,8 +1062,10 @@ async def _analyze_communication_cellphonedb(
         if ct_pair_cols:
             try:
                 pval_array = pvalues[ct_pair_cols].values.astype(float)
-            except (ValueError, TypeError):
-                raise ProcessingError("CellPhoneDB p-values are not numeric.")
+            except (ValueError, TypeError) as exc:
+                raise ProcessingError(
+                    "CellPhoneDB p-values are not numeric."
+                ) from exc
         else:
             # Fallback: use numeric columns (may include metadata)
             pval_array = pvalues.select_dtypes(include=[np.number]).values
@@ -1278,7 +1286,7 @@ async def _create_microenvironments_file(
 
         # Aggregate cell types per row using defaultdict
         row_to_types = defaultdict(set)
-        for r, ct in zip(rows, neighbor_types):
+        for r, ct in zip(rows, neighbor_types, strict=True):
             row_to_types[r].add(ct)
 
         # Build microenvironment assignments
@@ -1587,7 +1595,7 @@ def _analyze_communication_cellchat_r(
                 netP <- cellchat@netP
 
                 # Count interactions
-                n_lr_pairs <- length(unique(lr_pairs$interaction_name))
+                n_lr_pairs <- dim(net$prob)[3]
 
                 # Count significant interactions using p-value matrix
                 # (prob > 0 is necessary but NOT sufficient for significance)
@@ -1626,6 +1634,7 @@ def _analyze_communication_cellchat_r(
             # Don't use as.matrix() which would flatten it
             prob_matrix = ro.r("net$prob")
             pval_matrix = ro.r("net$pval")
+            lr_axis_names = [str(x) for x in ro.r("dimnames(net$prob)[[3]]")]
             # Get cell type names for later use
             cell_type_names = [str(x) for x in ro.r("rownames(net$prob)")]
 
@@ -1641,8 +1650,8 @@ def _analyze_communication_cellchat_r(
         analysis_time = end_time - start_time
 
         # Extract all LR pairs (standardized format)
-        all_lr_pairs: list[str] = []
-        if "interaction_name" in lr_pairs_df_py.columns:
+        all_lr_pairs = [standardize_lr_pair(pair) for pair in lr_axis_names]
+        if not all_lr_pairs and "interaction_name" in lr_pairs_df_py.columns:
             all_lr_pairs = [
                 standardize_lr_pair(p)
                 for p in lr_pairs_df_py["interaction_name"].tolist()
@@ -1676,6 +1685,7 @@ def _analyze_communication_cellchat_r(
             method_data={
                 "prob_matrix": prob_matrix_np,  # 3D array (sources x targets x interactions)
                 "pval_matrix": pval_matrix_np,  # 3D array (sources x targets x interactions)
+                "lr_names": lr_axis_names,  # Names for the interaction matrix axis
                 "cell_type_names": cell_type_names,  # Cell type names for matrix axes
                 "top_pathways": top_pathways,  # Ranked pathway names
             },

@@ -38,10 +38,16 @@ from ...tools.cell_communication import (
     CCC_SPATIAL_SCORES_KEY,
     CCCStorage,
     get_ccc_results,
+    standardize_lr_pair,
 )
 from ...utils.adata_utils import require_spatial_coords
 from ...utils.dependency_manager import require
-from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from ...utils.exceptions import (
+    DataCompatibilityError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 from .core import CellCommunicationData, auto_spot_size
 
 # =============================================================================
@@ -83,12 +89,12 @@ def _convert_to_liana_format(
 
     # LIANA results are already in correct format
     if method == "liana":
-        return results
+        return results.copy()
 
     # Check if already in LIANA format (has required columns)
     liana_cols = {"source", "target", "ligand_complex", "receptor_complex"}
     if liana_cols.issubset(results.columns):
-        return results
+        return results.copy()
 
     # CellChat R stores results in 3D matrices, requires special handling
     if method == "cellchat_r" and method_data is not None:
@@ -109,7 +115,8 @@ def _cellchat_3d_to_liana_format(
         - results: LR pairs metadata (interaction_name, ligand, receptor, etc.)
         - method_data['prob_matrix']: 3D array (n_sources × n_targets × n_lr_pairs)
         - method_data['pval_matrix']: 3D array (same shape)
-        - method_data['cell_type_names']: Cell type labels for axes
+        - method_data['cell_type_names']: Cell type labels for source/target axes
+        - method_data['lr_names']: Optional LR labels for the interaction axis
 
     Args:
         results: LR pairs metadata DataFrame with 'interaction_name', 'ligand', 'receptor'
@@ -125,34 +132,121 @@ def _cellchat_3d_to_liana_format(
     if prob_matrix is None or cell_type_names is None:
         return pd.DataFrame()
 
-    # Ensure cell_type_names is a list of strings
-    if hasattr(cell_type_names, "tolist"):
-        cell_type_names = cell_type_names.tolist()
-    cell_type_names = [str(x) for x in cell_type_names]
+    try:
+        prob_matrix = np.asarray(prob_matrix, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ProcessingError("CellChat probability matrix must be numeric.") from exc
+    if prob_matrix.ndim != 3:
+        raise ProcessingError(
+            "CellChat probability matrix must have shape "
+            "(n_sources, n_targets, n_lr_pairs)."
+        )
+
+    if isinstance(cell_type_names, str):
+        normalized_cell_types = [cell_type_names]
+    else:
+        if hasattr(cell_type_names, "tolist"):
+            cell_type_names = cell_type_names.tolist()
+        try:
+            normalized_cell_types = [str(value) for value in cell_type_names]
+        except TypeError as exc:
+            raise ProcessingError("CellChat cell type names must be a sequence.") from exc
 
     n_sources, n_targets, n_lr_pairs = prob_matrix.shape
+    if len(normalized_cell_types) != n_sources or len(normalized_cell_types) != n_targets:
+        raise ProcessingError(
+            "CellChat cell type labels do not match the probability matrix: "
+            f"received {len(normalized_cell_types)} labels for shape "
+            f"{prob_matrix.shape}."
+        )
+
+    if pval_matrix is not None:
+        try:
+            pval_matrix = np.asarray(pval_matrix, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ProcessingError("CellChat p-value matrix must be numeric.") from exc
+        if pval_matrix.shape != prob_matrix.shape:
+            raise ProcessingError(
+                "CellChat p-value matrix must match the probability matrix: "
+                f"received {pval_matrix.shape} and {prob_matrix.shape}."
+            )
+
+    raw_lr_names = method_data.get("lr_names")
+    lr_axis_names: list[str] | None = None
+    if raw_lr_names is not None:
+        if isinstance(raw_lr_names, str):
+            lr_axis_names = [raw_lr_names]
+        else:
+            if hasattr(raw_lr_names, "tolist"):
+                raw_lr_names = raw_lr_names.tolist()
+            try:
+                lr_axis_names = [str(value) for value in raw_lr_names]
+            except TypeError as exc:
+                raise ProcessingError(
+                    "CellChat LR axis names must be a sequence."
+                ) from exc
+        if len(lr_axis_names) != n_lr_pairs:
+            raise ProcessingError(
+                "CellChat LR axis names do not match the probability matrix: "
+                f"received {len(lr_axis_names)} names for shape "
+                f"{prob_matrix.shape}."
+            )
+    elif len(results) != n_lr_pairs:
+        raise ProcessingError(
+            "CellChat LR metadata does not match the probability matrix: "
+            f"received {len(results)} rows for {n_lr_pairs} interactions."
+        )
 
     # Get LR pair info from results DataFrame
-    lr_info = {}
+    lr_info: dict[int, tuple[str, str, str]] = {}
+    lr_info_by_name: dict[str, tuple[str, str, str]] = {}
     if "interaction_name" in results.columns:
-        for idx, row in results.iterrows():
-            name = str(row["interaction_name"])
-            ligand = str(row.get("ligand", name.split("_")[0]))
-            receptor = str(row.get("receptor", "_".join(name.split("_")[1:])))
-            lr_info[idx] = (name, ligand, receptor)
+        for position, (_, row) in enumerate(results.iterrows()):
+            raw_name = row["interaction_name"]
+            name = (
+                str(raw_name)
+                if pd.notna(raw_name) and str(raw_name).strip()
+                else f"LR_{position}"
+            )
+            fallback_ligand, fallback_receptor = _parse_lr_pair(name)
+            raw_ligand = row.get("ligand")
+            raw_receptor = row.get("receptor")
+            ligand = (
+                str(raw_ligand)
+                if raw_ligand is not None and pd.notna(raw_ligand)
+                else fallback_ligand
+            )
+            receptor = (
+                str(raw_receptor)
+                if raw_receptor is not None and pd.notna(raw_receptor)
+                else fallback_receptor
+            )
+            info = (name, ligand, receptor)
+            lr_info[position] = info
+            lr_info_by_name.setdefault(name, info)
+
+    if lr_axis_names is not None:
+        missing_lr_names = [name for name in lr_axis_names if name not in lr_info_by_name]
+        if missing_lr_names:
+            raise ProcessingError(
+                "CellChat result metadata is missing interaction-axis labels: "
+                f"{missing_lr_names[:5]}."
+            )
 
     rows = []
     for lr_idx in range(n_lr_pairs):
         # Get ligand/receptor from metadata
-        if lr_idx in lr_info:
+        if lr_axis_names is not None:
+            lr_name, ligand, receptor = lr_info_by_name[lr_axis_names[lr_idx]]
+        elif lr_idx in lr_info:
             lr_name, ligand, receptor = lr_info[lr_idx]
         else:
             lr_name = f"LR_{lr_idx}"
             ligand = lr_name
             receptor = lr_name
 
-        for src_idx, source in enumerate(cell_type_names):
-            for tgt_idx, target in enumerate(cell_type_names):
+        for src_idx, source in enumerate(normalized_cell_types):
+            for tgt_idx, target in enumerate(normalized_cell_types):
                 prob = prob_matrix[src_idx, tgt_idx, lr_idx]
                 if prob == 0 or np.isnan(prob):
                     continue  # Skip zero/nan interactions
@@ -307,27 +401,33 @@ def _parse_lr_pair(lr_pair: str) -> tuple[str, str]:
     Returns:
         Tuple of (ligand, receptor)
     """
-    # Remove prefix if present (e.g., "complex:")
-    if ":" in lr_pair:
-        lr_pair = lr_pair.split(":")[-1]
+    unprefixed_pair = lr_pair.rsplit(":", 1)[-1]
+    canonical_pair = standardize_lr_pair(unprefixed_pair)
+    if "^" not in canonical_pair:
+        return canonical_pair, canonical_pair
+    ligand, receptor = canonical_pair.split("^", 1)
+    return ligand.strip(), receptor.strip()
 
-    # Canonical separator — always safe
-    if "^" in lr_pair:
-        parts = lr_pair.split("^", 1)
-        return parts[0].strip(), parts[1].strip()
 
-    # Single underscore — unambiguous single-gene ligand/receptor
-    if lr_pair.count("_") == 1:
-        parts = lr_pair.split("_", 1)
-        return parts[0].strip(), parts[1].strip()
+def _validate_spatial_ccc_matrix(
+    matrix: object | None,
+    *,
+    key: str,
+    n_obs: int,
+    n_pairs: int,
+) -> np.ndarray | None:
+    """Validate a stored spatial CCC matrix against its observation and LR axes."""
+    if matrix is None:
+        return None
 
-    # No underscores, single dash — treat dash as separator
-    if lr_pair.count("_") == 0 and lr_pair.count("-") == 1:
-        parts = lr_pair.split("-", 1)
-        return parts[0].strip(), parts[1].strip()
-
-    # Ambiguous (multi-underscore/dash) — cannot safely split
-    return lr_pair, lr_pair
+    normalized = np.asarray(matrix)
+    expected_shape = (n_obs, n_pairs)
+    if normalized.ndim != 2 or normalized.shape != expected_shape:
+        raise DataCompatibilityError(
+            f"Stored spatial communication matrix '{key}' has shape "
+            f"{normalized.shape}; expected {expected_shape}."
+        )
+    return normalized
 
 
 async def get_cell_communication_data(
@@ -383,16 +483,43 @@ async def get_cell_communication_data(
             "'cellphonedb', 'fastccc', or 'cellchat_r'."
         )
 
-    # Get spatial data from obsm — use per-method keys when method is
-    # specified; only fall back to shared keys when no method is given.
-    if method:
-        scores_key = f"ccc_spatial_scores_{method}"
-        pvals_key = f"ccc_spatial_pvals_{method}"
-    else:
-        scores_key = CCC_SPATIAL_SCORES_KEY
-        pvals_key = CCC_SPATIAL_PVALS_KEY
-    spatial_scores = adata.obsm.get(scores_key)
-    spatial_pvals = adata.obsm.get(pvals_key)
+    if not isinstance(ccc.results, pd.DataFrame):
+        raise DataCompatibilityError(
+            "Stored cell communication results do not contain a DataFrame result table."
+        )
+    if ccc.pvalues is not None and not isinstance(ccc.pvalues, pd.DataFrame):
+        raise DataCompatibilityError(
+            "Stored cell communication p-values must be a DataFrame when present."
+        )
+    if not isinstance(ccc.method_data, dict):
+        raise DataCompatibilityError(
+            "Stored cell communication method data must be a dictionary."
+        )
+
+    spatial_scores = None
+    spatial_pvals = None
+    if ccc.analysis_type == "spatial":
+        # Use per-method keys when a method is specified; shared keys represent
+        # only the latest analysis and must not leak into cluster-level results.
+        if method:
+            scores_key = f"ccc_spatial_scores_{method}"
+            pvals_key = f"ccc_spatial_pvals_{method}"
+        else:
+            scores_key = CCC_SPATIAL_SCORES_KEY
+            pvals_key = CCC_SPATIAL_PVALS_KEY
+        n_pairs = len(ccc.lr_pairs)
+        spatial_scores = _validate_spatial_ccc_matrix(
+            adata.obsm.get(scores_key),
+            key=scores_key,
+            n_obs=adata.n_obs,
+            n_pairs=n_pairs,
+        )
+        spatial_pvals = _validate_spatial_ccc_matrix(
+            adata.obsm.get(pvals_key),
+            key=pvals_key,
+            n_obs=adata.n_obs,
+            n_pairs=n_pairs,
+        )
 
     # Convert results to LIANA format for unified visualization
     # This is the key step for first-principles architecture:
@@ -423,8 +550,8 @@ async def get_cell_communication_data(
         results=liana_results,
         method=ccc.method,
         analysis_type=ccc.analysis_type,
-        lr_pairs=ccc.lr_pairs,
-        top_lr_pairs=ccc.top_lr_pairs,
+        lr_pairs=tuple(ccc.lr_pairs),
+        top_lr_pairs=tuple(ccc.top_lr_pairs),
         pvalues=ccc.pvalues,  # Keep original pvalues for methods that need them
         spatial_scores=spatial_scores,
         spatial_pvals=spatial_pvals,
@@ -574,7 +701,7 @@ def _create_spatial_lr_visualization(
 
     if not valid_pairs:
         # Fallback: top_lr_pairs naming may differ from lr_pairs
-        valid_pairs = data.lr_pairs[:n_pairs]
+        valid_pairs = list(data.lr_pairs[:n_pairs])
         pair_indices = list(range(len(valid_pairs)))
 
     # Create figure
@@ -595,7 +722,7 @@ def _create_spatial_lr_visualization(
     # Calculate spot size (auto or user-specified)
     spot_size = auto_spot_size(adata, params.spot_size, basis="spatial")
 
-    for i, (pair, pair_idx) in enumerate(zip(valid_pairs, pair_indices, strict=False)):
+    for i, (pair, pair_idx) in enumerate(zip(valid_pairs, pair_indices, strict=True)):
         ax = axes[i]
 
         if pair_idx < data.spatial_scores.shape[1]:

@@ -8,6 +8,7 @@ This module contains:
 """
 
 import warnings
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 import anndata as ad
@@ -301,8 +302,8 @@ class CellCommunicationData(NamedTuple):
     results: pd.DataFrame
     method: str
     analysis_type: str  # "cluster" or "spatial"
-    lr_pairs: list[str]
-    top_lr_pairs: list[str] = []
+    lr_pairs: Sequence[str]
+    top_lr_pairs: Sequence[str] = ()
     pvalues: Optional[pd.DataFrame] = None
     spatial_scores: Optional[np.ndarray] = None
     spatial_pvals: Optional[np.ndarray] = None
