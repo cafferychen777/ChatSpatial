@@ -952,12 +952,12 @@ class RNAVelocityParameters(BaseModel):
     )
 
     # VELOVI specific parameters
-    velovi_n_hidden: int = 128
-    velovi_n_latent: int = 10
-    velovi_n_layers: int = 1
-    velovi_n_epochs: int = 1000
-    velovi_dropout_rate: float = 0.1
-    velovi_learning_rate: float = 1e-3
+    velovi_n_hidden: int = Field(default=128, gt=0)
+    velovi_n_latent: int = Field(default=10, gt=0)
+    velovi_n_layers: int = Field(default=1, gt=0)
+    velovi_n_epochs: int = Field(default=1000, gt=0)
+    velovi_dropout_rate: float = Field(default=0.1, ge=0.0, lt=1.0)
+    velovi_learning_rate: float = Field(default=1e-3, gt=0.0)
     velovi_use_gpu: bool = False
 
 

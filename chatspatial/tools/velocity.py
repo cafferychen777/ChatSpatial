@@ -12,6 +12,8 @@ Key functionality:
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
+import pandas as pd
+from scipy import sparse
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -28,6 +30,8 @@ from ..utils.adata_utils import (
 from ..utils.dependency_manager import require
 from ..utils.device_utils import get_accelerator
 from ..utils.exceptions import (
+    ChatSpatialError,
+    DataCompatibilityError,
     DataError,
     DataNotFoundError,
     ParameterError,
@@ -48,11 +52,184 @@ def _build_velocity_key(params: "RNAVelocityParameters") -> str:
     return f"velocity_{params.method}"
 
 
+def _velocity_parameters_for_metadata(
+    params: "RNAVelocityParameters",
+) -> dict[str, Any]:
+    """Return exactly the parameters that affect the selected velocity method."""
+    metadata: dict[str, Any] = {
+        "n_top_genes": params.n_top_genes,
+        "n_pcs": params.n_pcs,
+        "n_neighbors": params.n_neighbors,
+        "min_shared_counts": params.min_shared_counts,
+    }
+    if params.method == "scvelo":
+        metadata["mode"] = params.scvelo_mode
+    else:
+        metadata.update(
+            {
+                "n_epochs": params.velovi_n_epochs,
+                "n_hidden": params.velovi_n_hidden,
+                "n_latent": params.velovi_n_latent,
+                "n_layers": params.velovi_n_layers,
+                "dropout_rate": params.velovi_dropout_rate,
+                "learning_rate": params.velovi_learning_rate,
+                "use_gpu": params.velovi_use_gpu,
+            }
+        )
+    return metadata
+
+
 def _copy_matrix_data(data: Any) -> Any:
     """Return an independent copy of dense/sparse matrix-like data."""
     if hasattr(data, "copy"):
         return data.copy()
     return np.array(data, copy=True)
+
+
+def _compute_velocity_moments(
+    adata: "ad.AnnData", *, n_pcs: int, n_neighbors: int
+) -> None:
+    """Compute an explicit Scanpy neighbor graph and scVelo moments."""
+    import scanpy as sc
+    import scvelo as scv
+
+    sc.pp.neighbors(adata, n_pcs=n_pcs, n_neighbors=n_neighbors)
+    # Passing None makes scVelo consume the graph above instead of invoking its
+    # deprecated implicit neighbor calculation.
+    scv.pp.moments(adata, n_pcs=None, n_neighbors=None)
+    if "Ms" not in adata.layers or "Mu" not in adata.layers:
+        raise ProcessingError("scVelo did not produce the required Ms and Mu moments.")
+
+
+def _coerce_velovi_numeric_array(result: Any, output_name: str) -> np.ndarray:
+    """Convert a VELOVI output to a finite real-valued float array."""
+    raw_values = np.asarray(result)
+    if np.iscomplexobj(raw_values):
+        raise DataCompatibilityError(
+            f"VELOVI {output_name} contains complex values."
+        )
+    try:
+        values = np.asarray(raw_values, dtype=np.float32)
+    except (TypeError, ValueError) as exc:
+        raise DataCompatibilityError(
+            f"VELOVI {output_name} must be numeric."
+        ) from exc
+    if not np.isfinite(values).all():
+        raise DataCompatibilityError(
+            f"VELOVI {output_name} contains non-finite values."
+        )
+    return values
+
+
+def _normalize_velovi_cell_gene_output(
+    result: Any,
+    adata: "ad.AnnData",
+    output_name: str,
+    *,
+    require_nonnegative: bool = False,
+) -> np.ndarray:
+    """Validate a VELOVI cell-by-gene output and restore canonical axis order."""
+    expected_cells = pd.Index(adata.obs_names.map(str), name="cell")
+    expected_genes = pd.Index(adata.var_names.map(str), name="gene")
+    if not expected_cells.is_unique:
+        raise DataCompatibilityError(
+            "VELOVI workspace contains duplicate observation IDs."
+        )
+    if not expected_genes.is_unique:
+        raise DataCompatibilityError("VELOVI workspace contains duplicate gene IDs.")
+
+    expected_shape = (adata.n_obs, adata.n_vars)
+    if isinstance(result, pd.DataFrame):
+        normalized = result.copy()
+        normalized.index = normalized.index.map(str)
+        normalized.columns = normalized.columns.map(str)
+        if not normalized.index.is_unique:
+            raise DataCompatibilityError(
+                f"VELOVI {output_name} contains duplicate observation IDs."
+            )
+        if not normalized.columns.is_unique:
+            raise DataCompatibilityError(
+                f"VELOVI {output_name} contains duplicate gene IDs."
+            )
+
+        missing_cells = expected_cells.difference(normalized.index)
+        unexpected_cells = normalized.index.difference(expected_cells)
+        missing_genes = expected_genes.difference(normalized.columns)
+        unexpected_genes = normalized.columns.difference(expected_genes)
+        if any(
+            len(labels)
+            for labels in (
+                missing_cells,
+                unexpected_cells,
+                missing_genes,
+                unexpected_genes,
+            )
+        ):
+            raise DataCompatibilityError(
+                f"VELOVI {output_name} axes do not match the model workspace: "
+                f"{len(missing_cells)} missing and {len(unexpected_cells)} "
+                "unexpected observations; "
+                f"{len(missing_genes)} missing and {len(unexpected_genes)} "
+                "unexpected genes."
+            )
+        raw_values = normalized.reindex(
+            index=expected_cells, columns=expected_genes
+        ).to_numpy()
+    else:
+        raw_values = np.asarray(result)
+        if raw_values.ndim != 2 or raw_values.shape != expected_shape:
+            raise DataCompatibilityError(
+                f"VELOVI {output_name} has shape {raw_values.shape}; "
+                f"expected {expected_shape}."
+            )
+
+    values = _coerce_velovi_numeric_array(raw_values, output_name)
+    if values.shape != expected_shape:
+        raise DataCompatibilityError(
+            f"VELOVI {output_name} has shape {values.shape}; "
+            f"expected {expected_shape}."
+        )
+    if require_nonnegative and np.any(values < 0):
+        raise DataCompatibilityError(
+            f"VELOVI {output_name} contains negative values."
+        )
+    return values
+
+
+def _normalize_velovi_latent_representation(
+    result: Any, adata: "ad.AnnData"
+) -> np.ndarray:
+    """Validate the positional cell-by-latent output from VELOVI."""
+    values = _coerce_velovi_numeric_array(result, "latent representation")
+    if values.ndim != 2 or values.shape[0] != adata.n_obs or values.shape[1] == 0:
+        raise DataCompatibilityError(
+            "VELOVI latent representation has shape "
+            f"{values.shape}; expected ({adata.n_obs}, n_latent) with n_latent > 0."
+        )
+    return values
+
+
+def _validate_velovi_workspace_axis(
+    original: "ad.AnnData", prepared: "ad.AnnData"
+) -> None:
+    """Ensure preprocessing preserved the cell axis used by stored graph matrices."""
+    original_cells = pd.Index(original.obs_names.map(str))
+    prepared_cells = pd.Index(prepared.obs_names.map(str))
+    if not original_cells.is_unique or not prepared_cells.is_unique:
+        raise DataCompatibilityError(
+            "VELOVI requires unique observation IDs before preprocessing."
+        )
+    if not prepared_cells.equals(original_cells):
+        raise DataCompatibilityError(
+            "VELOVI preprocessing changed the observation identities or order."
+        )
+    prepared_genes = pd.Index(prepared.var_names.map(str))
+    if len(prepared_genes) == 0:
+        raise DataCompatibilityError("VELOVI preprocessing retained no genes.")
+    if not prepared_genes.is_unique:
+        raise DataCompatibilityError(
+            "VELOVI preprocessing produced duplicate gene IDs."
+        )
 
 
 def preprocess_for_velocity(
@@ -109,7 +286,7 @@ def preprocess_for_velocity(
         n_top_genes=n_top_genes,
         enforce=True,
     )
-    scv.pp.moments(adata, n_pcs=n_pcs, n_neighbors=n_neighbors)
+    _compute_velocity_moments(adata, n_pcs=n_pcs, n_neighbors=n_neighbors)
 
     return adata
 
@@ -232,7 +409,9 @@ async def _prepare_velovi_data(
 
     # Compute moments
     try:
-        scv.pp.moments(adata_velovi, n_pcs=n_pcs, n_neighbors=n_neighbors)
+        _compute_velocity_moments(
+            adata_velovi, n_pcs=n_pcs, n_neighbors=n_neighbors
+        )
     except Exception as e:
         raise ProcessingError(
             f"Moments computation failed: {e}. "
@@ -243,14 +422,11 @@ async def _prepare_velovi_data(
     return adata_velovi
 
 
-def _validate_velovi_data(adata: "ad.AnnData") -> bool:
+def _validate_velovi_data(adata: "ad.AnnData") -> None:
     """Validate data for VELOVI requirements.
 
     Args:
         adata: AnnData to validate for VELOVI compatibility.
-
-    Returns:
-        True if validation passes.
 
     Raises:
         DataNotFoundError: If required layers are missing.
@@ -270,7 +446,13 @@ def _validate_velovi_data(adata: "ad.AnnData") -> bool:
             f"Expected 2D arrays, got Ms:{ms_data.ndim}D, Mu:{mu_data.ndim}D"
         )
 
-    return True
+    for layer_name, layer_data in (("Ms", ms_data), ("Mu", mu_data)):
+        raw_values = layer_data.data if sparse.issparse(layer_data) else layer_data
+        values = _coerce_velovi_numeric_array(raw_values, f"{layer_name} layer")
+        if np.any(values < 0):
+            raise DataError(f"VELOVI {layer_name} layer contains negative values.")
+        if not np.any(values > 0):
+            raise DataError(f"VELOVI {layer_name} layer contains no positive values.")
 
 
 async def analyze_velocity_with_velovi(
@@ -309,11 +491,13 @@ async def analyze_velocity_with_velovi(
         Dictionary with VELOVI results and metadata.
     """
     try:
+        require("scvelo", feature="VELOVI preprocessing")
         require("scvi", feature="VELOVI velocity analysis")
         from scvi.external import VELOVI
 
         # Data preprocessing (forward params so user's preprocessing settings apply)
         adata_prepared = await _prepare_velovi_data(adata, ctx, params=params)
+        _validate_velovi_workspace_axis(adata, adata_prepared)
 
         # Data validation
         _validate_velovi_data(adata_prepared)
@@ -336,6 +520,8 @@ async def analyze_velocity_with_velovi(
 
         # Model training
         accelerator = get_accelerator(prefer_gpu=use_gpu)
+        if use_gpu and accelerator == "cpu" and ctx is not None:
+            await ctx.warning("GPU requested but unavailable; VELOVI is using CPU.")
         velovi_model.train(
             max_epochs=n_epochs,
             accelerator=accelerator,
@@ -343,72 +529,66 @@ async def analyze_velocity_with_velovi(
         )
 
         # Result extraction
-        latent_time = velovi_model.get_latent_time(n_samples=25)
-        velocities = velovi_model.get_velocity(n_samples=25, velo_statistic="mean")
-        latent_repr = velovi_model.get_latent_representation()
+        latent_time_result = velovi_model.get_latent_time(
+            n_samples=25, return_numpy=False
+        )
+        velocity_result = velovi_model.get_velocity(
+            n_samples=25,
+            velo_statistic="mean",
+            return_numpy=False,
+        )
+        latent_repr_result = velovi_model.get_latent_representation()
 
-        # Handle pandas/numpy compatibility
-        if hasattr(latent_time, "values"):
-            latent_time = latent_time.values
-        if hasattr(velocities, "values"):
-            velocities = velocities.values
+        latent_time = _normalize_velovi_cell_gene_output(
+            latent_time_result,
+            adata_prepared,
+            "latent time",
+            require_nonnegative=True,
+        )
+        velocities = _normalize_velovi_cell_gene_output(
+            velocity_result,
+            adata_prepared,
+            "velocity",
+        )
+        latent_repr = _normalize_velovi_latent_representation(
+            latent_repr_result, adata_prepared
+        )
 
-        # Ensure numpy array format
-        latent_time = np.asarray(latent_time, dtype=np.float32)
-        velocities = np.asarray(velocities, dtype=np.float32)
-        latent_repr = np.asarray(latent_repr, dtype=np.float32)
-
-        # Safe scaling calculation
-        t = latent_time
-        if t.ndim > 1:
-            t_max = np.max(t, axis=0)
-            if np.all(t_max > 0):
-                scaling = 20 / t_max
-            else:
-                scaling = np.ones_like(t_max, dtype=float)
-                positive_mask = t_max > 0
-                scaling[positive_mask] = 20 / t_max[positive_mask]
-        else:
-            t_max = np.max(t)
-            scaling = 20 / t_max if t_max > 0 else 1.0
-
-        if hasattr(scaling, "to_numpy"):
-            scaling = scaling.to_numpy()
-        scaling = np.asarray(scaling, dtype=np.float32)
-
-        # Calculate scaled velocities in-place to reduce peak memory.
-        scaled_velocities = velocities
-        if not scaled_velocities.flags.writeable:
-            scaled_velocities = scaled_velocities.copy()
-        if scaling.ndim == 0:
-            scaled_velocities /= scaling
-        elif scaling.ndim == 1 and scaled_velocities.ndim == 2:
-            scaled_velocities /= scaling[np.newaxis, :]
-        else:
-            scaled_velocities /= scaling
+        # Match the official per-gene scaling while retaining a defined value
+        # for genes whose inferred latent time is identically zero.
+        t_max = latent_time.max(axis=0).astype(np.float64, copy=False)
+        scaling = np.ones_like(t_max)
+        positive_time = t_max > 0
+        scaling[positive_time] = 20.0 / t_max[positive_time]
+        scaled_velocities = np.asarray(
+            velocities / scaling[np.newaxis, :], dtype=np.float32
+        )
+        if not np.isfinite(scaled_velocities).all():
+            raise DataCompatibilityError(
+                "VELOVI scaled velocity contains non-finite values."
+            )
 
         # Store results in preprocessed data object.
-        # VELOVI latent_time may be 1D (per-cell) or 2D (cell x gene). Keep
-        # 1D results in obs to avoid invalid layer shape and unnecessary memory.
         adata_prepared.layers["velocity_velovi"] = scaled_velocities
-        if latent_time.ndim == 1:
-            adata_prepared.obs["latent_time_velovi"] = latent_time
-            adata.obs["latent_time_velovi"] = latent_time
-        else:
-            adata_prepared.layers["latent_time_velovi"] = latent_time
+        adata_prepared.layers["latent_time_velovi"] = latent_time
         adata_prepared.obsm["X_velovi_latent"] = latent_repr
 
         # Calculate velocity statistics
         velocity_norm = np.linalg.norm(scaled_velocities, axis=1)
         adata_prepared.obs["velocity_velovi_norm"] = velocity_norm
 
+        # Validate and persist the complete CellRank payload before publishing
+        # user-facing result keys on the original object.
+        store_velovi_essential_data(adata, adata_prepared)
+
         # Transfer key information back to original adata
         adata.obs["velocity_velovi_norm"] = velocity_norm
         adata.obsm["X_velovi_latent"] = latent_repr
-
-        # Store essential data for CellRank (optimized: ~78% memory savings)
-        # Instead of storing full adata (~160 MB), stores only velocity/neighbors (~35 MB)
-        store_velovi_essential_data(adata, adata_prepared)
+        adata.obsm["velovi_latent_time"] = pd.DataFrame(
+            latent_time,
+            index=adata.obs_names.copy(),
+            columns=adata_prepared.var_names.copy(),
+        )
 
         return {
             "method": "VELOVI",
@@ -424,9 +604,11 @@ async def analyze_velocity_with_velovi(
             "n_genes_analyzed": adata_prepared.n_vars,
             "original_n_genes": adata.n_vars,
             "training_completed": True,
-            "device": "GPU" if use_gpu else "CPU",
+            "device": accelerator.upper(),
         }
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"VELOVI velocity analysis failed: {e}") from e
 
@@ -457,9 +639,6 @@ async def analyze_rna_velocity(
     if params is None:
         params = RNAVelocityParameters()
 
-    require("scvelo")
-    import scvelo as scv  # noqa: F401
-
     # Get AnnData object
     adata = await ctx.get_adata(data_id)
 
@@ -472,10 +651,9 @@ async def analyze_rna_velocity(
         ) from e
 
     velocity_computed = False
-    velocity_method_used = params.method
-
     # Dispatch based on method
     if params.method == "scvelo":
+        require("scvelo", feature="scVelo RNA velocity analysis")
         with suppress_output():
             try:
                 adata = compute_rna_velocity(
@@ -489,8 +667,6 @@ async def analyze_rna_velocity(
                 ) from e
 
     elif params.method == "velovi":
-        require("scvi", feature="VELOVI velocity analysis")
-
         try:
             velovi_results = await analyze_velocity_with_velovi(
                 adata,
@@ -516,6 +692,8 @@ async def analyze_rna_velocity(
             else:
                 raise ProcessingError("VELOVI failed to compute velocity")
 
+        except ChatSpatialError:
+            raise
         except Exception as e:
             raise ProcessingError(f"VELOVI velocity analysis failed: {e}") from e
 
@@ -524,20 +702,20 @@ async def analyze_rna_velocity(
 
     # Build results keys based on what was computed
     # Note: velocity layers NOT exported (too large for CSV)
-    method_used = velocity_method_used if params.method == "scvelo" else params.method
     results_keys: dict[str, list[str]] = {
         "uns": [],
         "obs": [],
         "obsm": [],
     }
 
-    # VELOVI results
-    if "velocity_velovi_norm" in adata.obs:
-        results_keys["obs"].append("velocity_velovi_norm")
-    if "latent_time_velovi" in adata.obs:
-        results_keys["obs"].append("latent_time_velovi")
-    if "X_velovi_latent" in adata.obsm:
-        results_keys["obsm"].append("X_velovi_latent")
+    # Claim only results produced by the selected method in this run.
+    if params.method == "velovi":
+        if "velocity_velovi_norm" in adata.obs:
+            results_keys["obs"].append("velocity_velovi_norm")
+        if "X_velovi_latent" in adata.obsm:
+            results_keys["obsm"].append("X_velovi_latent")
+        if "velovi_latent_time" in adata.obsm:
+            results_keys["obsm"].append("velovi_latent_time")
 
     # Only claim latent_time if THIS run computed it (scvelo dynamical only)
     if (
@@ -549,20 +727,24 @@ async def analyze_rna_velocity(
 
     # Store metadata for scientific provenance tracking
     analysis_key = _build_velocity_key(params)
+    statistics: dict[str, Any] = {"velocity_computed": velocity_computed}
+    if params.method == "velovi":
+        for key in (
+            "n_genes_analyzed",
+            "original_n_genes",
+            "velocity_mean_norm",
+            "velocity_std_norm",
+            "device",
+        ):
+            if key in velovi_results:
+                statistics[key] = velovi_results[key]
     store_analysis_metadata(
         adata,
         analysis_name=analysis_key,
-        method=method_used,
-        parameters={
-            "n_top_genes": params.n_top_genes,
-            "n_pcs": params.n_pcs,
-            "n_neighbors": params.n_neighbors,
-            "min_shared_counts": params.min_shared_counts,
-        },
+        method=params.method,
+        parameters=_velocity_parameters_for_metadata(params),
         results_keys=results_keys,
-        statistics={
-            "velocity_computed": velocity_computed,
-        },
+        statistics=statistics,
     )
 
     # Export results for reproducibility
@@ -572,7 +754,9 @@ async def analyze_rna_velocity(
         data_id=data_id,
         velocity_computed=velocity_computed,
         velocity_graph_key=(
-            "velocity_graph" if "velocity_graph" in adata.uns else None
+            "velocity_graph"
+            if params.method == "scvelo" and "velocity_graph" in adata.uns
+            else None
         ),
-        mode=velocity_method_used if params.method == "scvelo" else params.method,
+        mode=params.scvelo_mode if params.method == "scvelo" else params.method,
     )

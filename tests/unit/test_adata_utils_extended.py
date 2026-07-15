@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
@@ -185,17 +186,26 @@ def test_shallow_copy_adata_shares_expression_but_copies_metadata(minimal_spatia
     assert shallow.uns is not adata.uns
 
 
-def test_store_and_reconstruct_velovi_essential_data_roundtrip(minimal_spatial_adata):
-    adata = minimal_spatial_adata.copy()
-    vel = minimal_spatial_adata[:, :6].copy()
-    vel.layers["velocity_velovi"] = np.full((vel.n_obs, vel.n_vars), 0.5, dtype=np.float32)
+def _make_velovi_workspace(adata, *, velocity_key: str = "velocity_velovi"):
+    vel = adata[:, :6].copy()
+    vel.layers[velocity_key] = np.arange(
+        vel.n_obs * vel.n_vars, dtype=np.float32
+    ).reshape(vel.n_obs, vel.n_vars)
     vel.layers["Ms"] = np.full((vel.n_obs, vel.n_vars), 1.0, dtype=np.float32)
     vel.layers["Mu"] = np.full((vel.n_obs, vel.n_vars), 2.0, dtype=np.float32)
-    vel.obsp["connectivities"] = sparse.eye(vel.n_obs, format="csr")
-    vel.obsp["distances"] = sparse.eye(vel.n_obs, format="csr") * 2
+    diagonal = np.arange(1, vel.n_obs + 1, dtype=np.float32)
+    vel.obsp["connectivities"] = sparse.diags(diagonal, format="csr")
+    vel.obsp["distances"] = sparse.diags(diagonal * 2, format="csr")
+    return vel
+
+
+def test_store_and_reconstruct_velovi_essential_data_roundtrip(minimal_spatial_adata):
+    adata = minimal_spatial_adata.copy()
+    vel = _make_velovi_workspace(adata)
 
     au.store_velovi_essential_data(adata, vel)
     assert au.has_velovi_essential_data(adata) is True
+    assert adata.uns["velovi_obs_names"] == adata.obs_names.tolist()
 
     reconstructed = au.reconstruct_velovi_adata(adata)
     assert reconstructed.n_obs == adata.n_obs
@@ -211,20 +221,112 @@ def test_store_and_reconstruct_velovi_essential_data_roundtrip(minimal_spatial_a
 
 def test_store_velovi_essential_data_uses_velocity_fallback(minimal_spatial_adata):
     adata = minimal_spatial_adata.copy()
-    vel = minimal_spatial_adata[:, :4].copy()
-    vel.layers["velocity"] = np.full((vel.n_obs, vel.n_vars), 0.2, dtype=np.float32)
+    vel = _make_velovi_workspace(adata, velocity_key="velocity")
+    adata.uns["velovi_Mu"] = np.array([[99.0]])
+    adata.uns["velovi_distances"] = sparse.csr_matrix([[99.0]])
+    del vel.layers["Mu"]
+    del vel.obsp["distances"]
     au.store_velovi_essential_data(adata, vel)
     assert "velovi_velocity" in adata.uns
     assert np.array_equal(adata.uns["velovi_velocity"], vel.layers["velocity"])
+    assert "velovi_Mu" not in adata.uns
+    assert "velovi_distances" not in adata.uns
+
+
+def test_store_velovi_essential_data_rejects_reordered_workspace(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    vel = _make_velovi_workspace(adata)[::-1].copy()
+    with pytest.raises(DataError, match="do not match the target dataset order"):
+        au.store_velovi_essential_data(adata, vel)
+    assert au.has_velovi_essential_data(adata) is False
+
+
+def test_reconstruct_velovi_adata_aligns_reordered_cell_subset(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    vel = _make_velovi_workspace(adata)
+    au.store_velovi_essential_data(adata, vel)
+    positions = np.array([7, 2, 11, 0])
+    subset = adata[positions].copy()
+
+    reconstructed = au.reconstruct_velovi_adata(subset)
+
+    assert reconstructed.obs_names.equals(subset.obs_names)
+    np.testing.assert_array_equal(
+        reconstructed.layers["velocity"],
+        vel.layers["velocity_velovi"][positions, :],
+    )
+    expected_graph = vel.obsp["connectivities"][positions, :][:, positions]
+    np.testing.assert_array_equal(
+        reconstructed.obsp["connectivities"].toarray(),
+        expected_graph.toarray(),
+    )
+
+
+def test_reconstruct_velovi_adata_rejects_unknown_current_cells(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    vel = _make_velovi_workspace(adata)
+    au.store_velovi_essential_data(adata, vel)
+    adata.obs_names = ["new-cell", *adata.obs_names[1:]]
+
+    with pytest.raises(DataError, match="not present in the VELOVI analysis"):
+        au.reconstruct_velovi_adata(adata)
+
+
+def test_reconstruct_velovi_adata_rejects_corrupted_matrix_shape(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    au.store_velovi_essential_data(adata, _make_velovi_workspace(adata))
+    adata.uns["velovi_velocity"] = adata.uns["velovi_velocity"][:-1, :]
+
+    with pytest.raises(DataError, match="velovi_velocity has shape"):
+        au.reconstruct_velovi_adata(adata)
+
+
+def test_velovi_payload_survives_h5ad_roundtrip(
+    minimal_spatial_adata, tmp_path
+):
+    adata = minimal_spatial_adata.copy()
+    vel = _make_velovi_workspace(adata)
+    au.store_velovi_essential_data(adata, vel)
+    adata.obsm["velovi_latent_time"] = pd.DataFrame(
+        np.arange(adata.n_obs * vel.n_vars, dtype=np.float32).reshape(
+            adata.n_obs, vel.n_vars
+        ),
+        index=adata.obs_names,
+        columns=vel.var_names,
+    )
+    output_path = tmp_path / "velovi_roundtrip.h5ad"
+    adata.write_h5ad(output_path)
+
+    loaded = ad.read_h5ad(output_path)
+    positions = np.array([9, 3, 0])
+    subset = loaded[positions].copy()
+    reconstructed = au.reconstruct_velovi_adata(subset)
+
+    assert isinstance(subset.obsm["velovi_latent_time"], pd.DataFrame)
+    assert subset.obsm["velovi_latent_time"].columns.equals(vel.var_names)
+    np.testing.assert_array_equal(
+        reconstructed.layers["velocity"],
+        vel.layers["velocity_velovi"][positions, :],
+    )
 
 
 def test_reconstruct_velovi_adata_requires_essential_keys(minimal_spatial_adata):
     adata = minimal_spatial_adata.copy()
-    with pytest.raises(DataError, match="velovi_gene_names not found"):
+    assert au.has_velovi_essential_data(adata) is False
+    with pytest.raises(DataNotFoundError, match="Missing VELOVI reconstruction data"):
         au.reconstruct_velovi_adata(adata)
 
+    adata.uns["velovi_obs_names"] = adata.obs_names.tolist()
     adata.uns["velovi_gene_names"] = ["g1", "g2"]
-    with pytest.raises(DataError, match="velovi_velocity not found"):
+    with pytest.raises(DataNotFoundError, match="velovi_velocity"):
         au.reconstruct_velovi_adata(adata)
 
 

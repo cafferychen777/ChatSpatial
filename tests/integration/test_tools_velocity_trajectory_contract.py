@@ -56,8 +56,7 @@ async def test_analyze_rna_velocity_scvelo_branch_returns_expected_contract(
 
     assert isinstance(result, RNAVelocityResult)
     assert result.velocity_computed is True
-    # Current contract returns method label for scvelo branch.
-    assert result.mode == "scvelo"
+    assert result.mode == "stochastic"
     assert result.velocity_graph_key == "velocity_graph"
 
 

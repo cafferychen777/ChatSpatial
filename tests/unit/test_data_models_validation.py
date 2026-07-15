@@ -14,6 +14,7 @@ from chatspatial.models.data import (
     EnrichmentParameters,
     PreprocessingParameters,
     RegistrationParameters,
+    RNAVelocityParameters,
     SpatialDataset,
     SpatialDomainParameters,
     SpatialStatisticsParameters,
@@ -155,6 +156,25 @@ def test_numbat_genome_matches_supported_backend_references():
             reference_categories=["normal"],
             numbat_genome="mm39",
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("velovi_n_hidden", 0),
+        ("velovi_n_latent", 0),
+        ("velovi_n_layers", 0),
+        ("velovi_n_epochs", 0),
+        ("velovi_dropout_rate", -0.1),
+        ("velovi_dropout_rate", 1.0),
+        ("velovi_learning_rate", 0.0),
+    ],
+)
+def test_rna_velocity_rejects_invalid_velovi_hyperparameters(
+    field: str, value: float
+):
+    with pytest.raises(ValidationError):
+        RNAVelocityParameters.model_validate({field: value})
 
 
 def test_spatial_statistics_accepts_extended_analysis_literals():

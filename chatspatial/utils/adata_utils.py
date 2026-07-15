@@ -453,15 +453,53 @@ def shallow_copy_adata(adata: "ad.AnnData") -> "ad.AnnData":
     return adata_new
 
 
+_VELOVI_REQUIRED_KEYS: tuple[str, ...] = (
+    "velovi_obs_names",
+    "velovi_gene_names",
+    "velovi_velocity",
+    "velovi_Ms",
+    "velovi_connectivities",
+)
+
+
+def _velovi_axis(values: Any, axis_name: str) -> pd.Index:
+    """Normalize and validate a persisted VELOVI identity axis."""
+    axis = pd.Index([str(value) for value in values])
+    if len(axis) == 0:
+        raise DataError(f"VELOVI {axis_name} axis is empty.")
+    if not axis.is_unique:
+        raise DataError(f"VELOVI {axis_name} axis contains duplicate IDs.")
+    return axis
+
+
+def _validate_velovi_matrix(
+    matrix: Any, expected_shape: tuple[int, int], key: str
+) -> Any:
+    """Validate a persisted VELOVI matrix without changing its representation."""
+    if getattr(matrix, "shape", None) != expected_shape:
+        raise DataError(
+            f"{key} has shape {getattr(matrix, 'shape', None)}; "
+            f"expected {expected_shape}."
+        )
+    raw_values = matrix.data if sparse.issparse(matrix) else np.asarray(matrix)
+    if np.iscomplexobj(raw_values):
+        raise DataError(f"{key} contains complex values.")
+    try:
+        finite = np.isfinite(raw_values)
+    except TypeError as exc:
+        raise DataError(f"{key} must be numeric.") from exc
+    if not finite.all():
+        raise DataError(f"{key} contains non-finite values.")
+    return matrix
+
+
 def store_velovi_essential_data(
     adata: "ad.AnnData", adata_velovi: "ad.AnnData"
 ) -> None:
-    """Store only essential velovi data for CellRank, avoiding full adata copy.
-
-    This stores ~35 MB instead of ~160 MB for typical Visium data (78% savings).
-    For 100k cells, saves ~3.1 GB.
+    """Store the labeled VELOVI payload required to reconstruct CellRank input.
 
     Stores in adata.uns:
+        - velovi_obs_names: cell identities for safe reconstruction
         - velovi_gene_names: filtered gene names
         - velovi_velocity: velocity matrix
         - velovi_Ms: smoothed spliced (required by VelocityKernel)
@@ -473,26 +511,59 @@ def store_velovi_essential_data(
         adata: Original AnnData to store data in
         adata_velovi: Preprocessed velovi AnnData with velocity results
     """
-    # Gene names (for subsetting during reconstruction)
-    adata.uns["velovi_gene_names"] = adata_velovi.var_names.tolist()
+    source_cells = _velovi_axis(adata_velovi.obs_names, "observation")
+    target_cells = _velovi_axis(adata.obs_names, "observation")
+    if not source_cells.equals(target_cells):
+        raise DataError(
+            "VELOVI workspace observations do not match the target dataset order."
+        )
+    gene_names = _velovi_axis(adata_velovi.var_names, "gene")
+    matrix_shape = (len(source_cells), len(gene_names))
+    graph_shape = (len(source_cells), len(source_cells))
 
-    # Velocity layer (essential for CellRank)
     if "velocity_velovi" in adata_velovi.layers:
-        adata.uns["velovi_velocity"] = adata_velovi.layers["velocity_velovi"]
+        velocity = adata_velovi.layers["velocity_velovi"]
     elif "velocity" in adata_velovi.layers:
-        adata.uns["velovi_velocity"] = adata_velovi.layers["velocity"]
+        velocity = adata_velovi.layers["velocity"]
+    else:
+        raise DataNotFoundError(
+            "VELOVI workspace is missing the velocity result layer."
+        )
+    if "Ms" not in adata_velovi.layers:
+        raise DataNotFoundError("VELOVI workspace is missing the required Ms layer.")
+    if "connectivities" not in adata_velovi.obsp:
+        raise DataNotFoundError(
+            "VELOVI workspace is missing the required connectivities graph."
+        )
 
-    # Ms/Mu layers (required by VelocityKernel with default xkey='Ms')
-    if "Ms" in adata_velovi.layers:
-        adata.uns["velovi_Ms"] = adata_velovi.layers["Ms"]
+    payload: dict[str, Any] = {
+        "velovi_obs_names": source_cells.tolist(),
+        "velovi_gene_names": gene_names.tolist(),
+        "velovi_velocity": _validate_velovi_matrix(
+            velocity, matrix_shape, "velovi_velocity"
+        ),
+        "velovi_Ms": _validate_velovi_matrix(
+            adata_velovi.layers["Ms"], matrix_shape, "velovi_Ms"
+        ),
+        "velovi_connectivities": _validate_velovi_matrix(
+            adata_velovi.obsp["connectivities"],
+            graph_shape,
+            "velovi_connectivities",
+        ),
+    }
     if "Mu" in adata_velovi.layers:
-        adata.uns["velovi_Mu"] = adata_velovi.layers["Mu"]
-
-    # Neighbors graph (essential for VelocityKernel and ConnectivityKernel)
-    if "connectivities" in adata_velovi.obsp:
-        adata.uns["velovi_connectivities"] = adata_velovi.obsp["connectivities"]
+        payload["velovi_Mu"] = _validate_velovi_matrix(
+            adata_velovi.layers["Mu"], matrix_shape, "velovi_Mu"
+        )
     if "distances" in adata_velovi.obsp:
-        adata.uns["velovi_distances"] = adata_velovi.obsp["distances"]
+        payload["velovi_distances"] = _validate_velovi_matrix(
+            adata_velovi.obsp["distances"], graph_shape, "velovi_distances"
+        )
+
+    for optional_key in ("velovi_Mu", "velovi_distances"):
+        if optional_key not in payload:
+            adata.uns.pop(optional_key, None)
+    adata.uns.update(payload)
 
 
 def reconstruct_velovi_adata(adata: "ad.AnnData") -> "ad.AnnData":
@@ -512,51 +583,93 @@ def reconstruct_velovi_adata(adata: "ad.AnnData") -> "ad.AnnData":
     """
     import anndata as ad
 
-    # Check required data exists
-    if "velovi_gene_names" not in adata.uns:
-        raise DataError("velovi_gene_names not found. Run velocity analysis first.")
-    if "velovi_velocity" not in adata.uns:
-        raise DataError("velovi_velocity not found. Run velocity analysis first.")
+    missing_keys = [key for key in _VELOVI_REQUIRED_KEYS if key not in adata.uns]
+    if missing_keys:
+        raise DataNotFoundError(
+            "Missing VELOVI reconstruction data: "
+            f"{', '.join(missing_keys)}. Run velocity analysis again."
+        )
 
-    gene_names = adata.uns["velovi_gene_names"]
-    n_cells = adata.n_obs
+    stored_cells = _velovi_axis(adata.uns["velovi_obs_names"], "observation")
+    current_cells = _velovi_axis(adata.obs_names, "observation")
+    missing_cells = current_cells.difference(stored_cells)
+    if len(missing_cells):
+        raise DataError(
+            "Current dataset contains observations that were not present in the "
+            f"VELOVI analysis: {missing_cells[:5].tolist()}."
+        )
+    cell_positions = stored_cells.get_indexer(current_cells)
+
+    gene_names = _velovi_axis(adata.uns["velovi_gene_names"], "gene")
+    stored_matrix_shape = (len(stored_cells), len(gene_names))
+    stored_graph_shape = (len(stored_cells), len(stored_cells))
+    velocity = _validate_velovi_matrix(
+        adata.uns["velovi_velocity"], stored_matrix_shape, "velovi_velocity"
+    )
+    ms_data = _validate_velovi_matrix(
+        adata.uns["velovi_Ms"], stored_matrix_shape, "velovi_Ms"
+    )
+    connectivities = _validate_velovi_matrix(
+        adata.uns["velovi_connectivities"],
+        stored_graph_shape,
+        "velovi_connectivities",
+    )
+    mu_data = (
+        _validate_velovi_matrix(
+            adata.uns["velovi_Mu"], stored_matrix_shape, "velovi_Mu"
+        )
+        if "velovi_Mu" in adata.uns
+        else None
+    )
+    distances = (
+        _validate_velovi_matrix(
+            adata.uns["velovi_distances"],
+            stored_graph_shape,
+            "velovi_distances",
+        )
+        if "velovi_distances" in adata.uns
+        else None
+    )
+
+    n_cells = len(current_cells)
     n_genes = len(gene_names)
 
-    # Create minimal X matrix (zeros - CellRank doesn't use it for velocity)
-    # This avoids copying expression data
-    import numpy as np
-
+    # CellRank's velocity kernel does not consume the expression matrix itself.
     X_placeholder = np.zeros((n_cells, n_genes), dtype=np.float32)
 
     # Create reconstructed AnnData
     adata_velovi = ad.AnnData(
         X=X_placeholder,
-        obs=adata.obs.copy(),  # Share cell metadata
+        obs=adata.obs.copy(),
     )
     adata_velovi.var_names = gene_names
-    adata_velovi.obs_names = adata.obs_names
+    adata_velovi.obs_names = adata.obs_names.copy()
 
     # Add velocity layer (essential)
-    adata_velovi.layers["velocity"] = adata.uns["velovi_velocity"]
+    adata_velovi.layers["velocity"] = velocity[cell_positions, :]
 
     # Add Ms/Mu layers (required by VelocityKernel)
-    if "velovi_Ms" in adata.uns:
-        adata_velovi.layers["Ms"] = adata.uns["velovi_Ms"]
-    if "velovi_Mu" in adata.uns:
-        adata_velovi.layers["Mu"] = adata.uns["velovi_Mu"]
+    adata_velovi.layers["Ms"] = ms_data[cell_positions, :]
+    if mu_data is not None:
+        adata_velovi.layers["Mu"] = mu_data[cell_positions, :]
 
     # Add neighbors graph (essential for kernels)
-    if "velovi_connectivities" in adata.uns:
-        adata_velovi.obsp["connectivities"] = adata.uns["velovi_connectivities"]
-    if "velovi_distances" in adata.uns:
-        adata_velovi.obsp["distances"] = adata.uns["velovi_distances"]
+    adata_velovi.obsp["connectivities"] = connectivities[
+        cell_positions, :
+    ][:, cell_positions]
+    if distances is not None:
+        adata_velovi.obsp["distances"] = distances[
+            cell_positions, :
+        ][:, cell_positions]
 
     # Add neighbors metadata (required by CellRank)
-    adata_velovi.uns["neighbors"] = {
+    neighbors: dict[str, Any] = {
         "connectivities_key": "connectivities",
-        "distances_key": "distances",
         "params": {"method": "umap"},
     }
+    if distances is not None:
+        neighbors["distances_key"] = "distances"
+    adata_velovi.uns["neighbors"] = neighbors
 
     # Add spatial coordinates if available
     spatial_key = get_spatial_key(adata)
@@ -568,11 +681,7 @@ def reconstruct_velovi_adata(adata: "ad.AnnData") -> "ad.AnnData":
 
 def has_velovi_essential_data(adata: "ad.AnnData") -> bool:
     """Check if AnnData has essential velovi data for reconstruction."""
-    return (
-        "velovi_gene_names" in adata.uns
-        and "velovi_velocity" in adata.uns
-        and "velovi_connectivities" in adata.uns
-    )
+    return all(key in adata.uns for key in _VELOVI_REQUIRED_KEYS)
 
 
 # =============================================================================
