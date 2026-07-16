@@ -264,9 +264,14 @@ class _VelCtx:
     def __init__(self, adata):
         self._adata = adata
         self.warnings: list[str] = []
+        self.set_calls = 0
 
     async def get_adata(self, _data_id: str):
         return self._adata
+
+    async def set_adata(self, _data_id: str, adata) -> None:
+        self._adata = adata
+        self.set_calls += 1
 
     async def warning(self, message: str) -> None:
         self.warnings.append(message)
@@ -300,14 +305,21 @@ async def test_analyze_rna_velocity_scvelo_wraps_compute_errors(
     monkeypatch.setattr(vel, "require", lambda *_a, **_k: None)
     monkeypatch.setitem(__import__("sys").modules, "scvelo", ModuleType("scvelo"))
     monkeypatch.setattr(vel, "validate_adata", lambda *_a, **_k: None)
-    monkeypatch.setattr(
-        vel,
-        "compute_rna_velocity",
-        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("cv boom")),
-    )
+
+    def _partially_mutate_then_fail(candidate, *_args, **_kwargs):
+        candidate.obs["partial_velocity"] = 1.0
+        raise RuntimeError("cv boom")
+
+    monkeypatch.setattr(vel, "compute_rna_velocity", _partially_mutate_then_fail)
+
+    ctx = _VelCtx(adata)
 
     with pytest.raises(ProcessingError, match="scVelo RNA velocity analysis failed"):
-        await vel.analyze_rna_velocity("d2", _VelCtx(adata))
+        await vel.analyze_rna_velocity("d2", ctx)
+
+    assert "partial_velocity" not in adata.obs
+    assert ctx._adata is adata
+    assert ctx.set_calls == 0
 
 
 @pytest.mark.asyncio
@@ -464,18 +476,24 @@ async def test_analyze_trajectory_dpt_wraps_internal_errors(
 ):
     adata = minimal_spatial_adata.copy()
 
-    monkeypatch.setattr(
-        traj,
-        "compute_dpt_trajectory",
-        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("dpt boom")),
-    )
+    def _partially_mutate_then_fail(candidate, *_args, **_kwargs):
+        candidate.obs["partial_pseudotime"] = 0.5
+        raise RuntimeError("dpt boom")
+
+    monkeypatch.setattr(traj, "compute_dpt_trajectory", _partially_mutate_then_fail)
+
+    ctx = _VelCtx(adata)
 
     with pytest.raises(ProcessingError, match="DPT analysis failed"):
         await traj.analyze_trajectory(
             "t3",
-            _VelCtx(adata),
+            ctx,
             traj.TrajectoryParameters(method="dpt"),
         )
+
+    assert "partial_pseudotime" not in adata.obs
+    assert ctx._adata is adata
+    assert ctx.set_calls == 0
 
 
 @pytest.mark.asyncio

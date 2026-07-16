@@ -22,6 +22,9 @@ class DummyCtx:
     async def get_adata(self, data_id: str):
         return self._adata
 
+    async def set_adata(self, data_id: str, adata):
+        self._adata = adata
+
     async def warning(self, msg: str):
         self.warnings.append(msg)
 
@@ -52,7 +55,8 @@ async def test_identify_spatial_domains_leiden_contract_with_mocked_backend(
     assert result.method == "leiden"
     assert result.domain_key == "spatial_domains_leiden_res0_50"
     assert sum(result.domain_counts.values()) == adata.n_obs
-    assert "spatial_domains_leiden_res0_50" in adata.obs
+    assert ctx._adata is not adata
+    assert "spatial_domains_leiden_res0_50" in ctx._adata.obs
 
 
 @pytest.mark.integration

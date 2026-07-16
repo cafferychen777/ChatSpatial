@@ -677,16 +677,20 @@ async def analyze_rna_velocity(
     if params is None:
         params = RNAVelocityParameters()
 
-    # Get AnnData object
-    adata = await ctx.get_adata(data_id)
+    # Work on an isolated candidate. scVelo and VELOVI mutate AnnData in place,
+    # often across several steps, so a late failure must not leak partial layers,
+    # embeddings, or metadata into the managed dataset.
+    source_adata = await ctx.get_adata(data_id)
 
     # Validate data for velocity analysis
     try:
-        validate_adata(adata, {}, check_velocity=True)
+        validate_adata(source_adata, {}, check_velocity=True)
     except DataNotFoundError as e:
         raise DataNotFoundError(
             f"Missing velocity data: {e}. Requires 'spliced' and 'unspliced' layers."
         ) from e
+
+    adata = source_adata.copy()
 
     velocity_computed = False
     # Dispatch based on method
@@ -792,6 +796,9 @@ async def analyze_rna_velocity(
 
     # Export results for reproducibility
     export_analysis_result(adata, data_id, analysis_key)
+
+    # Commit only the complete scientific result and its provenance metadata.
+    await ctx.set_adata(data_id, adata)
 
     return RNAVelocityResult(
         data_id=data_id,

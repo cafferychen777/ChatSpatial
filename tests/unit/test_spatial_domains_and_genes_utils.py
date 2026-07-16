@@ -56,9 +56,14 @@ class DummyCtx:
         self.adata = adata
         self.warnings: list[str] = []
         self.debug_logs: list[str] = []
+        self.set_calls = 0
 
     async def get_adata(self, _data_id: str):
         return self.adata
+
+    async def set_adata(self, _data_id: str, adata) -> None:
+        self.adata = adata
+        self.set_calls += 1
 
     async def warning(self, msg: str):
         self.warnings.append(msg)
@@ -150,6 +155,9 @@ async def test_identify_spatial_domains_leiden_happy_path_stores_metadata(
         "obs": ["spatial_domains_leiden_res0_50"],
         "obsm": ["X_fake"],
     }
+    assert ctx.adata is not adata
+    assert out.domain_key in ctx.adata.obs
+    assert ctx.set_calls == 1
 
 
 @pytest.mark.asyncio
@@ -166,11 +174,11 @@ async def test_identify_spatial_domains_refinement_failure_does_not_abort(
         return labels, None, {"silhouette": 0.4}
 
     monkeypatch.setattr(sd, "_identify_domains_clustering", _fake_clustering)
-    monkeypatch.setattr(
-        sd,
-        "_refine_spatial_domains",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("refine boom")),
-    )
+    def _partially_refine_then_fail(candidate, domain_key, **_kwargs):
+        candidate.obs[f"{domain_key}_refined"] = "partial"
+        raise RuntimeError("refine boom")
+
+    monkeypatch.setattr(sd, "_refine_spatial_domains", _partially_refine_then_fail)
     monkeypatch.setattr(sd, "store_analysis_metadata", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(sd, "export_analysis_result", lambda *_args, **_kwargs: [])
 
@@ -181,6 +189,38 @@ async def test_identify_spatial_domains_refinement_failure_does_not_abort(
     )
     assert out.refined_domain_key is None
     assert any("Domain refinement failed" in w for w in ctx.warnings)
+    assert "spatial_domains_leiden_res0_50_refined" not in ctx.adata.obs
+
+
+@pytest.mark.asyncio
+async def test_identify_spatial_domains_late_failure_preserves_managed_source(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx(adata)
+
+    async def _fake_clustering(adata_subset, params, _ctx):
+        del params, _ctx
+        return ["0"] * adata_subset.n_obs, None, {"score": 1.0}
+
+    def _partially_store_then_fail(candidate, **_kwargs):
+        candidate.uns["partial_domain_metadata"] = True
+        raise RuntimeError("metadata failed")
+
+    monkeypatch.setattr(sd, "_identify_domains_clustering", _fake_clustering)
+    monkeypatch.setattr(sd, "store_analysis_metadata", _partially_store_then_fail)
+
+    with pytest.raises(ProcessingError, match="metadata failed"):
+        await sd.identify_spatial_domains(
+            "d1",
+            ctx,
+            SpatialDomainParameters(method="leiden", refine_domains=False),
+        )
+
+    assert ctx.adata is adata
+    assert "spatial_domains_leiden_res0_50" not in adata.obs
+    assert "partial_domain_metadata" not in adata.uns
+    assert ctx.set_calls == 0
 
 
 @pytest.mark.asyncio

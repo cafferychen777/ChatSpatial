@@ -88,8 +88,8 @@ async def identify_spatial_domains(
     if params is None:
         params = SpatialDomainParameters()
 
-    # COW FIX: Direct reference instead of copy
-    # Only add metadata to adata.obs/obsm/obsp, never overwrite entire adata
+    # Read the managed source without mutating it. Backends receive an isolated
+    # workspace below, and the final result is committed only after validation.
     adata = await ctx.get_adata(data_id)
 
     try:
@@ -99,7 +99,7 @@ async def identify_spatial_domains(
             raise DataNotFoundError("No spatial coordinates found in the dataset")
 
         # =================================================================
-        # MEMORY OPTIMIZATION: Create working copy exactly once
+        # MEMORY OPTIMIZATION: Create the backend working copy exactly once
         # =================================================================
         # Strategy:
         # 1. Determine gene subset (HVG mask) BEFORE copying
@@ -230,7 +230,13 @@ async def identify_spatial_domains(
                 f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain, stagate, graphst, banksy"
             )
 
-        # Store domain labels in original adata
+        # Build the published result on a fresh source copy. Backend workspaces
+        # are intentionally isolated above; this second boundary also prevents
+        # late metadata, refinement, or export failures from mutating the
+        # managed dataset before the complete result is ready.
+        adata = adata.copy()
+
+        # Store domain labels in the result candidate
         # Suffix encodes method + distinguishing param for coexistence
         suffix = _build_domain_suffix(
             params.method, params.resolution, params.n_domains
@@ -258,6 +264,8 @@ async def identify_spatial_domains(
                     "category"
                 )
             except Exception as e:
+                if refined_domain_key in adata.obs:
+                    del adata.obs[refined_domain_key]
                 await ctx.warning(
                     f"Domain refinement failed: {e}. Proceeding with unrefined domains."
                 )
@@ -292,8 +300,7 @@ async def identify_spatial_domains(
         # Export results for reproducibility
         export_analysis_result(adata, data_id, analysis_key)
 
-        # COW FIX: No need to update data_store - changes already reflected via direct reference
-        # All modifications to adata.obs/obsm/obsp are in-place and preserved
+        await ctx.set_adata(data_id, adata)
 
         # Create result
         result = SpatialDomainResult(

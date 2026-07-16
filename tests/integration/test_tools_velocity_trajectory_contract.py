@@ -21,6 +21,9 @@ class DummyCtx:
     async def get_adata(self, data_id: str):
         return self._adata
 
+    async def set_adata(self, data_id: str, adata):
+        self._adata = adata
+
     async def info(self, msg: str):
         return None
 
@@ -91,7 +94,8 @@ async def test_analyze_rna_velocity_velovi_branch_sets_uns_method(
 
     assert isinstance(result, RNAVelocityResult)
     assert result.mode == "velovi"
-    assert adata.uns["velocity_method"] == "velovi"
+    assert ctx._adata is not adata
+    assert ctx._adata.uns["velocity_method"] == "velovi"
 
 
 @pytest.mark.integration

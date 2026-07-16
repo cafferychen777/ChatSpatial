@@ -172,7 +172,7 @@ async def preprocess_data(
     # Call preprocessing function
     result = await preprocess_func(data_id, ctx, resolved_params)
 
-    # Note: No writeback needed - adata modifications are in-place on the same object
+    # The tool commits its completed AnnData transaction through ToolContext.
 
     # Save preprocessing result
     await data_manager.save_result(data_id, "preprocessing", result)
@@ -454,7 +454,7 @@ async def analyze_velocity_data(
     # Call RNA velocity function with ToolContext
     result = await analyze_rna_velocity(data_id, ctx, resolved_params)
 
-    # Note: No writeback needed - adata modifications are in-place on the same object
+    # The tool commits its completed AnnData transaction through ToolContext.
 
     # Save velocity result (keyed by method+params to allow coexistence)
     cache_key = _build_velocity_key(resolved_params)
@@ -495,7 +495,7 @@ async def analyze_trajectory_data(
     # Call trajectory function
     result = await analyze_trajectory(data_id, ctx, resolved_params)
 
-    # Note: No writeback needed - adata modifications are in-place on the same object
+    # The tool commits its completed AnnData transaction through ToolContext.
 
     # Save trajectory result (keyed by method+params to allow coexistence)
     cache_key = _build_trajectory_key(resolved_params)
@@ -613,7 +613,7 @@ async def identify_spatial_domains(
     # Call spatial domains function with ToolContext
     result = await identify_domains_func(data_id, ctx, resolved_params)
 
-    # Note: No writeback needed - adata modifications are in-place on the same object
+    # The tool commits its completed AnnData transaction through ToolContext.
 
     # Save spatial domains result (keyed by method + params for coexistence)
     from .tools.spatial_domains import _build_domain_suffix

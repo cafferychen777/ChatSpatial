@@ -13,9 +13,14 @@ class DummyCtx:
     def __init__(self, adata):
         self._adata = adata
         self.warnings: list[str] = []
+        self.set_calls = 0
 
     async def get_adata(self, _data_id: str):
         return self._adata
+
+    async def set_adata(self, _data_id: str, adata) -> None:
+        self._adata = adata
+        self.set_calls += 1
 
     async def warning(self, msg: str):
         self.warnings.append(msg)
@@ -149,16 +154,52 @@ async def test_compute_embeddings_force_removes_existing_artifacts(
         ),
     )
 
-    assert "X_pca" not in adata.obsm
-    assert "pca" not in adata.uns
-    assert "neighbors" not in adata.uns
-    assert "connectivities" not in adata.obsp
-    assert "distances" not in adata.obsp
-    assert "X_umap" not in adata.obsm
-    assert "leiden" not in adata.obs
-    assert "X_diffmap" not in adata.obsm
-    assert "spatial_connectivities" not in adata.obsp
-    assert "spatial_distances" not in adata.obsp
+    committed = ctx._adata
+    assert committed is not adata
+    assert "X_pca" not in committed.obsm
+    assert "pca" not in committed.uns
+    assert "neighbors" not in committed.uns
+    assert "connectivities" not in committed.obsp
+    assert "distances" not in committed.obsp
+    assert "X_umap" not in committed.obsm
+    assert "leiden" not in committed.obs
+    assert "X_diffmap" not in committed.obsm
+    assert "spatial_connectivities" not in committed.obsp
+    assert "spatial_distances" not in committed.obsp
+    assert ctx.set_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_compute_embeddings_force_failure_preserves_source_artifacts(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obsm["X_pca"] = np.ones((adata.n_obs, 2))
+    adata.uns["pca"] = {"variance_ratio": np.array([1.0])}
+    ctx = DummyCtx(adata)
+
+    def _fail_after_force_cleanup(*_args, **_kwargs):
+        raise RuntimeError("PCA failed")
+
+    monkeypatch.setattr(emb, "ensure_pca", _fail_after_force_cleanup)
+
+    with pytest.raises(RuntimeError, match="PCA failed"):
+        await emb.compute_embeddings(
+            "d3",
+            ctx,
+            emb.EmbeddingParameters(
+                force=True,
+                compute_neighbors=False,
+                compute_umap=False,
+                compute_clustering=False,
+                compute_spatial_neighbors=False,
+            ),
+        )
+
+    assert ctx._adata is adata
+    assert "X_pca" in adata.obsm
+    assert "pca" in adata.uns
+    assert ctx.set_calls == 0
 
 
 @pytest.mark.asyncio
@@ -208,6 +249,12 @@ async def test_compute_embeddings_spatial_neighbor_error_is_non_fatal(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["leiden"] = ["0"] * adata.n_obs
+    previous_connectivities = np.eye(adata.n_obs)
+    previous_distances = np.eye(adata.n_obs) * 2
+    previous_metadata = {"params": {"n_neighs": 4}}
+    adata.obsp["spatial_connectivities"] = previous_connectivities
+    adata.obsp["spatial_distances"] = previous_distances
+    adata.uns["spatial_neighbors"] = previous_metadata
     ctx = DummyCtx(adata)
 
     monkeypatch.setattr(emb, "ensure_pca", lambda *_args, **_kwargs: False)
@@ -219,14 +266,25 @@ async def test_compute_embeddings_spatial_neighbor_error_is_non_fatal(
     monkeypatch.setattr(emb, "store_analysis_metadata", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(emb, "export_analysis_result", lambda *_args, **_kwargs: None)
 
-    def _spatial_fail(*_args, **_kwargs):
+    def _spatial_fail(candidate, *_args, **_kwargs):
+        candidate.obsp["spatial_connectivities"] = np.zeros((adata.n_obs, adata.n_obs))
+        candidate.uns["spatial_neighbors"] = {"partial": True}
         raise ValueError("no spatial coordinates")
 
     monkeypatch.setattr(emb, "ensure_spatial_neighbors", _spatial_fail)
 
-    out = await emb.compute_embeddings("d4", ctx, emb.EmbeddingParameters())
+    out = await emb.compute_embeddings(
+        "d4", ctx, emb.EmbeddingParameters(force=True)
+    )
     assert any("spatial neighbors (error: no spatial coordinates)" in s for s in out.skipped)
     assert any("Could not compute spatial neighbors" in w for w in ctx.warnings)
+    np.testing.assert_array_equal(
+        ctx._adata.obsp["spatial_connectivities"], previous_connectivities
+    )
+    np.testing.assert_array_equal(
+        ctx._adata.obsp["spatial_distances"], previous_distances
+    )
+    assert ctx._adata.uns["spatial_neighbors"] == previous_metadata
 
 
 @pytest.mark.asyncio

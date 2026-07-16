@@ -171,9 +171,20 @@ async def compute_embeddings(
     if params is None:
         params = EmbeddingParameters()
 
-    adata = await ctx.get_adata(data_id)
+    source_adata = await ctx.get_adata(data_id)
+    adata = source_adata.copy()
     computed = []
     skipped = []
+
+    # Spatial-neighbor computation is intentionally optional. Preserve its
+    # previous complete state so a backend that writes some keys before raising
+    # cannot turn a non-fatal warning into committed graph corruption.
+    spatial_obsp_keys = ("spatial_connectivities", "spatial_distances")
+    previous_spatial_obsp = {
+        key: adata.obsp[key] for key in spatial_obsp_keys if key in adata.obsp
+    }
+    had_spatial_neighbors_metadata = "spatial_neighbors" in adata.uns
+    previous_spatial_neighbors_metadata = adata.uns.get("spatial_neighbors")
 
     # UMAP, clustering, and diffusion maps all depend on the neighbor graph,
     # which in turn depends on PCA.
@@ -205,10 +216,10 @@ async def compute_embeddings(
             del adata.obs[params.clustering_key]
         if params.compute_diffmap and "X_diffmap" in adata.obsm:
             del adata.obsm["X_diffmap"]
-        if params.compute_spatial_neighbors and "spatial_connectivities" in adata.obsp:
-            del adata.obsp["spatial_connectivities"]
-            if "spatial_distances" in adata.obsp:
-                del adata.obsp["spatial_distances"]
+        if params.compute_spatial_neighbors:
+            for key in spatial_obsp_keys:
+                adata.obsp.pop(key, None)
+            adata.uns.pop("spatial_neighbors", None)
 
     # 1. PCA
     if params.compute_pca:
@@ -311,6 +322,14 @@ async def compute_embeddings(
             else:
                 skipped.append("spatial neighbors (already exists)")
         except (DataNotFoundError, ValueError) as e:
+            for key in spatial_obsp_keys:
+                adata.obsp.pop(key, None)
+            for key, value in previous_spatial_obsp.items():
+                adata.obsp[key] = value
+            if had_spatial_neighbors_metadata:
+                adata.uns["spatial_neighbors"] = previous_spatial_neighbors_metadata
+            else:
+                adata.uns.pop("spatial_neighbors", None)
             await ctx.warning(f"Could not compute spatial neighbors: {e}")
             skipped.append(f"spatial neighbors (error: {e})")
 
@@ -358,6 +377,8 @@ async def compute_embeddings(
         )
 
         export_analysis_result(adata, data_id, f"embeddings_{params.clustering_method}")
+
+    await ctx.set_adata(data_id, adata)
 
     return EmbeddingResult(
         data_id=data_id,

@@ -629,11 +629,16 @@ async def analyze_trajectory(
     if params is None:
         params = TrajectoryParameters()
 
-    adata = await ctx.get_adata(data_id)
+    source_adata = await ctx.get_adata(data_id)
 
-    velocity_available = has_velocity_data(adata)
+    velocity_available = has_velocity_data(source_adata)
     pseudotime_key = None
     method_used = params.method
+
+    # All supported backends mutate AnnData incrementally. Run the complete
+    # workflow on a candidate so failures cannot leave stale pseudotime,
+    # transition states, or metadata in the managed source dataset.
+    adata = source_adata.copy()
 
     # Execute requested method
     if params.method == "cellrank":
@@ -772,6 +777,9 @@ async def analyze_trajectory(
 
     # Export results for reproducibility
     export_analysis_result(adata, data_id, analysis_key)
+
+    # Publish only after computation, validation, metadata, and export finish.
+    await ctx.set_adata(data_id, adata)
 
     return TrajectoryResult(
         data_id=data_id,
