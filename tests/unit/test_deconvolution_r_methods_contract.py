@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import subprocess
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
@@ -132,21 +134,10 @@ def _install_fake_r_modules(monkeypatch: pytest.MonkeyPatch, ro_r):
             lambda *_args, **_kwargs: environment,
         )
 
-    class _Logger:
-        level = 0
-
-        def setLevel(self, level):
-            self.level = level
-
-    callbacks = SimpleNamespace(
-        consolewrite_print=lambda _text: None,
-        consolewrite_warnerror=lambda _text: None,
-        logger=_Logger(),
-    )
     monkeypatch.setattr(
         rctd_module,
-        "require_module",
-        lambda *_args, **_kwargs: callbacks,
+        "_run_rctd_subprocess",
+        lambda _robjects, _input, output, _log, _mode: Path(output).touch(),
     )
     return environment
 
@@ -179,7 +170,11 @@ def test_r_deconvolution_methods_preserve_dependency_errors(
     [
         (rctd_module, "puck <- SpatialRNA", "RCTD deconvolution failed"),
         (card_module, "CARD_obj <- createCARDObject", "CARD deconvolution failed"),
-        (spotlight_module, "sce <- SingleCellExperiment", "SPOTlight deconvolution failed"),
+        (
+            spotlight_module,
+            "sce <- SingleCellExperiment",
+            "SPOTlight deconvolution failed",
+        ),
     ],
 )
 def test_r_deconvolution_failure_does_not_leak_request_objects_to_globalenv(
@@ -215,6 +210,127 @@ def test_rctd_mode_multi_parameter_guard_before_heavy_execution(
 
     with pytest.raises(ParameterError, match="MAX_MULTI_TYPES"):
         rctd_module.deconvolve(data, mode="multi", max_multi_types=2)
+
+
+def test_rctd_invalid_mode_fails_before_dependency_loading(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    data = _prepared_data(minimal_spatial_adata)
+    monkeypatch.setattr(
+        rctd_module,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: pytest.fail("dependency loading must not run"),
+    )
+
+    with pytest.raises(ParameterError, match="Invalid RCTD mode 'unsupported'"):
+        rctd_module.deconvolve(data, mode="unsupported")
+
+
+def test_rctd_subprocess_routes_worker_output_to_request_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    rscript = tmp_path / "Rscript"
+    rscript.touch()
+    input_path = tmp_path / "input.rds"
+    input_path.touch()
+    output_path = tmp_path / "output.rds"
+    log_path = tmp_path / "rctd.log"
+    captured: dict[str, object] = {}
+
+    class _R:
+        def __call__(self, expression: str):
+            if expression == ".libPaths()":
+                return ["/r/library", "/r/site-library"]
+            return [str(rscript)]
+
+    def _run(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        kwargs["stdout"].write("worker output\n")
+        output_path.touch()
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(rctd_module.subprocess, "run", _run)
+
+    rctd_module._run_rctd_subprocess(
+        SimpleNamespace(r=_R()),
+        input_path,
+        output_path,
+        log_path,
+        "full",
+    )
+
+    command = captured["command"]
+    assert command[:3] == [str(rscript), "--vanilla", "-e"]
+    assert command[4:] == [
+        str(input_path),
+        str(output_path),
+        "full",
+        "/r/library",
+        "/r/site-library",
+    ]
+    assert captured["stdin"] == subprocess.DEVNULL
+    assert captured["stderr"] == subprocess.STDOUT
+    assert captured["check"] is False
+    assert log_path.read_text(encoding="utf-8") == "worker output\n"
+
+
+def test_rctd_subprocess_surfaces_bounded_failure_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    rscript = tmp_path / "Rscript"
+    rscript.touch()
+    input_path = tmp_path / "input.rds"
+    input_path.touch()
+    output_path = tmp_path / "output.rds"
+    log_path = tmp_path / "rctd.log"
+
+    class _R:
+        def __call__(self, expression: str):
+            return [] if expression == ".libPaths()" else [str(rscript)]
+
+    def _run(_command, **kwargs):
+        kwargs["stdout"].write("x" * 5000 + "\nworker failed\n")
+        return SimpleNamespace(returncode=7)
+
+    monkeypatch.setattr(rctd_module.subprocess, "run", _run)
+
+    with pytest.raises(ProcessingError) as error:
+        rctd_module._run_rctd_subprocess(
+            SimpleNamespace(r=_R()),
+            input_path,
+            output_path,
+            log_path,
+            "full",
+        )
+
+    message = str(error.value)
+    assert "RCTD R subprocess exited with status 7" in message
+    assert message.endswith("worker failed")
+    assert len(message) < 4100
+
+
+def test_rctd_failure_removes_request_private_files(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    data = _prepared_data(minimal_spatial_adata)
+    _install_fake_r_modules(monkeypatch, ro_r=lambda _code: None)
+    temp_roots: list[Path] = []
+
+    def _fail(_robjects, input_path, _output_path, _log_path, _mode):
+        temp_roots.append(input_path.parent)
+        raise ProcessingError("worker failed")
+
+    monkeypatch.setattr(rctd_module, "_run_rctd_subprocess", _fail)
+
+    with pytest.raises(ProcessingError, match="worker failed"):
+        rctd_module.deconvolve(data, mode="full")
+
+    assert len(temp_roots) == 1
+    assert not temp_roots[0].exists()
 
 
 def test_rctd_extract_results_full_mode_with_fake_r(monkeypatch: pytest.MonkeyPatch):

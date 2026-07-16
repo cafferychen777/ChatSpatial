@@ -5,17 +5,16 @@ RCTD is an R-based deconvolution method that performs robust
 decomposition of cell type mixtures via the spacexr package.
 """
 
-import logging
-import os
-import sys
+import subprocess
+import tempfile
 import warnings
-from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from ...utils.dependency_manager import require_module, validate_r_environment
+from ...utils.dependency_manager import validate_r_environment
 from ...utils.exceptions import (
     ChatSpatialError,
     DataError,
@@ -25,33 +24,83 @@ from ...utils.exceptions import (
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
-@contextmanager
-def _suppress_r_console(callbacks: Any):
-    """Suppress RCTD worker output that bypasses rpy2 console callbacks."""
-    old_stdout_fd = os.dup(sys.stdout.fileno())
-    old_stderr_fd = os.dup(sys.stderr.fileno())
-    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+_VALID_MODES = frozenset({"full", "doublet", "multi"})
+_RCTD_SUBPROCESS_CODE = r"""
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) < 3L) {
+    stop("Expected input path, output path, and RCTD mode")
+}
+if (length(args) > 3L) {
+    .libPaths(unique(c(args[4:length(args)], .libPaths())))
+}
+suppressPackageStartupMessages(library(spacexr))
 
-    old_print = callbacks.consolewrite_print
-    old_warnerror = callbacks.consolewrite_warnerror
-    old_level = callbacks.logger.level
-    callbacks.consolewrite_print = lambda _text: None
-    callbacks.consolewrite_warnerror = lambda _text: None
-    callbacks.logger.setLevel(logging.ERROR)
+input_bundle <- readRDS(args[[1L]])
+if (!is.null(input_bundle$random_seed)) {
+    assign(".Random.seed", input_bundle$random_seed, envir = .GlobalEnv)
+}
+
+myRCTD <- run.RCTD(input_bundle$rctd, doublet_mode = args[[3L]])
+random_seed <- get0(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+saveRDS(list(rctd = myRCTD, random_seed = random_seed), args[[2L]])
+"""
+
+
+def _run_rctd_subprocess(
+    robjects: Any,
+    input_path: Path,
+    output_path: Path,
+    log_path: Path,
+    mode: str,
+) -> None:
+    """Run noisy RCTD workers without redirecting process-global file descriptors."""
+    rscript = Path(
+        str(
+            robjects.r(
+                'file.path(R.home("bin"), '
+                'if (.Platform$OS.type == "windows") "Rscript.exe" else "Rscript")'
+            )[0]
+        )
+    )
+    if not rscript.is_file():
+        raise ProcessingError(f"Rscript executable not found: {rscript}")
+
+    library_paths = [str(path) for path in robjects.r(".libPaths()")]
+    command = [
+        str(rscript),
+        "--vanilla",
+        "-e",
+        _RCTD_SUBPROCESS_CODE,
+        str(input_path),
+        str(output_path),
+        mode,
+        *library_paths,
+    ]
 
     try:
-        os.dup2(devnull_fd, sys.stdout.fileno())
-        os.dup2(devnull_fd, sys.stderr.fileno())
-        yield
-    finally:
-        os.dup2(old_stdout_fd, sys.stdout.fileno())
-        os.dup2(old_stderr_fd, sys.stderr.fileno())
-        os.close(old_stdout_fd)
-        os.close(old_stderr_fd)
-        os.close(devnull_fd)
-        callbacks.consolewrite_print = old_print
-        callbacks.consolewrite_warnerror = old_warnerror
-        callbacks.logger.setLevel(old_level)
+        with log_path.open("w", encoding="utf-8") as log_file:
+            completed = subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+    except OSError as exc:
+        raise ProcessingError(f"Could not start the RCTD R subprocess: {exc}") from exc
+
+    if completed.returncode != 0:
+        try:
+            details = log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
+        except OSError:
+            details = ""
+        message = f"RCTD R subprocess exited with status {completed.returncode}"
+        if details := details.strip():
+            message = f"{message}:\n{details}"
+        raise ProcessingError(message)
+
+    if not output_path.is_file():
+        raise ProcessingError("RCTD R subprocess completed without producing a result")
 
 
 def deconvolve(
@@ -76,6 +125,10 @@ def deconvolve(
         Tuple of (proportions DataFrame, statistics dictionary)
     """
     ctx = data.ctx
+
+    if mode not in _VALID_MODES:
+        choices = ", ".join(sorted(_VALID_MODES))
+        raise ParameterError(f"Invalid RCTD mode '{mode}'. Expected one of: {choices}.")
 
     # Validate mode-specific parameters
     if mode == "multi" and max_multi_types >= data.n_cell_types:
@@ -158,43 +211,42 @@ def deconvolve(
             },
         )
         ro = r_env.robjects
-        callbacks = require_module(
-            "rpy2",
-            "rpy2.rinterface_lib.callbacks",
-            ctx,
-            feature="RCTD deconvolution",
-        )
 
-        with r_env.local_context(
-            anndata=True, pandas=True, numpy=True
-        ) as r_context:
-            r_context["spatial_counts"] = spatial_data.X.T
-            r_context["reference_counts"] = reference_data.X.T
+        # spacexr starts PSOCK workers with outfile="", so their output bypasses
+        # rpy2 callbacks. A request-private R subprocess contains those file
+        # descriptors without mutating stdout or stderr for concurrent MCP work.
+        with tempfile.TemporaryDirectory(prefix="chatspatial-rctd-") as temp_dir:
+            temp_root = Path(temp_dir)
+            input_path = temp_root / "input.rds"
+            output_path = temp_root / "output.rds"
+            log_path = temp_root / "rctd.log"
 
-            r_context["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
-            r_context["spot_names"] = ro.StrVector(spatial_data.obs_names)
-            r_context["gene_names_ref"] = ro.StrVector(reference_data.var_names)
-            r_context["cell_names"] = ro.StrVector(reference_data.obs_names)
+            with r_env.local_context(
+                anndata=True, pandas=True, numpy=True
+            ) as r_context:
+                r_context["spatial_counts"] = spatial_data.X.T
+                r_context["reference_counts"] = reference_data.X.T
 
-            ro.r("""
-                    rownames(spatial_counts) <- gene_names_spatial
-                    colnames(spatial_counts) <- spot_names
-                    rownames(reference_counts) <- gene_names_ref
-                    colnames(reference_counts) <- cell_names
-                """)
+                r_context["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
+                r_context["spot_names"] = ro.StrVector(spatial_data.obs_names)
+                r_context["gene_names_ref"] = ro.StrVector(reference_data.var_names)
+                r_context["cell_names"] = ro.StrVector(reference_data.obs_names)
+                r_context["coords"] = ro.conversion.py2rpy(coords)
+                r_context["numi_spatial"] = ro.conversion.py2rpy(spatial_numi)
+                r_context["cell_types_vec"] = ro.conversion.py2rpy(cell_types_series)
+                r_context["numi_ref"] = ro.conversion.py2rpy(reference_numi)
+                r_context["max_cores_val"] = max_cores
+                r_context["conf_thresh"] = confidence_threshold
+                r_context["doub_thresh"] = doublet_threshold
+                r_context["max_multi_types_val"] = max_multi_types
+                r_context["rctd_input_path"] = str(input_path)
 
-            r_context["coords"] = ro.conversion.py2rpy(coords)
-            r_context["numi_spatial"] = ro.conversion.py2rpy(spatial_numi)
-            r_context["cell_types_vec"] = ro.conversion.py2rpy(cell_types_series)
-            r_context["numi_ref"] = ro.conversion.py2rpy(reference_numi)
-            r_context["max_cores_val"] = max_cores
-            r_context["rctd_mode"] = mode
-            r_context["conf_thresh"] = confidence_threshold
-            r_context["doub_thresh"] = doublet_threshold
-            r_context["max_multi_types_val"] = max_multi_types
-
-            with _suppress_r_console(callbacks):
                 ro.r("""
+                    invisible(suppressMessages(suppressWarnings(capture.output({
+                        rownames(spatial_counts) <- gene_names_spatial
+                        colnames(spatial_counts) <- spot_names
+                        rownames(reference_counts) <- gene_names_ref
+                        colnames(reference_counts) <- cell_names
                         puck <- SpatialRNA(coords, spatial_counts, numi_spatial)
                         cell_types_factor <- as.factor(cell_types_vec)
                         names(cell_types_factor) <- names(cell_types_vec)
@@ -213,10 +265,41 @@ def deconvolve(
                         )
                         myRCTD@config$CONFIDENCE_THRESHOLD <- conf_thresh
                         myRCTD@config$DOUBLET_THRESHOLD <- doub_thresh
-                        myRCTD <- run.RCTD(myRCTD, doublet_mode = rctd_mode)
-                    """)
+                        # run.RCTD samples sigma candidates. Transfer the active
+                        # RNG state so process isolation preserves R semantics.
+                        random_seed <- get0(
+                            ".Random.seed",
+                            envir = .GlobalEnv,
+                            inherits = FALSE
+                        )
+                        saveRDS(
+                            list(rctd = myRCTD, random_seed = random_seed),
+                            rctd_input_path
+                        )
+                    }))))
+                """)
 
-            proportions = _extract_rctd_results(mode, ro)
+                _run_rctd_subprocess(
+                    ro,
+                    input_path,
+                    output_path,
+                    log_path,
+                    mode,
+                )
+
+                r_context["rctd_output_path"] = str(output_path)
+                ro.r("""
+                    rctd_bundle <- readRDS(rctd_output_path)
+                    myRCTD <- rctd_bundle$rctd
+                    if (!is.null(rctd_bundle$random_seed)) {
+                        assign(
+                            ".Random.seed",
+                            rctd_bundle$random_seed,
+                            envir = .GlobalEnv
+                        )
+                    }
+                """)
+                proportions = _extract_rctd_results(mode, ro)
 
         # Validate results
         if proportions.isna().any().any():
