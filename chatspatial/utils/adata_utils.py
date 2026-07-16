@@ -99,6 +99,26 @@ def get_spatial_key(adata: "ad.AnnData") -> Optional[str]:
     return None
 
 
+def has_tissue_image(adata: Any) -> bool:
+    """Return whether AnnData contains a usable Visium-like tissue image."""
+    uns = getattr(adata, "uns", None)
+    if uns is None:
+        return False
+    spatial = uns.get("spatial") if hasattr(uns, "get") else None
+    if not isinstance(spatial, dict):
+        return False
+
+    for sample_data in spatial.values():
+        if not isinstance(sample_data, dict):
+            continue
+        images = sample_data.get("images")
+        if not isinstance(images, dict):
+            continue
+        if any(images.get(key) is not None for key in ("hires", "lowres")):
+            return True
+    return False
+
+
 def get_cell_type_key(adata: "ad.AnnData") -> Optional[str]:
     """Find cell type column in adata.obs."""
     for key in ALTERNATIVE_CELL_TYPE_KEYS:
@@ -162,7 +182,9 @@ def sample_expression_values(
 
     # Deterministic seed from matrix metadata for reproducibility
     nnz = X.nnz if sparse.issparse(X) else int(np.count_nonzero(X))
-    seed = (X.shape[0] * 2654435761 ^ X.shape[1] * 40503 ^ nnz * 65537 ^ n_samples) & 0xFFFFFFFF
+    seed = (
+        X.shape[0] * 2654435761 ^ X.shape[1] * 40503 ^ nnz * 65537 ^ n_samples
+    ) & 0xFFFFFFFF
     rng = np.random.default_rng(seed)
 
     # Handle sparse matrices efficiently
@@ -654,13 +676,11 @@ def reconstruct_velovi_adata(adata: "ad.AnnData") -> "ad.AnnData":
         adata_velovi.layers["Mu"] = mu_data[cell_positions, :]
 
     # Add neighbors graph (essential for kernels)
-    adata_velovi.obsp["connectivities"] = connectivities[
-        cell_positions, :
-    ][:, cell_positions]
+    adata_velovi.obsp["connectivities"] = connectivities[cell_positions, :][
+        :, cell_positions
+    ]
     if distances is not None:
-        adata_velovi.obsp["distances"] = distances[
-            cell_positions, :
-        ][:, cell_positions]
+        adata_velovi.obsp["distances"] = distances[cell_positions, :][:, cell_positions]
 
     # Add neighbors metadata (required by CellRank)
     neighbors: dict[str, Any] = {
@@ -774,7 +794,9 @@ def validate_adata(
     missing = []
 
     for category, configured_keys in required_keys.items():
-        keys = [configured_keys] if isinstance(configured_keys, str) else configured_keys
+        keys = (
+            [configured_keys] if isinstance(configured_keys, str) else configured_keys
+        )
 
         attr = getattr(adata, category, None)
         if attr is None:
@@ -786,7 +808,7 @@ def validate_adata(
                 if key not in attr.columns:
                     missing.append(f"{category}.{key}")
             elif hasattr(attr, "keys"):  # Dict-like
-                if key not in attr.keys():
+                if key not in attr:
                     missing.append(f"{category}.{key}")
             else:
                 missing.append(f"{category}.{key}")
@@ -1318,18 +1340,12 @@ def ensure_counts_layer(
                 raw_X = sparse.lil_matrix(
                     (adata.n_obs, adata.n_vars), dtype=raw_subset.dtype
                 )
-                col_idx = [
-                    adata.var_names.get_loc(g) for g in shared_genes
-                ]
+                col_idx = [adata.var_names.get_loc(g) for g in shared_genes]
                 raw_X[:, col_idx] = raw_subset
                 raw_X = raw_X.tocsr()
             else:
-                raw_X = np.zeros(
-                    (adata.n_obs, adata.n_vars), dtype=raw_subset.dtype
-                )
-                col_idx = [
-                    adata.var_names.get_loc(g) for g in shared_genes
-                ]
+                raw_X = np.zeros((adata.n_obs, adata.n_vars), dtype=raw_subset.dtype)
+                col_idx = [adata.var_names.get_loc(g) for g in shared_genes]
                 raw_X[:, col_idx] = raw_subset
         else:
             raw_X = None  # No overlap — skip .raw

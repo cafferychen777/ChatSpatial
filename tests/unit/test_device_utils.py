@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import builtins
-import sys
 from types import SimpleNamespace
 
 import pytest
@@ -39,7 +37,11 @@ def _install_fake_torch(
         cuda=SimpleNamespace(is_available=lambda: cuda_available),
         backends=backends,
     )
-    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr(
+        du,
+        "get",
+        lambda name: fake_torch if name == "torch" else None,
+    )
 
 
 def test_cuda_available_returns_true_when_torch_cuda_available(
@@ -52,16 +54,7 @@ def test_cuda_available_returns_true_when_torch_cuda_available(
 def test_cuda_and_mps_available_return_false_when_torch_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delitem(sys.modules, "torch", raising=False)
-
-    original_import = builtins.__import__
-
-    def _import(name, *args, **kwargs):
-        if name == "torch":
-            raise ImportError("torch missing")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", _import)
+    monkeypatch.setattr(du, "get", lambda _name: None)
 
     assert du.cuda_available() is False
     assert du.mps_available() is False
@@ -217,7 +210,13 @@ def test_get_ot_backend_selects_torch_backend_when_cuda_available(
                 self.name = "numpy"
 
     fake_ot = SimpleNamespace(backend=_FakeBackend)
-    monkeypatch.setitem(sys.modules, "ot", fake_ot)
+    monkeypatch.setattr(
+        du,
+        "require",
+        lambda name, **_kwargs: fake_ot
+        if name == "ot"
+        else pytest.fail(f"Unexpected dependency: {name}"),
+    )
     monkeypatch.setattr(du, "cuda_available", lambda: True)
 
     backend = du.get_ot_backend(use_gpu=True)
@@ -241,7 +240,13 @@ def test_get_ot_backend_uses_numpy_when_gpu_not_requested(
                 self.name = "numpy"
 
     fake_ot = SimpleNamespace(backend=_FakeBackend)
-    monkeypatch.setitem(sys.modules, "ot", fake_ot)
+    monkeypatch.setattr(
+        du,
+        "require",
+        lambda name, **_kwargs: fake_ot
+        if name == "ot"
+        else pytest.fail(f"Unexpected dependency: {name}"),
+    )
     monkeypatch.setattr(du, "cuda_available", lambda: True)
 
     backend = du.get_ot_backend(use_gpu=False)

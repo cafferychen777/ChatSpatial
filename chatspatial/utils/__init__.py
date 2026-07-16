@@ -21,6 +21,7 @@ from .adata_utils import (  # Constants; Field discovery; Data access; Validatio
     get_gene_expression,
     get_genes_expression,
     get_spatial_key,
+    has_tissue_image,
     standardize_adata,
     to_dense,
     validate_adata,
@@ -40,9 +41,11 @@ from .compat import (
 )
 from .dependency_manager import (
     DependencyInfo,
+    REnvironment,
     get,
     is_available,
     require,
+    require_module,
     validate_r_environment,
     validate_scvi_tools,
 )
@@ -92,6 +95,7 @@ __all__ = [
     "get_cell_type_key",
     "get_cluster_key",
     "get_spatial_key",
+    "has_tissue_image",
     # Expression extraction
     "to_dense",
     "get_gene_expression",
@@ -111,7 +115,9 @@ __all__ = [
     "standardize_adata",
     # Dependency management
     "DependencyInfo",
+    "REnvironment",
     "require",
+    "require_module",
     "get",
     "is_available",
     "validate_r_environment",

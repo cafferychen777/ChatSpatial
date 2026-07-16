@@ -8,6 +8,9 @@ Usage:
     # Require a dependency (raises if missing)
     scvi = require("scvi-tools", feature="cell type annotation")
 
+    # Require a specific module provided by a dependency
+    external = require_module("scvi", "scvi.external", feature="VELOVI")
+
     # Get optional dependency (returns None if missing)
     torch = get("torch")
 
@@ -19,9 +22,10 @@ Usage:
 import importlib
 import importlib.util
 import warnings
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Iterator, Optional
 
 from .exceptions import DependencyError
 
@@ -36,6 +40,58 @@ class DependencyInfo:
     module_name: str
     install_cmd: str
     description: str = ""
+
+
+@dataclass(frozen=True)
+class REnvironment:
+    """Named handles for a validated rpy2 runtime."""
+
+    robjects: Any
+    pandas2ri: Any
+    numpy2ri: Any
+    packages: Any
+    conversion: Any
+    openrlib: Any
+    anndata2ri: Optional[Any]
+    loaded_packages: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def importr(self) -> Any:
+        """Return rpy2's R-package importer."""
+        return self.packages.importr
+
+    def package(self, name: str) -> Any:
+        """Return an R package loaded during environment validation."""
+        try:
+            return self.loaded_packages[name]
+        except KeyError as exc:
+            raise ValueError(
+                f"R package '{name}' was not requested for validation."
+            ) from exc
+
+    @contextmanager
+    def conversion_context(
+        self,
+        *,
+        pandas: bool = False,
+        numpy: bool = False,
+        anndata: bool = False,
+    ) -> Iterator[None]:
+        """Hold the R lock while applying the requested Python converters."""
+        converter = self.robjects.default_converter
+        if anndata:
+            if self.anndata2ri is None:
+                raise DependencyError(
+                    "anndata2ri was not loaded for this R environment."
+                )
+            converter += self.anndata2ri.converter
+        if pandas:
+            converter += self.pandas2ri.converter
+        if numpy:
+            converter += self.numpy2ri.converter
+
+        with self.openrlib.rlock, self.conversion.localconverter(converter):
+            yield
 
 
 # Registry of optional dependencies with install instructions
@@ -96,7 +152,9 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "Probabilistic alignment of spatial transcriptomics",
     ),
     "stalign": DependencyInfo(
-        "STalign", "pip install STalign", "Spatial transcriptomics alignment"
+        "STalign",
+        'pip install --upgrade "git+https://github.com/JEFworks-Lab/STalign.git"',
+        "Spatial transcriptomics alignment",
     ),
     # R Interface
     "rpy2": DependencyInfo(
@@ -320,15 +378,24 @@ def _load_dependency(
     name: str,
     *,
     feature: Optional[str] = None,
+    module_name: Optional[str] = None,
 ) -> tuple[DependencyInfo, Optional[Any]]:
     """Load a dependency while preserving broken-import diagnostics."""
     info = _get_info(name)
+    import_name = module_name or info.module_name
     try:
-        module = _try_import(info.module_name)
+        module = _try_import(import_name)
     except Exception as exc:
         feature_msg = f" for {feature}" if feature else ""
+        if import_name == info.module_name:
+            subject = f"{name} is installed but could not be imported"
+        else:
+            subject = (
+                f"{name} is installed, but required module '{import_name}' "
+                "could not be imported"
+            )
         raise DependencyError(
-            f"{name} is installed but could not be imported{feature_msg}.\n\n"
+            f"{subject}{feature_msg}.\n\n"
             f"Import failure: {exc}\n"
             f"Install or repair: {info.install_cmd}\n"
             f"Description: {info.description}"
@@ -381,6 +448,50 @@ def require(
     )
 
 
+def require_module(
+    name: str,
+    module_name: str,
+    ctx: Optional["ToolContext"] = None,
+    feature: Optional[str] = None,
+) -> Any:
+    """Return a required module provided by an optional dependency.
+
+    The dependency root is loaded first so an absent package and an installed
+    package with a missing or broken submodule produce distinct diagnostics.
+
+    Raises:
+        ValueError: If ``module_name`` is outside the dependency package.
+        DependencyError: If the package or requested module is unavailable.
+    """
+    info = _get_info(name)
+    package_name = info.module_name
+    if module_name != package_name and not module_name.startswith(f"{package_name}."):
+        raise ValueError(
+            f"Module '{module_name}' is not provided by dependency '{name}' "
+            f"(expected '{package_name}' or one of its submodules)."
+        )
+
+    package = require(name, ctx, feature=feature)
+    if module_name == package_name:
+        return package
+
+    _, module = _load_dependency(
+        name,
+        feature=feature,
+        module_name=module_name,
+    )
+    if module is not None:
+        return module
+
+    feature_msg = f" for {feature}" if feature else ""
+    raise DependencyError(
+        f"{name} is installed, but required module '{module_name}' is unavailable"
+        f"{feature_msg}.\n\n"
+        f"Install or repair: {info.install_cmd}\n"
+        f"Description: {info.description}"
+    )
+
+
 # =============================================================================
 # R Environment Validation
 # =============================================================================
@@ -389,46 +500,63 @@ def require(
 def validate_r_environment(
     ctx: Optional["ToolContext"] = None,
     required_packages: Optional[list[str]] = None,
-) -> tuple[Any, ...]:
+    *,
+    require_anndata2ri: bool = False,
+    package_install_commands: Optional[dict[str, str]] = None,
+) -> REnvironment:
     """Validate R environment and return required modules.
 
     Returns:
-        Tuple of (robjects, pandas2ri, numpy2ri, importr, localconverter,
-                  default_converter, openrlib, anndata2ri)
+        Named R environment handles and an optional AnnData converter.
 
     Raises:
         DependencyError: If Python/R dependencies or required R packages fail
     """
-    require("rpy2", ctx, feature="R-based methods")
-    anndata2ri = require("anndata2ri", ctx, feature="R-based methods")
-
     try:
-        import rpy2.robjects as robjects
-        from rpy2.rinterface_lib import openrlib
-        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
-        from rpy2.robjects.conversion import localconverter
-        from rpy2.robjects.packages import (
-            LibraryError,
-            PackageNotInstalledError,
-            importr,
+        feature = "R-based methods"
+        robjects = require_module("rpy2", "rpy2.robjects", ctx, feature=feature)
+        conversion = require_module(
+            "rpy2", "rpy2.robjects.conversion", ctx, feature=feature
+        )
+        packages = require_module(
+            "rpy2", "rpy2.robjects.packages", ctx, feature=feature
+        )
+        rinterface_lib = require_module(
+            "rpy2", "rpy2.rinterface_lib", ctx, feature=feature
+        )
+        pandas2ri = require_module(
+            "rpy2", "rpy2.robjects.pandas2ri", ctx, feature=feature
+        )
+        numpy2ri = require_module(
+            "rpy2", "rpy2.robjects.numpy2ri", ctx, feature=feature
+        )
+        anndata2ri = (
+            require("anndata2ri", ctx, feature=feature) if require_anndata2ri else None
+        )
+        environment = REnvironment(
+            robjects=robjects,
+            pandas2ri=pandas2ri,
+            numpy2ri=numpy2ri,
+            packages=packages,
+            conversion=conversion,
+            openrlib=rinterface_lib.openrlib,
+            anndata2ri=anndata2ri,
         )
 
         # Test R availability
-        with openrlib.rlock:
-            with conversion.localconverter(default_converter):
-                robjects.r("R.version")
+        with environment.conversion_context():
+            robjects.r("R.version")
 
         # Check required R packages
         if required_packages:
             missing = []
             for pkg in required_packages:
                 try:
-                    with openrlib.rlock:
-                        with conversion.localconverter(default_converter):
-                            importr(pkg)
-                except PackageNotInstalledError:
+                    with environment.conversion_context():
+                        environment.loaded_packages[pkg] = environment.importr(pkg)
+                except packages.PackageNotInstalledError:
                     missing.append(pkg)
-                except LibraryError as e:
+                except packages.LibraryError as e:
                     raise DependencyError(
                         f"R package '{pkg}' is installed but could not be loaded: {e}"
                     ) from e
@@ -438,30 +566,32 @@ def validate_r_environment(
                     ) from e
 
             if missing:
+                install_commands = package_install_commands or {}
+                if len(missing) == 1 and missing[0] in install_commands:
+                    pkg = missing[0]
+                    raise DependencyError(
+                        f"R package '{pkg}' not installed.\n"
+                        f"Install in R: {install_commands[pkg]}"
+                    )
                 pkg_list = ", ".join(f"'{p}'" for p in missing)
+                if install_commands:
+                    install_lines = []
+                    for pkg in missing:
+                        command = install_commands.get(
+                            pkg, f"install.packages('{pkg}')"
+                        )
+                        install_lines.append(f"  - {pkg}: {command}")
+                    instructions = "\n".join(install_lines)
+                else:
+                    instructions = f"install.packages(c({pkg_list}))"
                 raise DependencyError(
-                    f"Missing R packages: {pkg_list}\n"
-                    f"Install in R: install.packages(c({pkg_list}))"
+                    f"Missing R packages: {pkg_list}\nInstall in R:\n{instructions}"
                 )
 
-        return (
-            robjects,
-            pandas2ri,
-            numpy2ri,
-            importr,
-            localconverter,
-            default_converter,
-            openrlib,
-            anndata2ri,
-        )
+        return environment
 
     except DependencyError:
         raise
-    except ImportError as e:
-        raise DependencyError(
-            f"R integration modules could not be imported: {e}\n\n"
-            "Reinstall compatible rpy2 and anndata2ri packages."
-        ) from e
     except Exception as e:
         raise DependencyError(
             f"R environment setup failed: {e}\n\n"
@@ -479,35 +609,20 @@ def validate_r_package(
     install_cmd: Optional[str] = None,
 ) -> bool:
     """Check whether an R package can be imported."""
-    require("rpy2", ctx, feature=f"R package '{package_name}' validation")
+    environment = validate_r_environment(ctx)
 
     try:
-        from rpy2.rinterface_lib import openrlib
-        from rpy2.robjects import conversion, default_converter
-        from rpy2.robjects.packages import (
-            LibraryError,
-            PackageNotInstalledError,
-            importr,
-        )
-    except ImportError as e:
-        raise DependencyError(
-            f"rpy2 is installed but its R bindings could not be imported: {e}\n"
-            "Install or repair: pip install rpy2 (requires R)"
-        ) from e
-
-    try:
-        with openrlib.rlock:
-            with conversion.localconverter(default_converter):
-                importr(package_name)
+        with environment.conversion_context():
+            environment.importr(package_name)
 
         return True
 
-    except PackageNotInstalledError as e:
+    except environment.packages.PackageNotInstalledError as e:
         install = install_cmd or f"install.packages('{package_name}')"
         raise DependencyError(
             f"R package '{package_name}' not installed.\nInstall in R: {install}"
         ) from e
-    except LibraryError as e:
+    except environment.packages.LibraryError as e:
         raise DependencyError(
             f"R package '{package_name}' is installed but could not be loaded: {e}\n"
             "Check the package version and its system-library dependencies."
@@ -524,15 +639,19 @@ def check_r_packages(
 ) -> list[str]:
     """Check availability of multiple R packages. Returns missing ones."""
     try:
-        require("rpy2", ctx, feature="R package validation")
+        environment = validate_r_environment(ctx)
     except DependencyError:
         return packages
 
     missing = []
     for pkg in packages:
         try:
-            validate_r_package(pkg, ctx)
-        except DependencyError:
+            with environment.conversion_context():
+                environment.importr(pkg)
+        except (
+            environment.packages.PackageNotInstalledError,
+            environment.packages.LibraryError,
+        ):
             missing.append(pkg)
 
     return missing
@@ -550,20 +669,36 @@ def validate_scvi_tools(
         for comp in components:
             try:
                 if comp == "CellAssign":
-                    from scvi.external import CellAssign  # noqa: F401
+                    module = require_module(
+                        "scvi-tools",
+                        "scvi.external",
+                        ctx,
+                        feature="scvi-tools methods",
+                    )
+                    _ = module.CellAssign
                 elif comp == "Cell2location":
-                    import cell2location  # noqa: F401
+                    require("cell2location", ctx, feature="scvi-tools methods")
                 elif comp == "SCANVI":
-                    from scvi.model import SCANVI  # noqa: F401
-                elif comp == "DestVI":
-                    from scvi.external import DestVI  # noqa: F401
-                elif comp == "Stereoscope":
-                    from scvi.external import Stereoscope  # noqa: F401
+                    module = require_module(
+                        "scvi-tools",
+                        "scvi.model",
+                        ctx,
+                        feature="scvi-tools methods",
+                    )
+                    _ = module.SCANVI
+                elif comp in {"DestVI", "Stereoscope"}:
+                    module = require_module(
+                        "scvi-tools",
+                        "scvi.external",
+                        ctx,
+                        feature="scvi-tools methods",
+                    )
+                    getattr(module, comp)
                 else:
                     getattr(scvi, comp, None) or getattr(
                         scvi.model, comp, None
                     ) or getattr(scvi.external, comp, None)
-            except (ImportError, AttributeError):
+            except AttributeError:
                 missing.append(comp)
 
         if missing:

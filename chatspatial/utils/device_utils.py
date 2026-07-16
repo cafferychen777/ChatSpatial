@@ -31,6 +31,8 @@ Usage:
 import os
 from typing import TYPE_CHECKING, Any
 
+from .dependency_manager import get, require
+
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
@@ -82,12 +84,8 @@ def cuda_available() -> bool:
     Returns:
         True if CUDA is available, False otherwise
     """
-    try:
-        import torch
-
-        return torch.cuda.is_available()
-    except ImportError:
-        return False
+    torch = get("torch")
+    return torch is not None and torch.cuda.is_available()
 
 
 def mps_available() -> bool:
@@ -98,12 +96,12 @@ def mps_available() -> bool:
     Returns:
         True if MPS is available, False otherwise
     """
-    try:
-        import torch
-
-        return hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
-    except ImportError:
-        return False
+    torch = get("torch")
+    return (
+        torch is not None
+        and hasattr(torch.backends, "mps")
+        and torch.backends.mps.is_available()
+    )
 
 
 # =============================================================================
@@ -223,7 +221,7 @@ def get_ot_backend(use_gpu: bool = False) -> Any:
     Returns:
         POT backend (TorchBackend if CUDA available and requested, else NumpyBackend)
     """
-    import ot
+    ot = require("ot", feature="optimal transport backend selection")
 
     if use_gpu and cuda_available():
         return ot.backend.TorchBackend()

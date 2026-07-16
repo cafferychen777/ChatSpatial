@@ -60,6 +60,8 @@ def _install_fake_rpy2(
     fake_conversion = ModuleType("rpy2.robjects.conversion")
     fake_packages = ModuleType("rpy2.robjects.packages")
     fake_rinterface_lib = ModuleType("rpy2.rinterface_lib")
+    fake_numpy2ri = ModuleType("rpy2.robjects.numpy2ri")
+    fake_pandas2ri = ModuleType("rpy2.robjects.pandas2ri")
     fake_scvi = ModuleType("scvi")
     fake_scvi_model = ModuleType("scvi.model")
     fake_scvi_external = ModuleType("scvi.external")
@@ -74,8 +76,10 @@ def _install_fake_rpy2(
     fake_conversion.localconverter = _LocalConverter
     fake_ro.conversion = fake_conversion
     fake_ro.default_converter = object()
-    fake_ro.numpy2ri = object()
-    fake_ro.pandas2ri = object()
+    fake_numpy2ri.converter = object()
+    fake_pandas2ri.converter = object()
+    fake_ro.numpy2ri = fake_numpy2ri
+    fake_ro.pandas2ri = fake_pandas2ri
     fake_ro.r = lambda _expr: "ok"
     fake_packages.importr = _fake_importr
     fake_packages.PackageNotInstalledError = _PackageNotInstalledError
@@ -89,6 +93,8 @@ def _install_fake_rpy2(
     monkeypatch.setitem(sys.modules, "rpy2.robjects", fake_ro)
     monkeypatch.setitem(sys.modules, "rpy2.robjects.conversion", fake_conversion)
     monkeypatch.setitem(sys.modules, "rpy2.robjects.packages", fake_packages)
+    monkeypatch.setitem(sys.modules, "rpy2.robjects.numpy2ri", fake_numpy2ri)
+    monkeypatch.setitem(sys.modules, "rpy2.robjects.pandas2ri", fake_pandas2ri)
     monkeypatch.setitem(sys.modules, "rpy2.rinterface_lib", fake_rinterface_lib)
     monkeypatch.setitem(sys.modules, "scvi", fake_scvi)
     monkeypatch.setitem(sys.modules, "scvi.model", fake_scvi_model)
@@ -112,7 +118,9 @@ def test_get_info_supports_registered_alias_and_unknown_defaults():
 def test_is_available_uses_registered_module_name(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setattr(dm, "_check_spec", lambda module_name: module_name == "SpatialDE")
+    monkeypatch.setattr(
+        dm, "_check_spec", lambda module_name: module_name == "SpatialDE"
+    )
     assert dm.is_available("spatialde")
     assert not dm.is_available("flashs")
 
@@ -157,7 +165,7 @@ def test_validate_r_environment_reports_missing_runtime_dependencies(
 
     monkeypatch.setattr(dm, "require", _missing_anndata2ri)
     with pytest.raises(DependencyError, match="anndata2ri is required"):
-        dm.validate_r_environment()
+        dm.validate_r_environment(require_anndata2ri=True)
 
 
 def test_validate_r_environment_reports_missing_r_packages(
@@ -220,14 +228,7 @@ def test_check_r_packages_returns_all_when_rpy2_missing(
 
 
 def test_check_r_packages_returns_only_missing(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(dm, "require", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(
-        dm,
-        "validate_r_package",
-        lambda pkg, _ctx=None: (_ for _ in ()).throw(DependencyError("x"))
-        if pkg == "bad"
-        else True,
-    )
+    _install_fake_rpy2(monkeypatch, missing_packages={"bad"})
     assert dm.check_r_packages(["ok", "bad"]) == ["bad"]
 
 
@@ -261,16 +262,98 @@ def test_get_and_require_return_loaded_module(monkeypatch: pytest.MonkeyPatch):
     assert dm.require("flashs") is module
 
 
-def test_validate_r_environment_success_returns_expected_tuple(
+def test_require_module_returns_managed_submodule(monkeypatch: pytest.MonkeyPatch):
+    package = object()
+    submodule = object()
+
+    def _load(module_name: str):
+        return {
+            "pydeseq2": package,
+            "pydeseq2.dds": submodule,
+        }.get(module_name)
+
+    monkeypatch.setattr(dm, "_try_import", _load)
+
+    assert dm.require_module("pydeseq2", "pydeseq2.dds") is submodule
+
+
+def test_require_module_distinguishes_missing_submodule(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        dm,
+        "_try_import",
+        lambda module_name: object() if module_name == "pydeseq2" else None,
+    )
+
+    with pytest.raises(
+        DependencyError, match="required module 'pydeseq2.dds' is unavailable"
+    ) as exc:
+        dm.require_module(
+            "pydeseq2",
+            "pydeseq2.dds",
+            feature="DESeq2 differential expression",
+        )
+
+    assert "DESeq2 differential expression" in str(exc.value)
+    assert "pip install pydeseq2" in str(exc.value)
+
+
+def test_require_module_preserves_broken_submodule_cause(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def _load(module_name: str):
+        if module_name == "pydeseq2":
+            return object()
+        raise ModuleNotFoundError(
+            "No module named 'formulaic_contrasts'",
+            name="formulaic_contrasts",
+        )
+
+    monkeypatch.setattr(dm, "_try_import", _load)
+
+    with pytest.raises(
+        DependencyError, match="required module 'pydeseq2.dds' could not be imported"
+    ) as exc:
+        dm.require_module("pydeseq2", "pydeseq2.dds")
+
+    assert isinstance(exc.value.__cause__, ModuleNotFoundError)
+    assert "formulaic_contrasts" in str(exc.value)
+
+
+def test_require_module_rejects_unrelated_module_name():
+    with pytest.raises(ValueError, match="not provided by dependency 'pydeseq2'"):
+        dm.require_module("pydeseq2", "scvi.external")
+
+
+def test_validate_r_environment_success_returns_named_handles(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_fake_rpy2(monkeypatch)
 
-    modules = dm.validate_r_environment(required_packages=["base"])
+    environment = dm.validate_r_environment(
+        required_packages=["base"], require_anndata2ri=True
+    )
 
-    assert len(modules) == 8
-    assert getattr(modules[0], "__name__", "") == "rpy2.robjects"
-    assert getattr(modules[-1], "__name__", "") == "anndata2ri"
+    assert environment.robjects.__name__ == "rpy2.robjects"
+    assert environment.packages.__name__ == "rpy2.robjects.packages"
+    assert environment.anndata2ri.__name__ == "anndata2ri"
+    assert environment.package("base") is not None
+    with pytest.raises(ValueError, match="was not requested"):
+        environment.package("stats")
+
+
+def test_validate_r_environment_loads_anndata_converter_only_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_fake_rpy2(monkeypatch)
+
+    environment = dm.validate_r_environment()
+
+    assert environment.anndata2ri is None
+    with pytest.raises(DependencyError, match="anndata2ri was not loaded"):
+        with environment.conversion_context(anndata=True):
+            pass
 
 
 def test_validate_r_environment_wraps_unexpected_runtime_errors(
