@@ -54,7 +54,9 @@ def _mock_deconv_data(adata, method: str = "mock"):
     if len(proportions) < adata.n_obs:
         # Repeat rows for larger fixtures while preserving proportions shape
         reps = int(np.ceil(adata.n_obs / len(proportions)))
-        proportions = pd.concat([proportions] * reps, ignore_index=True).iloc[: adata.n_obs]
+        proportions = pd.concat([proportions] * reps, ignore_index=True).iloc[
+            : adata.n_obs
+        ]
         proportions.index = adata.obs_names
     else:
         proportions = proportions.iloc[: adata.n_obs]
@@ -105,6 +107,7 @@ def test_get_available_runs_skips_metadata_without_method_field(minimal_spatial_
     """Metadata entries missing 'method' field are skipped (corrupt/legacy)."""
     adata = minimal_spatial_adata.copy()
     adata.uns["deconvolution_unknown_metadata"] = {"parameters": {}}
+    adata.uns["deconvolution_foreign_metadata"] = "not ChatSpatial metadata"
     # No method field → should be skipped
 
     runs = viz_deconv._get_available_runs(adata)
@@ -118,7 +121,9 @@ async def test_get_deconvolution_data_requires_existing_results(minimal_spatial_
 
 
 @pytest.mark.asyncio
-async def test_get_deconvolution_data_requires_method_when_multiple(minimal_spatial_adata):
+async def test_get_deconvolution_data_requires_method_when_multiple(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.uns["deconvolution_m1_metadata"] = {"method": "m1", "parameters": {}}
     adata.uns["deconvolution_m2_metadata"] = {"method": "m2", "parameters": {}}
@@ -137,7 +142,9 @@ async def test_get_deconvolution_data_validates_explicit_method(minimal_spatial_
 
 
 @pytest.mark.asyncio
-async def test_get_deconvolution_data_auto_select_and_context_info(minimal_spatial_adata):
+async def test_get_deconvolution_data_auto_select_and_context_info(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.obsm["deconvolution_rctd"] = np.array([[0.8, 0.2]] * adata.n_obs)
     adata.uns["deconvolution_rctd_cell_types"] = ["T", "B"]
@@ -174,7 +181,9 @@ async def test_get_deconvolution_data_reads_metadata_keys(minimal_spatial_adata)
 
 
 @pytest.mark.asyncio
-async def test_get_deconvolution_data_errors_when_proportions_key_missing(minimal_spatial_adata):
+async def test_get_deconvolution_data_errors_when_proportions_key_missing(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     _add_deconv_metadata(
         adata,
@@ -183,7 +192,9 @@ async def test_get_deconvolution_data_errors_when_proportions_key_missing(minima
         cell_types=["A", "B"],
     )
 
-    with pytest.raises(DataNotFoundError, match="Proportions data 'missing_props' not found"):
+    with pytest.raises(
+        DataNotFoundError, match="Proportions data 'missing_props' not found"
+    ):
         await viz_deconv.get_deconvolution_data(adata, method="mock")
 
 
@@ -193,7 +204,10 @@ async def test_get_deconvolution_data_fallbacks_to_generic_cell_types_with_warni
 ):
     adata = minimal_spatial_adata.copy()
     adata.obsm["deconvolution_fallback"] = np.array([[0.5, 0.3, 0.2]] * adata.n_obs)
-    adata.uns["deconvolution_fallback_metadata"] = {"method": "fallback", "parameters": {}}
+    adata.uns["deconvolution_fallback_metadata"] = {
+        "method": "fallback",
+        "parameters": {},
+    }
     ctx = DummyCtx()
 
     out = await viz_deconv.get_deconvolution_data(adata, method="fallback", context=ctx)
@@ -228,7 +242,9 @@ async def test_create_deconvolution_visualization_routes_aliases(
 async def test_create_deconvolution_visualization_unknown_subtype_error(
     minimal_spatial_adata,
 ):
-    with pytest.raises(ParameterError, match="Unknown deconvolution visualization type"):
+    with pytest.raises(
+        ParameterError, match="Unknown deconvolution visualization type"
+    ):
         await viz_deconv.create_deconvolution_visualization(
             minimal_spatial_adata,
             VisualizationParameters(plot_type="deconvolution", subtype="mystery"),
@@ -266,7 +282,16 @@ async def test_create_deconvolution_visualization_routes_all_subtypes(
     monkeypatch.setattr(viz_deconv, "_create_umap_proportions", _umap)
     monkeypatch.setattr(viz_deconv, "_create_card_imputation", _imp)
 
-    for subtype in [None, "spatial_multi", "dominant_type", "diversity", "pie", "scatterpie", "umap", "imputation"]:
+    for subtype in [
+        None,
+        "spatial_multi",
+        "dominant_type",
+        "diversity",
+        "pie",
+        "scatterpie",
+        "umap",
+        "imputation",
+    ]:
         out = await viz_deconv.create_deconvolution_visualization(
             minimal_spatial_adata,
             VisualizationParameters(plot_type="deconvolution", subtype=subtype),
@@ -280,11 +305,14 @@ async def test_create_dominant_celltype_map_supports_mixed_and_non_mixed_modes(
 ):
     adata = minimal_spatial_adata.copy()
     data = _mock_deconv_data(adata, method="rctd")
+
     async def _get_data(*_args, **_kwargs):
         return data
 
     monkeypatch.setattr(viz_deconv, "get_deconvolution_data", _get_data)
-    monkeypatch.setattr(viz_deconv, "require_spatial_coords", lambda _a: _a.obsm["spatial"])
+    monkeypatch.setattr(
+        viz_deconv, "require_spatial_coords", lambda _a: _a.obsm["spatial"]
+    )
 
     fig = await viz_deconv._create_dominant_celltype_map(
         adata,
@@ -316,15 +344,20 @@ async def test_create_dominant_celltype_map_supports_mixed_and_non_mixed_modes(
 
 
 @pytest.mark.asyncio
-async def test_create_diversity_map_renders_and_logs(minimal_spatial_adata, monkeypatch):
+async def test_create_diversity_map_renders_and_logs(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     ctx = DummyCtx()
     data = _mock_deconv_data(adata, method="cell2location")
+
     async def _get_data(*_args, **_kwargs):
         return data
 
     monkeypatch.setattr(viz_deconv, "get_deconvolution_data", _get_data)
-    monkeypatch.setattr(viz_deconv, "require_spatial_coords", lambda _a: _a.obsm["spatial"])
+    monkeypatch.setattr(
+        viz_deconv, "require_spatial_coords", lambda _a: _a.obsm["spatial"]
+    )
     monkeypatch.setattr(
         viz_deconv,
         "entropy",
@@ -351,15 +384,20 @@ async def test_create_scatterpie_plot_skips_zero_rows_and_adds_legend(
     adata = minimal_spatial_adata.copy()
     data = _mock_deconv_data(adata, method="spotlight")
     data.proportions.iloc[0] = 0.0  # zero row path
+
     async def _get_data(*_args, **_kwargs):
         return data
 
     monkeypatch.setattr(viz_deconv, "get_deconvolution_data", _get_data)
-    monkeypatch.setattr(viz_deconv, "require_spatial_coords", lambda _a: _a.obsm["spatial"])
+    monkeypatch.setattr(
+        viz_deconv, "require_spatial_coords", lambda _a: _a.obsm["spatial"]
+    )
 
     fig = await viz_deconv._create_scatterpie_plot(
         adata,
-        VisualizationParameters(plot_type="deconvolution", subtype="pie", pie_scale=0.3),
+        VisualizationParameters(
+            plot_type="deconvolution", subtype="pie", pie_scale=0.3
+        ),
         context=None,
     )
 
@@ -369,9 +407,12 @@ async def test_create_scatterpie_plot_skips_zero_rows_and_adds_legend(
 
 
 @pytest.mark.asyncio
-async def test_create_umap_proportions_requires_umap(minimal_spatial_adata, monkeypatch):
+async def test_create_umap_proportions_requires_umap(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     data = _mock_deconv_data(adata)
+
     async def _get_data(*_args, **_kwargs):
         return data
 
@@ -390,7 +431,9 @@ async def test_create_umap_proportions_renders_top_n_and_hides_unused_axes(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    adata.obsm["X_umap"] = np.column_stack([np.arange(adata.n_obs), np.arange(adata.n_obs)])
+    adata.obsm["X_umap"] = np.column_stack(
+        [np.arange(adata.n_obs), np.arange(adata.n_obs)]
+    )
     data = _mock_deconv_data(adata, method="rctd")
     calls = {"count": 0}
 
@@ -405,7 +448,8 @@ async def test_create_umap_proportions_renders_top_n_and_hides_unused_axes(
     monkeypatch.setattr(
         viz_deconv.plt,
         "colorbar",
-        lambda *_args, **_kwargs: calls.__setitem__("count", calls["count"] + 1) or _CB(),
+        lambda *_args, **_kwargs: calls.__setitem__("count", calls["count"] + 1)
+        or _CB(),
     )
 
     fig = await viz_deconv._create_umap_proportions(
@@ -429,7 +473,9 @@ async def test_create_umap_proportions_hides_unused_axes_for_four_panels(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    adata.obsm["X_umap"] = np.column_stack([np.arange(adata.n_obs), np.arange(adata.n_obs)])
+    adata.obsm["X_umap"] = np.column_stack(
+        [np.arange(adata.n_obs), np.arange(adata.n_obs)]
+    )
     base = _mock_deconv_data(adata, method="rctd")
     proportions = base.proportions.copy()
     proportions["NK"] = np.linspace(0.0, 0.6, adata.n_obs)
@@ -473,6 +519,7 @@ async def test_create_spatial_multi_deconvolution_handles_nan_and_temp_cleanup(
     adata = minimal_spatial_adata.copy()
     data = _mock_deconv_data(adata, method="card")
     data.proportions.iloc[0, 0] = np.nan
+
     async def _get_data(*_args, **_kwargs):
         return data
 
@@ -501,6 +548,7 @@ async def test_create_spatial_multi_deconvolution_falls_back_to_bar_without_spat
     adata = minimal_spatial_adata.copy()
     adata.obsm.pop("spatial", None)
     data = _mock_deconv_data(adata, method="card")
+
     async def _get_data(*_args, **_kwargs):
         return data
 
@@ -559,7 +607,8 @@ async def test_create_card_imputation_dominant_and_specific_feature_paths(
     monkeypatch.setattr(
         viz_deconv.plt,
         "colorbar",
-        lambda *_args, **_kwargs: calls.__setitem__("count", calls["count"] + 1) or _CB(),
+        lambda *_args, **_kwargs: calls.__setitem__("count", calls["count"] + 1)
+        or _CB(),
     )
 
     fig1 = await viz_deconv._create_card_imputation(
@@ -590,7 +639,9 @@ async def test_create_card_imputation_dominant_and_specific_feature_paths(
 
 
 @pytest.mark.asyncio
-async def test_create_card_imputation_defaults_to_dominant_feature(minimal_spatial_adata):
+async def test_create_card_imputation_defaults_to_dominant_feature(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     n = adata.n_obs
     adata.uns["card_imputation"] = {

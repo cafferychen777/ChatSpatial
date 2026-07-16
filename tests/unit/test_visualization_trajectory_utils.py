@@ -20,6 +20,10 @@ from chatspatial.utils.exceptions import (
 )
 
 
+def _required_dependency(name: str, *_args, **_kwargs):
+    return sys.modules.get(name, object())
+
+
 class DummyCtx:
     def __init__(self):
         self.infos: list[str] = []
@@ -88,7 +92,7 @@ async def test_pseudotime_plot_requires_valid_basis(minimal_spatial_adata, monke
 
 @pytest.mark.asyncio
 async def test_cellrank_circular_requires_fate_probabilities(minimal_spatial_adata, monkeypatch):
-    monkeypatch.setattr(viz_traj, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     _install_fake_cellrank(monkeypatch)
     with pytest.raises(DataNotFoundError, match="CellRank fate probabilities not found"):
         await viz_traj._create_cellrank_circular_projection(
@@ -106,7 +110,7 @@ async def test_cellrank_fate_map_requires_cluster_key_when_no_categorical(
     adata.obsm["lineages_fwd"] = np.ones((adata.n_obs, 2))
     # remove categorical fallback
     adata.obs = pd.DataFrame(index=adata.obs.index)
-    monkeypatch.setattr(viz_traj, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     _install_fake_cellrank(monkeypatch)
 
     with pytest.raises(ParameterError, match="cluster_key is required for fate map"):
@@ -121,7 +125,7 @@ async def test_cellrank_fate_map_requires_cluster_key_when_no_categorical(
 async def test_cellrank_gene_trends_requires_time_key(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
     adata.obsm["lineages_fwd"] = np.ones((adata.n_obs, 2))
-    monkeypatch.setattr(viz_traj, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     _install_fake_cellrank(monkeypatch)
 
     with pytest.raises(DataNotFoundError, match="No pseudotime found"):
@@ -220,7 +224,15 @@ async def test_pseudotime_success_with_velocity_stream_panel(
         kwargs["ax"].scatter([0], [0], c=[1.0])
 
     fake_scv.pl = SimpleNamespace(velocity_embedding_stream=_stream)
-    monkeypatch.setitem(sys.modules, "scvelo", fake_scv)
+    monkeypatch.setattr(
+        viz_traj,
+        "require",
+        lambda dependency, *_args, **_kwargs: (
+            fake_scv
+            if dependency == "scvelo"
+            else pytest.fail(f"Unexpected dependency: {dependency}")
+        ),
+    )
 
     ctx = DummyCtx()
     fig = await viz_traj._create_trajectory_pseudotime_plot(
@@ -240,7 +252,7 @@ async def test_cellrank_circular_projection_success(minimal_spatial_adata, monke
     adata = minimal_spatial_adata.copy()
     adata.obsm["lineages_fwd"] = np.ones((adata.n_obs, 2), dtype=float)
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
 
     fake_cr = ModuleType("cellrank")
 
@@ -270,7 +282,7 @@ async def test_cellrank_fate_map_success_with_auto_cluster_key(
     adata = minimal_spatial_adata.copy()
     adata.obsm["lineages_fwd"] = np.ones((adata.n_obs, 2), dtype=float)
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     captured: dict[str, object] = {}
 
     fake_cr = ModuleType("cellrank")
@@ -303,7 +315,7 @@ async def test_cellrank_gene_trends_success_with_filtered_features(
     adata.obsm["lineages_fwd"] = np.ones((adata.n_obs, 2), dtype=float)
     adata.obs["latent_time"] = np.linspace(0, 1, adata.n_obs)
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     monkeypatch.setattr(
         traj_tool,
         "prepare_gam_model_for_visualization",
@@ -346,7 +358,7 @@ async def test_cellrank_fate_heatmap_success_and_missing_genes_error(
     adata.obsm["lineages_fwd"] = np.ones((adata.n_obs, 2), dtype=float)
     adata.obs["latent_time"] = np.linspace(0, 1, adata.n_obs)
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     monkeypatch.setattr(
         traj_tool,
         "prepare_gam_model_for_visualization",
@@ -426,7 +438,7 @@ async def test_cellrank_fate_map_missing_fate_and_title_branch(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     _install_fake_cellrank(monkeypatch)
 
     with pytest.raises(DataNotFoundError, match="CellRank fate probabilities not found"):
@@ -464,7 +476,7 @@ async def test_cellrank_gene_trends_edge_branches(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["latent_time"] = np.linspace(0, 1, adata.n_obs)
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     _install_fake_cellrank(monkeypatch)
 
     with pytest.raises(DataNotFoundError, match="fate probabilities not found"):
@@ -496,7 +508,7 @@ async def test_cellrank_gene_trends_defaults_and_title(
     adata.obs["latent_time"] = np.linspace(0, 1, adata.n_obs)
     adata.var["highly_variable"] = [i < 4 for i in range(adata.n_vars)]
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     monkeypatch.setattr(
         traj_tool,
         "prepare_gam_model_for_visualization",
@@ -533,7 +545,7 @@ async def test_cellrank_fate_heatmap_edge_branches(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     _install_fake_cellrank(monkeypatch)
 
     with pytest.raises(DataNotFoundError, match="fate probabilities not found"):
@@ -591,7 +603,7 @@ async def test_cellrank_fate_heatmap_defaults_without_hvg_uses_var_names(
     adata.obsm["lineages_fwd"] = np.ones((adata.n_obs, 2), dtype=float)
     adata.obs["latent_time"] = np.linspace(0, 1, adata.n_obs)
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     monkeypatch.setattr(
         traj_tool,
         "prepare_gam_model_for_visualization",
@@ -663,7 +675,7 @@ async def test_cellrank_gene_trends_default_without_hvg_uses_var_names(
     if "highly_variable" in adata.var.columns:
         del adata.var["highly_variable"]
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     monkeypatch.setattr(
         traj_tool,
         "prepare_gam_model_for_visualization",
@@ -698,7 +710,7 @@ async def test_cellrank_fate_heatmap_defaults_with_hvg_uses_hvg_genes(
     adata.obs["latent_time"] = np.linspace(0, 1, adata.n_obs)
     adata.var["highly_variable"] = [i < 3 for i in range(adata.n_vars)]
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     monkeypatch.setattr(
         traj_tool,
         "prepare_gam_model_for_visualization",
@@ -739,7 +751,7 @@ async def test_circular_projection_finds_fate_probabilities_key(
     adata.obsm["fate_probabilities"] = np.ones((adata.n_obs, 2), dtype=float)
     obsm_keys_before = set(adata.obsm.keys())
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     fake_cr = ModuleType("cellrank")
     fake_cr.pl = SimpleNamespace(circular_projection=lambda *_a, **_k: plt.figure())
     monkeypatch.setitem(sys.modules, "cellrank", fake_cr)
@@ -763,7 +775,7 @@ async def test_fate_map_finds_fate_probabilities_key(
     adata.obsm["fate_probabilities"] = np.ones((adata.n_obs, 2), dtype=float)
     obsm_keys_before = set(adata.obsm.keys())
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     fake_cr = ModuleType("cellrank")
     fake_cr.pl = SimpleNamespace(
         aggregate_fate_probabilities=lambda *_a, **_k: plt.figure()
@@ -861,7 +873,7 @@ async def test_fate_map_uses_paga_independent_heatmap_mode(
     adata = minimal_spatial_adata.copy()
     adata.obsm["to_terminal_states"] = np.ones((adata.n_obs, 2), dtype=float)
 
-    monkeypatch.setattr(viz_traj, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_traj, "require", _required_dependency)
     captured: dict[str, object] = {}
 
     fake_cr = ModuleType("cellrank")

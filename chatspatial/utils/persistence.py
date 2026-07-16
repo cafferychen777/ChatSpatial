@@ -24,6 +24,7 @@ def _coerce_object_series_for_h5ad(series: pd.Series) -> pd.Series:
         return numeric
     return series.where(non_null, "").map(str)
 
+
 if TYPE_CHECKING:
     from anndata import AnnData
 
@@ -129,10 +130,7 @@ def load_adata_from_active(data_id: str, path: Path | None = None) -> "AnnData":
     """
     import anndata
 
-    if path is None:
-        load_path = get_active_path(data_id)
-    else:
-        load_path = Path(path)
+    load_path = get_active_path(data_id) if path is None else Path(path)
 
     if not load_path.exists():
         raise FileNotFoundError(f"Data file not found: {load_path}")

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
 
+from .utils.adata_utils import get_spatial_key, has_tissue_image
 from .utils.exceptions import DataNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -45,20 +46,6 @@ class DefaultSpatialDataManager:
         self._id_counter = itertools.count(1)
 
     @staticmethod
-    def _has_tissue_image(uns: Any) -> bool:
-        """Check for Visium-like tissue images in adata.uns['spatial']."""
-        spatial = uns.get("spatial") if hasattr(uns, "get") else None
-        if not isinstance(spatial, dict):
-            return False
-        for sample_data in spatial.values():
-            if not isinstance(sample_data, dict):
-                continue
-            images = sample_data.get("images")
-            if isinstance(images, dict) and ("hires" in images or "lowres" in images):
-                return True
-        return False
-
-    @staticmethod
     def _extract_adata_metadata(adata: Any) -> dict[str, Any]:
         """Extract lightweight metadata from an AnnData object.
 
@@ -75,11 +62,8 @@ class DefaultSpatialDataManager:
         obsm = getattr(adata, "obsm", None)
         if obsm is not None:
             meta["obsm_keys"] = list(obsm.keys())
-            has_spatial = (
-                "spatial" in obsm
-                and obsm["spatial"] is not None
-                and len(obsm["spatial"]) > 0
-            )
+            spatial_key = get_spatial_key(adata)
+            has_spatial = spatial_key is not None and len(obsm[spatial_key]) > 0
             meta["spatial_coordinates_available"] = bool(has_spatial)
         else:
             meta["obsm_keys"] = []
@@ -88,9 +72,7 @@ class DefaultSpatialDataManager:
         uns = getattr(adata, "uns", None)
         if uns is not None:
             meta["uns_keys"] = list(uns.keys())
-            meta["tissue_image_available"] = (
-                DefaultSpatialDataManager._has_tissue_image(uns)
-            )
+            meta["tissue_image_available"] = has_tissue_image(adata)
         else:
             meta["uns_keys"] = []
             meta["tissue_image_available"] = False

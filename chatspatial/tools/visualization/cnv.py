@@ -374,8 +374,7 @@ async def _create_cnv_heatmap(
     else:
         # Use infercnvpy chromosome_heatmap for infercnvpy data or Numbat with chr info
         groupby = _resolve_cnv_heatmap_groupby(adata, params)
-        require("infercnvpy", feature="CNV heatmap visualization")
-        import infercnvpy as cnv
+        cnv = require("infercnvpy", feature="CNV heatmap visualization")
 
         if context:
             await context.info("Creating chromosome-organized CNV heatmap...")

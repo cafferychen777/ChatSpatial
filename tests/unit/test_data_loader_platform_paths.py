@@ -106,8 +106,12 @@ async def test_load_visium_mtx_directory_adds_spatial_coordinates(
             5: np.linspace(20, 120, adata.n_obs),
         }
     )
-    positions.to_csv(spatial_dir / "tissue_positions_list.csv", index=False, header=False)
-    (spatial_dir / "scalefactors_json.json").write_text(json.dumps({"spot_diameter_fullres": 10}))
+    positions.to_csv(
+        spatial_dir / "tissue_positions_list.csv", index=False, header=False
+    )
+    (spatial_dir / "scalefactors_json.json").write_text(
+        json.dumps({"spot_diameter_fullres": 10})
+    )
 
     fake_scanpy = _FakeScanpy()
     fake_scanpy._read_10x_mtx_ret = adata
@@ -353,10 +357,14 @@ async def test_load_visium_h5_path_errors_when_spatial_helper_fails(
     monkeypatch.setattr(
         dl,
         "_add_spatial_info_to_adata",
-        lambda _adata, _spatial_path: (_ for _ in ()).throw(RuntimeError("bad spatial")),
+        lambda _adata, _spatial_path: (_ for _ in ()).throw(
+            RuntimeError("bad spatial")
+        ),
     )
 
-    with pytest.raises(DataCompatibilityError, match="Visium spatial information failed"):
+    with pytest.raises(
+        DataCompatibilityError, match="Visium spatial information failed"
+    ):
         await dl.load_spatial_data(str(h5_path), "visium")
 
 
@@ -386,6 +394,31 @@ async def test_load_visium_h5ad_without_spatial_emits_warning(
 
 
 @pytest.mark.asyncio
+async def test_load_visium_h5ad_accepts_alternative_spatial_key(
+    minimal_spatial_adata,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    h5ad_path = tmp_path / "sample_with_coordinates.h5ad"
+    h5ad_path.write_text("h5ad")
+
+    adata = minimal_spatial_adata.copy()
+    adata.obsm["coordinates"] = adata.obsm.pop("spatial")
+    adata.uns.clear()
+
+    fake_scanpy = _FakeScanpy()
+    fake_scanpy._read_h5ad_ret = adata
+    monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
+
+    with caplog.at_level("WARNING"):
+        out = await dl.load_spatial_data(str(h5ad_path), "visium")
+
+    assert out["spatial_coordinates_available"] is True
+    assert "does not contain spatial information" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_load_visium_read_10x_h5_error_includes_helpful_suggestions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -394,7 +427,9 @@ async def test_load_visium_read_10x_h5_error_includes_helpful_suggestions(
     h5_path.write_text("h5")
 
     fake_scanpy = _FakeScanpy()
-    fake_scanpy._read_10x_h5_exc = RuntimeError("No matching barcodes while read_10x_h5")
+    fake_scanpy._read_10x_h5_exc = RuntimeError(
+        "No matching barcodes while read_10x_h5"
+    )
     monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
 
     with pytest.raises(ProcessingError) as exc_info:
@@ -522,7 +557,9 @@ async def test_load_xenium_zarr_format_branch_uses_zarr_loader(
 
     fake_scanpy = _FakeScanpy()
     monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
-    monkeypatch.setattr(dl, "_load_xenium_zarr", lambda _path: minimal_spatial_adata.copy())
+    monkeypatch.setattr(
+        dl, "_load_xenium_zarr", lambda _path: minimal_spatial_adata.copy()
+    )
 
     out = await dl.load_spatial_data(str(xen_dir), "xenium")
     assert out["type"] == "xenium"
@@ -681,7 +718,11 @@ async def test_load_xenium_wraps_unexpected_errors_as_processing_error(
     fake_scanpy = _FakeScanpy()
     fake_scanpy._read_10x_h5_ret = adata
     monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
-    monkeypatch.setattr(pd, "read_csv", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("csv boom")))
+    monkeypatch.setattr(
+        pd,
+        "read_csv",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("csv boom")),
+    )
 
     with pytest.raises(ProcessingError, match="Error loading Xenium data"):
         await dl.load_spatial_data(str(xen_dir), "xenium")
@@ -695,7 +736,9 @@ def test_find_spatial_folder_checks_parent_directory_candidate(tmp_path: Path):
 
     parent_spatial = tmp_path / "spatial"
     parent_spatial.mkdir()
-    (parent_spatial / "tissue_positions_list.csv").write_text("barcode,in_tissue,array_row,array_col,pxl_row_in_fullres,pxl_col_in_fullres\n")
+    (parent_spatial / "tissue_positions_list.csv").write_text(
+        "barcode,in_tissue,array_row,array_col,pxl_row_in_fullres,pxl_col_in_fullres\n"
+    )
     (parent_spatial / "scalefactors_json.json").write_text("{}")
 
     found = dl._find_spatial_folder(str(h5_path))
@@ -723,7 +766,9 @@ def test_add_spatial_info_supports_5_column_positions_and_suffix_removal(
             4: np.linspace(10, 60, adata.n_obs),
         }
     )
-    positions.to_csv(spatial_dir / "tissue_positions_list.csv", header=False, index=False)
+    positions.to_csv(
+        spatial_dir / "tissue_positions_list.csv", header=False, index=False
+    )
     (spatial_dir / "scalefactors_json.json").write_text("{}")
 
     monkeypatch.setattr(dl, "is_available", lambda _name: False)
@@ -799,7 +844,9 @@ def test_add_spatial_info_supports_6_column_positions_without_header(
             5: np.linspace(5, 15, adata.n_obs),
         }
     )
-    positions.to_csv(spatial_dir / "tissue_positions_list.csv", index=False, header=False)
+    positions.to_csv(
+        spatial_dir / "tissue_positions_list.csv", index=False, header=False
+    )
     (spatial_dir / "scalefactors_json.json").write_text("{}")
     monkeypatch.setattr(dl, "is_available", lambda _name: False)
 

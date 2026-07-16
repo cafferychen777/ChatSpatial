@@ -25,6 +25,7 @@ from .adata_utils import (
     ensure_unique_var_names,
     get_adata_profile,
     get_spatial_key,
+    has_tissue_image,
 )
 from .dependency_manager import is_available
 from .exceptions import (
@@ -250,9 +251,7 @@ async def load_spatial_data(
                 # If it's an h5ad file but marked as visium, read it as h5ad
                 adata = sc.read_h5ad(data_path)
                 # Check if it has the necessary spatial information
-                if "spatial" not in adata.uns and not any(
-                    "spatial" in key for key in adata.obsm.keys()
-                ):
+                if "spatial" not in adata.uns and get_spatial_key(adata) is None:
                     logger.warning(
                         "The h5ad file does not contain spatial information typically required for Visium data"
                     )
@@ -420,21 +419,7 @@ async def load_spatial_data(
     spatial_key = get_spatial_key(adata)
     spatial_coordinates_available = spatial_key is not None
 
-    # Check if tissue image is available (for Visium data)
-    # Structure: adata.uns["spatial"][library_id]["images"]["hires"/"lowres"]
-    # Must check for actual hires or lowres images, not just non-empty dict
-    tissue_image_available = False
-    if "spatial" in adata.uns and isinstance(adata.uns["spatial"], dict):
-        for _sample_key, sample_data in adata.uns["spatial"].items():
-            # Each sample_data should be a dict with "images" key
-            if isinstance(sample_data, dict) and "images" in sample_data:
-                images_dict = sample_data["images"]
-                # Check if images dict has actual hires or lowres images
-                if isinstance(images_dict, dict) and (
-                    "hires" in images_dict or "lowres" in images_dict
-                ):
-                    tissue_image_available = True
-                    break
+    tissue_image_available = has_tissue_image(adata)
 
     # Make variable names unique to avoid reindexing issues
     ensure_unique_var_names(adata)

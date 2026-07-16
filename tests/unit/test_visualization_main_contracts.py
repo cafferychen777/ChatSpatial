@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import matplotlib.pyplot as plt
 import pytest
 
 from chatspatial.tools.visualization import main as viz_main
-from chatspatial.utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 class _Ctx:
@@ -49,19 +55,42 @@ async def test_visualize_data_rejects_dataset_with_too_few_genes():
 
 async def test_visualize_data_wraps_unexpected_handler_errors(monkeypatch):
     adata = SimpleNamespace(n_obs=8, n_vars=8)
-    close_calls: list[str] = []
+    existing = plt.figure()
+    created_number: int | None = None
 
     async def _boom(_adata, _params, _ctx):
+        nonlocal created_number
+        created_number = plt.figure().number
         raise RuntimeError("handler failed")
 
-    monkeypatch.setattr(viz_main.sc.settings, "set_figure_params", lambda **_kwargs: None)
     monkeypatch.setattr(viz_main, "PLOT_HANDLERS", {"feature": _boom})
-    monkeypatch.setattr(viz_main.plt, "close", lambda arg: close_calls.append(arg))
 
-    with pytest.raises(ProcessingError, match="Failed to create feature visualization"):
+    try:
+        with pytest.raises(
+            ProcessingError, match="Failed to create feature visualization"
+        ):
+            await viz_main.visualize_data("d1", _Ctx(adata), _params())
+
+        assert existing.number in plt.get_fignums()
+        assert created_number not in plt.get_fignums()
+    finally:
+        plt.close(existing)
+
+
+async def test_visualize_data_preserves_dependency_errors(monkeypatch):
+    adata = SimpleNamespace(n_obs=8, n_vars=8)
+
+    async def _missing_dependency(_adata, _params, _ctx):
+        raise DependencyError("plot backend is unavailable")
+
+    monkeypatch.setattr(
+        viz_main,
+        "PLOT_HANDLERS",
+        {"feature": _missing_dependency},
+    )
+
+    with pytest.raises(DependencyError, match="plot backend is unavailable"):
         await viz_main.visualize_data("d1", _Ctx(adata), _params())
-
-    assert close_calls == ["all"]
 
 
 async def test_visualize_data_builds_plot_type_key_with_subtype(monkeypatch):
@@ -78,7 +107,6 @@ async def test_visualize_data_builds_plot_type_key_with_subtype(monkeypatch):
         captured["plot_type"] = plot_type
         return "saved"
 
-    monkeypatch.setattr(viz_main.sc.settings, "set_figure_params", lambda **_kwargs: None)
     monkeypatch.setattr(viz_main, "PLOT_HANDLERS", {"feature": _handler})
     monkeypatch.setattr(viz_main, "optimize_fig_to_image_with_cache", _optimize)
 
@@ -106,7 +134,6 @@ async def test_visualize_data_allows_few_genes_for_non_gene_plots(monkeypatch):
     async def _optimize(fig, params, ctx, data_id=None, plot_type=None):
         return "ok"
 
-    monkeypatch.setattr(viz_main.sc.settings, "set_figure_params", lambda **_k: None)
     monkeypatch.setattr(viz_main, "PLOT_HANDLERS", {"integration": _handler})
     monkeypatch.setattr(viz_main, "optimize_fig_to_image_with_cache", _optimize)
 

@@ -19,6 +19,10 @@ from chatspatial.utils.exceptions import (
 )
 
 
+def _required_dependency(name: str, *_args, **_kwargs):
+    return sys.modules.get(name, object())
+
+
 class DummyCtx:
     def __init__(self):
         self.infos: list[str] = []
@@ -58,7 +62,7 @@ async def test_create_rna_velocity_visualization_routes_stream_by_default(
 
 @pytest.mark.asyncio
 async def test_stream_requires_velocity_graph(minimal_spatial_adata, monkeypatch):
-    monkeypatch.setattr(viz_vel, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     with pytest.raises(DataNotFoundError, match="RNA velocity not computed"):
         await viz_vel._create_velocity_stream_plot(
             minimal_spatial_adata,
@@ -70,7 +74,7 @@ async def test_stream_requires_velocity_graph(minimal_spatial_adata, monkeypatch
 async def test_stream_requires_valid_basis(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
     adata.uns["velocity_graph"] = np.eye(adata.n_obs)
-    monkeypatch.setattr(viz_vel, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     monkeypatch.setattr(viz_vel, "infer_basis", lambda *_args, **_kwargs: None)
 
     with pytest.raises(DataCompatibilityError, match="No valid embedding basis found"):
@@ -82,7 +86,7 @@ async def test_stream_requires_valid_basis(minimal_spatial_adata, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_phase_requires_required_layers(minimal_spatial_adata, monkeypatch):
-    monkeypatch.setattr(viz_vel, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     with pytest.raises(DataNotFoundError, match="Missing layers for phase plot"):
         await viz_vel._create_velocity_phase_plot(
             minimal_spatial_adata,
@@ -93,7 +97,7 @@ async def test_phase_requires_required_layers(minimal_spatial_adata, monkeypatch
 
 @pytest.mark.asyncio
 async def test_proportions_requires_velocity_layers(minimal_spatial_adata, monkeypatch):
-    monkeypatch.setattr(viz_vel, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     with pytest.raises(DataNotFoundError, match="Spliced and unspliced layers are required"):
         await viz_vel._create_velocity_proportions_plot(
             minimal_spatial_adata,
@@ -105,7 +109,7 @@ async def test_proportions_requires_velocity_layers(minimal_spatial_adata, monke
 @pytest.mark.asyncio
 async def test_heatmap_requires_time_or_velocity_graph(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(viz_vel, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     with pytest.raises(DataNotFoundError, match="No time ordering available"):
         await viz_vel._create_velocity_heatmap(
             adata,
@@ -122,7 +126,7 @@ async def test_heatmap_computes_velocity_pseudotime_when_graph_exists(
     adata.uns["velocity_graph"] = np.eye(adata.n_obs)
     called: dict[str, bool] = {}
 
-    monkeypatch.setattr(viz_vel, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
 
     fake_scv = ModuleType("scvelo")
 
@@ -189,7 +193,7 @@ async def test_stream_success_uses_inferred_basis_and_auto_feature(
     adata = minimal_spatial_adata.copy()
     adata.uns["velocity_graph"] = np.eye(adata.n_obs)
 
-    monkeypatch.setattr(viz_vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     monkeypatch.setattr(viz_vel, "infer_basis", lambda *_a, **_k: "spatial")
 
     fig, ax = plt.subplots()
@@ -231,7 +235,7 @@ async def test_phase_success_uses_velocity_genes_and_context(minimal_spatial_ada
     adata.layers["Mu"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
     adata.var["velocity_genes"] = [True] * 5 + [False] * (adata.n_vars - 5)
 
-    monkeypatch.setattr(viz_vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     monkeypatch.setattr(viz_vel, "infer_basis", lambda *_a, **_k: "umap")
 
     captured: dict[str, object] = {}
@@ -275,7 +279,7 @@ async def test_phase_supports_string_feature_and_default_genes_without_velocity_
     adata.layers["Ms"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
     adata.layers["Mu"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
 
-    monkeypatch.setattr(viz_vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     monkeypatch.setattr(viz_vel, "infer_basis", lambda *_a, **_k: "umap")
     captured: dict[str, object] = {}
     fake_scv = ModuleType("scvelo")
@@ -315,7 +319,7 @@ async def test_phase_raises_when_requested_genes_are_missing(minimal_spatial_ada
     adata.layers["Ms"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
     adata.layers["Mu"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
 
-    monkeypatch.setattr(viz_vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     monkeypatch.setitem(sys.modules, "scvelo", ModuleType("scvelo"))
 
     with pytest.raises(DataNotFoundError, match="None of the specified genes found"):
@@ -337,7 +341,7 @@ async def test_proportions_success_and_cluster_auto_selection(
     adata.layers["spliced"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
     adata.layers["unspliced"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
 
-    monkeypatch.setattr(viz_vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     captured: dict[str, object] = {}
 
     fake_scv = ModuleType("scvelo")
@@ -381,7 +385,7 @@ async def test_proportions_requires_cluster_key_when_no_categorical(minimal_spat
     adata.layers["unspliced"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
     adata.obs = pd.DataFrame(index=adata.obs.index)
 
-    monkeypatch.setattr(viz_vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     monkeypatch.setitem(sys.modules, "scvelo", ModuleType("scvelo"))
 
     with pytest.raises(ParameterError, match="cluster_key is required for proportions plot"):
@@ -400,7 +404,7 @@ async def test_heatmap_success_uses_latent_time_and_hvg_fallback(
     adata.obs["latent_time"] = np.linspace(0.0, 1.0, adata.n_obs)
     adata.var["highly_variable"] = [True] * 8 + [False] * (adata.n_vars - 8)
 
-    monkeypatch.setattr(viz_vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     captured: dict[str, object] = {}
     fake_scv = ModuleType("scvelo")
 
@@ -411,7 +415,7 @@ async def test_heatmap_success_uses_latent_time_and_hvg_fallback(
         plt.figure()
 
     fake_scv.pl = SimpleNamespace(heatmap=_heatmap)
-    fake_scv.tl = SimpleNamespace(velocity_pseudotime=lambda *_a, **_k: None)
+    fake_scv.tl = SimpleNamespace(velocity_pseudotime=lambda *_args, **_kwargs: None)
     monkeypatch.setitem(sys.modules, "scvelo", fake_scv)
 
     ctx = DummyCtx()
@@ -442,7 +446,7 @@ async def test_heatmap_feature_string_and_velocity_genes_branches(
     adata.obs["latent_time"] = np.linspace(0.0, 1.0, adata.n_obs)
     adata.var["velocity_genes"] = [True] * 6 + [False] * (adata.n_vars - 6)
 
-    monkeypatch.setattr(viz_vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     captured: dict[str, object] = {}
     fake_scv = ModuleType("scvelo")
 
@@ -451,7 +455,7 @@ async def test_heatmap_feature_string_and_velocity_genes_branches(
         plt.figure()
 
     fake_scv.pl = SimpleNamespace(heatmap=_heatmap)
-    fake_scv.tl = SimpleNamespace(velocity_pseudotime=lambda *_a, **_k: None)
+    fake_scv.tl = SimpleNamespace(velocity_pseudotime=lambda *_args, **_kwargs: None)
     monkeypatch.setitem(sys.modules, "scvelo", fake_scv)
 
     fig_feature = await viz_vel._create_velocity_heatmap(
@@ -480,10 +484,10 @@ async def test_heatmap_rejects_missing_requested_genes(minimal_spatial_adata, mo
     adata = minimal_spatial_adata.copy()
     adata.obs["latent_time"] = np.linspace(0.0, 1.0, adata.n_obs)
 
-    monkeypatch.setattr(viz_vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_vel, "require", _required_dependency)
     fake_scv = ModuleType("scvelo")
-    fake_scv.pl = SimpleNamespace(heatmap=lambda *_a, **_k: None)
-    fake_scv.tl = SimpleNamespace(velocity_pseudotime=lambda *_a, **_k: None)
+    fake_scv.pl = SimpleNamespace(heatmap=lambda *_args, **_kwargs: None)
+    fake_scv.tl = SimpleNamespace(velocity_pseudotime=lambda *_args, **_kwargs: None)
     monkeypatch.setitem(sys.modules, "scvelo", fake_scv)
 
     with pytest.raises(DataNotFoundError, match="None of the specified genes found"):

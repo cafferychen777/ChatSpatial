@@ -21,6 +21,10 @@ from chatspatial.utils.exceptions import (
 )
 
 
+def _required_dependency(name: str, *_args, **_kwargs):
+    return sys.modules.get(name, object())
+
+
 class DummyCtx:
     def __init__(self):
         self.infos: list[str] = []
@@ -800,7 +804,7 @@ def test_create_spatial_lr_visualization_errors_for_empty_selected_pairs_and_mis
 
 
 def test_create_unified_dotplot_validates_required_columns(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(viz_cc, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cc, "require", _required_dependency)
     fake_liana = ModuleType("liana")
     fake_liana.pl = ModuleType("liana.pl")
     fake_liana.pl.dotplot = lambda **_kwargs: _FakePlotnine()
@@ -815,7 +819,7 @@ def test_create_unified_dotplot_validates_required_columns(monkeypatch: pytest.M
 
 
 def test_create_unified_dotplot_rejects_when_no_score_columns(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(viz_cc, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cc, "require", _required_dependency)
     df = _mock_liana_results(include_scores=False)
     data = _mock_cc_data(df)
 
@@ -832,7 +836,7 @@ def test_create_unified_dotplot_rejects_when_no_score_columns(monkeypatch: pytes
 
 
 def test_create_unified_dotplot_falls_back_on_liana_error(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(viz_cc, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cc, "require", _required_dependency)
     data = _mock_cc_data(_mock_liana_results())
     sentinel = object()
 
@@ -854,7 +858,7 @@ def test_create_unified_dotplot_falls_back_on_liana_error(monkeypatch: pytest.Mo
 
 
 def test_create_unified_dotplot_success_and_empty_contract(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(viz_cc, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cc, "require", _required_dependency)
 
     fake_liana = ModuleType("liana")
     fake_liana.pl = ModuleType("liana.pl")
@@ -908,7 +912,7 @@ def test_create_fallback_dotplot_requires_rank_and_scales_positive_rank():
 
 
 def test_create_unified_tileplot_requires_value_columns(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(viz_cc, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cc, "require", _required_dependency)
     df = _mock_liana_results(include_scores=False)
     data = _mock_cc_data(df)
 
@@ -925,7 +929,7 @@ def test_create_unified_tileplot_requires_value_columns(monkeypatch: pytest.Monk
 
 
 def test_create_unified_tileplot_falls_back_on_liana_error(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(viz_cc, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cc, "require", _required_dependency)
     data = _mock_cc_data(_mock_liana_results())
     sentinel = object()
 
@@ -947,7 +951,7 @@ def test_create_unified_tileplot_falls_back_on_liana_error(monkeypatch: pytest.M
 
 
 def test_create_unified_tileplot_success_and_empty_contract(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(viz_cc, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cc, "require", _required_dependency)
 
     fake_liana = ModuleType("liana")
     fake_liana.pl = ModuleType("liana.pl")

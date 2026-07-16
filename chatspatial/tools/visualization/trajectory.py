@@ -174,8 +174,7 @@ async def _create_trajectory_pseudotime_plot(
     basis = infer_basis(adata, preferred=params.basis)
     if not basis:
         raise DataCompatibilityError(
-            f"No valid embedding basis found. "
-            f"Available keys: {list(adata.obsm.keys())}"
+            f"No valid embedding basis found. Available keys: {list(adata.obsm.keys())}"
         )
 
     # Setup figure: 1 panel if no velocity, 2 panels if velocity exists
@@ -186,10 +185,7 @@ async def _create_trajectory_pseudotime_plot(
         params, n_panels=n_panels, panel_width=6, panel_height=5
     )
     fig, axes = plt.subplots(1, n_panels, figsize=figsize, dpi=params.dpi)
-    if n_panels == 1:
-        axes = [axes]
-    else:
-        axes = list(axes)
+    axes = [axes] if n_panels == 1 else list(axes)
 
     # Get colormap for consistent colorbars
     from matplotlib import colormaps
@@ -230,7 +226,11 @@ async def _create_trajectory_pseudotime_plot(
     # Panel 2: Velocity stream plot (if available)
     if has_velocity and n_panels > 1:
         ax2 = axes[1]
-        import scvelo as scv
+        scv = require(
+            "scvelo",
+            context,
+            feature="RNA velocity stream visualization",
+        )
 
         # Note: scvelo uses 'color_map' not 'cmap', disable auto colorbar
         scv.pl.velocity_embedding_stream(
@@ -278,8 +278,7 @@ async def _create_cellrank_circular_projection(
         - adata.obs['terminal_states'] or 'term_states_fwd': Terminal state labels
         - adata.obsm['lineages_fwd'] or 'to_terminal_states': Fate probabilities
     """
-    require("cellrank", feature="circular projection")
-    import cellrank as cr
+    cr = require("cellrank", feature="circular projection")
 
     _resolve_cellrank_fate_key(adata)
 
@@ -327,8 +326,7 @@ async def _create_cellrank_fate_map(
         - adata.obsm with CellRank fate probabilities (any standard key)
         - adata.obs[cluster_key]: Cluster labels for aggregation
     """
-    require("cellrank", feature="fate map")
-    import cellrank as cr
+    cr = require("cellrank", feature="fate map")
 
     _resolve_cellrank_fate_key(adata)
 
@@ -382,8 +380,7 @@ async def _create_cellrank_gene_trends(
         - adata.obs['latent_time'] or similar pseudotime
         - Gene expression in adata.X
     """
-    require("cellrank", feature="gene trends")
-    import cellrank as cr
+    cr = require("cellrank", feature="gene trends")
 
     # Import GAM model preparation from trajectory module
     from ..trajectory import prepare_gam_model_for_visualization
@@ -472,8 +469,7 @@ async def _create_cellrank_fate_heatmap(
         - adata.obs['latent_time'] or similar pseudotime
         - Gene expression in adata.X
     """
-    require("cellrank", feature="fate heatmap")
-    import cellrank as cr
+    cr = require("cellrank", feature="fate heatmap")
 
     # Import GAM model preparation from trajectory module
     from ..trajectory import prepare_gam_model_for_visualization

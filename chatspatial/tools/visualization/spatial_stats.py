@@ -153,8 +153,7 @@ async def _create_neighborhood_enrichment_visualization(
         - adata.uns['{cluster_key}_nhood_enrichment']: Enrichment results
         - adata.obs[cluster_key]: Cluster labels
     """
-    require("squidpy", feature="neighborhood enrichment visualization")
-    import squidpy as sq
+    sq = require("squidpy", feature="neighborhood enrichment visualization")
 
     cluster_key = _resolve_cluster_key(adata, "neighborhood", params.cluster_key)
 
@@ -191,8 +190,7 @@ async def _create_co_occurrence_visualization(
         - adata.uns['{cluster_key}_co_occurrence']: Co-occurrence results
         - adata.obs[cluster_key]: Cluster labels
     """
-    require("squidpy", feature="co-occurrence visualization")
-    import squidpy as sq
+    sq = require("squidpy", feature="co-occurrence visualization")
 
     cluster_key = _resolve_cluster_key(adata, "co_occurrence", params.cluster_key)
 
@@ -258,8 +256,7 @@ async def _create_ripley_visualization(
         - adata.uns['{cluster_key}_ripley_L']: Ripley's L function results
         - adata.obs[cluster_key]: Cluster labels
     """
-    require("squidpy", feature="Ripley visualization")
-    import squidpy as sq
+    sq = require("squidpy", feature="Ripley visualization")
 
     cluster_key = _resolve_cluster_key(adata, "ripley", params.cluster_key)
 
@@ -442,8 +439,7 @@ async def _create_centrality_visualization(
         - adata.uns['{cluster_key}_centrality_scores']: Centrality scores
         - adata.obs[cluster_key]: Cluster labels
     """
-    require("squidpy", feature="centrality visualization")
-    import squidpy as sq
+    sq = require("squidpy", feature="centrality visualization")
 
     cluster_key = _resolve_cluster_key(adata, "centrality", params.cluster_key)
 

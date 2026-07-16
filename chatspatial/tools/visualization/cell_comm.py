@@ -150,10 +150,15 @@ def _cellchat_3d_to_liana_format(
         try:
             normalized_cell_types = [str(value) for value in cell_type_names]
         except TypeError as exc:
-            raise ProcessingError("CellChat cell type names must be a sequence.") from exc
+            raise ProcessingError(
+                "CellChat cell type names must be a sequence."
+            ) from exc
 
     n_sources, n_targets, n_lr_pairs = prob_matrix.shape
-    if len(normalized_cell_types) != n_sources or len(normalized_cell_types) != n_targets:
+    if (
+        len(normalized_cell_types) != n_sources
+        or len(normalized_cell_types) != n_targets
+    ):
         raise ProcessingError(
             "CellChat cell type labels do not match the probability matrix: "
             f"received {len(normalized_cell_types)} labels for shape "
@@ -226,7 +231,9 @@ def _cellchat_3d_to_liana_format(
             lr_info_by_name.setdefault(name, info)
 
     if lr_axis_names is not None:
-        missing_lr_names = [name for name in lr_axis_names if name not in lr_info_by_name]
+        missing_lr_names = [
+            name for name in lr_axis_names if name not in lr_info_by_name
+        ]
         if missing_lr_names:
             raise ProcessingError(
                 "CellChat result metadata is missing interaction-axis labels: "
@@ -321,10 +328,7 @@ def _matrix_to_liana_format(
 
     for idx, row in results.iterrows():
         # Get LR pair name
-        if lr_col:
-            lr_pair = str(row[lr_col])
-        else:
-            lr_pair = str(idx)
+        lr_pair = str(row[lr_col]) if lr_col else str(idx)
 
         # Parse ligand and receptor from LR pair
         # Handle various separators: "_", "^", "-"
@@ -610,10 +614,7 @@ async def create_cell_communication_visualization(
     # Determine subtype with method-aware defaults
     subtype = params.subtype
     if subtype is None:
-        if data.analysis_type == "spatial":
-            subtype = "spatial"
-        else:
-            subtype = "dotplot"
+        subtype = "spatial" if data.analysis_type == "spatial" else "dotplot"
 
     # Route based on subtype (unified approach)
     # Data is already in LIANA format, so most visualizations work uniformly
@@ -629,7 +630,11 @@ async def create_cell_communication_visualization(
         return _create_spatial_lr_visualization(adata, data, params, context)
 
     # Unified cell-type visualizations require source/target cell labels.
-    if data.analysis_type == "spatial" and subtype in {"dotplot", "tileplot", "circle_plot"}:
+    if data.analysis_type == "spatial" and subtype in {
+        "dotplot",
+        "tileplot",
+        "circle_plot",
+    }:
         raise ParameterError(
             f"{subtype} visualization requires cluster-level communication results.\n"
             f"Current analysis type: {data.analysis_type}\n\n"
@@ -654,7 +659,7 @@ async def create_cell_communication_visualization(
         available.insert(0, "spatial")
 
     raise ParameterError(
-        f"Unknown visualization type: {subtype}. " f"Available: {', '.join(available)}"
+        f"Unknown visualization type: {subtype}. Available: {', '.join(available)}"
     )
 
 
@@ -675,11 +680,7 @@ def _create_spatial_lr_visualization(
             "No spatial communication scores found. Run spatial analysis first."
         )
 
-    plot_top = (
-        params.plot_top_pairs
-        if params.plot_top_pairs is not None
-        else 6
-    )
+    plot_top = params.plot_top_pairs if params.plot_top_pairs is not None else 6
     n_pairs = min(plot_top, len(data.lr_pairs))
 
     # Use pre-computed top_lr_pairs from analysis (single source of truth)
@@ -709,7 +710,9 @@ def _create_spatial_lr_visualization(
     n_cols = min(3, n_panels)
     n_rows = (n_panels + n_cols - 1) // n_cols
 
-    figsize = tuple(params.figure_size) if params.figure_size else (5 * n_cols, 4 * n_rows)
+    figsize = (
+        tuple(params.figure_size) if params.figure_size else (5 * n_cols, 4 * n_rows)
+    )
     fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
 
     if n_panels == 1:
@@ -779,8 +782,7 @@ def _create_unified_dotplot(
     - Size = significance (smaller magnitude_rank = more significant = larger dot)
     - Color = expression (lr_means)
     """
-    require("liana", feature="Cell communication dotplot")
-    import liana as li
+    li = require("liana", feature="Cell communication dotplot")
 
     df = data.results
     if df is None or len(df) == 0:
@@ -914,8 +916,7 @@ def _create_unified_tileplot(
 
     Uses li.pl.tileplot() which works with any LIANA-format DataFrame.
     """
-    require("liana", feature="Cell communication tileplot")
-    import liana as li
+    li = require("liana", feature="Cell communication tileplot")
 
     df = data.results
     if df is None or len(df) == 0:

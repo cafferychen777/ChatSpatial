@@ -353,9 +353,7 @@ async def get_validated_features(
     validated: list[str] = []
 
     for feat in features:
-        if feat in adata.var_names:
-            validated.append(feat)
-        elif not genes_only and feat in adata.obs.columns:
+        if feat in adata.var_names or (not genes_only and feat in adata.obs.columns):
             validated.append(feat)
         else:
             where = "var_names" if genes_only else "genes or obs"
@@ -794,7 +792,7 @@ def infer_basis(
             return basis
 
     # Fallback: return first available X_* key
-    for key in adata.obsm.keys():
+    for key in adata.obsm:
         if key.startswith("X_"):
             return key[2:]  # Strip X_ prefix
 

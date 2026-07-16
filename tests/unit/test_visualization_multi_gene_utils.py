@@ -27,13 +27,18 @@ class DummyCtx:
 
 
 @pytest.mark.asyncio
-async def test_create_multi_gene_visualization_requires_requested_basis(minimal_spatial_adata):
+async def test_create_multi_gene_visualization_requires_requested_basis(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     with pytest.raises(DataNotFoundError, match="UMAP embedding not found"):
         await viz_mg.create_multi_gene_visualization(
             adata,
             VisualizationParameters(
-                plot_type="expression", subtype="heatmap", feature=["gene_0"], basis="umap"
+                plot_type="expression",
+                subtype="heatmap",
+                feature=["gene_0"],
+                basis="umap",
             ),
         )
     adata.obsm.pop("spatial", None)
@@ -41,7 +46,10 @@ async def test_create_multi_gene_visualization_requires_requested_basis(minimal_
         await viz_mg.create_multi_gene_visualization(
             adata,
             VisualizationParameters(
-                plot_type="expression", subtype="heatmap", feature=["gene_0"], basis="spatial"
+                plot_type="expression",
+                subtype="heatmap",
+                feature=["gene_0"],
+                basis="spatial",
             ),
         )
 
@@ -51,6 +59,7 @@ async def test_create_multi_gene_visualization_spatial_success_and_cleanup(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
+    adata.obsm["X_spatial"] = adata.obsm.pop("spatial")
 
     async def _validated(*_a, **_k):
         return ["gene_0", "gene_1"]
@@ -66,7 +75,13 @@ async def test_create_multi_gene_visualization_spatial_success_and_cleanup(
 
     def _plot_spatial(_adata, ax, values=None, params=None, show_colorbar=False, **_kw):
         vals = values if values is not None else np.zeros(_adata.n_obs)
-        ax.scatter(_adata.obsm["spatial"][:, 0], _adata.obsm["spatial"][:, 1], c=vals)
+        spatial_key = viz_mg.get_spatial_key(_adata)
+        assert spatial_key is not None
+        ax.scatter(
+            _adata.obsm[spatial_key][:, 0],
+            _adata.obsm[spatial_key][:, 1],
+            c=vals,
+        )
 
     monkeypatch.setattr(viz_mg, "plot_spatial_feature", _plot_spatial)
 
@@ -90,7 +105,9 @@ async def test_create_multi_gene_visualization_spatial_success_and_cleanup(
 
 
 @pytest.mark.asyncio
-async def test_create_multi_gene_visualization_umap_branch(minimal_spatial_adata, monkeypatch):
+async def test_create_multi_gene_visualization_umap_branch(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obsm["X_umap"] = np.random.default_rng(0).normal(size=(adata.n_obs, 2))
 
@@ -98,7 +115,9 @@ async def test_create_multi_gene_visualization_umap_branch(minimal_spatial_adata
         return ["gene_2"]
 
     monkeypatch.setattr(viz_mg, "get_validated_features", _validated)
-    monkeypatch.setattr(viz_mg, "get_gene_expression", lambda _adata, _gene: np.arange(_adata.n_obs))
+    monkeypatch.setattr(
+        viz_mg, "get_gene_expression", lambda _adata, _gene: np.arange(_adata.n_obs)
+    )
 
     captured: dict[str, object] = {}
 
@@ -155,9 +174,13 @@ def test_parse_lr_pairs_supports_multiple_sources(minimal_spatial_adata):
 
 
 def test_parse_lr_pairs_raises_when_missing(minimal_spatial_adata):
-    with pytest.raises(DataNotFoundError, match="No ligand-receptor pairs to visualize"):
+    adata = minimal_spatial_adata.copy()
+    adata.uns["ccc"] = "foreign metadata"
+    with pytest.raises(
+        DataNotFoundError, match="No ligand-receptor pairs to visualize"
+    ):
         viz_mg._parse_lr_pairs(
-            minimal_spatial_adata.copy(),
+            adata,
             VisualizationParameters(plot_type="interaction"),
         )
 
@@ -179,19 +202,32 @@ async def test_create_lr_pairs_visualization_limits_pairs_and_cleans_temp(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    pairs = [("gene_0", "gene_1"), ("gene_2", "gene_3"), ("gene_4", "gene_5"), ("gene_6", "gene_7"), ("gene_8", "gene_9")]
+    pairs = [
+        ("gene_0", "gene_1"),
+        ("gene_2", "gene_3"),
+        ("gene_4", "gene_5"),
+        ("gene_6", "gene_7"),
+        ("gene_8", "gene_9"),
+    ]
     monkeypatch.setattr(viz_mg, "_parse_lr_pairs", lambda *_a, **_k: pairs)
     monkeypatch.setattr(viz_mg, "ensure_unique_var_names", lambda _a: None)
     monkeypatch.setattr(
         viz_mg,
         "get_gene_expression",
-        lambda _adata, gene: np.linspace(0.0, 1.0, _adata.n_obs) + (int(gene.split("_")[1]) * 0.01),
+        lambda _adata, gene: np.linspace(0.0, 1.0, _adata.n_obs)
+        + (int(gene.split("_")[1]) * 0.01),
     )
     monkeypatch.setattr(
         viz_mg,
         "plot_spatial_feature",
-        lambda _adata, ax, values=None, params=None, show_colorbar=False, **_kw: ax.scatter(
-            _adata.obsm["spatial"][:, 0], _adata.obsm["spatial"][:, 1],
+        lambda _adata,
+        ax,
+        values=None,
+        params=None,
+        show_colorbar=False,
+        **_kw: ax.scatter(
+            _adata.obsm["spatial"][:, 0],
+            _adata.obsm["spatial"][:, 1],
             c=values if values is not None else np.zeros(_adata.n_obs),
         ),
     )
@@ -219,7 +255,9 @@ async def test_create_lr_pairs_visualization_covers_scaling_colorbar_and_pearson
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, color_scale: str
 ):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(viz_mg, "_parse_lr_pairs", lambda *_a, **_k: [("gene_0", "gene_1")])
+    monkeypatch.setattr(
+        viz_mg, "_parse_lr_pairs", lambda *_a, **_k: [("gene_0", "gene_1")]
+    )
     monkeypatch.setattr(viz_mg, "ensure_unique_var_names", lambda _a: None)
 
     def _expr(_adata, gene):
@@ -233,8 +271,14 @@ async def test_create_lr_pairs_visualization_covers_scaling_colorbar_and_pearson
     monkeypatch.setattr(
         viz_mg,
         "plot_spatial_feature",
-        lambda _adata, ax, values=None, params=None, show_colorbar=False, **_kw: ax.scatter(
-            _adata.obsm["spatial"][:, 0], _adata.obsm["spatial"][:, 1],
+        lambda _adata,
+        ax,
+        values=None,
+        params=None,
+        show_colorbar=False,
+        **_kw: ax.scatter(
+            _adata.obsm["spatial"][:, 0],
+            _adata.obsm["spatial"][:, 1],
             c=values if values is not None else np.zeros(_adata.n_obs),
         ),
     )
@@ -261,14 +305,20 @@ async def test_create_lr_pairs_visualization_without_spatial_plots_correlation_o
 ):
     adata = minimal_spatial_adata.copy()
     del adata.obsm["spatial"]
-    monkeypatch.setattr(viz_mg, "_parse_lr_pairs", lambda *_a, **_k: [("gene_0", "gene_1")])
+    monkeypatch.setattr(
+        viz_mg, "_parse_lr_pairs", lambda *_a, **_k: [("gene_0", "gene_1")]
+    )
     monkeypatch.setattr(viz_mg, "ensure_unique_var_names", lambda _a: None)
-    monkeypatch.setattr(viz_mg, "get_gene_expression", lambda _adata, _gene: np.arange(_adata.n_obs))
+    monkeypatch.setattr(
+        viz_mg, "get_gene_expression", lambda _adata, _gene: np.arange(_adata.n_obs)
+    )
 
     fig = await viz_mg.create_lr_pairs_visualization(
         adata,
         VisualizationParameters(
-            plot_type="interaction", show_correlation_stats=False, correlation_method="kendall"
+            plot_type="interaction",
+            show_correlation_stats=False,
+            correlation_method="kendall",
         ),
     )
     assert len(fig.axes) >= 1
@@ -277,7 +327,9 @@ async def test_create_lr_pairs_visualization_without_spatial_plots_correlation_o
 
 
 @pytest.mark.asyncio
-async def test_create_gene_correlation_visualization_success(monkeypatch: pytest.MonkeyPatch, minimal_spatial_adata):
+async def test_create_gene_correlation_visualization_success(
+    monkeypatch: pytest.MonkeyPatch, minimal_spatial_adata
+):
     adata = minimal_spatial_adata.copy()
 
     async def _validated(*_a, **_k):
@@ -288,7 +340,11 @@ async def test_create_gene_correlation_visualization_success(monkeypatch: pytest
         viz_mg,
         "get_genes_expression",
         lambda _adata, genes: np.vstack(
-            [np.linspace(0.0, 1.0, _adata.n_obs), np.linspace(1.0, 0.0, _adata.n_obs), np.ones(_adata.n_obs)]
+            [
+                np.linspace(0.0, 1.0, _adata.n_obs),
+                np.linspace(1.0, 0.0, _adata.n_obs),
+                np.ones(_adata.n_obs),
+            ]
         ).T,
     )
 
@@ -356,14 +412,22 @@ async def test_spatial_interaction_visualization_validates_pairs_and_wraps_error
     adata = minimal_spatial_adata.copy()
     with pytest.raises(ProcessingError, match="No ligand-receptor pairs provided"):
         await viz_mg.create_spatial_interaction_visualization(
-            adata, VisualizationParameters(plot_type="interaction", lr_pairs=None), context=DummyCtx()
+            adata,
+            VisualizationParameters(plot_type="interaction", lr_pairs=None),
+            context=DummyCtx(),
         )
 
-    monkeypatch.setattr(viz_mg, "require_spatial_coords", lambda _a: (_ for _ in ()).throw(ValueError("bad spatial")))
+    monkeypatch.setattr(
+        viz_mg,
+        "require_spatial_coords",
+        lambda _a: (_ for _ in ()).throw(ValueError("bad spatial")),
+    )
     with pytest.raises(ValueError, match="bad spatial"):
         await viz_mg.create_spatial_interaction_visualization(
             adata,
-            VisualizationParameters(plot_type="interaction", lr_pairs=[("gene_0", "gene_1")]),
+            VisualizationParameters(
+                plot_type="interaction", lr_pairs=[("gene_0", "gene_1")]
+            ),
             context=DummyCtx(),
         )
 

@@ -70,9 +70,10 @@ async def create_multi_gene_visualization(
         raise DataNotFoundError(
             "UMAP embedding not found. Run preprocessing with compute_umap=True first."
         )
-    if basis == "spatial" and "spatial" not in adata.obsm:
+    if basis == "spatial" and get_spatial_key(adata) is None:
         raise DataNotFoundError(
-            "Spatial coordinates not found in adata.obsm['spatial']."
+            "Spatial coordinates not found. "
+            f"Available obsm keys: {list(adata.obsm.keys())}."
         )
 
     # Get validated features
@@ -214,12 +215,12 @@ def _parse_lr_pairs(
                     lr_pairs.append((ligand, receptor))
 
         # 3. Try to get from stored CCC analysis results (unified storage)
-        if not lr_pairs and hasattr(adata, "uns"):
-            if "ccc" in adata.uns and "top_lr_pairs" in adata.uns["ccc"]:
-                for pair_str in adata.uns["ccc"]["top_lr_pairs"]:
-                    if "^" in str(pair_str):
-                        ligand, receptor = str(pair_str).split("^", 1)
-                        lr_pairs.append((ligand, receptor))
+        ccc = adata.uns.get("ccc") if hasattr(adata, "uns") else None
+        if not lr_pairs and isinstance(ccc, dict):
+            for pair_str in ccc.get("top_lr_pairs", []):
+                if "^" in str(pair_str):
+                    ligand, receptor = str(pair_str).split("^", 1)
+                    lr_pairs.append((ligand, receptor))
 
     # No hardcoded defaults - scientific integrity
     if not lr_pairs:

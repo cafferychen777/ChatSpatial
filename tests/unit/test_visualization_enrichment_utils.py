@@ -203,7 +203,7 @@ def test_create_gsea_barplot_wraps_gseapy_errors(monkeypatch: pytest.MonkeyPatch
         raise RuntimeError("bad data")
 
     fake_gp.barplot = _boom
-    monkeypatch.setitem(__import__("sys").modules, "gseapy", fake_gp)
+    monkeypatch.setattr(viz_enrich, "require", lambda *_args, **_kwargs: fake_gp)
 
     with pytest.raises(ProcessingError, match="gseapy.barplot failed"):
         viz_enrich._create_gsea_barplot(
@@ -701,8 +701,12 @@ def test_create_enrichmap_spatial_routes_cross_and_wraps_errors(
         )
 
 
-def test_create_enrichmap_spatial_reraises_data_not_found(
-    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "error",
+    [DataNotFoundError("missing score"), ParameterError("invalid score")],
+)
+def test_create_enrichmap_spatial_preserves_domain_errors(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, error
 ):
     adata = minimal_spatial_adata.copy()
     fake_em = ModuleType("enrichmap")
@@ -710,9 +714,9 @@ def test_create_enrichmap_spatial_reraises_data_not_found(
     monkeypatch.setattr(
         viz_enrich,
         "_create_enrichmap_single_score",
-        lambda *_a, **_k: (_ for _ in ()).throw(DataNotFoundError("missing score")),
+        lambda *_a, **_k: (_ for _ in ()).throw(error),
     )
-    with pytest.raises(DataNotFoundError, match="missing score"):
+    with pytest.raises(type(error), match=str(error)):
         viz_enrich._create_enrichmap_spatial(
             adata,
             VisualizationParameters(
@@ -967,7 +971,7 @@ def test_create_gsea_enrichment_plot_validation_and_success(monkeypatch: pytest.
 
     fake_gp = ModuleType("gseapy")
     fake_gp.gseaplot = lambda **_kwargs: plt.figure(figsize=(6, 4))
-    monkeypatch.setitem(sys.modules, "gseapy", fake_gp)
+    monkeypatch.setattr(viz_enrich, "require", lambda *_args, **_kwargs: fake_gp)
 
     fig = viz_enrich._create_gsea_enrichment_plot(
         {"PathA": {"RES": [0.1, 0.2], "NES": 1.1, "pval": 0.02}},
@@ -1000,7 +1004,7 @@ def test_create_gsea_enrichment_plot_validation_and_success(monkeypatch: pytest.
 def test_create_gsea_dotplot_nested_and_error_wrap(monkeypatch: pytest.MonkeyPatch):
     fake_gp = ModuleType("gseapy")
     fake_gp.dotplot = lambda **_kwargs: _FakeAxes()
-    monkeypatch.setitem(sys.modules, "gseapy", fake_gp)
+    monkeypatch.setattr(viz_enrich, "require", lambda *_args, **_kwargs: fake_gp)
 
     fig = viz_enrich._create_gsea_dotplot(
         {
@@ -1038,7 +1042,7 @@ def test_create_gsea_barplot_success_empty_and_figure_size(monkeypatch: pytest.M
         return _FakeAxes()
 
     fake_gp.barplot = _fake_barplot
-    monkeypatch.setitem(sys.modules, "gseapy", fake_gp)
+    monkeypatch.setattr(viz_enrich, "require", lambda *_args, **_kwargs: fake_gp)
 
     fig = viz_enrich._create_gsea_barplot(
         {"PathA": {"Adjusted P-value": 0.01}},

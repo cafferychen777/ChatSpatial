@@ -61,12 +61,14 @@ def _get_available_runs(
     seen_keys: set[str] = set()
 
     # Primary: read from stored metadata
-    for key in adata.uns.keys():
+    for key in adata.uns:
         if key.startswith("deconvolution_") and key.endswith("_metadata"):
             analysis_key = key.removesuffix("_metadata")
             meta = adata.uns[key]
             # "method" is always stored by store_analysis_metadata;
             # skip entries without it (corrupt/foreign metadata).
+            if not isinstance(meta, dict):
+                continue
             method = meta.get("method")
             if method is None:
                 continue
@@ -76,7 +78,7 @@ def _get_available_runs(
 
     # Fallback: search obsm keys (legacy data without metadata)
     if not runs:
-        for key in adata.obsm.keys():
+        for key in adata.obsm:
             if key.startswith("deconvolution_") and key not in seen_keys:
                 method = key.removeprefix("deconvolution_")
                 runs.append((method, key))

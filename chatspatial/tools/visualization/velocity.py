@@ -101,8 +101,7 @@ async def _create_velocity_stream_plot(
         - adata.uns['velocity_graph']: Velocity transition graph (sparse matrix)
         - adata.obsm['X_umap'] or 'spatial': Embedding for visualization
     """
-    require("scvelo", feature="RNA velocity visualization")
-    import scvelo as scv
+    scv = require("scvelo", feature="RNA velocity visualization")
 
     if "velocity_graph" not in adata.uns:
         raise DataNotFoundError(
@@ -179,8 +178,7 @@ async def _create_velocity_phase_plot(
         - adata.layers['Ms']: Smoothed spliced counts
         - adata.layers['Mu']: Smoothed unspliced counts
     """
-    require("scvelo", feature="velocity phase plots")
-    import scvelo as scv
+    scv = require("scvelo", feature="velocity phase plots")
 
     required_layers = ["velocity", "Ms", "Mu"]
     missing_layers = [layer for layer in required_layers if layer not in adata.layers]
@@ -252,8 +250,7 @@ async def _create_velocity_proportions_plot(
         - adata.layers['unspliced']: Unspliced counts
         - adata.obs[cluster_key]: Cluster labels for grouping
     """
-    require("scvelo", feature="proportions plot")
-    import scvelo as scv
+    scv = require("scvelo", feature="proportions plot")
 
     if "spliced" not in adata.layers or "unspliced" not in adata.layers:
         raise DataNotFoundError(
@@ -310,8 +307,7 @@ async def _create_velocity_heatmap(
         - adata.obs with one of: 'latent_time', 'velocity_pseudotime', 'dpt_pseudotime'
         - adata.var['velocity_genes']: Velocity genes (optional)
     """
-    require("scvelo", feature="velocity heatmap")
-    import scvelo as scv
+    scv = require("scvelo", feature="velocity heatmap")
 
     # Find available time ordering column
     time_columns = ["latent_time", "velocity_pseudotime", "dpt_pseudotime"]

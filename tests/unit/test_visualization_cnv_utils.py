@@ -16,6 +16,10 @@ from chatspatial.tools.visualization import cnv as viz_cnv
 from chatspatial.utils.exceptions import DataNotFoundError, ParameterError
 
 
+def _required_dependency(name: str, *_args, **_kwargs):
+    return sys.modules.get(name, object())
+
+
 class DummyCtx:
     def __init__(self):
         self.infos: list[str] = []
@@ -206,7 +210,7 @@ async def test_cnv_heatmap_requires_cnv_data(minimal_spatial_adata):
 async def test_cnv_heatmap_requires_uns_cnv_metadata(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
     adata.obsm["X_cnv"] = np.zeros((adata.n_obs, 10), dtype=float)
-    monkeypatch.setattr(viz_cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cnv, "require", _required_dependency)
     ctx = DummyCtx()
 
     with pytest.raises(DataNotFoundError, match="CNV metadata not found"):
@@ -249,7 +253,7 @@ async def test_cnv_heatmap_numbat_ungrouped_branch(minimal_spatial_adata, monkey
     adata = minimal_spatial_adata.copy()
     adata.obsm["X_cnv_numbat"] = np.random.default_rng(2).normal(size=(adata.n_obs, 30))
 
-    monkeypatch.setattr(viz_cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cnv, "require", _required_dependency)
     fig = await viz_cnv._create_cnv_heatmap(
         adata,
         VisualizationParameters(plot_type="cnv", subtype="heatmap"),
@@ -266,7 +270,7 @@ async def test_cnv_heatmap_infercnvpy_chromosome_branch(minimal_spatial_adata, m
     adata.uns["cnv"] = {"genomic_positions": True}
     adata.var["chromosome"] = ["chr1"] * adata.n_vars
 
-    monkeypatch.setattr(viz_cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cnv, "require", _required_dependency)
     captured: dict[str, object] = {}
 
     fake_infercnvpy = ModuleType("infercnvpy")
@@ -302,7 +306,7 @@ async def test_cnv_heatmap_infercnvpy_auto_selects_groupby(
         "B"
     ] * (adata.n_obs - adata.n_obs // 2)
 
-    monkeypatch.setattr(viz_cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cnv, "require", _required_dependency)
     captured: dict[str, object] = {}
 
     fake_infercnvpy = ModuleType("infercnvpy")
@@ -335,7 +339,7 @@ async def test_cnv_heatmap_infercnvpy_requires_groupby_when_none_available(
     adata.uns["cnv"] = {"genomic_positions": True}
     adata.var["chromosome"] = ["chr1"] * adata.n_vars
 
-    monkeypatch.setattr(viz_cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_cnv, "require", _required_dependency)
 
     with pytest.raises(ParameterError, match="requires a grouping column"):
         await viz_cnv._create_cnv_heatmap(

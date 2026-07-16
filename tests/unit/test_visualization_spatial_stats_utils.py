@@ -16,6 +16,10 @@ from chatspatial.tools.visualization import spatial_stats as viz_ss
 from chatspatial.utils.exceptions import DataError, DataNotFoundError, ParameterError
 
 
+def _required_dependency(name: str, *_args, **_kwargs):
+    return sys.modules.get(name, object())
+
+
 class DummyCtx:
     def __init__(self):
         self.infos: list[str] = []
@@ -103,7 +107,7 @@ async def test_neighborhood_visualization_validates_data_and_calls_squidpy(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(viz_ss, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_ss, "require", _required_dependency)
 
     with pytest.raises(DataNotFoundError, match="Neighborhood enrichment not found"):
         await viz_ss._create_neighborhood_enrichment_visualization(
@@ -143,7 +147,7 @@ async def test_co_occurrence_visualization_handles_missing_and_figsize_logic(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["group"] = adata.obs["group"].astype("category")
-    monkeypatch.setattr(viz_ss, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_ss, "require", _required_dependency)
 
     with pytest.raises(DataNotFoundError, match="Co-occurrence not found"):
         await viz_ss._create_co_occurrence_visualization(
@@ -178,7 +182,7 @@ async def test_co_occurrence_visualization_uses_custom_figsize_and_title(
     adata = minimal_spatial_adata.copy()
     adata.obs["group"] = adata.obs["group"].astype("category")
     adata.uns["group_co_occurrence"] = {"dummy": True}
-    monkeypatch.setattr(viz_ss, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_ss, "require", _required_dependency)
     captured: dict[str, object] = {}
 
     def _co(*_args, **kwargs):
@@ -206,7 +210,7 @@ async def test_co_occurrence_visualization_uses_custom_figsize_and_title(
 @pytest.mark.asyncio
 async def test_ripley_visualization_missing_and_success(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(viz_ss, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_ss, "require", _required_dependency)
     with pytest.raises(DataNotFoundError, match="Ripley results not found"):
         await viz_ss._create_ripley_visualization(
             adata,
@@ -335,7 +339,7 @@ def test_moran_visualization_rejects_missing_requested_feature(minimal_spatial_a
 @pytest.mark.asyncio
 async def test_centrality_visualization_missing_and_success(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(viz_ss, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_ss, "require", _required_dependency)
     with pytest.raises(DataNotFoundError, match="Centrality scores not found"):
         await viz_ss._create_centrality_visualization(
             adata,
@@ -380,7 +384,7 @@ async def test_centrality_visualization_uses_custom_figsize(minimal_spatial_adat
     adata.uns["group_centrality_scores"] = pd.DataFrame(
         {"degree": [0.2, 0.5], "closeness": [0.3, 0.4]}
     )
-    monkeypatch.setattr(viz_ss, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_ss, "require", _required_dependency)
     captured: dict[str, object] = {}
 
     def _centrality(*_args, **kwargs):
@@ -559,7 +563,7 @@ async def test_co_occurrence_mixed_type_labels_no_type_error(
     adata.obs["mixed_cluster"] = labels  # plain object column, not categorical
     adata.uns["mixed_cluster_co_occurrence"] = {"dummy": True}
 
-    monkeypatch.setattr(viz_ss, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(viz_ss, "require", _required_dependency)
 
     def _co(*_args, **kwargs):
         plt.figure()

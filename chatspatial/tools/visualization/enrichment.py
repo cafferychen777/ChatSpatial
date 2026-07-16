@@ -26,7 +26,12 @@ from ...utils.adata_utils import (
     validate_obs_column,
 )
 from ...utils.dependency_manager import require
-from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from ...utils.exceptions import (
+    ChatSpatialError,
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 from .core import (
     create_figure,
     get_categorical_columns,
@@ -66,7 +71,8 @@ def _resolve_enrichmap_library_id(adata: "ad.AnnData") -> str:
     obs_library_ids: list[str] = []
     if "library_id" in adata.obs.columns:
         obs_library_ids = [
-            str(library_id) for library_id in pd.unique(adata.obs["library_id"].dropna())
+            str(library_id)
+            for library_id in pd.unique(adata.obs["library_id"].dropna())
         ]
 
     if spatial_keys:
@@ -143,7 +149,10 @@ def _get_metadata_score_columns(adata: "ad.AnnData") -> list[str]:
     ]
 
     latest_score_key = adata.uns.get(_LATEST_ENRICHMENT_SCORE_KEY)
-    if isinstance(latest_score_key, str) and f"{latest_score_key}_metadata" in adata.uns:
+    if (
+        isinstance(latest_score_key, str)
+        and f"{latest_score_key}_metadata" in adata.uns
+    ):
         analysis_names = [latest_score_key] + [
             name for name in analysis_names if name != latest_score_key
         ]
@@ -277,9 +286,7 @@ async def create_pathway_enrichment_visualization(
 
     plot_type = params.subtype or "barplot"
 
-    requested_key = getattr(
-        params, "gsea_results_key", _DEFAULT_ENRICHMENT_RESULTS_KEY
-    )
+    requested_key = getattr(params, "gsea_results_key", _DEFAULT_ENRICHMENT_RESULTS_KEY)
     resolved_results_key = _resolve_enrichment_results_key(adata, requested_key)
 
     # Spatial enrichment stores scores in obs, not p-value tables in uns.
@@ -468,10 +475,9 @@ def _create_enrichmap_spatial(
             return _create_enrichmap_single_score(
                 adata, params, library_id, em, context
             )
-    except DataNotFoundError:
+    except ChatSpatialError:
         raise
     except Exception as e:
-        plt.close("all")
         raise ProcessingError(
             f"EnrichMap {params.subtype} visualization failed: {e}\n\n"
             "Solutions:\n"
@@ -499,10 +505,9 @@ def _create_enrichmap_cross_correlation(
                 gene_sets_key = uns_key
                 break
 
-    if gene_sets_key is None:
-        # Default to shared key (always the latest spatial enrichment result)
-        if "enrichment_spatial_gene_sets" in adata.uns:
-            gene_sets_key = "enrichment_spatial_gene_sets"
+    # Default to shared key (always the latest spatial enrichment result)
+    if gene_sets_key is None and "enrichment_spatial_gene_sets" in adata.uns:
+        gene_sets_key = "enrichment_spatial_gene_sets"
 
     if gene_sets_key is None:
         # Last resort: find any per-run spatial key
@@ -556,7 +561,9 @@ def _create_enrichmap_single_score(
     feature = (
         raw_feature[0]
         if isinstance(raw_feature, list) and raw_feature
-        else raw_feature if isinstance(raw_feature, str) else None
+        else raw_feature
+        if isinstance(raw_feature, str)
+        else None
     )
     if not feature:
         raise DataNotFoundError(
@@ -630,7 +637,7 @@ def _create_gsea_enrichment_plot(
                 "Use subtype='barplot' or subtype='dotplot' instead."
             )
 
-        import gseapy as gp
+        gp = require("gseapy", feature="GSEA enrichment plot")
 
         # Use centralized figure size with enrichment default
         figsize = resolve_figure_size(params, "enrichment")
@@ -668,8 +675,6 @@ def _create_gsea_barplot(
     params: VisualizationParameters,
 ) -> plt.Figure:
     """Create barplot of top enriched pathways."""
-    import gseapy as gp
-
     n_top = getattr(params, "n_top_pathways", 10)
     df = _gsea_results_to_dataframe(gsea_results)
 
@@ -678,6 +683,7 @@ def _create_gsea_barplot(
 
     _ensure_term_column(df)
     pval_col = _require_pvalue_column(df, "barplot")
+    gp = require("gseapy", feature="GSEA enrichment barplot")
 
     # Barplot-specific figure size: width for long pathway names, height for pathway count
     # (do NOT use resolve_figure_size with n_panels - barplot is not a grid layout)
@@ -706,7 +712,7 @@ def _create_gsea_barplot(
         return fig
     except Exception as e:
         raise ProcessingError(
-            f"gseapy.barplot failed: {e}\n" f"Available columns: {list(df.columns)}"
+            f"gseapy.barplot failed: {e}\nAvailable columns: {list(df.columns)}"
         ) from e
 
 
@@ -715,8 +721,6 @@ def _create_gsea_dotplot(
     params: VisualizationParameters,
 ) -> plt.Figure:
     """Create dotplot of pathway enrichment."""
-    import gseapy as gp
-
     n_top = getattr(params, "n_top_pathways", 10)
 
     # Handle nested dict (multi-condition): {condition: {pathway: {stats}}}
@@ -743,6 +747,7 @@ def _create_gsea_dotplot(
 
     _ensure_term_column(df)
     pval_col = _require_pvalue_column(df, "dotplot")
+    gp = require("gseapy", feature="GSEA enrichment dotplot")
 
     figsize = tuple(params.figure_size) if params.figure_size else (6, 8)
     cmap = params.colormap if params.colormap != "coolwarm" else "viridis_r"
@@ -766,7 +771,7 @@ def _create_gsea_dotplot(
         return fig
     except Exception as e:
         raise ProcessingError(
-            f"gseapy.dotplot failed: {e}\n" f"Available columns: {list(df.columns)}"
+            f"gseapy.dotplot failed: {e}\nAvailable columns: {list(df.columns)}"
         ) from e
 
 

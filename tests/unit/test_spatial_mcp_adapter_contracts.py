@@ -113,6 +113,29 @@ def test_tool_context_debug_and_log_config_delegate_to_logger():
     )
 
 
+def test_data_manager_metadata_detects_alternative_spatial_key(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obsm["coordinates"] = adata.obsm.pop("spatial")
+
+    metadata = adapter.DefaultSpatialDataManager._extract_adata_metadata(adata)
+
+    assert metadata["spatial_coordinates_available"] is True
+    assert metadata["obsm_keys"] == ["coordinates"]
+
+
+def test_data_manager_metadata_requires_materialized_tissue_image(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    adata.uns["spatial"] = {"sample": {"images": {"hires": None}}}
+
+    metadata = adapter.DefaultSpatialDataManager._extract_adata_metadata(adata)
+
+    assert metadata["tissue_image_available"] is False
+
+
 @pytest.mark.asyncio
 async def test_tool_context_data_access_and_add_dataset(minimal_spatial_adata):
     manager = adapter.DefaultSpatialDataManager()

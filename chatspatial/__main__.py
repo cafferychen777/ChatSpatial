@@ -26,7 +26,6 @@ from .server import mcp
 @click.version_option(__version__, prog_name="ChatSpatial")
 def cli():
     """ChatSpatial - AI-powered spatial transcriptomics analysis"""
-    pass
 
 
 @cli.command()

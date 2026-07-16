@@ -20,18 +20,14 @@ Refactored architecture (11 unified plot_types):
 
 from typing import TYPE_CHECKING
 
-import matplotlib.pyplot as plt
-import scanpy as sc
-
 from ...models.data import VisualizationParameters
 from ...utils.exceptions import (
-    DataCompatibilityError,
-    DataError,
+    ChatSpatialError,
     DataNotFoundError,
     ParameterError,
     ProcessingError,
 )
-from ...utils.image_utils import optimize_fig_to_image_with_cache
+from ...utils.image_utils import isolated_figure_scope, optimize_fig_to_image_with_cache
 
 # Import unified visualization handlers
 from .cell_comm import (
@@ -119,49 +115,42 @@ async def visualize_data(
         )
 
     try:
-        # Retrieve the AnnData object via ToolContext
-        adata = await ctx.get_adata(data_id)
-
-        # Validate AnnData object - basic validation
-        if adata.n_obs < 1:
-            raise DataNotFoundError("Dataset has no observations")
-
-        # Only enforce gene count for plot types that read adata.X / var.
-        # Integration, deconvolution, cnv, trajectory, statistics, etc.
-        # rely on obsm/obs/uns and work fine with few genes.
-        _gene_dependent_types = {"feature", "expression"}
-        if params.plot_type in _gene_dependent_types and adata.n_vars < 5:
-            raise DataNotFoundError("Dataset has too few genes (minimum 5 required)")
-
-        # Set matplotlib style for better visualizations
-        sc.settings.set_figure_params(dpi=params.dpi or 100, facecolor="white")
-
-        # Dispatch to appropriate handler (pass ToolContext, not raw MCP Context)
-        handler = PLOT_HANDLERS[params.plot_type]
-        fig = await handler(adata, params, ctx)
-
-        # Generate plot_type_key with subtype if applicable (for cache consistency)
-        subtype = params.subtype
-        plot_type_key = f"{params.plot_type}_{subtype}" if subtype else params.plot_type
-
-        # Use the optimized conversion function
-        return await optimize_fig_to_image_with_cache(
-            fig,
-            params,
-            ctx,
-            data_id=data_id,
-            plot_type=plot_type_key,
-        )
-
+        with isolated_figure_scope():
+            return await _create_and_export_visualization(data_id, ctx, params)
+    except ChatSpatialError:
+        raise
     except Exception as e:
-        # Make sure to close any open figures in case of error
-        plt.close("all")
-
-        # Re-raise known error types directly
-        if isinstance(e, (DataError, DataNotFoundError, ParameterError, DataCompatibilityError)):
-            raise
-
-        # Wrap unknown errors in ProcessingError
         raise ProcessingError(
             f"Failed to create {params.plot_type} visualization: {e}"
         ) from e
+
+
+async def _create_and_export_visualization(
+    data_id: str,
+    ctx: "ToolContext",
+    params: VisualizationParameters,
+) -> str:
+    """Build and export one visualization inside an isolated figure scope."""
+    adata = await ctx.get_adata(data_id)
+
+    if adata.n_obs < 1:
+        raise DataNotFoundError("Dataset has no observations")
+
+    # Only enforce gene count for plot types that read adata.X / var.
+    gene_dependent_types = {"feature", "expression"}
+    if params.plot_type in gene_dependent_types and adata.n_vars < 5:
+        raise DataNotFoundError("Dataset has too few genes (minimum 5 required)")
+
+    handler = PLOT_HANDLERS[params.plot_type]
+    fig = await handler(adata, params, ctx)
+
+    subtype = params.subtype
+    plot_type_key = f"{params.plot_type}_{subtype}" if subtype else params.plot_type
+
+    return await optimize_fig_to_image_with_cache(
+        fig,
+        params,
+        ctx,
+        data_id=data_id,
+        plot_type=plot_type_key,
+    )

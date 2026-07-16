@@ -275,7 +275,7 @@ def _extract_from_uns(adata: "AnnData", key: str) -> pd.DataFrame | None:
 
     # Special case: squidpy nhood_enrichment or co_occurrence
     # Format: {"zscore": np.ndarray, "count": np.ndarray}
-    if key.endswith("_nhood_enrichment") or key.endswith("_co_occurrence"):
+    if key.endswith(("_nhood_enrichment", "_co_occurrence")):
         return _extract_squidpy_spatial_result(adata, key, data)
 
     # Special case: squidpy ripley
