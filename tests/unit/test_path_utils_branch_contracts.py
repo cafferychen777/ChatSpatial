@@ -44,9 +44,9 @@ def test_relative_path_inside_package_uses_safe_default_base(
     monkeypatch.setattr(
         path_utils,
         "is_inside_package_dir",
-        lambda p=None: (Path.cwd() if p is None else Path(p)).resolve().is_relative_to(
-            package_root.resolve()
-        ),
+        lambda p=None: (Path.cwd() if p is None else Path(p))
+        .resolve()
+        .is_relative_to(package_root.resolve()),
     )
     monkeypatch.chdir(cwd_inside)
 

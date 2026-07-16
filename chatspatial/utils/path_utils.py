@@ -15,7 +15,13 @@ Design principle: Outputs should NEVER pollute the package source directory.
 import warnings
 from pathlib import Path
 
-from ..config import PACKAGE_ROOT, get_default_output_dir, is_inside_package_dir
+from ..config import (
+    PACKAGE_ROOT,
+    get_default_output_dir,
+    get_temp_output_dir,
+    is_inside_package_dir,
+    is_writable_dir,
+)
 
 
 def get_safe_output_path(
@@ -37,11 +43,12 @@ def get_safe_output_path(
 
     3. Permission handling:
        - Tests write permission before returning
-       - Falls back to /tmp/chatspatial/outputs if original path not writable
+       - Falls back to the platform temporary output directory if needed
 
     Args:
         output_dir: User-provided output directory (relative or absolute)
-        fallback_to_tmp: If True, fallback to /tmp if output_dir not writable
+        fallback_to_tmp: If True, use the platform temporary directory when
+            output_dir is not writable
         create_if_missing: If True, create directory if it doesn't exist
 
     Returns:
@@ -111,28 +118,20 @@ def get_safe_output_path(
 
     # Try to create/verify the directory
     try:
-        if create_if_missing:
-            target_path.mkdir(parents=True, exist_ok=True)
-
-        # Test write permission by creating a temporary test file
-        test_file = target_path / ".write_test"
-        test_file.touch()
-        test_file.unlink()
+        if not is_writable_dir(target_path, create=create_if_missing):
+            raise PermissionError("directory permission probe failed")
 
         return target_path
 
     except (OSError, PermissionError) as e:
         # If fallback enabled, try temp directory
         if fallback_to_tmp:
+            fallback_path = get_temp_output_dir()
             warnings.warn(
-                f"Cannot write to {target_path}: {e}. "
-                f"Falling back to /tmp/chatspatial/outputs",
+                f"Cannot write to {target_path}: {e}. Falling back to {fallback_path}",
                 UserWarning,
                 stacklevel=2,
             )
-
-            fallback_path = Path("/tmp/chatspatial/outputs")
-            fallback_path.mkdir(parents=True, exist_ok=True)
             return fallback_path
         else:
             raise PermissionError(

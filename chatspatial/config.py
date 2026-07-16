@@ -16,6 +16,7 @@ Design principles:
 
 import os
 import sys
+import tempfile
 import warnings
 from pathlib import Path
 from typing import Optional
@@ -78,7 +79,7 @@ def get_default_output_dir() -> Path:
     1. CHATSPATIAL_OUTPUT_DIR environment variable (if set)
     2. Current working directory (if not inside package and writable)
     3. ~/chatspatial_outputs (user's home directory)
-    4. /tmp/chatspatial/outputs (fallback)
+    4. The platform temporary directory (fallback)
 
     Returns:
         Absolute path to a writable output directory.
@@ -88,25 +89,63 @@ def get_default_output_dir() -> Path:
     if env_dir:
         env_path = Path(env_dir)
         # Reject package directory to protect source code
-        if not is_inside_package_dir(env_path) and _is_writable_dir(env_path):
+        if not is_inside_package_dir(env_path) and is_writable_dir(env_path):
             return env_path.resolve()
 
     # Priority 2: Current working directory (if safe)
     cwd = Path.cwd()
-    if not is_inside_package_dir(cwd) and _is_writable_dir(cwd):
+    if not is_inside_package_dir(cwd) and is_writable_dir(cwd):
         return cwd
 
     # Priority 3: User's home directory
-    if _is_writable_dir(DEFAULT_OUTPUT_DIR, create=True):
+    if is_writable_dir(DEFAULT_OUTPUT_DIR, create=True):
         return DEFAULT_OUTPUT_DIR
 
     # Priority 4: Temp directory (last resort)
-    tmp_dir = Path("/tmp/chatspatial/outputs")
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    return tmp_dir
+    return get_temp_output_dir()
 
 
-def _is_writable_dir(path: Path, create: bool = False) -> bool:
+def get_temp_output_dir() -> Path:
+    """Return the platform temporary output directory, creating it if needed."""
+    output_dir = Path(tempfile.gettempdir()) / "chatspatial" / "outputs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+
+def get_cache_dir() -> Path:
+    """Return a writable, platform-appropriate cache directory.
+
+    ``CHATSPATIAL_CACHE_DIR`` overrides the platform default. Invalid or
+    source-tree paths fall back to the normal platform cache root, then to the
+    platform temporary directory as a last resort.
+    """
+    env_dir = os.environ.get("CHATSPATIAL_CACHE_DIR")
+    if env_dir:
+        env_path = Path(env_dir)
+        if not is_inside_package_dir(env_path) and is_writable_dir(
+            env_path, create=True
+        ):
+            return env_path.resolve()
+
+    if sys.platform == "darwin":
+        platform_root = HOME_DIR / "Library" / "Caches"
+    elif sys.platform == "win32":
+        platform_root = Path(
+            os.environ.get("LOCALAPPDATA", HOME_DIR / "AppData" / "Local")
+        )
+    else:
+        platform_root = Path(os.environ.get("XDG_CACHE_HOME", HOME_DIR / ".cache"))
+
+    cache_dir = platform_root / "chatspatial"
+    if not is_inside_package_dir(cache_dir) and is_writable_dir(cache_dir, create=True):
+        return cache_dir.resolve()
+
+    fallback = Path(tempfile.gettempdir()) / "chatspatial" / "cache"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+def is_writable_dir(path: Path, create: bool = False) -> bool:
     """Check if a directory is writable.
 
     Args:
@@ -123,10 +162,13 @@ def _is_writable_dir(path: Path, create: bool = False) -> bool:
         if not path.exists():
             return False
 
-        # Test write permission
-        test_file = path / ".write_test"
-        test_file.touch()
-        test_file.unlink()
+        # Probe with a unique file so an existing user file can never be
+        # overwritten or removed by a permission check.
+        with tempfile.NamedTemporaryFile(
+            dir=path,
+            prefix=".chatspatial-write-test-",
+        ):
+            pass
         return True
     except (OSError, PermissionError):
         return False
@@ -189,6 +231,11 @@ def _configure_environment() -> None:
     # CRITICAL: Disable progress bars to prevent stdout pollution
     # MCP uses JSON-RPC over stdio, any non-JSON output breaks communication
     os.environ["TQDM_DISABLE"] = "1"
+
+    # Select a headless backend before Scanpy or pyplot is imported. Runtime
+    # backend switching can close caller-owned figures on supported older
+    # Matplotlib releases, so plotting code must not switch it later.
+    os.environ.setdefault("MPLBACKEND", "Agg")
 
     # Configure Dask to use new DataFrame implementation
     os.environ.setdefault("DASK_DATAFRAME__QUERY_PLANNING", "True")
@@ -271,12 +318,3 @@ def init_runtime(verbose: bool = False) -> None:
             f"  Default output: {get_default_output_dir()}",
             file=sys.stderr,
         )
-
-
-# =============================================================================
-# Auto-initialization on module import
-# =============================================================================
-
-# Initialize when this module is imported
-# This ensures configuration is applied as early as possible
-init_runtime()

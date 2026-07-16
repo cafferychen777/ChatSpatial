@@ -7,12 +7,16 @@ from typing import Any, Optional, TypeVar
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
-# Initialize runtime configuration (SSOT - all config in one place)
-# This import triggers init_runtime() which configures:
+# Initialize runtime configuration at the application boundary. Importing the
+# configuration module alone remains side-effect free for library consumers.
+# Runtime initialization configures:
 # - Environment variables (TQDM_DISABLE, DASK_*)
 # - Warning filters
 # - Scanpy settings
-from . import config  # noqa: F401
+from . import config
+
+config.init_runtime()
+
 from .models.analysis import AnnotationResult  # noqa: E402
 from .models.analysis import CellCommunicationResult  # noqa: E402
 from .models.analysis import CNVResult  # noqa: E402

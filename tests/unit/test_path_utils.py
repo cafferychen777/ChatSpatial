@@ -16,7 +16,9 @@ def fake_default_dir(tmp_path: Path) -> Path:
     return d
 
 
-def test_relative_path_outside_package_resolves_to_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_relative_path_outside_package_resolves_to_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cwd = tmp_path / "work"
     cwd.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(cwd)
@@ -40,7 +42,9 @@ def test_absolute_path_inside_package_redirects_to_safe_default(
     monkeypatch.setattr(
         path_utils,
         "is_inside_package_dir",
-        lambda p=None: (Path.cwd() if p is None else Path(p)).resolve().is_relative_to(package_root.resolve()),
+        lambda p=None: (Path.cwd() if p is None else Path(p))
+        .resolve()
+        .is_relative_to(package_root.resolve()),
     )
 
     with pytest.warns(UserWarning, match="inside package directory"):
@@ -58,15 +62,15 @@ def test_permission_failure_fallback_to_tmp(
     monkeypatch.chdir(cwd)
     monkeypatch.setattr(path_utils, "is_inside_package_dir", lambda p=None: False)
 
-    def _raise_touch(self, *args, **kwargs):
-        raise PermissionError("denied")
+    fallback = tmp_path / "platform-temp" / "chatspatial" / "outputs"
+    fallback.mkdir(parents=True)
+    monkeypatch.setattr(path_utils, "is_writable_dir", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(path_utils, "get_temp_output_dir", lambda: fallback)
 
-    monkeypatch.setattr(Path, "touch", _raise_touch)
-
-    with pytest.warns(UserWarning, match="Falling back to /tmp/chatspatial/outputs"):
+    with pytest.warns(UserWarning, match="Falling back to"):
         out = path_utils.get_safe_output_path("./cannot_write")
 
-    assert out == Path("/tmp/chatspatial/outputs")
+    assert out == fallback
     assert out.exists()
 
 
@@ -78,10 +82,7 @@ def test_permission_failure_without_fallback_raises(
     monkeypatch.chdir(cwd)
     monkeypatch.setattr(path_utils, "is_inside_package_dir", lambda p=None: False)
 
-    def _raise_touch(self, *args, **kwargs):
-        raise PermissionError("denied")
-
-    monkeypatch.setattr(Path, "touch", _raise_touch)
+    monkeypatch.setattr(path_utils, "is_writable_dir", lambda *_args, **_kwargs: False)
 
     with pytest.raises(PermissionError, match="Cannot write to output directory"):
         path_utils.get_safe_output_path("./cannot_write", fallback_to_tmp=False)

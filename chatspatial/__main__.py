@@ -11,15 +11,11 @@ from typing import Literal, cast
 
 import click
 
-from . import __version__
-
-# Initialize runtime configuration (SSOT - all config in one place)
-# This import triggers init_runtime() which configures:
-# - Environment variables (TQDM_DISABLE, DASK_*)
-# - Warning filters
-# - Scanpy settings
-from . import config  # noqa: F401
+from . import __version__, config
 from .server import mcp
+
+# The server module owns runtime initialization. Keep the configuration handle
+# here only for the explicit verbose status requested by the CLI.
 
 
 @click.group()
