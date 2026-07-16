@@ -146,6 +146,25 @@ def _install_fake_rpy2_for_sct(
     ro_mod.StrVector = lambda vals: list(vals)
     ro_mod.r = _ro_r
 
+    @contextmanager
+    def _local_context(*, use_rlock: bool = True):
+        del use_rlock
+        global_environment = ro_mod.globalenv
+        local_environment: dict[str, object] = {}
+        ro_mod.globalenv = local_environment
+        ro_mod.local_context_calls += 1
+        try:
+            yield local_environment
+        finally:
+            ro_mod.last_localenv = local_environment
+            ro_mod.globalenv = global_environment
+            ro_mod.local_context_exits += 1
+
+    ro_mod.local_context = _local_context
+    ro_mod.local_context_calls = 0
+    ro_mod.local_context_exits = 0
+    ro_mod.last_localenv = None
+
     conversion_mod = ModuleType("rpy2.robjects.conversion")
     conversion_mod.localconverter = _localconverter
 
@@ -613,6 +632,10 @@ async def test_preprocess_data_sct_runtime_failure_wrapped_as_processing_error(
 
     with pytest.raises(ProcessingError, match="SCTransform failed"):
         await preprocess_data("d12", ctx, params)
+
+    assert environment.robjects.globalenv == {}
+    assert environment.robjects.local_context_calls == 1
+    assert environment.robjects.local_context_exits == 1
 
 
 @pytest.mark.asyncio

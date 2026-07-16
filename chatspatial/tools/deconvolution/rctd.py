@@ -165,14 +165,16 @@ def deconvolve(
             feature="RCTD deconvolution",
         )
 
-        with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
-            ro.globalenv["spatial_counts"] = spatial_data.X.T
-            ro.globalenv["reference_counts"] = reference_data.X.T
+        with r_env.local_context(
+            anndata=True, pandas=True, numpy=True
+        ) as r_context:
+            r_context["spatial_counts"] = spatial_data.X.T
+            r_context["reference_counts"] = reference_data.X.T
 
-            ro.globalenv["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
-            ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
-            ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
-            ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
+            r_context["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
+            r_context["spot_names"] = ro.StrVector(spatial_data.obs_names)
+            r_context["gene_names_ref"] = ro.StrVector(reference_data.var_names)
+            r_context["cell_names"] = ro.StrVector(reference_data.obs_names)
 
             ro.r("""
                     rownames(spatial_counts) <- gene_names_spatial
@@ -181,15 +183,15 @@ def deconvolve(
                     colnames(reference_counts) <- cell_names
                 """)
 
-            ro.globalenv["coords"] = ro.conversion.py2rpy(coords)
-            ro.globalenv["numi_spatial"] = ro.conversion.py2rpy(spatial_numi)
-            ro.globalenv["cell_types_vec"] = ro.conversion.py2rpy(cell_types_series)
-            ro.globalenv["numi_ref"] = ro.conversion.py2rpy(reference_numi)
-            ro.globalenv["max_cores_val"] = max_cores
-            ro.globalenv["rctd_mode"] = mode
-            ro.globalenv["conf_thresh"] = confidence_threshold
-            ro.globalenv["doub_thresh"] = doublet_threshold
-            ro.globalenv["max_multi_types_val"] = max_multi_types
+            r_context["coords"] = ro.conversion.py2rpy(coords)
+            r_context["numi_spatial"] = ro.conversion.py2rpy(spatial_numi)
+            r_context["cell_types_vec"] = ro.conversion.py2rpy(cell_types_series)
+            r_context["numi_ref"] = ro.conversion.py2rpy(reference_numi)
+            r_context["max_cores_val"] = max_cores
+            r_context["rctd_mode"] = mode
+            r_context["conf_thresh"] = confidence_threshold
+            r_context["doub_thresh"] = doublet_threshold
+            r_context["max_multi_types_val"] = max_multi_types
 
             with _suppress_r_console(callbacks):
                 ro.r("""
@@ -238,18 +240,6 @@ def deconvolve(
             confidence_threshold=confidence_threshold,
             doublet_threshold=doublet_threshold,
         )
-
-        with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
-            ro.r("""
-                    rm(list = c("spatial_counts", "reference_counts", "gene_names_spatial",
-                                "spot_names", "gene_names_ref", "cell_names", "coords",
-                                "numi_spatial", "cell_types_vec", "numi_ref", "max_cores_val",
-                                "rctd_mode", "conf_thresh", "doub_thresh", "max_multi_types_val",
-                                "puck", "cell_types_factor", "reference", "myRCTD",
-                                "weights_matrix", "cell_type_names"),
-                           envir = .GlobalEnv)
-                    gc()
-            """)
 
         return proportions, stats
 

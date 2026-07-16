@@ -67,6 +67,25 @@ def _install_fake_r_modules(monkeypatch: pytest.MonkeyPatch, ro_r):
         localconverter=_localconverter,
     )
 
+    @contextmanager
+    def _local_context(*, use_rlock: bool = True):
+        del use_rlock
+        global_environment = ro_mod.globalenv
+        local_environment: dict[str, object] = {}
+        ro_mod.globalenv = local_environment
+        ro_mod.local_context_calls += 1
+        try:
+            yield local_environment
+        finally:
+            ro_mod.last_localenv = local_environment
+            ro_mod.globalenv = global_environment
+            ro_mod.local_context_exits += 1
+
+    ro_mod.local_context = _local_context
+    ro_mod.local_context_calls = 0
+    ro_mod.local_context_exits = 0
+    ro_mod.last_localenv = None
+
     pandas2ri_mod = ModuleType("rpy2.robjects.pandas2ri")
     pandas2ri_mod.converter = _Converter()
     numpy2ri_mod = ModuleType("rpy2.robjects.numpy2ri")
@@ -153,6 +172,39 @@ def test_r_deconvolution_methods_preserve_dependency_errors(
 
     with pytest.raises(DependencyError, match="R runtime unavailable"):
         target_module.deconvolve(data)
+
+
+@pytest.mark.parametrize(
+    ("target_module", "failure_marker", "error_message"),
+    [
+        (rctd_module, "puck <- SpatialRNA", "RCTD deconvolution failed"),
+        (card_module, "CARD_obj <- createCARDObject", "CARD deconvolution failed"),
+        (spotlight_module, "sce <- SingleCellExperiment", "SPOTlight deconvolution failed"),
+    ],
+)
+def test_r_deconvolution_failure_does_not_leak_request_objects_to_globalenv(
+    target_module,
+    failure_marker: str,
+    error_message: str,
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    data = _prepared_data(minimal_spatial_adata)
+
+    def _ro_r(code: str):
+        if failure_marker in code:
+            raise RuntimeError("R backend failed")
+        return None
+
+    environment = _install_fake_r_modules(monkeypatch, ro_r=_ro_r)
+    environment.robjects.globalenv["sentinel"] = "keep"
+
+    with pytest.raises(ProcessingError, match=error_message):
+        target_module.deconvolve(data)
+
+    assert environment.robjects.globalenv == {"sentinel": "keep"}
+    assert environment.robjects.local_context_calls == 1
+    assert environment.robjects.local_context_exits == 1
 
 
 def test_rctd_mode_multi_parameter_guard_before_heavy_execution(
@@ -277,12 +329,14 @@ def test_spotlight_success_casts_counts_and_returns_stats(
 
     import rpy2.robjects as ro
 
-    assert ro.globalenv["spatial_counts"].dtype == np.int32
-    assert ro.globalenv["reference_counts"].dtype == np.int32
-    assert ro.globalenv["cell_types"][0] == "A/B"
-    assert ro.globalenv["cell_types"][-1] == "B C"
-    assert ro.globalenv["n_top_genes"] == 1234
-    assert "verbose = FALSE" in ro.globalenv["last_spotlight_code"]
+    localenv = ro.last_localenv
+    assert ro.globalenv == {}
+    assert localenv["spatial_counts"].dtype == np.int32
+    assert localenv["reference_counts"].dtype == np.int32
+    assert localenv["cell_types"][0] == "A/B"
+    assert localenv["cell_types"][-1] == "B C"
+    assert localenv["n_top_genes"] == 1234
+    assert "verbose = FALSE" in localenv["last_spotlight_code"]
     assert proportions.shape == (2, 2)
     assert list(proportions.columns) == ["A/B", "B C"]
     assert stats["method"] == "SPOTlight"
@@ -317,9 +371,11 @@ def test_rctd_deconvolve_filters_rare_types_and_raises_when_insufficient_types(
 
     _install_fake_r_modules(monkeypatch, ro_r=lambda _code: None)
 
-    with pytest.warns(UserWarning, match="Filtering 1 rare types"):
-        with pytest.raises(DataError, match="RCTD requires at least 2 cell types"):
-            rctd_module.deconvolve(data, mode="full")
+    with (
+        pytest.warns(UserWarning, match="Filtering 1 rare types"),
+        pytest.raises(DataError, match="RCTD requires at least 2 cell types"),
+    ):
+        rctd_module.deconvolve(data, mode="full")
 
 
 def test_rctd_deconvolve_raises_for_negative_proportions(
@@ -360,7 +416,8 @@ def test_rctd_preserves_distinct_cell_type_labels_supported_by_r(
 
     import rpy2.robjects as ro
 
-    assert set(ro.globalenv["cell_types_vec"]) == {"A/B", "A B"}
+    assert ro.globalenv == {}
+    assert set(ro.last_localenv["cell_types_vec"]) == {"A/B", "A B"}
     assert proportions.columns.tolist() == ["A/B", "A B"]
 
 
@@ -473,7 +530,8 @@ def test_card_uses_reference_sample_info(
 
     import rpy2.robjects as ro
 
-    sc_meta = ro.globalenv["sc_meta"]
+    assert ro.globalenv == {}
+    sc_meta = ro.last_localenv["sc_meta"]
     assert sc_meta["sampleInfo"].tolist() == data.reference.obs["sample_id"].tolist()
     assert proportions.shape == (2, 2)
 

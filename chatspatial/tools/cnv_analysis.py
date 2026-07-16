@@ -701,20 +701,22 @@ def _infer_cnv_numbat(
     out_dir = tempfile.mkdtemp(prefix="numbat_", dir=tempfile.gettempdir())
 
     try:
-        with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
-            ro.globalenv["count_mat"] = count_mat.T  # R expects genes × cells
-            ro.globalenv["df_allele_python"] = df_allele
-            ro.globalenv["gene_names"] = gene_names
-            ro.globalenv["cell_barcodes"] = cell_barcodes
-            ro.globalenv["ref_indices"] = ref_indices_r
-            ro.globalenv["out_dir"] = out_dir
+        with r_env.local_context(
+            anndata=True, pandas=True, numpy=True
+        ) as r_context:
+            r_context["count_mat"] = count_mat.T  # R expects genes × cells
+            r_context["df_allele_python"] = df_allele
+            r_context["gene_names"] = gene_names
+            r_context["cell_barcodes"] = cell_barcodes
+            r_context["ref_indices"] = ref_indices_r
+            r_context["out_dir"] = out_dir
 
-            ro.globalenv["genome"] = params.numbat_genome
-            ro.globalenv["t_param"] = params.numbat_t
-            ro.globalenv["max_entropy"] = params.numbat_max_entropy
-            ro.globalenv["min_cells"] = params.numbat_min_cells
-            ro.globalenv["ncores"] = params.numbat_ncores
-            ro.globalenv["skip_nj"] = params.numbat_skip_nj
+            r_context["genome"] = params.numbat_genome
+            r_context["t_param"] = params.numbat_t
+            r_context["max_entropy"] = params.numbat_max_entropy
+            r_context["min_cells"] = params.numbat_min_cells
+            r_context["ncores"] = params.numbat_ncores
+            r_context["skip_nj"] = params.numbat_skip_nj
 
             ro.r(
                 """

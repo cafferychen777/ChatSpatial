@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import OrderedDict
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -48,13 +49,34 @@ def _mock_validate_r_environment(
     r_obj: object,
     *,
     converter: object | None = None,
-) -> None:
+) -> REnvironment:
     base_converter = converter or _FakeConverter()
     robjects = SimpleNamespace(
         r=r_obj,
         default_converter=base_converter,
         StrVector=lambda values: list(values),
+        globalenv={},
+        last_localenv=None,
     )
+
+    class _LocalEnvironment(dict):
+        def __missing__(self, key: str):
+            return r_obj[key]  # type: ignore[index]
+
+    @contextmanager
+    def _local_context(*, use_rlock: bool = True):
+        del use_rlock
+        local_environment = _LocalEnvironment()
+        robjects.local_context_calls += 1
+        try:
+            yield local_environment
+        finally:
+            robjects.last_localenv = local_environment
+            robjects.local_context_exits += 1
+
+    robjects.local_context = _local_context
+    robjects.local_context_calls = 0
+    robjects.local_context_exits = 0
     conversion = SimpleNamespace(
         localconverter=lambda _converter: _FakeLocalConverter()
     )
@@ -72,6 +94,7 @@ def _mock_validate_r_environment(
         "validate_r_environment",
         lambda _ctx, **_kwargs: environment,
     )
+    return environment
 
 
 def test_softmax_is_stable_and_normalized():
@@ -253,9 +276,11 @@ async def test_annotate_with_sctype_cache_miss_preserves_cell_type_order_and_cac
     per_cell_types = ["B", "T", "B", "Unknown"] * (adata.n_obs // 4)
     per_cell_conf = [0.9, 0.8, 0.7, 0.0] * (adata.n_obs // 4)
 
-    monkeypatch.setattr(
-        ann, "validate_r_environment", lambda *_args, **_kwargs: object()
-    )
+    class _R:
+        def __call__(self, _code: str):
+            return None
+
+    _mock_validate_r_environment(monkeypatch, _R())
     monkeypatch.setattr(ann, "_get_sctype_cache_key", lambda *_args, **_kwargs: "k2")
     monkeypatch.setattr(
         ann, "_load_cached_sctype_results", lambda *_args, **_kwargs: None
@@ -310,13 +335,35 @@ async def test_annotate_with_sctype_forwards_remote_options(
     )
     captured: dict[str, object] = {}
 
-    def _fake_load(_ctx, *, allow_remote=False, allow_runtime_install=False):
+    def _fake_load(
+        _ctx,
+        *,
+        allow_remote=False,
+        allow_runtime_install=False,
+        r_env=None,
+        r_context=None,
+    ):
+        del r_env, r_context
         captured["load_allow_remote"] = allow_remote
         captured["load_allow_runtime_install"] = allow_runtime_install
 
-    def _fake_prepare(_params, _ctx, *, allow_remote=False):
+    def _fake_prepare(
+        _params,
+        _ctx,
+        *,
+        allow_remote=False,
+        r_env=None,
+        r_context=None,
+    ):
+        del r_env, r_context
         captured["prepare_allow_remote"] = allow_remote
         return "GS"
+
+    class _R:
+        def __call__(self, _code: str):
+            return None
+
+    _mock_validate_r_environment(monkeypatch, _R())
 
     monkeypatch.setattr(ann, "_load_sctype_functions", _fake_load)
     monkeypatch.setattr(ann, "_prepare_sctype_genesets", _fake_prepare)
@@ -345,6 +392,61 @@ async def test_annotate_with_sctype_forwards_remote_options(
         "load_allow_runtime_install": True,
         "prepare_allow_remote": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_annotate_with_sctype_uses_one_isolated_r_environment(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    adata = minimal_spatial_adata.copy()
+    scores = np.vstack(
+        [
+            np.linspace(2.0, 1.0, adata.n_obs),
+            np.linspace(1.0, 2.0, adata.n_obs),
+        ]
+    )
+
+    class _R:
+        def __call__(self, code: str):
+            if code == "rownames(es_max)":
+                return ["T", "B"]
+            if code == "colnames(es_max)":
+                return list(adata.obs_names)
+            return None
+
+        def __getitem__(self, name: str):
+            if name == "list":
+                return lambda **values: values
+            if name == "es_max":
+                return scores
+            raise KeyError(name)
+
+    environment = _mock_validate_r_environment(monkeypatch, _R())
+    params = AnnotationParameters(
+        method="sctype",
+        sctype_custom_markers={
+            "T": {"positive": ["gene_0"], "negative": []},
+            "B": {"positive": ["gene_1"], "negative": []},
+        },
+        sctype_allow_remote=True,
+        sctype_use_cache=False,
+    )
+
+    out = await ann._annotate_with_sctype(
+        adata,
+        params,
+        DummyCtx(),
+        output_key="cell_type_sctype",
+        confidence_key="confidence_sctype",
+    )
+
+    assert out.cell_types == ["T", "B"]
+    assert environment.robjects.globalenv == {}
+    assert environment.robjects.local_context_calls == 1
+    assert environment.robjects.local_context_exits == 1
+    assert "scdata" in environment.robjects.last_localenv
+    assert "gs_list" in environment.robjects.last_localenv
 
 
 def test_prepare_sctype_genesets_requires_tissue_without_custom_markers():
@@ -501,13 +603,9 @@ def test_prepare_sctype_genesets_loads_database_and_returns_gs_list(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ):
-    assigns: dict[str, object] = {}
     executed: list[str] = []
 
     class _R:
-        def assign(self, key: str, value):
-            assigns[key] = value
-
         def __call__(self, code: str):
             executed.append(code)
             return None
@@ -517,7 +615,9 @@ def test_prepare_sctype_genesets_loads_database_and_returns_gs_list(
                 return {"ok": True}
             raise KeyError(name)
 
-    _mock_validate_r_environment(monkeypatch, _R(), converter=_FakeConverter())
+    environment = _mock_validate_r_environment(
+        monkeypatch, _R(), converter=_FakeConverter()
+    )
 
     db_path = tmp_path / "db.xlsx"
     db_path.write_bytes(b"dummy")
@@ -532,8 +632,9 @@ def test_prepare_sctype_genesets_loads_database_and_returns_gs_list(
     )
 
     assert out == {"ok": True}
-    assert assigns["db_path"] == db_path.as_posix()
-    assert assigns["tissue_type"] == "Brain"
+    assert environment.robjects.globalenv == {}
+    assert environment.robjects.last_localenv["db_path"] == db_path.as_posix()
+    assert environment.robjects.last_localenv["tissue_type"] == "Brain"
     assert any("gene_sets_prepare" in code for code in executed)
 
 
@@ -548,12 +649,7 @@ def test_prepare_sctype_genesets_rejects_remote_db_by_default():
 def test_prepare_sctype_genesets_allows_remote_db_per_call(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    assigns: dict[str, object] = {}
-
     class _R:
-        def assign(self, key: str, value):
-            assigns[key] = value
-
         def __call__(self, _code: str):
             return None
 
@@ -562,7 +658,9 @@ def test_prepare_sctype_genesets_allows_remote_db_per_call(
                 return {"ok": True}
             raise KeyError(name)
 
-    _mock_validate_r_environment(monkeypatch, _R(), converter=_FakeConverter())
+    environment = _mock_validate_r_environment(
+        monkeypatch, _R(), converter=_FakeConverter()
+    )
     monkeypatch.delenv("CHATSPATIAL_ALLOW_REMOTE_SCTYPE_DB", raising=False)
 
     out = ann._prepare_sctype_genesets(
@@ -572,7 +670,11 @@ def test_prepare_sctype_genesets_allows_remote_db_per_call(
     )
 
     assert out == {"ok": True}
-    assert assigns["db_path"] == ann._SCTYPE_DEFAULT_DB_URL
+    assert environment.robjects.globalenv == {}
+    assert (
+        environment.robjects.last_localenv["db_path"]
+        == ann._SCTYPE_DEFAULT_DB_URL
+    )
 
 
 def test_run_sctype_scoring_converts_r_matrix_to_dataframe(
@@ -582,30 +684,7 @@ def test_run_sctype_scoring_converts_r_matrix_to_dataframe(
     params = AnnotationParameters(
         method="sctype", sctype_tissue="Brain", sctype_scaled=False
     )
-    assigned: dict[str, object] = {}
-
-    class _Conv:
-        def __add__(self, _other):
-            return self
-
-    class _Lock:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    class _LCtx:
-        def __enter__(self):
-            return None
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
     class _R:
-        def assign(self, key: str, value):
-            assigned[key] = value
-
         def __call__(self, code: str):
             if code == "rownames(es_max)":
                 return ["T", "B"]
@@ -618,21 +697,7 @@ def test_run_sctype_scoring_converts_r_matrix_to_dataframe(
                 return np.array([[1.0, 0.2], [0.1, 0.9]])
             raise KeyError(name)
 
-    converter = _Conv()
-    environment = REnvironment(
-        robjects=SimpleNamespace(r=_R(), default_converter=converter),
-        pandas2ri=SimpleNamespace(converter=converter),
-        numpy2ri=SimpleNamespace(converter=converter),
-        packages=SimpleNamespace(importr=lambda _package: object()),
-        conversion=SimpleNamespace(localconverter=lambda _converter: _LCtx()),
-        openrlib=SimpleNamespace(rlock=_Lock()),
-        anndata2ri=SimpleNamespace(converter=converter),
-    )
-    monkeypatch.setattr(
-        ann,
-        "validate_r_environment",
-        lambda _ctx, **_kwargs: environment,
-    )
+    environment = _mock_validate_r_environment(monkeypatch, _R())
 
     out = ann._run_sctype_scoring(
         adata, gs_list={"ok": True}, params=params, ctx=DummyCtx()
@@ -640,7 +705,8 @@ def test_run_sctype_scoring_converts_r_matrix_to_dataframe(
 
     assert list(out.index) == ["T", "B"]
     assert list(out.columns) == ["cell_1", "cell_2"]
-    assert assigned["gs_list"] == {"ok": True}
+    assert environment.robjects.globalenv == {}
+    assert environment.robjects.last_localenv["gs_list"] == {"ok": True}
 
 
 def test_run_sctype_scoring_preserves_dataframe_and_relabels_axes(
@@ -651,28 +717,7 @@ def test_run_sctype_scoring_preserves_dataframe_and_relabels_axes(
         method="sctype", sctype_tissue="Brain", sctype_scaled=False
     )
 
-    class _Conv:
-        def __add__(self, _other):
-            return self
-
-    class _Lock:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    class _LCtx:
-        def __enter__(self):
-            return None
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
     class _R:
-        def assign(self, key: str, value):
-            del key, value
-
         def __call__(self, code: str):
             if code == "rownames(es_max)":
                 return ["TypeA", "TypeB"]
@@ -689,21 +734,7 @@ def test_run_sctype_scoring_preserves_dataframe_and_relabels_axes(
                 )
             raise KeyError(name)
 
-    converter = _Conv()
-    environment = REnvironment(
-        robjects=SimpleNamespace(r=_R(), default_converter=converter),
-        pandas2ri=SimpleNamespace(converter=converter),
-        numpy2ri=SimpleNamespace(converter=converter),
-        packages=SimpleNamespace(importr=lambda _package: object()),
-        conversion=SimpleNamespace(localconverter=lambda _converter: _LCtx()),
-        openrlib=SimpleNamespace(rlock=_Lock()),
-        anndata2ri=SimpleNamespace(converter=converter),
-    )
-    monkeypatch.setattr(
-        ann,
-        "validate_r_environment",
-        lambda _ctx, **_kwargs: environment,
-    )
+    environment = _mock_validate_r_environment(monkeypatch, _R())
 
     out = ann._run_sctype_scoring(
         adata, gs_list={"ok": True}, params=params, ctx=DummyCtx()
@@ -711,6 +742,7 @@ def test_run_sctype_scoring_preserves_dataframe_and_relabels_axes(
 
     assert list(out.index) == ["TypeA", "TypeB"]
     assert list(out.columns) == ["cell_a", "cell_b"]
+    assert environment.robjects.globalenv == {}
 
 
 def test_load_cached_sctype_results_returns_memory_cache_hit(

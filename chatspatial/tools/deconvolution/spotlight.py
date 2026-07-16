@@ -83,21 +83,21 @@ def deconvolve(
         )
         ro = r_env.robjects
 
-        with r_env.conversion_context(pandas=True, numpy=True):
-            ro.globalenv["spatial_counts"] = spatial_counts.T
-            ro.globalenv["reference_counts"] = reference_counts.T
-            ro.globalenv["spatial_coords"] = spatial_coords
-            ro.globalenv["gene_names"] = ro.StrVector(data.common_genes)
-            ro.globalenv["spatial_names"] = ro.StrVector(list(spatial_data.obs_names))
-            ro.globalenv["reference_names"] = ro.StrVector(
+        with r_env.local_context(pandas=True, numpy=True) as r_context:
+            r_context["spatial_counts"] = spatial_counts.T
+            r_context["reference_counts"] = reference_counts.T
+            r_context["spatial_coords"] = spatial_coords
+            r_context["gene_names"] = ro.StrVector(data.common_genes)
+            r_context["spatial_names"] = ro.StrVector(list(spatial_data.obs_names))
+            r_context["reference_names"] = ro.StrVector(
                 list(reference_data.obs_names)
             )
-            ro.globalenv["cell_types"] = ro.StrVector(cell_types.tolist())
-            ro.globalenv["nmf_model"] = nmf_model
-            ro.globalenv["min_prop"] = min_prop
-            ro.globalenv["scale_data"] = scale
-            ro.globalenv["weight_id"] = weight_id
-            ro.globalenv["n_top_genes"] = n_top_genes
+            r_context["cell_types"] = ro.StrVector(cell_types.tolist())
+            r_context["nmf_model"] = nmf_model
+            r_context["min_prop"] = min_prop
+            r_context["scale_data"] = scale
+            r_context["weight_id"] = weight_id
+            r_context["n_top_genes"] = n_top_genes
 
             ro.r("""
                     sce <- SingleCellExperiment(
@@ -170,16 +170,6 @@ def deconvolve(
             nmf_model=nmf_model,
             min_prop=min_prop,
         )
-
-        with r_env.conversion_context(pandas=True, numpy=True):
-            ro.r("""
-                    rm(list = c("spatial_counts", "reference_counts", "spatial_coords",
-                                "gene_names", "spatial_names", "reference_names", "cell_types",
-                                "nmf_model", "min_prop", "scale_data", "weight_id",
-                                "sce", "spe", "markers", "mgs", "spotlight_result"),
-                           envir = .GlobalEnv)
-                    gc()
-            """)
 
         return proportions, stats
 

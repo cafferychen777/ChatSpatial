@@ -79,14 +79,19 @@ def deconvolve(
         )
         ro = r_env.robjects
 
-        with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
-            ro.globalenv["sc_count"] = reference_data.X.T
-            ro.globalenv["spatial_count"] = spatial_data.X.T
+        imputed_proportions = None
+        imputed_coordinates = None
 
-            ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
-            ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
-            ro.globalenv["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
-            ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
+        with r_env.local_context(
+            anndata=True, pandas=True, numpy=True
+        ) as r_context:
+            r_context["sc_count"] = reference_data.X.T
+            r_context["spatial_count"] = spatial_data.X.T
+
+            r_context["gene_names_ref"] = ro.StrVector(reference_data.var_names)
+            r_context["cell_names"] = ro.StrVector(reference_data.obs_names)
+            r_context["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
+            r_context["spot_names"] = ro.StrVector(spatial_data.obs_names)
 
             ro.r("""
                     rownames(sc_count) <- gene_names_ref
@@ -95,10 +100,10 @@ def deconvolve(
                     colnames(spatial_count) <- spot_names
                 """)
 
-            ro.globalenv["sc_meta"] = ro.conversion.py2rpy(sc_meta)
-            ro.globalenv["spatial_location"] = ro.conversion.py2rpy(spatial_location)
-            ro.globalenv["minCountGene"] = minCountGene
-            ro.globalenv["minCountSpot"] = minCountSpot
+            r_context["sc_meta"] = ro.conversion.py2rpy(sc_meta)
+            r_context["spatial_location"] = ro.conversion.py2rpy(spatial_location)
+            r_context["minCountGene"] = minCountGene
+            r_context["minCountSpot"] = minCountSpot
 
             ro.r("""
                     capture.output(
@@ -130,12 +135,7 @@ def deconvolve(
                 proportions_array, index=row_names, columns=col_names
             )
 
-        # Optional imputation
-        imputed_proportions = None
-        imputed_coordinates = None
-
-        if imputation:
-            with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
+            if imputation:
                 ro.r(f"""
                         capture.output(
                             CARD_impute <- CARD.imputation(
@@ -186,30 +186,6 @@ def deconvolve(
                 "imputed_proportions": imputed_proportions,
                 "imputed_coordinates": imputed_coordinates,
             }
-
-        # Clean up R global environment
-        cleanup_vars = [
-            "sc_count",
-            "spatial_count",
-            "gene_names_ref",
-            "cell_names",
-            "gene_names_spatial",
-            "spot_names",
-            "sc_meta",
-            "spatial_location",
-            "minCountGene",
-            "minCountSpot",
-            "CARD_obj",
-        ]
-        if imputation:
-            cleanup_vars.append("CARD_impute")
-
-        with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
-            ro.r(f"""
-                    rm(list = c({", ".join(f'"{v}"' for v in cleanup_vars)}),
-                       envir = .GlobalEnv)
-                    gc()
-            """)
 
         return proportions, stats
 

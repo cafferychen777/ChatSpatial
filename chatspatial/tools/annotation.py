@@ -1943,6 +1943,8 @@ def _load_sctype_functions(
     *,
     allow_remote: bool = False,
     allow_runtime_install: bool = False,
+    r_env: Any | None = None,
+    r_context: Any | None = None,
 ) -> None:
     """Load scType R functions with explicit supply-chain controls.
 
@@ -1983,13 +1985,21 @@ def _load_sctype_functions(
             )
         load_script = _R_LOAD_SCTYPE_REMOTE
 
-    r_env = validate_r_environment(ctx)
-    with r_env.conversion_context():
+    r_env = r_env or validate_r_environment(ctx)
+
+    def _load() -> None:
         if allow_runtime_install:
             r_env.robjects.r(_R_INSTALL_PACKAGES)
         else:
             r_env.robjects.r(_R_CHECK_PACKAGES)
         r_env.robjects.r(load_script)
+
+    if r_context is not None:
+        _load()
+        return
+
+    with r_env.local_context():
+        _load()
 
 
 def _prepare_sctype_genesets(
@@ -1997,10 +2007,16 @@ def _prepare_sctype_genesets(
     ctx: "ToolContext",
     *,
     allow_remote: bool = False,
+    r_env: Any | None = None,
+    r_context: Any | None = None,
 ) -> Any:
     """Prepare gene sets for sc-type."""
     if params.sctype_custom_markers:
-        return _convert_custom_markers_to_gs(params.sctype_custom_markers, ctx)
+        return _convert_custom_markers_to_gs(
+            params.sctype_custom_markers,
+            ctx,
+            r_env=r_env,
+        )
 
     # Use sc-type database
     tissue = params.sctype_tissue
@@ -2025,16 +2041,26 @@ def _prepare_sctype_genesets(
             raise DataNotFoundError(f"scType database file not found: {local_db}")
         db_path = local_db.as_posix()
 
-    r_env = validate_r_environment(ctx)
-    with r_env.conversion_context():
-        r_env.robjects.r.assign("db_path", db_path)
-        r_env.robjects.r.assign("tissue_type", tissue)
+    r_env = r_env or validate_r_environment(ctx)
+
+    def _prepare(environment: Any) -> Any:
+        environment["db_path"] = db_path
+        environment["tissue_type"] = tissue
         r_env.robjects.r("gs_list <- gene_sets_prepare(db_path, tissue_type)")
-        return r_env.robjects.r["gs_list"]
+        return environment["gs_list"]
+
+    if r_context is not None:
+        return _prepare(r_context)
+
+    with r_env.local_context() as local_environment:
+        return _prepare(local_environment)
 
 
 def _convert_custom_markers_to_gs(
-    custom_markers: dict[str, dict[str, list[str]]], ctx: "ToolContext"
+    custom_markers: dict[str, dict[str, list[str]]],
+    ctx: "ToolContext",
+    *,
+    r_env: Any | None = None,
 ) -> Any:
     """Convert custom markers to sc-type gene set format"""
     if not custom_markers:
@@ -2077,7 +2103,7 @@ def _convert_custom_markers_to_gs(
             "No valid cell types found in custom markers - all cell types need at least one positive marker"
         )
 
-    r_env = validate_r_environment(ctx)
+    r_env = r_env or validate_r_environment(ctx)
     with r_env.conversion_context(pandas=True):
         # Convert Python dictionaries to R named lists, handle empty lists properly
         r_gs_positive = r_env.robjects.r["list"](
@@ -2102,10 +2128,16 @@ def _convert_custom_markers_to_gs(
 
 
 def _run_sctype_scoring(
-    adata, gs_list, params: AnnotationParameters, ctx: "ToolContext"
+    adata,
+    gs_list,
+    params: AnnotationParameters,
+    ctx: "ToolContext",
+    *,
+    r_env: Any | None = None,
+    r_context: Any | None = None,
 ) -> pd.DataFrame:
     """Run sc-type scoring algorithm."""
-    r_env = validate_r_environment(ctx, require_anndata2ri=True)
+    r_env = r_env or validate_r_environment(ctx, require_anndata2ri=True)
 
     # Prepare expression data
     expr_data = (
@@ -2114,12 +2146,12 @@ def _run_sctype_scoring(
         else adata.X
     )
 
-    with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
+    def _score(environment: Any) -> tuple[list[str], list[str], Any]:
         # Transfer data to R (genes × cells for scType)
-        r_env.robjects.r.assign("scdata", expr_data.T)
-        r_env.robjects.r.assign("gene_names", list(adata.var_names))
-        r_env.robjects.r.assign("cell_names", list(adata.obs_names))
-        r_env.robjects.r.assign("gs_list", gs_list)
+        environment["scdata"] = expr_data.T
+        environment["gene_names"] = list(adata.var_names)
+        environment["cell_names"] = list(adata.obs_names)
+        environment["gs_list"] = gs_list
 
         # Run scoring using pre-defined R code
         r_env.robjects.r(_R_SCTYPE_SCORING)
@@ -2127,7 +2159,15 @@ def _run_sctype_scoring(
         # Get results
         row_names = list(r_env.robjects.r("rownames(es_max)"))
         col_names = list(r_env.robjects.r("colnames(es_max)"))
-        scores_matrix = r_env.robjects.r["es_max"]
+        return row_names, col_names, environment["es_max"]
+
+    if r_context is not None:
+        row_names, col_names, scores_matrix = _score(r_context)
+    else:
+        with r_env.local_context(
+            anndata=True, pandas=True, numpy=True
+        ) as local_environment:
+            row_names, col_names, scores_matrix = _score(local_environment)
 
     # Convert to DataFrame
     if isinstance(scores_matrix, pd.DataFrame):
@@ -2354,18 +2394,34 @@ async def _annotate_with_sctype(
                 "sc-type cache entry is stale (cell count mismatch). Recomputing results."
             )
 
-    # Run sc-type pipeline
-    _load_sctype_functions(
-        ctx,
-        allow_remote=params.sctype_allow_remote,
-        allow_runtime_install=params.sctype_allow_runtime_r_install,
-    )
-    gs_list = _prepare_sctype_genesets(
-        params,
-        ctx,
-        allow_remote=params.sctype_allow_remote,
-    )
-    scores_df = _run_sctype_scoring(adata, gs_list, params, ctx)
+    # Keep function loading, gene-set preparation, and scoring in one isolated
+    # R environment so request objects never leak into .GlobalEnv.
+    r_env = validate_r_environment(ctx, require_anndata2ri=True)
+    with r_env.local_context(
+        anndata=True, pandas=True, numpy=True
+    ) as r_context:
+        _load_sctype_functions(
+            ctx,
+            allow_remote=params.sctype_allow_remote,
+            allow_runtime_install=params.sctype_allow_runtime_r_install,
+            r_env=r_env,
+            r_context=r_context,
+        )
+        gs_list = _prepare_sctype_genesets(
+            params,
+            ctx,
+            allow_remote=params.sctype_allow_remote,
+            r_env=r_env,
+            r_context=r_context,
+        )
+        scores_df = _run_sctype_scoring(
+            adata,
+            gs_list,
+            params,
+            ctx,
+            r_env=r_env,
+            r_context=r_context,
+        )
     per_cell_types, per_cell_confidence = _assign_sctype_celltypes(scores_df, ctx)
 
     # Calculate statistics

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
@@ -391,6 +392,21 @@ def _install_fake_rpy2_stack(monkeypatch: pytest.MonkeyPatch):
     fake_robj = ModuleType("rpy2.robjects")
     fake_robj.r = lambda *_a, **_k: None
     fake_robj.globalenv = {}
+
+    @contextmanager
+    def _local_context(*, use_rlock: bool = True):
+        del use_rlock
+        global_environment = fake_robj.globalenv
+        local_environment: dict[str, object] = {}
+        fake_robj.globalenv = local_environment
+        try:
+            yield local_environment
+        finally:
+            fake_robj.last_localenv = local_environment
+            fake_robj.globalenv = global_environment
+
+    fake_robj.local_context = _local_context
+    fake_robj.last_localenv = None
     fake_robj.conversion = SimpleNamespace(localconverter=lambda *_a, **_k: _CM())
     fake_robj.default_converter = _Converter()
     fake_robj.numpy2ri = SimpleNamespace(
@@ -746,6 +762,25 @@ def _install_fake_rpy2_stack_with_runner(
         return None
 
     fake_robj.r = _fake_r
+
+    @contextmanager
+    def _local_context(*, use_rlock: bool = True):
+        del use_rlock
+        global_environment = fake_robj.globalenv
+        local_environment: dict[str, object] = {}
+        fake_robj.globalenv = local_environment
+        fake_robj.local_context_calls += 1
+        try:
+            yield local_environment
+        finally:
+            fake_robj.last_localenv = local_environment
+            fake_robj.globalenv = global_environment
+            fake_robj.local_context_exits += 1
+
+    fake_robj.local_context = _local_context
+    fake_robj.local_context_calls = 0
+    fake_robj.local_context_exits = 0
+    fake_robj.last_localenv = None
     fake_robj.conversion = SimpleNamespace(localconverter=lambda *_a, **_k: _CM())
     fake_robj.default_converter = _Converter()
     fake_robj.numpy2ri = SimpleNamespace(
@@ -822,7 +857,7 @@ async def test_infer_cnv_numbat_success_parses_outputs_and_writes_metadata(
         with open(f"{out_dir}/tree_final_2.rds", "wb") as f:
             f.write(b"tree")
 
-    _install_fake_rpy2_stack_with_runner(monkeypatch, _runner)
+    environment = _install_fake_rpy2_stack_with_runner(monkeypatch, _runner)
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
 
@@ -867,6 +902,9 @@ async def test_infer_cnv_numbat_success_parses_outputs_and_writes_metadata(
     }
     assert "tree_file" not in phylogeny
     assert not (tmp_path / "numbat_out").exists()
+    assert environment.robjects.globalenv == {}
+    assert environment.robjects.local_context_calls == 1
+    assert environment.robjects.local_context_exits == 1
 
 
 def test_infer_cnv_numbat_missing_output_files_preserves_data_error(
@@ -879,7 +917,7 @@ def test_infer_cnv_numbat_missing_output_files_preserves_data_error(
     def _runner(_env: dict):
         return None
 
-    _install_fake_rpy2_stack_with_runner(monkeypatch, _runner)
+    environment = _install_fake_rpy2_stack_with_runner(monkeypatch, _runner)
 
     def _mkdtemp_missing(prefix, dir):
         _ = prefix, dir
@@ -900,6 +938,10 @@ def test_infer_cnv_numbat_missing_output_files_preserves_data_error(
             ),
             DummyCtx(adata),
         )
+
+    assert environment.robjects.globalenv == {}
+    assert environment.robjects.local_context_calls == 1
+    assert environment.robjects.local_context_exits == 1
 
 
 @pytest.mark.asyncio

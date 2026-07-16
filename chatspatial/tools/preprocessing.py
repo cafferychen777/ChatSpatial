@@ -397,17 +397,17 @@ async def preprocess_data(
             counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
 
             # Keep the complete R session under one lock and conversion context.
-            with r_env.conversion_context(numpy=True):
+            with r_env.local_context(numpy=True) as r_context:
                 ro = r_env.robjects
-                ro.globalenv["sp_data"] = counts_sparse.data.astype(np.float64)
-                ro.globalenv["sp_indices"] = counts_sparse.indices.astype(np.int32)
-                ro.globalenv["sp_indptr"] = counts_sparse.indptr.astype(np.int32)
-                ro.globalenv["n_genes"] = counts_sparse.shape[0]
-                ro.globalenv["n_cells"] = counts_sparse.shape[1]
-                ro.globalenv["gene_names"] = ro.StrVector(adata.var_names.tolist())
-                ro.globalenv["cell_names"] = ro.StrVector(adata.obs_names.tolist())
-                ro.globalenv["vst_flavor"] = vst_flavor
-                ro.globalenv["n_cells_param"] = (
+                r_context["sp_data"] = counts_sparse.data.astype(np.float64)
+                r_context["sp_indices"] = counts_sparse.indices.astype(np.int32)
+                r_context["sp_indptr"] = counts_sparse.indptr.astype(np.int32)
+                r_context["n_genes"] = counts_sparse.shape[0]
+                r_context["n_cells"] = counts_sparse.shape[1]
+                r_context["gene_names"] = ro.StrVector(adata.var_names.tolist())
+                r_context["cell_names"] = ro.StrVector(adata.obs_names.tolist())
+                r_context["vst_flavor"] = vst_flavor
+                r_context["n_cells_param"] = (
                     params.sct_n_cells if params.sct_n_cells else ro.NULL
                 )
 

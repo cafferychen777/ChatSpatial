@@ -1483,7 +1483,7 @@ def _analyze_communication_cellchat_r(
         ro = r_env.robjects
 
         # Run CellChat in R - start early to get gene list for pre-filtering
-        with r_env.conversion_context(pandas=True, numpy=True):
+        with r_env.local_context(pandas=True, numpy=True) as r_context:
             # Set species-specific database
             species_db_map = {
                 "human": "CellChatDB.human",
@@ -1553,8 +1553,8 @@ def _analyze_communication_cellchat_r(
                 )
 
             # Transfer data to R
-            ro.globalenv["expr_matrix"] = expr_matrix
-            ro.globalenv["meta_df"] = meta_df
+            r_context["expr_matrix"] = expr_matrix
+            r_context["meta_df"] = meta_df
 
             # Create CellChat object (db_name already set during gene pre-filtering)
             if (
@@ -1563,7 +1563,7 @@ def _analyze_communication_cellchat_r(
                 and spatial_locs is not None
             ):
                 # Spatial mode
-                ro.globalenv["spatial_locs"] = spatial_locs
+                r_context["spatial_locs"] = spatial_locs
 
                 # CellChat v2 requires spatial.factors with 'ratio' and 'tol':
                 # - ratio: conversion factor from pixels to micrometers (um)
@@ -1571,8 +1571,8 @@ def _analyze_communication_cellchat_r(
                 # Use user-configurable parameters for platform flexibility
                 pixel_ratio = params.cellchat_pixel_ratio
                 spatial_tol = params.cellchat_spatial_tol
-                ro.globalenv["pixel_ratio"] = pixel_ratio
-                ro.globalenv["spatial_tol"] = spatial_tol
+                r_context["pixel_ratio"] = pixel_ratio
+                r_context["spatial_tol"] = spatial_tol
                 ro.r("""
                     spatial.factors <- data.frame(
                         ratio = pixel_ratio,

@@ -69,15 +69,14 @@ class REnvironment:
                 f"R package '{name}' was not requested for validation."
             ) from exc
 
-    @contextmanager
-    def conversion_context(
+    def _build_converter(
         self,
         *,
-        pandas: bool = False,
-        numpy: bool = False,
-        anndata: bool = False,
-    ) -> Iterator[None]:
-        """Hold the R lock while applying the requested Python converters."""
+        pandas: bool,
+        numpy: bool,
+        anndata: bool,
+    ) -> Any:
+        """Compose the converter required by one R execution scope."""
         converter = self.robjects.default_converter
         if anndata:
             if self.anndata2ri is None:
@@ -89,9 +88,52 @@ class REnvironment:
             converter += self.pandas2ri.converter
         if numpy:
             converter += self.numpy2ri.converter
+        return converter
+
+    @contextmanager
+    def conversion_context(
+        self,
+        *,
+        pandas: bool = False,
+        numpy: bool = False,
+        anndata: bool = False,
+    ) -> Iterator[None]:
+        """Hold the R lock while applying the requested Python converters."""
+        converter = self._build_converter(
+            pandas=pandas,
+            numpy=numpy,
+            anndata=anndata,
+        )
 
         with self.openrlib.rlock, self.conversion.localconverter(converter):
             yield
+
+    @contextmanager
+    def local_context(
+        self,
+        *,
+        pandas: bool = False,
+        numpy: bool = False,
+        anndata: bool = False,
+    ) -> Iterator[Any]:
+        """Evaluate R code in an isolated child environment.
+
+        The child inherits package visibility from the current R environment,
+        but request inputs and intermediate objects never enter ``.GlobalEnv``.
+        The outer lock serializes the embedded R runtime; ``use_rlock=False``
+        prevents rpy2 from acquiring that same lock a second time.
+        """
+        converter = self._build_converter(
+            pandas=pandas,
+            numpy=numpy,
+            anndata=anndata,
+        )
+        with (
+            self.openrlib.rlock,
+            self.conversion.localconverter(converter),
+            self.robjects.local_context(use_rlock=False) as environment,
+        ):
+            yield environment
 
 
 # Registry of optional dependencies with install instructions

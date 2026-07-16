@@ -2336,6 +2336,7 @@ def _install_fake_rpy2(
     top_pathways: list[str] | None = None,
     top_lr: list[str] | None = None,
 ):
+    from contextlib import contextmanager
     import sys
     import types
 
@@ -2382,6 +2383,25 @@ def _install_fake_rpy2(
     fake_ro.default_converter = _Conv()
     fake_ro.numpy2ri = types.SimpleNamespace(converter=_Conv())
     fake_ro.pandas2ri = types.SimpleNamespace(converter=_Conv())
+
+    @contextmanager
+    def _local_context(*, use_rlock: bool = True):
+        del use_rlock
+        global_environment = fake_ro.globalenv
+        local_environment: dict[str, object] = {}
+        fake_ro.globalenv = local_environment
+        fake_ro.local_context_calls += 1
+        try:
+            yield local_environment
+        finally:
+            fake_ro.last_localenv = local_environment
+            fake_ro.globalenv = global_environment
+            fake_ro.local_context_exits += 1
+
+    fake_ro.local_context = _local_context
+    fake_ro.local_context_calls = 0
+    fake_ro.local_context_exits = 0
+    fake_ro.last_localenv = None
 
     fake_conversion = types.ModuleType("rpy2.robjects.conversion")
     fake_conversion.localconverter = lambda _converter: _LCtx()
@@ -2464,7 +2484,8 @@ def test_analyze_communication_cellchat_r_non_spatial_success(
     assert out.method_data["prob_matrix"].shape == (2, 2, 2)
     assert out.method_data["lr_names"] == ["L1^R1", "L2-R2"]
     assert "createCellChat" in "\n".join(r_exec.scripts)
-    assert "spatial_locs" not in fake_ro.globalenv
+    assert fake_ro.globalenv == {}
+    assert "spatial_locs" not in fake_ro.last_localenv
 
 
 def test_analyze_communication_cellchat_r_spatial_contact_range_and_db_category(
@@ -2514,9 +2535,10 @@ def test_analyze_communication_cellchat_r_spatial_contact_range_and_db_category(
     assert out.statistics["spatial_mode"] is True
     assert "contact.range = 100.0" in scripts
     assert "subsetDB" in scripts
-    assert "spatial_locs" in fake_ro.globalenv
+    assert fake_ro.globalenv == {}
+    assert "spatial_locs" in fake_ro.last_localenv
     # Labels should be prefixed when numeric-like.
-    assert set(fake_ro.globalenv["meta_df"]["labels"].unique()) == {
+    assert set(fake_ro.last_localenv["meta_df"]["labels"].unique()) == {
         "cluster_0",
         "cluster_1",
     }
@@ -2573,7 +2595,9 @@ def test_analyze_communication_cellchat_r_preserves_no_gene_overlap_error(
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
 
-    _install_fake_rpy2(monkeypatch, cellchat_genes=["NOT_IN_DATA"])
+    _r_exec, fake_ro = _install_fake_rpy2(
+        monkeypatch, cellchat_genes=["NOT_IN_DATA"]
+    )
 
     monkeypatch.setattr(ccc, "validate_obs_column", lambda *_a, **_k: None)
     monkeypatch.setattr(ccc, "get_spatial_key", lambda *_a, **_k: None)
@@ -2603,6 +2627,10 @@ def test_analyze_communication_cellchat_r_preserves_no_gene_overlap_error(
             ),
             DummyCtx(),
         )
+
+    assert fake_ro.globalenv == {}
+    assert fake_ro.local_context_calls == 1
+    assert fake_ro.local_context_exits == 1
 
 
 @pytest.mark.asyncio

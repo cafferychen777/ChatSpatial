@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -55,6 +56,17 @@ def _install_fake_rpy2(
         def __exit__(self, exc_type, exc, tb):
             return False
 
+    @contextmanager
+    def _local_r_context(*, use_rlock: bool = True):
+        del use_rlock
+        local_environment: dict[str, object] = {}
+        fake_ro.local_context_calls += 1
+        try:
+            yield local_environment
+        finally:
+            fake_ro.last_local_environment = local_environment
+            fake_ro.local_context_exits += 1
+
     fake_anndata2ri = ModuleType("anndata2ri")
     fake_ro = ModuleType("rpy2.robjects")
     fake_conversion = ModuleType("rpy2.robjects.conversion")
@@ -76,6 +88,11 @@ def _install_fake_rpy2(
     fake_conversion.localconverter = _LocalConverter
     fake_ro.conversion = fake_conversion
     fake_ro.default_converter = object()
+    fake_ro.globalenv = {}
+    fake_ro.local_context = _local_r_context
+    fake_ro.local_context_calls = 0
+    fake_ro.local_context_exits = 0
+    fake_ro.last_local_environment = None
     fake_numpy2ri.converter = object()
     fake_pandas2ri.converter = object()
     fake_ro.numpy2ri = fake_numpy2ri
@@ -351,9 +368,27 @@ def test_validate_r_environment_loads_anndata_converter_only_when_requested(
     environment = dm.validate_r_environment()
 
     assert environment.anndata2ri is None
-    with pytest.raises(DependencyError, match="anndata2ri was not loaded"):
-        with environment.conversion_context(anndata=True):
-            pass
+    with (
+        pytest.raises(DependencyError, match="anndata2ri was not loaded"),
+        environment.conversion_context(anndata=True),
+    ):
+        pass
+
+
+def test_r_environment_local_context_isolates_request_objects(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_fake_rpy2(monkeypatch)
+    environment = dm.validate_r_environment()
+
+    with environment.local_context() as local_environment:
+        local_environment["request_object"] = object()
+        assert "request_object" not in environment.robjects.globalenv
+
+    assert environment.robjects.local_context_calls == 1
+    assert environment.robjects.local_context_exits == 1
+    assert "request_object" in environment.robjects.last_local_environment
+    assert environment.robjects.globalenv == {}
 
 
 def test_validate_r_environment_wraps_unexpected_runtime_errors(
