@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import time
 from collections import OrderedDict
@@ -53,6 +54,8 @@ from ..utils.exceptions import (
     ProcessingError,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class AnnotationMethodOutput(NamedTuple):
     """Unified output from all annotation methods.
@@ -88,6 +91,106 @@ SUPPORTED_METHODS = {
     "sctype",
     "singler",
 }
+
+
+def _extract_singler_reference_labels(ref_obj: Any, ref_id: str) -> Any:
+    """Extract the first supported label column from a celldex reference."""
+    column_data = ref_obj.get_column_data()
+    for label_col in ("label.main", "label.fine", "cell_type"):
+        try:
+            return column_data.column(label_col)
+        except (AttributeError, KeyError):
+            continue
+    raise DataNotFoundError(f"Could not find labels in reference {ref_id}")
+
+
+def _singler_confidence_values(
+    cell_types: list[str],
+    delta_scores: Any,
+    scores: Any,
+) -> np.ndarray:
+    """Build finite per-cell confidence without treating zero as missing."""
+    confidence = np.full(len(cell_types), np.nan, dtype=float)
+
+    if delta_scores is not None:
+        try:
+            delta_iterator = iter(delta_scores)
+        except TypeError as exc:
+            logger.debug("SingleR delta scores are not iterable: %s", exc)
+        else:
+            for index, delta in enumerate(delta_iterator):
+                if index >= len(confidence):
+                    break
+                try:
+                    delta_value = float(delta)
+                except (TypeError, ValueError):
+                    continue
+                if not np.isfinite(delta_value):
+                    continue
+                raw_confidence = 0.0 if delta_value <= 0 else -np.expm1(-delta_value)
+                confidence[index] = round(float(min(raw_confidence, 1.0)), 3)
+
+    missing = ~np.isfinite(confidence)
+    if missing.any() and scores is not None:
+        try:
+            try:
+                scores_frame = pd.DataFrame(scores.to_dict())
+            except AttributeError:
+                scores_frame = pd.DataFrame(
+                    scores.to_numpy() if hasattr(scores, "to_numpy") else scores
+                )
+        except (TypeError, ValueError) as exc:
+            logger.debug("SingleR scores could not be converted: %s", exc)
+        else:
+            for index, cell_type in enumerate(cell_types):
+                if not missing[index] or index >= len(scores_frame):
+                    continue
+                if cell_type not in scores_frame.columns:
+                    continue
+                try:
+                    score = float(scores_frame.iloc[index][cell_type])
+                except (TypeError, ValueError):
+                    continue
+                if np.isfinite(score):
+                    confidence[index] = round(float(np.clip(score, 0.0, 1.0)), 3)
+
+    return confidence
+
+
+def _summarize_confidence(
+    labels: Any,
+    cell_types: list[str],
+    confidence: np.ndarray,
+    *,
+    digits: int,
+) -> dict[str, float]:
+    """Summarize finite confidence values without conflating zero and missing."""
+    label_values = np.asarray(labels)
+    if label_values.shape[0] != confidence.shape[0]:
+        raise ProcessingError(
+            "Annotation confidence length does not match predicted labels: "
+            f"{confidence.shape[0]} != {label_values.shape[0]}."
+        )
+
+    summary: dict[str, float] = {}
+    for cell_type in cell_types:
+        values = confidence[label_values == cell_type]
+        finite_values = values[np.isfinite(values)]
+        if finite_values.size > 0:
+            summary[cell_type] = round(float(finite_values.mean()), digits)
+    return summary
+
+
+def _store_confidence_if_available(
+    adata: Any,
+    confidence_key: str,
+    confidence: np.ndarray,
+) -> bool:
+    """Store confidence when at least one finite value is available."""
+    if not np.isfinite(confidence).any():
+        return False
+    adata.obs[confidence_key] = confidence
+    return True
 
 
 async def _annotate_with_singler(
@@ -159,15 +262,6 @@ async def _annotate_with_singler(
     ref_labels = None
     ref_features_to_use = None  # Only set when using custom reference (not celldex)
 
-    def _extract_reference_labels(ref_obj: Any, ref_id: str) -> Any:
-        """Extract labels from celldex reference using prioritized columns."""
-        for label_col in ("label.main", "label.fine", "cell_type"):
-            try:
-                return ref_obj.get_column_data().column(label_col)
-            except Exception:
-                continue
-        raise DataNotFoundError(f"Could not find labels in reference {ref_id}")
-
     # Priority: reference_name > reference_data_id > default
     if reference_name and celldex_module:
         # Integrated mode supports multiple references via comma-separated names.
@@ -185,14 +279,14 @@ async def _annotate_with_singler(
                     ref_name, "2024-02-26", realize_assays=True
                 )
                 refs.append(ref_obj)
-                labels.append(_extract_reference_labels(ref_obj, ref_name))
+                labels.append(_extract_singler_reference_labels(ref_obj, ref_name))
             ref_data = refs
             ref_labels = labels
         else:
             ref = celldex_module.fetch_reference(
                 reference_name, "2024-02-26", realize_assays=True
             )
-            ref_labels = _extract_reference_labels(ref, reference_name)
+            ref_labels = _extract_singler_reference_labels(ref, reference_name)
             ref_data = ref
 
     elif reference_data_id and reference_adata is not None:
@@ -257,7 +351,7 @@ async def _annotate_with_singler(
         ref = celldex_module.fetch_reference(
             "blueprint_encode", "2024-02-26", realize_assays=True
         )
-        ref_labels = _extract_reference_labels(ref, "blueprint_encode")
+        ref_labels = _extract_singler_reference_labels(ref, "blueprint_encode")
         ref_data = ref
     else:
         raise DataNotFoundError(
@@ -314,9 +408,8 @@ async def _annotate_with_singler(
                         f"confidence scores (delta < 0.05)"
                     )
         except Exception as exc:
-            import logging
-
-            logging.getLogger(__name__).debug(
+            delta_scores = None
+            logger.debug(
                 "Delta scores unavailable (%s: %s) — confidence from scores only",
                 type(exc).__name__,
                 exc,
@@ -329,54 +422,27 @@ async def _annotate_with_singler(
     counts = pd.Series(cell_types).value_counts().to_dict()
 
     # Calculate per-cell confidence and per-type summary
-    n_cells = len(cell_types)
-    per_cell_confidence = np.zeros(n_cells, dtype=float)
-    confidence_scores: dict[str, float] = {}
-
-    # Prefer delta scores (more meaningful confidence measure)
-    # delta→confidence: 1 - exp(-delta), clamped to [0, 1].
-    # Negative delta (second-best > best) → confidence 0.
-    if delta_scores is not None:
-        try:
-            for i in range(n_cells):
-                if i < len(delta_scores) and delta_scores[i] is not None:
-                    raw = 1.0 - np.exp(-delta_scores[i])
-                    per_cell_confidence[i] = round(max(0.0, raw), 3)
-        except Exception:
-            per_cell_confidence[:] = 0.0
-
-    # Fall back to correlation scores if delta not available
-    if per_cell_confidence.sum() == 0 and scores is not None:
-        try:
-            try:
-                scores_df = pd.DataFrame(scores.to_dict())
-            except AttributeError:
-                scores_df = pd.DataFrame(
-                    scores.to_numpy() if hasattr(scores, "to_numpy") else scores
-                )
-
-            for i, ct in enumerate(cell_types):
-                if ct in scores_df.columns:
-                    val = float(scores_df.iloc[i][ct])
-                    per_cell_confidence[i] = round(max(0.0, val), 3)
-        except Exception:
-            per_cell_confidence[:] = 0.0
-
-    # Per-type summary (for result metadata, not for obs storage)
-    for cell_type in unique_types:
-        mask = np.array([ct == cell_type for ct in cell_types])
-        if mask.any():
-            confidence_scores[cell_type] = round(
-                float(per_cell_confidence[mask].mean()), 3
-            )
+    per_cell_confidence = _singler_confidence_values(
+        cell_types,
+        delta_scores,
+        scores,
+    )
+    confidence_scores = _summarize_confidence(
+        cell_types,
+        unique_types,
+        per_cell_confidence,
+        digits=3,
+    )
 
     # Add to AnnData (keys provided by caller for single-point control)
     adata.obs[output_key] = cell_types
     ensure_categorical(adata, output_key)
 
-    has_confidence = per_cell_confidence.sum() > 0
-    if has_confidence:
-        adata.obs[confidence_key] = per_cell_confidence
+    has_confidence = _store_confidence_if_available(
+        adata,
+        confidence_key,
+        per_cell_confidence,
+    )
 
     return AnnotationMethodOutput(
         cell_types=unique_types,
@@ -966,7 +1032,7 @@ async def _annotate_with_scanvi(
     counts = adata_subset.obs[cell_type_key].value_counts().to_dict()
 
     # Get per-cell confidence from soft predictions
-    per_cell_confidence = np.zeros(adata_subset.n_obs, dtype=float)
+    per_cell_confidence = np.full(adata_subset.n_obs, np.nan, dtype=float)
     confidence_scores: dict[str, float] = {}
     try:
         probs = spatial_model.predict(soft=True)
@@ -983,25 +1049,26 @@ async def _annotate_with_scanvi(
             for i in range(len(pred_idx)):
                 per_cell_confidence[i] = round(float(probs[i, pred_idx[i]]), 3)
 
-        # Per-type summary for metadata
-        for cell_type in cell_types:
-            mask = predicted_labels == cell_type
-            if mask.any():
-                confidence_scores[cell_type] = round(
-                    float(per_cell_confidence[mask].mean()), 2
-                )
     except Exception as e:
         await ctx.warning(f"Could not get confidence scores: {e}")
-        confidence_scores = {}
+
+    confidence_scores = _summarize_confidence(
+        adata_subset.obs[cell_type_key].values,
+        cell_types,
+        per_cell_confidence,
+        digits=2,
+    )
 
     # COW FIX: Add prediction results to original adata.obs using output_key
     adata.obs[output_key] = adata_subset.obs[cell_type_key].values
     ensure_categorical(adata, output_key)
 
     # Store per-cell confidence if available
-    has_confidence = per_cell_confidence.sum() > 0
-    if has_confidence:
-        adata.obs[confidence_key] = per_cell_confidence
+    has_confidence = _store_confidence_if_available(
+        adata,
+        confidence_key,
+        per_cell_confidence,
+    )
 
     return AnnotationMethodOutput(
         cell_types=cell_types,
@@ -1372,8 +1439,7 @@ async def _annotate_with_cellassign(
     predictions = model.predict()
 
     # Handle different prediction formats (key provided by caller)
-    per_cell_confidence = np.zeros(adata.n_obs, dtype=float)
-    confidence_scores: dict[str, float] = {}
+    per_cell_confidence = np.full(adata.n_obs, np.nan, dtype=float)
 
     if isinstance(predictions, pd.DataFrame):
         predicted_labels = predictions.idxmax(axis=1).astype(str).tolist()
@@ -1388,12 +1454,6 @@ async def _annotate_with_cellassign(
         for i, label in enumerate(predicted_labels):
             per_cell_confidence[i] = round(float(predictions.iloc[i][label]), 3)
 
-        for cell_type in valid_cell_types:
-            mask = np.asarray(predicted_labels) == cell_type
-            if mask.any():
-                confidence_scores[cell_type] = round(
-                    float(per_cell_confidence[mask].mean()), 2
-                )
     else:
         # Other models return indices directly — no probability data
         adata.obs[output_key] = [valid_cell_types[i] for i in predictions]
@@ -1401,9 +1461,17 @@ async def _annotate_with_cellassign(
     ensure_categorical(adata, output_key)
 
     # Store per-cell confidence if available
-    has_confidence = per_cell_confidence.sum() > 0
-    if has_confidence:
-        adata.obs[confidence_key] = per_cell_confidence
+    confidence_scores = _summarize_confidence(
+        adata.obs[output_key].values,
+        valid_cell_types,
+        per_cell_confidence,
+        digits=2,
+    )
+    has_confidence = _store_confidence_if_available(
+        adata,
+        confidence_key,
+        per_cell_confidence,
+    )
 
     # Get cell types and counts
     counts = adata.obs[output_key].value_counts().to_dict()

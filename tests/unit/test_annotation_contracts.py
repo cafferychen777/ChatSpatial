@@ -37,6 +37,58 @@ class DummyCtx:
         return None
 
 
+def test_extract_singler_reference_labels_only_falls_back_for_missing_columns():
+    class _Columns:
+        def column(self, name: str):
+            if name == "label.fine":
+                return ["B", "T"]
+            raise AttributeError(name)
+
+    reference = SimpleNamespace(get_column_data=lambda: _Columns())
+
+    assert ann._extract_singler_reference_labels(reference, "hpca") == ["B", "T"]
+
+    broken_reference = SimpleNamespace(
+        get_column_data=lambda: (_ for _ in ()).throw(RuntimeError("corrupt frame"))
+    )
+    with pytest.raises(RuntimeError, match="corrupt frame"):
+        ann._extract_singler_reference_labels(broken_reference, "hpca")
+
+
+def test_singler_confidence_preserves_valid_zeros_and_fills_missing_delta():
+    scores = pd.DataFrame({"B": [0.8, 0.1], "T": [0.2, 0.9]})
+
+    zero_confidence = ann._singler_confidence_values(
+        ["B", "T"],
+        [0.0, 0.0],
+        scores,
+    )
+    np.testing.assert_array_equal(zero_confidence, [0.0, 0.0])
+    assert np.isfinite(zero_confidence).all()
+
+    partial_delta = ann._singler_confidence_values(
+        ["B", "T"],
+        [None, 0.2],
+        scores,
+    )
+    assert partial_delta[0] == 0.8
+    assert partial_delta[1] == pytest.approx(round(-np.expm1(-0.2), 3))
+
+    adata = SimpleNamespace(obs=pd.DataFrame(index=range(2)))
+    assert ann._store_confidence_if_available(
+        adata,
+        "confidence",
+        zero_confidence,
+    )
+    np.testing.assert_array_equal(adata.obs["confidence"], [0.0, 0.0])
+    assert ann._summarize_confidence(
+        ["B", "T"],
+        ["B", "T"],
+        zero_confidence,
+        digits=2,
+    ) == {"B": 0.0, "T": 0.0}
+
+
 @pytest.mark.asyncio
 async def test_annotate_cell_types_sctype_happy_path_records_metadata(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
