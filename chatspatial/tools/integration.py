@@ -412,19 +412,36 @@ def integrate_multiple_samples(
         # View will be materialized when scaling modifies the data
         combined = combined[:, nonzero_var_genes]
 
-    # Scale data with proper error handling
-    try:
-        sc.pp.scale(combined, zero_center=True, max_value=10)
-    except Exception as e:
-        logger.warning(f"Scaling with zero centering failed: {e}")
+    # Scanpy scales AnnData in place and may mutate it before raising. Run each
+    # strategy on an isolated candidate so fallback never consumes partial state.
+    scale_errors: list[Exception] = []
+    for zero_center in (True, False):
+        scaled_candidate = combined.copy()
         try:
-            sc.pp.scale(combined, zero_center=False, max_value=10)
-        except Exception as e2:
-            raise ProcessingError(
-                f"Data scaling failed completely. Zero-center error: {e}. Non-zero-center error: {e2}. "
-                f"This usually indicates data contains extreme outliers or invalid values. "
-                f"Consider additional quality control or outlier removal."
-            ) from e2
+            sc.pp.scale(scaled_candidate, zero_center=zero_center, max_value=10)
+            scaled_values = (
+                scaled_candidate.X.data
+                if sparse.issparse(scaled_candidate.X)
+                else np.asarray(scaled_candidate.X)
+            )
+            if not np.isfinite(scaled_values).all():
+                raise ProcessingError("Scaling produced non-finite expression values")
+        except Exception as exc:
+            scale_errors.append(exc)
+            strategy = "zero-centered" if zero_center else "non-zero-centered"
+            logger.warning(f"{strategy.capitalize()} scaling failed: {exc}")
+            continue
+
+        combined = scaled_candidate
+        break
+    else:
+        raise ProcessingError(
+            "Data scaling failed completely. "
+            f"Zero-center error: {scale_errors[0]}. "
+            f"Non-zero-center error: {scale_errors[1]}. "
+            "This usually indicates data contains extreme outliers or invalid values. "
+            "Consider additional quality control or outlier removal."
+        ) from scale_errors[-1]
 
     # PCA with proper error handling
     # Determine safe number of components
@@ -441,8 +458,6 @@ def integrate_multiple_samples(
     # MEMORY OPTIMIZATION: Check sparse matrix .data directly without toarray()
     # Sparse matrices only store non-zero elements, and zero elements cannot be NaN/Inf
     # Saves ~80% memory (e.g., 76 MB → 15 MB for 10k cells × 2k genes)
-    from scipy import sparse
-
     if sparse.issparse(combined.X):
         # Sparse matrix: only check non-zero elements stored in .data
         # This avoids creating a dense copy (5-10x memory reduction)

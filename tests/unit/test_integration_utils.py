@@ -750,11 +750,13 @@ def test_integrate_multiple_samples_sparse_zero_variance_and_scale_fallback(
 
     scale_calls: list[bool] = []
 
-    def _scale(_adata, zero_center=True, max_value=10):
+    def _scale(candidate, zero_center=True, max_value=10):
         del max_value
         scale_calls.append(bool(zero_center))
         if zero_center:
+            candidate.X.data[:] = -999
             raise RuntimeError("zero-center fail")
+        assert not np.any(candidate.X.data == -999)
 
     monkeypatch.setattr("scanpy.pp.scale", _scale)
     monkeypatch.setattr(
@@ -820,7 +822,7 @@ def test_integrate_multiple_samples_pca_nan_inf_and_solver_failures(
 
     monkeypatch.setattr("scanpy.pp.scale", _scale_nan)
     adata_nan = adata.copy()
-    with pytest.raises(DataError, match="NaN values after scaling"):
+    with pytest.raises(ProcessingError, match="Data scaling failed completely"):
         integrate_multiple_samples(adata_nan, method="not_real", batch_key="batch", n_pcs=3)
 
     def _scale_inf(adata_obj, **_kwargs):
@@ -830,7 +832,7 @@ def test_integrate_multiple_samples_pca_nan_inf_and_solver_failures(
 
     monkeypatch.setattr("scanpy.pp.scale", _scale_inf)
     adata_inf = adata.copy()
-    with pytest.raises(DataError, match="infinite values after scaling"):
+    with pytest.raises(ProcessingError, match="Data scaling failed completely"):
         integrate_multiple_samples(adata_inf, method="not_real", batch_key="batch", n_pcs=3)
 
     monkeypatch.setattr("scanpy.pp.scale", lambda *_args, **_kwargs: None)
@@ -1056,7 +1058,7 @@ def test_integrate_multiple_samples_raises_when_too_few_pca_components_possible(
         integrate_multiple_samples(adata, method="not_real", batch_key="batch", n_pcs=30)
 
 
-def test_integrate_multiple_samples_sparse_nan_values_raise_data_error(
+def test_integrate_multiple_samples_sparse_nan_values_fail_scaling(
     minimal_spatial_adata,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1081,11 +1083,11 @@ def test_integrate_multiple_samples_sparse_nan_values_raise_data_error(
 
     monkeypatch.setattr("scanpy.pp.scale", _scale_with_nan)
 
-    with pytest.raises(DataError, match="NaN values after scaling"):
+    with pytest.raises(ProcessingError, match="Data scaling failed completely"):
         integrate_multiple_samples(adata, method="not_real", batch_key="batch", n_pcs=3)
 
 
-def test_integrate_multiple_samples_sparse_inf_values_raise_data_error(
+def test_integrate_multiple_samples_sparse_inf_values_fail_scaling(
     minimal_spatial_adata,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1110,7 +1112,7 @@ def test_integrate_multiple_samples_sparse_inf_values_raise_data_error(
 
     monkeypatch.setattr("scanpy.pp.scale", _scale_with_inf)
 
-    with pytest.raises(DataError, match="infinite values after scaling"):
+    with pytest.raises(ProcessingError, match="Data scaling failed completely"):
         integrate_multiple_samples(adata, method="not_real", batch_key="batch", n_pcs=3)
 
 

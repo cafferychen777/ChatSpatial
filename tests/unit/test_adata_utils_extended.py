@@ -710,7 +710,9 @@ def test_profiles_and_overlap_helpers(minimal_spatial_adata):
         au.validate_gene_overlap(["A", "B"], source_n_genes=200, target_n_genes=150, min_genes=10)
 
 
-def test_profiles_large_cardinality_and_gene_profile_fallback(minimal_spatial_adata):
+def test_profiles_large_cardinality_and_gene_profile_failure_is_not_fabricated(
+    minimal_spatial_adata,
+):
     import anndata as ad
 
     big = ad.AnnData(np.ones((5, 120), dtype=float))
@@ -726,8 +728,8 @@ def test_profiles_large_cardinality_and_gene_profile_fallback(minimal_spatial_ad
 
     adata = minimal_spatial_adata.copy()
     adata.X = np.asarray(adata.X).view(_BrokenMeanArray)
-    _top_hvg, top_expr = au.get_gene_profile(adata)
-    assert len(top_expr) == min(10, adata.n_vars)
+    with pytest.raises(RuntimeError, match="boom"):
+        au.get_gene_profile(adata)
 
 
 def test_get_gene_profile_returns_top_expression_in_descending_order():
@@ -745,6 +747,23 @@ def test_get_gene_profile_returns_top_expression_in_descending_order():
 
     _top_hvg, top_expr = au.get_gene_profile(adata)
     assert top_expr[:4] == ["g1", "g3", "g2", "g0"]
+
+
+def test_get_gene_profile_excludes_nonfinite_means_and_stabilizes_ties():
+    import anndata as ad
+
+    expr = np.array(
+        [
+            [np.nan, 2.0, 2.0, np.inf],
+            [np.nan, 2.0, 2.0, np.inf],
+        ]
+    )
+    adata = ad.AnnData(expr)
+    adata.var_names = ["missing", "first_tie", "second_tie", "infinite"]
+
+    _top_hvg, top_expr = au.get_gene_profile(adata)
+
+    assert top_expr == ["first_tie", "second_tie"]
 
 
 def test_get_raw_data_source_raw_error_and_counts_skip_path(

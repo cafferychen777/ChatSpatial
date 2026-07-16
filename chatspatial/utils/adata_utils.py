@@ -1727,18 +1727,30 @@ def get_gene_profile(
     )
     top_hvg = hvg_list if hvg_list else None
 
-    # Top expressed genes (partial sort keeps O(n) selection cost for large n_vars)
-    top_k = min(10, adata.n_vars)
-    if top_k == 0:
+    if adata.n_vars == 0:
         return top_hvg, []
 
     try:
-        mean_expr = np.asarray(adata.X.mean(axis=0)).ravel()
-        top_idx = np.argpartition(mean_expr, -top_k)[-top_k:]
-        top_idx = top_idx[np.argsort(mean_expr[top_idx])[::-1]]
-        top_expr = adata.var_names[top_idx].tolist()
-    except Exception:
-        top_expr = adata.var_names[:top_k].tolist()  # Fallback
+        mean_expr = np.asarray(adata.X.mean(axis=0), dtype=float).ravel()
+    except (TypeError, ValueError) as exc:
+        raise DataError("Expression matrix means must be numeric") from exc
+
+    if mean_expr.size != adata.n_vars:
+        raise DataError(
+            "Expression matrix mean length does not match adata.n_vars: "
+            f"{mean_expr.size} != {adata.n_vars}"
+        )
+
+    # Missing/non-finite means are not evidence of high expression. Rank only
+    # finite values, deterministically preserving gene order for exact ties.
+    finite_indices = np.flatnonzero(np.isfinite(mean_expr))
+    top_k = min(10, finite_indices.size)
+    if top_k == 0:
+        return top_hvg, []
+
+    finite_means = mean_expr[finite_indices]
+    ranked = np.argsort(-finite_means, kind="stable")[:top_k]
+    top_expr = adata.var_names[finite_indices[ranked]].tolist()
 
     return top_hvg, top_expr
 

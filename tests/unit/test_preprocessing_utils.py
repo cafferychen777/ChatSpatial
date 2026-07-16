@@ -671,7 +671,7 @@ async def test_preprocess_data_scrublet_warns_when_too_few_cells(
     adata = _make_adata(n_obs=40, n_vars=120)
     ctx = DummyCtx(adata)
 
-    await preprocess_data(
+    result = await preprocess_data(
         "d15",
         ctx,
         PreprocessingParameters(
@@ -682,6 +682,9 @@ async def test_preprocess_data_scrublet_warns_when_too_few_cells(
     )
 
     assert any("Scrublet requires at least 100 cells" in w for w in ctx.warnings)
+    assert result.qc_metrics["scrublet_requested"] is True
+    assert result.qc_metrics["use_scrublet"] is False
+    assert result.qc_metrics["scrublet_skip_reason"] == "insufficient_cells"
 
 
 @pytest.mark.asyncio
@@ -869,10 +872,14 @@ async def test_preprocess_data_scrublet_failure_records_warning(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
+
+    def _partially_mutate_then_fail(adata, **_kwargs):
+        adata.obs["doublet_score"] = 0.9
+        adata.obs["predicted_doublet"] = True
+        raise RuntimeError("scrub boom")
+
     monkeypatch.setattr(
-        preprocessing_mod.sc.pp,
-        "scrublet",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("scrub boom")),
+        preprocessing_mod.sc.pp, "scrublet", _partially_mutate_then_fail
     )
 
     adata = _make_adata(n_obs=120, n_vars=120)
@@ -888,6 +895,9 @@ async def test_preprocess_data_scrublet_failure_records_warning(
     assert result.qc_metrics["use_scrublet"] is False
     assert "scrub boom" in result.qc_metrics["scrublet_error"]
     assert any("Scrublet doublet detection failed" in msg for msg in ctx.warnings)
+    assert ctx.saved_adata is not None
+    assert "doublet_score" not in ctx.saved_adata.obs
+    assert "predicted_doublet" not in ctx.saved_adata.obs
 
 
 @pytest.mark.asyncio
@@ -1117,7 +1127,7 @@ async def test_preprocess_data_scvi_rejects_negative_values(
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_scale_dense_cleans_nan_and_inf(
+async def test_preprocess_data_scale_dense_nonfinite_result_rolls_back(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
@@ -1146,12 +1156,15 @@ async def test_preprocess_data_scale_dense_cleans_nan_and_inf(
     assert result.n_cells == 2
     assert ctx.saved_adata is not None
     assert np.isfinite(ctx.saved_adata.X).all()
-    assert np.max(ctx.saved_adata.X) <= 5.0
-    assert np.min(ctx.saved_adata.X) >= -5.0
+    assert ctx.saved_adata.uns["preprocessing"]["scale_requested"] is True
+    assert ctx.saved_adata.uns["preprocessing"]["scale_applied"] is False
+    assert result.qc_metrics is not None
+    assert result.qc_metrics["scale_applied"] is False
+    assert "non-finite" in result.qc_metrics["scale_error"]
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_scale_sparse_cleans_nan_and_inf(
+async def test_preprocess_data_scale_sparse_nonfinite_result_rolls_back(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
@@ -1178,9 +1191,9 @@ async def test_preprocess_data_scale_sparse_cleans_nan_and_inf(
     )
 
     assert ctx.saved_adata is not None
-    assert sp.issparse(ctx.saved_adata.X)
-    assert np.isfinite(ctx.saved_adata.X.data).all()
-    assert np.max(ctx.saved_adata.X.data) <= 4.0
+    assert not sp.issparse(ctx.saved_adata.X)
+    assert np.isfinite(ctx.saved_adata.X).all()
+    assert ctx.saved_adata.uns["preprocessing"]["scale_applied"] is False
 
 
 @pytest.mark.asyncio
@@ -1188,11 +1201,11 @@ async def test_preprocess_data_scale_failure_warns_and_continues(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(
-        preprocessing_mod.sc.pp,
-        "scale",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("scale boom")),
-    )
+    def _partially_mutate_then_fail(adata, **_kwargs):
+        adata.X[:] = -999
+        raise RuntimeError("scale boom")
+
+    monkeypatch.setattr(preprocessing_mod.sc.pp, "scale", _partially_mutate_then_fail)
 
     adata = _make_adata(n_obs=12, n_vars=120)
     ctx = DummyCtx(adata)
@@ -1204,6 +1217,39 @@ async def test_preprocess_data_scale_failure_warns_and_continues(
 
     assert result.n_cells == 12
     assert any("Scaling failed: scale boom" in msg for msg in ctx.warnings)
+    assert ctx.saved_adata is not None
+    assert not np.any(np.asarray(ctx.saved_adata.X) == -999)
+    assert ctx.saved_adata.uns["preprocessing"]["scale_requested"] is True
+    assert ctx.saved_adata.uns["preprocessing"]["scale_applied"] is False
+    assert ctx.saved_adata.uns["preprocessing"]["scale_error"] == "scale boom"
+    assert result.qc_metrics is not None
+    assert result.qc_metrics["scale_error"] == "scale boom"
+
+
+@pytest.mark.asyncio
+async def test_preprocess_data_scale_success_commits_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_lightweight_preprocess_mocks(monkeypatch)
+
+    def _scale_candidate(adata, **_kwargs):
+        adata.X = np.full(adata.shape, 0.25, dtype=np.float32)
+
+    monkeypatch.setattr(preprocessing_mod.sc.pp, "scale", _scale_candidate)
+
+    ctx = DummyCtx(_make_adata(n_obs=8, n_vars=120))
+    result = await preprocess_data(
+        "d34",
+        ctx,
+        PreprocessingParameters(normalization="log", filter_mito_pct=None, scale=True),
+    )
+
+    assert ctx.saved_adata is not None
+    np.testing.assert_array_equal(ctx.saved_adata.X, 0.25)
+    assert ctx.saved_adata.uns["preprocessing"]["scale_applied"] is True
+    assert result.qc_metrics is not None
+    assert result.qc_metrics["scale_applied"] is True
+    assert "scale_error" not in result.qc_metrics
 
 
 @pytest.mark.asyncio

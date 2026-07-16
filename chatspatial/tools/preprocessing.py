@@ -190,6 +190,8 @@ async def preprocess_data(
     # Scrublet works on raw counts before normalization
     # Recommended for: CosMx, MERFISH, Xenium (single-cell resolution)
     # NOT recommended for: Visium (spot-based, multiple cells per spot)
+    qc_metrics["scrublet_requested"] = params.use_scrublet
+    qc_metrics["use_scrublet"] = False
     if params.use_scrublet:
         try:
             # Scrublet requires sufficient cells for meaningful doublet detection
@@ -199,41 +201,47 @@ async def preprocess_data(
                     f"Scrublet requires at least {min_cells_for_scrublet} cells, "
                     f"but only {adata.n_obs} present. Skipping doublet detection."
                 )
+                qc_metrics["scrublet_skip_reason"] = "insufficient_cells"
             else:
                 # Run Scrublet via scanpy's wrapper function
                 # This adds 'doublet_score' and 'predicted_doublet' to adata.obs
+                scrublet_adata = adata.copy()
                 sc.pp.scrublet(
-                    adata,
+                    scrublet_adata,
                     expected_doublet_rate=params.scrublet_expected_doublet_rate,
                     threshold=params.scrublet_threshold,
                     sim_doublet_ratio=params.scrublet_sim_doublet_ratio,
                     n_prin_comps=min(params.scrublet_n_prin_comps, adata.n_vars - 1),
                     batch_key=(
                         params.batch_key
-                        if params.batch_key in adata.obs.columns
+                        if params.batch_key in scrublet_adata.obs.columns
                         else None
                     ),
                 )
 
                 # Store doublet detection results in qc_metrics
-                n_doublets = int(adata.obs["predicted_doublet"].sum())
-                doublet_rate = n_doublets / adata.n_obs
+                n_doublets = int(scrublet_adata.obs["predicted_doublet"].sum())
+                doublet_rate = n_doublets / scrublet_adata.n_obs
                 qc_metrics["use_scrublet"] = True
                 qc_metrics["n_doublets_detected"] = n_doublets
                 qc_metrics["doublet_rate"] = float(doublet_rate)
                 qc_metrics["scrublet_threshold"] = float(
                     params.scrublet_threshold
                     if params.scrublet_threshold is not None
-                    else adata.uns.get("scrublet", {}).get("threshold", 0.0)
+                    else scrublet_adata.uns.get("scrublet", {}).get("threshold", 0.0)
                 )
                 qc_metrics["median_doublet_score"] = float(
-                    np.median(adata.obs["doublet_score"])
+                    np.median(scrublet_adata.obs["doublet_score"])
                 )
 
                 # Filter doublets if requested
                 if params.scrublet_filter_doublets and n_doublets > 0:
-                    adata = adata[~adata.obs["predicted_doublet"]].copy()
-                    qc_metrics["n_cells_after_doublet_filter"] = int(adata.n_obs)
+                    scrublet_adata = scrublet_adata[
+                        ~scrublet_adata.obs["predicted_doublet"]
+                    ].copy()
+                    qc_metrics["n_cells_after_doublet_filter"] = int(
+                        scrublet_adata.n_obs
+                    )
                     await ctx.info(
                         f"Scrublet: Detected {n_doublets} doublets "
                         f"({doublet_rate:.1%}), removed from dataset."
@@ -244,13 +252,14 @@ async def preprocess_data(
                         f"({doublet_rate:.1%}), kept in dataset."
                     )
 
+                adata = scrublet_adata
+
         except Exception as e:
             # Scrublet failure should not block preprocessing
             await ctx.warning(
                 f"Scrublet doublet detection failed: {e}. "
                 "Continuing without doublet filtering."
             )
-            qc_metrics["use_scrublet"] = False
             qc_metrics["scrublet_error"] = str(e)
 
     # Save raw data before normalization (required for some analysis methods)
@@ -771,33 +780,34 @@ async def preprocess_data(
     # 5. Scale data (if requested)
     # Note: Batch correction is handled separately by integrate_samples() tool
     # which supports Harmony, BBKNN, Scanorama, and scVI methods
+    scale_applied = False
+    scale_error: str | None = None
     if params.scale:
         try:
-            # Trust scanpy's internal zero-variance handling and sparse matrix optimization
-            sc.pp.scale(adata, max_value=params.scale_max_value)
+            # Scanpy scales AnnData in place and can modify X before raising.
+            # Use a transaction candidate so a failed optional step cannot leave
+            # the otherwise valid preprocessing result partially transformed.
+            scaled_adata = adata.copy()
+            sc.pp.scale(scaled_adata, max_value=params.scale_max_value)
 
-            # Clean up any NaN/Inf values that might remain (sparse-matrix safe)
-            # Only apply if we have a max_value for clipping
-            if params.scale_max_value is not None:
-                if scipy.sparse.issparse(adata.X):
-                    # Sparse matrix - only modify the data array
-                    adata.X.data = np.nan_to_num(
-                        adata.X.data,
-                        nan=0.0,
-                        posinf=params.scale_max_value,
-                        neginf=-params.scale_max_value,
-                    )
-                else:
-                    # Dense matrix
-                    adata.X = np.nan_to_num(
-                        adata.X,
-                        nan=0.0,
-                        posinf=params.scale_max_value,
-                        neginf=-params.scale_max_value,
-                    )
+            scaled_values = (
+                scaled_adata.X.data
+                if scipy.sparse.issparse(scaled_adata.X)
+                else np.asarray(scaled_adata.X)
+            )
+            if not np.isfinite(scaled_values).all():
+                raise ProcessingError("Scaling produced non-finite expression values")
 
+            adata = scaled_adata
+            scale_applied = True
         except Exception as e:
+            scale_error = str(e)
             await ctx.warning(f"Scaling failed: {e}. Continuing without scaling.")
+
+    qc_metrics["scale_requested"] = params.scale
+    qc_metrics["scale_applied"] = scale_applied
+    if scale_error is not None:
+        qc_metrics["scale_error"] = scale_error
 
     # Store preprocessing metadata for downstream tools
     # PCA, UMAP, clustering, and spatial neighbors are computed lazily
@@ -806,6 +816,10 @@ async def preprocess_data(
     adata.uns["preprocessing"]["n_pcs"] = params.n_pcs
     adata.uns["preprocessing"]["n_neighbors"] = params.n_neighbors
     adata.uns["preprocessing"]["clustering_resolution"] = params.clustering_resolution
+    adata.uns["preprocessing"]["scale_requested"] = params.scale
+    adata.uns["preprocessing"]["scale_applied"] = scale_applied
+    if scale_error is not None:
+        adata.uns["preprocessing"]["scale_error"] = scale_error
 
     # Store the processed AnnData object back via ToolContext
     await ctx.set_adata(data_id, adata)
