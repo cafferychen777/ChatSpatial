@@ -155,7 +155,9 @@ async def test_analyze_enrichment_pathway_ora_dispatch_with_loaded_gene_sets(
 
     assert result.method == "pathway_ora"
     assert result.n_significant == 1
-    assert ctx.set_adata_calls == [("d1", minimal_spatial_adata)]
+    assert len(ctx.set_adata_calls) == 1
+    assert ctx.set_adata_calls[0][0] == "d1"
+    assert ctx.set_adata_calls[0][1] is not minimal_spatial_adata
 
 
 @pytest.mark.asyncio
@@ -228,6 +230,32 @@ async def test_analyze_enrichment_normalizes_list_gene_sets_for_ora(
 
 
 @pytest.mark.asyncio
+async def test_analyze_enrichment_backend_failure_keeps_source_unchanged(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx(adata)
+
+    def _failing_ora(*, adata, **_kwargs):
+        adata.uns["partial_enrichment"] = True
+        raise RuntimeError("backend failed")
+
+    monkeypatch.setattr(enrichment_module, "perform_ora", _failing_ora)
+
+    params = EnrichmentParameters(
+        species="human",
+        method="pathway_ora",
+        gene_sets={"set_a": ["gene_0", "gene_1"]},
+        gene_set_database=None,
+    )
+    with pytest.raises(RuntimeError, match="backend failed"):
+        await analyze_enrichment("d1", ctx, params)
+
+    assert "partial_enrichment" not in adata.uns
+    assert ctx.set_adata_calls == []
+
+
+@pytest.mark.asyncio
 async def test_analyze_enrichment_limits_database_spatial_enrichmap_to_best_overlaps(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -251,7 +279,9 @@ async def test_analyze_enrichment_limits_database_spatial_enrichmap_to_best_over
             top_depleted_sets=[],
         )
 
-    monkeypatch.setattr(enrichment_module, "perform_spatial_enrichment", _fake_spatial)
+    monkeypatch.setattr(
+        enrichment_module, "_perform_spatial_enrichment_on_adata", _fake_spatial
+    )
 
     params = EnrichmentParameters(
         species="human",
@@ -364,7 +394,7 @@ async def test_analyze_enrichment_enrichr_uses_highly_variable_genes(
     assert captured["gene_list"] == ["gene_2", "gene_3"]
     assert captured["gene_sets"] == "KEGG_Pathways"
     assert captured["organism"] == "human"
-    assert captured["adata"] is minimal_spatial_adata
+    assert captured["adata"] is not minimal_spatial_adata
     assert captured["species"] == "human"
     assert captured["database"] == "KEGG_Pathways"
     assert captured["data_id"] == "d1"
@@ -463,10 +493,13 @@ async def test_perform_spatial_enrichment_partial_failure_still_returns_success(
     assert result.n_significant == 0
     assert result.n_successful_signatures == 1
     assert "sig_ok" in result.enrichment_scores
-    assert "sig_ok_score" in adata.obs.columns
+    assert "sig_ok_score" not in adata.obs.columns
+    result_adata = ctx._adata
+    assert result_adata is not adata
+    assert "sig_ok_score" in result_adata.obs.columns
     # Gene sets keyed by method to avoid cross-analysis overwrite
-    assert "enrichment_spatial_gene_sets" in adata.uns
-    assert list(adata.uns["enrichment_spatial_gene_sets"].keys()) == ["sig_ok"]
+    assert "enrichment_spatial_gene_sets" in result_adata.uns
+    assert list(result_adata.uns["enrichment_spatial_gene_sets"].keys()) == ["sig_ok"]
     # Parametrized: includes database when provided
     assert captured["analysis_name"] == "enrichment_spatial_KEGG_Pathways"
     assert captured["results_keys"]["obs"] == ["sig_ok_score"]
@@ -697,7 +730,9 @@ async def test_analyze_enrichment_spatial_dispatches_to_spatial_function(
             top_depleted_sets=[],
         )
 
-    monkeypatch.setattr(enrichment_module, "perform_spatial_enrichment", _fake_spatial)
+    monkeypatch.setattr(
+        enrichment_module, "_perform_spatial_enrichment_on_adata", _fake_spatial
+    )
 
     out = await analyze_enrichment(
         "d1",

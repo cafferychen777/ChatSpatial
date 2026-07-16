@@ -153,17 +153,21 @@ async def differential_expression(
         # Limit to n_top_genes
         top_genes = top_genes[:n_top_genes]
 
-        # Copy results back to original adata for persistence
-        adata.uns["rank_genes_groups"] = adata_filtered.uns["rank_genes_groups"]
+        # Publish only after the statistical workspace has completed. The
+        # managed dataset remains read-only until metadata and export succeed.
+        result_adata = adata.copy()
+        result_adata.uns["rank_genes_groups"] = adata_filtered.uns[
+            "rank_genes_groups"
+        ]
 
         # Per-run copy for provenance (shared key kept for viz)
         analysis_key = _build_de_key(method, None, None)
         per_run_key = f"rank_genes_groups_{analysis_key.removeprefix('de_')}"
-        adata.uns[per_run_key] = adata_filtered.uns["rank_genes_groups"]
+        result_adata.uns[per_run_key] = adata_filtered.uns["rank_genes_groups"]
 
         # Store metadata for scientific provenance tracking
         store_analysis_metadata(
-            adata,
+            result_adata,
             analysis_name=analysis_key,
             method=method,
             parameters={
@@ -182,7 +186,9 @@ async def differential_expression(
         )
 
         # Export results to CSV for reproducibility
-        export_analysis_result(adata, data_id, analysis_key)
+        export_analysis_result(result_adata, data_id, analysis_key)
+
+        await ctx.set_adata(data_id, result_adata)
 
         return DifferentialExpressionResult(
             data_id=data_id,
@@ -393,17 +399,19 @@ async def differential_expression(
     # Create comparison string
     comparison = f"{group1} vs {group2}"
 
-    # Copy results back to original adata for persistence
-    adata.uns["rank_genes_groups"] = temp_adata.uns["rank_genes_groups"]
+    # Publish onto a fresh candidate only after the statistical computation
+    # and fold-change validation have completed.
+    result_adata = adata.copy()
+    result_adata.uns["rank_genes_groups"] = temp_adata.uns["rank_genes_groups"]
 
     # Per-run copy for provenance (shared key kept for viz)
     analysis_key = _build_de_key(method, group1, group2)
     per_run_key = f"rank_genes_groups_{analysis_key.removeprefix('de_')}"
-    adata.uns[per_run_key] = temp_adata.uns["rank_genes_groups"]
+    result_adata.uns[per_run_key] = temp_adata.uns["rank_genes_groups"]
 
     # Store metadata for scientific provenance tracking
     store_analysis_metadata(
-        adata,
+        result_adata,
         analysis_name=analysis_key,
         method=method,
         parameters={
@@ -431,7 +439,9 @@ async def differential_expression(
     )
 
     # Export results to CSV for reproducibility
-    export_analysis_result(adata, data_id, analysis_key)
+    export_analysis_result(result_adata, data_id, analysis_key)
+
+    await ctx.set_adata(data_id, result_adata)
 
     return DifferentialExpressionResult(
         data_id=data_id,
@@ -680,11 +690,12 @@ async def _run_pydeseq2(
     # Use parametric uns key so multiple pydeseq2 comparisons coexist.
     analysis_key = _build_de_key("pydeseq2", group1, group2)
     uns_results_key = f"pydeseq2_results_{group1}_vs_{group2}"
-    adata.uns[uns_results_key] = results_df.copy()
+    result_adata = adata.copy()
+    result_adata.uns[uns_results_key] = results_df.copy()
 
     # Store metadata for scientific provenance tracking
     store_analysis_metadata(
-        adata,
+        result_adata,
         analysis_name=analysis_key,
         method="pydeseq2",
         parameters={
@@ -710,7 +721,9 @@ async def _run_pydeseq2(
     )
 
     # Export results to CSV for reproducibility
-    export_analysis_result(adata, data_id, analysis_key)
+    export_analysis_result(result_adata, data_id, analysis_key)
+
+    await ctx.set_adata(data_id, result_adata)
 
     return DifferentialExpressionResult(
         data_id=data_id,

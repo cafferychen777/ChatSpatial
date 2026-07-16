@@ -30,6 +30,9 @@ class DummyCtx:
             raise DataNotFoundError(f"missing: {data_id}")
         return self.datasets[data_id]
 
+    async def set_adata(self, data_id: str, adata):
+        self.datasets[data_id] = adata
+
     async def warning(self, _msg: str):
         return None
 
@@ -132,6 +135,9 @@ async def test_annotate_cell_types_sctype_happy_path_records_metadata(
         "uns": ["cell_type_sctype_counts"],
     }
     assert captured["statistics"] == {"n_cell_types": 1}
+    assert ctx.datasets["d1"] is not adata
+    assert "cell_type_sctype" not in adata.obs
+    assert "cell_type_sctype" in ctx.datasets["d1"].obs
 
 
 @pytest.mark.asyncio
@@ -207,7 +213,8 @@ async def test_annotate_cell_types_loads_reference_for_singler(
         ctx,
         AnnotationParameters(method="singler", reference_data_id="ref"),
     )
-    assert seen["reference_adata"] is ref
+    assert seen["reference_adata"] is not ref
+    assert seen["reference_adata"].obs_names.equals(ref.obs_names)
     # singler + reference_data_id="ref" → suffix "singler_ref"
     assert out.confidence_key == "confidence_singler_ref"
     assert ctx.calls == ["query", "ref"]
@@ -268,6 +275,43 @@ async def test_annotate_cell_types_wraps_unexpected_errors(
         await ann.annotate_cell_types(
             "d1", ctx, AnnotationParameters(method="mllmcelltype")
         )
+
+
+@pytest.mark.asyncio
+async def test_annotate_cell_types_late_failure_does_not_publish_partial_results(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx({"d1": adata})
+
+    async def _fake_sctype(_adata, _params, _ctx, output_key, _confidence_key):
+        _adata.obs[output_key] = ["T"] * _adata.n_obs
+        return ann.AnnotationMethodOutput(
+            cell_types=["T"],
+            counts={"T": _adata.n_obs},
+            confidence={},
+        )
+
+    monkeypatch.setattr(ann, "_annotate_with_sctype", _fake_sctype)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda _adata, **_kwargs: _adata.uns.update(partial_metadata=True),
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("export failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="export failed"):
+        await ann.annotate_cell_types(
+            "d1",
+            ctx,
+            AnnotationParameters(method="sctype", sctype_tissue="Brain"),
+        )
+
+    assert ctx.datasets["d1"] is adata
+    assert "cell_type_sctype" not in adata.obs
+    assert "partial_metadata" not in adata.uns
 
 
 @pytest.mark.asyncio

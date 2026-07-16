@@ -28,11 +28,16 @@ class DummyCtx:
     def __init__(self, adata=None, error: Exception | None = None):
         self.adata = adata
         self.error = error
+        self.committed = None
 
     async def get_adata(self, _data_id: str):
         if self.error is not None:
             raise self.error
         return self.adata
+
+    async def set_adata(self, _data_id: str, adata):
+        self.adata = adata
+        self.committed = adata
 
     async def info(self, _msg: str):
         return None
@@ -331,7 +336,8 @@ async def test_analyze_spatial_statistics_moran_success_path_updates_metadata_an
     monkeypatch.setattr(ss, "store_analysis_metadata", _store)
     monkeypatch.setattr(ss, "export_analysis_result", lambda *_args, **_kwargs: [])
 
-    out = await ss.analyze_spatial_statistics("d1", DummyCtx(adata), params)
+    ctx = DummyCtx(adata)
+    out = await ss.analyze_spatial_statistics("d1", ctx, params)
     assert out.analysis_type == "moran"
     assert out.n_features_analyzed == 1
     assert out.n_significant == 1
@@ -353,6 +359,7 @@ async def test_analyze_spatial_statistics_moran_success_path_updates_metadata_an
         "uns": ["moranI"],
     }
     assert captured["statistics"] == {"n_cells": 60, "n_significant": 1}
+    assert ctx.committed is not adata
 
 
 @pytest.mark.asyncio
@@ -459,6 +466,56 @@ async def test_analyze_spatial_statistics_wraps_invalid_result_format(
 
     with pytest.raises(ProcessingError, match="Invalid result format"):
         await ss.analyze_spatial_statistics("d1", DummyCtx(adata), params)
+
+
+@pytest.mark.asyncio
+async def test_analyze_spatial_statistics_late_failure_keeps_source_unchanged(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    original_connectivities = np.eye(adata.n_obs) * 2.0
+    adata.obsp["spatial_connectivities"] = original_connectivities.copy()
+    ctx = DummyCtx(adata)
+    params = SpatialStatisticsParameters(analysis_type="moran")
+
+    def _neighbors(candidate, **_kwargs):
+        candidate.obsp["spatial_connectivities"] = np.eye(candidate.n_obs)
+
+    def _handler(candidate, *_args, **_kwargs):
+        candidate.uns["moranI"] = pd.DataFrame({"I": [0.5]}, index=["gene_0"])
+        return {
+            "n_genes_analyzed": 1,
+            "n_significant": 1,
+            "top_highest_autocorrelation": ["gene_0"],
+            "mean_morans_i": 0.5,
+            "analysis_key": "moranI",
+        }
+
+    monkeypatch.setattr(ss, "ensure_spatial_neighbors", _neighbors)
+    monkeypatch.setitem(
+        ss._ANALYSIS_REGISTRY,
+        "moran",
+        ss._AnalysisConfig(
+            handler=_handler,
+            needs_cluster=False,
+            metadata_keys={"uns": ["moranI"]},
+        ),
+    )
+    monkeypatch.setattr(ss, "store_analysis_metadata", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        ss,
+        "export_analysis_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("export failed")),
+    )
+
+    with pytest.raises(ProcessingError, match="export failed"):
+        await ss.analyze_spatial_statistics("d1", ctx, params)
+
+    assert ctx.committed is None
+    np.testing.assert_array_equal(
+        adata.obsp["spatial_connectivities"], original_connectivities
+    )
+    assert "moranI" not in adata.uns
 
 
 def test_analyze_join_count_preserves_parameter_error_for_non_binary_clusters(

@@ -315,9 +315,9 @@ class ToolContext:
     async def set_adata(self, data_id: str, adata: Any) -> None:
         """Update the AnnData object for a dataset.
 
-        Use this when preprocessing creates a new adata object (e.g., copy,
-        subsample, or format conversion). This updates the reference in the
-        data manager's store.
+        Use this to publish a completed candidate after a mutating tool has
+        finished computation, validation, metadata, and export. This replaces
+        the reference in the data manager's store in one ownership handoff.
 
         Args:
             data_id: Dataset identifier

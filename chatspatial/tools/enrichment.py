@@ -1617,10 +1617,42 @@ async def perform_spatial_enrichment(
     Returns:
         EnrichmentResult containing enrichment scores and statistics.
     """
-    em = require("enrichmap", ctx, feature="spatial enrichment analysis")
+    source_adata = await ctx.get_adata(data_id)
+    adata = source_adata.copy()
+    result = await _perform_spatial_enrichment_on_adata(
+        data_id=data_id,
+        ctx=ctx,
+        adata=adata,
+        gene_sets=gene_sets,
+        score_keys=score_keys,
+        spatial_key=spatial_key,
+        n_neighbors=n_neighbors,
+        smoothing=smoothing,
+        correct_spatial_covariates=correct_spatial_covariates,
+        batch_key=batch_key,
+        species=species,
+        database=database,
+    )
+    await ctx.set_adata(data_id, adata)
+    return result
 
-    # Get data using standard ctx pattern
-    adata = await ctx.get_adata(data_id)
+
+async def _perform_spatial_enrichment_on_adata(
+    data_id: str,
+    ctx: "ToolContext",
+    adata: "ad.AnnData",
+    gene_sets: Union[list[str], dict[str, list[str]]],
+    score_keys: Optional[Union[str, list[str]]] = None,
+    spatial_key: str = "spatial",
+    n_neighbors: int = 6,
+    smoothing: bool = True,
+    correct_spatial_covariates: bool = True,
+    batch_key: Optional[str] = None,
+    species: str = "unknown",
+    database: Optional[str] = None,
+) -> "EnrichmentResult":
+    """Run spatial enrichment on an isolated publication candidate."""
+    em = require("enrichmap", ctx, feature="spatial enrichment analysis")
 
     # Validate spatial coordinates
     if spatial_key not in adata.obsm:
@@ -2144,8 +2176,18 @@ async def analyze_enrichment(
             "Example: params={'species': 'mouse', 'method': 'pathway_ora'}"
         )
 
-    # Get adata
-    adata = await ctx.get_adata(data_id)
+    supported_methods = {
+        "spatial_enrichmap",
+        "pathway_gsea",
+        "pathway_ora",
+        "pathway_ssgsea",
+        "pathway_enrichr",
+    }
+    if params.method not in supported_methods:
+        raise ParameterError(f"Unknown enrichment method: {params.method}")
+
+    # Validate and load gene sets against the managed source without mutating it.
+    source_adata = await ctx.get_adata(data_id)
 
     ranking_key: str | None = None
     if params.score_keys is not None:
@@ -2155,7 +2197,7 @@ async def analyze_enrichment(
             else params.score_keys
         )
         if params.method == "pathway_gsea":
-            _validate_gsea_ranking_key(adata, ranking_key)
+            _validate_gsea_ranking_key(source_adata, ranking_key)
 
     # Load gene sets
     loaded_from_database = False
@@ -2202,7 +2244,7 @@ async def analyze_enrichment(
         n_loaded_gene_sets = len(gene_sets_dict)
         gene_sets_dict = _limit_spatial_enrichmap_gene_sets(
             gene_sets_dict,
-            available_genes=set(adata.var_names),
+            available_genes=set(source_adata.var_names),
             species=params.species,
         )
         if len(gene_sets_dict) < n_loaded_gene_sets:
@@ -2213,11 +2255,16 @@ async def analyze_enrichment(
             )
         gene_sets = gene_sets_dict
 
+    # All enrichment backends may publish result tables or score columns.
+    # Keep those writes on one candidate and commit only after success.
+    adata = source_adata.copy()
+
     # Dispatch to appropriate method
     if params.method == "spatial_enrichmap":
-        result = await perform_spatial_enrichment(
+        result = await _perform_spatial_enrichment_on_adata(
             data_id=data_id,
             ctx=ctx,
+            adata=adata,
             gene_sets=gene_sets,
             score_keys=params.score_keys,
             spatial_key=params.spatial_key,
@@ -2283,9 +2330,6 @@ async def analyze_enrichment(
             database=params.gene_set_database,
             data_id=data_id,
         )
-
-    else:
-        raise ParameterError(f"Unknown enrichment method: {params.method}")
 
     await ctx.set_adata(data_id, adata)
     return result

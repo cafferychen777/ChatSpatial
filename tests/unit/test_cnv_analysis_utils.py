@@ -25,9 +25,14 @@ class DummyCtx:
     def __init__(self, adata):
         self.adata = adata
         self.warnings: list[str] = []
+        self.committed = None
 
     async def get_adata(self, _data_id: str):
         return self.adata
+
+    async def set_adata(self, _data_id: str, adata):
+        self.adata = adata
+        self.committed = adata
 
     async def warning(self, msg: str):
         self.warnings.append(msg)
@@ -108,9 +113,10 @@ async def test_infer_cnv_infercnvpy_success_sparse_stats_and_metadata(
     )
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_args, **_kwargs: [])
 
+    ctx = DummyCtx(adata)
     out = await cnv.infer_cnv(
         "d1",
-        DummyCtx(adata),
+        ctx,
         CNVParameters(
             method="infercnvpy",
             reference_key="cell_type",
@@ -126,10 +132,55 @@ async def test_infer_cnv_infercnvpy_success_sparse_stats_and_metadata(
     assert "mean_cnv" in out.statistics
     assert "std_cnv" in out.statistics
     assert "median_cnv" in out.statistics
-    assert "cnv_analysis_infercnvpy_A" in adata.uns
+    assert ctx.committed is not adata
+    assert "cnv_analysis_infercnvpy_A" not in adata.uns
+    assert "cnv_analysis_infercnvpy_A" in ctx.committed.uns
     assert captured["analysis_name"] == "cnv_infercnvpy_A"
     assert captured["results_keys"]["uns"] == ["cnv", "cnv_analysis_infercnvpy_A"]
     assert captured["results_keys"]["obsm"] == ["X_cnv"]
+
+
+@pytest.mark.asyncio
+async def test_infer_cnv_late_failure_does_not_publish_partial_results(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
+    _add_gene_positions(adata)
+    ctx = DummyCtx(adata)
+
+    fake_infercnvpy = ModuleType("infercnvpy")
+
+    def _fake_infercnv(adata_obj, **_kwargs):
+        adata_obj.obsm["X_cnv"] = np.ones((adata_obj.n_obs, 2), dtype=float)
+        adata_obj.uns["cnv"] = {"partial": True}
+
+    fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
+    monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
+    monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        cnv,
+        "export_analysis_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("export failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="export failed"):
+        await cnv.infer_cnv(
+            "d1",
+            ctx,
+            CNVParameters(
+                method="infercnvpy",
+                reference_key="cell_type",
+                reference_categories=["A"],
+                cluster_cells=False,
+                dendrogram=False,
+            ),
+        )
+
+    assert ctx.committed is None
+    assert "X_cnv" not in adata.obsm
+    assert "cnv" not in adata.uns
 
 
 @pytest.mark.asyncio
@@ -158,9 +209,10 @@ async def test_infer_cnv_infercnvpy_workspace_isolation_avoids_leaking_temp_muta
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_args, **_kwargs: None)
 
+    ctx = DummyCtx(adata)
     await cnv.infer_cnv(
         "d1",
-        DummyCtx(adata),
+        ctx,
         CNVParameters(
             method="infercnvpy",
             reference_key="cell_type",
@@ -174,7 +226,11 @@ async def test_infer_cnv_infercnvpy_workspace_isolation_avoids_leaking_temp_muta
     assert "_tmp_var" not in adata.var.columns
     assert "_tmp_uns" not in adata.uns
     assert "keep" in adata.obsm
-    assert "X_cnv" in adata.obsm
+    assert "_tmp_obs" not in ctx.committed.obs.columns
+    assert "_tmp_var" not in ctx.committed.var.columns
+    assert "_tmp_uns" not in ctx.committed.uns
+    assert "keep" in ctx.committed.obsm
+    assert "X_cnv" in ctx.committed.obsm
 
 
 @pytest.mark.asyncio
@@ -887,9 +943,10 @@ async def test_infer_cnv_infercnvpy_cluster_and_dendrogram_success_copies_output
         ),
     )
 
+    ctx = DummyCtx(adata)
     out = await cnv.infer_cnv(
         "d12",
-        DummyCtx(adata),
+        ctx,
         CNVParameters(
             method="infercnvpy",
             reference_key="cell_type",
@@ -900,8 +957,10 @@ async def test_infer_cnv_infercnvpy_cluster_and_dendrogram_success_copies_output
     )
 
     assert out.statistics["median_cnv"] == 0.0
-    assert "cnv_clusters" in adata.obs
-    assert "dendrogram_cnv_clusters" in adata.uns
+    assert "cnv_clusters" not in adata.obs
+    assert "dendrogram_cnv_clusters" not in adata.uns
+    assert "cnv_clusters" in ctx.committed.obs
+    assert "dendrogram_cnv_clusters" in ctx.committed.uns
     assert "obs" in captured["results_keys"]
     assert "cnv_clusters" in captured["results_keys"]["obs"]
     assert "dendrogram_cnv_clusters" in captured["results_keys"]["uns"]
@@ -1136,9 +1195,10 @@ async def test_infer_cnv_layers_cnv_padded_after_exclude_chromosomes(
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
 
     # This used to raise ValueError: incorrect shape
+    ctx = DummyCtx(adata)
     out = await cnv.infer_cnv(
         "d_pad",
-        DummyCtx(adata),
+        ctx,
         CNVParameters(
             method="infercnvpy",
             reference_key="cell_type",
@@ -1150,11 +1210,13 @@ async def test_infer_cnv_layers_cnv_padded_after_exclude_chromosomes(
     )
 
     assert out.cnv_score_key == "cnv"
-    assert "cnv" in adata.layers
+    assert "cnv" not in adata.layers
+    result_adata = ctx.committed
+    assert "cnv" in result_adata.layers
     # Layer must match original shape
-    assert adata.layers["cnv"].shape == (adata.n_obs, original_n_vars)
+    assert result_adata.layers["cnv"].shape == (adata.n_obs, original_n_vars)
     # chrM columns (indices 20-23) should be zero-padded
-    cnv_layer = adata.layers["cnv"]
+    cnv_layer = result_adata.layers["cnv"]
     if hasattr(cnv_layer, "toarray"):
         cnv_layer = cnv_layer.toarray()
     # Analyzed genes (chr1+chr2) should have value 1.0
@@ -1186,9 +1248,10 @@ async def test_infer_cnv_layers_cnv_sparse_padded_after_exclude(
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
 
+    ctx = DummyCtx(adata)
     out = await cnv.infer_cnv(
         "d_sparse_pad",
-        DummyCtx(adata),
+        ctx,
         CNVParameters(
             method="infercnvpy",
             reference_key="cell_type",
@@ -1200,7 +1263,8 @@ async def test_infer_cnv_layers_cnv_sparse_padded_after_exclude(
     )
 
     assert out.cnv_score_key == "cnv"
-    cnv_layer = adata.layers["cnv"]
+    assert "cnv" not in adata.layers
+    cnv_layer = ctx.committed.layers["cnv"]
     assert cnv_layer.shape == (adata.n_obs, adata.n_vars)
     assert sparse.issparse(cnv_layer)
     dense = cnv_layer.toarray()

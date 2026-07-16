@@ -30,6 +30,9 @@ class DummyCtx:
     async def get_adata(self, _data_id: str) -> AnnData:
         return self._adata
 
+    async def set_adata(self, _data_id: str, adata: AnnData) -> None:
+        self._adata = adata
+
     async def warning(self, msg: str) -> None:
         self.warnings.append(msg)
 
@@ -67,9 +70,9 @@ def _make_de_adata() -> AnnData:
 def _fake_rank_genes_groups_factory(names_by_group: dict[str, list[str]]):
     def _fake_rank_genes_groups(adata, groupby, method, n_genes, reference, groups=None):
         del groupby, method, reference, groups
-        fields = [(g, "U64") for g in names_by_group.keys()]
+        fields = [(g, "U64") for g in names_by_group]
         out = np.zeros((n_genes,), dtype=fields)
-        pvals = np.zeros((n_genes,), dtype=[(g, "f8") for g in names_by_group.keys()])
+        pvals = np.zeros((n_genes,), dtype=[(g, "f8") for g in names_by_group])
         for g, genes in names_by_group.items():
             padded = list(genes) + [genes[-1]] * max(0, n_genes - len(genes))
             out[g] = np.array(padded[:n_genes], dtype="U64")
@@ -152,6 +155,39 @@ async def test_differential_all_groups_skips_tiny_groups(monkeypatch: pytest.Mon
     assert result.n_genes == 3
     assert result.top_genes == ["gene_0", "gene_1", "gene_2"]
     assert any("Skipped 1 group(s)" in msg for msg in ctx.warnings)
+
+
+@pytest.mark.asyncio
+async def test_differential_late_failure_does_not_publish_partial_results(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    adata = _make_de_adata()
+    ctx = DummyCtx(adata)
+    monkeypatch.setattr(
+        differential_mod.sc.tl,
+        "rank_genes_groups",
+        _fake_rank_genes_groups_factory(
+            {"A": ["gene_0"], "B": ["gene_1"]}
+        ),
+    )
+    monkeypatch.setattr(
+        differential_mod,
+        "export_analysis_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("export failed")),
+    )
+
+    params = DifferentialExpressionParameters(
+        group_key="cluster",
+        group1=None,
+        method="wilcoxon",
+        n_top_genes=1,
+        min_cells=3,
+    )
+    with pytest.raises(RuntimeError, match="export failed"):
+        await differential_expression("d3", ctx, params)
+
+    assert ctx._adata is adata
+    assert "rank_genes_groups" not in adata.uns
 
 
 @pytest.mark.asyncio
@@ -362,7 +398,8 @@ async def test_run_pydeseq2_success_auto_group_selection_and_persistence(
     assert captured["method"] == "pydeseq2"
     assert captured["statistics"]["n_pseudobulk_samples"] == 4
     assert captured["contrast"] == ["condition", "A", "B"]
-    assert "pydeseq2_results_A_vs_B" in adata.uns
+    assert "pydeseq2_results_A_vs_B" not in adata.uns
+    assert "pydeseq2_results_A_vs_B" in ctx._adata.uns
     assert "_de_condition" not in adata.obs.columns
     assert "_pseudobulk_id" not in adata.obs.columns
 

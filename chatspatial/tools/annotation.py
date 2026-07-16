@@ -742,9 +742,8 @@ async def _annotate_with_tangram(
             f"Tangram mapping score is suspiciously low: {tangram_mapping_score}"
         )
 
-    # ===== Copy results from adata_sp back to original adata =====
-    # Since adata_sp was created from adata.raw (different object), we need to
-    # transfer the Tangram results back to the original adata for downstream use
+    # Transfer results from the Tangram workspace to the query candidate.
+    # adata_sp may be built from adata.raw and therefore be a distinct object.
     if adata_sp is not adata:
         # Copy cell type assignments
         if output_key in adata_sp.obs:
@@ -885,8 +884,7 @@ async def _annotate_with_scanvi(
             f"Reference has {adata_ref_original.n_vars}, query has {adata.n_vars} genes."
         )
 
-    # COW FIX: Operate on temporary copies for gene subsetting
-    # This prevents loss of HVG information in the original adata
+    # Subset temporary model workspaces without discarding query/reference genes.
     if len(common_genes) < adata_ref_original.n_vars:
         await ctx.warning(
             f"Subsetting to {len(common_genes)} common genes for ScanVI training "
@@ -1025,7 +1023,7 @@ async def _annotate_with_scanvi(
         check_val_every_n_epoch=params.scanvi_check_val_every_n_epoch,
     )
 
-    # COW FIX: Get predictions from adata_subset, then add to original adata
+    # Collect predictions from the model workspace.
     predictions = spatial_model.predict()
     adata_subset.obs[cell_type_key] = predictions
     ensure_categorical(adata_subset, cell_type_key)
@@ -1062,7 +1060,7 @@ async def _annotate_with_scanvi(
         digits=2,
     )
 
-    # COW FIX: Add prediction results to original adata.obs using output_key
+    # Publish prediction results onto the query candidate.
     adata.obs[output_key] = adata_subset.obs[cell_type_key].values
     ensure_categorical(adata, output_key)
 
@@ -1516,19 +1514,23 @@ async def annotate_cell_types(
     Returns:
         Annotation result
     """
-    # Retrieve the AnnData object via ToolContext
-    adata = await ctx.get_adata(data_id)
-
-    # Validate method first - clean and simple
+    # Reject invalid routing before loading or copying managed datasets.
     if params.method not in SUPPORTED_METHODS:
         raise ParameterError(
             f"Unsupported method: {params.method}. Supported: {sorted(SUPPORTED_METHODS)}"
         )
 
+    # Annotation backends mutate AnnData incrementally. Work on isolated query
+    # and reference candidates so failed models cannot leak partial labels,
+    # confidence values, embeddings, or name repairs into managed datasets.
+    source_adata = await ctx.get_adata(data_id)
+    adata = source_adata.copy()
+
     # Get reference data if needed for methods that require it
     reference_adata = None
     if params.method in ["tangram", "scanvi", "singler"] and params.reference_data_id:
-        reference_adata = await ctx.get_adata(params.reference_data_id)
+        reference_source = await ctx.get_adata(params.reference_data_id)
+        reference_adata = reference_source.copy()
 
     # Generate output keys in ONE place (single-point control)
     # Suffix encodes reference_data_id for reference-sensitive methods
@@ -1682,6 +1684,8 @@ async def annotate_cell_types(
 
     # Export results for reproducibility
     export_analysis_result(adata, data_id, analysis_key)
+
+    await ctx.set_adata(data_id, adata)
 
     # Return result
     return AnnotationResult(

@@ -337,11 +337,16 @@ async def analyze_cell_communication(
     Returns:
         CellCommunicationResult with analysis summary
     """
-    adata = await ctx.get_adata(data_id)
+    source_adata = await ctx.get_adata(data_id)
 
     try:
         # === Method-specific validation ===
-        await _validate_ccc_params(adata, params, ctx)
+        await _validate_ccc_params(source_adata, params, ctx)
+
+        # CCC backends and result publication both write incrementally. Keep
+        # those mutations on a candidate until analysis, metadata, and export
+        # have all completed successfully.
+        adata = source_adata.copy()
 
         # === Run analysis (returns CCCStorage) ===
         storage = await _run_ccc_analysis(adata, params, ctx)
@@ -410,6 +415,8 @@ async def analyze_cell_communication(
         )
 
         export_analysis_result(adata, data_id, f"cell_communication_{params.method}")
+
+        await ctx.set_adata(data_id, adata)
 
         # === Create MCP response ===
         return CellCommunicationResult(

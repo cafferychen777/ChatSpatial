@@ -36,12 +36,16 @@ from chatspatial.utils.exceptions import (
 class DummyCtx:
     def __init__(self):
         self.warnings: list[str] = []
+        self.committed = None
 
     async def warning(self, msg: str):
         self.warnings.append(msg)
 
     async def get_adata(self, _data_id: str):
         return None
+
+    async def set_adata(self, _data_id: str, adata):
+        self.committed = adata
 
 
 def _required_dependency(name: str, *_args, **_kwargs):
@@ -307,6 +311,9 @@ async def test_analyze_cell_communication_happy_path_cluster(
     assert out.results_key == "ccc_fastccc"
     assert captured["analysis_name"] == "cell_communication_fastccc"
     assert captured["results_keys"] == {"obs": [], "obsm": [], "uns": ["ccc_fastccc"]}
+    assert ctx.committed is not adata
+    assert "ccc_fastccc" not in adata.uns
+    assert "ccc_fastccc" in ctx.committed.uns
 
 
 @pytest.mark.asyncio
@@ -468,17 +475,67 @@ async def test_analyze_cell_communication_spatial_writes_obsm_scores(
     out = await ccc.analyze_cell_communication("d1", ctx, params)
 
     assert out.analysis_type == "spatial"
+    committed = ctx.committed
+    assert committed is not adata
     # Shared keys still written for viz backward compatibility
-    assert ccc.CCC_SPATIAL_SCORES_KEY in adata.obsm
-    assert ccc.CCC_SPATIAL_PVALS_KEY in adata.obsm
+    assert ccc.CCC_SPATIAL_SCORES_KEY in committed.obsm
+    assert ccc.CCC_SPATIAL_PVALS_KEY in committed.obsm
     # Per-method keys also written
-    assert "ccc_spatial_scores_liana" in adata.obsm
-    assert "ccc_spatial_pvals_liana" in adata.obsm
+    assert "ccc_spatial_scores_liana" in committed.obsm
+    assert "ccc_spatial_pvals_liana" in committed.obsm
     # Metadata points to per-method keys (not shared)
     assert "ccc_spatial_scores_liana" in captured["results_keys"]["obsm"]
     assert "ccc_spatial_pvals_liana" in captured["results_keys"]["obsm"]
     assert ccc.CCC_SPATIAL_SCORES_KEY not in captured["results_keys"]["obsm"]
     assert ccc.CCC_SPATIAL_PVALS_KEY not in captured["results_keys"]["obsm"]
+
+
+@pytest.mark.asyncio
+async def test_analyze_cell_communication_late_failure_keeps_source_unchanged(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
+    ctx = DummyCtx()
+
+    async def _get_adata(_data_id: str):
+        return adata
+
+    async def _validate(*_args, **_kwargs):
+        return None
+
+    async def _run(candidate, *_args, **_kwargs):
+        candidate.uns["backend_partial"] = True
+        return CCCStorage(
+            method="fastccc",
+            analysis_type="cluster",
+            species="human",
+            database="fastccc",
+            n_pairs=1,
+            n_significant=1,
+        )
+
+    ctx.get_adata = _get_adata  # type: ignore[method-assign]
+    monkeypatch.setattr(ccc, "_validate_ccc_params", _validate)
+    monkeypatch.setattr(ccc, "_run_ccc_analysis", _run)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda _adata, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("export failed")),
+    )
+
+    params = CellCommunicationParameters(
+        method="fastccc", species="human", cell_type_key="cell_type"
+    )
+    with pytest.raises(ProcessingError, match="export failed"):
+        await ccc.analyze_cell_communication("d1", ctx, params)
+
+    assert ctx.committed is None
+    assert "backend_partial" not in adata.uns
+    assert "ccc_fastccc" not in adata.uns
 
 
 @pytest.mark.asyncio

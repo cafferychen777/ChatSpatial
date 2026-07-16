@@ -120,6 +120,7 @@ async def test_deconvolve_spatial_data_dispatch_contract_with_mocks(
         spatial_adata, proportions, stats, method, data_id, ctx, **_kw
     ):
         calls["stored"] = (method, data_id, len(proportions))
+        calls["result_adata"] = spatial_adata
         return DeconvolutionResult(
             data_id=data_id,
             method=method,
@@ -149,6 +150,63 @@ async def test_deconvolve_spatial_data_dispatch_contract_with_mocks(
     assert calls["prepared"] is True
     assert calls["method"] == "flashdeconv"
     assert calls["stored"] == ("flashdeconv", "d1", spatial.n_obs)
+    assert calls["result_adata"] is not spatial
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_deconvolution_late_failure_does_not_publish_partial_results(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    spatial = minimal_spatial_adata.copy()
+    reference = minimal_spatial_adata.copy()
+    reference.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
+    ctx = DummyCtx({"d1": spatial, "ref": reference})
+
+    monkeypatch.setattr(
+        deconv_module, "_check_method_availability", lambda *_args, **_kwargs: None
+    )
+
+    async def _prepare(**kwargs):
+        return PreparedDeconvolutionData(
+            spatial=kwargs["spatial_adata"].copy(),
+            reference=kwargs["reference_adata"].copy(),
+            cell_type_key="cell_type",
+            cell_types=["A", "B"],
+            common_genes=list(spatial.var_names),
+            spatial_coords=spatial.obsm["spatial"],
+            ctx=ctx,
+        )
+
+    def _dispatch(data, _params, _config):
+        proportions = pd.DataFrame(
+            {"A": np.full(data.n_spots, 0.7), "B": np.full(data.n_spots, 0.3)},
+            index=data.spatial.obs_names,
+        )
+        return proportions, {"genes_used": data.n_genes}
+
+    monkeypatch.setattr(deconv_module, "prepare_deconvolution", _prepare)
+    monkeypatch.setattr(deconv_module, "_dispatch_method", _dispatch)
+    monkeypatch.setattr(
+        deconv_module, "store_analysis_metadata", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        deconv_module,
+        "export_analysis_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("export failed")),
+    )
+
+    params = DeconvolutionParameters(
+        method="flashdeconv",
+        reference_data_id="ref",
+        cell_type_key="cell_type",
+    )
+    with pytest.raises(RuntimeError, match="export failed"):
+        await deconvolve_spatial_data("d1", ctx, params)
+
+    assert "deconvolution_flashdeconv" not in spatial.obsm
+    assert "dominant_celltype_flashdeconv" not in spatial.obs
+    assert ctx.updated == {}
 
 
 @pytest.mark.integration

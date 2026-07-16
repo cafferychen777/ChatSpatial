@@ -22,6 +22,9 @@ class DummyCtx:
     async def get_adata(self, data_id: str):
         return self._adata
 
+    async def set_adata(self, data_id: str, adata):
+        self._adata = adata
+
     async def info(self, msg: str):
         self.info_logs.append(msg)
 
@@ -132,12 +135,75 @@ async def test_compare_conditions_uses_global_branch_and_returns_contract(
     assert result.results_key == "condition_comparison_treated_vs_control"
     assert result.n_samples_condition1 == 2
     assert result.n_samples_condition2 == 2
-    assert "condition_comparison_treated_vs_control" in adata.uns
+    assert ctx._adata is not adata
+    assert "condition_comparison_treated_vs_control" not in adata.uns
+    assert "condition_comparison_treated_vs_control" in ctx._adata.uns
     # Regression: gene-level DE results must be stored for export
     de_key = "condition_comparison_treated_vs_control_de_results"
-    assert de_key in adata.uns
-    assert isinstance(adata.uns[de_key], pd.DataFrame)
-    assert list(adata.uns[de_key].columns) == ["log2FoldChange", "padj"]
+    assert de_key in ctx._adata.uns
+    assert isinstance(ctx._adata.uns[de_key], pd.DataFrame)
+    assert list(ctx._adata.uns[de_key].columns) == ["log2FoldChange", "padj"]
     # Regression: analysis_name must be comparison-specific (not generic)
     # so multiple comparisons don't overwrite each other's provenance
     assert captured_meta["analysis_name"] == "condition_comparison_treated_vs_control"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_compare_conditions_late_failure_keeps_source_unchanged(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["condition"] = ["treated"] * 30 + ["control"] * 30
+    adata.obs["sample"] = ["s1"] * 15 + ["s2"] * 15 + ["s3"] * 15 + ["s4"] * 15
+    ctx = DummyCtx(adata)
+
+    monkeypatch.setattr(
+        cc_module,
+        "get_raw_data_source",
+        lambda *_args, **_kwargs: type(
+            "Raw", (), {"X": adata.X, "var_names": adata.var_names}
+        )(),
+    )
+
+    async def _run_global(*_args, **kwargs):
+        results_key = kwargs["results_key"]
+        return (
+            ConditionComparisonResult(
+                data_id="d1",
+                method="pseudobulk",
+                comparison="treated vs control",
+                condition_key="condition",
+                condition1="treated",
+                condition2="control",
+                sample_key="sample",
+                n_samples_condition1=2,
+                n_samples_condition2=2,
+                global_n_significant=1,
+                global_top_upregulated=[],
+                global_top_downregulated=[],
+                results_key=results_key,
+                statistics={"analysis_type": "global"},
+            ),
+            pd.DataFrame({"padj": [0.01]}, index=["gene_0"]),
+        )
+
+    monkeypatch.setattr(cc_module, "_run_global_comparison", _run_global)
+    monkeypatch.setattr(cc_module, "store_analysis_metadata", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        cc_module,
+        "export_analysis_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("export failed")),
+    )
+
+    params = ConditionComparisonParameters(
+        condition_key="condition",
+        condition1="treated",
+        condition2="control",
+        sample_key="sample",
+    )
+    with pytest.raises(RuntimeError, match="export failed"):
+        await compare_conditions("d1", ctx, params)
+
+    assert ctx._adata is adata
+    assert "condition_comparison_treated_vs_control" not in adata.uns

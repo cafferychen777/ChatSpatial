@@ -193,6 +193,35 @@ async def test_prepare_deconvolution_with_preprocess_hook_and_no_spatial_key(
 
 
 @pytest.mark.asyncio
+async def test_prepare_deconvolution_repairs_names_only_in_workspaces(
+    minimal_spatial_adata,
+):
+    spatial = minimal_spatial_adata.copy()
+    reference = minimal_spatial_adata.copy()
+    reference.obs["cell_type"] = ["A"] * (reference.n_obs // 2) + ["B"] * (
+        reference.n_obs - reference.n_obs // 2
+    )
+    duplicate_names = spatial.var_names.tolist()
+    duplicate_names[1] = duplicate_names[0]
+    spatial.var_names = duplicate_names
+    reference.var_names = duplicate_names
+
+    with pytest.warns(UserWarning, match="Variable names are not unique"):
+        data = await prepare_deconvolution(
+            spatial_adata=spatial,
+            reference_adata=reference,
+            cell_type_key="cell_type",
+            ctx=DummyCtx(),
+            min_common_genes=5,
+        )
+
+    assert not spatial.var_names.is_unique
+    assert not reference.var_names.is_unique
+    assert data.spatial.var_names.is_unique
+    assert data.reference.var_names.is_unique
+
+
+@pytest.mark.asyncio
 async def test_prepare_deconvolution_rejects_single_cell_type(minimal_spatial_adata):
     spatial = minimal_spatial_adata.copy()
     reference = minimal_spatial_adata.copy()

@@ -26,6 +26,9 @@ class DummyCtx:
     async def get_adata(self, data_id: str):
         return self._adata
 
+    async def set_adata(self, data_id: str, adata):
+        self._adata = adata
+
     async def warning(self, msg: str):
         self.warnings.append(msg)
 
@@ -128,9 +131,11 @@ async def test_analyze_cell_communication_stores_results_and_returns_contract(
     assert result.method == "liana"
     assert result.analysis_type == "spatial"
     assert result.n_lr_pairs == 2
-    assert "ccc" in adata.uns
-    assert "ccc_spatial_scores" in adata.obsm
-    assert "ccc_spatial_pvals" in adata.obsm
+    assert ctx._adata is not adata
+    assert "ccc" not in adata.uns
+    assert "ccc" in ctx._adata.uns
+    assert "ccc_spatial_scores" in ctx._adata.obsm
+    assert "ccc_spatial_pvals" in ctx._adata.obsm
 
 
 @pytest.mark.integration

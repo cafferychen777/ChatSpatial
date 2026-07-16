@@ -177,26 +177,34 @@ async def analyze_spatial_statistics(
 
     # Retrieve dataset via ToolContext
     try:
-        adata = await ctx.get_adata(data_id)
+        source_adata = await ctx.get_adata(data_id)
 
         # Basic validation: min 10 cells, spatial coordinates exist
-        validate_adata_basics(adata, min_obs=10)
-        require_spatial_coords(adata)
+        validate_adata_basics(source_adata, min_obs=10)
+        require_spatial_coords(source_adata)
 
         # n_neighbors must be < n_obs for KNN graph construction
-        if params.n_neighbors >= adata.n_obs:
+        if params.n_neighbors >= source_adata.n_obs:
             raise ParameterError(
                 f"n_neighbors ({params.n_neighbors}) must be less than "
-                f"the number of cells ({adata.n_obs})"
+                f"the number of cells ({source_adata.n_obs})"
             )
 
         # Validate cluster_key for analyses that require it (derived from registry)
-        if _ANALYSIS_REGISTRY[params.analysis_type].needs_cluster:
+        config = _ANALYSIS_REGISTRY[params.analysis_type]
+        if config.needs_cluster:
             if params.cluster_key is None:
                 raise ParameterError(
                     f"cluster_key is required for {params.analysis_type} analysis"
                 )
-            validate_obs_column(adata, params.cluster_key, "Cluster key")
+            validate_obs_column(source_adata, params.cluster_key, "Cluster key")
+
+        # Neighbor construction and every registered analysis mutate AnnData.
+        # Keep the complete workflow on a candidate until metadata and export
+        # succeed so a failed statistic cannot leave a mixed old/new graph.
+        adata = source_adata.copy()
+        if config.needs_cluster:
+            assert params.cluster_key is not None
             ensure_categorical(adata, params.cluster_key)
 
         # Ensure spatial neighbors using detected key (supports X_spatial, etc.)
@@ -204,11 +212,7 @@ async def analyze_spatial_statistics(
         ensure_spatial_neighbors(
             adata, n_neighs=params.n_neighbors, spatial_key=detected_key
         )
-        config = _ANALYSIS_REGISTRY[params.analysis_type]
         result = config.handler(adata, params, ctx)
-
-        # COW FIX: No need to update data_store - changes already reflected via direct reference
-        # All modifications to adata.obs/uns/obsp are in-place and preserved
 
         # Ensure result is a dictionary
         if not isinstance(result, dict):
@@ -278,6 +282,8 @@ async def analyze_spatial_statistics(
 
         # Export results to CSV for reproducibility
         export_analysis_result(adata, data_id, f"spatial_stats_{params.analysis_type}")
+
+        await ctx.set_adata(data_id, adata)
 
         return SpatialStatisticsResult(
             data_id=data_id,

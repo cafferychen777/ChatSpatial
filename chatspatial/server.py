@@ -172,8 +172,6 @@ async def preprocess_data(
     # Call preprocessing function
     result = await preprocess_func(data_id, ctx, resolved_params)
 
-    # The tool commits its completed AnnData transaction through ToolContext.
-
     # Save preprocessing result
     await data_manager.save_result(data_id, "preprocessing", result)
 
@@ -276,8 +274,6 @@ async def annotate_cell_types(
     async with suppress_output_async():
         result = await annotate_cell_types(data_id, ctx, resolved_params)
 
-    # Note: No writeback needed - adata modifications are in-place on the same object
-
     # Save annotation result (keyed by method + reference to allow coexistence)
     from .tools.annotation import _build_annotation_suffix
 
@@ -320,8 +316,6 @@ async def analyze_spatial_statistics(
 
     # Call spatial statistics analysis function with ToolContext
     result = await _analyze_spatial_statistics(data_id, ctx, resolved_params)
-
-    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save spatial statistics result (keyed by analysis_type to allow coexistence)
     cache_key = f"spatial_statistics_{resolved_params.analysis_type}"
@@ -419,6 +413,7 @@ async def analyze_cnv(
     from .tools.cnv_analysis import _build_cnv_key, infer_cnv
 
     result = await infer_cnv(data_id=data_id, ctx=ctx, params=params)
+
     cache_key = _build_cnv_key(params)
     await data_manager.save_result(data_id, cache_key, result)
     return result
@@ -453,8 +448,6 @@ async def analyze_velocity_data(
 
     # Call RNA velocity function with ToolContext
     result = await analyze_rna_velocity(data_id, ctx, resolved_params)
-
-    # The tool commits its completed AnnData transaction through ToolContext.
 
     # Save velocity result (keyed by method+params to allow coexistence)
     cache_key = _build_velocity_key(resolved_params)
@@ -494,8 +487,6 @@ async def analyze_trajectory_data(
 
     # Call trajectory function
     result = await analyze_trajectory(data_id, ctx, resolved_params)
-
-    # The tool commits its completed AnnData transaction through ToolContext.
 
     # Save trajectory result (keyed by method+params to allow coexistence)
     cache_key = _build_trajectory_key(resolved_params)
@@ -572,8 +563,6 @@ async def deconvolve_data(
     # Call deconvolution function with ToolContext
     result = await deconvolve_spatial_data(data_id, ctx, params)
 
-    # Note: No writeback needed - adata modifications are in-place on the same object
-
     # Save deconvolution result (keyed by method+ref to allow coexistence)
     cache_key = _build_deconvolution_key(params.method, params.reference_data_id)
     await data_manager.save_result(data_id, cache_key, result)
@@ -612,8 +601,6 @@ async def identify_spatial_domains(
 
     # Call spatial domains function with ToolContext
     result = await identify_domains_func(data_id, ctx, resolved_params)
-
-    # The tool commits its completed AnnData transaction through ToolContext.
 
     # Save spatial domains result (keyed by method + params for coexistence)
     from .tools.spatial_domains import _build_domain_suffix
@@ -654,8 +641,6 @@ async def analyze_cell_communication(
     # Call cell communication function with ToolContext
     async with suppress_output_async():
         result = await analyze_comm_func(data_id, ctx, params)
-
-    # Note: No writeback needed - adata modifications are in-place on the same object
 
     # Save communication result (keyed by method to allow coexistence)
     cache_key = f"cell_communication_{params.method}"
@@ -732,7 +717,7 @@ async def find_spatial_genes(
     # Call spatial genes function with ToolContext
     result = await identify_spatial_genes(data_id, ctx, resolved_params)
 
-    # Note: No writeback needed - adata modifications are in-place on the same object
+    # Spatial-gene analyses are read-only; durable results live in the result cache.
 
     # Save spatial genes result (keyed by method to allow coexistence)
     cache_key = f"spatial_genes_{resolved_params.method}"

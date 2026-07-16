@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...utils.adata_utils import (
+    ensure_unique_var_names_async,
     find_common_genes,
     get_spatial_key,
     validate_gene_overlap,
@@ -247,6 +248,11 @@ async def prepare_deconvolution(
         reference_adata, "Reference", ctx, require_int_dtype,
         require_counts=require_counts,
     )
+
+    # Repair names only inside method-local workspaces. The managed spatial
+    # and reference datasets are inputs, not scratch buffers for deconvolution.
+    await ensure_unique_var_names_async(spatial_prep, ctx, "spatial data")
+    await ensure_unique_var_names_async(reference_prep, ctx, "reference data")
 
     # 5. Optional method-specific preprocessing
     if preprocess is not None:

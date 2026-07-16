@@ -36,6 +36,9 @@ class DummyCtx:
     async def get_adata(self, _data_id: str):
         return self._adata
 
+    async def set_adata(self, _data_id: str, adata):
+        self._adata = adata
+
     async def info(self, msg: str):
         self.info_logs.append(msg)
 

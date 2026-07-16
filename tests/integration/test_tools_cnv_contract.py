@@ -18,6 +18,9 @@ class DummyCtx:
     async def get_adata(self, data_id: str):
         return self._adata
 
+    async def set_adata(self, data_id: str, adata):
+        self._adata = adata
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -106,4 +109,3 @@ async def test_infer_cnv_dispatches_to_numbat_handler(
     assert isinstance(result, CNVResult)
     assert result.method == "numbat"
     assert result.data_id == "d3"
-

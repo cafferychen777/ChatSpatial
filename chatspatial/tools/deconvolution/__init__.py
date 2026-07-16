@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 from ...models.analysis import DeconvolutionResult
 from ...models.data import DeconvolutionParameters
 from ...utils.adata_utils import (
-    ensure_unique_var_names_async,
+    ensure_unique_var_names,
     store_analysis_metadata,
     validate_obs_column,
 )
@@ -250,8 +250,6 @@ async def deconvolve_spatial_data(
     if spatial_adata.n_obs == 0:
         raise DataError(f"Dataset {data_id} contains no observations")
 
-    await ensure_unique_var_names_async(spatial_adata, ctx, "spatial data")
-
     # Load reference data (all methods require it)
     if not params.reference_data_id:
         raise ParameterError(f"Method '{method}' requires reference_data_id.")
@@ -262,7 +260,6 @@ async def deconvolve_spatial_data(
             f"Reference dataset {params.reference_data_id} contains no observations"
         )
 
-    await ensure_unique_var_names_async(reference_adata, ctx, "reference data")
     validate_obs_column(reference_adata, params.cell_type_key, "Cell type")
 
     # Check method availability
@@ -290,9 +287,15 @@ async def deconvolve_spatial_data(
     del data
     gc.collect()
 
+    # Publish onto a fresh copy only after the backend has completed. This keeps
+    # preparation, backend, metadata, and export failures from contaminating the
+    # managed dataset while avoiding another full copy during model execution.
+    result_adata = spatial_adata.copy()
+    ensure_unique_var_names(result_adata, "spatial data")
+
     # Store results in AnnData
     result = await _store_results(
-        spatial_adata,
+        result_adata,
         proportions,
         stats,
         method,

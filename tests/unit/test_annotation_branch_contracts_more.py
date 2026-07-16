@@ -37,6 +37,9 @@ class DummyWarnCtx:
         self.calls.append(data_id)
         return self.datasets[data_id]
 
+    async def set_adata(self, data_id: str, adata):
+        self.datasets[data_id] = adata
+
     async def warning(self, msg: str):
         self.warnings.append(msg)
 

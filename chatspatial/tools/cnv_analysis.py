@@ -323,13 +323,15 @@ async def infer_cnv(
         ValueError: If dataset not found or parameters are invalid
         RuntimeError: If selected method is not available
     """
-    # Retrieve the AnnData object via ToolContext
-    adata = await ctx.get_adata(data_id)
+    # Validate against the managed source, then give both backends an isolated
+    # publication candidate. Their internal workspaces are method-specific,
+    # but both write result keys incrementally before export completes.
+    source_adata = await ctx.get_adata(data_id)
 
     # Validate common parameters
-    validate_obs_column(adata, params.reference_key, "Reference cell type")
+    validate_obs_column(source_adata, params.reference_key, "Reference cell type")
 
-    available_categories = set(adata.obs[params.reference_key].unique())
+    available_categories = set(source_adata.obs[params.reference_key].unique())
     missing_categories = set(params.reference_categories) - available_categories
     if missing_categories:
         raise ParameterError(
@@ -338,16 +340,22 @@ async def infer_cnv(
             f"Available categories: {sorted(available_categories)}"
         )
 
-    # Dispatch to appropriate method
-    if params.method == "infercnvpy":
-        return await _infer_cnv_infercnvpy(data_id, adata, params, ctx)
-    elif params.method == "numbat":
-        return _infer_cnv_numbat(data_id, adata, params, ctx)
-    else:
+    if params.method not in ("infercnvpy", "numbat"):
         raise ParameterError(
             f"Unknown CNV method: {params.method}. "
             "Available methods: 'infercnvpy', 'numbat'"
         )
+
+    adata = source_adata.copy()
+
+    # Dispatch to appropriate method
+    if params.method == "infercnvpy":
+        result = await _infer_cnv_infercnvpy(data_id, adata, params, ctx)
+    else:
+        result = _infer_cnv_numbat(data_id, adata, params, ctx)
+
+    await ctx.set_adata(data_id, adata)
+    return result
 
 
 async def _infer_cnv_infercnvpy(
@@ -527,7 +535,7 @@ async def _infer_cnv_infercnvpy(
 
     n_genes_analyzed = adata_cnv.n_vars
 
-    # Store CNV results back in the original adata object
+    # Transfer CNV results from the method workspace to the publication candidate.
     if cnv_score_key == "X_cnv" and "X_cnv" in adata_cnv.obsm:
         adata.obsm["X_cnv"] = adata_cnv.obsm["X_cnv"]
     elif cnv_score_key == "cnv" and "cnv" in adata_cnv.layers:

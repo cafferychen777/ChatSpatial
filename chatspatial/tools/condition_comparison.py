@@ -188,8 +188,11 @@ async def compare_conditions(
             results_key=results_key,
         )
 
-    # Store results in adata
-    adata.uns[results_key] = {
+    # Publish the completed comparison onto a fresh candidate. Pseudobulk
+    # computation remains read-only, and metadata/export failures cannot leave
+    # half-written summary and gene-level tables in the managed dataset.
+    result_adata = adata.copy()
+    result_adata.uns[results_key] = {
         "comparison": result.comparison,
         "method": result.method,
         "statistics": result.statistics,
@@ -199,7 +202,7 @@ async def compare_conditions(
     de_results_key = f"{results_key}_de_results"
     uns_keys = [results_key]
     if full_results_df is not None and len(full_results_df) > 0:
-        adata.uns[de_results_key] = full_results_df
+        result_adata.uns[de_results_key] = full_results_df
         uns_keys.append(de_results_key)
 
     # Store metadata for provenance — use comparison-specific analysis_name
@@ -207,7 +210,7 @@ async def compare_conditions(
     # provenance and export index entries.
     analysis_name = results_key  # e.g. "condition_comparison_A_vs_B"
     store_analysis_metadata(
-        adata,
+        result_adata,
         analysis_name=analysis_name,
         method="pseudobulk_deseq2",
         parameters={
@@ -222,7 +225,9 @@ async def compare_conditions(
     )
 
     # Export results for reproducibility
-    export_analysis_result(adata, data_id, analysis_name)
+    export_analysis_result(result_adata, data_id, analysis_name)
+
+    await ctx.set_adata(data_id, result_adata)
 
     return result
 

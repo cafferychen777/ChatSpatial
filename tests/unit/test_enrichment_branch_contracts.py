@@ -50,6 +50,9 @@ class _LogCtx:
     async def get_adata(self, _data_id: str):
         return self._adata
 
+    async def set_adata(self, _data_id: str, adata):
+        self._adata = adata
+
     async def error(self, msg: str):
         self.errors.append(msg)
 
@@ -528,8 +531,9 @@ async def test_perform_spatial_enrichment_normalizes_list_input_and_score_keys(
     )
 
     assert out.method == "spatial_enrichmap"
-    assert f"{expected_name}_score" in adata.obs.columns
-    assert expected_name in adata.uns["enrichment_spatial_gene_sets"]
+    assert f"{expected_name}_score" not in adata.obs.columns
+    assert f"{expected_name}_score" in ctx._adata.obs.columns
+    assert expected_name in ctx._adata.uns["enrichment_spatial_gene_sets"]
 
 
 @pytest.mark.asyncio
